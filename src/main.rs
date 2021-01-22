@@ -16,10 +16,14 @@ fn main() {
     };
 
     let field = "a".split('/').peekable();
-    let value = "5";
 
     dbg!(&t);
-    t.string_set(field, value).unwrap();
+    t.string_set(field, "5").unwrap();
+    dbg!(&t);
+
+
+    let field = "c".split('/').peekable();
+    t.string_set(field, "[1,2,3]").unwrap();
     dbg!(&t);
 
 }
