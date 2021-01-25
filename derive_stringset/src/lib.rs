@@ -17,18 +17,17 @@ pub fn derive(input: TokenStream) -> TokenStream {
         unimplemented!();
     };
 
-    //let recurse_match_arms = fields.iter().filter(|f| {
-    //    use syn::Type;
-    //    match f {
-    //        Array => true,
+    let recurse_match_arms = fields.iter().map(|f| {
+        let name = &f.ident;
+        quote! {
+            stringify!(#name) => {
+                self.#name.string_set(topic_parts, value)?;
+                Ok(())
+            }
+        }
+    });
 
-    //        _ => false
-    //    }
-
-    //})
-    
-
-    let normal_match_arms = fields.iter().map(|f| {
+    let direct_set_match_arms = fields.iter().map(|f| {
         let name = &f.ident;
         quote! {
             stringify!(#name) => {
@@ -40,21 +39,24 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
 
     let expanded = quote! {
-        impl #name {
-            pub fn string_set(&mut self, mut topic_parts:
+        impl StringSet for #name {
+            fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &str) ->
             Result<(),()> {
                 let field = topic_parts.next().ok_or(())?;
+                dbg!(&field);
                 let next = topic_parts.peek();
+                dbg!(&next);
 
                 if let Some(_next) = next {
                     match field {
+                        #(#recurse_match_arms ,)*
                         _ => Err(())
                     }
 
                 } else {
                     match field {
-                        #(#normal_match_arms,)*
+                        #(#direct_set_match_arms ,)*
                         _ => Err(())
                     }
                 }

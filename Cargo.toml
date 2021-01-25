@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 derive_stringset = {path="derive_stringset"}
 serde-json-core = "0.2.0"
+serde = {version = "1.0.120", features = ["derive"], default-features = false }
