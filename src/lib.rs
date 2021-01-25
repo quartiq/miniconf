@@ -7,7 +7,7 @@ pub trait StringSet {
 
 }
 
-macro_rules! derive_primative {
+macro_rules! derive_primitive {
     ($x:ty) => {
         derive_single!($x);
         // This is needed until const generics is stabilized https://github.com/rust-lang/rust/issues/44580
@@ -37,18 +37,18 @@ macro_rules! derive_array {
     };
 }
 
-// Implement trait for the primative types
-derive_primative!(u8);
-derive_primative!(u16);
-derive_primative!(u32);
-derive_primative!(u64);
+// Implement trait for the primitive types
+derive_primitive!(u8);
+derive_primitive!(u16);
+derive_primitive!(u32);
+derive_primitive!(u64);
 
-derive_primative!(i8);
-derive_primative!(i16);
-derive_primative!(i32);
-derive_primative!(i64);
+derive_primitive!(i8);
+derive_primitive!(i16);
+derive_primitive!(i32);
+derive_primitive!(i64);
 
-derive_primative!(f32);
-derive_primative!(f64);
+derive_primitive!(f32);
+derive_primitive!(f64);
 
-derive_primative!(usize);
+derive_primitive!(usize);
