@@ -44,9 +44,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             core::iter::Peekable<core::str::Split<char>>, value: &str) ->
             Result<(),()> {
                 let field = topic_parts.next().ok_or(())?;
-                dbg!(&field);
                 let next = topic_parts.peek();
-                dbg!(&next);
 
                 if let Some(_next) = next {
                     match field {
