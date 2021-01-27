@@ -56,6 +56,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
                     }
 
                 } else {
+                    if topic_parts.peek().is_some() {
+                        return Err(Error::NameTooLong);
+                    }
                     match field {
                         #(#direct_set_match_arms ,)*
                         _ => Err(miniconf::Error::NameNotFound)

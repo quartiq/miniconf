@@ -31,9 +31,12 @@ macro_rules! impl_single {
         impl StringSet for $x {
             fn string_set(
                 &mut self,
-                _topic_parts: core::iter::Peekable<core::str::Split<char>>,
+                mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
                 value: &[u8],
             ) -> Result<(), Error> {
+                if topic_parts.peek().is_some() {
+                    return Err(Error::NameTooLong);
+                }
                 *self = serde_json_core::from_slice(value)?.0;
                 Ok(())
             }
@@ -50,9 +53,12 @@ macro_rules! impl_array {
         {
             fn string_set(
                 &mut self,
-                _topic_parts: core::iter::Peekable<core::str::Split<char>>,
+                mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
                 value: &[u8],
             ) -> Result<(), Error> {
+                if topic_parts.peek().is_some() {
+                    return Err(Error::NameTooLong);
+                }
                 let data: [T; $N] = serde_json_core::from_slice(value)?.0;
                 self.copy_from_slice(&data);
                 Ok(())
