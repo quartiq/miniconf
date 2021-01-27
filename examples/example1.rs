@@ -3,7 +3,6 @@ use serde::Deserialize;
 use serde_json_core;
 use stringset::StringSet;
 
-
 #[derive(StringSet, Debug, Deserialize)]
 struct Top {
     a: u32,
