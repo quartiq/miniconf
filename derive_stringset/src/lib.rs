@@ -1,6 +1,6 @@
-use proc_macro::{TokenStream};
-use syn::{parse_macro_input, DeriveInput};
+use proc_macro::TokenStream;
 use quote::quote;
+use syn::{parse_macro_input, DeriveInput};
 
 #[proc_macro_derive(StringSet)]
 pub fn derive(input: TokenStream) -> TokenStream {
@@ -10,7 +10,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
     let fields = if let syn::Data::Struct(syn::DataStruct {
         fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
         ..
-    }) = input.data {
+    }) = input.data
+    {
         named
     } else {
         // A struct with named fields is the only supported input
@@ -61,7 +62,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             }
 
         }
-        
+
     };
 
     TokenStream::from(expanded)
