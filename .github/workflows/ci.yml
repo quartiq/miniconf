@@ -79,3 +79,9 @@ jobs:
         with:
           command: build
           args: --release
+
+      - name: Cargo Build [Examples]
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --examples
