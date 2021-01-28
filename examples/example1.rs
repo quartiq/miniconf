@@ -1,7 +1,5 @@
-use derive_stringset::StringSet;
+use miniconf::StringSet;
 use serde::Deserialize;
-use serde_json_core;
-use stringset::StringSet;
 
 #[derive(StringSet, Debug, Deserialize)]
 struct Top {
@@ -27,14 +25,18 @@ fn main() {
     let field = "a".split('/').peekable();
 
     dbg!(&t);
-    t.string_set(field, "5").unwrap();
+    t.string_set(field, "5".as_bytes()).unwrap();
     dbg!(&t);
 
     let field = "c".split('/').peekable();
-    t.string_set(field, "[1,2,3]").unwrap();
+    t.string_set(field, "[1,2,3]".as_bytes()).unwrap();
     dbg!(&t);
 
     let field = "d/e".split('/').peekable();
-    t.string_set(field, "7").unwrap();
+    t.string_set(field, "7".as_bytes()).unwrap();
+    dbg!(&t);
+
+    let field = "c/0".split('/').peekable();
+    t.string_set(field, "0".as_bytes()).unwrap();
     dbg!(&t);
 }

@@ -39,13 +39,13 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
 
     let expanded = quote! {
-        use miniconf::Error;
-        use miniconf::serde_json_core;
 
         impl StringSet for #name {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
+                use miniconf::Error;
+                use miniconf::serde_json_core;
                 let field = topic_parts.next().ok_or(Error::NameTooShort)?;
                 let next = topic_parts.peek();
 

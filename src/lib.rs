@@ -10,6 +10,7 @@ pub enum Error {
     NameTooLong,
     NameTooShort,
     Deserialization(serde_json_core::de::Error),
+    BadIndex,
 }
 
 impl From<serde_json_core::de::Error> for Error {
@@ -56,12 +57,28 @@ macro_rules! impl_array {
                 mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
                 value: &[u8],
             ) -> Result<(), Error> {
-                if topic_parts.peek().is_some() {
-                    return Err(Error::NameTooLong);
+                if let Some(next) = topic_parts.next() {
+                    // Parse what should be the index value
+                    let i: usize = serde_json_core::from_str(next)?.0;
+
+                    // There should not be any more topic parts after the index
+                    if topic_parts.peek().is_some() {
+                        return Err(Error::NameTooLong);
+                    }
+
+                    if i < self.len() {
+                        self[i] = serde_json_core::from_slice(value)?.0;
+                        Ok(())
+                    }
+                    else {
+                        Err(Error::BadIndex)
+                    }
                 }
-                let data: [T; $N] = serde_json_core::from_slice(value)?.0;
-                self.copy_from_slice(&data);
-                Ok(())
+                else {
+                    let data: [T; $N] = serde_json_core::from_slice(value)?.0;
+                    self.copy_from_slice(&data);
+                    Ok(())
+                }
             }
         }
       )*
