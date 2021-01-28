@@ -10,3 +10,10 @@ edition = "2018"
 derive_stringset = {path="derive_stringset"}
 serde-json-core = "0.2.0"
 serde = {version = "1.0.120", features = ["derive"], default-features = false }
+minimq = {git = "https://github.com/quartiq/minimq.git"}
+heapless = "0.5"
+
+[dev-dependencies]
+machine = "0.3"
+std-embedded-nal = "=0.0.1"
+env_logger = "0.7"
