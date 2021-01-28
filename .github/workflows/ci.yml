@@ -56,7 +56,6 @@ jobs:
           toolchain: stable
           target: thumbv7em-none-eabihf
           override: true
-          components: doc
 
       - name: Cargo Doc
         uses: actions-rs/cargo@v1
