@@ -1,12 +1,13 @@
-use miniconf::{Deserialize, StringSet, embedded_nal::{self, IpAddr, Ipv4Addr}};
+use miniconf::{StringSet, embedded_nal::{IpAddr, Ipv4Addr}};
 use machine::*;
+use serde::Deserialize;
 
-#[derive(StringSet, Deserialize)]
+#[derive(Default, StringSet, Deserialize)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(StringSet, Deserialize)]
+#[derive(Default, StringSet, Deserialize)]
 struct Settings {
     data: u32,
     more: AdditionalSettings,
@@ -16,16 +17,19 @@ machine! {
     enum TestState {
         Started,
         SentSimpleSetting,
-        SetInnerSetting,
+        SentInnerSetting,
         CommitSetting,
         Complete
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct Advance;
+
 transitions! {TestState,
     [
       (Started, Advance) => SentSimpleSetting,
-      (SentSimpleSetting, Advance) => SetInnerSetting,
+      (SentSimpleSetting, Advance) => SentInnerSetting,
       (SentInnerSetting, Advance) => CommitSetting,
       (CommitSetting, Advance) => Complete
     ]
@@ -70,7 +74,7 @@ fn main() -> std::io::Result<()> {
         miniconf::MqttInterface::new(stack, "test-device", Settings::default()).unwrap()
     };
 
-    let mut state = TestState::Started(Started{});
+    let mut state = TestState::started();
     let mut timer = Timer::new(std::time::Duration::from_millis(100));
 
     loop {

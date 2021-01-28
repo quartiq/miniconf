@@ -6,7 +6,8 @@ use heapless::{String, consts};
 use core::fmt::Write;
 use super::StringSet;
 
-pub enum Error<S: TcpStack> {
+#[derive(Debug)]
+pub enum Error<S: TcpStack> where S::Error: core::fmt::Debug {
     /// The provided device ID is too long.
     IdTooLong,
 
@@ -27,6 +28,7 @@ impl<S: TcpStack> From<minimq::Error<S::Error>> for Error<S> {
 }
 
 /// An action that applications should act upon.
+#[derive(PartialEq)]
 pub enum Action {
     /// There is nothing to do except continue normal execution.
     Continue,
@@ -47,7 +49,11 @@ fn generate_topic<'a, 'b>(device_id: &'a str, topic: &'b str) -> Result<String<m
 }
 
 /// An interface for managing MQTT settings.
-pub struct MqttInterface<T: StringSet, S: TcpStack> {
+pub struct MqttInterface<T, S>
+where
+    T: StringSet,
+    S: TcpStack,
+{
     // TODO: Allow the user to specify buffer size.
     client: Option<MqttClient<minimq::consts::U256, S>>,
     pub settings: T,
