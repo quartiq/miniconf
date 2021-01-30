@@ -116,6 +116,8 @@ where
     /// # Returns
     /// An `Action` indicating what action should be taken by the user application.
     pub fn update(&mut self) -> Result<Action, Error<S::Error>> {
+        // Note(unwrap): We maintain strict control of the client object, so it should always be
+        // present.
         let mut client = self.client.take().unwrap();
 
         // If we are not yet subscribed to the necessary topics, subscribe now.
@@ -130,54 +132,82 @@ where
         let result = match client.poll(|client, topic, message, properties| {
             let mut split = topic.split('/');
 
-            // Verify topic ID against our ID.
-            let id = split.next().unwrap();
-            let response: String<consts::U512> = if id != self.id {
-                let mut response: String<consts::U512> = String::new();
-                write!(&mut response, "Invalid ID: {:?}", id).unwrap();
-                response
-            } else {
-                // Process the command
-                let command = split.next().unwrap();
-                match command {
-                    "settings" => {
-                        // Handle settings failures
-                        let mut response: String<consts::U512> = String::new();
-                        match self.settings.string_set(split.peekable(), message) {
-                            Ok(_) => write!(&mut response, "{} written", topic).unwrap(),
-                            Err(error) => {
-                                write!(&mut response, "Settings failure: {:?}", error).unwrap();
-                            }
-                        };
-
-                        response
-                    }
-                    "commit" => {
-                        result = Action::CommitSettings;
-                        String::from("Committing pending settings")
-                    }
-                    _ => String::from("Unknown topic"),
-                }
-            };
-
             // Publish the response to the request over MQTT using the ResponseTopic property if
             // possible. Otherwise, default to a logging topic.
-            if let Property::ResponseTopic(topic) = properties
-                .iter()
-                .find(|&prop| {
+            let response_topic = if let Some(Property::ResponseTopic(topic)) =
+                properties.iter().find(|&prop| {
                     if let Property::ResponseTopic(_) = *prop {
                         true
                     } else {
                         false
                     }
-                })
-                .or(Some(&Property::ResponseTopic(&self.default_response_topic)))
-                .unwrap()
-            {
+                }) {
+                *topic
+            } else {
+                &self.default_response_topic
+            };
+
+            // Verify topic ID against our ID.
+            let id = split.next();
+            if id.is_none() {
+                // Make a best-effort attempt to send the response. If we get a failure, we may have
+                // disconnected or the peer provided an invalid topic to respond to. Ignore the
+                // failure in these cases.
                 client
-                    .publish(topic, &response.into_bytes(), QoS::AtMostOnce, &[])
-                    .unwrap();
+                    .publish(
+                        response_topic,
+                        "No ID speciifed".as_bytes(),
+                        QoS::AtMostOnce,
+                        &[],
+                    )
+                    .ok();
+                return;
             }
+
+            if id.unwrap() != self.id {
+                let mut response: String<consts::U512> = String::new();
+                write!(&mut response, "Invalid ID: {:?}", id)
+                    .unwrap_or_else(|_| response = String::from("Bad ID"));
+
+                // Make a best-effort attempt to send the response. If we get a failure, we may have
+                // disconnected or the peer provided an invalid topic to respond to. Ignore the
+                // failure in these cases.
+                client
+                    .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
+                    .ok();
+                return;
+            }
+
+            // Process the command
+            let response = match split.next() {
+                Some("settings") => {
+                    // Handle settings failures
+                    let mut response: String<consts::U512> = String::new();
+                    match self.settings.string_set(split.peekable(), message) {
+                        Ok(_) => write!(&mut response, "{} written", topic)
+                            .unwrap_or_else(|_| response = String::from("Setting written")),
+                        Err(error) => {
+                            write!(&mut response, "Settings failure: {:?}", error)
+                                .unwrap_or_else(|_| response = String::from("Settings failed"));
+                        }
+                    };
+
+                    response
+                }
+                Some("commit") => {
+                    result = Action::CommitSettings;
+                    String::from("Committing pending settings")
+                }
+                Some(_) => String::from("Unknown topic"),
+                None => String::from("No topic provided"),
+            };
+
+            // Make a best-effort attempt to send the response. If we get a failure, we may have
+            // disconnected or the peer provided an invalid topic to respond to. Ignore the
+            // failure in these cases.
+            client
+                .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
+                .ok();
         }) {
             Ok(_) => Ok(result),
             Err(minimq::Error::Disconnected) => {
@@ -201,6 +231,8 @@ where
     /// # Returns
     /// A temporary mutable reference to the underlying network stack used by MQTT.
     pub fn network_stack(&mut self) -> &mut S {
+        // Note(unwrap): We maintain strict control of the client object, so it should always be
+        // present.
         &mut self.client.as_mut().unwrap().network_stack
     }
 
@@ -215,6 +247,8 @@ where
     where
         F: FnMut(&mut minimq::MqttClient<minimq::consts::U256, S>) -> R,
     {
+        // Note(unwrap): We maintain strict control of the client object, so it should always be
+        // present.
         let mut client = self.client.take().unwrap();
         let result = func(&mut client);
         self.client.replace(client);
