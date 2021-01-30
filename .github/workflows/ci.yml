@@ -102,3 +102,23 @@ jobs:
         with:
           command: build
           args: --examples
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Start Mosquitto
+        uses: namoshek/mosquitto-github-action@v0.1.0
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          override: true
+          toolchain: stable
+          profile: minimal
+
+      - name: Cargo Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
