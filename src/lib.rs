@@ -2,8 +2,8 @@
 
 mod mqtt_interface;
 
-pub use mqtt_interface::{Error as MqttError, Action, MqttInterface};
 pub use minimq::{self, embedded_nal};
+pub use mqtt_interface::{Action, Error as MqttError, MqttInterface};
 
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;

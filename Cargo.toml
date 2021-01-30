@@ -4,16 +4,15 @@ version = "0.1.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 derive_stringset = {path="derive_stringset"}
 serde-json-core = "0.2.0"
 serde = {version = "1.0.120", features = ["derive"], default-features = false }
-minimq = {git = "https://github.com/quartiq/minimq.git"}
 heapless = "0.5"
+minimq = {git = "https://github.com/quartiq/minimq.git", branch = "feature/nb-update"}
 
 [dev-dependencies]
 machine = "0.3"
 std-embedded-nal = "=0.0.1"
 env_logger = "0.7"
+log = "0.4"
