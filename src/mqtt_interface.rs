@@ -42,10 +42,7 @@ pub enum Action {
 //
 // # Returns
 // The string - otherwise, an error indicating the generated string was too long.
-fn generate_topic<'a, 'b>(
-    device_id: &'a str,
-    topic: &'b str,
-) -> Result<String<minimq::consts::U128>, ()> {
+fn generate_topic<'a, 'b>(device_id: &'a str, topic: &'b str) -> Result<String<consts::U128>, ()> {
     let mut string: String<consts::U128> = String::new();
     write!(&mut string, "{}/{}", device_id, topic).or(Err(()))?;
     Ok(string)
@@ -62,9 +59,10 @@ where
     pub settings: T,
 
     subscribed: bool,
-    settings_topic: String<minimq::consts::U128>,
-    commit_topic: String<minimq::consts::U128>,
-    default_response_topic: String<minimq::consts::U128>,
+    settings_topic: String<consts::U128>,
+    commit_topic: String<consts::U128>,
+    default_response_topic: String<consts::U128>,
+    id: String<consts::U128>,
 }
 
 impl<T, S> MqttInterface<T, S>
@@ -88,7 +86,6 @@ where
         broker: IpAddr,
         settings: T,
     ) -> Result<Self, Error<S::Error>> {
-        // TODO: Allow the user to specify broker IP or allow support for DNS.
         let client: MqttClient<minimq::consts::U256, _> = MqttClient::new(broker, id, stack)?;
 
         let settings_topic = generate_topic(id, "settings/#").or(Err(Error::IdTooLong))?;
@@ -103,6 +100,10 @@ where
             settings_topic,
             default_response_topic,
             commit_topic,
+
+            // Note(unwrap): We can safely assume the ID is less than our storage size, since we
+            // generate longer strings above.
+            id: String::from(id),
         })
     }
 
@@ -129,29 +130,34 @@ where
         let result = match client.poll(|client, topic, message, properties| {
             let mut split = topic.split('/');
 
-            // TODO: Verify topic ID against our ID.
-            let _id = split.next().unwrap();
+            // Verify topic ID against our ID.
+            let id = split.next().unwrap();
+            let response: String<consts::U512> = if id != self.id {
+                let mut response: String<consts::U512> = String::new();
+                write!(&mut response, "Invalid ID: {:?}", id).unwrap();
+                response
+            } else {
+                // Process the command
+                let command = split.next().unwrap();
+                match command {
+                    "settings" => {
+                        // Handle settings failures
+                        let mut response: String<consts::U512> = String::new();
+                        match self.settings.string_set(split.peekable(), message) {
+                            Ok(_) => write!(&mut response, "{} written", topic).unwrap(),
+                            Err(error) => {
+                                write!(&mut response, "Settings failure: {:?}", error).unwrap();
+                            }
+                        };
 
-            // Process the command
-            let command = split.next().unwrap();
-            let response: String<consts::U512> = match command {
-                "settings" => {
-                    // Handle settings failures
-                    let mut response: String<consts::U512> = String::new();
-                    match self.settings.string_set(split.peekable(), message) {
-                        Ok(_) => write!(&mut response, "{} written", topic).unwrap(),
-                        Err(error) => {
-                            write!(&mut response, "Settings failure: {:?}", error).unwrap();
-                        }
-                    };
-
-                    response
+                        response
+                    }
+                    "commit" => {
+                        result = Action::CommitSettings;
+                        String::from("Committing pending settings")
+                    }
+                    _ => String::from("Unknown topic"),
                 }
-                "commit" => {
-                    result = Action::CommitSettings;
-                    String::from("Committing pending settings")
-                }
-                _ => String::from("Unknown topic"),
             };
 
             // Publish the response to the request over MQTT using the ResponseTopic property if
@@ -198,6 +204,13 @@ where
         &mut self.client.as_mut().unwrap().network_stack
     }
 
+    /// Get mutable access to the MQTT client.
+    ///
+    /// # Args
+    /// * `func` - The closure that accepts the MQTT client for temporary usage.
+    ///
+    /// # Returns
+    /// The return value provided by the closure.
     pub fn client<F, R>(&mut self, mut func: F) -> R
     where
         F: FnMut(&mut minimq::MqttClient<minimq::consts::U256, S>) -> R,
