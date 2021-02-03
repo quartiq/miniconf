@@ -74,15 +74,16 @@ where
     ///
     /// # Args
     /// * `stack` - The TCP network stack to use for communication.
-    /// * `id` - The ID for uniquely identifying the device.
+    /// * `id` - The ID for uniquely identifying the device. This must conform with MQTT client-id
+    ///          rules. Specifically, only alpha-numeric values are allowed.
     /// * `broker` - The IpAddress of the MQTT broker.
     /// * `settings` - The initial settings of the interface.
     ///
     /// # Returns
     /// A new `MqttInterface` object that can be used for settings configuration and telemtry.
-    pub fn new<'a>(
+    pub fn new(
         stack: S,
-        id: &'a str,
+        id: &str,
         broker: IpAddr,
         settings: T,
     ) -> Result<Self, Error<S::Error>> {
