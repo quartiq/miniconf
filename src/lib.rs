@@ -59,20 +59,14 @@ macro_rules! impl_array {
             ) -> Result<(), Error> {
                 if let Some(next) = topic_parts.next() {
                     // Parse what should be the index value
-                    let i: usize = serde_json_core::from_str(next)?.0;
+                    let i: usize = serde_json_core::from_str(next).map_err(|_| Error::BadIndex)?.0;
 
-                    // There should not be any more topic parts after the index
-                    if topic_parts.peek().is_some() {
-                        return Err(Error::NameTooLong);
+                    if i >= self.len() {
+                        return Err(Error::BadIndex)
                     }
 
-                    if i < self.len() {
-                        self[i] = serde_json_core::from_slice(value)?.0;
-                        Ok(())
-                    }
-                    else {
-                        Err(Error::BadIndex)
-                    }
+                    self[i].string_set(topic_parts, value)?;
+                    Ok(())
                 }
                 else {
                     let data: [T; $N] = serde_json_core::from_slice(value)?.0;
