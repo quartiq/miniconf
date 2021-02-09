@@ -59,7 +59,10 @@ fn simple_array_indexing() {
 
     // Ensure that setting an out-of-bounds index generates an error.
     let field = "a/3".split('/').peekable();
-    assert_eq!(s.string_set(field, "7".as_bytes()).unwrap_err(), Error::BadIndex);
+    assert_eq!(
+        s.string_set(field, "7".as_bytes()).unwrap_err(),
+        Error::BadIndex
+    );
 }
 
 #[test]
