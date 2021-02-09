@@ -104,9 +104,10 @@ fn main() -> std::io::Result<()> {
     };
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttInterface<Settings, _> = {
+    let mut interface: miniconf::MqttInterface<Settings, _, minimq::consts::U256> = {
         let stack = std_embedded_nal::STACK.clone();
-        miniconf::MqttInterface::new(stack, "device", localhost, Settings::default()).unwrap()
+        let dut_client = minimq::MqttClient::new(localhost, "clientid", stack).unwrap();
+        miniconf::MqttInterface::new(dut_client, "device", Settings::default()).unwrap()
     };
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up

@@ -1,10 +1,8 @@
 use super::StringSet;
 use core::fmt::Write;
 use heapless::{consts, String};
-use minimq::{
-    embedded_nal::{IpAddr, TcpStack},
-    MqttClient, Property, QoS,
-};
+
+use minimq::{embedded_nal::TcpStack, generic_array::ArrayLength, MqttClient, Property, QoS};
 
 #[derive(Debug)]
 pub enum Error<E: core::fmt::Debug> {
@@ -49,13 +47,14 @@ fn generate_topic<'a, 'b>(device_id: &'a str, topic: &'b str) -> Result<String<c
 }
 
 /// An interface for managing MQTT settings.
-pub struct MqttInterface<T, S>
+pub struct MqttInterface<T, S, MU>
 where
     T: StringSet,
     S: TcpStack,
+    MU: ArrayLength<u8>,
 {
     // TODO: Allow the user to specify buffer size.
-    client: Option<MqttClient<minimq::consts::U256, S>>,
+    client: Option<MqttClient<MU, S>>,
     pub settings: T,
 
     subscribed: bool,
@@ -65,30 +64,23 @@ where
     id: String<consts::U128>,
 }
 
-impl<T, S> MqttInterface<T, S>
+impl<T, S, MU> MqttInterface<T, S, MU>
 where
     T: StringSet,
     S: TcpStack,
+    MU: ArrayLength<u8>,
 {
     /// Construct a new settings interface using the network stack.
     ///
     /// # Args
-    /// * `stack` - The TCP network stack to use for communication.
+    /// * `client` - The MQTT client to use for the interface.
     /// * `id` - The ID for uniquely identifying the device. This must conform with MQTT client-id
     ///          rules. Specifically, only alpha-numeric values are allowed.
-    /// * `broker` - The IpAddress of the MQTT broker.
     /// * `settings` - The initial settings of the interface.
     ///
     /// # Returns
     /// A new `MqttInterface` object that can be used for settings configuration and telemtry.
-    pub fn new(
-        stack: S,
-        id: &str,
-        broker: IpAddr,
-        settings: T,
-    ) -> Result<Self, Error<S::Error>> {
-        let client: MqttClient<minimq::consts::U256, _> = MqttClient::new(broker, id, stack)?;
-
+    pub fn new(client: MqttClient<MU, S>, id: &str, settings: T) -> Result<Self, Error<S::Error>> {
         let settings_topic = generate_topic(id, "settings/#").or(Err(Error::IdTooLong))?;
         let commit_topic = generate_topic(id, "commit").or(Err(Error::IdTooLong))?;
         let default_response_topic = generate_topic(id, "log").or(Err(Error::IdTooLong))?;
@@ -128,11 +120,11 @@ where
             self.subscribed = true;
         }
 
-        let mut result = Action::Continue;
+        // Note: Due to some oddities in minimq, we are locally caching the return value of the
+        // `poll` closure into the `action` variable.
+        let mut action = Action::Continue;
 
         let result = match client.poll(|client, topic, message, properties| {
-            let mut split = topic.split('/');
-
             // Publish the response to the request over MQTT using the ResponseTopic property if
             // possible. Otherwise, default to a logging topic.
             let response_topic = if let Some(Property::ResponseTopic(topic)) =
@@ -148,59 +140,40 @@ where
                 &self.default_response_topic
             };
 
-            // Verify topic ID against our ID.
-            let id = split.next();
-            if id.is_none() {
-                // Make a best-effort attempt to send the response. If we get a failure, we may have
-                // disconnected or the peer provided an invalid topic to respond to. Ignore the
-                // failure in these cases.
-                client
-                    .publish(
-                        response_topic,
-                        "No ID speciifed".as_bytes(),
-                        QoS::AtMostOnce,
-                        &[],
-                    )
-                    .ok();
-                return;
-            }
-
-            if id.unwrap() != self.id {
-                let mut response: String<consts::U512> = String::new();
-                write!(&mut response, "Invalid ID: {:?}", id)
-                    .unwrap_or_else(|_| response = String::from("Bad ID"));
-
-                // Make a best-effort attempt to send the response. If we get a failure, we may have
-                // disconnected or the peer provided an invalid topic to respond to. Ignore the
-                // failure in these cases.
-                client
-                    .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
-                    .ok();
-                return;
-            }
-
-            // Process the command
-            let response = match split.next() {
-                Some("settings") => {
-                    // Handle settings failures
-                    let mut response: String<consts::U512> = String::new();
-                    match self.settings.string_set(split.peekable(), message) {
-                        Ok(_) => write!(&mut response, "{} written", topic)
-                            .unwrap_or_else(|_| response = String::from("Setting written")),
-                        Err(error) => {
-                            write!(&mut response, "Settings failure: {:?}", error)
-                                .unwrap_or_else(|_| response = String::from("Settings failed"));
+            // Verify the ID of the message by stripping the ID prefix from the received topic.
+            let response: String<heapless::consts::U64> = if let Some(tail) =
+                topic.strip_prefix(self.id.as_str())
+            {
+                // Process the command - the tail is always preceeded by a leading slash, so ignore
+                // that for the purposes of getting the topic.
+                let mut split = tail[1..].split('/');
+                match split.next() {
+                    Some("settings") => {
+                        // Handle settings failures
+                        match self.settings.string_set(split.peekable(), message) {
+                            Ok(_) => {
+                                let mut response: String<consts::U64> = String::new();
+                                write!(&mut response, "{} written", topic)
+                                    .unwrap_or_else(|_| response = String::from("Setting staged"));
+                                response
+                            }
+                            Err(error) => {
+                                let mut response: String<consts::U64> = String::new();
+                                write!(&mut response, "Settings failure: {:?}", error)
+                                    .unwrap_or_else(|_| response = String::from("Setting failed"));
+                                response
+                            }
                         }
-                    };
-
-                    response
+                    }
+                    Some("commit") => {
+                        action = Action::CommitSettings;
+                        String::from("Committing pending settings")
+                    }
+                    Some(_) => String::from("Unknown topic"),
+                    None => String::from("No topic provided"),
                 }
-                Some("commit") => {
-                    result = Action::CommitSettings;
-                    String::from("Committing pending settings")
-                }
-                Some(_) => String::from("Unknown topic"),
-                None => String::from("No topic provided"),
+            } else {
+                String::from("Invalid ID specified")
             };
 
             // Make a best-effort attempt to send the response. If we get a failure, we may have
@@ -210,10 +183,10 @@ where
                 .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
                 .ok();
         }) {
-            Ok(_) => Ok(result),
+            Ok(_) => Ok(action),
             Err(minimq::Error::Disconnected) => {
                 self.subscribed = false;
-                Ok(result)
+                Ok(action)
             }
             Err(other) => Err(Error::Mqtt(other)),
         };
@@ -246,7 +219,7 @@ where
     /// The return value provided by the closure.
     pub fn client<F, R>(&mut self, mut func: F) -> R
     where
-        F: FnMut(&mut minimq::MqttClient<minimq::consts::U256, S>) -> R,
+        F: FnMut(&mut minimq::MqttClient<MU, S>) -> R,
     {
         // Note(unwrap): We maintain strict control of the client object, so it should always be
         // present.
