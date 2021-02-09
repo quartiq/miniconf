@@ -35,4 +35,8 @@ fn main() {
     let field = "d/e".split('/').peekable();
     t.string_set(field, "7".as_bytes()).unwrap();
     dbg!(&t);
+
+    let field = "c/0".split('/').peekable();
+    t.string_set(field, "0".as_bytes()).unwrap();
+    dbg!(&t);
 }
