@@ -10,12 +10,13 @@ pub use serde_json_core;
 
 pub use derive_stringset::StringSet;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     NameNotFound,
     NameTooLong,
     NameTooShort,
     Deserialization(serde_json_core::de::Error),
+    BadIndex,
 }
 
 impl From<serde_json_core::de::Error> for Error {
@@ -62,12 +63,22 @@ macro_rules! impl_array {
                 mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
                 value: &[u8],
             ) -> Result<(), Error> {
-                if topic_parts.peek().is_some() {
-                    return Err(Error::NameTooLong);
+                if let Some(next) = topic_parts.next() {
+                    // Parse what should be the index value
+                    let i: usize = serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0;
+
+                    if i >= self.len() {
+                        return Err(Error::BadIndex)
+                    }
+
+                    self[i].string_set(topic_parts, value)?;
+                    Ok(())
                 }
-                let data: [T; $N] = serde_json_core::from_slice(value)?.0;
-                self.copy_from_slice(&data);
-                Ok(())
+                else {
+                    let data: [T; $N] = serde_json_core::from_slice(value)?.0;
+                    self.copy_from_slice(&data);
+                    Ok(())
+                }
             }
         }
       )*
