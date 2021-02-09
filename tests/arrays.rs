@@ -1,4 +1,4 @@
-use miniconf::StringSet;
+use miniconf::{Error, StringSet};
 use serde::Deserialize;
 
 #[derive(Debug, Default, StringSet, Deserialize)]
@@ -29,6 +29,20 @@ fn simple_array() {
 }
 
 #[test]
+fn nonexistent_field() {
+    #[derive(StringSet, Default)]
+    struct S {
+        a: [u8; 3],
+    }
+
+    let mut s = S::default();
+
+    let field = "a/b/1".split('/').peekable();
+
+    assert!(s.string_set(field, "7".as_bytes()).is_err());
+}
+
+#[test]
 fn simple_array_indexing() {
     #[derive(StringSet, Default)]
     struct S {
@@ -42,6 +56,10 @@ fn simple_array_indexing() {
     s.string_set(field, "7".as_bytes()).unwrap();
 
     assert_eq!([0, 7, 0], s.a);
+
+    // Ensure that setting an out-of-bounds index generates an error.
+    let field = "a/3".split('/').peekable();
+    assert_eq!(s.string_set(field, "7".as_bytes()).unwrap_err(), Error::BadIndex);
 }
 
 #[test]

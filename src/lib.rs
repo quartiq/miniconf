@@ -4,7 +4,7 @@ pub use serde_json_core;
 
 pub use derive_stringset::StringSet;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     NameNotFound,
     NameTooLong,
@@ -59,7 +59,7 @@ macro_rules! impl_array {
             ) -> Result<(), Error> {
                 if let Some(next) = topic_parts.next() {
                     // Parse what should be the index value
-                    let i: usize = serde_json_core::from_str(next).map_err(|_| Error::BadIndex)?.0;
+                    let i: usize = serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0;
 
                     if i >= self.len() {
                         return Err(Error::BadIndex)
