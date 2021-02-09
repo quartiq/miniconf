@@ -32,7 +32,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
         let name = &f.ident;
         quote! {
             stringify!(#name) => {
-                self.#name = serde_json_core::from_slice(value)?.0;
+                self.#name = miniconf::serde_json_core::from_slice(value)?.0;
                 Ok(())
             }
         }
@@ -44,9 +44,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
-                use miniconf::Error;
-                use miniconf::serde_json_core;
-                let field = topic_parts.next().ok_or(Error::NameTooShort)?;
+                let field = topic_parts.next().ok_or(miniconf::Error::NameTooShort)?;
                 let next = topic_parts.peek();
 
                 if let Some(_next) = next {
@@ -57,7 +55,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
                 } else {
                     if topic_parts.peek().is_some() {
-                        return Err(Error::NameTooLong);
+                        return Err(miniconf::Error::NameTooLong);
                     }
                     match field {
                         #(#direct_set_match_arms ,)*
