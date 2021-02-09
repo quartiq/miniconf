@@ -40,7 +40,7 @@ pub enum Action {
 //
 // # Returns
 // The string - otherwise, an error indicating the generated string was too long.
-fn generate_topic<'a, 'b>(device_id: &'a str, topic: &'b str) -> Result<String<consts::U128>, ()> {
+fn generate_topic(device_id: &str, topic: &str) -> Result<String<consts::U128>, ()> {
     let mut string: String<consts::U128> = String::new();
     write!(&mut string, "{}/{}", device_id, topic).or(Err(()))?;
     Ok(string)
@@ -131,13 +131,7 @@ where
             // Publish the response to the request over MQTT using the ResponseTopic property if
             // possible. Otherwise, default to a logging topic.
             let response_topic = if let Some(Property::ResponseTopic(topic)) =
-                properties.iter().find(|&prop| {
-                    if let Property::ResponseTopic(_) = *prop {
-                        true
-                    } else {
-                        false
-                    }
-                }) {
+                properties.iter().find(|&prop| matches!(*prop, Property::ResponseTopic(_))) {
                 *topic
             } else {
                 &self.default_response_topic
