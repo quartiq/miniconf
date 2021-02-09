@@ -122,9 +122,12 @@ where
 
         // Note: Due to some oddities in minimq, we are locally caching the return value of the
         // `poll` closure into the `action` variable.
-        let mut action = Action::Continue;
+        let mut action: Action = Action::Continue;
 
         let result = match client.poll(|client, topic, message, properties| {
+            let (incoming_action, response) = self.process_incoming(topic, message);
+            action = incoming_action;
+
             // Publish the response to the request over MQTT using the ResponseTopic property if
             // possible. Otherwise, default to a logging topic.
             let response_topic = if let Some(Property::ResponseTopic(topic)) =
@@ -138,42 +141,6 @@ where
                 *topic
             } else {
                 &self.default_response_topic
-            };
-
-            // Verify the ID of the message by stripping the ID prefix from the received topic.
-            let response: String<heapless::consts::U64> = if let Some(tail) =
-                topic.strip_prefix(self.id.as_str())
-            {
-                // Process the command - the tail is always preceeded by a leading slash, so ignore
-                // that for the purposes of getting the topic.
-                let mut split = tail[1..].split('/');
-                match split.next() {
-                    Some("settings") => {
-                        // Handle settings failures
-                        match self.settings.string_set(split.peekable(), message) {
-                            Ok(_) => {
-                                let mut response: String<consts::U64> = String::new();
-                                write!(&mut response, "{} written", topic)
-                                    .unwrap_or_else(|_| response = String::from("Setting staged"));
-                                response
-                            }
-                            Err(error) => {
-                                let mut response: String<consts::U64> = String::new();
-                                write!(&mut response, "Settings failure: {:?}", error)
-                                    .unwrap_or_else(|_| response = String::from("Setting failed"));
-                                response
-                            }
-                        }
-                    }
-                    Some("commit") => {
-                        action = Action::CommitSettings;
-                        String::from("Committing pending settings")
-                    }
-                    Some(_) => String::from("Unknown topic"),
-                    None => String::from("No topic provided"),
-                }
-            } else {
-                String::from("Invalid ID specified")
             };
 
             // Make a best-effort attempt to send the response. If we get a failure, we may have
@@ -194,6 +161,55 @@ where
         self.client.replace(client);
 
         result
+    }
+
+    // Process an incoming MQTT message
+    //
+    // # Args
+    // * `topic` - The provided (fully-specified) MQTT topic of the message.
+    // * `message` - the raw message payload.
+    //
+    // # Returns
+    // (action, response) - where `action` is the associated Action to take and `response` is a
+    // response to transmit over the MQTT interface as a result of the message.
+    fn process_incoming(&mut self, topic: &str, message: &[u8]) -> (Action, String<consts::U64>) {
+        let mut action = Action::Continue;
+
+        // Verify the ID of the message by stripping the ID prefix from the received topic.
+        let response = if let Some(tail) = topic.strip_prefix(self.id.as_str()) {
+            // Process the command - the tail is always preceeded by a leading slash, so ignore
+            // that for the purposes of getting the topic.
+            let mut split = tail[1..].split('/');
+            match split.next() {
+                Some("settings") => {
+                    // Handle settings failures
+                    match self.settings.string_set(split.peekable(), message) {
+                        Ok(_) => {
+                            let mut response: String<consts::U64> = String::new();
+                            write!(&mut response, "{} written", topic)
+                                .unwrap_or_else(|_| response = String::from("Setting staged"));
+                            response
+                        }
+                        Err(error) => {
+                            let mut response: String<consts::U64> = String::new();
+                            write!(&mut response, "Settings failure: {:?}", error)
+                                .unwrap_or_else(|_| response = String::from("Setting failed"));
+                            response
+                        }
+                    }
+                }
+                Some("commit") => {
+                    action = Action::CommitSettings;
+                    String::from("Committing pending settings")
+                }
+                Some(_) => String::from("Unknown topic"),
+                None => String::from("No topic provided"),
+            }
+        } else {
+            String::from("Invalid ID specified")
+        };
+
+        (action, response)
     }
 
     /// Get mutable access to the underlying network stack.
