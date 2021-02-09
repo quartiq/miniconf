@@ -53,7 +53,6 @@ where
     S: TcpStack,
     MU: ArrayLength<u8>,
 {
-    // TODO: Allow the user to specify buffer size.
     client: Option<MqttClient<MU, S>>,
     pub settings: T,
 
