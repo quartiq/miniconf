@@ -129,8 +129,10 @@ where
 
             // Publish the response to the request over MQTT using the ResponseTopic property if
             // possible. Otherwise, default to a logging topic.
-            let response_topic = if let Some(Property::ResponseTopic(topic)) =
-                properties.iter().find(|&prop| matches!(*prop, Property::ResponseTopic(_))) {
+            let response_topic = if let Some(Property::ResponseTopic(topic)) = properties
+                .iter()
+                .find(|&prop| matches!(*prop, Property::ResponseTopic(_)))
+            {
                 *topic
             } else {
                 &self.default_response_topic
