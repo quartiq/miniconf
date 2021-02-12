@@ -1,4 +1,10 @@
 #![no_std]
+
+mod mqtt_interface;
+
+pub use minimq::{self, embedded_nal};
+pub use mqtt_interface::{Action, Error as MqttError, MqttInterface};
+
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
