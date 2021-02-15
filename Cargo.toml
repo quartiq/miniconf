@@ -9,7 +9,7 @@ derive_stringset = { path="derive_stringset" }
 serde-json-core = "0.2.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 heapless = "0.5"
-minimq = { git = "https://github.com/quartiq/minimq.git" }
+minimq = "0.2"
 
 [dev-dependencies]
 machine = "0.3"
