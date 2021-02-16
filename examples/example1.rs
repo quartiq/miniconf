@@ -34,7 +34,6 @@ fn main() {
 
     let field = "a".split('/').peekable();
 
-
     dbg!(&t);
     t.string_set(field, "5".as_bytes()).unwrap();
     dbg!(&t);

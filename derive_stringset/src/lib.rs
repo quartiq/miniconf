@@ -81,11 +81,9 @@ fn derive_struct(input: &syn::DeriveInput) -> TokenStream {
 }
 
 fn derive_enum(input: &syn::DeriveInput) -> TokenStream {
-    let variants = if let syn::Data::Enum(syn::DataEnum{ref variants, ..}) = input.data {
+    let variants = if let syn::Data::Enum(syn::DataEnum { ref variants, .. }) = input.data {
         variants
-    }
-    else
-    {
+    } else {
         // We should not have called derive_enum() if input.data wasn't an enum
         unreachable!();
     };
@@ -93,8 +91,10 @@ fn derive_enum(input: &syn::DeriveInput) -> TokenStream {
     // Only support simple enums, check each field
     for v in variants.iter() {
         match v.fields {
-           syn::Fields::Named(_) | syn::Fields::Unnamed(_) => unimplemented!("only simple enums are supported"),
-           syn::Fields::Unit => {}
+            syn::Fields::Named(_) | syn::Fields::Unnamed(_) => {
+                unimplemented!("only simple enums are supported")
+            }
+            syn::Fields::Unit => {}
         }
     }
 
