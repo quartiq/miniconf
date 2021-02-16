@@ -6,7 +6,16 @@ use syn::{parse_macro_input, DeriveInput};
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let name = input.ident;
+    match &input.data {
+        syn::Data::Struct(_) => derive_struct(&input),
+        syn::Data::Enum(_) => derive_enum(&input),
+        syn::Data::Union(_) => {
+            unimplemented!()
+        }
+    }
+}
+
+fn derive_struct(input: &syn::DeriveInput) -> TokenStream {
     let fields = if let syn::Data::Struct(syn::DataStruct {
         fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
         ..
@@ -38,8 +47,8 @@ pub fn derive(input: TokenStream) -> TokenStream {
         }
     });
 
+    let name = &input.ident;
     let expanded = quote! {
-
         impl StringSet for #name {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
@@ -66,6 +75,44 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
         }
 
+    };
+
+    TokenStream::from(expanded)
+}
+
+fn derive_enum(input: &syn::DeriveInput) -> TokenStream {
+    let variants = if let syn::Data::Enum(syn::DataEnum{ref variants, ..}) = input.data {
+        variants
+    }
+    else
+    {
+        // We should not have called derive_enum() if input.data wasn't an enum
+        unreachable!();
+    };
+
+    // Only support simple enums, check each field
+    for v in variants.iter() {
+        match v.fields {
+           syn::Fields::Named(_) | syn::Fields::Unnamed(_) => unimplemented!("only simple enums are supported"),
+           syn::Fields::Unit => {}
+        }
+    }
+
+    let name = &input.ident;
+    let expanded = quote! {
+        impl StringSet for #name {
+            fn string_set(&mut self, mut topic_parts:
+            core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
+            Result<(), miniconf::Error> {
+                if topic_parts.peek().is_some() {
+                    // We don't net support enums that can contain other values
+                    Err(miniconf::Error::NameTooLong)
+                } else {
+                    *self = miniconf::serde_json_core::from_slice(value)?.0;
+                    Ok(())
+                }
+            }
+        }
     };
 
     TokenStream::from(expanded)
