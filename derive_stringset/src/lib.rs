@@ -39,8 +39,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
     });
 
     let expanded = quote! {
-
-        impl StringSet for #name {
+        impl miniconf::StringSet for #name {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
