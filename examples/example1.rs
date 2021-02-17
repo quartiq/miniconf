@@ -3,9 +3,7 @@ use serde::Deserialize;
 
 #[derive(StringSet, Debug, Deserialize, PartialEq)]
 enum Variant {
-    #[serde(rename = "A")]
     A,
-    #[serde(rename = "B")]
     B,
 }
 
