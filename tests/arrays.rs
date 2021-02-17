@@ -90,4 +90,8 @@ fn array_of_structs_indexing() {
     };
 
     assert_eq!(expected, s);
+
+    let field = "a/1".split('/').peekable();
+    s.string_set(field, "{\"b\": 5}".as_bytes()).unwrap();
+    assert_eq!(s.a[1].b, 5);
 }

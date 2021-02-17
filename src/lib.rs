@@ -63,7 +63,8 @@ macro_rules! impl_array {
                 mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
                 value: &[u8],
             ) -> Result<(), Error> {
-                if let Some(next) = topic_parts.next() {
+                let index = topic_parts.next();
+                if let Some(next) = index {
                     // Parse what should be the index value
                     let i: usize = serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0;
 
@@ -71,7 +72,12 @@ macro_rules! impl_array {
                         return Err(Error::BadIndex)
                     }
 
-                    self[i].string_set(topic_parts, value)?;
+                    if topic_parts.peek().is_some() {
+                        self[i].string_set(topic_parts, value)?;
+                    } else {
+                        self[i] = serde_json_core::from_slice(value)?.0;
+                    }
+
                     Ok(())
                 }
                 else {
