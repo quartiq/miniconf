@@ -124,7 +124,7 @@ fn main() -> std::io::Result<()> {
             .unwrap();
 
         // Next, service the settings interface and progress the test.
-        let action = interface.update().unwrap();
+        let setting_update = interface.update().unwrap();
         match state {
             TestState::Started(_) => {
                 // When first starting, let both clients connect and the timer elapse. Otherwise,
@@ -152,7 +152,8 @@ fn main() -> std::io::Result<()> {
             }
             TestState::SentSimpleSetting(_) => {
                 // Next, set a nested property.
-                if timer.is_complete() {
+                if timer.is_complete() || setting_update {
+                    assert!(setting_update);
                     info!("Sending inner settings value");
                     client
                         .publish(
@@ -168,7 +169,8 @@ fn main() -> std::io::Result<()> {
             }
             TestState::SentInnerSetting(_) => {
                 // Finally, commit the settings so they become active.
-                if timer.is_complete() {
+                if timer.is_complete() || setting_update {
+                    assert!(setting_update);
                     info!("Committing settings");
                     client
                         .publish("device/commit", "".as_bytes(), QoS::AtMostOnce, &[])
@@ -178,8 +180,7 @@ fn main() -> std::io::Result<()> {
                 }
             }
             TestState::CommitSetting(_) => {
-                // Verify that we received a commit-settings action (e.g. commit was detected).
-                if action == miniconf::Action::CommitSettings {
+                if setting_update {
                     info!("Settings commit detected");
                     state = state.on_advance(Advance);
                     timer.restart();

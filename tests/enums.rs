@@ -1,4 +1,4 @@
-use miniconf::{Error, StringSet};
+use miniconf::StringSet;
 use serde::Deserialize;
 
 #[test]

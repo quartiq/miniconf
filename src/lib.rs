@@ -3,18 +3,19 @@
 mod mqtt_interface;
 
 pub use minimq::{self, embedded_nal};
-pub use mqtt_interface::{Action, Error as MqttError, MqttInterface};
+pub use mqtt_interface::{Error as MqttError, MqttInterface};
 
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
-pub use derive_stringset::StringSet;
+pub use derive_stringset::{StringSet, StringSetAtomic};
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     NameNotFound,
     NameTooLong,
     NameTooShort,
+    AtomicUpdateRequired,
     Deserialization(serde_json_core::de::Error),
     BadIndex,
 }
@@ -64,27 +65,20 @@ macro_rules! impl_array {
                 value: &[u8],
             ) -> Result<(), Error> {
                 let next = topic_parts.next();
-                if let Some(index) = next {
-                    // Parse what should be the index value
-                    let i: usize = serde_json_core::from_str(index).or(Err(Error::BadIndex))?.0;
-
-                    if i >= self.len() {
-                        return Err(Error::BadIndex)
-                    }
-
-                    if topic_parts.peek().is_some() {
-                        self[i].string_set(topic_parts, value)?;
-                    } else {
-                        self[i] = serde_json_core::from_slice(value)?.0;
-                    }
-
-                    Ok(())
+                if next.is_none() {
+                    return Err(Error::NameTooShort);
                 }
-                else {
-                    let data: [T; $N] = serde_json_core::from_slice(value)?.0;
-                    self.copy_from_slice(&data);
-                    Ok(())
+
+                // Parse what should be the index value
+                let i: usize = serde_json_core::from_str(next.unwrap()).or(Err(Error::BadIndex))?.0;
+
+                if i >= self.len() {
+                    return Err(Error::BadIndex)
                 }
+
+                self[i].string_set(topic_parts, value)?;
+
+                Ok(())
             }
         }
       )*
@@ -112,3 +106,4 @@ impl_single!(f32);
 impl_single!(f64);
 
 impl_single!(usize);
+impl_single!(bool);

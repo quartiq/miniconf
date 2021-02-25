@@ -25,17 +25,6 @@ impl<E: core::fmt::Debug> From<minimq::Error<E>> for Error<E> {
     }
 }
 
-/// An action that applications should act upon.
-#[derive(PartialEq)]
-pub enum Action {
-    /// There is nothing to do except continue normal execution.
-    Continue,
-
-    /// The settings are being commit to memory. The application should take steps to make staged
-    /// settings active.
-    CommitSettings,
-}
-
 // Generate an MQTT topic of the form `<device_id>/<topic>`.
 //
 // # Returns
@@ -58,7 +47,6 @@ where
 
     subscribed: bool,
     settings_topic: String<consts::U128>,
-    commit_topic: String<consts::U128>,
     default_response_topic: String<consts::U128>,
     id: String<consts::U128>,
 }
@@ -81,7 +69,6 @@ where
     /// A new `MqttInterface` object that can be used for settings configuration and telemtry.
     pub fn new(client: MqttClient<MU, S>, id: &str, settings: T) -> Result<Self, Error<S::Error>> {
         let settings_topic = generate_topic(id, "settings/#").or(Err(Error::IdTooLong))?;
-        let commit_topic = generate_topic(id, "commit").or(Err(Error::IdTooLong))?;
         let default_response_topic = generate_topic(id, "log").or(Err(Error::IdTooLong))?;
 
         Ok(Self {
@@ -91,7 +78,6 @@ where
 
             settings_topic,
             default_response_topic,
-            commit_topic,
 
             // Note(unwrap): We can safely assume the ID is less than our storage size, since we
             // generate longer strings above.
@@ -106,8 +92,8 @@ where
     /// or outgoing data.
     ///
     /// # Returns
-    /// An `Action` indicating what action should be taken by the user application.
-    pub fn update(&mut self) -> Result<Action, Error<S::Error>> {
+    /// True if settings were updated.
+    pub fn update(&mut self) -> Result<bool, Error<S::Error>> {
         // Note(unwrap): We maintain strict control of the client object, so it should always be
         // present.
         let mut client = self.client.take().unwrap();
@@ -115,17 +101,16 @@ where
         // If we are not yet subscribed to the necessary topics, subscribe now.
         if !self.subscribed && client.is_connected()? {
             client.subscribe(&self.settings_topic, &[])?;
-            client.subscribe(&self.commit_topic, &[])?;
             self.subscribed = true;
         }
 
         // Note: Due to some oddities in minimq, we are locally caching the return value of the
-        // `poll` closure into the `action` variable.
-        let mut action: Action = Action::Continue;
+        // `poll` closure into the `settings_update` variable.
+        let mut settings_update = false;
 
         let result = match client.poll(|client, topic, message, properties| {
-            let (incoming_action, response) = self.process_incoming(topic, message);
-            action = incoming_action;
+            let (incoming_update, response) = self.process_incoming(topic, message);
+            settings_update = incoming_update;
 
             // Publish the response to the request over MQTT using the ResponseTopic property if
             // possible. Otherwise, default to a logging topic.
@@ -145,10 +130,10 @@ where
                 .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
                 .ok();
         }) {
-            Ok(_) => Ok(action),
+            Ok(_) => Ok(settings_update),
             Err(minimq::Error::Disconnected) => {
                 self.subscribed = false;
-                Ok(action)
+                Ok(settings_update)
             }
             Err(other) => Err(Error::Mqtt(other)),
         };
@@ -165,10 +150,10 @@ where
     // * `message` - the raw message payload.
     //
     // # Returns
-    // (action, response) - where `action` is the associated Action to take and `response` is a
+    // (update, response) - where `update` is true if settings were updated and `response` is a
     // response to transmit over the MQTT interface as a result of the message.
-    fn process_incoming(&mut self, topic: &str, message: &[u8]) -> (Action, String<consts::U64>) {
-        let mut action = Action::Continue;
+    fn process_incoming(&mut self, topic: &str, message: &[u8]) -> (bool, String<consts::U64>) {
+        let mut update = false;
 
         // Verify the ID of the message by stripping the ID prefix from the received topic.
         let response = if let Some(tail) = topic.strip_prefix(self.id.as_str()) {
@@ -180,6 +165,7 @@ where
                     // Handle settings failures
                     match self.settings.string_set(split.peekable(), message) {
                         Ok(_) => {
+                            update = true;
                             let mut response: String<consts::U64> = String::new();
                             write!(&mut response, "{} written", topic)
                                 .unwrap_or_else(|_| response = String::from("Setting staged"));
@@ -193,10 +179,6 @@ where
                         }
                     }
                 }
-                Some("commit") => {
-                    action = Action::CommitSettings;
-                    String::from("Committing pending settings")
-                }
                 Some(_) => String::from("Unknown topic"),
                 None => String::from("No topic provided"),
             }
@@ -204,7 +186,7 @@ where
             String::from("Invalid ID specified")
         };
 
-        (action, response)
+        (update, response)
     }
 
     /// Get mutable access to the underlying network stack.

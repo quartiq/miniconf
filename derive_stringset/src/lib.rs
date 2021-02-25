@@ -15,7 +15,19 @@ pub fn derive(input: TokenStream) -> TokenStream {
 
     let name = input.ident.clone();
     match input.data {
-        syn::Data::Struct(struct_data) => derive_struct(name, struct_data),
+        syn::Data::Struct(struct_data) => derive_struct(name, struct_data, false),
+        syn::Data::Enum(enum_data) => derive_enum(name, enum_data),
+        syn::Data::Union(_) => unimplemented!(),
+    }
+}
+
+#[proc_macro_derive(StringSetAtomic)]
+pub fn derive_atomic(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let name = input.ident.clone();
+    match input.data {
+        syn::Data::Struct(struct_data) => derive_struct(name, struct_data, true),
         syn::Data::Enum(enum_data) => derive_enum(name, enum_data),
         syn::Data::Union(_) => unimplemented!(),
     }
@@ -26,14 +38,32 @@ pub fn derive(input: TokenStream) -> TokenStream {
 /// # Args
 /// * `name` - The name of the enum
 /// * `data` - The data associated with the struct definition.
+/// * `recursive` - specified true if the data must be updated atomically. If false, data must be
+///   set at a terminal node.
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_struct(name: syn::Ident, data: syn::DataStruct) -> TokenStream {
+fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> TokenStream {
     let fields = match data.fields {
         syn::Fields::Named(syn::FieldsNamed { ref named, .. }) => named,
         _ => unimplemented!("Only named fields are supported in structs."),
     };
+
+    // If this structure must be updated atomically, it is not valid to call StringSet recursively
+    // on its members.
+    if atomic {
+        let data = quote! {
+            impl miniconf::StringSet for #name {
+                fn string_set(&mut self, mut topic_parts:
+                core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
+                Result<(), miniconf::Error> {
+                    Err(miniconf::Error::AtomicUpdateRequired)
+                }
+            }
+        };
+
+        return TokenStream::from(data);
+    }
 
     let recurse_match_arms = fields.iter().map(|f| {
         let match_name = &f.ident;
@@ -45,39 +75,19 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct) -> TokenStream {
         }
     });
 
-    let direct_set_match_arms = fields.iter().map(|f| {
-        let match_name = &f.ident;
-        quote! {
-            stringify!(#match_name) => {
-                self.#match_name = miniconf::serde_json_core::from_slice(value)?.0;
-                Ok(())
-            }
-        }
-    });
-
     let expanded = quote! {
         impl miniconf::StringSet for #name {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
                 let field = topic_parts.next().ok_or(miniconf::Error::NameTooShort)?;
-                let next = topic_parts.peek();
 
-                if next.is_some() {
-                    match field {
-                        #(#recurse_match_arms ,)*
-                        _ => Err(miniconf::Error::NameNotFound)
-                    }
-                } else {
-                    match field {
-                        #(#direct_set_match_arms ,)*
-                        _ => Err(miniconf::Error::NameNotFound)
-                    }
+                match field {
+                    #(#recurse_match_arms ,)*
+                    _ => Err(miniconf::Error::NameNotFound)
                 }
             }
-
         }
-
     };
 
     TokenStream::from(expanded)

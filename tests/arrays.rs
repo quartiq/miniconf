@@ -21,11 +21,18 @@ fn simple_array() {
 
     let mut s = S::default();
 
+    // Updating a single field should succeed.
+    let field = "a/0".split('/').peekable();
+    s.string_set(field, "99".as_bytes()).unwrap();
+    assert_eq!(99, s.a[0]);
+
+    // Updating entire array atomically is not supported.
     let field = "a".split('/').peekable();
+    assert!(s.string_set(field, "[1,2,3]".as_bytes()).is_err());
 
-    s.string_set(field, "[1,2,3]".as_bytes()).unwrap();
-
-    assert_eq!([1, 2, 3], s.a);
+    // Invalid index should generate an error.
+    let field = "a/100".split('/').peekable();
+    assert!(s.string_set(field, "99".as_bytes()).is_err());
 }
 
 #[test]
@@ -90,8 +97,4 @@ fn array_of_structs_indexing() {
     };
 
     assert_eq!(expected, s);
-
-    let field = "a/1".split('/').peekable();
-    s.string_set(field, "{\"b\": 5}".as_bytes()).unwrap();
-    assert_eq!(s.a[1].b, 5);
 }
