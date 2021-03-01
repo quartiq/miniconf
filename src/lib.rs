@@ -8,7 +8,7 @@ pub use mqtt_interface::{Action, Error as MqttError, MqttInterface};
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
-pub use derive_stringset::StringSet;
+pub use derive_miniconf::Miniconf;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -25,7 +25,7 @@ impl From<serde_json_core::de::Error> for Error {
     }
 }
 
-pub trait StringSet {
+pub trait Miniconf {
     fn string_set(
         &mut self,
         topic_parts: core::iter::Peekable<core::str::Split<char>>,
@@ -35,7 +35,7 @@ pub trait StringSet {
 
 macro_rules! impl_single {
     ($x:ty) => {
-        impl StringSet for $x {
+        impl Miniconf for $x {
             fn string_set(
                 &mut self,
                 mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
@@ -54,9 +54,9 @@ macro_rules! impl_single {
 macro_rules! impl_array {
     ($($N:literal),*) => {
       $(
-        impl<T> StringSet for [T; $N]
+        impl<T> Miniconf for [T; $N]
         where
-            T: StringSet + core::marker::Copy + DeserializeOwned,
+            T: Miniconf + core::marker::Copy + DeserializeOwned,
         {
             fn string_set(
                 &mut self,

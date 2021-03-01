@@ -5,7 +5,7 @@ authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@ve
 edition = "2018"
 
 [dependencies]
-derive_stringset = { path="derive_stringset" }
+derive_miniconf = { path="derive_miniconf" }
 serde-json-core = "0.2.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 heapless = "0.5"
