@@ -2,14 +2,14 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
-/// Derive the StringSet trait for custom types.
+/// Derive the Miniconf trait for custom types.
 ///
 /// # Args
 /// * `input` - The input token stream for the proc-macro.
 ///
 /// # Returns
 /// A token stream of the generated code.
-#[proc_macro_derive(StringSet)]
+#[proc_macro_derive(Miniconf)]
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -21,7 +21,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 }
 
-/// Derive the StringSet trait for structs.
+/// Derive the Miniconf trait for structs.
 ///
 /// # Args
 /// * `name` - The name of the enum
@@ -56,7 +56,7 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct) -> TokenStream {
     });
 
     let expanded = quote! {
-        impl miniconf::StringSet for #name {
+        impl miniconf::Miniconf for #name {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
@@ -83,7 +83,7 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// Derive the StringSet trait for simple enums.
+/// Derive the Miniconf trait for simple enums.
 ///
 /// # Args
 /// * `name` - The name of the enum
@@ -103,7 +103,7 @@ fn derive_enum(name: syn::Ident, data: syn::DataEnum) -> TokenStream {
     }
 
     let expanded = quote! {
-        impl miniconf::StringSet for #name {
+        impl miniconf::Miniconf for #name {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {

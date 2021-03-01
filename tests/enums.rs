@@ -1,15 +1,15 @@
-use miniconf::{Error, StringSet};
+use miniconf::{Error, Miniconf};
 use serde::Deserialize;
 
 #[test]
 fn simple_enum() {
-    #[derive(StringSet, Debug, Deserialize, PartialEq)]
+    #[derive(Miniconf, Debug, Deserialize, PartialEq)]
     enum Variant {
         A,
         B,
     }
 
-    #[derive(StringSet, Debug, Deserialize)]
+    #[derive(Miniconf, Debug, Deserialize)]
     struct S {
         v: Variant,
     }
@@ -25,13 +25,13 @@ fn simple_enum() {
 
 #[test]
 fn invalid_enum() {
-    #[derive(StringSet, Debug, Deserialize, PartialEq)]
+    #[derive(Miniconf, Debug, Deserialize, PartialEq)]
     enum Variant {
         A,
         B,
     }
 
-    #[derive(StringSet, Debug, Deserialize)]
+    #[derive(Miniconf, Debug, Deserialize)]
     struct S {
         v: Variant,
     }
