@@ -1,12 +1,12 @@
-use miniconf::{Error, StringSet};
+use miniconf::{Error, Miniconf};
 use serde::Deserialize;
 
-#[derive(Debug, Default, StringSet, Deserialize)]
+#[derive(Debug, Default, Miniconf, Deserialize)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Debug, Default, StringSet, Deserialize)]
+#[derive(Debug, Default, Miniconf, Deserialize)]
 struct Settings {
     data: u32,
     more: AdditionalSettings,
@@ -14,7 +14,7 @@ struct Settings {
 
 #[test]
 fn simple_array() {
-    #[derive(StringSet, Default)]
+    #[derive(Miniconf, Default)]
     struct S {
         a: [u8; 3],
     }
@@ -37,7 +37,7 @@ fn simple_array() {
 
 #[test]
 fn nonexistent_field() {
-    #[derive(StringSet, Default)]
+    #[derive(Miniconf, Default)]
     struct S {
         a: [u8; 3],
     }
@@ -51,7 +51,7 @@ fn nonexistent_field() {
 
 #[test]
 fn simple_array_indexing() {
-    #[derive(StringSet, Default)]
+    #[derive(Miniconf, Default)]
     struct S {
         a: [u8; 3],
     }
@@ -74,12 +74,12 @@ fn simple_array_indexing() {
 
 #[test]
 fn array_of_structs_indexing() {
-    #[derive(StringSet, Default, Clone, Copy, Deserialize, Debug, PartialEq)]
+    #[derive(Miniconf, Default, Clone, Copy, Deserialize, Debug, PartialEq)]
     struct Inner {
         b: u8,
     }
 
-    #[derive(StringSet, Default, PartialEq, Debug)]
+    #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
         a: [Inner; 3],
     }
