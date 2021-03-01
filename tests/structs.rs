@@ -1,15 +1,15 @@
-use miniconf::{StringSet, StringSetAtomic};
+use miniconf::{Miniconf, MiniconfAtomic};
 use serde::Deserialize;
 
 #[test]
 fn atomic_struct() {
-    #[derive(StringSetAtomic, Default, PartialEq, Debug, Deserialize)]
+    #[derive(MiniconfAtomic, Default, PartialEq, Debug, Deserialize)]
     struct Inner {
         a: u32,
         b: u32,
     }
 
-    #[derive(StringSet, Default, PartialEq, Debug)]
+    #[derive(Miniconf, Default, PartialEq, Debug)]
     struct Settings {
         a: f32,
         b: bool,
@@ -39,12 +39,12 @@ fn atomic_struct() {
 
 #[test]
 fn recursive_struct() {
-    #[derive(StringSet, Default, PartialEq, Debug)]
+    #[derive(Miniconf, Default, PartialEq, Debug)]
     struct Inner {
         a: u32,
     }
 
-    #[derive(StringSet, Default, PartialEq, Debug)]
+    #[derive(Miniconf, Default, PartialEq, Debug)]
     struct Settings {
         a: f32,
         b: bool,
