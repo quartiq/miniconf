@@ -17,16 +17,16 @@ In order to support synchronization primitives, MiniConf distinguishes between "
 settings. After configuring a settings value, it does not take effect until the staged settings are
 committed. This allows for multiple settings to be updated simultaneously.
 
-MiniConf provides a `StringSet` derive macro for creating a settings structure, e.g.:
+MiniConf provides a `Miniconf` derive macro for creating a settings structure, e.g.:
 ```rust
-use miniconf::StringSet;
+use miniconf::Miniconf;
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct NestedSettings {
     inner: f32,
 }
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct MySettings {
     initial_value: u32,
     internal: NestedSettings,
@@ -48,14 +48,14 @@ structure.
 
 For example, given the following settings structure:
 ```rust
-use miniconf::StringSet;
+use miniconf::Miniconf;
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct NestedSettings {
     inner: f32,
 }
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct MySettings {
     initial_value: u32,
     internal: NestedSettings,
