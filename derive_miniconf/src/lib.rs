@@ -38,7 +38,7 @@ pub fn derive_atomic(input: TokenStream) -> TokenStream {
 /// # Args
 /// * `name` - The name of the enum
 /// * `data` - The data associated with the struct definition.
-/// * `recursive` - specified true if the data must be updated atomically. If false, data must be
+/// * `atomic` - specified true if the data must be updated atomically. If false, data must be
 ///   set at a terminal node.
 ///
 /// # Returns
