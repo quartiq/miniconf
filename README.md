@@ -13,10 +13,6 @@ configuration to any embedded project by leveraging MQTT. This allows any intern
 to quickly being up a telemetry and control interface with minimal implementation in the end-user
 application.
 
-In order to support synchronization primitives, MiniConf distinguishes between "active" and "staged"
-settings. After configuring a settings value, it does not take effect until the staged settings are
-committed. This allows for multiple settings to be updated simultaneously.
-
 MiniConf provides a `Miniconf` derive macro for creating a settings structure, e.g.:
 ```rust
 use miniconf::Miniconf;
@@ -62,16 +58,14 @@ struct MySettings {
 }
 ```
 
+Settings may only be updated at the terminal node. That is, you cannot configure
+`<device-id>/settings/internal` directly. If this is desired, instead derive `MiniconfAtomic`.
+
 If `MySettings` is the root settings structure, we can set the `inner` value to 3.14 by sending the
 following message over MQTT:
 ```
 topic: <device-id>/settings/internal/inner
 data: 3.14
-```
-
-In order to commit settings, a message must be published to:
-```
-<device-id>/settings/commit
 ```
 
 # Settings Values

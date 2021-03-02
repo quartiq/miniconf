@@ -29,7 +29,6 @@ machine!(
         Started,
         SentSimpleSetting,
         SentInnerSetting,
-        CommitSetting,
         Complete,
     }
 );
@@ -38,8 +37,7 @@ transitions!(TestState,
     [
       (Started, Advance) => SentSimpleSetting,
       (SentSimpleSetting, Advance) => SentInnerSetting,
-      (SentInnerSetting, Advance) => CommitSetting,
-      (CommitSetting, Advance) => Complete
+      (SentInnerSetting, Advance) => Complete
     ]
 );
 
@@ -56,12 +54,6 @@ impl SentSimpleSetting {
 }
 
 impl SentInnerSetting {
-    pub fn on_advance(self, _: Advance) -> CommitSetting {
-        CommitSetting {}
-    }
-}
-
-impl CommitSetting {
     pub fn on_advance(self, _: Advance) -> Complete {
         Complete {}
     }
@@ -124,7 +116,7 @@ fn main() -> std::io::Result<()> {
             .unwrap();
 
         // Next, service the settings interface and progress the test.
-        let action = interface.update().unwrap();
+        let setting_update = interface.update().unwrap();
         match state {
             TestState::Started(_) => {
                 // When first starting, let both clients connect and the timer elapse. Otherwise,
@@ -152,7 +144,8 @@ fn main() -> std::io::Result<()> {
             }
             TestState::SentSimpleSetting(_) => {
                 // Next, set a nested property.
-                if timer.is_complete() {
+                if timer.is_complete() || setting_update {
+                    assert!(setting_update);
                     info!("Sending inner settings value");
                     client
                         .publish(
@@ -169,22 +162,9 @@ fn main() -> std::io::Result<()> {
             TestState::SentInnerSetting(_) => {
                 // Finally, commit the settings so they become active.
                 if timer.is_complete() {
-                    info!("Committing settings");
-                    client
-                        .publish("device/commit", "".as_bytes(), QoS::AtMostOnce, &[])
-                        .unwrap();
                     state = state.on_advance(Advance);
                     timer.restart();
                 }
-            }
-            TestState::CommitSetting(_) => {
-                // Verify that we received a commit-settings action (e.g. commit was detected).
-                if action == miniconf::Action::CommitSettings {
-                    info!("Settings commit detected");
-                    state = state.on_advance(Advance);
-                    timer.restart();
-                }
-                assert!(timer.is_complete() == false);
             }
             TestState::Complete(_) => {
                 // Verify the settings all have the correct value.
