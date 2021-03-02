@@ -61,7 +61,7 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> Token
                         return Err(miniconf::Error::AtomicUpdateRequired);
                     }
 
-                    *self = serde_json_core::from_slice(value)?.0;
+                    *self = miniconf::serde_json_core::from_slice(value)?.0;
                     Ok(())
                 }
             }
