@@ -185,7 +185,6 @@ fn main() -> std::io::Result<()> {
                     state = state.on_advance(Advance);
                     timer.restart();
                 }
-                assert!(timer.is_complete() == false);
             }
             TestState::Complete(_) => {
                 // Verify the settings all have the correct value.
