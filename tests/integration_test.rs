@@ -29,7 +29,6 @@ machine!(
         Started,
         SentSimpleSetting,
         SentInnerSetting,
-        CommitSetting,
         Complete,
     }
 );
@@ -38,8 +37,7 @@ transitions!(TestState,
     [
       (Started, Advance) => SentSimpleSetting,
       (SentSimpleSetting, Advance) => SentInnerSetting,
-      (SentInnerSetting, Advance) => CommitSetting,
-      (CommitSetting, Advance) => Complete
+      (SentInnerSetting, Advance) => Complete
     ]
 );
 
@@ -56,12 +54,6 @@ impl SentSimpleSetting {
 }
 
 impl SentInnerSetting {
-    pub fn on_advance(self, _: Advance) -> CommitSetting {
-        CommitSetting {}
-    }
-}
-
-impl CommitSetting {
     pub fn on_advance(self, _: Advance) -> Complete {
         Complete {}
     }
@@ -169,19 +161,7 @@ fn main() -> std::io::Result<()> {
             }
             TestState::SentInnerSetting(_) => {
                 // Finally, commit the settings so they become active.
-                if timer.is_complete() || setting_update {
-                    assert!(setting_update);
-                    info!("Committing settings");
-                    client
-                        .publish("device/commit", "".as_bytes(), QoS::AtMostOnce, &[])
-                        .unwrap();
-                    state = state.on_advance(Advance);
-                    timer.restart();
-                }
-            }
-            TestState::CommitSetting(_) => {
-                if setting_update {
-                    info!("Settings commit detected");
+                if timer.is_complete() {
                     state = state.on_advance(Advance);
                     timer.restart();
                 }

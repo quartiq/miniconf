@@ -57,7 +57,12 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> Token
                 fn string_set(&mut self, mut topic_parts:
                 core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
                 Result<(), miniconf::Error> {
-                    Err(miniconf::Error::AtomicUpdateRequired)
+                    if topic_parts.peek().is_some() {
+                        return Err(miniconf::Error::AtomicUpdateRequired);
+                    }
+
+                    *self = serde_json_core::from_slice(value)?.0;
+                    Ok(())
                 }
             }
         };

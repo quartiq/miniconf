@@ -25,7 +25,7 @@ fn atomic_struct() {
 
     // Inner settings can be updated atomically.
     let field = "c".split('/').peekable();
-    assert!(settings.string_set(field, b"{\"a\": 5, \"b\": 3}").is_err());
+    settings.string_set(field, b"{\"a\": 5, \"b\": 3}").unwrap();
 
     let expected = {
         let mut expected = Settings::default();
