@@ -2,19 +2,19 @@ use machine::*;
 use miniconf::{
     embedded_nal::{IpAddr, Ipv4Addr},
     minimq::QoS,
-    StringSet,
+    Miniconf,
 };
 use serde::Deserialize;
 
 #[macro_use]
 extern crate log;
 
-#[derive(Debug, Default, StringSet, Deserialize)]
+#[derive(Debug, Default, Miniconf, Deserialize)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Debug, Default, StringSet, Deserialize)]
+#[derive(Debug, Default, Miniconf, Deserialize)]
 struct Settings {
     data: u32,
     more: AdditionalSettings,

@@ -1,4 +1,4 @@
-use super::StringSet;
+use super::Miniconf;
 use core::fmt::Write;
 use heapless::{consts, String};
 
@@ -38,7 +38,7 @@ fn generate_topic(device_id: &str, topic: &str) -> Result<String<consts::U128>, 
 /// An interface for managing MQTT settings.
 pub struct MqttInterface<T, S, MU>
 where
-    T: StringSet,
+    T: Miniconf,
     S: TcpStack,
     MU: ArrayLength<u8>,
 {
@@ -53,7 +53,7 @@ where
 
 impl<T, S, MU> MqttInterface<T, S, MU>
 where
-    T: StringSet,
+    T: Miniconf,
     S: TcpStack,
     MU: ArrayLength<u8>,
 {

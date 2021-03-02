@@ -13,16 +13,16 @@ configuration to any embedded project by leveraging MQTT. This allows any intern
 to quickly being up a telemetry and control interface with minimal implementation in the end-user
 application.
 
-MiniConf provides a `StringSet` derive macro for creating a settings structure, e.g.:
+MiniConf provides a `Miniconf` derive macro for creating a settings structure, e.g.:
 ```rust
-use miniconf::StringSet;
+use miniconf::Miniconf;
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct NestedSettings {
     inner: f32,
 }
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct MySettings {
     initial_value: u32,
     internal: NestedSettings,
@@ -44,14 +44,14 @@ structure.
 
 For example, given the following settings structure:
 ```rust
-use miniconf::StringSet;
+use miniconf::Miniconf;
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct NestedSettings {
     inner: f32,
 }
 
-#[derive(StringSet)]
+#[derive(Miniconf)]
 struct MySettings {
     initial_value: u32,
     internal: NestedSettings,
@@ -59,7 +59,7 @@ struct MySettings {
 ```
 
 Settings may only be updated at the terminal node. That is, you cannot configure
-`<device-id>/settings/internal` directly. If this is desired, instead derive `StringSetAtomic`.
+`<device-id>/settings/internal` directly. If this is desired, instead derive `MiniconfAtomic`.
 
 If `MySettings` is the root settings structure, we can set the `inner` value to 3.14 by sending the
 following message over MQTT:
