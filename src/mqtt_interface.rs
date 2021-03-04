@@ -102,7 +102,7 @@ where
             Ok(connected) => connected,
             Err(other) => {
                 self.client.replace(client);
-                return Err(other.into())
+                return Err(other.into());
             }
         };
 
@@ -111,7 +111,7 @@ where
             match client.subscribe(&self.settings_topic, &[]) {
                 Err(error) => {
                     self.client.replace(client);
-                    return Err(error.into())
+                    return Err(error.into());
                 }
                 Ok(_) => {}
             }
