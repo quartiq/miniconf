@@ -98,9 +98,23 @@ where
         // present.
         let mut client = self.client.take().unwrap();
 
+        let connected = match client.is_connected() {
+            Ok(connected) => connected,
+            Err(other) => {
+                self.client.replace(client);
+                return Err(other.into());
+            }
+        };
+
         // If we are not yet subscribed to the necessary topics, subscribe now.
-        if !self.subscribed && client.is_connected()? {
-            client.subscribe(&self.settings_topic, &[])?;
+        if !self.subscribed && connected {
+            match client.subscribe(&self.settings_topic, &[]) {
+                Err(error) => {
+                    self.client.replace(client);
+                    return Err(error.into());
+                }
+                Ok(_) => {}
+            }
             self.subscribed = true;
         }
 
