@@ -121,7 +121,8 @@ fn main() -> std::io::Result<()> {
     // Construct a settings configuration interface.
     let mut interface: miniconf::MqttInterface<Settings, _, minimq::consts::U256, _> = {
         let stack = std_embedded_nal::STACK.clone();
-        let dut_client = minimq::MqttClient::new(localhost, "clientid", stack, StdClock::new()).unwrap();
+        let dut_client =
+            minimq::MqttClient::new(localhost, "clientid", stack, StdClock::new()).unwrap();
         miniconf::MqttInterface::new(dut_client, "device", Settings::default()).unwrap()
     };
 

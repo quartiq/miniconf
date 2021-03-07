@@ -94,7 +94,8 @@ where
         })
     }
 
-    /// Called to periodically service the MQTT telemetry interface.
+    /// Called to periodically service the MQTT telemetry interface, sending an error string as a
+    /// response to messages with unexpected topics.
     ///
     /// # Note
     /// This function should be called whenever the underlying network stack has processed incoming
@@ -103,6 +104,35 @@ where
     /// # Returns
     /// True if settings were updated.
     pub fn update(&mut self) -> Result<bool, Error<S::Error>> {
+        let default_topic = self.default_response_topic.clone();
+        self.update_or_process(|client, _topic, _message, properties| {
+            Self::respond(
+                client,
+                properties,
+                &default_topic,
+                "Unknown topic".as_bytes(),
+            )
+        })
+    }
+
+    /// Called to periodically service the MQTT telemetry interface, forwarding messages with
+    /// unexpected topics to the given closure.
+    ///
+    /// # Args
+    /// * `handle_unknown` - A closure to process any messages received for topics not in the
+    ///   configured settings subtree, with the same signature as the parameter to
+    ///   `MqttClient::poll`.
+    ///
+    /// # Note
+    /// This function should be called whenever the underlying network stack has processed incoming
+    /// or outgoing data.
+    ///
+    /// # Returns
+    /// True if settings were updated.
+    pub fn update_or_process<F>(&mut self, mut handle_unknown: F) -> Result<bool, Error<S::Error>>
+    where
+        for<'a> F: FnMut(&MqttClient<MU, S, C>, &'a str, &[u8], &[Property<'a>]),
+    {
         // Note(unwrap): We maintain strict control of the client object, so it should always be
         // present.
         let mut client = self.client.take().unwrap();
@@ -132,26 +162,20 @@ where
         let mut settings_update = false;
 
         let result = match client.poll(|client, topic, message, properties| {
-            let (incoming_update, response) = self.process_incoming(topic, message);
+            let (incoming_update, response) = match self.process_incoming(topic, message) {
+                Some(result) => result,
+                None => {
+                    return handle_unknown(client, topic, message, properties);
+                }
+            };
             settings_update = incoming_update;
 
-            // Publish the response to the request over MQTT using the ResponseTopic property if
-            // possible. Otherwise, default to a logging topic.
-            let response_topic = if let Some(Property::ResponseTopic(topic)) = properties
-                .iter()
-                .find(|&prop| matches!(*prop, Property::ResponseTopic(_)))
-            {
-                *topic
-            } else {
-                &self.default_response_topic
-            };
-
-            // Make a best-effort attempt to send the response. If we get a failure, we may have
-            // disconnected or the peer provided an invalid topic to respond to. Ignore the
-            // failure in these cases.
-            client
-                .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
-                .ok();
+            Self::respond(
+                client,
+                properties,
+                &self.default_response_topic,
+                &response.into_bytes(),
+            )
         }) {
             Ok(_) => Ok(settings_update),
             Err(minimq::Error::Disconnected) => {
@@ -166,6 +190,35 @@ where
         result
     }
 
+    // Send a message with the given payload to either the response topic specified in the
+    // request, or the default response topic. (Not an instance method to be able to use
+    // from closure passed to update_or_process().)
+    fn respond(
+        client: &MqttClient<MU, S, C>,
+        request_properties: &[minimq::Property],
+        default_response_topic: &str,
+        payload: &[u8],
+    )
+    {
+        // Publish the response to the request over MQTT using the ResponseTopic property if
+        // possible. Otherwise, default to a logging topic.
+        let response_topic = if let Some(Property::ResponseTopic(topic)) = request_properties
+            .iter()
+            .find(|&prop| matches!(*prop, Property::ResponseTopic(_)))
+        {
+            *topic
+        } else {
+            default_response_topic
+        };
+
+        // Make a best-effort attempt to send the response. If we get a failure, we may have
+        // disconnected or the peer provided an invalid topic to respond to. Ignore the
+        // failure in these cases.
+        client
+            .publish(response_topic, payload, QoS::AtMostOnce, &[])
+            .ok();
+    }
+
     // Process an incoming MQTT message
     //
     // # Args
@@ -173,13 +226,16 @@ where
     // * `message` - the raw message payload.
     //
     // # Returns
-    // (update, response) - where `update` is true if settings were updated and `response` is a
-    // response to transmit over the MQTT interface as a result of the message.
-    fn process_incoming(&mut self, topic: &str, message: &[u8]) -> (bool, String<consts::U64>) {
-        let mut update = false;
-
+    // Some(update, response) - where `update` is true if settings were updated and `response` is a
+    // response to transmit over the MQTT interface as a result of the message, or None if the message
+    // wasn't for a topic in the configured settings subtree.
+    fn process_incoming(
+        &mut self,
+        topic: &str,
+        message: &[u8],
+    ) -> Option<(bool, String<consts::U64>)> {
         // Verify the ID of the message by stripping the ID prefix from the received topic.
-        let response = if let Some(tail) = topic.strip_prefix(self.id.as_str()) {
+        topic.strip_prefix(self.id.as_str()).and_then(|tail| {
             // Process the command - the tail is always preceeded by a leading slash, so ignore
             // that for the purposes of getting the topic.
             let mut split = tail[1..].split('/');
@@ -188,28 +244,22 @@ where
                     // Handle settings failures
                     match self.settings.string_set(split.peekable(), message) {
                         Ok(_) => {
-                            update = true;
                             let mut response: String<consts::U64> = String::new();
                             write!(&mut response, "{} written", topic)
                                 .unwrap_or_else(|_| response = String::from("Setting staged"));
-                            response
+                            Some((true, response))
                         }
                         Err(error) => {
                             let mut response: String<consts::U64> = String::new();
                             write!(&mut response, "Settings failure: {:?}", error)
                                 .unwrap_or_else(|_| response = String::from("Setting failed"));
-                            response
+                            Some((false, response))
                         }
                     }
                 }
-                Some(_) => String::from("Unknown topic"),
-                None => String::from("No topic provided"),
+                _ => None,
             }
-        } else {
-            String::from("Invalid ID specified")
-        };
-
-        (update, response)
+        })
     }
 
     /// Get mutable access to the underlying network stack.
