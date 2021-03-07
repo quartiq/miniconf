@@ -1,5 +1,6 @@
 use super::Miniconf;
-use core::fmt::Write;
+use core::{convert::TryFrom, fmt::Write};
+use embedded_time::Clock;
 use heapless::{consts, String};
 
 use minimq::{embedded_nal::TcpStack, generic_array::ArrayLength, MqttClient, Property, QoS};
@@ -36,13 +37,15 @@ fn generate_topic(device_id: &str, topic: &str) -> Result<String<consts::U128>, 
 }
 
 /// An interface for managing MQTT settings.
-pub struct MqttInterface<T, S, MU>
+pub struct MqttInterface<T, S, MU, C>
 where
     T: Miniconf,
     S: TcpStack,
     MU: ArrayLength<u8>,
+    C: Clock,
+    u32: TryFrom<C::T>,
 {
-    client: Option<MqttClient<MU, S>>,
+    client: Option<MqttClient<MU, S, C>>,
     pub settings: T,
 
     subscribed: bool,
@@ -51,11 +54,13 @@ where
     id: String<consts::U128>,
 }
 
-impl<T, S, MU> MqttInterface<T, S, MU>
+impl<T, S, MU, C> MqttInterface<T, S, MU, C>
 where
     T: Miniconf,
     S: TcpStack,
     MU: ArrayLength<u8>,
+    C: Clock,
+    u32: TryFrom<C::T>,
 {
     /// Construct a new settings interface using the network stack.
     ///
@@ -67,7 +72,11 @@ where
     ///
     /// # Returns
     /// A new `MqttInterface` object that can be used for settings configuration and telemtry.
-    pub fn new(client: MqttClient<MU, S>, id: &str, settings: T) -> Result<Self, Error<S::Error>> {
+    pub fn new(
+        client: MqttClient<MU, S, C>,
+        id: &str,
+        settings: T,
+    ) -> Result<Self, Error<S::Error>> {
         let settings_topic = generate_topic(id, "settings/#").or(Err(Error::IdTooLong))?;
         let default_response_topic = generate_topic(id, "log").or(Err(Error::IdTooLong))?;
 
@@ -226,7 +235,7 @@ where
     /// The return value provided by the closure.
     pub fn client<F, R>(&mut self, mut func: F) -> R
     where
-        F: FnMut(&mut minimq::MqttClient<MU, S>) -> R,
+        F: FnMut(&mut minimq::MqttClient<MU, S, C>) -> R,
     {
         // Note(unwrap): We maintain strict control of the client object, so it should always be
         // present.

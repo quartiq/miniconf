@@ -1,3 +1,4 @@
+use embedded_time;
 use machine::*;
 use miniconf::{
     embedded_nal::{IpAddr, Ipv4Addr},
@@ -83,6 +84,28 @@ impl Timer {
     }
 }
 
+pub struct StdClock {
+    epoch: std::time::Instant,
+}
+impl StdClock {
+    fn new() -> StdClock {
+        StdClock {
+            epoch: std::time::Instant::now(),
+        }
+    }
+}
+impl embedded_time::Clock for StdClock {
+    type T = u64;
+    const SCALING_FACTOR: embedded_time::fraction::Fraction =
+        <embedded_time::fraction::Fraction>::new(1, 1_000);
+
+    fn try_now(&self) -> Result<embedded_time::Instant<Self>, embedded_time::clock::Error> {
+        Ok(embedded_time::Instant::new(
+            self.epoch.elapsed().as_millis() as u64,
+        ))
+    }
+}
+
 #[test]
 fn main() -> std::io::Result<()> {
     env_logger::init();
@@ -90,15 +113,15 @@ fn main() -> std::io::Result<()> {
     let localhost = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
 
     // Construct a Minimq client to the broker for publishing requests.
-    let mut client: minimq::MqttClient<minimq::consts::U256, _> = {
+    let mut client: minimq::MqttClient<minimq::consts::U256, _, _> = {
         let stack = std_embedded_nal::STACK.clone();
-        minimq::MqttClient::new(localhost, "tester", stack).unwrap()
+        minimq::MqttClient::new(localhost, "tester", stack, StdClock::new()).unwrap()
     };
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttInterface<Settings, _, minimq::consts::U256> = {
+    let mut interface: miniconf::MqttInterface<Settings, _, minimq::consts::U256, _> = {
         let stack = std_embedded_nal::STACK.clone();
-        let dut_client = minimq::MqttClient::new(localhost, "clientid", stack).unwrap();
+        let dut_client = minimq::MqttClient::new(localhost, "clientid", stack, StdClock::new()).unwrap();
         miniconf::MqttInterface::new(dut_client, "device", Settings::default()).unwrap()
     };
 

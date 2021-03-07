@@ -9,7 +9,11 @@ derive_miniconf = { path="derive_miniconf" }
 serde-json-core = "0.2.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 heapless = ">=0.6.1"
-minimq = "0.2"
+embedded-time = "0.10.1"
+
+[dependencies.minimq]
+git = "https://github.com/dnadlinger/minimq.git"
+branch = "feature/keepalive"
 
 [dev-dependencies]
 machine = "0.3"
