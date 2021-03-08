@@ -10,6 +10,9 @@ pub enum Error<E: core::fmt::Debug> {
     /// The provided device ID is too long.
     IdTooLong,
 
+    /// The broker connection was lost.
+    Disconnected,
+
     /// MQTT encountered an internal error.
     Mqtt(minimq::Error<E>),
 
@@ -180,7 +183,7 @@ where
             Ok(_) => Ok(settings_update),
             Err(minimq::Error::Disconnected) => {
                 self.subscribed = false;
-                Ok(settings_update)
+                Err(Error::Disconnected)
             }
             Err(other) => Err(Error::Mqtt(other)),
         };
