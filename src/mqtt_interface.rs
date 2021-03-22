@@ -137,11 +137,23 @@ where
                 &self.default_response_topic
             };
 
+            // Send back any correlation data with the response.
+            let response_properties = properties
+                .iter()
+                .find(|&prop| matches!(*prop, Property::CorrelationData(_)))
+                .map(core::slice::from_ref)
+                .unwrap_or(&[]);
+
             // Make a best-effort attempt to send the response. If we get a failure, we may have
             // disconnected or the peer provided an invalid topic to respond to. Ignore the
             // failure in these cases.
             client
-                .publish(response_topic, &response.into_bytes(), QoS::AtMostOnce, &[])
+                .publish(
+                    response_topic,
+                    &response.into_bytes(),
+                    QoS::AtMostOnce,
+                    response_properties,
+                )
                 .ok();
         }) {
             Ok(_) => Ok(settings_update),
