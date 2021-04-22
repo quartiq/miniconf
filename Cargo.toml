@@ -9,3 +9,7 @@ derive_miniconf = { path="derive_miniconf" }
 serde-json-core = "0.2.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 heapless = ">=0.6.1"
+minimq = { version = "0.2.0", optional = true }
+
+[features]
+minimq-support = ["minimq"]
