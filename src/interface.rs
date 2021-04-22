@@ -25,11 +25,10 @@ pub struct Response<'a> {
     pub correlation_data: Option<&'a [u8]>,
 }
 
-#[cfg(feature = "minimq")]
-impl<'a> From<(&'a [u8], &[minimq::Property<'a>])> for Message<'a> {
-    fn from(tuple: (&'a [u8], &[minimq::Property<'a>])) -> Message<'a> {
-        let (data, properties) = tuple;
 
+#[cfg(feature = "minimq-support")]
+impl<'a> Message<'a> {
+    pub fn from(data: &'a [u8], properties: &[minimq::Property<'a>]) -> Message<'a> {
         // Find correlation-data and response topics.
         let correlation_data = properties.iter().find_map(|prop| {
             if let minimq::Property::CorrelationData(data) = prop {
