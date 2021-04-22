@@ -25,7 +25,6 @@ pub struct Response<'a> {
     pub correlation_data: Option<&'a [u8]>,
 }
 
-
 #[cfg(feature = "minimq-support")]
 impl<'a> Message<'a> {
     pub fn from(data: &'a [u8], properties: &[minimq::Property<'a>]) -> Message<'a> {
