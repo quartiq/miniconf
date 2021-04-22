@@ -9,10 +9,3 @@ derive_miniconf = { path="derive_miniconf" }
 serde-json-core = "0.2.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 heapless = ">=0.6.1"
-minimq = "0.2"
-
-[dev-dependencies]
-machine = "0.3"
-std-embedded-nal = "=0.0.1"
-env_logger = "0.7"
-log = "0.4"

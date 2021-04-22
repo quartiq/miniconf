@@ -8,10 +8,9 @@ MiniConf is a `no_std` minimal run-time settings configuration tool designed to 
 
 # Design
 
-Miniconf provides an easy-to-work-with API for quickly adding MQTT telemetry and settings
-configuration to any embedded project by leveraging MQTT. This allows any internet-connected device
-to quickly being up a telemetry and control interface with minimal implementation in the end-user
-application.
+Miniconf provides an easy-to-work-with API for quickly adding runtime-configured settings to any
+embedded project. This allows any internet-connected device to quickly bring up control interface
+with minimal implementation in the end-user application.
 
 MiniConf provides a `Miniconf` derive macro for creating a settings structure, e.g.:
 ```rust

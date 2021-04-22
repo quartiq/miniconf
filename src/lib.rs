@@ -1,9 +1,8 @@
 #![no_std]
 
-mod mqtt_interface;
+mod interface;
 
-pub use minimq::{self, embedded_nal};
-pub use mqtt_interface::{Error as MqttError, MqttInterface};
+pub use interface::{Message, MiniconfInterface, Response};
 
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
@@ -18,6 +17,7 @@ pub enum Error {
     AtomicUpdateRequired,
     Deserialization(serde_json_core::de::Error),
     BadIndex,
+    IdTooLong,
 }
 
 impl From<serde_json_core::de::Error> for Error {
