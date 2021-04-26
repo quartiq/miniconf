@@ -13,7 +13,6 @@ pub enum Error {
     AtomicUpdateRequired,
     Deserialization(serde_json_core::de::Error),
     BadIndex,
-    IdTooLong,
 }
 
 impl From<serde_json_core::de::Error> for Error {
