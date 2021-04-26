@@ -1,10 +1,5 @@
 #![no_std]
 
-mod mqtt_interface;
-
-pub use minimq::{self, embedded_nal};
-pub use mqtt_interface::{Error as MqttError, MqttInterface};
-
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
@@ -32,6 +27,23 @@ pub trait Miniconf {
         topic_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error>;
+}
+
+/// Convenience function to update settings directly from a string path and data.
+///
+/// # Note
+/// When using prefixes on the path, it is often simpler to call
+/// `Settings::string_set(path.peekable(), data)` directly.
+///
+/// # Args
+/// * `settings` - The settings to update
+/// * `path` - The path to update within `settings`.
+/// * `data` - The serialized data making up the contents of the configured value.
+///
+/// # Returns
+/// The result of the configuration operation.
+pub fn update<T: Miniconf>(settings: &mut T, path: &str, data: &[u8]) -> Result<(), Error> {
+    settings.string_set(path.split('/').peekable(), data)
 }
 
 macro_rules! impl_single {

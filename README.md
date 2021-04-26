@@ -4,14 +4,13 @@
 ![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)
 
 MiniConf is a `no_std` minimal run-time settings configuration tool designed to be run on top of
-[`minimq`](https://github.com/quartiq/minimq), an MQTTv5 client.
+any communication means. It was originally designed to work with MQTT clients.
 
 # Design
 
-Miniconf provides an easy-to-work-with API for quickly adding MQTT telemetry and settings
-configuration to any embedded project by leveraging MQTT. This allows any internet-connected device
-to quickly being up a telemetry and control interface with minimal implementation in the end-user
-application.
+Miniconf provides an easy-to-work-with API for quickly adding runtime-configured settings to any
+embedded project. This allows any internet-connected device to quickly bring up configuration
+interfaces with minimal implementation in the end-user application.
 
 MiniConf provides a `Miniconf` derive macro for creating a settings structure, e.g.:
 ```rust
@@ -31,42 +30,27 @@ struct MySettings {
 
 # Settings Paths
 
-A setting value must be published to a specific MQTT topic for the client to receive it. Topics take
-the form of:
-
+A setting value must be configured via a specific path. Paths take the form of variable names
+separated by slashes - this design follows typical MQTT topic design semantics. For example, with
+the following `Settings` structure:
 ```
-<device-id>/settings/<path>
-```
-
-In the above example, `<device-id>` is an identifier unique to the device that implements
-MiniConf-settable settings. The `<path>` field represents the settings path in the root settings
-structure.
-
-For example, given the following settings structure:
-```rust
-use miniconf::Miniconf;
-
 #[derive(Miniconf)]
-struct NestedSettings {
+struct Data {
     inner: f32,
 }
 
 #[derive(Miniconf)]
-struct MySettings {
+struct Settings {
     initial_value: u32,
-    internal: NestedSettings,
+    internal: Data,
 }
 ```
 
-Settings may only be updated at the terminal node. That is, you cannot configure
-`<device-id>/settings/internal` directly. If this is desired, instead derive `MiniconfAtomic`.
+We can access `Data::inner` with the path `internal/inner`.
 
-If `MySettings` is the root settings structure, we can set the `inner` value to 3.14 by sending the
-following message over MQTT:
-```
-topic: <device-id>/settings/internal/inner
-data: 3.14
-```
+Settings may only be updated at the terminal node. That is, you cannot configure
+`<device-id>/settings/internal` directly. If this is desired, instead derive `MiniconfAtomic` on the
+`struct Data` definition. In this way, all members of `struct Data` must be updated simultaneously.
 
 # Settings Values
 
