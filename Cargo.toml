@@ -6,5 +6,5 @@ edition = "2018"
 
 [dependencies]
 derive_miniconf = { path="derive_miniconf" }
-serde-json-core = "0.3.0"
+serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
