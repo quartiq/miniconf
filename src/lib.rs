@@ -5,13 +5,38 @@ pub use serde_json_core;
 
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
 
+/// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    /// The provided name wasn't found in the structure.
+    ///
+    /// Double check the provided name to verify that it's valid.
     NameNotFound,
+
+    /// The provided name was valid, but there was trailing data at the end.
+    ///
+    /// Check the end of the name and remove any excess characters.
     NameTooLong,
+
+    /// The provided name was valid, but did not specify a value fully.
+    ///
+    /// Double check the ending and add the remainder of the name.
     NameTooShort,
+
+    /// The name provided is attempting to configure a portion of the structure, but the structure
+    /// must be updated all at once.
+    ///
+    /// Refactor the request to configure the entire structure at once.
     AtomicUpdateRequired,
+
+    /// The value provided for configuration could not be deserialized into the proper type.
+    ///
+    /// Double check the serialized data and correct any errors.
     Deserialization(serde_json_core::de::Error),
+
+    /// When indexing into an array of names, the index provided was out of bounds.
+    ///
+    /// Check array indices to ensure that bounds for all names are respected.
     BadIndex,
 }
 
