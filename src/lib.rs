@@ -23,15 +23,15 @@ pub enum Error {
     /// Double check the ending and add the remainder of the name.
     NameTooShort,
 
-    /// The name provided is attempting to configure a portion of the structure, but the structure
+    /// The name provided refers to a member of a configurable structure, but the structure
     /// must be updated all at once.
     ///
-    /// Refactor the request to configure the entire structure at once.
+    /// Refactor the request to configure the surrounding structure at once.
     AtomicUpdateRequired,
 
     /// The value provided for configuration could not be deserialized into the proper type.
     ///
-    /// Double check the serialized data and correct any errors.
+    /// Check that the serialized data is valid JSON and of the correct type.
     Deserialization(serde_json_core::de::Error),
 
     /// When indexing into an array of names, the index provided was out of bounds.
