@@ -8,22 +8,22 @@ pub use derive_miniconf::{Miniconf, MiniconfAtomic};
 /// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    /// The provided name wasn't found in the structure.
+    /// The provided path wasn't found in the structure.
     ///
-    /// Double check the provided name to verify that it's valid.
-    NameNotFound,
+    /// Double check the provided path to verify that it's valid.
+    PathNotFound,
 
-    /// The provided name was valid, but there was trailing data at the end.
+    /// The provided path was valid, but there was trailing data at the end.
     ///
-    /// Check the end of the name and remove any excess characters.
-    NameTooLong,
+    /// Check the end of the path and remove any excess characters.
+    PathTooLong,
 
-    /// The provided name was valid, but did not specify a value fully.
+    /// The provided path was valid, but did not specify a value fully.
     ///
-    /// Double check the ending and add the remainder of the name.
-    NameTooShort,
+    /// Double check the ending and add the remainder of the path.
+    PathTooShort,
 
-    /// The name provided refers to a member of a configurable structure, but the structure
+    /// The path provided refers to a member of a configurable structure, but the structure
     /// must be updated all at once.
     ///
     /// Refactor the request to configure the surrounding structure at once.
@@ -34,9 +34,9 @@ pub enum Error {
     /// Check that the serialized data is valid JSON and of the correct type.
     Deserialization(serde_json_core::de::Error),
 
-    /// When indexing into an array of names, the index provided was out of bounds.
+    /// When indexing into an array, the index provided was out of bounds.
     ///
-    /// Check array indices to ensure that bounds for all names are respected.
+    /// Check array indices to ensure that bounds for all paths are respected.
     BadIndex,
 }
 
@@ -80,7 +80,7 @@ macro_rules! impl_single {
                 value: &[u8],
             ) -> Result<(), Error> {
                 if topic_parts.peek().is_some() {
-                    return Err(Error::NameTooLong);
+                    return Err(Error::PathTooLong);
                 }
                 *self = serde_json_core::from_slice(value)?.0;
                 Ok(())
@@ -103,7 +103,7 @@ macro_rules! impl_array {
             ) -> Result<(), Error> {
                 let next = topic_parts.next();
                 if next.is_none() {
-                    return Err(Error::NameTooShort);
+                    return Err(Error::PathTooShort);
                 }
 
                 // Parse what should be the index value
