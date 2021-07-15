@@ -85,11 +85,11 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> Token
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
-                let field = topic_parts.next().ok_or(miniconf::Error::NameTooShort)?;
+                let field = topic_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {
                     #(#recurse_match_arms ,)*
-                    _ => Err(miniconf::Error::NameNotFound)
+                    _ => Err(miniconf::Error::PathNotFound)
                 }
             }
         }
@@ -124,7 +124,7 @@ fn derive_enum(name: syn::Ident, data: syn::DataEnum) -> TokenStream {
             Result<(), miniconf::Error> {
                 if topic_parts.peek().is_some() {
                     // We don't support enums that can contain other values
-                    return Err(miniconf::Error::NameTooLong)
+                    return Err(miniconf::Error::PathTooLong)
                 }
 
                 *self = miniconf::serde_json_core::from_slice(value)?.0;

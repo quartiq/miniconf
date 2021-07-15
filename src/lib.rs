@@ -5,13 +5,38 @@ pub use serde_json_core;
 
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
 
+/// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    NameNotFound,
-    NameTooLong,
-    NameTooShort,
+    /// The provided path wasn't found in the structure.
+    ///
+    /// Double check the provided path to verify that it's valid.
+    PathNotFound,
+
+    /// The provided path was valid, but there was trailing data at the end.
+    ///
+    /// Check the end of the path and remove any excess characters.
+    PathTooLong,
+
+    /// The provided path was valid, but did not specify a value fully.
+    ///
+    /// Double check the ending and add the remainder of the path.
+    PathTooShort,
+
+    /// The path provided refers to a member of a configurable structure, but the structure
+    /// must be updated all at once.
+    ///
+    /// Refactor the request to configure the surrounding structure at once.
     AtomicUpdateRequired,
+
+    /// The value provided for configuration could not be deserialized into the proper type.
+    ///
+    /// Check that the serialized data is valid JSON and of the correct type.
     Deserialization(serde_json_core::de::Error),
+
+    /// When indexing into an array, the index provided was out of bounds.
+    ///
+    /// Check array indices to ensure that bounds for all paths are respected.
     BadIndex,
 }
 
@@ -55,7 +80,7 @@ macro_rules! impl_single {
                 value: &[u8],
             ) -> Result<(), Error> {
                 if topic_parts.peek().is_some() {
-                    return Err(Error::NameTooLong);
+                    return Err(Error::PathTooLong);
                 }
                 *self = serde_json_core::from_slice(value)?.0;
                 Ok(())
@@ -78,7 +103,7 @@ macro_rules! impl_array {
             ) -> Result<(), Error> {
                 let next = topic_parts.next();
                 if next.is_none() {
-                    return Err(Error::NameTooShort);
+                    return Err(Error::PathTooShort);
                 }
 
                 // Parse what should be the index value
