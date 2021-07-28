@@ -3,6 +3,7 @@ name = "miniconf"
 version = "0.1.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
 edition = "2018"
+license = "MIT"
 
 [dependencies]
 derive_miniconf = { path="derive_miniconf" }
