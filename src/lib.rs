@@ -1,14 +1,16 @@
 #![no_std]
 
-mod messages;
-mod mqtt_client;
+#[cfg(feature = "mqtt-client")]
+mod client;
+
+#[cfg(feature = "mqtt-client")]
+pub use client::MiniconfClient;
 
 pub use minimq;
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
-pub use mqtt_client::MiniconfClient;
 
 /// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]

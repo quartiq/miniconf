@@ -9,9 +9,13 @@ license = "MIT"
 derive_miniconf = { path="derive_miniconf" }
 serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
-minimq = "0.2"
+minimq = {version = "0.2", optional = true }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
+
+[features]
+default = ["mqtt-client"]
+mqtt-client = ["minimq"]
 
 [dev-dependencies]
 machine = "0.3"
