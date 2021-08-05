@@ -7,7 +7,8 @@ Description: Setup file for Miniconf packaging.
 from setuptools import setup, find_packages
 
 # Load the version string from the version file.
-execfile('miniconf/version.py')
+with open('miniconf/version.py') as version_file:
+    exec(version_file.read())
 
 setup(name='miniconf-rs',
       version=__version__,
