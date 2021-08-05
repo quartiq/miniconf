@@ -6,7 +6,9 @@ mod client;
 #[cfg(feature = "mqtt-client")]
 pub use client::MiniconfClient;
 
+#[cfg(feature = "mqtt-client")]
 pub use minimq;
+
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
