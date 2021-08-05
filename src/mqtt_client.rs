@@ -1,6 +1,3 @@
-use super::messages::{MqttMessage, SettingsResponse};
-use super::Miniconf;
-use log::info;
 ///! MQTT-based Run-time Settings Client
 ///!
 ///! # Limitations
@@ -12,6 +9,10 @@ use log::info;
 use serde_json_core::heapless::String;
 
 use minimq::embedded_nal::{IpAddr, TcpClientStack};
+
+use super::messages::{MqttMessage, SettingsResponse};
+use super::Miniconf;
+use log::info;
 
 /// MQTT settings interface.
 pub struct MiniconfClient<S, N>
