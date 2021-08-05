@@ -1,3 +1,5 @@
 #!/usr/bin/python3
+""" Miniconf version file. """
 
-__version__ = '1.0.0'
+# The semantic version of Miniconf.
+__version__ = '0.1.0'
