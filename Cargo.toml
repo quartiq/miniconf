@@ -9,3 +9,14 @@ license = "MIT"
 derive_miniconf = { path="derive_miniconf" }
 serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
+minimq = "0.2"
+log = "0.4"
+heapless = { version = "0.7", features = ["serde"] }
+
+[dev-dependencies]
+machine = "0.3"
+env_logger = "0.9"
+std-embedded-nal = { git = "https://gitlab.com/ryan-summers/std-embedded-nal", branch = "feature/nal-update" }
+
+[patch.crates-io.minimq]
+git = "https://github.com/quartiq/minimq"
