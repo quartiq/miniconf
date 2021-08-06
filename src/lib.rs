@@ -1,5 +1,14 @@
 #![no_std]
 
+#[cfg(feature = "mqtt-client")]
+mod mqtt_client;
+
+#[cfg(feature = "mqtt-client")]
+pub use mqtt_client::MqttClient;
+
+#[cfg(feature = "mqtt-client")]
+pub use minimq;
+
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
@@ -38,6 +47,19 @@ pub enum Error {
     ///
     /// Check array indices to ensure that bounds for all paths are respected.
     BadIndex,
+}
+
+impl From<Error> for u8 {
+    fn from(err: Error) -> u8 {
+        match err {
+            Error::PathNotFound => 1,
+            Error::PathTooLong => 2,
+            Error::PathTooShort => 3,
+            Error::AtomicUpdateRequired => 4,
+            Error::Deserialization(_) => 5,
+            Error::BadIndex => 6,
+        }
+    }
 }
 
 impl From<serde_json_core::de::Error> for Error {
