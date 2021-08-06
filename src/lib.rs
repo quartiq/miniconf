@@ -1,10 +1,10 @@
 #![no_std]
 
 #[cfg(feature = "mqtt-client")]
-mod client;
+mod mqtt_client;
 
 #[cfg(feature = "mqtt-client")]
-pub use client::MiniconfClient;
+pub use mqtt_client::MqttClient;
 
 #[cfg(feature = "mqtt-client")]
 pub use minimq;

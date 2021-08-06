@@ -15,7 +15,7 @@ use crate::Miniconf;
 use log::info;
 
 /// MQTT settings interface.
-pub struct MiniconfClient<S, N>
+pub struct MqttClient<S, N>
 where
     S: Miniconf + Default,
     N: TcpClientStack,
@@ -27,7 +27,7 @@ where
     settings_prefix: String<64>,
 }
 
-impl<S, N> MiniconfClient<S, N>
+impl<S, N> MqttClient<S, N>
 where
     S: Miniconf + Default,
     N: TcpClientStack,
