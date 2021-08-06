@@ -47,11 +47,9 @@ def main():
         interface = await Miniconf.create(args.prefix, args.broker)
         for setting in args.settings:
             path, value = setting.split("=", 1)
-            response = await interface.command(path, json.loads(value),
-                                               not args.no_retain)
-            print(f'{path}: {response}')
-            if response['code'] != 0:
-                return response['code']
+            await interface.command(path, json.loads(value),
+                                           not args.no_retain)
+            print(f'{path}: OK')
         return 0
 
     sys.exit(loop.run_until_complete(configure_settings()))
