@@ -6,7 +6,6 @@ Description: Command-line utility to program run-time settings utilize Miniconf.
 """
 
 import asyncio
-import sys
 import argparse
 import logging
 import json
@@ -47,14 +46,10 @@ def main():
         interface = await Miniconf.create(args.prefix, args.broker)
         for setting in args.settings:
             path, value = setting.split("=", 1)
-            response = await interface.command(path, json.loads(value),
-                                               not args.no_retain)
-            print(f'{path}: {response}')
-            if response['code'] != 0:
-                return response['code']
-        return 0
+            await interface.command(path, json.loads(value), not args.no_retain)
+            print(f'{path}: OK')
 
-    sys.exit(loop.run_until_complete(configure_settings()))
+    loop.run_until_complete(configure_settings())
 
 
 if __name__ == '__main__':
