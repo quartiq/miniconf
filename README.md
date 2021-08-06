@@ -4,7 +4,8 @@
 ![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)
 
 MiniConf is a `no_std` minimal run-time settings configuration tool designed to be run on top of
-any communication means. It was originally designed to work with MQTT clients.
+any communication means. It was originally designed to work with MQTT clients and provides a default
+implementation using [minimq](https://github.com/quartiq/minimq) as the MQTT client.
 
 # Design
 
@@ -33,7 +34,7 @@ struct MySettings {
 A setting value must be configured via a specific path. Paths take the form of variable names
 separated by slashes - this design follows typical MQTT topic design semantics. For example, with
 the following `Settings` structure:
-```
+```rust
 #[derive(Miniconf)]
 struct Data {
     inner: f32,
