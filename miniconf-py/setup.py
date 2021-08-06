@@ -10,7 +10,7 @@ from setuptools import setup, find_packages
 with open('miniconf/version.py') as version_file:
     exec(version_file.read())
 
-setup(name='miniconf-rs',
+setup(name='miniconf-mqtt',
       version=__version__,
       author='Ryan Summers, Robert Jördens',
       description='Utilities for configuring Miniconf-configurable devices',
