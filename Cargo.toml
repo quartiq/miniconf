@@ -20,7 +20,4 @@ mqtt-client = ["minimq"]
 [dev-dependencies]
 machine = "0.3"
 env_logger = "0.9"
-
-# TODO: When https://gitlab.com/chrysn/std-embedded-nal/-/merge_requests/2 lands, update dev
-# dependency to latest release of std-embedded-nal
-std-embedded-nal = { git = "https://gitlab.com/ryan-summers/std-embedded-nal", rev = "d42c05b7" }
+std-embedded-nal = "0.1"
