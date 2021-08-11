@@ -1,8 +1,5 @@
 use machine::*;
-use miniconf::{
-    minimq::QoS,
-    Miniconf,
-};
+use miniconf::{minimq::QoS, Miniconf};
 use serde::Deserialize;
 use std_embedded_nal::Stack;
 
