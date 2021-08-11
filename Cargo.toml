@@ -10,7 +10,7 @@ keywords = ["settings", "embedded", "no_std", "configuration", "config", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]
-derive_miniconf = { path="derive_miniconf" }
+derive_miniconf = { path = "derive_miniconf" , version = "0.1" }
 serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
