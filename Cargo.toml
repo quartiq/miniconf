@@ -6,7 +6,7 @@ edition = "2018"
 license = "MIT"
 description = "Lightweight support for run-time settings configuration"
 repository = "https://github.com/quartiq/miniconf"
-keywords = ["settings", "embedded", "no_std", "configuration", "config", "mqtt"]
+keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]

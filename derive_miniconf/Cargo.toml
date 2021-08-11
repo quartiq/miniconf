@@ -7,7 +7,7 @@ license = "MIT"
 description = "Derive utilities for Miniconf run-time settings configuration"
 repository = "https://github.com/quartiq/miniconf/derive_miniconf"
 
-keywords = ["settings", "embedded", "no_std", "configuration", "config", "mqtt"]
+keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]
 
 [lib]
