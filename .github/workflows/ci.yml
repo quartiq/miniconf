@@ -151,3 +151,30 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+  examples:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        example:
+          - mqtt
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Start Mosquitto
+        run: |
+          sudo apt-get install mosquitto
+          sudo service mosquitto start
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          override: true
+          toolchain: stable
+          profile: minimal
+
+      - name: Example ${{matrix.example}}
+        uses: actions-rs/cargo@v1
+        with:
+          command: run
+          args: --example ${{matrix.example}}

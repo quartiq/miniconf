@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
 edition = "2018"
 license = "MIT"
+description = "Lightweight support for run-time settings configuration"
+repository = "https://github.com/quartiq/miniconf"
+keywords = ["settings", "embedded", "no_std", "configuration", "config", "mqtt"]
+categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]
 derive_miniconf = { path="derive_miniconf" }
@@ -21,3 +25,7 @@ mqtt-client = ["minimq"]
 machine = "0.3"
 env_logger = "0.9"
 std-embedded-nal = "0.1"
+tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
+
+[[example]]
+name = "mqtt"
