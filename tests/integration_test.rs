@@ -1,12 +1,7 @@
 use machine::*;
-use miniconf::{
-    minimq::{
-        embedded_nal::{IpAddr, Ipv4Addr},
-        QoS,
-    },
-    Miniconf,
-};
+use miniconf::{minimq::QoS, Miniconf};
 use serde::Deserialize;
+use std_embedded_nal::Stack;
 
 #[macro_use]
 extern crate log;
@@ -89,19 +84,15 @@ impl Timer {
 fn main() -> std::io::Result<()> {
     env_logger::init();
 
-    let localhost = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+    let localhost = "127.0.0.1".parse().unwrap();
 
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, 256> = {
-        let stack = std_embedded_nal::STACK.clone();
-        miniconf::minimq::Minimq::new(localhost, "tester", stack).unwrap()
-    };
+    let mut mqtt: minimq::Minimq<_, 256> =
+        miniconf::minimq::Minimq::new(localhost, "tester", Stack::default()).unwrap();
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _> = {
-        let stack = std_embedded_nal::STACK.clone();
-        miniconf::MqttClient::new(stack, "", "device", localhost).unwrap()
-    };
+    let mut interface: miniconf::MqttClient<Settings, _> =
+        miniconf::MqttClient::new(Stack::default(), "", "device", localhost).unwrap();
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();

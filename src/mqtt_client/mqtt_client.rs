@@ -1,11 +1,22 @@
-///! MQTT-based Run-time Settings Client
-///!
-///! # Limitations
-///! The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
-///! connect to it when errors occur.
-///!
-///! Responses to settings updates are sent without quality-of-service guarantees, so there's no
-///! guarantee that the requestee will be informed that settings have been applied.
+/// MQTT-based Run-time Settings Client
+///
+/// # Design
+/// The MQTT client places all settings paths behind a `<prefix>/settings/` path prefix, where
+/// `<prefix>` is provided in the client constructor. This prefix is then stripped away to get the
+/// settings path for [Miniconf].
+///
+/// ## Example
+/// With an MQTT client prefix of `dt/sinara/stabilizer` and a settings path of `adc/0/gain`, the
+/// full MQTT path would be `dt/sinara/stabilizer/settings/adc/0/gain`.
+///
+/// # Limitations
+/// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
+/// connect to it when errors occur.
+///
+/// Responses to settings updates are sent without quality-of-service guarantees, so there's no
+/// guarantee that the requestee will be informed that settings have been applied.
+///
+/// The library only supports serialized settings up to 256 bytes currently.
 use serde_json_core::heapless::String;
 
 use minimq::embedded_nal::{IpAddr, TcpClientStack};

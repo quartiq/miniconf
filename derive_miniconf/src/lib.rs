@@ -4,11 +4,28 @@ use syn::{parse_macro_input, DeriveInput};
 
 /// Derive the Miniconf trait for custom types.
 ///
-/// # Args
-/// * `input` - The input token stream for the proc-macro.
+/// Each field of the struct will be recursively used to construct a unique path for all elements.
 ///
-/// # Returns
-/// A token stream of the generated code.
+/// All settings paths are similar to file-system paths with variable names separated by forward
+/// slashes.
+///
+/// For arrays, the array index is treated as a unique identifier. That is, to access the first
+/// element of array `test`, the path would be `test/0`.
+///
+/// # Example
+/// ```rust
+/// #[derive(Miniconf)]
+/// struct Nested {
+///     data: [u32; 2],
+/// }
+/// #[derive(Miniconf)]
+/// struct Settings {
+///     // Accessed with path `nested/data/0` or `nested/data/1`
+///     nested: Nested,
+///
+///     // Accessed with path `external`
+///     external: bool,
+/// }
 #[proc_macro_derive(Miniconf)]
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -21,6 +38,30 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 }
 
+/// Derive the Miniconf trait for a custom type that must be updated atomically.
+///
+/// This derive function should be used if the setting must be updated entirely at once (e.g.
+/// individual portions of the struct may not be updated independently).
+///
+/// See [Miniconf](derive.Miniconf.html) for more information.
+///
+/// # Example
+/// ```rust
+/// #[derive(MiniconfAtomic)]
+/// struct FilterParameters {
+///     coefficient: f32,
+///     length: usize,
+/// }
+///
+/// #[derive(Miniconf)]
+/// struct Settings {
+///     // Accessed with path `filter`, but `filter/length` and `filter/coefficients` are
+///     inaccessible.
+///     filter: FilterParameters,
+///
+///     // Accessed with path `external`
+///     external: bool,
+/// }
 #[proc_macro_derive(MiniconfAtomic)]
 pub fn derive_atomic(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
