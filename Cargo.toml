@@ -30,6 +30,7 @@ machine = "0.3"
 env_logger = "0.9"
 std-embedded-nal = "0.1"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
+std-embedded-time = "0.1"
 
 [[example]]
 name = "mqtt"
