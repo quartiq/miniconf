@@ -17,6 +17,10 @@ log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
 minimq = { version = "0.3", optional = true }
 
+[patch.crates-io.minimq]
+git = "https://github.com/quartiq/minimq"
+rev = "c2b0c41"
+
 [features]
 default = ["mqtt-client"]
 mqtt-client = ["minimq"]

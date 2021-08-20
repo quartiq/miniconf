@@ -24,24 +24,27 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
 use log::info;
+use minimq::embedded_time::Clock;
 
 /// MQTT settings interface.
-pub struct MqttClient<S, N>
+pub struct MqttClient<S, N, C>
 where
     S: Miniconf + Default,
     N: TcpClientStack,
+    C: Clock,
 {
     default_response_topic: String<128>,
-    mqtt: minimq::Minimq<N, 256>,
+    mqtt: minimq::Minimq<N, C, 256>,
     settings: S,
     subscribed: bool,
     settings_prefix: String<64>,
 }
 
-impl<S, N> MqttClient<S, N>
+impl<S, N, C> MqttClient<S, N, C>
 where
     S: Miniconf + Default,
     N: TcpClientStack,
+    C: Clock,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -50,13 +53,15 @@ where
     /// * `client_id` - The ID of the MQTT client. May be an empty string for auto-assigning.
     /// * `prefix` - The MQTT device prefix to use for this device.
     /// * `broker` - The IP address of the MQTT broker to use.
+    /// * `clock` - The clock for managing the MQTT connection.
     pub fn new(
         stack: N,
         client_id: &str,
         prefix: &str,
         broker: IpAddr,
+        clock: C,
     ) -> Result<Self, minimq::Error<N::Error>> {
-        let mqtt = minimq::Minimq::new(broker, client_id, stack)?;
+        let mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
 
         let mut response_topic: String<128> = String::from(prefix);
         response_topic.push_str("/log").unwrap();

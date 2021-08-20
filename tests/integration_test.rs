@@ -3,6 +3,36 @@ use miniconf::{minimq::QoS, Miniconf};
 use serde::Deserialize;
 use std_embedded_nal::Stack;
 
+use embedded_time::{fraction::Fraction, Clock};
+use std::time::Instant;
+
+#[derive(Default)]
+struct StdClock {
+    start: core::cell::UnsafeCell<Option<Instant>>,
+}
+
+impl Clock for StdClock {
+    type T = u32;
+
+    const SCALING_FACTOR: Fraction = Fraction::new(1, 1_000);
+
+    fn try_now(&self) -> Result<embedded_time::Instant<Self>, embedded_time::clock::Error> {
+        let std_now = Instant::now();
+        let start = unsafe {
+            if (*self.start.get()).is_none() {
+                (*self.start.get()).replace(std_now);
+                std_now
+            } else {
+                (*self.start.get()).unwrap()
+            }
+        };
+
+        let elapsed = std_now - start;
+
+        Ok(embedded_time::Instant::new(elapsed.as_millis() as u32))
+    }
+}
+
 #[macro_use]
 extern crate log;
 
@@ -88,11 +118,11 @@ fn main() -> std::io::Result<()> {
 
     // Construct a Minimq client to the broker for publishing requests.
     let mut mqtt: minimq::Minimq<_, 256> =
-        miniconf::minimq::Minimq::new(localhost, "tester", Stack::default()).unwrap();
+        miniconf::minimq::Minimq::new(localhost, "tester", Stack::default(), StdClock::default()).unwrap();
 
     // Construct a settings configuration interface.
     let mut interface: miniconf::MqttClient<Settings, _> =
-        miniconf::MqttClient::new(Stack::default(), "", "device", localhost).unwrap();
+        miniconf::MqttClient::new(Stack::default(), "", "device", localhost, StdClock::default()).unwrap();
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();
