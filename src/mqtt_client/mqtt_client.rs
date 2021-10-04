@@ -26,19 +26,19 @@ use crate::Miniconf;
 use log::info;
 
 /// MQTT settings interface.
-pub struct MqttClient<S, N>
+pub struct MqttClient<S, N, const T: usize>
 where
     S: Miniconf + Default,
     N: TcpClientStack,
 {
     default_response_topic: String<128>,
-    mqtt: minimq::Minimq<N, 256>,
+    mqtt: minimq::Minimq<N, T>,
     settings: S,
     subscribed: bool,
     settings_prefix: String<64>,
 }
 
-impl<S, N> MqttClient<S, N>
+impl<S, N, const T: usize> MqttClient<S, N, T>
 where
     S: Miniconf + Default,
     N: TcpClientStack,

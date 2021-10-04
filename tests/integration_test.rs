@@ -91,7 +91,7 @@ fn main() -> std::io::Result<()> {
         miniconf::minimq::Minimq::new(localhost, "tester", Stack::default()).unwrap();
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _> =
+    let mut interface: miniconf::MqttClient<Settings, _, 256> =
         miniconf::MqttClient::new(Stack::default(), "", "device", localhost).unwrap();
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
