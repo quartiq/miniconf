@@ -17,9 +17,10 @@ log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
 minimq = { version = "0.3", optional = true }
 
+# TODO: Remove patch
 [patch.crates-io.minimq]
 git = "https://github.com/quartiq/minimq"
-rev = "c2b0c41"
+branch = "rs/issue-53/receive-timeout-pings"
 
 [features]
 default = ["mqtt-client"]

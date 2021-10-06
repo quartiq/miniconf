@@ -85,7 +85,7 @@ where
     pub fn update(&mut self) -> Result<bool, minimq::Error<N::Error>> {
         // If we're no longer subscribed to the settings topic, but we are connected to the broker,
         // resubscribe.
-        if !self.subscribed && self.mqtt.client.is_connected()? {
+        if !self.subscribed && self.mqtt.client.is_connected() {
             log::info!("MQTT connected, subscribing to settings");
             // Note(unwrap): We construct a string with two more characters than the prefix
             // strucutre, so we are guaranteed to have space for storage.
