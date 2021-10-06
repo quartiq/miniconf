@@ -26,22 +26,22 @@ use crate::Miniconf;
 use log::info;
 
 /// MQTT settings interface.
-pub struct MqttClient<S, N, const T: usize>
+pub struct MqttClient<Settings, Stack, const MESSAGE_SIZE: usize>
 where
-    S: Miniconf + Default,
-    N: TcpClientStack,
+    Settings: Miniconf + Default,
+    Stack: TcpClientStack,
 {
     default_response_topic: String<128>,
-    mqtt: minimq::Minimq<N, T>,
-    settings: S,
+    mqtt: minimq::Minimq<Stack, MESSAGE_SIZE>,
+    settings: Settings,
     subscribed: bool,
     settings_prefix: String<64>,
 }
 
-impl<S, N, const T: usize> MqttClient<S, N, T>
+impl<Settings, Stack, const MESSAGE_SIZE: usize> MqttClient<Settings, Stack, MESSAGE_SIZE>
 where
-    S: Miniconf + Default,
-    N: TcpClientStack,
+    Settings: Miniconf + Default,
+    Stack: TcpClientStack,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -51,11 +51,11 @@ where
     /// * `prefix` - The MQTT device prefix to use for this device.
     /// * `broker` - The IP address of the MQTT broker to use.
     pub fn new(
-        stack: N,
+        stack: Stack,
         client_id: &str,
         prefix: &str,
         broker: IpAddr,
-    ) -> Result<Self, minimq::Error<N::Error>> {
+    ) -> Result<Self, minimq::Error<Stack::Error>> {
         let mqtt = minimq::Minimq::new(broker, client_id, stack)?;
 
         let mut response_topic: String<128> = String::from(prefix);
@@ -66,7 +66,7 @@ where
 
         Ok(Self {
             mqtt,
-            settings: S::default(),
+            settings: Settings::default(),
             settings_prefix,
             default_response_topic: response_topic,
             subscribed: false,
@@ -77,7 +77,7 @@ where
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn update(&mut self) -> Result<bool, minimq::Error<N::Error>> {
+    pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         // If we're no longer subscribed to the settings topic, but we are connected to the broker,
         // resubscribe.
         if !self.subscribed && self.mqtt.client.is_connected()? {
@@ -150,7 +150,7 @@ where
     }
 
     /// Get the current settings from miniconf.
-    pub fn settings(&self) -> &S {
+    pub fn settings(&self) -> &Settings {
         &self.settings
     }
 }
