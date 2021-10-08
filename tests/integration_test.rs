@@ -88,7 +88,7 @@ fn main() -> std::io::Result<()> {
     let localhost = "127.0.0.1".parse().unwrap();
 
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, _, 256> = miniconf::minimq::Minimq::new(
+    let mut mqtt: minimq::Minimq<_, _, 256, 1> = miniconf::minimq::Minimq::new(
         localhost,
         "tester",
         Stack::default(),
@@ -97,7 +97,7 @@ fn main() -> std::io::Result<()> {
     .unwrap();
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
+    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 1> = miniconf::MqttClient::new(
         Stack::default(),
         "",
         "device",

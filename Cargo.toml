@@ -15,12 +15,12 @@ serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
-minimq = { version = "0.3", optional = true }
 
 # TODO: Remove patch
-[patch.crates-io.minimq]
+[dependencies.minimq]
+optional = true
 git = "https://github.com/quartiq/minimq"
-branch = "rs/issue-53/receive-timeout-pings"
+branch = "release/0.4"
 
 [features]
 default = ["mqtt-client"]

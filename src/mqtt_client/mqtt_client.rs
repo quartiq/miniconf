@@ -27,21 +27,21 @@ use log::info;
 use minimq::embedded_time;
 
 /// MQTT settings interface.
-pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
+pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
     default_response_topic: String<128>,
-    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE>,
+    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>,
     settings: Settings,
     subscribed: bool,
     settings_prefix: String<64>,
 }
 
-impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
-    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
+impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
+    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
