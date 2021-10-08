@@ -27,7 +27,7 @@ async fn mqtt_client() {
     .unwrap();
 
     // Wait for the broker connection
-    while !mqtt.client.is_connected().unwrap() {
+    while !mqtt.client.is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -67,7 +67,7 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut client: MqttClient<Settings, Stack, StandardClock> = MqttClient::new(
+    let mut client: MqttClient<Settings, Stack, StandardClock, 256> = MqttClient::new(
         Stack::default(),
         "",
         "sample/prefix",

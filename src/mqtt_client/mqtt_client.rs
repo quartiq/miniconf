@@ -24,27 +24,28 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
 use log::info;
-use minimq::embedded_time::Clock;
+use minimq::embedded_time;
 
 /// MQTT settings interface.
-pub struct MqttClient<S, N, C>
+pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    S: Miniconf + Default,
-    N: TcpClientStack,
-    C: Clock,
+    Settings: Miniconf + Default,
+    Stack: TcpClientStack,
+    Clock: embedded_time::Clock,
 {
     default_response_topic: String<128>,
-    mqtt: minimq::Minimq<N, C, 256>,
-    settings: S,
+    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE>,
+    settings: Settings,
     subscribed: bool,
     settings_prefix: String<64>,
 }
 
-impl<S, N, C> MqttClient<S, N, C>
+impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
+    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    S: Miniconf + Default,
-    N: TcpClientStack,
-    C: Clock,
+    Settings: Miniconf + Default,
+    Stack: TcpClientStack,
+    Clock: embedded_time::Clock,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -55,12 +56,12 @@ where
     /// * `broker` - The IP address of the MQTT broker to use.
     /// * `clock` - The clock for managing the MQTT connection.
     pub fn new(
-        stack: N,
+        stack: Stack,
         client_id: &str,
         prefix: &str,
         broker: IpAddr,
-        clock: C,
-    ) -> Result<Self, minimq::Error<N::Error>> {
+        clock: Clock,
+    ) -> Result<Self, minimq::Error<Stack::Error>> {
         let mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
 
         let mut response_topic: String<128> = String::from(prefix);
@@ -71,7 +72,7 @@ where
 
         Ok(Self {
             mqtt,
-            settings: S::default(),
+            settings: Settings::default(),
             settings_prefix,
             default_response_topic: response_topic,
             subscribed: false,
@@ -82,7 +83,7 @@ where
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn update(&mut self) -> Result<bool, minimq::Error<N::Error>> {
+    pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         // If we're no longer subscribed to the settings topic, but we are connected to the broker,
         // resubscribe.
         if !self.subscribed && self.mqtt.client.is_connected() {
@@ -155,7 +156,7 @@ where
     }
 
     /// Get the current settings from miniconf.
-    pub fn settings(&self) -> &S {
+    pub fn settings(&self) -> &Settings {
         &self.settings
     }
 }

@@ -97,7 +97,7 @@ fn main() -> std::io::Result<()> {
     .unwrap();
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _> = miniconf::MqttClient::new(
+    let mut interface: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
         Stack::default(),
         "",
         "device",
@@ -122,7 +122,7 @@ fn main() -> std::io::Result<()> {
         let setting_update = interface.update().unwrap();
         match state {
             TestState::Started(_) => {
-                if timer.is_complete() && mqtt.client.is_connected().unwrap() {
+                if timer.is_complete() && mqtt.client.is_connected() {
                     // Subscribe to the default device log topic.
                     mqtt.client.subscribe("device/log", &[]).unwrap();
 
