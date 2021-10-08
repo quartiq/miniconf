@@ -15,12 +15,7 @@ serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
-
-# TODO: Remove patch
-[dependencies.minimq]
-optional = true
-git = "https://github.com/quartiq/minimq"
-branch = "release/0.4"
+minimq = "0.4"
 
 [features]
 default = ["mqtt-client"]
