@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 ### Changed
+* Updated minimq dependency to support ping TCP reconnection support
+
 ### Removed
 
 ## [0.1.0] - 2021-08-11

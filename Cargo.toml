@@ -15,7 +15,7 @@ serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
-minimq = { version = "0.3", optional = true }
+minimq = {version = "0.4", optional = true }
 
 [features]
 default = ["mqtt-client"]
@@ -26,6 +26,7 @@ machine = "0.3"
 env_logger = "0.9"
 std-embedded-nal = "0.1"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
+std-embedded-time = "0.1"
 
 [[example]]
 name = "mqtt"

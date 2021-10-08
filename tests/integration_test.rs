@@ -2,6 +2,7 @@ use machine::*;
 use miniconf::{minimq::QoS, Miniconf};
 use serde::Deserialize;
 use std_embedded_nal::Stack;
+use std_embedded_time::StandardClock;
 
 #[macro_use]
 extern crate log;
@@ -87,12 +88,23 @@ fn main() -> std::io::Result<()> {
     let localhost = "127.0.0.1".parse().unwrap();
 
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, 256> =
-        miniconf::minimq::Minimq::new(localhost, "tester", Stack::default()).unwrap();
+    let mut mqtt: minimq::Minimq<_, _, 256, 1> = miniconf::minimq::Minimq::new(
+        localhost,
+        "tester",
+        Stack::default(),
+        StandardClock::default(),
+    )
+    .unwrap();
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, 256> =
-        miniconf::MqttClient::new(Stack::default(), "", "device", localhost).unwrap();
+    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 1> = miniconf::MqttClient::new(
+        Stack::default(),
+        "",
+        "device",
+        localhost,
+        StandardClock::default(),
+    )
+    .unwrap();
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();
@@ -110,7 +122,7 @@ fn main() -> std::io::Result<()> {
         let setting_update = interface.update().unwrap();
         match state {
             TestState::Started(_) => {
-                if timer.is_complete() && mqtt.client.is_connected().unwrap() {
+                if timer.is_complete() && mqtt.client.is_connected() {
                     // Subscribe to the default device log topic.
                     mqtt.client.subscribe("device/log", &[]).unwrap();
 

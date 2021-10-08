@@ -24,24 +24,28 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
 use log::info;
+use minimq::embedded_time;
 
 /// MQTT settings interface.
-pub struct MqttClient<Settings, Stack, const MESSAGE_SIZE: usize>
+pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
+    Clock: embedded_time::Clock,
 {
     default_response_topic: String<128>,
-    mqtt: minimq::Minimq<Stack, MESSAGE_SIZE>,
+    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>,
     settings: Settings,
     subscribed: bool,
     settings_prefix: String<64>,
 }
 
-impl<Settings, Stack, const MESSAGE_SIZE: usize> MqttClient<Settings, Stack, MESSAGE_SIZE>
+impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
+    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
+    Clock: embedded_time::Clock,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -50,13 +54,15 @@ where
     /// * `client_id` - The ID of the MQTT client. May be an empty string for auto-assigning.
     /// * `prefix` - The MQTT device prefix to use for this device.
     /// * `broker` - The IP address of the MQTT broker to use.
+    /// * `clock` - The clock for managing the MQTT connection.
     pub fn new(
         stack: Stack,
         client_id: &str,
         prefix: &str,
         broker: IpAddr,
+        clock: Clock,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
-        let mqtt = minimq::Minimq::new(broker, client_id, stack)?;
+        let mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
 
         let mut response_topic: String<128> = String::from(prefix);
         response_topic.push_str("/log").unwrap();
@@ -80,7 +86,7 @@ where
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         // If we're no longer subscribed to the settings topic, but we are connected to the broker,
         // resubscribe.
-        if !self.subscribed && self.mqtt.client.is_connected()? {
+        if !self.subscribed && self.mqtt.client.is_connected() {
             log::info!("MQTT connected, subscribing to settings");
             // Note(unwrap): We construct a string with two more characters than the prefix
             // strucutre, so we are guaranteed to have space for storage.

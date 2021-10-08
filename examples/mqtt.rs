@@ -2,6 +2,7 @@ use miniconf::{Miniconf, MqttClient};
 use minimq::{Minimq, QoS};
 use std::time::Duration;
 use std_embedded_nal::Stack;
+use std_embedded_time::StandardClock;
 
 #[derive(Default, Miniconf, Debug)]
 struct NestedSettings {
@@ -17,11 +18,16 @@ struct Settings {
 
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: Minimq<_, 256> =
-        Minimq::new("127.0.0.1".parse().unwrap(), "tester", Stack::default()).unwrap();
+    let mut mqtt: Minimq<_, _, 256, 1> = Minimq::new(
+        "127.0.0.1".parse().unwrap(),
+        "tester",
+        Stack::default(),
+        StandardClock::default(),
+    )
+    .unwrap();
 
     // Wait for the broker connection
-    while !mqtt.client.is_connected().unwrap() {
+    while !mqtt.client.is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -61,11 +67,12 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut client: MqttClient<Settings, Stack, 256> = MqttClient::new(
+    let mut client: MqttClient<Settings, Stack, StandardClock, 256, 1> = MqttClient::new(
         Stack::default(),
         "",
         "sample/prefix",
         "127.0.0.1".parse().unwrap(),
+        StandardClock::default(),
     )
     .unwrap();
 

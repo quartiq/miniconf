@@ -64,6 +64,9 @@ pub use mqtt_client::MqttClient;
 #[cfg(feature = "mqtt-client")]
 pub use minimq;
 
+#[cfg(feature = "mqtt-client")]
+pub use minimq::embedded_time;
+
 pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
