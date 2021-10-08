@@ -18,7 +18,7 @@ struct Settings {
 
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: Minimq<_, _, 256, 3> = Minimq::new(
+    let mut mqtt: Minimq<_, _, 256, 1> = Minimq::new(
         "127.0.0.1".parse().unwrap(),
         "tester",
         Stack::default(),
@@ -67,7 +67,7 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut client: MqttClient<Settings, Stack, StandardClock, 256, 3> = MqttClient::new(
+    let mut client: MqttClient<Settings, Stack, StandardClock, 256, 1> = MqttClient::new(
         Stack::default(),
         "",
         "sample/prefix",
