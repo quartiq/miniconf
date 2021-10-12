@@ -2,6 +2,12 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput};
 
+/// Represents a type definition with associated generics.
+struct TypeDefinition {
+    pub generics: syn::Generics,
+    pub name: syn::Ident,
+}
+
 /// Derive the Miniconf trait for custom types.
 ///
 /// Each field of the struct will be recursively used to construct a unique path for all elements.
@@ -30,10 +36,14 @@ use syn::{parse_macro_input, DeriveInput};
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let name = input.ident.clone();
+    let typedef = TypeDefinition {
+        generics: input.generics,
+        name: input.ident,
+    };
+
     match input.data {
-        syn::Data::Struct(struct_data) => derive_struct(name, struct_data, false),
-        syn::Data::Enum(enum_data) => derive_enum(name, enum_data),
+        syn::Data::Struct(struct_data) => derive_struct(typedef, struct_data, false),
+        syn::Data::Enum(enum_data) => derive_enum(typedef, enum_data),
         syn::Data::Union(_) => unimplemented!(),
     }
 }
@@ -66,10 +76,14 @@ pub fn derive(input: TokenStream) -> TokenStream {
 pub fn derive_atomic(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let name = input.ident.clone();
+    let typedef = TypeDefinition {
+        generics: input.generics,
+        name: input.ident,
+    };
+
     match input.data {
-        syn::Data::Struct(struct_data) => derive_struct(name, struct_data, true),
-        syn::Data::Enum(enum_data) => derive_enum(name, enum_data),
+        syn::Data::Struct(struct_data) => derive_struct(typedef, struct_data, true),
+        syn::Data::Enum(enum_data) => derive_enum(typedef, enum_data),
         syn::Data::Union(_) => unimplemented!(),
     }
 }
@@ -77,24 +91,27 @@ pub fn derive_atomic(input: TokenStream) -> TokenStream {
 /// Derive the Miniconf trait for structs.
 ///
 /// # Args
-/// * `name` - The name of the enum
+/// * `typedef` - The type definition.
 /// * `data` - The data associated with the struct definition.
 /// * `atomic` - specified true if the data must be updated atomically. If false, data must be
 ///   set at a terminal node.
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> TokenStream {
+fn derive_struct(typedef: TypeDefinition, data: syn::DataStruct, atomic: bool) -> TokenStream {
     let fields = match data.fields {
         syn::Fields::Named(syn::FieldsNamed { ref named, .. }) => named,
         _ => unimplemented!("Only named fields are supported in structs."),
     };
 
+    let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
+    let name = typedef.name;
+
     // If this structure must be updated atomically, it is not valid to call Miniconf recursively
     // on its members.
     if atomic {
         let data = quote! {
-            impl miniconf::Miniconf for #name {
+            impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
                 fn string_set(&mut self, mut topic_parts:
                 core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
                 Result<(), miniconf::Error> {
@@ -122,7 +139,7 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> Token
     });
 
     let expanded = quote! {
-        impl miniconf::Miniconf for #name {
+        impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
@@ -142,12 +159,12 @@ fn derive_struct(name: syn::Ident, data: syn::DataStruct, atomic: bool) -> Token
 /// Derive the Miniconf trait for simple enums.
 ///
 /// # Args
-/// * `name` - The name of the enum
+/// * `typedef` - The type definition.
 /// * `data` - The data associated with the enum definition.
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_enum(name: syn::Ident, data: syn::DataEnum) -> TokenStream {
+fn derive_enum(typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream {
     // Only support simple enums, check each field
     for v in data.variants.iter() {
         match v.fields {
@@ -158,8 +175,11 @@ fn derive_enum(name: syn::Ident, data: syn::DataEnum) -> TokenStream {
         }
     }
 
+    let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
+    let name = typedef.name;
+
     let expanded = quote! {
-        impl miniconf::Miniconf for #name {
+        impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
             fn string_set(&mut self, mut topic_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
