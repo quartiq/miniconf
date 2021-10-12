@@ -6,6 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 * Added support for generic maximum MQTT message size
+* `derive_miniconf` added support for generic types
 
 ### Added
 
