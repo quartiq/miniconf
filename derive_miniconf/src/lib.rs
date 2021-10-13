@@ -29,7 +29,7 @@ impl TypeDefinition {
             .push(parse_quote!(Self: miniconf::DeserializeOwned));
     }
 
-    // Bound all generics of the type with `T: miniconf::DeserializeOwned`. This is necessary to
+    // Bound all generics of the type with `T: miniconf::DeserializeOwned + Miniconf`. This is necessary to
     // make `MiniconfAtomic` and enum derives work properly.
     fn bound_generics(&mut self) {
         for generic in &mut self.generics.params {
