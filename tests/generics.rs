@@ -49,3 +49,26 @@ fn generic_struct() {
 
     assert_eq!(settings.inner.data, 3.0);
 }
+
+#[test]
+fn generic_atomic() {
+    #[derive(Miniconf, Default)]
+    struct Settings<T> {
+        pub atomic: Inner<T>,
+    }
+
+    #[derive(Deserialize, MiniconfAtomic, Default)]
+    struct Inner<T> {
+        pub inner: [T; 5],
+    }
+
+    let mut settings = Settings::<f32>::default();
+    settings
+        .string_set(
+            "atomic".split('/').peekable(),
+            b"{\"inner\": [3.0, 0, 0, 0, 0]}",
+        )
+        .unwrap();
+
+    assert_eq!(settings.atomic.inner[0], 3.0);
+}
