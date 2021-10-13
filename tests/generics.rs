@@ -33,7 +33,7 @@ fn generic_array() {
 #[test]
 fn generic_struct() {
     #[derive(Miniconf, Default)]
-    struct Settings<T: Miniconf> {
+    struct Settings<T> {
         pub inner: T,
     }
 

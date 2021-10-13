@@ -37,6 +37,7 @@ impl TypeDefinition {
                 type_param
                     .bounds
                     .push(parse_quote!(miniconf::DeserializeOwned));
+                type_param.bounds.push(parse_quote!(miniconf::Miniconf));
             }
         }
     }
