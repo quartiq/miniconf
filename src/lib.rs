@@ -169,10 +169,7 @@ macro_rules! impl_single {
     };
 }
 
-impl<T, const N: usize> Miniconf for [T; N]
-where
-    T: Miniconf + core::marker::Copy + DeserializeOwned,
-{
+impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
     fn string_set(
         &mut self,
         mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
