@@ -1,11 +1,46 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, parse_quote, DeriveInput};
 
 /// Represents a type definition with associated generics.
 struct TypeDefinition {
     pub generics: syn::Generics,
     pub name: syn::Ident,
+}
+
+impl TypeDefinition {
+    pub fn new(generics: syn::Generics, name: syn::Ident) -> Self {
+        let mut typedef = TypeDefinition { generics, name };
+        typedef.bound_generics();
+
+        typedef
+    }
+
+    /// Bound the generated type definition to only implement when `Self: DeserializeOwned` for
+    /// cases when deserialization is required.
+    ///
+    /// # Note
+    /// This is equivalent to adding:
+    /// `where Self: DeserializeOwned` to the type definition.
+    pub fn add_deserialize_bound(&mut self) {
+        let where_clause = self.generics.make_where_clause();
+        where_clause
+            .predicates
+            .push(parse_quote!(Self: miniconf::DeserializeOwned));
+    }
+
+    // Bound all generics of the type with `T: miniconf::DeserializeOwned + Miniconf`. This is necessary to
+    // make `MiniconfAtomic` and enum derives work properly.
+    fn bound_generics(&mut self) {
+        for generic in &mut self.generics.params {
+            if let syn::GenericParam::Type(type_param) = generic {
+                type_param
+                    .bounds
+                    .push(parse_quote!(miniconf::DeserializeOwned));
+                type_param.bounds.push(parse_quote!(miniconf::Miniconf));
+            }
+        }
+    }
 }
 
 /// Derive the Miniconf trait for custom types.
@@ -36,10 +71,7 @@ struct TypeDefinition {
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let typedef = TypeDefinition {
-        generics: input.generics,
-        name: input.ident,
-    };
+    let typedef = TypeDefinition::new(input.generics, input.ident);
 
     match input.data {
         syn::Data::Struct(struct_data) => derive_struct(typedef, struct_data, false),
@@ -76,10 +108,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 pub fn derive_atomic(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let typedef = TypeDefinition {
-        generics: input.generics,
-        name: input.ident,
-    };
+    let typedef = TypeDefinition::new(input.generics, input.ident);
 
     match input.data {
         syn::Data::Struct(struct_data) => derive_struct(typedef, struct_data, true),
@@ -98,18 +127,21 @@ pub fn derive_atomic(input: TokenStream) -> TokenStream {
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_struct(typedef: TypeDefinition, data: syn::DataStruct, atomic: bool) -> TokenStream {
+fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: bool) -> TokenStream {
     let fields = match data.fields {
         syn::Fields::Named(syn::FieldsNamed { ref named, .. }) => named,
         _ => unimplemented!("Only named fields are supported in structs."),
     };
 
-    let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
-    let name = typedef.name;
-
     // If this structure must be updated atomically, it is not valid to call Miniconf recursively
     // on its members.
     if atomic {
+        // Bound the Miniconf implementation on Self implementing DeserializeOwned.
+        typedef.add_deserialize_bound();
+
+        let name = typedef.name;
+        let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
+
         let data = quote! {
             impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
                 fn string_set(&mut self, mut topic_parts:
@@ -138,6 +170,9 @@ fn derive_struct(typedef: TypeDefinition, data: syn::DataStruct, atomic: bool) -
         }
     });
 
+    let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
+    let name = typedef.name;
+
     let expanded = quote! {
         impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
             fn string_set(&mut self, mut topic_parts:
@@ -164,7 +199,7 @@ fn derive_struct(typedef: TypeDefinition, data: syn::DataStruct, atomic: bool) -
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_enum(typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream {
+fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream {
     // Only support simple enums, check each field
     for v in data.variants.iter() {
         match v.fields {
@@ -174,6 +209,8 @@ fn derive_enum(typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream {
             syn::Fields::Unit => {}
         }
     }
+
+    typedef.add_deserialize_bound();
 
     let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
     let name = typedef.name;
