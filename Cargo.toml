@@ -17,9 +17,14 @@ log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
 minimq = {version = "0.4", optional = true }
 
+uuid = {version = "0.8", features = ["v4"], optional = true}
+std-embedded-nal = {version = "0.1", optional = true}
+std-embedded-time = {version = "0.1", optional = true}
+
 [features]
 default = ["mqtt-client"]
 mqtt-client = ["minimq"]
+std = ["uuid", "std-embedded-time", "std-embedded-nal"]
 
 [dev-dependencies]
 machine = "0.3"

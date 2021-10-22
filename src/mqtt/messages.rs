@@ -1,13 +1,13 @@
 use crate::Error;
 use core::fmt::Write;
 use heapless::{String, Vec};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// The payload of the MQTT response message to a settings update request.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct SettingsResponse {
-    code: u8,
-    msg: String<64>,
+    pub code: u8,
+    pub msg: String<64>,
 }
 
 impl From<Result<(), Error>> for SettingsResponse {

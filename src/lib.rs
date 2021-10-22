@@ -1,4 +1,4 @@
-#![no_std]
+#!cfg_attr(not(feature = "std"), no_std)]
 //! # Miniconf
 //!
 //! Miniconf is a a lightweight utility to manage run-time configurable settings.
@@ -55,11 +55,10 @@
 //! * Complex enums
 //! * Tuples
 
-#[cfg(feature = "mqtt-client")]
-mod mqtt_client;
+mod mqtt;
 
 #[cfg(feature = "mqtt-client")]
-pub use mqtt_client::MqttClient;
+pub use mqtt::MqttClient;
 
 #[cfg(feature = "mqtt-client")]
 pub use minimq;
@@ -71,6 +70,9 @@ pub use serde::de::{Deserialize, DeserializeOwned};
 pub use serde_json_core;
 
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
+
+#[cfg(featre = "std")]
+pub use mqtt::miniconf_client::MiniconfClient;
 
 /// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
