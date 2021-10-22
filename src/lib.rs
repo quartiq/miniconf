@@ -71,8 +71,8 @@ pub use serde_json_core;
 
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
 
-#[cfg(featre = "std")]
-pub use mqtt::miniconf_client::MiniconfClient;
+#[cfg(feature = "std")]
+pub use mqtt::MiniconfClient;
 
 /// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
