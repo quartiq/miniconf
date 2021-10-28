@@ -17,13 +17,75 @@ use field_offset::offset_of;
 // structure instead of an array to save memory. We could perform this
 // optimization down the road if needed.
 
+trait MiniconfIter: serde::Serialize {
+    // default implementation is the base case for primitives where it will
+    // yield once for self, then return None on subsequent calls. Structs should
+    // implement this method if they should be recursed.
+    fn recursive_iter(&self, index: &mut [usize]) -> Option<String<serde_json_core::heapless::consts::U128>>
+    {
+        if index.len() == 0 {
+            // I don't expect this to happen...
+            unreachable!();
+            // return None;
+        }
+
+        let result = match index[0]
+        {
+            0 => Some(serde_json_core::to_string(&self).unwrap()),
+            _ => None,
+        };
+
+        index[0] += 1;
+        index[1..].iter_mut().for_each(|x| *x = 0);
+
+        result
+    }
+}
+
+impl MiniconfIter for u32 { }
+impl MiniconfIter for u8 { }
+
 #[derive(Debug, Default, Miniconf, Serialize, Deserialize)]
 struct AdditionalSettings {
     inner: u8,
     inner2: u32,
 }
 
-// impl<'a> IntoIterator
+impl MiniconfIter for AdditionalSettings {
+    fn recursive_iter(&self, index: &mut [usize]) -> Option<String<serde_json_core::heapless::consts::U128>> {
+        loop {
+            match index[0] {
+                0 => {
+                    if let Some(r) = self.inner.recursive_iter(&mut index[1..]) {
+                        // recursive iterator yielded a string, return it
+                        return Some(r);
+                    }
+                    else
+                    {
+                        //we're done recursively exploring this field, move to the next
+                        index[0] += 1;
+                        // reset the state of all following indices
+                        index[1..].iter_mut().for_each(|x| *x = 0);
+                    }
+                }
+                1 => {
+                    if let Some(r) = self.inner2.recursive_iter(&mut index[1..]) {
+                        // recursive iterator yielded a string, return it
+                        return Some(r);
+                    }
+                    else
+                    {
+                        //we're done recursively exploring this field, move to the next
+                        index[0] += 1;
+                        // reset the state of all following indices
+                        index[1..].iter_mut().for_each(|x| *x = 0);
+                    }
+                }
+                _ => return None,
+            };
+        }
+    }
+}
 
 #[derive(Debug, Default, Miniconf, Deserialize)]
 struct Settings {
@@ -31,37 +93,49 @@ struct Settings {
     more: AdditionalSettings,
 }
 
-struct SettingsIterRow<'a, T> {
-    topic: &'a str,
-    value_closure: fn(&'a T) -> String<serde_json_core::heapless::consts::U128>,
-}
 
+const STACK_SIZE: usize = 3;
 pub struct SettingsIter {
     settings: Settings,
-    index: usize,
+    index: [usize; STACK_SIZE],
+    // index: usize,
 }
 
 impl Iterator for SettingsIter{
-    type Item = (&'static str, String<serde_json_core::heapless::consts::U128>);
+    type Item = String<serde_json_core::heapless::consts::U128>;
     fn next(&mut self) -> Option<Self::Item> {
-        let result = match self.index {
-            0 => ("/data", serde_json_core::to_string(&self.settings.data).unwrap()),
-            1 => ("/more/inner", serde_json_core::to_string(&self.settings.more.inner).unwrap()),
-            2 => ("/more/inner2", serde_json_core::to_string(&self.settings.more.inner2).unwrap()),
-            _ => return None,
-        };
-        self.index += 1;
-        Some(result)
-    }
-}
-
-macro_rules! offset_entry {
-    ($t : expr ) => { 
-        |settings_struct| -> String<serde_json_core::heapless::consts::U128> {
-            let b = field_offset::offset_of!($t);
-            serde_json_core::to_string(b.apply(settings_struct)).unwrap()
+        loop {
+            match self.index[0] {
+                0 => {
+                    if let Some(r) = self.settings.data.recursive_iter(&mut self.index[1..]) {
+                        // recursive iterator yielded a string, return it
+                        return Some(r);
+                    }
+                    else
+                    {
+                        //we're done recursively exploring this field, move to the next
+                        self.index[0] += 1;
+                        // reset the state of all following indices
+                        self.index[1..].iter_mut().for_each(|x| *x = 0);
+                    }
+                }
+                1 => {
+                    if let Some(r) = self.settings.more.recursive_iter(&mut self.index[1..]) {
+                        // recursive iterator yielded a string, return it
+                        return Some(r);
+                    }
+                    else
+                    {
+                        //we're done recursively exploring this field, move to the next
+                        self.index[0] += 1;
+                        // reset the state of all following indices
+                        self.index[1..].iter_mut().for_each(|x| *x = 0);
+                    }
+                }
+                _ => return None,
+            };
         }
-    };
+    }
 }
 
 fn main() {
@@ -73,38 +147,13 @@ fn main() {
         },
     };
 
-    // let i = SettingsIter {
-    //     settings: s,
-    //     index: 0,
-    // };
-
-    // for mstr in i {
-    //     println!("{} {}", mstr.0, mstr.1);
-    // }
-
-    // Idea: struct will store an array of tuples of topic string as well as a
-    // lambda to compute the string of the field given the main settings struct.
-    // We might be able to hide all the type information behind the lambda,
-    // giving the lamda signature: fn x(T) -> &str
-
-    // let data_closure = offset_entry!(Settings=>data);
-
-    // let data_closure = |settings_struct| -> String<serde_json_core::heapless::consts::U128> {
-    //     let b = field_offset::offset_of!(Settings=>data);
-    //     serde_json_core::to_string(b.apply(settings_struct)).unwrap()
-    // };
-
-    let inner_closure = |settings_struct| -> String<serde_json_core::heapless::consts::U128> {
-        let offset = field_offset::offset_of!(Settings=>more: AdditionalSettings=>inner);
-        serde_json_core::to_string(offset.apply(settings_struct)).unwrap()
+    let i = SettingsIter {
+        settings: s,
+        index: [0; STACK_SIZE],
     };
 
-    let iter_table: [SettingsIterRow<Settings>; 2] = [
-        SettingsIterRow{topic: "more/inner", value_closure: inner_closure },
-        SettingsIterRow{topic: "data", value_closure: data_closure } 
-    ];
-
-    for row in iter_table {
-        println!("{} {}", row.topic, (row.value_closure)(&s));
+    for mstr in i {
+        println!("{}", mstr);
     }
+
 }
