@@ -8,6 +8,10 @@
 //! Miniconf uses a [Derive macro](derive.Miniconf.html) to automatically assign unique paths to
 //! each setting. All values are transmitted and received in JSON format.
 //!
+//! ## Features
+//! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
+//! To enable this feature, enable the `mqtt-client` feature.
+//!
 //! ## Supported Protocols
 //!
 //! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
@@ -27,7 +31,7 @@
 //!     backward: f32,
 //! }
 //!
-//! #[derive(Deserialize, Miniconf, Default)]
+//! #[derive(Miniconf, Default)]
 //! struct Settings {
 //!     filter: Coefficients,
 //!     channel_gain: [f32; 2],
@@ -35,18 +39,16 @@
 //!     force_update: bool,
 //! }
 //!
-//! fn main() {
-//!     let mut settings = Settings::default();
+//! let mut settings = Settings::default();
 //!
-//!     // Update sample rate.
-//!     miniconf::update(&mut settings, "sample_rate", b"350").unwrap();
+//! // Update sample rate.
+//! miniconf::update(&mut settings, "sample_rate", b"350").unwrap();
 //!
-//!     // Update filter coefficients.
-//!     miniconf::update(&mut settings, "filter", b"{\"forward\": 35.6, \"backward\": 0.0}").unwrap();
+//! // Update filter coefficients.
+//! miniconf::update(&mut settings, "filter", b"{\"forward\": 35.6, \"backward\": 0.0}").unwrap();
 //!
-//!     // Update channel gain for channel 0.
-//!     miniconf::update(&mut settings, "channel_gain/0", b"15").unwrap();
-//! }
+//! // Update channel gain for channel 0.
+//! miniconf::update(&mut settings, "channel_gain/0", b"15").unwrap();
 //! ```
 //!
 //! ## Limitations
@@ -67,7 +69,9 @@ pub use minimq;
 #[cfg(feature = "mqtt-client")]
 pub use minimq::embedded_time;
 
+#[doc(hidden)]
 pub use serde::de::{Deserialize, DeserializeOwned};
+
 pub use serde_json_core;
 
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
