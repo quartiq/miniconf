@@ -82,14 +82,21 @@ struct Settings {
     more: AdditionalSettings,
 }
 
-const STACK_SIZE: usize = 3;
-pub struct SettingsIter {
-    settings: Settings,
-    index: [usize; STACK_SIZE],
-    // index: usize,
+impl Settings {
+    fn into_miniconf_iter<'a>(self, index_stack: &'a mut [usize]) -> SettingsIter<'a> {
+        SettingsIter {
+            settings: self,
+            index: index_stack,
+        }
+    }
 }
 
-impl Iterator for SettingsIter{
+pub struct SettingsIter<'a> {
+    settings: Settings,
+    index: &'a mut [usize],
+}
+
+impl<'a> Iterator for SettingsIter<'a>{
     type Item = (String<128>, String<128>);
     fn next(&mut self) -> Option<Self::Item> {
         let mut topic: String<128> = String::new();
@@ -138,12 +145,9 @@ fn main() {
         },
     };
 
-    let i = SettingsIter {
-        settings: s,
-        index: [0; STACK_SIZE],
-    };
+    let mut index_stack = [0; 5];
 
-    for (topic, value) in i {
+    for (topic, value) in s.into_miniconf_iter(&mut index_stack) {
         println!("{} {}", topic, value);
     }
 
