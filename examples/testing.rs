@@ -21,7 +21,7 @@ trait MiniconfIter {
     // default implementation is the base case for primitives where it will
     // yield once for self, then return None on subsequent calls. Structs should
     // implement this method if they should be recursed.
-    fn recursive_iter(&self, index: &mut [usize], _topic: &mut String<serde_json_core::heapless::consts::U128>) -> Option<String<serde_json_core::heapless::consts::U128>>
+    fn recursive_iter(&self, index: &mut [usize], _topic: &mut String<128>) -> Option<String<128>>
     where Self: serde::Serialize 
     {
         if index.len() == 0 {
@@ -53,7 +53,7 @@ struct AdditionalSettings {
 }
 
 impl MiniconfIter for AdditionalSettings {
-    fn recursive_iter(&self, index: &mut [usize], topic: &mut String<serde_json_core::heapless::consts::U128>) -> Option<String<serde_json_core::heapless::consts::U128>> {
+    fn recursive_iter(&self, index: &mut [usize], topic: &mut String<128>) -> Option<String<128>> {
         loop {
             match index[0] {
                 0 => {
@@ -104,9 +104,9 @@ pub struct SettingsIter {
 }
 
 impl Iterator for SettingsIter{
-    type Item = (String<serde_json_core::heapless::consts::U128>, String<serde_json_core::heapless::consts::U128>);
+    type Item = (String<128>, String<128>);
     fn next(&mut self) -> Option<Self::Item> {
-        let mut topic: String<serde_json_core::heapless::consts::U128> = String::new();
+        let mut topic: String<128> = String::new();
         loop {
             match self.index[0] {
                 0 => {
