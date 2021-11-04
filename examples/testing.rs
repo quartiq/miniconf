@@ -2,7 +2,7 @@
 use serde_json_core::heapless::String;
 use miniconf::Miniconf;
 use serde::{Serialize,Deserialize};
-use field_offset::offset_of;
+// use field_offset::offset_of;
 // Let's build an array that contains a tuple of the settings topics (since they
 // all need to be stored in flash anyways, might as well put them in an iterable
 // structure). While we're at it, we can also store the offset of the setting in
@@ -17,11 +17,12 @@ use field_offset::offset_of;
 // structure instead of an array to save memory. We could perform this
 // optimization down the road if needed.
 
-trait MiniconfIter: serde::Serialize {
+trait MiniconfIter {
     // default implementation is the base case for primitives where it will
     // yield once for self, then return None on subsequent calls. Structs should
     // implement this method if they should be recursed.
-    fn recursive_iter(&self, index: &mut [usize]) -> Option<String<serde_json_core::heapless::consts::U128>>
+    fn recursive_iter(&self, index: &mut [usize], _topic: &mut String<serde_json_core::heapless::consts::U128>) -> Option<String<serde_json_core::heapless::consts::U128>>
+    where Self: serde::Serialize 
     {
         if index.len() == 0 {
             // I don't expect this to happen...
@@ -52,11 +53,12 @@ struct AdditionalSettings {
 }
 
 impl MiniconfIter for AdditionalSettings {
-    fn recursive_iter(&self, index: &mut [usize]) -> Option<String<serde_json_core::heapless::consts::U128>> {
+    fn recursive_iter(&self, index: &mut [usize], topic: &mut String<serde_json_core::heapless::consts::U128>) -> Option<String<serde_json_core::heapless::consts::U128>> {
         loop {
             match index[0] {
                 0 => {
-                    if let Some(r) = self.inner.recursive_iter(&mut index[1..]) {
+                    topic.push_str("/inner").unwrap();
+                    if let Some(r) = self.inner.recursive_iter(&mut index[1..], topic) {
                         // recursive iterator yielded a string, return it
                         return Some(r);
                     }
@@ -69,7 +71,8 @@ impl MiniconfIter for AdditionalSettings {
                     }
                 }
                 1 => {
-                    if let Some(r) = self.inner2.recursive_iter(&mut index[1..]) {
+                    topic.push_str("/inner2").unwrap();
+                    if let Some(r) = self.inner2.recursive_iter(&mut index[1..], topic) {
                         // recursive iterator yielded a string, return it
                         return Some(r);
                     }
@@ -93,7 +96,6 @@ struct Settings {
     more: AdditionalSettings,
 }
 
-
 const STACK_SIZE: usize = 3;
 pub struct SettingsIter {
     settings: Settings,
@@ -102,14 +104,16 @@ pub struct SettingsIter {
 }
 
 impl Iterator for SettingsIter{
-    type Item = String<serde_json_core::heapless::consts::U128>;
+    type Item = (String<serde_json_core::heapless::consts::U128>, String<serde_json_core::heapless::consts::U128>);
     fn next(&mut self) -> Option<Self::Item> {
+        let mut topic: String<serde_json_core::heapless::consts::U128> = String::new();
         loop {
             match self.index[0] {
                 0 => {
-                    if let Some(r) = self.settings.data.recursive_iter(&mut self.index[1..]) {
+                    topic.push_str("/data").unwrap();
+                    if let Some(r) = self.settings.data.recursive_iter(&mut self.index[1..], &mut topic) {
                         // recursive iterator yielded a string, return it
-                        return Some(r);
+                        return Some((topic, r));
                     }
                     else
                     {
@@ -120,9 +124,10 @@ impl Iterator for SettingsIter{
                     }
                 }
                 1 => {
-                    if let Some(r) = self.settings.more.recursive_iter(&mut self.index[1..]) {
+                    topic.push_str("/more").unwrap();
+                    if let Some(r) = self.settings.more.recursive_iter(&mut self.index[1..], &mut topic) {
                         // recursive iterator yielded a string, return it
-                        return Some(r);
+                        return Some((topic,r));
                     }
                     else
                     {
@@ -152,8 +157,8 @@ fn main() {
         index: [0; STACK_SIZE],
     };
 
-    for mstr in i {
-        println!("{}", mstr);
+    for (topic, value) in i {
+        println!("{} {}", topic, value);
     }
 
 }
