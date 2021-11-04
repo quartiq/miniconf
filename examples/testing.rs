@@ -2,20 +2,6 @@
 use serde_json_core::heapless::String;
 use miniconf::Miniconf;
 use serde::{Serialize,Deserialize};
-// use field_offset::offset_of;
-// Let's build an array that contains a tuple of the settings topics (since they
-// all need to be stored in flash anyways, might as well put them in an iterable
-// structure). While we're at it, we can also store the offset of the setting in
-// memory for quick lookups? Can we do this safely? If not, recursive
-// string_get() should work. Perhaps we can safely get a reference.
-// https://crates.io/crates/field-offset looks good for storing struct offsets
-// and using them later. When we implement the iterator for the struct, it can
-// use this array of topic names and offsets for accessing the underlying
-// settings.
-
-// Theoretically we could store all of the topic strings in a suffix trie like
-// structure instead of an array to save memory. We could perform this
-// optimization down the road if needed.
 
 trait MiniconfIter {
     // default implementation is the base case for primitives where it will
