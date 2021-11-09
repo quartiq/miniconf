@@ -24,7 +24,7 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
 use log::info;
-use minimq::embedded_time;
+use minimq::{embedded_time, QoS, Retain};
 
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
@@ -71,8 +71,8 @@ where
             .set_will(
                 &connection_topic,
                 "0".as_bytes(),
-                minimq::QoS::AtMostOnce,
-                true,
+                QoS::AtMostOnce,
+                Retain::Retained,
                 &[],
             )
             .unwrap();
@@ -116,8 +116,8 @@ where
                 .publish(
                     &connection_topic,
                     "1".as_bytes(),
-                    minimq::QoS::AtMostOnce,
-                    true,
+                    QoS::AtMostOnce,
+                    Retain::Retained,
                     &[],
                 )
                 .unwrap();
@@ -166,8 +166,8 @@ where
                     &response.message,
                     // TODO: When Minimq supports more QoS levels, this should be increased to
                     // ensure that the client has received it at least once.
-                    minimq::QoS::AtMostOnce,
-                    false,
+                    QoS::AtMostOnce,
+                    Retain::NotRetained,
                     &response.properties,
                 )
                 .ok();

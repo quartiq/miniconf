@@ -1,5 +1,5 @@
 use miniconf::{Miniconf, MqttClient};
-use minimq::{Minimq, QoS};
+use minimq::{Minimq, QoS, Retain};
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -42,7 +42,7 @@ async fn mqtt_client() {
             "sample/prefix/settings/amplitude/0",
             b"32.4",
             QoS::AtMostOnce,
-            false,
+            Retain::NotRetained,
             &[],
         )
         .unwrap();
@@ -53,7 +53,7 @@ async fn mqtt_client() {
             "sample/prefix/settings/inner/frame_rate",
             b"10",
             QoS::AtMostOnce,
-            false,
+            Retain::NotRetained,
             &[],
         )
         .unwrap();
@@ -64,7 +64,7 @@ async fn mqtt_client() {
             "sample/prefix/settings/exit",
             b"true",
             QoS::AtMostOnce,
-            false,
+            Retain::NotRetained,
             &[],
         )
         .unwrap();
