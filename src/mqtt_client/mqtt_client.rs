@@ -33,11 +33,11 @@ where
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
-    default_response_topic: String<128>,
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>,
     settings: Settings,
     subscribed: bool,
     settings_prefix: String<64>,
+    prefix: String<64>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
@@ -62,10 +62,20 @@ where
         broker: IpAddr,
         clock: Clock,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
-        let mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
+        let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
 
-        let mut response_topic: String<128> = String::from(prefix);
-        response_topic.push_str("/log").unwrap();
+        // Configure a will so that we can indicate whether or not we are connected.
+        let mut connection_topic: String<75> = String::from(prefix);
+        connection_topic.push_str("/connected").unwrap();
+        mqtt.client
+            .set_will(
+                &connection_topic,
+                "0".as_bytes(),
+                minimq::QoS::AtMostOnce,
+                true,
+                &[],
+            )
+            .unwrap();
 
         let mut settings_prefix: String<64> = String::from(prefix);
         settings_prefix.push_str("/settings").unwrap();
@@ -74,7 +84,7 @@ where
             mqtt,
             settings: Settings::default(),
             settings_prefix,
-            default_response_topic: response_topic,
+            prefix: String::from(prefix),
             subscribed: false,
         })
     }
@@ -97,13 +107,30 @@ where
             // failure will be logged through the stabilizer logging interface.
             self.mqtt.client.subscribe(&settings_topic, &[]).unwrap();
             self.subscribed = true;
+
+            // Publish a connection status message.
+            let mut connection_topic: String<75> = String::from(self.prefix.as_str());
+            connection_topic.push_str("/connected").unwrap();
+            self.mqtt
+                .client
+                .publish(
+                    &connection_topic,
+                    "1".as_bytes(),
+                    minimq::QoS::AtMostOnce,
+                    true,
+                    &[],
+                )
+                .unwrap();
         }
 
         // Handle any MQTT traffic.
         let settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
-        let default_response_topic = self.default_response_topic.as_str();
+
+        let mut response_topic: String<70> = String::from(self.prefix.as_str());
+        response_topic.push_str("/log").unwrap();
+        let default_response_topic = response_topic.as_str();
 
         let mut update = false;
         match mqtt.poll(|client, topic, message, properties| {
@@ -140,6 +167,7 @@ where
                     // TODO: When Minimq supports more QoS levels, this should be increased to
                     // ensure that the client has received it at least once.
                     minimq::QoS::AtMostOnce,
+                    false,
                     &response.properties,
                 )
                 .ok();
