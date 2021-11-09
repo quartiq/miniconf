@@ -18,8 +18,7 @@ heapless = { version = "0.7", features = ["serde"] }
 
 [dependencies.minimq]
 git = "https://github.com/quartiq/minimq"
-branch = "feature/will-support"
-# version = "0.4"
+branch = "master"
 optional = true
 
 [features]
