@@ -142,8 +142,14 @@ pub trait Miniconf {
     // default implementation is the base case for primitives where it will
     // yield once for self, then return None on subsequent calls. Structs should
     // implement this method if they should be recursed.
-    fn recursive_iter<const TS: usize, const VS: usize>(&self, index: &mut [usize], _topic: &mut heapless::String<TS>, value: &mut heapless::String<VS>) -> Option<()>
-    where Self: serde::Serialize
+    fn recursive_iter<const TS: usize, const VS: usize>(
+        &self,
+        index: &mut [usize],
+        _topic: &mut heapless::String<TS>,
+        value: &mut heapless::String<VS>,
+    ) -> Option<()>
+    where
+        Self: serde::Serialize,
     {
         if index.len() == 0 {
             // I don't expect this to happen...
@@ -155,12 +161,11 @@ pub trait Miniconf {
         index[0] += 1;
         index[1..].iter_mut().for_each(|x| *x = 0);
 
-        match i 
-        {
+        match i {
             0 => {
                 *value = serde_json_core::to_string(&self).unwrap();
                 Some(())
-            },
+            }
             _ => None,
         }
     }
