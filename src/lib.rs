@@ -74,7 +74,9 @@ pub use serde::de::{Deserialize, DeserializeOwned};
 
 pub use serde_json_core;
 
-pub use derive_miniconf::{Miniconf, MiniconfAtomic};
+pub use derive_miniconf::{Miniconf, MiniconfAtomic, MiniconfIter};
+
+pub use heapless;
 
 /// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
@@ -137,6 +139,35 @@ pub trait Miniconf {
         value: &[u8],
     ) -> Result<(), Error>;
 }
+
+pub trait MiniconfIter {
+    // default implementation is the base case for primitives where it will
+    // yield once for self, then return None on subsequent calls. Structs should
+    // implement this method if they should be recursed.
+    fn recursive_iter(&self, index: &mut [usize], _topic: &mut heapless::String<128>) -> Option<heapless::String<128>>
+    where Self: serde::Serialize
+    {
+        if index.len() == 0 {
+            // I don't expect this to happen...
+            unreachable!();
+            // return None;
+        }
+
+        let result = match index[0]
+        {
+            0 => Some(serde_json_core::to_string(&self).unwrap()),
+            _ => None,
+        };
+
+        index[0] += 1;
+        index[1..].iter_mut().for_each(|x| *x = 0);
+
+        result
+    }
+}
+
+impl MiniconfIter for u32 { }
+impl MiniconfIter for u8 { }
 
 /// Convenience function to update settings directly from a string path and data.
 ///

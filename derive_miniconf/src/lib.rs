@@ -233,3 +233,57 @@ fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream 
 
     TokenStream::from(expanded)
 }
+
+#[proc_macro_derive(MiniconfIter)]
+pub fn derive_miniconf_iter(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+
+    let typedef = TypeDefinition::new(input.generics, input.ident);
+
+    match input.data {
+        syn::Data::Struct(struct_data) => derive_struct_miniconf_iter(typedef, struct_data),
+        syn::Data::Enum(enum_data) => unimplemented!(),
+        syn::Data::Union(_) => unimplemented!(),
+    }
+}
+
+fn derive_struct_miniconf_iter(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStream {
+    let fields = match data.fields {
+        syn::Fields::Named(syn::FieldsNamed {ref named, .. }) => named,
+        _ => unimplemented!("Only named fields are supported in structs."),
+    };
+
+    let match_arms = fields.iter().enumerate().map(|(i, f)| {
+        let field_name = &f.ident;
+        quote! {
+            #i => {
+                topic.push_str(concat!("/", stringify!(#field_name))).unwrap();
+                if let Some(r) = self.#field_name.recursive_iter(&mut index[1..], topic) {
+                    return Some(r);
+                }
+                else {
+                    index[0] += 1;
+                    index[1..].iter_mut().for_each(|x| *x = 0);
+                }
+            }
+        }
+    });
+
+    let name = typedef.name;
+
+    let expanded = quote! {
+        impl miniconf::MiniconfIter for #name {
+            fn recursive_iter(&self, index: &mut [usize], topic: &mut String<128>) -> Option<String<128>> {
+                loop {
+                    match index[0] {
+                        #(#match_arms ,)*
+                        _ => return None,
+
+                    };
+                }
+            }
+        }
+    };
+
+    TokenStream::from(expanded)
+}
