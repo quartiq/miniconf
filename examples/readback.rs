@@ -54,32 +54,28 @@ struct Settings {
 }
 
 impl Settings {
-    fn into_miniconf_iter<'a>(self, index_stack: &'a mut [usize],
-        topic_buffer: &'a mut String<128>,
-        value_buffer: &'a mut String<128>
-        ) -> SettingsIter<'a> {
+    fn miniconf_iter<'a, 'b, const TS: usize, const VS: usize>(&'b self, index_stack: &'a mut [usize],
+        ) -> SettingsIter<'a, 'b, TS, VS> {
         SettingsIter {
-            settings: self,
+            settings: &self,
             index: index_stack,
-            topic_buffer,
-            value_buffer,
         }
     }
 }
 
-pub struct SettingsIter<'a> {
-    settings: Settings,
+pub struct SettingsIter<'a, 'b, const TS: usize, const VS: usize> {
+    settings: &'b Settings,
     index: &'a mut [usize],
-    topic_buffer: &'a mut String<128>,
-    value_buffer: &'a mut String<128>,
 }
 
-impl<'a> Iterator for SettingsIter<'a>{
-    type Item = (String<128>, String<128>);
-    fn next(&mut self) -> Option<(String<128>, String<128>)> {
-        self.topic_buffer.clear();
-        if let Some(()) = self.settings.recursive_iter(&mut self.index, &mut self.topic_buffer, &mut self.value_buffer) {
-            Some((self.topic_buffer.clone(), self.value_buffer.clone()))
+impl<'a, const TS: usize, const VS: usize> Iterator for SettingsIter<'a, '_, TS, VS>{
+    type Item = (String<TS>, String<VS>);
+    fn next(&mut self) -> Option<(String<TS>, String<VS>)> {
+        let mut topic_buffer: String<TS> = String::new();
+        let mut value_buffer: String<VS> = String::new();
+        topic_buffer.clear();
+        if let Some(()) = self.settings.recursive_iter::<TS, VS>(&mut self.index, &mut topic_buffer, &mut value_buffer) {
+            Some((topic_buffer, value_buffer))
         }
         else {
             None
@@ -88,7 +84,7 @@ impl<'a> Iterator for SettingsIter<'a>{
 }
 
 fn main() {
-    let s = Settings {
+    let mut s = Settings {
         data: 1,
         more: AdditionalSettings {
             inner: 5,
@@ -96,12 +92,23 @@ fn main() {
         },
     };
 
-    let mut index_stack = [0; 1];
-    let mut topic_buffer = String::new();
-    let mut value_buffer = String::new();
+    // Maintains our state of iteration
+    let mut iterator_state = [0; 5];
 
-    for (topic, value) in s.into_miniconf_iter(&mut index_stack, &mut topic_buffer, &mut value_buffer) {
+    let mut settings_iter = s.miniconf_iter::<128, 10>(&mut iterator_state);
+
+    // Just get one topic/value from the iterator
+    if let Some((topic, value)) = settings_iter.next() {
         println!("{} {}", topic, value);
     }
 
+    // Modify settings data, proving iterator is out of scope and has released
+    // the settings
+    s.data = 3;
+
+    // Create a new settings iterator, print remaining values
+    let settings_iter = s.miniconf_iter::<128, 10>(&mut iterator_state);
+    for (topic, value) in settings_iter {
+        println!("{} {}", topic, value);
+    }
 }

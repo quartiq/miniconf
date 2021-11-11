@@ -202,7 +202,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                 }
             }
 
-            fn recursive_iter(&self, index: &mut [usize], topic: &mut heapless::String<128>, value: &mut heapless::String<128>) -> Option<()> {
+            fn recursive_iter<const TS: usize, const VS: usize>(&self, index: &mut [usize], topic: &mut heapless::String<TS>, value: &mut heapless::String<VS>) -> Option<()> {
 
                 if index.len() == 0 {
                     panic!("index stack too small");

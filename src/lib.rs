@@ -142,7 +142,7 @@ pub trait Miniconf {
     // default implementation is the base case for primitives where it will
     // yield once for self, then return None on subsequent calls. Structs should
     // implement this method if they should be recursed.
-    fn recursive_iter(&self, index: &mut [usize], _topic: &mut heapless::String<128>, value: &mut heapless::String<128>) -> Option<()>
+    fn recursive_iter<const TS: usize, const VS: usize>(&self, index: &mut [usize], _topic: &mut heapless::String<TS>, value: &mut heapless::String<VS>) -> Option<()>
     where Self: serde::Serialize
     {
         if index.len() == 0 {
