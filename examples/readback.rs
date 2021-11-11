@@ -3,10 +3,7 @@ use serde_json_core::heapless::String;
 use miniconf::Miniconf;
 use serde::{Serialize,Deserialize};
 
-use miniconf::MiniconfIter;
-
-
-#[derive(Debug, Default, Miniconf, MiniconfIter, Serialize, Deserialize)]
+#[derive(Debug, Default, Miniconf, Serialize, Deserialize)]
 struct AdditionalSettings {
     inner: u8,
     inner2: u32,
@@ -50,17 +47,22 @@ struct AdditionalSettings {
 //     }
 // }
 
-#[derive(Debug, Default, Miniconf, Deserialize)]
+#[derive(Debug, Default, Miniconf, Serialize, Deserialize)]
 struct Settings {
-    data: u32,
     more: AdditionalSettings,
+    data: u32,
 }
 
 impl Settings {
-    fn into_miniconf_iter<'a>(self, index_stack: &'a mut [usize]) -> SettingsIter<'a> {
+    fn into_miniconf_iter<'a>(self, index_stack: &'a mut [usize],
+        topic_buffer: &'a mut String<128>,
+        value_buffer: &'a mut String<128>
+        ) -> SettingsIter<'a> {
         SettingsIter {
             settings: self,
             index: index_stack,
+            topic_buffer,
+            value_buffer,
         }
     }
 }
@@ -68,44 +70,19 @@ impl Settings {
 pub struct SettingsIter<'a> {
     settings: Settings,
     index: &'a mut [usize],
+    topic_buffer: &'a mut String<128>,
+    value_buffer: &'a mut String<128>,
 }
 
 impl<'a> Iterator for SettingsIter<'a>{
     type Item = (String<128>, String<128>);
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut topic: String<128> = String::new();
-        loop {
-            match self.index[0] {
-                0 => {
-                    topic.push_str("/data").unwrap();
-                    if let Some(r) = self.settings.data.recursive_iter(&mut self.index[1..], &mut topic) {
-                        // recursive iterator yielded a string, return it
-                        return Some((topic, r));
-                    }
-                    else
-                    {
-                        //we're done recursively exploring this field, move to the next
-                        self.index[0] += 1;
-                        // reset the state of all following indices
-                        self.index[1..].iter_mut().for_each(|x| *x = 0);
-                    }
-                }
-                1 => {
-                    topic.push_str("/more").unwrap();
-                    if let Some(r) = self.settings.more.recursive_iter(&mut self.index[1..], &mut topic) {
-                        // recursive iterator yielded a string, return it
-                        return Some((topic,r));
-                    }
-                    else
-                    {
-                        //we're done recursively exploring this field, move to the next
-                        self.index[0] += 1;
-                        // reset the state of all following indices
-                        self.index[1..].iter_mut().for_each(|x| *x = 0);
-                    }
-                }
-                _ => return None,
-            };
+    fn next(&mut self) -> Option<(String<128>, String<128>)> {
+        self.topic_buffer.clear();
+        if let Some(()) = self.settings.recursive_iter(&mut self.index, &mut self.topic_buffer, &mut self.value_buffer) {
+            Some((self.topic_buffer.clone(), self.value_buffer.clone()))
+        }
+        else {
+            None
         }
     }
 }
@@ -119,9 +96,11 @@ fn main() {
         },
     };
 
-    let mut index_stack = [0; 5];
+    let mut index_stack = [0; 1];
+    let mut topic_buffer = String::new();
+    let mut value_buffer = String::new();
 
-    for (topic, value) in s.into_miniconf_iter(&mut index_stack) {
+    for (topic, value) in s.into_miniconf_iter(&mut index_stack, &mut topic_buffer, &mut value_buffer) {
         println!("{} {}", topic, value);
     }
 
