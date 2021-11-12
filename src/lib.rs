@@ -139,36 +139,12 @@ pub trait Miniconf {
         value: &[u8],
     ) -> Result<(), Error>;
 
-    // default implementation is the base case for primitives where it will
-    // yield once for self, then return None on subsequent calls. Structs should
-    // implement this method if they should be recursed.
     fn recursive_iter<const TS: usize, const VS: usize>(
         &self,
         index: &mut [usize],
         _topic: &mut heapless::String<TS>,
         value: &mut heapless::String<VS>,
-    ) -> Option<()>
-    where
-        Self: serde::Serialize,
-    {
-        if index.len() == 0 {
-            // I don't expect this to happen...
-            panic!("index stack too small");
-            // return None;
-        }
-
-        let i = index[0];
-        index[0] += 1;
-        index[1..].iter_mut().for_each(|x| *x = 0);
-
-        match i {
-            0 => {
-                *value = serde_json_core::to_string(&self).unwrap();
-                Some(())
-            }
-            _ => None,
-        }
-    }
+    ) -> Option<()>;
 }
 
 /// Convenience function to update settings directly from a string path and data.
@@ -202,6 +178,36 @@ macro_rules! impl_single {
                 *self = serde_json_core::from_slice(value)?.0;
                 Ok(())
             }
+
+            // This implementation is the base case for primitives where it will
+            // yield once for self, then return None on subsequent calls.
+            fn recursive_iter<const TS: usize, const VS: usize>(
+                &self,
+                index: &mut [usize],
+                _topic: &mut heapless::String<TS>,
+                value: &mut heapless::String<VS>,
+            ) -> Option<()>
+            where
+                Self: serde::Serialize,
+            {
+                if index.len() == 0 {
+                    // I don't expect this to happen...
+                    panic!("index stack too small");
+                    // return None;
+                }
+
+                let i = index[0];
+                index[0] += 1;
+                index[1..].iter_mut().for_each(|x| *x = 0);
+
+                match i {
+                    0 => {
+                        *value = serde_json_core::to_string(&self).unwrap();
+                        Some(())
+                    }
+                    _ => None,
+                }
+            }
         }
     };
 }
@@ -229,6 +235,15 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
         self[i].string_set(topic_parts, value)?;
 
         Ok(())
+    }
+
+    fn recursive_iter<const TS: usize, const VS: usize>(
+        &self,
+        _index: &mut [usize],
+        _topic: &mut heapless::String<TS>,
+        _value: &mut heapless::String<VS>,
+    ) -> Option<()> {
+        unimplemented!("iteration not implemented for arrays yet")
     }
 }
 
