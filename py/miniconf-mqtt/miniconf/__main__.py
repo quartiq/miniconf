@@ -68,7 +68,7 @@ def main():
         prefix = devices[0]
 
     async def configure_settings():
-        interface = await Miniconf.create(args.prefix, args.broker)
+        interface = await Miniconf.create(prefix, args.broker)
         for setting in args.settings:
             path, value = setting.split("=", 1)
             await interface.command(path, json.loads(value), not args.no_retain)
