@@ -64,6 +64,12 @@ where
     ) -> Result<Self, minimq::Error<Stack::Error>> {
         let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
 
+        // Utilize a keepalive interval of 60 seconds. If this lapses, our will shall indicate our
+        // disconnected state.
+        // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
+        // now, since we're not yet connected to the broker.
+        mqtt.client.set_keepalive_interval(60).unwrap();
+
         // Configure a will so that we can indicate whether or not we are connected.
         let mut connection_topic: String<75> = String::from(prefix);
         connection_topic.push_str("/alive").unwrap();

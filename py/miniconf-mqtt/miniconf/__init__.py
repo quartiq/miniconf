@@ -43,7 +43,7 @@ async def discover(
 
     await client.connect(broker)
 
-    client.subscribe(f'{prefix_filter}/{suffix}')
+    client.subscribe(f'{prefix_filter}{suffix}')
 
     await asyncio.sleep(discovery_timeout)
 
