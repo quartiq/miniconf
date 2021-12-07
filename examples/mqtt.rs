@@ -100,15 +100,18 @@ async fn main() {
     .unwrap();
 
     loop {
-        client
-            .update(|settings| {
+        if client
+            .handled_update(|settings| {
                 if settings.error {
                     return Err("Intentional failure");
                 }
 
                 Ok(())
             })
-            .unwrap();
+            .unwrap()
+        {
+            println!("Settings updated: {:?}", client.settings());
+        }
 
         if client.settings().exit {
             break;

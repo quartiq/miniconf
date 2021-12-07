@@ -82,12 +82,15 @@ where
     /// Update the MQTT interface and service the network. Validate any settings changes.
     ///
     /// # Args
-    /// * `apply` - A closure called with any updated settings that is used to apply current
-    ///   settings and validate the configuration.
+    /// * `handler` - A closure called with updated settings that can be used to apply current
+    ///   settings or validate the configuration.
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn update<F, E>(&mut self, mut apply: F) -> Result<(), minimq::Error<Stack::Error>>
+    pub fn handled_update<F, E>(
+        &mut self,
+        mut handler: F,
+    ) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&Settings) -> Result<(), E>,
         E: core::fmt::Debug,
@@ -113,6 +116,7 @@ where
         let prefix = self.settings_prefix.as_str();
         let default_response_topic = self.default_response_topic.as_str();
 
+        let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
             let path = match topic.strip_prefix(prefix) {
                 // For paths, we do not want to include the leading slash.
@@ -133,7 +137,12 @@ where
 
             let message: SettingsResponse =
                 match settings.string_set(path.split('/').peekable(), message) {
-                    Ok(_) => apply(settings).into(),
+                    Ok(_) => {
+                        updated = true;
+                        handler(settings).into()
+                        // TODO: If the handler rejects the configuration, we need to restore
+                        // the original settings.
+                    }
                     other => other.into(),
                 };
 
@@ -150,19 +159,22 @@ where
                 )
                 .ok();
         }) {
-            Ok(_) => Ok(()),
+            Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
                 log::warn!("Settings MQTT session reset");
                 self.subscribed = false;
-                Ok(())
+                Ok(updated)
             }
             Err(other) => Err(other),
         }
     }
 
-    /// Update the settings from the network stack without any validation.
-    pub fn simple_update(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
-        self.update(|_| Result::<(), ()>::Ok(()))
+    /// Update the settings from the network stack without any specific handling.
+    ///
+    /// # Returns
+    /// True if the settings changed. False otherwise
+    pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
+        self.handled_update(|_| Result::<(), ()>::Ok(()))
     }
 
     /// Get the current settings from miniconf.

@@ -119,13 +119,7 @@ fn main() -> std::io::Result<()> {
         .unwrap();
 
         // Next, service the settings interface and progress the test.
-        let mut setting_update = false;
-        interface
-            .update(|_| {
-                setting_update = true;
-                Result::<(), ()>::Ok(())
-            })
-            .unwrap();
+        let setting_update = interface.update().unwrap();
         match state {
             TestState::Started(_) => {
                 if timer.is_complete() && mqtt.client.is_connected() {
