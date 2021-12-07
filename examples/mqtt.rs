@@ -14,6 +14,7 @@ struct Settings {
     inner: NestedSettings,
     amplitude: [f32; 2],
     exit: bool,
+    error: bool,
 }
 
 async fn mqtt_client() {
@@ -57,6 +58,28 @@ async fn mqtt_client() {
         .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    assert!(mqtt
+        .client
+        .publish(
+            "sample/prefix/settings/error",
+            b"true",
+            QoS::AtMostOnce,
+            &[]
+        )
+        .is_err());
+
+    assert!(mqtt
+        .client
+        .publish(
+            "sample/prefix/settings/error",
+            b"false",
+            QoS::AtMostOnce,
+            &[]
+        )
+        .is_err());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
     mqtt.client
         .publish("sample/prefix/settings/exit", b"true", QoS::AtMostOnce, &[])
         .unwrap();
@@ -77,9 +100,15 @@ async fn main() {
     .unwrap();
 
     loop {
-        if client.update().unwrap() {
-            println!("Settings updated: {:?}", client.settings());
-        }
+        client
+            .update(|settings| {
+                if settings.error {
+                    return Err("Intentional failure");
+                }
+
+                Ok(())
+            })
+            .unwrap();
 
         if client.settings().exit {
             break;
