@@ -1,5 +1,8 @@
 use machine::*;
-use miniconf::{minimq::QoS, Miniconf};
+use miniconf::{
+    minimq::{QoS, Retain},
+    Miniconf,
+};
 use serde::Deserialize;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -133,6 +136,7 @@ fn main() -> std::io::Result<()> {
                             "device/settings/data",
                             "500".as_bytes(),
                             QoS::AtMostOnce,
+                            Retain::NotRetained,
                             &[],
                         )
                         .unwrap();
@@ -150,6 +154,7 @@ fn main() -> std::io::Result<()> {
                             "device/settings/more/inner",
                             "100".as_bytes(),
                             QoS::AtMostOnce,
+                            Retain::NotRetained,
                             &[],
                         )
                         .unwrap();
