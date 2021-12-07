@@ -66,7 +66,7 @@ where
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut connection_topic: String<75> = String::from(prefix);
-        connection_topic.push_str("/connected").unwrap();
+        connection_topic.push_str("/alive").unwrap();
         mqtt.client
             .set_will(
                 &connection_topic,
@@ -110,7 +110,7 @@ where
 
             // Publish a connection status message.
             let mut connection_topic: String<75> = String::from(self.prefix.as_str());
-            connection_topic.push_str("/connected").unwrap();
+            connection_topic.push_str("/alive").unwrap();
             self.mqtt
                 .client
                 .publish(
