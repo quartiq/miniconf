@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+* Added publication of connectivity (alive) state to `<prefix>/alive` using MQTT will messages.
+* Added automatic discovery of prefixes to CLI.
+
 ### Changed
 ### Removed
 
