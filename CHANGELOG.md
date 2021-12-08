@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+* Added key iteration
+* Added support for retrieving serialized values via keys.
+* Added APIs to the Miniconf trait for asynchronous iteration.
+
 ### Changed
+* `miniconf::update()` replaced with `Miniconf::set()`, which is part of the trait and now
+  directly available on structures.
 ### Removed
 
 ## [0.2.0] - 2021-10-28

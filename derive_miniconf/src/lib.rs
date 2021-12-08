@@ -22,11 +22,14 @@ impl TypeDefinition {
     /// # Note
     /// This is equivalent to adding:
     /// `where Self: DeserializeOwned` to the type definition.
-    pub fn add_deserialize_bound(&mut self) {
+    pub fn add_serde_bound(&mut self) {
         let where_clause = self.generics.make_where_clause();
         where_clause
             .predicates
             .push(parse_quote!(Self: miniconf::DeserializeOwned));
+        where_clause
+            .predicates
+            .push(parse_quote!(Self: miniconf::Serialize));
     }
 
     // Bound all generics of the type with `T: miniconf::DeserializeOwned + Miniconf`. This is necessary to
@@ -37,6 +40,7 @@ impl TypeDefinition {
                 type_param
                     .bounds
                     .push(parse_quote!(miniconf::DeserializeOwned));
+                type_param.bounds.push(parse_quote!(miniconf::Serialize));
                 type_param.bounds.push(parse_quote!(miniconf::Miniconf));
             }
         }
@@ -136,8 +140,8 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
     // If this structure must be updated atomically, it is not valid to call Miniconf recursively
     // on its members.
     if atomic {
-        // Bound the Miniconf implementation on Self implementing DeserializeOwned.
-        typedef.add_deserialize_bound();
+        // Bound the Miniconf implementation on Self implementing DeserializeOwned + Serialize.
+        typedef.add_serde_bound();
 
         let name = typedef.name;
         let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
@@ -154,18 +158,51 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                     *self = miniconf::serde_json_core::from_slice(value)?.0;
                     Ok(())
                 }
+
+                fn string_get(&self, mut topic_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
+                    if topic_parts.peek().is_some() {
+                        return Err(miniconf::Error::AtomicUpdateRequired);
+                    }
+
+                    miniconf::serde_json_core::to_slice(self, value).map_err(|_| miniconf::Error::SerializationFailed)
+                }
+
+                fn recursive_iter<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
+                    if index.len() == 0 {
+                        // I don't expect this to happen...
+                        panic!("index stack too small");
+                        // return None;
+                    }
+
+                    let i = index[0];
+                    index[0] += 1;
+
+                    if i == 0 {
+                        Some(())
+                    } else {
+                        None
+                    }
+                }
             }
         };
 
         return TokenStream::from(data);
     }
 
-    let recurse_match_arms = fields.iter().map(|f| {
+    let set_recurse_match_arms = fields.iter().map(|f| {
         let match_name = &f.ident;
         quote! {
             stringify!(#match_name) => {
-                self.#match_name.string_set(topic_parts, value)?;
-                Ok(())
+                self.#match_name.string_set(topic_parts, value)
+            }
+        }
+    });
+
+    let get_recurse_match_arms = fields.iter().map(|f| {
+        let match_name = &f.ident;
+        quote! {
+            stringify!(#match_name) => {
+                self.#match_name.string_get(topic_parts, value)
             }
         }
     });
@@ -174,14 +211,30 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
         let field_name = &f.ident;
         quote! {
             #i => {
-                topic.push_str(concat!("/", stringify!(#field_name))).unwrap();
-                if let Some(()) = self.#field_name.recursive_iter(&mut index[1..], topic, value) {
+                let postfix = if topic.len() != 0 {
+                    concat!("/", stringify!(#field_name))
+                } else {
+                    stringify!(#field_name)
+                };
+
+                if topic.push_str(postfix).is_err() {
+                    return None;
+                }
+
+                if self.#field_name.recursive_iter(&mut index[1..], topic).is_some() {
                     return Some(());
                 }
-                else {
-                    index[0] += 1;
-                    index[1..].iter_mut().for_each(|x| *x = 0);
+
+                // Strip off the previously prepended index, since we completed that element and need
+                // to instead check the next one.
+                while let Some(character) = topic.pop() {
+                    if character == '/' {
+                        break;
+                    }
                 }
+
+                index[0] += 1;
+                index[1..].iter_mut().for_each(|x| *x = 0);
             }
         }
     });
@@ -197,13 +250,21 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                 let field = topic_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {
-                    #(#recurse_match_arms ,)*
+                    #(#set_recurse_match_arms ,)*
                     _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 
-            fn recursive_iter<const TS: usize, const VS: usize>(&self, index: &mut [usize], topic: &mut heapless::String<TS>, value: &mut heapless::String<VS>) -> Option<()> {
+            fn string_get(&self, mut topic_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
+                let field = topic_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
+                match field {
+                    #(#get_recurse_match_arms ,)*
+                    _ => Err(miniconf::Error::PathNotFound)
+                }
+            }
+
+            fn recursive_iter<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
                     panic!("index stack too small");
                 }
@@ -241,7 +302,7 @@ fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream 
         }
     }
 
-    typedef.add_deserialize_bound();
+    typedef.add_serde_bound();
 
     let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
     let name = typedef.name;
@@ -259,62 +320,34 @@ fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream 
                 *self = miniconf::serde_json_core::from_slice(value)?.0;
                 Ok(())
             }
+
+            fn string_get(&self, mut topic_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
+                if topic_parts.peek().is_some() {
+                    // We don't support enums that can contain other values
+                    return Err(miniconf::Error::PathTooLong)
+                }
+
+                miniconf::serde_json_core::to_slice(self, value).map_err(|_| miniconf::Error::SerializationFailed)
+            }
+
+            fn recursive_iter<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
+                if index.len() == 0 {
+                    // I don't expect this to happen...
+                    panic!("index stack too small");
+                    // return None;
+                }
+
+                let i = index[0];
+                index[0] += 1;
+
+                if i == 0 {
+                    Some(())
+                } else {
+                    None
+                }
+            }
         }
     };
 
     TokenStream::from(expanded)
 }
-
-// #[proc_macro_derive(MiniconfIter)]
-// pub fn derive_miniconf_iter(input: TokenStream) -> TokenStream {
-//     let input = parse_macro_input!(input as DeriveInput);
-
-//     let typedef = TypeDefinition::new(input.generics, input.ident);
-
-//     match input.data {
-//         syn::Data::Struct(struct_data) => derive_struct_miniconf_iter(typedef, struct_data),
-//         syn::Data::Enum(enum_data) => unimplemented!(),
-//         syn::Data::Union(_) => unimplemented!(),
-//     }
-// }
-
-// fn derive_struct_miniconf_iter(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStream {
-//     let fields = match data.fields {
-//         syn::Fields::Named(syn::FieldsNamed {ref named, .. }) => named,
-//         _ => unimplemented!("Only named fields are supported in structs."),
-//     };
-
-//     let match_arms = fields.iter().enumerate().map(|(i, f)| {
-//         let field_name = &f.ident;
-//         quote! {
-//             #i => {
-//                 topic.push_str(concat!("/", stringify!(#field_name))).unwrap();
-//                 if let Some(r) = self.#field_name.recursive_iter(&mut index[1..], topic) {
-//                     return Some(r);
-//                 }
-//                 else {
-//                     index[0] += 1;
-//                     index[1..].iter_mut().for_each(|x| *x = 0);
-//                 }
-//             }
-//         }
-//     });
-
-//     let name = typedef.name;
-
-//     let expanded = quote! {
-//         impl miniconf::MiniconfIter for #name {
-//             fn recursive_iter(&self, index: &mut [usize], topic: &mut String<128>) -> Option<String<128>> {
-//                 loop {
-//                     match index[0] {
-//                         #(#match_arms ,)*
-//                         _ => return None,
-
-//                     };
-//                 }
-//             }
-//         }
-//     };
-
-//     TokenStream::from(expanded)
-// }

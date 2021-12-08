@@ -1,5 +1,5 @@
 use miniconf::{Miniconf, MiniconfAtomic};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn generic_type() {
@@ -37,7 +37,7 @@ fn generic_struct() {
         pub inner: T,
     }
 
-    #[derive(MiniconfAtomic, Deserialize, Default)]
+    #[derive(MiniconfAtomic, Deserialize, Serialize, Default)]
     struct Inner {
         pub data: f32,
     }
@@ -57,7 +57,7 @@ fn generic_atomic() {
         pub atomic: Inner<T>,
     }
 
-    #[derive(Deserialize, MiniconfAtomic, Default)]
+    #[derive(Deserialize, Serialize, MiniconfAtomic, Default)]
     struct Inner<T> {
         pub inner: [T; 5],
     }
