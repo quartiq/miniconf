@@ -33,7 +33,7 @@ def main():
     parser.add_argument('prefix', type=str,
                         help='The MQTT topic prefix of the target (or a prefix filter in the case '
                              'of discovery)')
-    parser.add_argument('settings', metavar="PATH=VALUE", nargs='+',
+    parser.add_argument('settings', metavar="PATH=VALUE", nargs='*',
                         help='JSON encoded values for settings path keys.')
     parser.add_argument('--discover', '-d', action='store_true',
                         help='Detect and list device prefixes')
