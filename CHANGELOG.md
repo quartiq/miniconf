@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Added APIs to the Miniconf trait for asynchronous iteration.
 * Added publication of connectivity (alive) state to `<prefix>/alive` using MQTT will messages.
 * Added automatic discovery of prefixes to CLI.
+* Support for republishing settings after a predefined delay.
 
 ### Changed
 * `miniconf::update()` replaced with `Miniconf::set()`, which is part of the trait and now

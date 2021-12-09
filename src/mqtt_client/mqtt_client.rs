@@ -23,8 +23,11 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
+use embedded_time::{duration::Extensions, Instant};
 use log::info;
 use minimq::{embedded_time, QoS, Retain};
+
+use core::fmt::Write;
 
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
@@ -34,10 +37,13 @@ where
     Clock: embedded_time::Clock,
 {
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>,
+    clock: Clock,
     settings: Settings,
     subscribed: bool,
     settings_prefix: String<64>,
     prefix: String<64>,
+    iteration_state: Option<[usize; 16]>,
+    rx_timeout: Option<Instant<Clock>>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
@@ -45,7 +51,7 @@ impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usi
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
-    Clock: embedded_time::Clock,
+    Clock: embedded_time::Clock + Clone,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -62,7 +68,7 @@ where
         broker: IpAddr,
         clock: Clock,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
-        let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock)?;
+        let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
 
         // Utilize a keepalive interval of 60 seconds. If this lapses, our will shall indicate our
         // disconnected state.
@@ -88,11 +94,64 @@ where
 
         Ok(Self {
             mqtt,
+            clock,
             settings: Settings::default(),
             settings_prefix,
             prefix: String::from(prefix),
             subscribed: false,
+            iteration_state: None,
+            rx_timeout: None,
         })
+    }
+
+    pub fn handle_republish(&mut self) {
+        if let Some(timeout) = &self.rx_timeout {
+            if self.clock.try_now().unwrap() > *timeout {
+                self.iteration_state.replace([0; 16]);
+            }
+        }
+
+        if let Some(ref mut iteration_state) = &mut self.iteration_state {
+            self.rx_timeout.take();
+
+            if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
+                return;
+            }
+
+            for topic in self
+                .settings
+                .into_iter::<MESSAGE_SIZE>(iteration_state)
+                .unwrap()
+            {
+                let mut data = [0; MESSAGE_SIZE];
+
+                // Note(unwrap): We know this topic exists already because we just got it from the
+                // iterator.
+                let len = self.settings.get(&topic, &mut data).unwrap();
+
+                // TODO: An arbitrary limit of 128 bytes is used. This should be replaced by a
+                // user-provided value.
+                let mut prefixed_topic: String<128> = String::new();
+                write!(&mut prefixed_topic, "{}/{}", &self.prefix, &topic).unwrap();
+
+                // Note(unwrap): This should not fail because `can_publish()` was checked before
+                // attempting this publish.
+                self.mqtt
+                    .client
+                    .publish(
+                        &prefixed_topic,
+                        &data[..len],
+                        QoS::AtMostOnce,
+                        Retain::Retained,
+                        &[],
+                    )
+                    .unwrap();
+
+                if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
+                    break;
+                }
+            }
+        }
     }
 
     /// Update the MQTT interface and service the network
@@ -127,10 +186,18 @@ where
                     &[],
                 )
                 .unwrap();
+
+            // Start a timer for publishing all settings.
+            self.rx_timeout
+                .replace(self.clock.try_now().unwrap() + 2u32.seconds());
         }
+
+        self.handle_republish();
 
         // Handle any MQTT traffic.
         let settings = &mut self.settings;
+        let rx_timeout = &mut self.rx_timeout;
+        let clock = &mut self.clock;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
 
@@ -165,6 +232,10 @@ where
                 .into();
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
+
+            if rx_timeout.is_some() {
+                rx_timeout.replace(clock.try_now().unwrap() + 2u32.seconds());
+            }
 
             client
                 .publish(

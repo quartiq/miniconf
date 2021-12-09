@@ -58,20 +58,11 @@ async fn mqtt_client() {
         )
         .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
-
-    mqtt.client
-        .publish(
-            "sample/prefix/settings/exit",
-            b"true",
-            QoS::AtMostOnce,
-            Retain::NotRetained,
-            &[],
-        )
-        .unwrap();
 }
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
