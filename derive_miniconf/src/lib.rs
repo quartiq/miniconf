@@ -177,9 +177,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
 
                 fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                     if index.len() == 0 {
-                        // I don't expect this to happen...
-                        panic!("index stack too small");
-                        // return None;
+                        return None;
                     }
 
                     let i = index[0];
@@ -319,7 +317,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
 
             fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
-                    panic!("index stack too small");
+                    return None;
                 }
 
                 loop {
@@ -393,9 +391,7 @@ fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream 
 
             fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
-                    // I don't expect this to happen...
-                    panic!("index stack too small");
-                    // return None;
+                    return None;
                 }
 
                 let i = index[0];

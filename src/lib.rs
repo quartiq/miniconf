@@ -285,9 +285,7 @@ macro_rules! impl_single {
                 _topic: &mut heapless::String<TS>,
             ) -> Option<()> {
                 if index.len() == 0 {
-                    // I don't expect this to happen...
-                    panic!("index stack too small");
-                    // return None;
+                    return None;
                 }
 
                 let i = index[0];
