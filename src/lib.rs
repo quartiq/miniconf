@@ -391,7 +391,7 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
                     return None;
                 }
             }
-            if write!(topic, "/{}", index[0]).is_err() {
+            if write!(topic, "{}", index[0]).is_err() {
                 return None;
             }
 
