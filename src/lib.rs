@@ -219,6 +219,31 @@ pub trait Miniconf {
         })
     }
 
+    /// Create an iterator to read all possible settings paths.
+    ///
+    /// # Note
+    /// This does not check that the topic size or state vector are large enough. If they are not,
+    /// panics may be generated internally by the library.
+    ///
+    /// # Note
+    /// The state vector can be used to resume iteration from a previous point in time. The data
+    /// should be zero-initialized if starting iteration for the first time.
+    ///
+    /// # Template Arguments
+    /// * `TS` - The maximum number of bytes to encode a settings path into.
+    ///
+    /// # Args
+    /// * `state` - A state vector to record iteration state in.
+    fn unchecked_into_iter<'a, const TS: usize>(
+        &'a self,
+        state: &'a mut [usize],
+    ) -> iter::MiniconfIter<'a, Self, TS> {
+        iter::MiniconfIter {
+            settings: self,
+            state,
+        }
+    }
+
     fn string_set(
         &mut self,
         topic_parts: core::iter::Peekable<core::str::Split<char>>,
@@ -285,7 +310,10 @@ macro_rules! impl_single {
                 _topic: &mut heapless::String<TS>,
             ) -> Option<()> {
                 if index.len() == 0 {
-                    return None;
+                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // index stack is checked in advance to make sure this condition doesn't occur.
+                    // However, it's possible to happen if the user manually calls `recurse_paths`.
+                    unreachable!("Index stack too small");
                 }
 
                 let i = index[0];
@@ -384,15 +412,29 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
     ) -> Option<()> {
         let original_length = topic.len();
 
+        if index.len() == 0 {
+            // Note: During expected execution paths using `into_iter()`, the size of the
+            // index stack is checked in advance to make sure this condition doesn't occur.
+            // However, it's possible to happen if the user manually calls `recurse_paths`.
+            unreachable!("Index stack too small");
+        }
+
         while index[0] < N {
             // Add the array index to the topic name.
             if topic.len() > 0 {
                 if topic.push('/').is_err() {
-                    return None;
+                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // topic buffer is checked in advance to make sure this condition doesn't occur.
+                    // However, it's possible to happen if the user manually calls `recurse_paths`.
+                    unreachable!("Topic buffer too short");
                 }
             }
+
             if write!(topic, "{}", index[0]).is_err() {
-                return None;
+                // Note: During expected execution paths using `into_iter()`, the size of the
+                // topic buffer is checked in advance to make sure this condition doesn't occur.
+                // However, it's possible to happen if the user manually calls `recurse_paths`.
+                unreachable!("Topic buffer too short");
             }
 
             if self[index[0]]

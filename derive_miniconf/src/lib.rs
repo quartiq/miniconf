@@ -177,7 +177,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
 
                 fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                     if index.len() == 0 {
-                        return None;
+                        // Note: During expected execution paths using `into_iter()`, the size of
+                        // the index stack is checked in advance to make sure this condition
+                        // doesn't occur.  However, it's possible to happen if the user manually
+                        // calls `recurse_paths`.
+                        unreachable!("Index stack too small");
                     }
 
                     let i = index[0];
@@ -226,7 +230,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                 };
 
                 if topic.push_str(postfix).is_err() {
-                    return None;
+                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // topic buffer is checked in advance to make sure this condition doesn't
+                    // occur.  However, it's possible to happen if the user manually calls
+                    // `recurse_paths`.
+                    unreachable!("Topic buffer too short");
                 }
 
                 if self.#field_name.recurse_paths(&mut index[1..], topic).is_some() {
@@ -317,7 +325,10 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
 
             fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
-                    return None;
+                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // index stack is checked in advance to make sure this condition doesn't occur.
+                    // However, it's possible to happen if the user manually calls `recurse_paths`.
+                    unreachable!("Index stack too small");
                 }
 
                 loop {
@@ -391,7 +402,10 @@ fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream 
 
             fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
-                    return None;
+                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // index stack is checked in advance to make sure this condition doesn't occur.
+                    // However, it's possible to happen if the user manually calls `recurse_paths`.
+                    unreachable!("Index stack too small");
                 }
 
                 let i = index[0];
