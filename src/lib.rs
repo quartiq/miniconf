@@ -125,6 +125,15 @@ pub enum Error {
     BadIndex,
 }
 
+#[derive(Debug)]
+pub enum IterError {
+    /// The provided state vector is not long enough.
+    InsufficientStateDepth,
+
+    /// The provided topic length is not long enough.
+    InsufficientTopicLength,
+}
+
 impl From<Error> for u8 {
     fn from(err: Error) -> u8 {
         match err {
@@ -145,6 +154,15 @@ impl From<serde_json_core::de::Error> for Error {
     }
 }
 
+/// Metadata about a settings structure.
+pub struct MiniconfMetadata {
+    /// The maximum length of a topic in the structure.
+    pub max_topic_size: usize,
+
+    /// The maximum recursive depth of the structure.
+    pub max_depth: usize,
+}
+
 pub trait Miniconf {
     /// Update settings directly from a string path and data.
     ///
@@ -158,18 +176,47 @@ pub trait Miniconf {
         self.string_set(path.split('/').peekable(), data)
     }
 
+    /// Retrieve a serialized settings value from a string path.
+    ///
+    /// # Args
+    /// * `path` - The path to retrieve.
+    /// * `data` - The location to serialize the data into.
+    ///
+    /// # Returns
+    /// The number of bytes used in the `data` buffer for serialization.
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         self.string_get(path.split('/').peekable(), data)
     }
 
+    /// Create an iterator to read all possible settings paths.
+    ///
+    /// # Note
+    /// The state vector can be used to resume iteration from a previous point in time. The data
+    /// should be zero-initialized if starting iteration for the first time.
+    ///
+    /// # Template Arguments
+    /// * `TS` - The maximum number of bytes to encode a settings path into.
+    ///
+    /// # Args
+    /// * `state` - A state vector to record iteration state in.
     fn into_iter<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
-    ) -> iter::MiniconfIter<'a, Self, TS> {
-        iter::MiniconfIter {
+    ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
+        let metadata = self.get_metadata();
+
+        if TS < metadata.max_topic_size {
+            return Err(IterError::InsufficientTopicLength);
+        }
+
+        if state.len() < metadata.max_depth {
+            return Err(IterError::InsufficientStateDepth);
+        }
+
+        Ok(iter::MiniconfIter {
             settings: self,
             state,
-        }
+        })
     }
 
     fn string_set(
@@ -184,7 +231,10 @@ pub trait Miniconf {
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    fn recursive_iter<const TS: usize>(
+    /// Get metadata about the settings structure.
+    fn get_metadata(&self) -> MiniconfMetadata;
+
+    fn recurse_paths<const TS: usize>(
         &self,
         index: &mut [usize],
         topic: &mut heapless::String<TS>,
@@ -218,9 +268,18 @@ macro_rules! impl_single {
                 serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
             }
 
+            fn get_metadata(&self) -> MiniconfMetadata {
+                MiniconfMetadata {
+                    // No topic length is needed, as there are no sub-members.
+                    max_topic_size: 0,
+                    // One index is required for the current element.
+                    max_depth: 1,
+                }
+            }
+
             // This implementation is the base case for primitives where it will
             // yield once for self, then return None on subsequent calls.
-            fn recursive_iter<const TS: usize>(
+            fn recurse_paths<const TS: usize>(
                 &self,
                 index: &mut [usize],
                 _topic: &mut heapless::String<TS>,
@@ -292,19 +351,54 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
         self[i].string_get(topic_parts, value)
     }
 
-    fn recursive_iter<const TS: usize>(
+    fn get_metadata(&self) -> MiniconfMetadata {
+        // First, figure out how many digits the maximum index requires when printing.
+        let mut index = N - 1;
+        let mut num_digits = 0;
+
+        while index > 0 {
+            index /= 10;
+            num_digits += 1;
+        }
+
+        let metadata = self[0].get_metadata();
+
+        // If the sub-members have topic size, we also need to include an additional character for
+        // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
+        // types, enums).
+        if metadata.max_topic_size > 0 {
+            MiniconfMetadata {
+                max_topic_size: metadata.max_topic_size + num_digits + 1,
+                max_depth: metadata.max_depth + 1,
+            }
+        } else {
+            MiniconfMetadata {
+                max_topic_size: num_digits,
+                max_depth: metadata.max_depth + 1,
+            }
+        }
+    }
+
+    fn recurse_paths<const TS: usize>(
         &self,
         index: &mut [usize],
         topic: &mut heapless::String<TS>,
     ) -> Option<()> {
+        let original_length = topic.len();
+
         while index[0] < N {
             // Add the array index to the topic name.
+            if topic.len() > 0 {
+                if topic.push('/').is_err() {
+                    return None;
+                }
+            }
             if write!(topic, "/{}", index[0]).is_err() {
                 return None;
             }
 
             if self[index[0]]
-                .recursive_iter(&mut index[1..], topic)
+                .recurse_paths(&mut index[1..], topic)
                 .is_some()
             {
                 return Some(());
@@ -312,11 +406,7 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
 
             // Strip off the previously prepended index, since we completed that element and need
             // to instead check the next one.
-            while let Some(character) = topic.pop() {
-                if character == '/' {
-                    break;
-                }
-            }
+            topic.truncate(original_length);
 
             index[0] += 1;
             index[1..].iter_mut().for_each(|x| *x = 0);

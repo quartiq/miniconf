@@ -21,6 +21,11 @@ fn simple_enum() {
     s.string_set(field, "\"B\"".as_bytes()).unwrap();
 
     assert_eq!(s.v, Variant::B);
+
+    // Test metadata
+    let metadata = s.get_metadata();
+    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_topic_size, "v".len());
 }
 
 #[test]

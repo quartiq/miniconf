@@ -30,7 +30,7 @@ fn main() {
     // type? That way we can hide what it is.
     let mut iterator_state = [0; 5];
 
-    let mut settings_iter = s.into_iter::<128>(&mut iterator_state);
+    let mut settings_iter = s.into_iter::<128>(&mut iterator_state).unwrap();
 
     // Just get one topic/value from the iterator
     if let Some(topic) = settings_iter.next() {
@@ -48,7 +48,7 @@ fn main() {
     s.data = 3;
 
     // Create a new settings iterator, print remaining values
-    for topic in s.into_iter::<128>(&mut iterator_state) {
+    for topic in s.into_iter::<128>(&mut iterator_state).unwrap() {
         let mut value = [0; 256];
         let len = s.get(&topic, &mut value).unwrap();
         println!(

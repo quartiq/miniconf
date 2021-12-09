@@ -14,7 +14,7 @@ impl<'a, Settings: Miniconf + ?Sized, const TS: usize> Iterator for MiniconfIter
 
         if self
             .settings
-            .recursive_iter(&mut self.state, &mut topic_buffer)
+            .recurse_paths(&mut self.state, &mut topic_buffer)
             .is_some()
         {
             Some(topic_buffer)

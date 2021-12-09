@@ -167,7 +167,15 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                     miniconf::serde_json_core::to_slice(self, value).map_err(|_| miniconf::Error::SerializationFailed)
                 }
 
-                fn recursive_iter<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
+                fn get_metadata(&self) -> miniconf::MiniconfMetadata {
+                    // Atomic structs have no children and a single index.
+                    miniconf::MiniconfMetadata {
+                        max_topic_size: 0,
+                        max_depth: 1,
+                    }
+                }
+
+                fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                     if index.len() == 0 {
                         // I don't expect this to happen...
                         panic!("index stack too small");
@@ -211,6 +219,8 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
         let field_name = &f.ident;
         quote! {
             #i => {
+                let original_length = topic.len();
+
                 let postfix = if topic.len() != 0 {
                     concat!("/", stringify!(#field_name))
                 } else {
@@ -221,20 +231,34 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                     return None;
                 }
 
-                if self.#field_name.recursive_iter(&mut index[1..], topic).is_some() {
+                if self.#field_name.recurse_paths(&mut index[1..], topic).is_some() {
                     return Some(());
                 }
 
                 // Strip off the previously prepended index, since we completed that element and need
                 // to instead check the next one.
-                while let Some(character) = topic.pop() {
-                    if character == '/' {
-                        break;
-                    }
-                }
+                topic.truncate(original_length);
 
                 index[0] += 1;
                 index[1..].iter_mut().for_each(|x| *x = 0);
+            }
+        }
+    });
+
+    let iter_metadata_arms = fields.iter().enumerate().map(|(i, f)| {
+        let field_name = &f.ident;
+        quote! {
+            #i => {
+                let mut meta = self.#field_name.get_metadata();
+
+                // If the subfield has additional paths, we need to add space for a separator.
+                if meta.max_topic_size > 0 {
+                    meta.max_topic_size += 1;
+                }
+
+                meta.max_topic_size += stringify!(#field_name).len();
+
+                meta
             }
         }
     });
@@ -264,7 +288,36 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct, atomic: boo
                 }
             }
 
-            fn recursive_iter<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
+            fn get_metadata(&self) -> miniconf::MiniconfMetadata {
+                // Loop through all child elements, collecting the maximum length + depth of any
+                // member.
+                let mut maximum_sizes = miniconf::MiniconfMetadata {
+                    max_topic_size: 0,
+                    max_depth: 0
+                };
+
+                let mut index = 0;
+                loop {
+                    let metadata = match index {
+                        #(#iter_metadata_arms ,)*
+                        _ => break,
+                    };
+
+                    maximum_sizes.max_topic_size = core::cmp::max(maximum_sizes.max_topic_size,
+                                                                  metadata.max_topic_size);
+                    maximum_sizes.max_depth = core::cmp::max(maximum_sizes.max_depth,
+                                                             metadata.max_depth);
+
+                    index += 1;
+                }
+
+                // We need an additional index depth for this node.
+                maximum_sizes.max_depth += 1;
+
+                maximum_sizes
+            }
+
+            fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
                     panic!("index stack too small");
                 }
@@ -330,7 +383,15 @@ fn derive_enum(mut typedef: TypeDefinition, data: syn::DataEnum) -> TokenStream 
                 miniconf::serde_json_core::to_slice(self, value).map_err(|_| miniconf::Error::SerializationFailed)
             }
 
-            fn recursive_iter<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
+            fn get_metadata(&self) -> miniconf::MiniconfMetadata {
+                // Atomic structs have no children and a single index.
+                miniconf::MiniconfMetadata {
+                    max_topic_size: 0,
+                    max_depth: 1,
+                }
+            }
+
+            fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
                 if index.len() == 0 {
                     // I don't expect this to happen...
                     panic!("index stack too small");

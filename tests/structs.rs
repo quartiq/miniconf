@@ -35,6 +35,11 @@ fn atomic_struct() {
     };
 
     assert_eq!(settings, expected);
+
+    // Check that metadata is correct.
+    let metadata = settings.get_metadata();
+    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_topic_size, "c".len());
 }
 
 #[test]
@@ -67,4 +72,9 @@ fn recursive_struct() {
     // It is not allowed to set a non-terminal node.
     let field = "c".split('/').peekable();
     assert!(settings.string_set(field, b"{\"a\": 5}").is_err());
+
+    // Check that metadata is correct.
+    let metadata = settings.get_metadata();
+    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_topic_size, "c/a".len());
 }
