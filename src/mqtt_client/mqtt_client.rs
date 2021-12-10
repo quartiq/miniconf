@@ -23,7 +23,6 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
-use embedded_time::{duration::Extensions, Instant};
 use log::info;
 use minimq::{embedded_time, QoS, Retain};
 
@@ -42,6 +41,64 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
+mod sm {
+    use minimq::embedded_time::{self, duration::Extensions, Instant};
+    use smlang::statemachine;
+
+    statemachine! {
+        transitions: {
+            *Initial + Connected = ConnectedToBroker,
+            ConnectedToBroker + Subscribed / start_republish_timeout = PendingRepublish,
+            PendingRepublish + MessageReceived / start_republish_timeout = PendingRepublish,
+            PendingRepublish + RepublishTimeout / start_republish = RepublishingSettings,
+            RepublishingSettings + RepublishComplete = Active,
+
+            // All states transition back to `initial` on reset.
+            Initial + Reset = Initial,
+            ConnectedToBroker + Reset = Initial,
+            PendingRepublish + Reset = Initial,
+            RepublishingSettings + Reset = Initial,
+            Active + Reset = Initial,
+        }
+    }
+
+    pub struct Context<C: embedded_time::Clock> {
+        clock: C,
+        timeout: Option<Instant<C>>,
+        pub republish_state: [usize; super::MAX_RECURSION_DEPTH],
+    }
+
+    impl<C: embedded_time::Clock> Context<C> {
+        pub fn new(clock: C) -> Self {
+            Self {
+                clock,
+                timeout: None,
+                republish_state: [0; super::MAX_RECURSION_DEPTH],
+            }
+        }
+
+        pub fn republish_has_timed_out(&self) -> bool {
+            if let Some(timeout) = self.timeout {
+                self.clock.try_now().unwrap() > timeout
+            } else {
+                false
+            }
+        }
+    }
+
+    impl<C: embedded_time::Clock> StateMachineContext for Context<C> {
+        fn start_republish_timeout(&mut self) {
+            self.timeout.replace(
+                self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
+            );
+        }
+
+        fn start_republish(&mut self) {
+            self.republish_state = [0; super::MAX_RECURSION_DEPTH];
+        }
+    }
+}
+
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
@@ -50,13 +107,10 @@ where
     Clock: embedded_time::Clock,
 {
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
-    clock: Clock,
     settings: Settings,
-    subscribed: bool,
+    state: sm::StateMachine<sm::Context<Clock>>,
     settings_prefix: String<MAX_TOPIC_LENGTH>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    iteration_state: Option<[usize; MAX_RECURSION_DEPTH]>,
-    rx_timeout: Option<Instant<Clock>>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -112,74 +166,86 @@ where
 
         Ok(Self {
             mqtt,
-            clock,
+            state: sm::StateMachine::new(sm::Context::new(clock)),
             settings,
             settings_prefix,
             prefix: String::from(prefix),
-            subscribed: false,
-            iteration_state: None,
-            rx_timeout: None,
         })
     }
 
-    fn handle_republish(&mut self) {
-        if let Some(timeout) = &self.rx_timeout {
-            if self.clock.try_now().unwrap() > *timeout {
-                log::info!("Republish duration lapsed. Publishing settings");
-                self.iteration_state.replace([0; MAX_RECURSION_DEPTH]);
-            }
+    fn handle_republish(&mut self) -> bool {
+        if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
+            // We could not finish republishing.
+            return false;
         }
 
-        let mut iteration_exhausted = false;
-        if let Some(ref mut iteration_state) = &mut self.iteration_state {
-            self.rx_timeout.take();
+        for topic in self
+            .settings
+            .into_iter::<{ MAX_TOPIC_LENGTH }>(&mut self.state.context_mut().republish_state)
+            .unwrap()
+        {
+            let mut data = [0; MESSAGE_SIZE];
 
+            // Note(unwrap): We know this topic exists already because we just got it from the
+            // iterator.
+            let len = self.settings.get(&topic, &mut data).unwrap();
+
+            let mut prefixed_topic: String<{ 2 * MAX_TOPIC_LENGTH + 1 }> = String::new();
+            write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
+
+            // Note(unwrap): This should not fail because `can_publish()` was checked before
+            // attempting this publish.
+            self.mqtt
+                .client
+                .publish(
+                    &prefixed_topic,
+                    &data[..len],
+                    QoS::AtMostOnce,
+                    Retain::NotRetained,
+                    &[],
+                )
+                .unwrap();
+
+            // If we can't publish any more messages, bail out now to prevent the iterator from
+            // progressing. If we don't bail out now, we'd silently drop a setting.
             if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
-                return;
+                // We could not finish republishing.
+                return false;
             }
-
-            for topic in self
-                .settings
-                .into_iter::<{ MAX_TOPIC_LENGTH }>(iteration_state)
-                .unwrap()
-            {
-                let mut data = [0; MESSAGE_SIZE];
-
-                // Note(unwrap): We know this topic exists already because we just got it from the
-                // iterator.
-                let len = self.settings.get(&topic, &mut data).unwrap();
-
-                let mut prefixed_topic: String<{ 2 * MAX_TOPIC_LENGTH + 1 }> = String::new();
-                write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
-
-                // Note(unwrap): This should not fail because `can_publish()` was checked before
-                // attempting this publish.
-                self.mqtt
-                    .client
-                    .publish(
-                        &prefixed_topic,
-                        &data[..len],
-                        QoS::AtMostOnce,
-                        Retain::NotRetained,
-                        &[],
-                    )
-                    .unwrap();
-
-                // If we can't publish any more messages, bail out now to prevent the iterator from
-                // progressing. If we don't bail out now, we'd silently drop a setting.
-                if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
-                    return;
-                }
-            }
-
-            iteration_exhausted = true;
         }
 
-        // If iteration has been exhausted, clear the iterator state, as we are now done
-        // republishing.
-        if iteration_exhausted {
-            self.iteration_state.take();
-        }
+        // If we got here, we completed iterating over the topics and published them all.
+        return true;
+    }
+
+    fn handle_broker_connection(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
+        log::info!("MQTT connected, subscribing to settings");
+        // Note(unwrap): We construct a string with two more characters than the prefix
+        // strucutre, so we are guaranteed to have space for storage.
+        let mut settings_topic: String<{ MAX_TOPIC_LENGTH + 2 }> =
+            String::from(self.settings_prefix.as_str());
+        settings_topic.push_str("/#").unwrap();
+
+        // We do not currently handle or process potential subscription failures. Instead, this
+        // failure will be logged through the stabilizer logging interface.
+        self.mqtt.client.subscribe(&settings_topic, &[]).unwrap();
+
+        // Publish a connection status message.
+        let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
+        connection_topic.push_str("/alive").unwrap();
+
+        self.mqtt
+            .client
+            .publish(
+                &connection_topic,
+                "1".as_bytes(),
+                QoS::AtMostOnce,
+                Retain::Retained,
+                &[],
+            )
+            .unwrap();
+
+        Ok(())
     }
 
     /// Update the MQTT interface and service the network
@@ -187,48 +253,49 @@ where
     /// # Returns
     /// True if the settings changed. False otherwise.
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
-        // If we're no longer subscribed to the settings topic, but we are connected to the broker,
-        // resubscribe.
-        if !self.subscribed && self.mqtt.client.is_connected() {
-            log::info!("MQTT connected, subscribing to settings");
-            // Note(unwrap): We construct a string with two more characters than the prefix
-            // strucutre, so we are guaranteed to have space for storage.
-            let mut settings_topic: String<{ MAX_TOPIC_LENGTH + 2 }> =
-                String::from(self.settings_prefix.as_str());
-            settings_topic.push_str("/#").unwrap();
-
-            // We do not currently handle or process potential subscription failures. Instead, this
-            // failure will be logged through the stabilizer logging interface.
-            self.mqtt.client.subscribe(&settings_topic, &[]).unwrap();
-            self.subscribed = true;
-
-            // Publish a connection status message.
-            let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
-            connection_topic.push_str("/alive").unwrap();
-            self.mqtt
-                .client
-                .publish(
-                    &connection_topic,
-                    "1".as_bytes(),
-                    QoS::AtMostOnce,
-                    Retain::Retained,
-                    &[],
-                )
-                .unwrap();
-
-            // Start a timer for publishing all settings.
-            self.rx_timeout
-                .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
+        if !self.mqtt.client.is_connected() {
+            // Note(unwrap): It's always safe to reset.
+            self.state.process_event(sm::Events::Reset).unwrap();
         }
 
-        self.handle_republish();
+        match self.state.state() {
+            &sm::States::Initial => {
+                if self.mqtt.client.is_connected() {
+                    self.state.process_event(sm::Events::Connected).unwrap();
+                }
+            }
+            &sm::States::ConnectedToBroker => {
+                self.handle_broker_connection()?;
+                self.state.process_event(sm::Events::Subscribed).unwrap();
+            }
+            &sm::States::PendingRepublish => {
+                if self.state.context().republish_has_timed_out() {
+                    self.state
+                        .process_event(sm::Events::RepublishTimeout)
+                        .unwrap();
+                }
+            }
+            &sm::States::RepublishingSettings => {
+                if self.handle_republish() {
+                    self.state
+                        .process_event(sm::Events::RepublishComplete)
+                        .unwrap();
+                }
+            }
 
-        // Handle any MQTT traffic.
+            // Nothing to do in the active state.
+            &sm::States::Active => {}
+        }
+
+        // All states must handle MQTT traffic.
+        self.handle_mqtt_traffic()
+    }
+
+    fn handle_mqtt_traffic(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         let settings = &mut self.settings;
-        let rx_timeout = &mut self.rx_timeout;
-        let clock = &mut self.clock;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
+        let state = &mut self.state;
 
         let mut response_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
         response_topic.push_str("/log").unwrap();
@@ -262,9 +329,9 @@ where
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
 
-            if rx_timeout.is_some() {
-                rx_timeout.replace(clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
-            }
+            // We only care about these events in one state, so ignore the errors for the other
+            // states.
+            state.process_event(sm::Events::MessageReceived).ok();
 
             client
                 .publish(
@@ -282,7 +349,7 @@ where
             Ok(_) => Ok(update),
             Err(minimq::Error::SessionReset) => {
                 log::warn!("Settings MQTT session reset");
-                self.subscribed = false;
+                self.state.process_event(sm::Events::Reset).unwrap();
                 Ok(false)
             }
             Err(other) => Err(other),
