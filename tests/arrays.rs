@@ -70,6 +70,11 @@ fn simple_array_indexing() {
         s.string_set(field, "7".as_bytes()).unwrap_err(),
         Error::BadIndex
     );
+
+    // Test metadata
+    let metadata = s.get_metadata();
+    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_topic_size, "a/2".len());
 }
 
 #[test]
@@ -97,4 +102,9 @@ fn array_of_structs_indexing() {
     };
 
     assert_eq!(expected, s);
+
+    // Test metadata
+    let metadata = s.get_metadata();
+    assert_eq!(metadata.max_depth, 4);
+    assert_eq!(metadata.max_topic_size, "a/2/b".len());
 }
