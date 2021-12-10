@@ -1,5 +1,5 @@
 use miniconf::{Miniconf, MiniconfAtomic};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn generic_type() {
@@ -13,6 +13,11 @@ fn generic_type() {
         .string_set("data".split('/').peekable(), b"3.0")
         .unwrap();
     assert_eq!(settings.data, 3.0);
+
+    // Test metadata
+    let metadata = settings.get_metadata();
+    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_topic_size, "data".len());
 }
 
 #[test]
@@ -28,6 +33,11 @@ fn generic_array() {
         .unwrap();
 
     assert_eq!(settings.data[0], 3.0);
+
+    // Test metadata
+    let metadata = settings.get_metadata();
+    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_topic_size, "data/0".len());
 }
 
 #[test]
@@ -37,7 +47,7 @@ fn generic_struct() {
         pub inner: T,
     }
 
-    #[derive(MiniconfAtomic, Deserialize, Default)]
+    #[derive(MiniconfAtomic, Deserialize, Serialize, Default)]
     struct Inner {
         pub data: f32,
     }
@@ -48,6 +58,11 @@ fn generic_struct() {
         .unwrap();
 
     assert_eq!(settings.inner.data, 3.0);
+
+    // Test metadata
+    let metadata = settings.get_metadata();
+    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_topic_size, "inner".len());
 }
 
 #[test]
@@ -57,7 +72,7 @@ fn generic_atomic() {
         pub atomic: Inner<T>,
     }
 
-    #[derive(Deserialize, MiniconfAtomic, Default)]
+    #[derive(Deserialize, Serialize, MiniconfAtomic, Default)]
     struct Inner<T> {
         pub inner: [T; 5],
     }
@@ -71,4 +86,9 @@ fn generic_atomic() {
         .unwrap();
 
     assert_eq!(settings.atomic.inner[0], 3.0);
+
+    // Test metadata
+    let metadata = settings.get_metadata();
+    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_topic_size, "atomic".len());
 }
