@@ -75,7 +75,7 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut client: MqttClient<Settings, Stack, StandardClock, 256, 1> = MqttClient::new(
+    let mut client: MqttClient<Settings, Stack, StandardClock, 256> = MqttClient::new(
         Stack::default(),
         "",
         "sample/prefix",
