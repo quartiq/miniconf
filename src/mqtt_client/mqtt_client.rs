@@ -48,7 +48,8 @@ mod sm {
     statemachine! {
         transitions: {
             *Initial + Connected = ConnectedToBroker,
-            ConnectedToBroker + Subscribed / start_republish_timeout = PendingRepublish,
+            ConnectedToBroker + Subscribed = IndicatingLife,
+            IndicatingLife + IndicatedAlive / start_republish_timeout = PendingRepublish,
             PendingRepublish + MessageReceived / start_republish_timeout = PendingRepublish,
             PendingRepublish + RepublishTimeout / start_republish = RepublishingSettings,
             RepublishingSettings + RepublishComplete = Active,
@@ -56,6 +57,7 @@ mod sm {
             // All states transition back to `initial` on reset.
             Initial + Reset = Initial,
             ConnectedToBroker + Reset = Initial,
+            IndicatingLife + Reset = Initial,
             PendingRepublish + Reset = Initial,
             RepublishingSettings + Reset = Initial,
             Active + Reset = Initial,
@@ -173,10 +175,9 @@ where
         })
     }
 
-    fn handle_republish(&mut self) -> bool {
+    fn handle_republish(&mut self) {
         if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
-            // We could not finish republishing.
-            return false;
+            return;
         }
 
         for topic in self
@@ -209,32 +210,37 @@ where
             // If we can't publish any more messages, bail out now to prevent the iterator from
             // progressing. If we don't bail out now, we'd silently drop a setting.
             if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
-                // We could not finish republishing.
-                return false;
+                return;
             }
         }
 
         // If we got here, we completed iterating over the topics and published them all.
-        return true;
+        self.state
+            .process_event(sm::Events::RepublishComplete)
+            .unwrap();
     }
 
-    fn handle_broker_connection(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
+    fn handle_subscription(&mut self) {
         log::info!("MQTT connected, subscribing to settings");
+
         // Note(unwrap): We construct a string with two more characters than the prefix
-        // strucutre, so we are guaranteed to have space for storage.
+        // structure, so we are guaranteed to have space for storage.
         let mut settings_topic: String<{ MAX_TOPIC_LENGTH + 2 }> =
             String::from(self.settings_prefix.as_str());
         settings_topic.push_str("/#").unwrap();
 
-        // We do not currently handle or process potential subscription failures. Instead, this
-        // failure will be logged through the stabilizer logging interface.
-        self.mqtt.client.subscribe(&settings_topic, &[]).unwrap();
+        if self.mqtt.client.subscribe(&settings_topic, &[]).is_ok() {
+            self.state.process_event(sm::Events::Subscribed).unwrap();
+        }
+    }
 
+    fn handle_indicating_alive(&mut self) {
         // Publish a connection status message.
         let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
         connection_topic.push_str("/alive").unwrap();
 
-        self.mqtt
+        if self
+            .mqtt
             .client
             .publish(
                 &connection_topic,
@@ -243,9 +249,12 @@ where
                 Retain::Retained,
                 &[],
             )
-            .unwrap();
-
-        Ok(())
+            .is_ok()
+        {
+            self.state
+                .process_event(sm::Events::IndicatedAlive)
+                .unwrap();
+        }
     }
 
     /// Update the MQTT interface and service the network
@@ -264,10 +273,8 @@ where
                     self.state.process_event(sm::Events::Connected).unwrap();
                 }
             }
-            &sm::States::ConnectedToBroker => {
-                self.handle_broker_connection()?;
-                self.state.process_event(sm::Events::Subscribed).unwrap();
-            }
+            &sm::States::ConnectedToBroker => self.handle_subscription(),
+            &sm::States::IndicatingLife => self.handle_indicating_alive(),
             &sm::States::PendingRepublish => {
                 if self.state.context().republish_has_timed_out() {
                     self.state
@@ -275,13 +282,7 @@ where
                         .unwrap();
                 }
             }
-            &sm::States::RepublishingSettings => {
-                if self.handle_republish() {
-                    self.state
-                        .process_event(sm::Events::RepublishComplete)
-                        .unwrap();
-                }
-            }
+            &sm::States::RepublishingSettings => self.handle_republish(),
 
             // Nothing to do in the active state.
             &sm::States::Active => {}
