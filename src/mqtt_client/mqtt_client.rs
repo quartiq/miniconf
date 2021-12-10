@@ -29,25 +29,38 @@ use minimq::{embedded_time, QoS, Retain};
 
 use core::fmt::Write;
 
+// The maximum topic length of any settings path.
+const MAX_TOPIC_LENGTH: usize = 64;
+
+// The maximum prefix length of the settings topic.
+const MAX_PREFIX_LENGTH: usize = 64;
+
+// The keepalive interval to use for MQTT in seconds.
+const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
+
+// The delay after not receiving messages after initial connection that settings will be
+// republished.
+const REPUBLISH_DELAY_SECS: u32 = 2;
+
 /// MQTT settings interface.
-pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
+pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
-    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>,
+    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     clock: Clock,
     settings: Settings,
     subscribed: bool,
-    settings_prefix: String<64>,
-    prefix: String<64>,
+    settings_prefix: String<MAX_PREFIX_LENGTH>,
+    prefix: String<MAX_PREFIX_LENGTH>,
     iteration_state: Option<[usize; 16]>,
     rx_timeout: Option<Instant<Clock>>,
 }
 
-impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const MESSAGE_COUNT: usize>
-    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, MESSAGE_COUNT>
+impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
+    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
     Settings: Miniconf + Default,
     Stack: TcpClientStack,
@@ -68,34 +81,39 @@ where
         broker: IpAddr,
         clock: Clock,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
+        // Check the settings topic length.
+        let settings = Settings::default();
+
+        assert!(settings.get_metadata().max_topic_size > MAX_TOPIC_LENGTH);
+
         let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
 
-        // Utilize a keepalive interval of 60 seconds. If this lapses, our will shall indicate our
-        // disconnected state.
         // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
         // now, since we're not yet connected to the broker.
-        mqtt.client.set_keepalive_interval(60).unwrap();
+        mqtt.client
+            .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
+            .unwrap();
 
         // Configure a will so that we can indicate whether or not we are connected.
-        let mut connection_topic: String<75> = String::from(prefix);
+        let mut connection_topic: String<MAX_PREFIX_LENGTH> = String::from(prefix);
         connection_topic.push_str("/alive").unwrap();
         mqtt.client
             .set_will(
                 &connection_topic,
                 "0".as_bytes(),
                 QoS::AtMostOnce,
-                Retain::Retained,
+                Retain::NotRetained,
                 &[],
             )
             .unwrap();
 
-        let mut settings_prefix: String<64> = String::from(prefix);
+        let mut settings_prefix: String<MAX_PREFIX_LENGTH> = String::from(prefix);
         settings_prefix.push_str("/settings").unwrap();
 
         Ok(Self {
             mqtt,
             clock,
-            settings: Settings::default(),
+            settings,
             settings_prefix,
             prefix: String::from(prefix),
             subscribed: false,
@@ -104,13 +122,14 @@ where
         })
     }
 
-    pub fn handle_republish(&mut self) {
+    fn handle_republish(&mut self) {
         if let Some(timeout) = &self.rx_timeout {
             if self.clock.try_now().unwrap() > *timeout {
                 self.iteration_state.replace([0; 16]);
             }
         }
 
+        let mut iteration_exhausted = false;
         if let Some(ref mut iteration_state) = &mut self.iteration_state {
             self.rx_timeout.take();
 
@@ -120,7 +139,7 @@ where
 
             for topic in self
                 .settings
-                .into_iter::<MESSAGE_SIZE>(iteration_state)
+                .into_iter::<{ MAX_TOPIC_LENGTH }>(iteration_state)
                 .unwrap()
             {
                 let mut data = [0; MESSAGE_SIZE];
@@ -129,9 +148,7 @@ where
                 // iterator.
                 let len = self.settings.get(&topic, &mut data).unwrap();
 
-                // TODO: An arbitrary limit of 128 bytes is used. This should be replaced by a
-                // user-provided value.
-                let mut prefixed_topic: String<128> = String::new();
+                let mut prefixed_topic: String<{ MAX_TOPIC_LENGTH }> = String::new();
                 write!(&mut prefixed_topic, "{}/{}", &self.prefix, &topic).unwrap();
 
                 // Note(unwrap): This should not fail because `can_publish()` was checked before
@@ -147,10 +164,20 @@ where
                     )
                     .unwrap();
 
+                // If we can't publish any more messages, bail out now to prevent the iterator from
+                // progressing. If we don't bail out now, we'd silently drop a setting.
                 if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
-                    break;
+                    return;
                 }
             }
+
+            iteration_exhausted = true;
+        }
+
+        // If iteration has been exhausted, clear the iterator state, as we are now done
+        // republishing.
+        if iteration_exhausted {
+            self.iteration_state.take();
         }
     }
 
@@ -165,7 +192,8 @@ where
             log::info!("MQTT connected, subscribing to settings");
             // Note(unwrap): We construct a string with two more characters than the prefix
             // strucutre, so we are guaranteed to have space for storage.
-            let mut settings_topic: String<66> = String::from(self.settings_prefix.as_str());
+            let mut settings_topic: String<{ MAX_PREFIX_LENGTH + 2 }> =
+                String::from(self.settings_prefix.as_str());
             settings_topic.push_str("/#").unwrap();
 
             // We do not currently handle or process potential subscription failures. Instead, this
@@ -174,7 +202,8 @@ where
             self.subscribed = true;
 
             // Publish a connection status message.
-            let mut connection_topic: String<75> = String::from(self.prefix.as_str());
+            let mut connection_topic: String<MAX_PREFIX_LENGTH> =
+                String::from(self.prefix.as_str());
             connection_topic.push_str("/alive").unwrap();
             self.mqtt
                 .client
@@ -189,7 +218,7 @@ where
 
             // Start a timer for publishing all settings.
             self.rx_timeout
-                .replace(self.clock.try_now().unwrap() + 2u32.seconds());
+                .replace(self.clock.try_now().unwrap() + REPUBLISH_DELAY_SECS.seconds());
         }
 
         self.handle_republish();
@@ -201,7 +230,7 @@ where
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
 
-        let mut response_topic: String<70> = String::from(self.prefix.as_str());
+        let mut response_topic: String<MAX_PREFIX_LENGTH> = String::from(self.prefix.as_str());
         response_topic.push_str("/log").unwrap();
         let default_response_topic = response_topic.as_str();
 
@@ -234,7 +263,7 @@ where
             let response = MqttMessage::new(properties, default_response_topic, &message);
 
             if rx_timeout.is_some() {
-                rx_timeout.replace(clock.try_now().unwrap() + 2u32.seconds());
+                rx_timeout.replace(clock.try_now().unwrap() + REPUBLISH_DELAY_SECS.seconds());
             }
 
             client
