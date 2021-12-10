@@ -29,7 +29,7 @@ use minimq::{embedded_time, QoS, Retain};
 use core::fmt::Write;
 
 // The maximum topic length of any settings path.
-const MAX_TOPIC_LENGTH: usize = 64;
+const MAX_TOPIC_LENGTH: usize = 128;
 
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
@@ -140,8 +140,6 @@ where
         // Check the settings topic length.
         let settings = Settings::default();
 
-        assert!(settings.get_metadata().max_topic_size <= MAX_TOPIC_LENGTH);
-
         let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
 
         // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
@@ -166,6 +164,10 @@ where
         let mut settings_prefix: String<MAX_TOPIC_LENGTH> = String::from(prefix);
         settings_prefix.push_str("/settings").unwrap();
 
+        assert!(
+            settings_prefix.len() + 1 + settings.get_metadata().max_topic_size <= MAX_TOPIC_LENGTH
+        );
+
         Ok(Self {
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
@@ -182,7 +184,7 @@ where
 
         for topic in self
             .settings
-            .into_iter::<{ MAX_TOPIC_LENGTH }>(&mut self.state.context_mut().republish_state)
+            .into_iter::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
             .unwrap()
         {
             let mut data = [0; MESSAGE_SIZE];
@@ -191,7 +193,7 @@ where
             // iterator.
             let len = self.settings.get(&topic, &mut data).unwrap();
 
-            let mut prefixed_topic: String<{ 2 * MAX_TOPIC_LENGTH + 1 }> = String::new();
+            let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
             write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
@@ -225,7 +227,7 @@ where
 
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
-        let mut settings_topic: String<{ MAX_TOPIC_LENGTH + 2 }> =
+        let mut settings_topic: String<MAX_TOPIC_LENGTH> =
             String::from(self.settings_prefix.as_str());
         settings_topic.push_str("/#").unwrap();
 
