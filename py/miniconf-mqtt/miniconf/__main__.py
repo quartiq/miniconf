@@ -56,7 +56,7 @@ def main():
             raise Exception('No Miniconf devices found. Please specify a --prefix')
 
         assert len(devices) == 1, \
-            'Multiple miniconf devices found ({devices}}). Please specify a more specific --prefix'
+            f'Multiple miniconf devices found ({devices}). Please specify a more specific --prefix'
 
         logging.info('Automatically using detected device prefix: %s', devices[0])
         prefix = devices[0]
