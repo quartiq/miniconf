@@ -100,7 +100,7 @@ fn main() -> std::io::Result<()> {
     .unwrap();
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 1> = miniconf::MqttClient::new(
+    let mut interface: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
         Stack::default(),
         "",
         "device",

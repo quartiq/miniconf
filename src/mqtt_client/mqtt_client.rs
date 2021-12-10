@@ -84,7 +84,7 @@ where
         // Check the settings topic length.
         let settings = Settings::default();
 
-        assert!(settings.get_metadata().max_topic_size > MAX_TOPIC_LENGTH);
+        assert!(settings.get_metadata().max_topic_size <= MAX_TOPIC_LENGTH);
 
         let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
 
@@ -102,7 +102,7 @@ where
                 &connection_topic,
                 "0".as_bytes(),
                 QoS::AtMostOnce,
-                Retain::NotRetained,
+                Retain::Retained,
                 &[],
             )
             .unwrap();
@@ -125,6 +125,7 @@ where
     fn handle_republish(&mut self) {
         if let Some(timeout) = &self.rx_timeout {
             if self.clock.try_now().unwrap() > *timeout {
+                log::info!("Republish duration lapsed. Publishing settings");
                 self.iteration_state.replace([0; 16]);
             }
         }
@@ -149,7 +150,7 @@ where
                 let len = self.settings.get(&topic, &mut data).unwrap();
 
                 let mut prefixed_topic: String<{ MAX_TOPIC_LENGTH }> = String::new();
-                write!(&mut prefixed_topic, "{}/{}", &self.prefix, &topic).unwrap();
+                write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
 
                 // Note(unwrap): This should not fail because `can_publish()` was checked before
                 // attempting this publish.
@@ -159,7 +160,7 @@ where
                         &prefixed_topic,
                         &data[..len],
                         QoS::AtMostOnce,
-                        Retain::Retained,
+                        Retain::NotRetained,
                         &[],
                     )
                     .unwrap();
