@@ -1,26 +1,18 @@
 #![no_std]
 //! # Miniconf
 //!
-//! Miniconf is a a lightweight utility to manage run-time configurable settings.
+//! Miniconf is a a lightweight utility to manage run-time configurable settings. It allows
+//! access and manipulation of struct fields by assigning each field a unique path-like identifier.
 //!
 //! ## Overview
 //!
 //! Miniconf uses a [Derive macro](derive.Miniconf.html) to automatically assign unique paths to
 //! each setting. All values are transmitted and received in JSON format.
 //!
-//! ## Features
-//! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
-//! To enable this feature, enable the `mqtt-client` feature.
+//! With the derive macro, field values can be easily retrieved or modified using a run-time
+//! string.
 //!
-//! ## Supported Protocols
-//!
-//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
-//! some external source can be used to acquire paths and values for updating settings.
-//!
-//! While Miniconf is platform agnostic, there is an [MQTT-based client](MqttClient) provided to
-//! manage settings via the [MQTT protocol](https://mqtt.org).
-//!
-//! ## Example
+//! ### Example
 //! ```
 //! use miniconf::{Miniconf, MiniconfAtomic};
 //! use serde::{Serialize, Deserialize};
@@ -49,7 +41,44 @@
 //!
 //! // Update channel gain for channel 0.
 //! settings.set("channel_gain/0", b"15").unwrap();
+//!
+//! // Serialize the current sample rate into the provided buffer.
+//! let mut buffer = [0u8; 256];
+//! let len = settings.get("sample_rate", &mut buffer).unwrap();
+//! // `sample_rate`'s serialized value now exists in `buffer[..len]`.
 //! ```
+//!
+//! ## Features
+//! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
+//! To enable this feature, enable the `mqtt-client` feature.
+//!
+//! ### Path iteration
+//!
+//! Miniconf also allows iteration over all settings paths:
+//! ```rust
+//! use miniconf::Miniconf;
+//!
+//! #[derive(Default, Miniconf)]
+//! struct Settings {
+//!     sample_rate: u32,
+//!     update: bool,
+//! }
+//!
+//! let settings = Settings::default();
+//!
+//!let mut state = [0; 8];
+//! for topic in settings.into_iter::<128>(&mut state).unwrap() {
+//!     println!("Discovered topic: `{:?}`", topic);
+//! }
+//! ```
+//!
+//! ## Supported Protocols
+//!
+//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
+//! some external source can be used to acquire paths and values for updating settings.
+//!
+//! While Miniconf is platform agnostic, there is an [MQTT-based client](MqttClient) provided to
+//! manage settings via the [MQTT protocol](https://mqtt.org).
 //!
 //! ## Limitations
 //!
@@ -125,6 +154,7 @@ pub enum Error {
     BadIndex,
 }
 
+/// Errors that occur during iteration over topic paths.
 #[derive(Debug)]
 pub enum IterError {
     /// The provided state vector is not long enough.
