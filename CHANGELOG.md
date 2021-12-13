@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+
+## [0.3.0] - 2021-12-13
+
+### Added
 * Added key iteration
 * Added support for retrieving serialized values via keys.
 * Added APIs to the Miniconf trait for asynchronous iteration.
@@ -17,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 * `miniconf::update()` replaced with `Miniconf::set()`, which is part of the trait and now
   directly available on structures.
-### Removed
+
 
 ## [0.2.0] - 2021-10-28
 
@@ -32,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Library initially released on crates.io
 
-[Unreleased]: https://github.com/quartiq/miniconf/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/quartiq/miniconf/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/quartiq/miniconf/releases/tag/v0.3.0
 [0.2.0]: https://github.com/quartiq/miniconf/releases/tag/v0.2.0
 [0.1.0]: https://github.com/quartiq/miniconf/releases/tag/v0.1.0
