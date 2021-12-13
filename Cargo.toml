@@ -1,6 +1,6 @@
 [package]
 name = "miniconf"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
 edition = "2018"
 license = "MIT"
@@ -10,7 +10,7 @@ keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]
-derive_miniconf = { path = "derive_miniconf" , version = "0.1" }
+derive_miniconf = { path = "derive_miniconf" , version = "0.3" }
 serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
