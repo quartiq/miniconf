@@ -342,7 +342,6 @@ where
                     Ok(len) => {
                         match settings.string_set(path.split('/').peekable(), message) {
                             Ok(_) => {
-                                updated = true;
                                 let result = handler(settings);
                                 if result.is_err() {
                                     // Note(unwrap): We just serialized this value, so it should
@@ -350,7 +349,10 @@ where
                                     settings
                                         .string_set(path.split('/').peekable(), &buffer[..len])
                                         .unwrap();
+                                } else {
+                                    updated = true;
                                 }
+
                                 result.into()
                             }
                             other => other.into(),

@@ -44,7 +44,7 @@ async fn client_task() {
     mqtt.client
         .publish(
             "validation_failure/device/settings/error",
-            b"false",
+            b"true",
             minimq::QoS::AtMostOnce,
             minimq::Retain::NotRetained,
             &properties,
@@ -77,7 +77,7 @@ async fn main() {
     tokio::task::spawn(async move { client_task().await });
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 1> = miniconf::MqttClient::new(
+    let mut interface: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
         Stack::default(),
         "",
         "validation_failure/device",
@@ -87,21 +87,27 @@ async fn main() {
     .unwrap();
 
     // Update the client until the exit
+    let mut should_exit = false;
     loop {
-        if interface
+        interface
             .handled_update(|settings| {
                 log::info!("Handling setting update");
                 if settings.error {
+                    should_exit = true;
                     return Err(());
                 }
 
                 return Ok(());
             })
-            .unwrap()
-        {
+            .unwrap();
+
+        if should_exit {
             break;
         }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
+
+    // Check that the error setting did not stick.
+    assert!(!interface.settings().error);
 }
