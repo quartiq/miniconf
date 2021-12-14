@@ -9,8 +9,8 @@ pub struct SettingsResponse {
     msg: String<64>,
 }
 
-impl<E: core::fmt::Debug> From<Result<(), E>> for SettingsResponse {
-    fn from(result: Result<(), E>) -> Self {
+impl<T, E: core::fmt::Debug> From<Result<T, E>> for SettingsResponse {
+    fn from(result: Result<T, E>) -> Self {
         match result {
             Ok(_) => Self {
                 msg: String::from("OK"),
