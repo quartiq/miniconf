@@ -21,7 +21,10 @@ use serde_json_core::heapless::String;
 
 use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
-use super::messages::{MqttMessage, SettingsResponse};
+use super::{
+    messages::{MqttMessage, SettingsResponse},
+    HandlerResult,
+};
 use crate::Miniconf;
 use log::info;
 use minimq::{embedded_time, QoS, Retain};
@@ -48,16 +51,25 @@ mod sm {
     statemachine! {
         transitions: {
             *Initial + Connected = ConnectedToBroker,
-            ConnectedToBroker + Subscribed = IndicatingLife,
-            IndicatingLife + IndicatedAlive / start_republish_timeout = PendingRepublish,
+            ConnectedToBroker + IndicatedLife = PendingSubscribe,
+
+            // After initial subscriptions, we start a timeout to republish all settings that is
+            // reset by any incoming updates.
+            PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
             PendingRepublish + MessageReceived / start_republish_timeout = PendingRepublish,
-            PendingRepublish + RepublishTimeout / start_republish = RepublishingSettings,
+
+            // Settings republish can be completed any time after subscription.
+            PendingRepublish + StartRepublish / start_republish = RepublishingSettings,
+            RepublishingSettings + StartRepublish / start_republish = RepublishingSettings,
+            Active + StartRepublish / start_republish = RepublishingSettings,
+
+            // After republishing settings, we are in an idle "active" state.
             RepublishingSettings + RepublishComplete = Active,
 
             // All states transition back to `initial` on reset.
             Initial + Reset = Initial,
             ConnectedToBroker + Reset = Initial,
-            IndicatingLife + Reset = Initial,
+            PendingSubscribe + Reset = Initial,
             PendingRepublish + Reset = Initial,
             RepublishingSettings + Reset = Initial,
             Active + Reset = Initial,
@@ -104,7 +116,7 @@ mod sm {
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf + Default,
+    Settings: Miniconf + Default + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -118,7 +130,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf + Default,
+    Settings: Miniconf + Default + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {
@@ -253,9 +265,7 @@ where
             )
             .is_ok()
         {
-            self.state
-                .process_event(sm::Events::IndicatedAlive)
-                .unwrap();
+            self.state.process_event(sm::Events::IndicatedLife).unwrap();
         }
     }
 
@@ -267,9 +277,13 @@ where
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
+    pub fn handled_update<F, E, T>(
+        &mut self,
+        handler: F,
+    ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&Settings) -> Result<(), E>,
+        F: FnMut(&mut Settings) -> Result<T, E>,
+        for<'a> &'a T: Into<HandlerResult>,
         E: core::fmt::Debug,
     {
         if !self.mqtt.client.is_connected() {
@@ -283,12 +297,12 @@ where
                     self.state.process_event(sm::Events::Connected).unwrap();
                 }
             }
-            &sm::States::ConnectedToBroker => self.handle_subscription(),
-            &sm::States::IndicatingLife => self.handle_indicating_alive(),
+            &sm::States::ConnectedToBroker => self.handle_indicating_alive(),
+            &sm::States::PendingSubscribe => self.handle_subscription(),
             &sm::States::PendingRepublish => {
                 if self.state.context().republish_has_timed_out() {
                     self.state
-                        .process_event(sm::Events::RepublishTimeout)
+                        .process_event(sm::Events::StartRepublish)
                         .unwrap();
                 }
             }
@@ -302,12 +316,13 @@ where
         self.handle_mqtt_traffic(handler)
     }
 
-    fn handle_mqtt_traffic<F, E>(
+    fn handle_mqtt_traffic<F, E, T>(
         &mut self,
         mut handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&Settings) -> Result<(), E>,
+        F: FnMut(&mut Settings) -> Result<T, E>,
+        for<'a> &'a T: Into<HandlerResult>,
         E: core::fmt::Debug,
     {
         let settings = &mut self.settings;
@@ -336,29 +351,33 @@ where
                 }
             };
 
-            let mut buffer = [0; MESSAGE_SIZE];
+            let mut new_settings = settings.clone();
             let message: SettingsResponse =
-                match settings.string_get(path.split('/').peekable(), &mut buffer) {
-                    Ok(len) => {
-                        match settings.string_set(path.split('/').peekable(), message) {
-                            Ok(_) => {
-                                let result = handler(settings);
-                                if result.is_err() {
-                                    // Note(unwrap): We just serialized this value, so it should
-                                    // always be valid.
-                                    settings
-                                        .string_set(path.split('/').peekable(), &buffer[..len])
-                                        .unwrap();
-                                } else {
-                                    updated = true;
-                                }
+                match new_settings.string_set(path.split('/').peekable(), message) {
+                    Ok(_) => {
+                        let result = handler(&mut new_settings);
+                        if let Ok(ref action) = result {
+                            // If the update was accepted, store the updated settings into the settings
+                            // structure.
+                            *settings = new_settings;
+                            updated = true;
 
-                                result.into()
+                            match action.into() {
+                                // In the case of generic acceptance, there's nothing more to do.
+                                HandlerResult::UpdateAccepted => {}
+
+                                // If an update had side effects, we have to republish settings.
+                                HandlerResult::UpdateSideEffects => {
+                                    // Note(unwrap): It should always be valid to restart settings
+                                    // republishing once we are subscribed to the settings topic.
+                                    state.process_event(sm::Events::StartRepublish).unwrap();
+                                }
                             }
-                            other => other.into(),
                         }
+
+                        result.into()
                     }
-                    error => error.into(),
+                    other => other.into(),
                 };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);

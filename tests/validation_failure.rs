@@ -3,7 +3,7 @@ use serde::Deserialize;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     error: bool,
 }
