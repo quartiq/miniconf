@@ -104,7 +104,7 @@ mod sm {
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf + Default,
+    Settings: Miniconf,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -118,7 +118,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf + Default,
+    Settings: Miniconf,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {
@@ -130,16 +130,15 @@ where
     /// * `prefix` - The MQTT device prefix to use for this device.
     /// * `broker` - The IP address of the MQTT broker to use.
     /// * `clock` - The clock for managing the MQTT connection.
+    /// * `settings` - The initial settings values.
     pub fn new(
         stack: Stack,
         client_id: &str,
         prefix: &str,
         broker: IpAddr,
         clock: Clock,
+        settings: Settings,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
-        // Check the settings topic length.
-        let settings = Settings::default();
-
         let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
 
         // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
