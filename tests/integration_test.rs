@@ -106,6 +106,7 @@ fn main() -> std::io::Result<()> {
         "device",
         localhost,
         StandardClock::default(),
+        Settings::default(),
     )
     .unwrap();
 
