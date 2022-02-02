@@ -89,8 +89,8 @@
 #[cfg(feature = "mqtt-client")]
 mod mqtt_client;
 
-pub mod iter;
 mod array;
+pub mod iter;
 mod option;
 
 #[cfg(feature = "mqtt-client")]
