@@ -83,6 +83,7 @@ async fn main() {
         "validation_failure/device",
         "127.0.0.1".parse().unwrap(),
         StandardClock::default(),
+        Settings::default(),
     )
     .unwrap();
 
@@ -90,9 +91,9 @@ async fn main() {
     let mut should_exit = false;
     loop {
         interface
-            .handled_update(|settings| {
+            .handled_update(|_path, _old_settings, new_settings| {
                 log::info!("Handling setting update");
-                if settings.error {
+                if new_settings.error {
                     should_exit = true;
                     return Err(());
                 }

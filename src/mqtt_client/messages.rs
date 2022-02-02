@@ -9,13 +9,19 @@ pub struct SettingsResponse {
     msg: String<64>,
 }
 
+impl SettingsResponse {
+    pub fn ok() -> Self {
+        Self {
+            msg: String::from("OK"),
+            code: 0,
+        }
+    }
+}
+
 impl<T, E: core::fmt::Debug> From<Result<T, E>> for SettingsResponse {
     fn from(result: Result<T, E>) -> Self {
         match result {
-            Ok(_) => Self {
-                msg: String::from("OK"),
-                code: 0,
-            },
+            Ok(_) => SettingsResponse::ok(),
 
             Err(error) => {
                 let mut msg = String::new();

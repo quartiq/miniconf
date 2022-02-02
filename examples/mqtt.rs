@@ -81,6 +81,7 @@ async fn main() {
         "sample/prefix",
         "127.0.0.1".parse().unwrap(),
         StandardClock::default(),
+        Settings::default(),
     )
     .unwrap();
 

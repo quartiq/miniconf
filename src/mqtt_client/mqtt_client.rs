@@ -21,10 +21,7 @@ use serde_json_core::heapless::String;
 
 use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
-use super::{
-    messages::{MqttMessage, SettingsResponse},
-    HandlerResult,
-};
+use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
 use log::info;
 use minimq::{embedded_time, QoS, Retain};
@@ -116,7 +113,7 @@ mod sm {
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf + Default + Clone,
+    Settings: Miniconf + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -130,7 +127,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf + Default + Clone,
+    Settings: Miniconf + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {
@@ -142,16 +139,15 @@ where
     /// * `prefix` - The MQTT device prefix to use for this device.
     /// * `broker` - The IP address of the MQTT broker to use.
     /// * `clock` - The clock for managing the MQTT connection.
+    /// * `settings` - The initial settings values.
     pub fn new(
         stack: Stack,
         client_id: &str,
         prefix: &str,
         broker: IpAddr,
         clock: Clock,
+        settings: Settings,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
-        // Check the settings topic length.
-        let settings = Settings::default();
-
         let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
 
         // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
@@ -273,17 +269,13 @@ where
     ///
     /// # Args
     /// * `handler` - A closure called with updated settings that can be used to apply current
-    ///   settings or validate the configuration.
+    ///   settings or validate the configuration. Arguments are (path, old_settings, new_settings).
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn handled_update<F, E, T>(
-        &mut self,
-        handler: F,
-    ) -> Result<bool, minimq::Error<Stack::Error>>
+    pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&mut Settings) -> Result<T, E>,
-        for<'a> &'a T: Into<HandlerResult>,
+        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
         E: core::fmt::Debug,
     {
         if !self.mqtt.client.is_connected() {
@@ -316,13 +308,12 @@ where
         self.handle_mqtt_traffic(handler)
     }
 
-    fn handle_mqtt_traffic<F, E, T>(
+    fn handle_mqtt_traffic<F, E>(
         &mut self,
         mut handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&mut Settings) -> Result<T, E>,
-        for<'a> &'a T: Into<HandlerResult>,
+        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
         E: core::fmt::Debug,
     {
         let settings = &mut self.settings;
@@ -355,29 +346,16 @@ where
             let message: SettingsResponse =
                 match new_settings.string_set(path.split('/').peekable(), message) {
                     Ok(_) => {
-                        let result = handler(&mut new_settings);
-                        if let Ok(ref action) = result {
-                            // If the update was accepted, store the updated settings into the settings
-                            // structure.
+                        if handler(&path, &settings, &mut new_settings).is_ok() {
+                            // If the update was accepted, store the updated settings into the
+                            // settings structure.
                             *settings = new_settings;
                             updated = true;
-
-                            match action.into() {
-                                // In the case of generic acceptance, there's nothing more to do.
-                                HandlerResult::UpdateAccepted => {}
-
-                                // If an update had side effects, we have to republish settings.
-                                HandlerResult::UpdateSideEffects => {
-                                    // Note(unwrap): It should always be valid to restart settings
-                                    // republishing once we are subscribed to the settings topic.
-                                    state.process_event(sm::Events::StartRepublish).unwrap();
-                                }
-                            }
                         }
 
-                        result.into()
+                        SettingsResponse::ok()
                     }
-                    other => other.into(),
+                    err => SettingsResponse::from(err),
                 };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
@@ -413,11 +391,20 @@ where
     /// # Returns
     /// True if the settings changed. False otherwise
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
-        self.handled_update(|_| Result::<(), ()>::Ok(()))
+        self.handled_update(|_, _, _| Result::<(), ()>::Ok(()))
     }
 
     /// Get the current settings from miniconf.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Force republication of the current settings.
+    ///
+    /// # Note
+    /// This is intended to be used if modification of a setting had side effects that affected
+    /// another setting.
+    pub fn force_republish(&mut self) {
+        self.state.process_event(sm::Events::StartRepublish).ok();
     }
 }
