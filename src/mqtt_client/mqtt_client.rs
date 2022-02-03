@@ -265,17 +265,47 @@ where
         }
     }
 
-    /// Update the MQTT interface and service the network. Handle any settings changes.
+    /// Update the MQTT interface and service the network. Pass any settings changes to the handler
+    /// supplied.
     ///
     /// # Args
     /// * `handler` - A closure called with updated settings that can be used to apply current
     ///   settings or validate the configuration. Arguments are (path, old_settings, new_settings).
     ///
+    /// # Example
+    /// ```rust
+    /// #[derive(miniconf::Miniconf, Clone)]
+    /// struct Settings {
+    ///     threshold: u32,
+    /// }
+    ///
+    /// # let mut client: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
+    /// #     std_embedded_nal::Stack::default(),
+    /// #     "",
+    /// #     "sample/prefix",
+    /// #     "127.0.0.1".parse().unwrap(),
+    /// #     std_embedded_time::StandardClock::default(),
+    /// #     Settings { threshold: 0 },
+    /// # )
+    /// # .unwrap();
+    ///
+    /// // let mut client = miniconf::MqttClient::new(...);
+    /// client.handled_update(|path, old_settings, new_settings| {
+    ///     if old_settings.threshold > 5 {
+    ///         return Err(());
+    ///     }
+    ///
+    ///     *old_settings = new_settings.clone();
+    ///
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
+    ///
     /// # Returns
     /// True if the settings changed. False otherwise.
     pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
+        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: core::fmt::Debug,
     {
         if !self.mqtt.client.is_connected() {
@@ -313,10 +343,10 @@ where
         mut handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
+        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: core::fmt::Debug,
     {
-        let settings = &mut self.settings;
+        let mut settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
         let state = &mut self.state;
@@ -346,10 +376,9 @@ where
             let message: SettingsResponse =
                 match new_settings.string_set(path.split('/').peekable(), message) {
                     Ok(_) => {
-                        if handler(&path, &settings, &mut new_settings).is_ok() {
+                        if handler(&path, &mut settings, &new_settings).is_ok() {
                             // If the update was accepted, store the updated settings into the
                             // settings structure.
-                            *settings = new_settings;
                             updated = true;
                         }
 
@@ -391,7 +420,10 @@ where
     /// # Returns
     /// True if the settings changed. False otherwise
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
-        self.handled_update(|_, _, _| Result::<(), ()>::Ok(()))
+        self.handled_update(|_, old, new| {
+            *old = new.clone();
+            Result::<(), ()>::Ok(())
+        })
     }
 
     /// Get the current settings from miniconf.
