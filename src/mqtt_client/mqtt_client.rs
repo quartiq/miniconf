@@ -50,10 +50,8 @@ mod sm {
             *Initial + Connected = ConnectedToBroker,
             ConnectedToBroker + IndicatedLife = PendingSubscribe,
 
-            // After initial subscriptions, we start a timeout to republish all settings that is
-            // reset by any incoming updates.
+            // After initial subscriptions, we start a timeout to republish all settings.
             PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
-            PendingRepublish + MessageReceived / start_republish_timeout = PendingRepublish,
 
             // Settings republish can be completed any time after subscription.
             PendingRepublish + StartRepublish / start_republish = RepublishingSettings,
@@ -349,7 +347,6 @@ where
         let mut settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
-        let state = &mut self.state;
 
         let mut response_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
         response_topic.push_str("/log").unwrap();
@@ -390,10 +387,6 @@ where
                 };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
-
-            // We only care about these events in one state, so ignore the errors for the other
-            // states.
-            state.process_event(sm::Events::MessageReceived).ok();
 
             client
                 .publish(

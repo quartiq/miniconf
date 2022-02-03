@@ -95,7 +95,7 @@ async fn main() {
                 log::info!("Handling setting update");
                 if new_settings.error {
                     should_exit = true;
-                    return Err(());
+                    return Err("Exiting now");
                 }
 
                 return Ok(());
