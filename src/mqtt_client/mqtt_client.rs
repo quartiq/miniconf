@@ -291,8 +291,8 @@ where
     ///
     /// // let mut client = miniconf::MqttClient::new(...);
     /// client.handled_update(|path, old_settings, new_settings| {
-    ///     if old_settings.threshold > 5 {
-    ///         return Err(());
+    ///     if new_settings.threshold > 5 {
+    ///         return Err("Requested threshold too high");
     ///     }
     ///
     ///     *old_settings = new_settings.clone();
@@ -306,7 +306,7 @@ where
     pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: core::fmt::Debug,
+        E: AsRef<str>,
     {
         if !self.mqtt.client.is_connected() {
             // Note(unwrap): It's always safe to reset.
@@ -344,7 +344,7 @@ where
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: core::fmt::Debug,
+        E: AsRef<str>,
     {
         let mut settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
@@ -376,15 +376,17 @@ where
             let message: SettingsResponse =
                 match new_settings.string_set(path.split('/').peekable(), message) {
                     Ok(_) => {
-                        if handler(&path, &mut settings, &new_settings).is_ok() {
-                            // If the update was accepted, store the updated settings into the
-                            // settings structure.
-                            updated = true;
+                        updated = true;
+                        handler(&path, &mut settings, &new_settings).into()
+                    }
+                    err => {
+                        let mut msg = String::new();
+                        if write!(&mut msg, "{:?}", err).is_err() {
+                            msg = String::from("Configuration Error");
                         }
 
-                        SettingsResponse::ok()
+                        SettingsResponse::error(msg)
                     }
-                    err => SettingsResponse::from(err),
                 };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
@@ -422,7 +424,7 @@ where
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         self.handled_update(|_, old, new| {
             *old = new.clone();
-            Result::<(), ()>::Ok(())
+            Result::<(), &'static str>::Ok(())
         })
     }
 

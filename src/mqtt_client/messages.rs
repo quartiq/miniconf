@@ -1,4 +1,3 @@
-use core::fmt::Write;
 use heapless::{String, Vec};
 use serde::Serialize;
 
@@ -16,20 +15,24 @@ impl SettingsResponse {
             code: 0,
         }
     }
+
+    pub fn error(msg: String<64>) -> Self {
+        Self { code: 255, msg }
+    }
 }
 
-impl<T, E: core::fmt::Debug> From<Result<T, E>> for SettingsResponse {
+impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
     fn from(result: Result<T, E>) -> Self {
         match result {
             Ok(_) => SettingsResponse::ok(),
 
             Err(error) => {
                 let mut msg = String::new();
-                if write!(&mut msg, "{:?}", error).is_err() {
+                if msg.push_str(error.as_ref()).is_err() {
                     msg = String::from("Configuration Error");
                 }
 
-                Self { code: 255, msg }
+                Self::error(msg)
             }
         }
     }
