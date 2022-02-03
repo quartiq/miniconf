@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] MqttClient constructor now accepts initial settings values.
 
 ### Removed
+* The client no longer resets the republish timeout when receiving messages.
 
 ## [0.3.0] - 2021-12-13
 
