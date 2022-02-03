@@ -45,5 +45,5 @@ fn iterate_some_none() {
     let mut state = [0; 10];
     settings.value.replace(5);
     let mut iterator = settings.into_iter::<128>(&mut state).unwrap();
-    assert_eq!(iterator.next().uwnrap(), "value");
+    assert_eq!(iterator.next().unwrap(), "value");
 }
