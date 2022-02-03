@@ -48,16 +48,23 @@ mod sm {
     statemachine! {
         transitions: {
             *Initial + Connected = ConnectedToBroker,
-            ConnectedToBroker + Subscribed = IndicatingLife,
-            IndicatingLife + IndicatedAlive / start_republish_timeout = PendingRepublish,
-            PendingRepublish + MessageReceived / start_republish_timeout = PendingRepublish,
-            PendingRepublish + RepublishTimeout / start_republish = RepublishingSettings,
+            ConnectedToBroker + IndicatedLife = PendingSubscribe,
+
+            // After initial subscriptions, we start a timeout to republish all settings.
+            PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
+
+            // Settings republish can be completed any time after subscription.
+            PendingRepublish + StartRepublish / start_republish = RepublishingSettings,
+            RepublishingSettings + StartRepublish / start_republish = RepublishingSettings,
+            Active + StartRepublish / start_republish = RepublishingSettings,
+
+            // After republishing settings, we are in an idle "active" state.
             RepublishingSettings + RepublishComplete = Active,
 
             // All states transition back to `initial` on reset.
             Initial + Reset = Initial,
             ConnectedToBroker + Reset = Initial,
-            IndicatingLife + Reset = Initial,
+            PendingSubscribe + Reset = Initial,
             PendingRepublish + Reset = Initial,
             RepublishingSettings + Reset = Initial,
             Active + Reset = Initial,
@@ -104,7 +111,7 @@ mod sm {
 /// MQTT settings interface.
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf,
+    Settings: Miniconf + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -118,7 +125,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf,
+    Settings: Miniconf + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {
@@ -252,17 +259,53 @@ where
             )
             .is_ok()
         {
-            self.state
-                .process_event(sm::Events::IndicatedAlive)
-                .unwrap();
+            self.state.process_event(sm::Events::IndicatedLife).unwrap();
         }
     }
 
-    /// Update the MQTT interface and service the network
+    /// Update the MQTT interface and service the network. Pass any settings changes to the handler
+    /// supplied.
+    ///
+    /// # Args
+    /// * `handler` - A closure called with updated settings that can be used to apply current
+    ///   settings or validate the configuration. Arguments are (path, old_settings, new_settings).
+    ///
+    /// # Example
+    /// ```rust
+    /// #[derive(miniconf::Miniconf, Clone)]
+    /// struct Settings {
+    ///     threshold: u32,
+    /// }
+    ///
+    /// # let mut client: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
+    /// #     std_embedded_nal::Stack::default(),
+    /// #     "",
+    /// #     "sample/prefix",
+    /// #     "127.0.0.1".parse().unwrap(),
+    /// #     std_embedded_time::StandardClock::default(),
+    /// #     Settings { threshold: 0 },
+    /// # )
+    /// # .unwrap();
+    ///
+    /// // let mut client = miniconf::MqttClient::new(...);
+    /// client.handled_update(|path, old_settings, new_settings| {
+    ///     if new_settings.threshold > 5 {
+    ///         return Err("Requested threshold too high");
+    ///     }
+    ///
+    ///     *old_settings = new_settings.clone();
+    ///
+    ///     Ok(())
+    /// }).unwrap();
+    /// ```
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
+    pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
+    where
+        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
+        E: AsRef<str>,
+    {
         if !self.mqtt.client.is_connected() {
             // Note(unwrap): It's always safe to reset.
             self.state.process_event(sm::Events::Reset).unwrap();
@@ -274,12 +317,12 @@ where
                     self.state.process_event(sm::Events::Connected).unwrap();
                 }
             }
-            &sm::States::ConnectedToBroker => self.handle_subscription(),
-            &sm::States::IndicatingLife => self.handle_indicating_alive(),
+            &sm::States::ConnectedToBroker => self.handle_indicating_alive(),
+            &sm::States::PendingSubscribe => self.handle_subscription(),
             &sm::States::PendingRepublish => {
                 if self.state.context().republish_has_timed_out() {
                     self.state
-                        .process_event(sm::Events::RepublishTimeout)
+                        .process_event(sm::Events::StartRepublish)
                         .unwrap();
                 }
             }
@@ -290,20 +333,26 @@ where
         }
 
         // All states must handle MQTT traffic.
-        self.handle_mqtt_traffic()
+        self.handle_mqtt_traffic(handler)
     }
 
-    fn handle_mqtt_traffic(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
-        let settings = &mut self.settings;
+    fn handle_mqtt_traffic<F, E>(
+        &mut self,
+        mut handler: F,
+    ) -> Result<bool, minimq::Error<Stack::Error>>
+    where
+        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
+        E: AsRef<str>,
+    {
+        let mut settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
-        let state = &mut self.state;
 
         let mut response_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
         response_topic.push_str("/log").unwrap();
         let default_response_topic = response_topic.as_str();
 
-        let mut update = false;
+        let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
             let path = match topic.strip_prefix(prefix) {
                 // For paths, we do not want to include the leading slash.
@@ -320,20 +369,24 @@ where
                 }
             };
 
-            log::info!("Settings update: `{}`", path);
+            let mut new_settings = settings.clone();
+            let message: SettingsResponse =
+                match new_settings.string_set(path.split('/').peekable(), message) {
+                    Ok(_) => {
+                        updated = true;
+                        handler(&path, &mut settings, &new_settings).into()
+                    }
+                    err => {
+                        let mut msg = String::new();
+                        if write!(&mut msg, "{:?}", err).is_err() {
+                            msg = String::from("Configuration Error");
+                        }
 
-            let message: SettingsResponse = settings
-                .string_set(path.split('/').peekable(), message)
-                .map(|_| {
-                    update = true;
-                })
-                .into();
+                        SettingsResponse::error(msg)
+                    }
+                };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
-
-            // We only care about these events in one state, so ignore the errors for the other
-            // states.
-            state.process_event(sm::Events::MessageReceived).ok();
 
             client
                 .publish(
@@ -347,8 +400,7 @@ where
                 )
                 .ok();
         }) {
-            // If settings updated,
-            Ok(_) => Ok(update),
+            Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
                 log::warn!("Settings MQTT session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
@@ -358,8 +410,28 @@ where
         }
     }
 
+    /// Update the settings from the network stack without any specific handling.
+    ///
+    /// # Returns
+    /// True if the settings changed. False otherwise
+    pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
+        self.handled_update(|_, old, new| {
+            *old = new.clone();
+            Result::<(), &'static str>::Ok(())
+        })
+    }
+
     /// Get the current settings from miniconf.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Force republication of the current settings.
+    ///
+    /// # Note
+    /// This is intended to be used if modification of a setting had side effects that affected
+    /// another setting.
+    pub fn force_republish(&mut self) {
+        self.state.process_event(sm::Events::StartRepublish).ok();
     }
 }
