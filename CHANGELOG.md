@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+* `Option` support added to enable run-time settings tree presence.
+
 ### Changed
 * [breaking] MqttClient constructor now accepts initial settings values.
 
