@@ -23,8 +23,8 @@ use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
 use super::messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
-use log::info;
-use minimq::{embedded_time, QoS, Retain};
+use log::{debug, info};
+use minimq::{embedded_time, Property, QoS, Retain};
 
 use core::fmt::Write;
 

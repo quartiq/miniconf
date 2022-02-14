@@ -93,7 +93,8 @@ async fn main() {
     // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
     // all settings values.
     for _ in 0..500 {
-        interface.update().unwrap();
+        // The interface should never indicate a settings update during the republish process.
+        assert!(!interface.update().unwrap());
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 

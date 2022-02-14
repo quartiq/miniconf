@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 * [breaking] MqttClient constructor now accepts initial settings values.
+* Settings republish will no longer register as incoming configuration requests. See
+  [#71](https://github.com/quartiq/miniconf/issues/71)
 
 ### Removed
 
