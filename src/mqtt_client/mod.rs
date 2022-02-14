@@ -24,9 +24,9 @@ use serde_json_core::heapless::String;
 use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
 use crate::Miniconf;
-use log::info;
+use log::{debug, info};
 use messages::{MqttMessage, SettingsResponse};
-use minimq::{embedded_time, QoS, Retain};
+use minimq::{embedded_time, QoS, Retain, Property};
 
 use core::fmt::Write;
 
