@@ -67,7 +67,7 @@
 //! let settings = Settings::default();
 //!
 //!let mut state = [0; 8];
-//! for topic in settings.into_iter::<128>(&mut state).unwrap() {
+//! for topic in settings.iter::<128>(&mut state).unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
 //! ```
@@ -230,7 +230,7 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn into_iter<'a, const TS: usize>(
+    fn iter<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
@@ -265,7 +265,7 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn unchecked_into_iter<'a, const TS: usize>(
+    fn unchecked_iter<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> iter::MiniconfIter<'a, Self, TS> {
@@ -341,7 +341,7 @@ macro_rules! impl_single {
                 _topic: &mut heapless::String<TS>,
             ) -> Option<()> {
                 if index.len() == 0 {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // Note: During expected execution paths using `iter()`, the size of the
                     // index stack is checked in advance to make sure this condition doesn't occur.
                     // However, it's possible to happen if the user manually calls `recurse_paths`.
                     unreachable!("Index stack too small");

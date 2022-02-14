@@ -27,35 +27,21 @@ jobs:
           command: fmt
           args: --all -- --check
 
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: actions/setup-python@v1
       - name: Install Pylint
         run: |
           python -m pip install --upgrade pip
           python -m pip install pylint
+
       - name: Run Pylint
         working-directory: py/miniconf-mqtt
         run: |
           python -m pip install .
           python -m pylint miniconf
-
-
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          target: thumbv7em-none-eabihf
-          override: true
-          components: clippy
-
-      - name: Clippy Check
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
 
   documentation:
     runs-on: ubuntu-latest

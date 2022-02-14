@@ -4,12 +4,12 @@ use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
-#[derive(Default, Miniconf, Debug)]
+#[derive(Clone, Default, Miniconf, Debug)]
 struct NestedSettings {
     frame_rate: u32,
 }
 
-#[derive(Default, Miniconf, Debug)]
+#[derive(Clone, Default, Miniconf, Debug)]
 struct Settings {
     inner: NestedSettings,
     amplitude: [f32; 2],

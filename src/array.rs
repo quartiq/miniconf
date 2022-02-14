@@ -84,7 +84,7 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
     ) -> Option<()> {
         let original_length = topic.len();
 
-        if index.len() == 0 {
+        if index.is_empty() {
             // Note: During expected execution paths using `into_iter()`, the size of the
             // index stack is checked in advance to make sure this condition doesn't occur.
             // However, it's possible to happen if the user manually calls `recurse_paths`.
@@ -93,13 +93,11 @@ impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
 
         while index[0] < N {
             // Add the array index to the topic name.
-            if topic.len() > 0 {
-                if topic.push('/').is_err() {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
-                    // topic buffer is checked in advance to make sure this condition doesn't occur.
-                    // However, it's possible to happen if the user manually calls `recurse_paths`.
-                    unreachable!("Topic buffer too short");
-                }
+            if topic.len() > 0 && topic.push('/').is_err() {
+                // Note: During expected execution paths using `into_iter()`, the size of the
+                // topic buffer is checked in advance to make sure this condition doesn't occur.
+                // However, it's possible to happen if the user manually calls `recurse_paths`.
+                unreachable!("Topic buffer too short");
             }
 
             if write!(topic, "{}", index[0]).is_err() {

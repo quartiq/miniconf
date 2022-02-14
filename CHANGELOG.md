@@ -7,14 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+* Added support for custom handling of settings updates.
 * `Option` support added to enable run-time settings tree presence.
 
 ### Changed
 * [breaking] MqttClient constructor now accepts initial settings values.
 * Settings republish will no longer register as incoming configuration requests. See
   [#71](https://github.com/quartiq/miniconf/issues/71)
+* [breaking] `into_iter()` and `unchecked_into_iter()` renamed to `iter()` and `unchecked_iter()`
+  respectively to conform with standard conventions.
 
 ### Removed
+* The client no longer resets the republish timeout when receiving messages.
 
 ## [0.3.0] - 2021-12-13
 
@@ -29,7 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 * `miniconf::update()` replaced with `Miniconf::set()`, which is part of the trait and now
   directly available on structures.
-
 
 ## [0.2.0] - 2021-10-28
 

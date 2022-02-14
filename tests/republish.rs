@@ -4,12 +4,12 @@ use miniconf::{minimq, Miniconf};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     data: u32,
     more: AdditionalSettings,

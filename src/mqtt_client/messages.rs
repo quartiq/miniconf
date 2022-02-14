@@ -1,5 +1,3 @@
-use crate::Error;
-use core::fmt::Write;
 use heapless::{String, Vec};
 use serde::Serialize;
 
@@ -10,24 +8,31 @@ pub struct SettingsResponse {
     msg: String<64>,
 }
 
-impl From<Result<(), Error>> for SettingsResponse {
-    fn from(result: Result<(), Error>) -> Self {
+impl SettingsResponse {
+    pub fn ok() -> Self {
+        Self {
+            msg: String::from("OK"),
+            code: 0,
+        }
+    }
+
+    pub fn error(msg: String<64>) -> Self {
+        Self { code: 255, msg }
+    }
+}
+
+impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
+    fn from(result: Result<T, E>) -> Self {
         match result {
-            Ok(_) => Self {
-                msg: String::from("OK"),
-                code: 0,
-            },
+            Ok(_) => SettingsResponse::ok(),
 
             Err(error) => {
                 let mut msg = String::new();
-                if write!(&mut msg, "{:?}", error).is_err() {
-                    msg = String::from("Miniconf Error");
+                if msg.push_str(error.as_ref()).is_err() {
+                    msg = String::from("Configuration Error");
                 }
 
-                Self {
-                    code: error.into(),
-                    msg,
-                }
+                Self::error(msg)
             }
         }
     }
