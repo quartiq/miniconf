@@ -21,11 +21,11 @@ fn insufficient_space() {
 
     // Ensure that we can't iterate if we make a state vector that is too small.
     let mut small_state = [0; 2];
-    assert!(settings.into_iter::<256>(&mut small_state).is_err());
+    assert!(settings.iter::<256>(&mut small_state).is_err());
 
     // Ensure that we can't iterate if the topic buffer is too small.
     let mut state = [0; 10];
-    assert!(settings.into_iter::<1>(&mut state).is_err());
+    assert!(settings.iter::<1>(&mut state).is_err());
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn test_iteration() {
     ]);
 
     let mut iter_state = [0; 32];
-    for field in settings.into_iter::<256>(&mut iter_state).unwrap() {
+    for field in settings.iter::<256>(&mut iter_state).unwrap() {
         assert!(iterated.contains_key(&field.as_str().to_string()));
         iterated.insert(field.as_str().to_string(), true);
     }

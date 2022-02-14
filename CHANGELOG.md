@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 * [breaking] MqttClient constructor now accepts initial settings values.
+* [breaking] `into_iter()` and `unchecked_into_iter()` renamed to `iter()` and `unchecked_iter()`
+  respectively to conform with standard conventions.
 
 ### Removed
 * The client no longer resets the republish timeout when receiving messages.

@@ -17,16 +17,15 @@
 /// guarantee that the requestee will be informed that settings have been applied.
 ///
 /// The library only supports serialized settings up to 256 bytes currently.
-
 mod messages;
 
 use serde_json_core::heapless::String;
 
 use minimq::embedded_nal::{IpAddr, TcpClientStack};
 
-use messages::{MqttMessage, SettingsResponse};
 use crate::Miniconf;
 use log::info;
+use messages::{MqttMessage, SettingsResponse};
 use minimq::{embedded_time, QoS, Retain};
 
 use core::fmt::Write;
@@ -193,7 +192,7 @@ where
 
         for topic in self
             .settings
-            .into_iter::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
+            .iter::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
             .unwrap()
         {
             let mut data = [0; MESSAGE_SIZE];
