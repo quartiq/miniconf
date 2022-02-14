@@ -311,25 +311,25 @@ where
             self.state.process_event(sm::Events::Reset).unwrap();
         }
 
-        match self.state.state() {
-            &sm::States::Initial => {
+        match *self.state.state() {
+            sm::States::Initial => {
                 if self.mqtt.client.is_connected() {
                     self.state.process_event(sm::Events::Connected).unwrap();
                 }
             }
-            &sm::States::ConnectedToBroker => self.handle_indicating_alive(),
-            &sm::States::PendingSubscribe => self.handle_subscription(),
-            &sm::States::PendingRepublish => {
+            sm::States::ConnectedToBroker => self.handle_indicating_alive(),
+            sm::States::PendingSubscribe => self.handle_subscription(),
+            sm::States::PendingRepublish => {
                 if self.state.context().republish_has_timed_out() {
                     self.state
                         .process_event(sm::Events::StartRepublish)
                         .unwrap();
                 }
             }
-            &sm::States::RepublishingSettings => self.handle_republish(),
+            sm::States::RepublishingSettings => self.handle_republish(),
 
             // Nothing to do in the active state.
-            &sm::States::Active => {}
+            sm::States::Active => {}
         }
 
         // All states must handle MQTT traffic.
@@ -344,7 +344,7 @@ where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: AsRef<str>,
     {
-        let mut settings = &mut self.settings;
+        let settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
         let prefix = self.settings_prefix.as_str();
 
@@ -374,7 +374,7 @@ where
                 match new_settings.string_set(path.split('/').peekable(), message) {
                     Ok(_) => {
                         updated = true;
-                        handler(&path, &mut settings, &new_settings).into()
+                        handler(path, settings, &new_settings).into()
                     }
                     err => {
                         let mut msg = String::new();
