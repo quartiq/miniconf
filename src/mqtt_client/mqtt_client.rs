@@ -31,6 +31,9 @@ use core::fmt::Write;
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
 
+// Correlation data reserved for indicating a republished message.
+const REPUBLISH_CORRELATION_DATA: Property = Property::CorrelationData(&"REPUBLISH".as_bytes());
+
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
 
@@ -204,7 +207,7 @@ where
                     &data[..len],
                     QoS::AtMostOnce,
                     Retain::NotRetained,
-                    &[],
+                    &[REPUBLISH_CORRELATION_DATA],
                 )
                 .unwrap();
 
@@ -305,6 +308,16 @@ where
 
         let mut update = false;
         match mqtt.poll(|client, topic, message, properties| {
+            // If the incoming message has republish correlation data, ignore it.
+            if properties
+                .iter()
+                .find(|&prop| prop == &REPUBLISH_CORRELATION_DATA )
+                .is_some()
+            {
+                debug!("Ignoring republish data");
+                return;
+            }
+
             let path = match topic.strip_prefix(prefix) {
                 // For paths, we do not want to include the leading slash.
                 Some(path) => {
