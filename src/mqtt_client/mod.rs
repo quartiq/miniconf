@@ -34,7 +34,7 @@ use core::fmt::Write;
 const MAX_TOPIC_LENGTH: usize = 128;
 
 // Correlation data reserved for indicating a republished message.
-const REPUBLISH_CORRELATION_DATA: Property = Property::CorrelationData(&"REPUBLISH".as_bytes());
+const REPUBLISH_CORRELATION_DATA: Property = Property::CorrelationData("REPUBLISH".as_bytes());
 
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
@@ -362,8 +362,7 @@ where
             // If the incoming message has republish correlation data, ignore it.
             if properties
                 .iter()
-                .find(|&prop| prop == &REPUBLISH_CORRELATION_DATA)
-                .is_some()
+                .any(|&prop| prop == REPUBLISH_CORRELATION_DATA)
             {
                 debug!("Ignoring republish data");
                 return;
