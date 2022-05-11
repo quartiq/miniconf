@@ -12,6 +12,14 @@
 //! With the derive macro, field values can be easily retrieved or modified using a run-time
 //! string.
 //!
+//! ### Supported Protocols
+//!
+//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
+//! some external source can be used to acquire paths and values for updating settings.
+//!
+//! There is also an [MQTT-based client](MqttClient) provided to manage settings via the [MQTT
+//! protocol](https://mqtt.org) and JSON.
+//!
 //! ### Example
 //! ```
 //! use miniconf::{Miniconf, MiniconfAtomic};
@@ -45,12 +53,39 @@
 //! // Serialize the current sample rate into the provided buffer.
 //! let mut buffer = [0u8; 256];
 //! let len = settings.get("sample_rate", &mut buffer).unwrap();
-//! // `sample_rate`'s serialized value now exists in `buffer[..len]`.
+//!
+//! assert_eq!(&buffer[..len], b"350");
 //! ```
 //!
 //! ## Features
 //! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
 //! To enable this feature, enable the `mqtt-client` feature.
+//!
+//! ```no_run
+//! #[derive(miniconf::Miniconf, Default, Clone, Debug)]
+//! struct Settings {
+//!     forward: f32,
+//! }
+//!
+//! // Construct the MQTT client.
+//! let mut client: miniconf::MqttClient<_, _, _, 256> = miniconf::MqttClient::new(
+//!     std_embedded_nal::Stack::default(),
+//!     "example-device",
+//!     "quartiq/miniconf-sample",
+//!     "127.0.0.1".parse().unwrap(),
+//!     std_embedded_time::StandardClock::default(),
+//!     Settings::default(),
+//! )
+//! .unwrap();
+//!
+//! loop {
+//!     // Continually process client updates to detect settings changes.
+//!     if client.update().unwrap() {
+//!         println!("Settings updated: {:?}", client.settings());
+//!     }
+//! }
+//!
+//! ```
 //!
 //! ### Path iteration
 //!
@@ -72,14 +107,6 @@
 //! }
 //! ```
 //!
-//! ## Supported Protocols
-//!
-//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
-//! some external source can be used to acquire paths and values for updating settings.
-//!
-//! While Miniconf is platform agnostic, there is an [MQTT-based client](MqttClient) provided to
-//! manage settings via the [MQTT protocol](https://mqtt.org).
-//!
 //! ## Limitations
 //!
 //! Minconf cannot be used with some of Rust's more complex types. Some unsupported types:
@@ -90,8 +117,10 @@
 mod mqtt_client;
 
 mod array;
-pub mod iter;
 mod option;
+
+/// Provides iteration utilities over [Miniconf] structures.
+pub mod iter;
 
 #[cfg(feature = "mqtt-client")]
 pub use mqtt_client::MqttClient;
@@ -194,6 +223,7 @@ pub struct MiniconfMetadata {
     pub max_depth: usize,
 }
 
+/// Derive-able trait for structures that can be mutated using serialized paths and values.
 pub trait Miniconf {
     /// Update settings directly from a string path and data.
     ///
