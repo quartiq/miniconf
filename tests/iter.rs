@@ -60,5 +60,4 @@ fn test_array_iteration() {
     }
 
     assert!(settings_copy.iter().all(|x| *x));
-
 }
