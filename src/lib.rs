@@ -260,7 +260,7 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn iter<'a, const TS: usize>(
+    fn iter_settings<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
@@ -295,7 +295,7 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn unchecked_iter<'a, const TS: usize>(
+    fn unchecked_iter_settings<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> iter::MiniconfIter<'a, Self, TS> {

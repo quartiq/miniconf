@@ -195,7 +195,7 @@ where
 
         for topic in self
             .settings
-            .iter::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
+            .iter_settings::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
             .unwrap()
         {
             let mut data = [0; MESSAGE_SIZE];

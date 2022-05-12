@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## Changed
+* **breaking** The Miniconf trait for iteration was renamed from `unchecked_iter()` and `iter()` to
+  `unchecked_iter_settings()` and `iter_settings()` respectively to avoid issues with slice iteration
+  name conflicts. See [#87](https://github.com/quartiq/miniconf/issues/87)
+
 ## [0.4.0] - 2022-05-11
 
 ### Added
