@@ -102,7 +102,7 @@
 //! let settings = Settings::default();
 //!
 //!let mut state = [0; 8];
-//! for topic in settings.iter::<128>(&mut state).unwrap() {
+//! for topic in settings.iter_settings::<128>(&mut state).unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
 //! ```

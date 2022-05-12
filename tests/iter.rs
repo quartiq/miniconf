@@ -50,6 +50,7 @@ fn test_iteration() {
 
 #[test]
 fn test_array_iteration() {
+    // TODO: Replace this with mutable iteration when implemented.
     let settings = [false; 5];
     let mut settings_copy = [false; 5];
 
@@ -59,4 +60,5 @@ fn test_array_iteration() {
     }
 
     assert!(settings_copy.iter().all(|x| *x));
+
 }
