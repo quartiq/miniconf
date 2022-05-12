@@ -38,12 +38,12 @@ fn iterate_some_none() {
     // When the value is None, it should not be iterated over as a topic.
     let mut state = [0; 10];
     settings.value.take();
-    let mut iterator = settings.iter::<128>(&mut state).unwrap();
+    let mut iterator = settings.iter_settings::<128>(&mut state).unwrap();
     assert!(iterator.next().is_none());
 
     // When the value is Some, it should be iterated over.
     let mut state = [0; 10];
     settings.value.replace(5);
-    let mut iterator = settings.iter::<128>(&mut state).unwrap();
+    let mut iterator = settings.iter_settings::<128>(&mut state).unwrap();
     assert_eq!(iterator.next().unwrap(), "value");
 }
