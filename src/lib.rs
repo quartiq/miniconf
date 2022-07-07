@@ -12,6 +12,14 @@
 //! With the derive macro, field values can be easily retrieved or modified using a run-time
 //! string.
 //!
+//! ### Supported Protocols
+//!
+//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
+//! some external source can be used to acquire paths and values for updating settings.
+//!
+//! There is also an [MQTT-based client](MqttClient) provided to manage settings via the [MQTT
+//! protocol](https://mqtt.org) and JSON.
+//!
 //! ### Example
 //! ```
 //! use miniconf::{Miniconf, MiniconfAtomic};
@@ -45,12 +53,39 @@
 //! // Serialize the current sample rate into the provided buffer.
 //! let mut buffer = [0u8; 256];
 //! let len = settings.get("sample_rate", &mut buffer).unwrap();
-//! // `sample_rate`'s serialized value now exists in `buffer[..len]`.
+//!
+//! assert_eq!(&buffer[..len], b"350");
 //! ```
 //!
 //! ## Features
 //! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
 //! To enable this feature, enable the `mqtt-client` feature.
+//!
+//! ```no_run
+//! #[derive(miniconf::Miniconf, Default, Clone, Debug)]
+//! struct Settings {
+//!     forward: f32,
+//! }
+//!
+//! // Construct the MQTT client.
+//! let mut client: miniconf::MqttClient<_, _, _, 256> = miniconf::MqttClient::new(
+//!     std_embedded_nal::Stack::default(),
+//!     "example-device",
+//!     "quartiq/miniconf-sample",
+//!     "127.0.0.1".parse().unwrap(),
+//!     std_embedded_time::StandardClock::default(),
+//!     Settings::default(),
+//! )
+//! .unwrap();
+//!
+//! loop {
+//!     // Continually process client updates to detect settings changes.
+//!     if client.update().unwrap() {
+//!         println!("Settings updated: {:?}", client.settings());
+//!     }
+//! }
+//!
+//! ```
 //!
 //! ### Path iteration
 //!
@@ -67,18 +102,10 @@
 //! let settings = Settings::default();
 //!
 //!let mut state = [0; 8];
-//! for topic in settings.into_iter::<128>(&mut state).unwrap() {
+//! for topic in settings.iter_settings::<128>(&mut state).unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
 //! ```
-//!
-//! ## Supported Protocols
-//!
-//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
-//! some external source can be used to acquire paths and values for updating settings.
-//!
-//! While Miniconf is platform agnostic, there is an [MQTT-based client](MqttClient) provided to
-//! manage settings via the [MQTT protocol](https://mqtt.org).
 //!
 //! ## Limitations
 //!
@@ -89,6 +116,10 @@
 #[cfg(feature = "mqtt-client")]
 mod mqtt_client;
 
+mod array;
+mod option;
+
+/// Provides iteration utilities over [Miniconf] structures.
 pub mod iter;
 
 #[cfg(feature = "mqtt-client")]
@@ -111,8 +142,6 @@ pub use serde_json_core;
 pub use derive_miniconf::{Miniconf, MiniconfAtomic};
 
 pub use heapless;
-
-use core::fmt::Write;
 
 /// Errors that occur during settings configuration
 #[derive(Debug, PartialEq)]
@@ -185,6 +214,7 @@ impl From<serde_json_core::de::Error> for Error {
 }
 
 /// Metadata about a settings structure.
+#[derive(Default)]
 pub struct MiniconfMetadata {
     /// The maximum length of a topic in the structure.
     pub max_topic_size: usize,
@@ -193,6 +223,7 @@ pub struct MiniconfMetadata {
     pub max_depth: usize,
 }
 
+/// Derive-able trait for structures that can be mutated using serialized paths and values.
 pub trait Miniconf {
     /// Update settings directly from a string path and data.
     ///
@@ -229,7 +260,7 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn into_iter<'a, const TS: usize>(
+    fn iter_settings<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
@@ -264,7 +295,7 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn unchecked_into_iter<'a, const TS: usize>(
+    fn unchecked_iter_settings<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> iter::MiniconfIter<'a, Self, TS> {
@@ -340,7 +371,7 @@ macro_rules! impl_single {
                 _topic: &mut heapless::String<TS>,
             ) -> Option<()> {
                 if index.len() == 0 {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
+                    // Note: During expected execution paths using `iter()`, the size of the
                     // index stack is checked in advance to make sure this condition doesn't occur.
                     // However, it's possible to happen if the user manually calls `recurse_paths`.
                     unreachable!("Index stack too small");
@@ -358,132 +389,6 @@ macro_rules! impl_single {
             }
         }
     };
-}
-
-impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
-    fn string_set(
-        &mut self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-        value: &[u8],
-    ) -> Result<(), Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.len() {
-            return Err(Error::BadIndex);
-        }
-
-        self[i].string_set(topic_parts, value)?;
-
-        Ok(())
-    }
-
-    fn string_get(
-        &self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.len() {
-            return Err(Error::BadIndex);
-        }
-
-        self[i].string_get(topic_parts, value)
-    }
-
-    fn get_metadata(&self) -> MiniconfMetadata {
-        // First, figure out how many digits the maximum index requires when printing.
-        let mut index = N - 1;
-        let mut num_digits = 0;
-
-        while index > 0 {
-            index /= 10;
-            num_digits += 1;
-        }
-
-        let metadata = self[0].get_metadata();
-
-        // If the sub-members have topic size, we also need to include an additional character for
-        // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
-        // types, enums).
-        if metadata.max_topic_size > 0 {
-            MiniconfMetadata {
-                max_topic_size: metadata.max_topic_size + num_digits + 1,
-                max_depth: metadata.max_depth + 1,
-            }
-        } else {
-            MiniconfMetadata {
-                max_topic_size: num_digits,
-                max_depth: metadata.max_depth + 1,
-            }
-        }
-    }
-
-    fn recurse_paths<const TS: usize>(
-        &self,
-        index: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> Option<()> {
-        let original_length = topic.len();
-
-        if index.len() == 0 {
-            // Note: During expected execution paths using `into_iter()`, the size of the
-            // index stack is checked in advance to make sure this condition doesn't occur.
-            // However, it's possible to happen if the user manually calls `recurse_paths`.
-            unreachable!("Index stack too small");
-        }
-
-        while index[0] < N {
-            // Add the array index to the topic name.
-            if topic.len() > 0 {
-                if topic.push('/').is_err() {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
-                    // topic buffer is checked in advance to make sure this condition doesn't occur.
-                    // However, it's possible to happen if the user manually calls `recurse_paths`.
-                    unreachable!("Topic buffer too short");
-                }
-            }
-
-            if write!(topic, "{}", index[0]).is_err() {
-                // Note: During expected execution paths using `into_iter()`, the size of the
-                // topic buffer is checked in advance to make sure this condition doesn't occur.
-                // However, it's possible to happen if the user manually calls `recurse_paths`.
-                unreachable!("Topic buffer too short");
-            }
-
-            if self[index[0]]
-                .recurse_paths(&mut index[1..], topic)
-                .is_some()
-            {
-                return Some(());
-            }
-
-            // Strip off the previously prepended index, since we completed that element and need
-            // to instead check the next one.
-            topic.truncate(original_length);
-
-            index[0] += 1;
-            index[1..].iter_mut().for_each(|x| *x = 0);
-        }
-
-        None
-    }
 }
 
 // Implement trait for the primitive types

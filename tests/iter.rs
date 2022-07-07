@@ -21,11 +21,11 @@ fn insufficient_space() {
 
     // Ensure that we can't iterate if we make a state vector that is too small.
     let mut small_state = [0; 2];
-    assert!(settings.into_iter::<256>(&mut small_state).is_err());
+    assert!(settings.iter_settings::<256>(&mut small_state).is_err());
 
     // Ensure that we can't iterate if the topic buffer is too small.
     let mut state = [0; 10];
-    assert!(settings.into_iter::<1>(&mut state).is_err());
+    assert!(settings.iter_settings::<1>(&mut state).is_err());
 }
 
 #[test]
@@ -39,11 +39,25 @@ fn test_iteration() {
     ]);
 
     let mut iter_state = [0; 32];
-    for field in settings.into_iter::<256>(&mut iter_state).unwrap() {
+    for field in settings.iter_settings::<256>(&mut iter_state).unwrap() {
         assert!(iterated.contains_key(&field.as_str().to_string()));
         iterated.insert(field.as_str().to_string(), true);
     }
 
     // Ensure that all fields were iterated.
     assert!(iterated.iter().map(|(_, value)| value).all(|&x| x));
+}
+
+#[test]
+fn test_array_iteration() {
+    // TODO: Replace this with mutable iteration when implemented.
+    let settings = [false; 5];
+    let mut settings_copy = [false; 5];
+
+    let mut iter_state = [0; 32];
+    for field in settings.iter_settings::<256>(&mut iter_state).unwrap() {
+        settings_copy.set(&field, b"true").unwrap();
+    }
+
+    assert!(settings_copy.iter().all(|x| *x));
 }

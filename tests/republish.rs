@@ -4,12 +4,12 @@ use miniconf::{minimq, Miniconf};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     data: u32,
     more: AdditionalSettings,
@@ -86,13 +86,15 @@ async fn main() {
         "republish/device",
         "127.0.0.1".parse().unwrap(),
         StandardClock::default(),
+        Settings::default(),
     )
     .unwrap();
 
     // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
     // all settings values.
     for _ in 0..500 {
-        interface.update().unwrap();
+        // The interface should never indicate a settings update during the republish process.
+        assert!(!interface.update().unwrap());
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 

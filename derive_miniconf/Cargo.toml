@@ -1,11 +1,11 @@
 [package]
 name = "derive_miniconf"
-version = "0.3.0"
+version = "0.5.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
 edition = "2018"
 license = "MIT"
 description = "Derive utilities for Miniconf run-time settings configuration"
-repository = "https://github.com/quartiq/miniconf/derive_miniconf"
+repository = "https://github.com/quartiq/miniconf"
 
 keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]

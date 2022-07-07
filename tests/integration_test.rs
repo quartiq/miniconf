@@ -10,12 +10,12 @@ use std_embedded_time::StandardClock;
 #[macro_use]
 extern crate log;
 
-#[derive(Debug, Default, Miniconf, Deserialize)]
+#[derive(Clone, Debug, Default, Miniconf, Deserialize)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Debug, Default, Miniconf, Deserialize)]
+#[derive(Clone, Debug, Default, Miniconf, Deserialize)]
 struct Settings {
     data: u32,
     more: AdditionalSettings,
@@ -106,6 +106,7 @@ fn main() -> std::io::Result<()> {
         "device",
         localhost,
         StandardClock::default(),
+        Settings::default(),
     )
     .unwrap();
 
