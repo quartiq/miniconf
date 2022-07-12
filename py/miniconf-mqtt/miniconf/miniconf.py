@@ -85,7 +85,7 @@ class Miniconf:
         correlation_data = self.request_id.to_bytes(4, 'big')
         self.request_id += 1
 
-        payload = json.dumps(value)
+        payload = json.dumps(value, separators=(",", ":"))
         LOGGER.info('Sending "%s" to "%s"', value, topic)
 
         self.client.publish(
