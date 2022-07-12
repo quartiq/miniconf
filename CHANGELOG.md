@@ -6,9 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+* python module: don't emite whitespace in JSON to match serde-json-core (#92)
+
 ## [0.5.0] - 2022-05-12
 
-## Changed
+### Changed
 * **breaking** The Miniconf trait for iteration was renamed from `unchecked_iter()` and `iter()` to
   `unchecked_iter_settings()` and `iter_settings()` respectively to avoid issues with slice iteration
   name conflicts. See [#87](https://github.com/quartiq/miniconf/issues/87)
