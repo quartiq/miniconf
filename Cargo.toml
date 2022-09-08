@@ -18,7 +18,7 @@ serde-json-core = "0.4.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
-minimq = { version = "^0.5.3", optional = true }
+minimq = { git = "https://github.com/quartiq/minimq", optional = true }
 smlang = { version = "0.4", optional = true }
 
 [features]

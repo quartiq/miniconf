@@ -3,6 +3,8 @@ use serde::Deserialize;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
+const RESPONSE_TOPIC: &str = "validation_failure/device/response";
+
 #[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     error: bool,
@@ -25,47 +27,48 @@ async fn client_task() {
     .unwrap();
 
     // Wait for the broker connection
-    while !mqtt.client.is_connected() {
+    while !mqtt.client().is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
-    let response_topic = "validation_failure/device/response";
-    mqtt.client.subscribe(&response_topic, &[]).unwrap();
+    let topic_filter = minimq::types::TopicFilter::new(RESPONSE_TOPIC);
+    mqtt.client().subscribe(&[topic_filter], &[]).unwrap();
 
     // Wait the other device to connect.
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
     // Configure the error variable to trigger an internal validation failure.
-    let properties = [minimq::Property::ResponseTopic(&response_topic)];
+    let properties = [minimq::Property::ResponseTopic(minimq::types::Utf8String(
+        RESPONSE_TOPIC,
+    ))];
 
     log::info!("Publishing error setting");
-    mqtt.client
+    mqtt.client()
         .publish(
-            "validation_failure/device/settings/error",
-            b"true",
-            minimq::QoS::AtMostOnce,
-            minimq::Retain::NotRetained,
-            &properties,
+            minimq::Publication::new(b"true")
+                .topic("validation_failure/device/settings/error")
+                .properties(&properties)
+                .finish()
+                .unwrap(),
         )
         .unwrap();
 
     // Wait until we get a response to the request.
-    let mut continue_testing = true;
     loop {
-        mqtt.poll(|_client, _topic, message, _properties| {
-            let data: Response = serde_json_core::from_slice(message).unwrap().0;
-            assert!(data.code != 0);
-            continue_testing = false;
-        })
-        .unwrap();
-
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-
-        if !continue_testing {
+        if let Some(false) = mqtt
+            .poll(|_client, _topic, message, _properties| {
+                let data: Response = serde_json_core::from_slice(message).unwrap().0;
+                assert!(data.code != 0);
+                false
+            })
+            .unwrap()
+        {
             break;
         }
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 }
 

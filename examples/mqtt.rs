@@ -1,5 +1,5 @@
 use miniconf::{Miniconf, MqttClient};
-use minimq::{Minimq, QoS, Retain};
+use minimq::{Minimq, Publication};
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -27,7 +27,7 @@ async fn mqtt_client() {
     .unwrap();
 
     // Wait for the broker connection
-    while !mqtt.client.is_connected() {
+    while !mqtt.client().is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -37,35 +37,32 @@ async fn mqtt_client() {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     // Configure settings.
-    mqtt.client
+    mqtt.client()
         .publish(
-            "sample/prefix/settings/amplitude/0",
-            b"32.4",
-            QoS::AtMostOnce,
-            Retain::NotRetained,
-            &[],
+            Publication::new(b"32.4")
+                .topic("sample/prefix/settings/amplitude/0")
+                .finish()
+                .unwrap(),
         )
         .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    mqtt.client
+    mqtt.client()
         .publish(
-            "sample/prefix/settings/inner/frame_rate",
-            b"10",
-            QoS::AtMostOnce,
-            Retain::NotRetained,
-            &[],
+            Publication::new(b"10")
+                .topic("sample/prefix/settings/inner/frame_rate")
+                .finish()
+                .unwrap(),
         )
         .unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    mqtt.client
+    mqtt.client()
         .publish(
-            "sample/prefix/settings/exit",
-            b"true",
-            QoS::AtMostOnce,
-            Retain::NotRetained,
-            &[],
+            Publication::new(b"true")
+                .topic("sample/prefix/settings/exit")
+                .finish()
+                .unwrap(),
         )
         .unwrap();
 }

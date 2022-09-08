@@ -1,6 +1,7 @@
-use tokio;
-
-use miniconf::{minimq, Miniconf};
+use miniconf::{
+    minimq::{self, types::TopicFilter},
+    Miniconf,
+};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
@@ -26,15 +27,15 @@ async fn verify_settings() {
     .unwrap();
 
     // Wait for the broker connection
-    while !mqtt.client.is_connected() {
+    while !mqtt.client().is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
 
     // Subscribe to the settings topic.
-    mqtt.client
-        .subscribe("republish/device/settings/#", &[])
+    mqtt.client()
+        .subscribe(&[TopicFilter::new("republish/device/settings/#")], &[])
         .unwrap();
 
     // Wait the other device to connect and publish settings.
