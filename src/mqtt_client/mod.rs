@@ -25,18 +25,14 @@ use log::info;
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
-    types::{BinaryData, SubscriptionOptions, TopicFilter},
-    Property, Publication, QoS, Retain,
+    types::{SubscriptionOptions, TopicFilter},
+    Publication, QoS, Retain,
 };
 
 use core::fmt::Write;
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
-
-// Correlation data reserved for indicating a republished message.
-const REPUBLISH_CORRELATION_DATA: Property =
-    Property::CorrelationData(BinaryData("REPUBLISH".as_bytes()));
 
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
@@ -216,7 +212,6 @@ where
                 .publish(
                     Publication::new(&data[..len])
                         .topic(&prefixed_topic)
-                        .properties(&[REPUBLISH_CORRELATION_DATA])
                         .finish()
                         .unwrap(),
                 )
