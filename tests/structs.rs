@@ -78,3 +78,22 @@ fn recursive_struct() {
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_topic_size, "c/a".len());
 }
+
+#[test]
+fn struct_with_string() {
+    #[derive(Miniconf, Default)]
+    struct Settings {
+        string: heapless::String<10>,
+    }
+
+    let mut s = Settings::default();
+
+    let field = "string".split('/').peekable();
+    let mut buf = [0u8; 256];
+    let len = s.string_get(field, &mut buf).unwrap();
+    assert_eq!(&buf[..len], b"\"\"");
+
+    let field = "string".split('/').peekable();
+    s.string_set(field, br#""test""#).unwrap();
+    assert_eq!(s.string, "test");
+}
