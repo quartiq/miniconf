@@ -47,4 +47,4 @@ async def discover(
 
     await asyncio.sleep(discovery_timeout)
 
-    return discovered_devices
+    return list(set(discovered_devices))
