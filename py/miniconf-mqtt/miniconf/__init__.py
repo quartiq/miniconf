@@ -5,7 +5,7 @@ import json
 import logging
 import time
 
-from typing import List
+from typing import Set
 
 from gmqtt import Client as MqttClient
 
@@ -16,7 +16,7 @@ async def discover(
         broker: str,
         prefix_filter: str,
         discovery_timeout: float = 0.1,
-    ) -> List[str]:
+    ) -> Set[str]:
     """ Get a list of available Miniconf devices.
 
     Args:
@@ -26,9 +26,9 @@ async def discover(
         * `discovery_timeout` - The duration to search for clients in seconds.
 
     Returns:
-        A list of discovered client prefixes that match the provided filter.
+        A set of discovered client prefixes that match the provided filter.
     """
-    discovered_devices = []
+    discovered_devices = set()
 
     suffix = '/alive'
 
@@ -36,7 +36,7 @@ async def discover(
         logging.debug('Got message from %s: %s', topic, payload)
 
         if json.loads(payload):
-            discovered_devices.append(topic[:-len(suffix)])
+            discovered_devices.add(topic[:-len(suffix)])
 
     client = MqttClient(client_id='')
     client.on_message = handle_message
@@ -47,4 +47,4 @@ async def discover(
 
     await asyncio.sleep(discovery_timeout)
 
-    return list(set(discovered_devices))
+    return discovered_devices
