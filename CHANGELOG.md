@@ -8,9 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 * python module: don't emite whitespace in JSON to match serde-json-core (#92)
+* `heapless::String` now implements `Miniconf` directly.
 
-### Added
-* `heapless::String` and `heapless::Vec` now implement `Miniconf` directly.
+### Fixed
+* Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
 
 ## [0.5.0] - 2022-05-12
 
