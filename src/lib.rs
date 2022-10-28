@@ -139,7 +139,6 @@ pub use serde::{
 };
 
 pub use array::MiniconfArray;
-pub use option::MiniconfOption;
 
 pub use serde_json_core;
 
