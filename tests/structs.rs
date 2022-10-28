@@ -1,5 +1,5 @@
 use miniconf::Miniconf;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn atomic_struct() {
