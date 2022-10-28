@@ -35,7 +35,6 @@ class Miniconf:
             client: A connected MQTT5 client.
             prefix: The MQTT toptic prefix of the device to control.
         """
-        self.request_id = 0
         self.client = client
         self.prefix = prefix
         self.inflight = {}
@@ -82,7 +81,6 @@ class Miniconf:
         request_id = uuid.uuid1().hex.encode()
         assert request_id not in self.inflight
         self.inflight[request_id] = fut
-        self.request_id += 1
 
         payload = json.dumps(value, separators=(",", ":"))
         LOGGER.info('Sending "%s" to "%s"', value, topic)
