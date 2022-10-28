@@ -25,7 +25,7 @@
 //! use miniconf::Miniconf;
 //! use serde::{Serialize, Deserialize};
 //!
-//! #[derive(Deserialize, Serialize, Miniconf, Default)]
+//! #[derive(Deserialize, Serialize, Default)]
 //! struct Coefficients {
 //!     forward: f32,
 //!     backward: f32,
@@ -34,7 +34,6 @@
 //! #[derive(Miniconf, Default)]
 //! struct Settings {
 //!     filter: Coefficients,
-//!     #[miniconf(defer)]
 //!     channel_gain: [f32; 2],
 //!     sample_rate: u32,
 //!     force_update: bool,
@@ -106,6 +105,44 @@
 //! for topic in settings.iter_settings::<128>(&mut state).unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
+//! ```
+//!
+//! ## Nesting
+//! Miniconf inherently assumes that (almost) all elements are atomicly updated using a single
+//! path. The only exception for this rule is arrays, which allow indexing individual elements by
+//! default. You can disable this behavior by placing `#[miniconf(atomic)]` attributes on the array.
+//!
+//! If you would like to nest settings in multiple structs, this is supported by explicitly
+//! deferring down to the inner structs Miniconf implementation using the `#[miniconf(defer)]`
+//! attribute:
+//!
+//! ```
+//! use miniconf::Miniconf;
+//! #[derive(Miniconf, Default)]
+//! struct Coefficients {
+//!     forward: f32,
+//!     backward: f32,
+//! }
+//!
+//! #[derive(Miniconf, Default)]
+//! struct Settings {
+//!     // Explicitly refer downwards into `Coefficient`'s members.
+//!     #[miniconf(defer)]
+//!     filter: Coefficients,
+//!
+//!     // Explicitly require that the `channel_gain` array is updated in a single value.
+//!     #[miniconf(atomic)]
+//!     channel_gain: [f32; 2],
+//! }
+//!
+//! let mut settings = Settings::default();
+//!
+//! // Update filter parameters individually.
+//! settings.set("filter/forward", b"35.6").unwrap();
+//! settings.set("filter/backward", b"0.15").unwrap();
+//!
+//! // Update the gains simultaneously
+//! settings.set("channel_gain", b"[1.0, 2.0]").unwrap()
 //! ```
 //!
 //! ## Limitations

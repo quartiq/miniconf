@@ -2,6 +2,7 @@ use miniconf::Miniconf;
 
 #[derive(Copy, Clone, Default, Miniconf)]
 struct Settings {
+    #[miniconf(defer)]
     value: Option<u32>,
 }
 
@@ -46,4 +47,29 @@ fn iterate_some_none() {
     settings.value.replace(5);
     let mut iterator = settings.iter_settings::<128>(&mut state).unwrap();
     assert_eq!(iterator.next().unwrap(), "value");
+}
+
+#[test]
+fn test_normal_option() {
+    #[derive(Copy, Clone, Default, Miniconf)]
+    struct S {
+        data: Option<u32>,
+    }
+
+    let mut s = S::default();
+    s.data.take();
+
+    let mut state = [0; 10];
+    let mut iterator = s.iter_settings::<128>(&mut state).unwrap();
+    assert!(iterator.next().is_some());
+
+    s.set("data", b"7").unwrap();
+    assert_eq!(s.data.unwrap(), 7);
+
+    let mut state = [0; 10];
+    let mut iterator = s.iter_settings::<128>(&mut state).unwrap();
+    assert!(iterator.next().is_some());
+
+    s.set("data", b"null").unwrap();
+    assert!(s.data.is_none());
 }

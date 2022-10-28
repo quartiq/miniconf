@@ -164,9 +164,21 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                     let i = index[0];
                     index[0] += 1;
 
-                    if i == 0 {
-                        return Some(())
+                    let postfix = if topic.len() != 0 {
+                        concat!("/", stringify!(#field_name))
+                    } else {
+                        stringify!(#field_name)
+                    };
+
+                    if topic.push_str(postfix).is_err() {
+                        // Note: During expected execution paths using `into_iter()`, the size of the
+                        // topic buffer is checked in advance to make sure this condition doesn't
+                        // occur.  However, it's possible to happen if the user manually calls
+                        // `recurse_paths`.
+                        unreachable!("Topic buffer too short");
                     }
+
+                    return Some(());
                 }
             }
         }

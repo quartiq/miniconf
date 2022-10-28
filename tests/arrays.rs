@@ -132,3 +132,26 @@ fn array_of_arrays() {
 
     assert_eq!(expected, s);
 }
+
+#[test]
+fn atomic_array() {
+    #[derive(Miniconf, Default, PartialEq, Debug)]
+    struct S {
+        #[miniconf(atomic)]
+        data: [u32; 2],
+    }
+
+    let mut s = S::default();
+
+    let field = "data".split('/').peekable();
+    s.string_set(field, "[1, 2]".as_bytes()).unwrap();
+
+    let expected = {
+        let mut e = S::default();
+        e.data[0] = 1;
+        e.data[1] = 2;
+        e
+    };
+
+    assert_eq!(expected, s);
+}
