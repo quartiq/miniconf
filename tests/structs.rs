@@ -1,8 +1,9 @@
 use miniconf::Miniconf;
+use serde::{Serialize, Deserialize};
 
 #[test]
 fn atomic_struct() {
-    #[derive(Miniconf, Default, PartialEq, Debug)]
+    #[derive(Serialize, Deserialize, Default, PartialEq, Debug)]
     struct Inner {
         a: u32,
         b: u32,
@@ -12,7 +13,6 @@ fn atomic_struct() {
     struct Settings {
         a: f32,
         b: bool,
-        #[miniconf(defer)]
         c: Inner,
     }
 
