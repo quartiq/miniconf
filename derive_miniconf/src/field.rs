@@ -17,7 +17,7 @@ impl StructField {
         }
     }
 
-    pub fn bound_generics(&self, typedef: &mut TypeDefinition) {
+    pub(crate) fn bound_generics(&self, typedef: &mut TypeDefinition) {
         // Check our type. Path-like types may need to be bound.
         let path = match &self.field.ty {
             syn::Type::Path(syn::TypePath { path, ..}) => path,

@@ -8,7 +8,7 @@ mod field;
 use field::StructField;
 
 /// Represents a type definition with associated generics.
-struct TypeDefinition {
+pub(crate) struct TypeDefinition {
     pub generics: syn::Generics,
     pub name: syn::Ident,
 }
