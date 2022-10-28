@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, DeserializeOwned};
+use miniconf::{DeserializeOwned, Miniconf};
 use serde::{Deserialize, Serialize};
 
 #[test]
@@ -23,7 +23,7 @@ fn generic_type() {
 #[test]
 fn generic_array() {
     #[derive(Miniconf, Default)]
-    struct Settings<T: Serialize + DeserializeOwned> {
+    struct Settings<T> {
         #[miniconf(defer)]
         pub data: [T; 2],
     }
@@ -44,7 +44,7 @@ fn generic_array() {
 #[test]
 fn generic_struct() {
     #[derive(Miniconf, Default)]
-    struct Settings<T: Serialize + DeserializeOwned> {
+    struct Settings<T> {
         pub inner: T,
     }
 
@@ -69,7 +69,7 @@ fn generic_struct() {
 #[test]
 fn generic_atomic() {
     #[derive(Miniconf, Default)]
-    struct Settings<T: Serialize + DeserializeOwned> {
+    struct Settings<T> {
         pub atomic: Inner<T>,
     }
 

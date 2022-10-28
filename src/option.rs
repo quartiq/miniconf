@@ -24,7 +24,8 @@ impl<T: Miniconf> Miniconf for MiniconfOption<T> {
     }
 
     fn get_metadata(&self) -> MiniconfMetadata {
-        self.0.as_ref()
+        self.0
+            .as_ref()
             .map(|value| value.get_metadata())
             .unwrap_or_default()
     }
@@ -34,7 +35,8 @@ impl<T: Miniconf> Miniconf for MiniconfOption<T> {
         index: &mut [usize],
         topic: &mut heapless::String<TS>,
     ) -> Option<()> {
-        self.0.as_ref()
+        self.0
+            .as_ref()
             .and_then(|value| value.recurse_paths(index, topic))
     }
 }

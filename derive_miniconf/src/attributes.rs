@@ -13,7 +13,7 @@ pub struct AttributeParser {
 impl AttributeParser {
     pub fn new(stream: TokenStream) -> Self {
         Self {
-            inner: stream.into_iter()
+            inner: stream.into_iter(),
         }
     }
 

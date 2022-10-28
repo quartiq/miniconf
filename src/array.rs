@@ -41,13 +41,13 @@ impl<T: PartialEq + Miniconf, const N: usize> PartialEq for MiniconfArray<T, N> 
     }
 }
 
-impl <T: Clone + Miniconf, const N: usize> Clone for MiniconfArray<T, N> {
+impl<T: Clone + Miniconf, const N: usize> Clone for MiniconfArray<T, N> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl <T: Copy + Miniconf, const N: usize> Copy for MiniconfArray<T, N> { }
+impl<T: Copy + Miniconf, const N: usize> Copy for MiniconfArray<T, N> {}
 
 impl<T: Miniconf, const N: usize> Miniconf for MiniconfArray<T, N> {
     fn string_set(

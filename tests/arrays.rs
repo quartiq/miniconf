@@ -1,4 +1,4 @@
-use miniconf::{Error, MiniconfArray, Miniconf};
+use miniconf::{Error, Miniconf, MiniconfArray};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Miniconf, Deserialize)]

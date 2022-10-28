@@ -73,7 +73,10 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         _ => unimplemented!("Only named fields are supported in structs."),
     };
 
-    let fields: Vec<StructField> = raw_fields.iter().map(|x| StructField::new(x.clone())).collect();
+    let fields: Vec<StructField> = raw_fields
+        .iter()
+        .map(|x| StructField::new(x.clone()))
+        .collect();
 
     for field in fields.iter() {
         field.bound_generics(&mut typedef);
