@@ -56,6 +56,10 @@ class Miniconf:
             # Extract request_id corrleation data from the properties
             request_id = properties['correlation_data'][0]
 
+            if request_id not in self.inflight:
+                LOGGER.info("Discarding message with CD: %s", request_id)
+                return
+
             self.inflight[request_id].set_result(json.loads(payload))
             del self.inflight[request_id]
         else:
@@ -83,7 +87,7 @@ class Miniconf:
         self.inflight[request_id] = fut
 
         payload = json.dumps(value, separators=(",", ":"))
-        LOGGER.info('Sending "%s" to "%s"', value, topic)
+        LOGGER.info('Sending "%s" to "%s" with CD: %s', value, topic, request_id)
 
         self.client.publish(
             topic, payload=payload, qos=0, retain=retain,
