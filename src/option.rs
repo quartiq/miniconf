@@ -1,12 +1,14 @@
 use super::{Error, Miniconf, MiniconfMetadata};
 
-impl<T: Miniconf> Miniconf for Option<T> {
+pub struct MiniconfOption<T: Miniconf>(pub Option<T>);
+
+impl<T: Miniconf> Miniconf for MiniconfOption<T> {
     fn string_set(
         &mut self,
         topic_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
-        self.as_mut().map_or(Err(Error::PathNotFound), |inner| {
+        self.0.as_mut().map_or(Err(Error::PathNotFound), |inner| {
             inner.string_set(topic_parts, value)
         })
     }
@@ -16,13 +18,13 @@ impl<T: Miniconf> Miniconf for Option<T> {
         topic_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        self.as_ref().map_or(Err(Error::PathNotFound), |inner| {
+        self.0.as_ref().map_or(Err(Error::PathNotFound), |inner| {
             inner.string_get(topic_parts, value)
         })
     }
 
     fn get_metadata(&self) -> MiniconfMetadata {
-        self.as_ref()
+        self.0.as_ref()
             .map(|value| value.get_metadata())
             .unwrap_or_default()
     }
@@ -32,7 +34,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         index: &mut [usize],
         topic: &mut heapless::String<TS>,
     ) -> Option<()> {
-        self.as_ref()
+        self.0.as_ref()
             .and_then(|value| value.recurse_paths(index, topic))
     }
 }

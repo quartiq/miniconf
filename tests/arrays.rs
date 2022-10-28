@@ -1,4 +1,4 @@
-use miniconf::{Error, Miniconf};
+use miniconf::{Error, MiniconfArray, Miniconf};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Miniconf, Deserialize)]
@@ -9,6 +9,7 @@ struct AdditionalSettings {
 #[derive(Debug, Default, Miniconf, Deserialize)]
 struct Settings {
     data: u32,
+    #[miniconf(defer)]
     more: AdditionalSettings,
 }
 
@@ -16,6 +17,7 @@ struct Settings {
 fn simple_array() {
     #[derive(Miniconf, Default)]
     struct S {
+        #[miniconf(defer)]
         a: [u8; 3],
     }
 
@@ -53,6 +55,7 @@ fn nonexistent_field() {
 fn simple_array_indexing() {
     #[derive(Miniconf, Default)]
     struct S {
+        #[miniconf(defer)]
         a: [u8; 3],
     }
 
@@ -73,20 +76,21 @@ fn simple_array_indexing() {
 
     // Test metadata
     let metadata = s.get_metadata();
-    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_topic_size, "a/2".len());
 }
 
 #[test]
 fn array_of_structs_indexing() {
-    #[derive(Miniconf, Default, Clone, Copy, Deserialize, Debug, PartialEq)]
+    #[derive(Miniconf, Default, Clone, Copy, Debug, PartialEq)]
     struct Inner {
         b: u8,
     }
 
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
-        a: [Inner; 3],
+        #[miniconf(defer)]
+        a: MiniconfArray<Inner, 3>,
     }
 
     let mut s = S::default();

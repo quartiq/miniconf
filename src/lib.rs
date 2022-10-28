@@ -22,10 +22,10 @@
 //!
 //! ### Example
 //! ```
-//! use miniconf::{Miniconf, MiniconfAtomic};
+//! use miniconf::Miniconf;
 //! use serde::{Serialize, Deserialize};
 //!
-//! #[derive(Deserialize, Serialize, MiniconfAtomic, Default)]
+//! #[derive(Deserialize, Serialize, Miniconf, Default)]
 //! struct Coefficients {
 //!     forward: f32,
 //!     backward: f32,
@@ -34,6 +34,7 @@
 //! #[derive(Miniconf, Default)]
 //! struct Settings {
 //!     filter: Coefficients,
+//!     #[miniconf(defer)]
 //!     channel_gain: [f32; 2],
 //!     sample_rate: u32,
 //!     force_update: bool,
@@ -137,9 +138,12 @@ pub use serde::{
     ser::Serialize,
 };
 
+pub use array::MiniconfArray;
+pub use option::MiniconfOption;
+
 pub use serde_json_core;
 
-pub use derive_miniconf::{Miniconf, MiniconfAtomic};
+pub use derive_miniconf::Miniconf;
 
 pub use heapless;
 
@@ -326,92 +330,3 @@ pub trait Miniconf {
         topic: &mut heapless::String<TS>,
     ) -> Option<()>;
 }
-
-macro_rules! impl_single {
-    ($x:ty) => {
-        impl Miniconf for $x {
-            impl_single!();
-        }
-    };
-
-    () => {
-        fn string_set(
-            &mut self,
-            mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-            value: &[u8],
-        ) -> Result<(), Error> {
-            if topic_parts.peek().is_some() {
-                return Err(Error::PathTooLong);
-            }
-            *self = serde_json_core::from_slice(value)?.0;
-            Ok(())
-        }
-
-        fn string_get(
-            &self,
-            mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-            value: &mut [u8],
-        ) -> Result<usize, Error> {
-            if topic_parts.peek().is_some() {
-                return Err(Error::PathTooLong);
-            }
-
-            serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
-        }
-
-        fn get_metadata(&self) -> MiniconfMetadata {
-            MiniconfMetadata {
-                // No topic length is needed, as there are no sub-members.
-                max_topic_size: 0,
-                // One index is required for the current element.
-                max_depth: 1,
-            }
-        }
-
-        // This implementation is the base case for primitives where it will
-        // yield once for self, then return None on subsequent calls.
-        fn recurse_paths<const TS: usize>(
-            &self,
-            index: &mut [usize],
-            _topic: &mut heapless::String<TS>,
-        ) -> Option<()> {
-            if index.len() == 0 {
-                // Note: During expected execution paths using `iter()`, the size of the
-                // index stack is checked in advance to make sure this condition doesn't occur.
-                // However, it's possible to happen if the user manually calls `recurse_paths`.
-                unreachable!("Index stack too small");
-            }
-
-            let i = index[0];
-            index[0] += 1;
-            index[1..].iter_mut().for_each(|x| *x = 0);
-
-            if i == 0 {
-                Some(())
-            } else {
-                None
-            }
-        }
-    };
-}
-
-impl<const N: usize> Miniconf for heapless::String<N> {
-    impl_single!();
-}
-
-// Implement trait for the primitive types
-impl_single!(u8);
-impl_single!(u16);
-impl_single!(u32);
-impl_single!(u64);
-
-impl_single!(i8);
-impl_single!(i16);
-impl_single!(i32);
-impl_single!(i64);
-
-impl_single!(f32);
-impl_single!(f64);
-
-impl_single!(usize);
-impl_single!(bool);
