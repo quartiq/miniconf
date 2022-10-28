@@ -58,8 +58,8 @@ def main():
         assert len(devices) == 1, \
             f'Multiple miniconf devices found ({devices}). Please specify a more specific --prefix'
 
-        logging.info('Automatically using detected device prefix: %s', list(devices)[0])
         prefix = list(devices)[0]
+        logging.info('Automatically using detected device prefix: %s', prefix)
 
     async def configure_settings():
         interface = await Miniconf.create(prefix, args.broker)
