@@ -65,7 +65,7 @@ class Miniconf:
         else:
             LOGGER.warning('Unexpected message on "%s"', topic)
 
-    async def command(self, path, value, retain=False):
+    async def command(self, path, value, retain=False, timeout=5):
         """Write the provided data to the specified path.
 
         Args:
@@ -73,6 +73,7 @@ class Miniconf:
             value: The value to write to the path.
             retain: Retain the MQTT message changing the setting
                 by the broker.
+            timeout: The maximum time to wait for the response in seconds.
 
         Returns:
             The response to the command as a dictionary.
@@ -94,6 +95,6 @@ class Miniconf:
             response_topic=self.response_topic,
             correlation_data=request_id)
 
-        result = await fut
+        result = await asyncio.wait_for(fut, timeout)
         if result['code'] != 0:
             raise MiniconfException(result['msg'])
