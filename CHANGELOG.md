@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   respectively to conform with standard conventions.
 * Python client API is no longer retain by default. CLI is unchanged
 * Python requests API updated to use a static response topic
+* Python requests now have a timeout
 
 ### Removed
 * The client no longer resets the republish timeout when receiving messages.
