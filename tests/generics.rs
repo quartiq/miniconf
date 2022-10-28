@@ -1,10 +1,10 @@
-use miniconf::{DeserializeOwned, Miniconf};
+use miniconf::Miniconf;
 use serde::{Deserialize, Serialize};
 
 #[test]
 fn generic_type() {
     #[derive(Miniconf, Default)]
-    struct Settings<T: Serialize + DeserializeOwned> {
+    struct Settings<T> {
         pub data: T,
     }
 
