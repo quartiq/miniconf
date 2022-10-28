@@ -1,55 +1,78 @@
+//! Array support
+//!
+//! # Design
+//! Miniconf supports lists of items in configurable structures using two forms. For the
+//! [`DeferredArray`], all of the contents of the array are accessed as `Miniconf` settings trees.
+//!
+//! For standard arrays of [T; N] form, the individual elements of the array are accessed as atomic
+//! values (i.e. a single Miniconf item).
+//!
+//! The type you should use depends on what data is contained in your array. If your array contains
+//! trees of settings, you should use [`DeferredArray`]. However, if each element in your list is
+//! individually configurable as a single value (e.g. a list of u32), then you should use a
+//! standard [T; N] array.
+//!
+//! ## Atomic Array Access
+//!
+//! By default, arrays have an implied `#[miniconf(defer)]` attached to them. That is, each element
+//! is individually accessible. This is normally the desired mode of operation, but there are cases
+//! where the user may want to update the entire array in a single call. To do this, you can
+//! annodate a [T; N] array with `#[miniconf(atomic)]`.
+//!
+//! When `#[miniconf(atomic)]` is attributed to an array, the entire array must be accessed as a
+//! single element. All values will be simultaneously read and written.
 use super::{Error, Miniconf, MiniconfMetadata};
 
 use core::fmt::Write;
 
-pub struct MiniconfArray<T: Miniconf, const N: usize>(pub [T; N]);
+pub struct DeferredArray<T: Miniconf, const N: usize>(pub [T; N]);
 
-impl<T: Miniconf, const N: usize> core::ops::Deref for MiniconfArray<T, N> {
+impl<T: Miniconf, const N: usize> core::ops::Deref for DeferredArray<T, N> {
     type Target = [T; N];
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T: Miniconf, const N: usize> core::ops::DerefMut for MiniconfArray<T, N> {
+impl<T: Miniconf, const N: usize> core::ops::DerefMut for DeferredArray<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: Default + Miniconf + Copy, const N: usize> Default for MiniconfArray<T, N> {
+impl<T: Default + Miniconf + Copy, const N: usize> Default for DeferredArray<T, N> {
     fn default() -> Self {
         Self([T::default(); N])
     }
 }
 
-impl<T: core::fmt::Debug + Miniconf, const N: usize> core::fmt::Debug for MiniconfArray<T, N> {
+impl<T: core::fmt::Debug + Miniconf, const N: usize> core::fmt::Debug for DeferredArray<T, N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<T: PartialEq + Miniconf, const N: usize> PartialEq<[T; N]> for MiniconfArray<T, N> {
+impl<T: PartialEq + Miniconf, const N: usize> PartialEq<[T; N]> for DeferredArray<T, N> {
     fn eq(&self, other: &[T; N]) -> bool {
         self.0.eq(other)
     }
 }
 
-impl<T: PartialEq + Miniconf, const N: usize> PartialEq for MiniconfArray<T, N> {
+impl<T: PartialEq + Miniconf, const N: usize> PartialEq for DeferredArray<T, N> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<T: Clone + Miniconf, const N: usize> Clone for MiniconfArray<T, N> {
+impl<T: Clone + Miniconf, const N: usize> Clone for DeferredArray<T, N> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<T: Copy + Miniconf, const N: usize> Copy for MiniconfArray<T, N> {}
+impl<T: Copy + Miniconf, const N: usize> Copy for DeferredArray<T, N> {}
 
-impl<T: Miniconf, const N: usize> Miniconf for MiniconfArray<T, N> {
+impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
     fn string_set(
         &mut self,
         mut topic_parts: core::iter::Peekable<core::str::Split<char>>,

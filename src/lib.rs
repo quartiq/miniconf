@@ -175,7 +175,8 @@ pub use serde::{
     ser::Serialize,
 };
 
-pub use array::MiniconfArray;
+pub use array::DeferredArray;
+pub use option::OptionalSetting;
 
 pub use serde_json_core;
 

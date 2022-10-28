@@ -1,4 +1,4 @@
-use miniconf::{Error, Miniconf, MiniconfArray};
+use miniconf::{DeferredArray, Error, Miniconf};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Miniconf, Deserialize)]
@@ -88,7 +88,7 @@ fn array_of_structs_indexing() {
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
         #[miniconf(defer)]
-        a: MiniconfArray<Inner, 3>,
+        a: DeferredArray<Inner, 3>,
     }
 
     let mut s = S::default();
@@ -116,7 +116,7 @@ fn array_of_arrays() {
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
         #[miniconf(defer)]
-        data: MiniconfArray<[u32; 2], 2>,
+        data: DeferredArray<[u32; 2], 2>,
     }
 
     let mut s = S::default();

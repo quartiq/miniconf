@@ -1,59 +1,64 @@
 //! Optional Settings Support
 //!
 //! # Design
-//! There are two types of options supported depending on whether or not deferral to the underlying
-//! value is desired.
 //!
-//! When deferral to the underlying type is wanted, use a [`MiniconfOption`]. This will defer into
-//! the inner type's fields.
+//! Miniconf supports optional settings trees. These are handled via the [`OptionalSetting`] type.
+//! If the `OptionalSetting` is `None`, the field does not exist at run-time. It will not be
+//! iterated over and cannot be `get()` or `set()` using the Miniconf API.
 //!
-//! When atomic access to the Option is wanted, as well as the ability to remove data from the
-//! option, use an `Option<T>`. In this case, the user will be capable of manually setting the
-//! Option to None.
+//! This is intended as a mechanism to provide run-time construction of the structure. In some
+//! cases, run-time detection may indicate that some component is not present. In this case,
+//! settings will not be exposed for it.
+//!
+//!
+//! # Standard Options
+//!
+//! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
+//! can be used to atomically access the nullable content within.
 use super::{Error, Miniconf, MiniconfMetadata};
 
-pub struct MiniconfOption<T: Miniconf>(pub Option<T>);
+pub struct OptionalSetting<T: Miniconf>(pub Option<T>);
 
-impl<T: Miniconf> core::ops::Deref for MiniconfOption<T> {
+impl<T: Miniconf> core::ops::Deref for OptionalSetting<T> {
     type Target = Option<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T: Miniconf> core::ops::DerefMut for MiniconfOption<T> {
+impl<T: Miniconf> core::ops::DerefMut for OptionalSetting<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: Default + Miniconf> Default for MiniconfOption<T> {
+impl<T: Default + Miniconf> Default for OptionalSetting<T> {
     fn default() -> Self {
         Self(Option::<T>::default())
     }
 }
 
-impl<T: core::fmt::Debug + Miniconf> core::fmt::Debug for MiniconfOption<T> {
+impl<T: core::fmt::Debug + Miniconf> core::fmt::Debug for OptionalSetting<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<T: PartialEq + Miniconf> PartialEq for MiniconfOption<T> {
+impl<T: PartialEq + Miniconf> PartialEq for OptionalSetting<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<T: Clone + Miniconf> Clone for MiniconfOption<T> {
+impl<T: Clone + Miniconf> Clone for OptionalSetting<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<T: Copy + Miniconf> Copy for MiniconfOption<T> {}
+impl<T: Copy + Miniconf> Copy for OptionalSetting<T> {}
 
-impl<T: Miniconf> Miniconf for MiniconfOption<T> {
+impl<T: Miniconf> Miniconf for OptionalSetting<T> {
     fn string_set(
         &mut self,
         topic_parts: core::iter::Peekable<core::str::Split<char>>,

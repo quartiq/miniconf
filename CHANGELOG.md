@@ -9,9 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 * python module: don't emite whitespace in JSON to match serde-json-core (#92)
 * `heapless::String` now implements `Miniconf` directly.
+* [breaking] Support for `#[derive(MiniconfAtomic)]` was removed.
+* Fields in `#[derive(Miniconf)]` are now (generally) atomic by default. To recurse, users must
+  annotate fields with `#[miniconf(defer)]`
+  - Arrays have an implied `#[miniconf(defer)]` attribute that can be disabled via a
+   `#[miniconf(atomic)]` attribute.
+* New `OptionalSetting` type has been added. Existing `Option` implementation has been changed to
+  allow run-time nullability of settings for more flexibility.
+* New `DeferredArray` type has been added, replacing the previous [T; N] implementation
+* `Miniconf` implementation on most primitive types has been removed as it is no longer required.
+
 
 ### Fixed
 * Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
+* Generic trait bound requirements have been made more specific.
 
 
 ## [0.5.0] - 2022-05-12
