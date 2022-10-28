@@ -9,9 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 * python module: don't emite whitespace in JSON to match serde-json-core (#92)
 * `heapless::String` now implements `Miniconf` directly.
+* Python client API is no longer retain by default. CLI is unchanged
 
 ### Fixed
 * Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
+* Python requests API updated to use a static response topic
+* Python requests now have a timeout
 
 
 ## [0.5.0] - 2022-05-12
@@ -33,9 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [#71](https://github.com/quartiq/miniconf/issues/71)
 * [breaking] `into_iter()` and `unchecked_into_iter()` renamed to `iter()` and `unchecked_iter()`
   respectively to conform with standard conventions.
-* Python client API is no longer retain by default. CLI is unchanged
-* Python requests API updated to use a static response topic
-* Python requests now have a timeout
 
 ### Removed
 * The client no longer resets the republish timeout when receiving messages.
