@@ -17,7 +17,6 @@ struct Settings {
 fn simple_array() {
     #[derive(Miniconf, Default)]
     struct S {
-        #[miniconf(defer)]
         a: [u8; 3],
     }
 
@@ -55,7 +54,6 @@ fn nonexistent_field() {
 fn simple_array_indexing() {
     #[derive(Miniconf, Default)]
     struct S {
-        #[miniconf(defer)]
         a: [u8; 3],
     }
 

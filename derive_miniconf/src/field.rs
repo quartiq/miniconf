@@ -11,12 +11,18 @@ pub struct StructField {
 
 impl StructField {
     pub fn new(field: syn::Field) -> Self {
-        let deferred = field
+        let attributes: Vec<MiniconfAttribute> = field
             .attrs
             .iter()
             .filter(|attr| attr.path.is_ident("miniconf"))
             .map(|attr| AttributeParser::new(attr.tokens.clone()).parse())
-            .any(|x| x == MiniconfAttribute::Defer);
+            .collect();
+
+        let atomic = attributes.iter().any(|x| *x == MiniconfAttribute::Atomic);
+
+        // Arrays are deferred-by-default unless explicitly specified otherwise.
+        let deferred = attributes.iter().any(|x| *x == MiniconfAttribute::Defer)
+            || (matches!(field.ty, syn::Type::Array(_)) && !atomic);
 
         Self { deferred, field }
     }
