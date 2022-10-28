@@ -40,7 +40,7 @@ class Miniconf:
         self.prefix = prefix
         self.inflight = {}
         self.client.on_message = self._handle_response
-        self.response_topic = f'{prefix}/response/{uuid.uuid1().hex}'
+        self.response_topic = f'{prefix}/response'
         self.client.subscribe(self.response_topic)
 
     def _handle_response(self, _client, topic, payload, _qos, properties):
@@ -55,15 +55,14 @@ class Miniconf:
         """
         if topic == self.response_topic:
             # Extract request_id corrleation data from the properties
-            request_id = int.from_bytes(
-                properties['correlation_data'][0], 'big')
+            request_id = properties['correlation_data'][0]
 
             self.inflight[request_id].set_result(json.loads(payload))
             del self.inflight[request_id]
         else:
             LOGGER.warning('Unexpected message on "%s"', topic)
 
-    async def command(self, path, value, retain=True):
+    async def command(self, path, value, retain=False):
         """Write the provided data to the specified path.
 
         Args:
@@ -80,9 +79,9 @@ class Miniconf:
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch
-        assert self.request_id not in self.inflight
-        self.inflight[self.request_id] = fut
-        correlation_data = self.request_id.to_bytes(4, 'big')
+        request_id = uuid.uuid1().hex.encode()
+        assert request_id not in self.inflight
+        self.inflight[request_id] = fut
         self.request_id += 1
 
         payload = json.dumps(value, separators=(",", ":"))
@@ -91,7 +90,7 @@ class Miniconf:
         self.client.publish(
             topic, payload=payload, qos=0, retain=retain,
             response_topic=self.response_topic,
-            correlation_data=correlation_data)
+            correlation_data=request_id)
 
         result = await fut
         if result['code'] != 0:
