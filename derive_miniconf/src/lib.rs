@@ -241,30 +241,22 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
             fn get_metadata(&self) -> miniconf::MiniconfMetadata {
                 // Loop through all child elements, collecting the maximum length + depth of any
                 // member.
-                let mut maximum_sizes = miniconf::MiniconfMetadata {
-                    max_topic_size: 0,
-                    max_depth: 0
-                };
+                let mut meta = miniconf::MiniconfMetadata::default();
 
-                let mut index = 0;
-                loop {
-                    let metadata = match index {
+                for index in 0.. {
+                    let item_meta = match index {
                         #(#iter_metadata_arms ,)*
                         _ => break,
                     };
 
-                    maximum_sizes.max_topic_size = core::cmp::max(maximum_sizes.max_topic_size,
-                                                                  metadata.max_topic_size);
-                    maximum_sizes.max_depth = core::cmp::max(maximum_sizes.max_depth,
-                                                             metadata.max_depth);
-
-                    index += 1;
+                    meta.max_topic_size = meta.max_topic_size.max(item_meta.max_topic_size);
+                    meta.max_depth = meta.max_depth.max(item_meta.max_depth);
                 }
 
                 // We need an additional index depth for this node.
-                maximum_sizes.max_depth += 1;
+                meta.max_depth += 1;
 
-                maximum_sizes
+                meta
             }
 
             fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {

@@ -155,3 +155,28 @@ fn atomic_array() {
 
     assert_eq!(expected, s);
 }
+
+#[test]
+fn short_array() {
+    #[derive(Miniconf, Default, PartialEq, Debug)]
+    struct S {
+        data: [u32; 1],
+    }
+
+    // Test metadata
+    let meta = S::default().get_metadata();
+    assert_eq!(meta.max_depth, 2);
+    assert_eq!(meta.max_topic_size, "data/0".len());
+}
+
+
+/// Zero-length arrays are not supported
+#[test]
+#[should_panic]
+fn null_array() {
+    #[derive(Miniconf, Default, PartialEq, Debug)]
+    struct S {
+        data: [u32; 0],
+    }
+    let _meta = S::default().get_metadata();
+}

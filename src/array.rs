@@ -25,52 +25,78 @@ use super::{Error, Miniconf, MiniconfMetadata};
 
 use core::fmt::Write;
 
-pub struct DeferredArray<T: Miniconf, const N: usize>(pub [T; N]);
+pub struct DeferredArray<T, const N: usize>(pub [T; N]);
 
-impl<T: Miniconf, const N: usize> core::ops::Deref for DeferredArray<T, N> {
+impl<T, const N: usize> core::ops::Deref for DeferredArray<T, N> {
     type Target = [T; N];
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T: Miniconf, const N: usize> core::ops::DerefMut for DeferredArray<T, N> {
+impl<T, const N: usize> core::ops::DerefMut for DeferredArray<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: Default + Miniconf + Copy, const N: usize> Default for DeferredArray<T, N> {
+impl<T: Default + Copy, const N: usize> Default for DeferredArray<T, N> {
     fn default() -> Self {
         Self([T::default(); N])
     }
 }
 
-impl<T: core::fmt::Debug + Miniconf, const N: usize> core::fmt::Debug for DeferredArray<T, N> {
+impl<T: core::fmt::Debug, const N: usize> core::fmt::Debug for DeferredArray<T, N> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<T: PartialEq + Miniconf, const N: usize> PartialEq<[T; N]> for DeferredArray<T, N> {
+impl<T: PartialEq, const N: usize> PartialEq<[T; N]> for DeferredArray<T, N> {
     fn eq(&self, other: &[T; N]) -> bool {
         self.0.eq(other)
     }
 }
 
-impl<T: PartialEq + Miniconf, const N: usize> PartialEq for DeferredArray<T, N> {
+impl<T: PartialEq, const N: usize> PartialEq for DeferredArray<T, N> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<T: Clone + Miniconf, const N: usize> Clone for DeferredArray<T, N> {
+impl<T: Clone, const N: usize> Clone for DeferredArray<T, N> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<T: Copy + Miniconf, const N: usize> Copy for DeferredArray<T, N> {}
+impl<T: Copy, const N: usize> Copy for DeferredArray<T, N> {}
+
+impl<T, const N: usize> DeferredArray<T, N> {
+    fn index(&self, next: Option<&str>) -> Result<usize, Error> {
+        let next = next.ok_or(Error::PathTooShort)?;
+
+        // Parse what should be the index value
+        let i: usize = serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0;
+
+        if i >= self.0.len() {
+            Err(Error::BadIndex)
+        } else {
+            Ok(i)
+        }
+    }
+}
+
+const fn digits(x: usize) -> usize {
+    let mut n = 10;
+    let mut num_digits = 1;
+
+    while x >= n {
+        n *= 10;
+        num_digits += 1;
+    }
+    num_digits
+}
 
 impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
     fn string_set(
@@ -78,19 +104,7 @@ impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
         mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.0.len() {
-            return Err(Error::BadIndex);
-        }
+        let i = self.index(topic_parts.next())?;
 
         self.0[i].string_set(topic_parts, value)?;
 
@@ -102,49 +116,27 @@ impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
         mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.0.len() {
-            return Err(Error::BadIndex);
-        }
+        let i = self.index(topic_parts.next())?;
 
         self.0[i].string_get(topic_parts, value)
     }
 
     fn get_metadata(&self) -> MiniconfMetadata {
         // First, figure out how many digits the maximum index requires when printing.
-        let mut index = N - 1;
-        let mut num_digits = 0;
 
-        while index > 0 {
-            index /= 10;
-            num_digits += 1;
-        }
-
-        let metadata = self.0[0].get_metadata();
+        let mut meta = self.0[0].get_metadata();
 
         // If the sub-members have topic size, we also need to include an additional character for
         // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
         // types, enums).
-        if metadata.max_topic_size > 0 {
-            MiniconfMetadata {
-                max_topic_size: metadata.max_topic_size + num_digits + 1,
-                max_depth: metadata.max_depth + 1,
-            }
-        } else {
-            MiniconfMetadata {
-                max_topic_size: num_digits,
-                max_depth: metadata.max_depth + 1,
-            }
+        if meta.max_topic_size > 0 {
+            meta.max_topic_size += 1;
         }
+
+        meta.max_topic_size += digits(N - 1);
+        meta.max_depth += 1;
+
+        meta
     }
 
     fn recurse_paths<const TS: usize>(
@@ -196,72 +188,56 @@ impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
     }
 }
 
-impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn string_set(
-        &mut self,
+trait IndexLookup {
+    fn index(
+        &self,
+        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+    ) -> Result<usize, Error>;
+}
+
+impl<T, const N: usize> IndexLookup for [T; N] {
+    fn index(
+        &self,
         mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-        value: &[u8],
-    ) -> Result<(), Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.len() {
-            return Err(Error::BadIndex);
-        }
+    ) -> Result<usize, Error> {
+        let next = topic_parts.next().ok_or(Error::PathTooShort)?;
 
         if topic_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        self[i] = serde_json_core::from_slice(value)?.0;
+        // Parse what should be the index value
+        Ok(serde_json_core::from_str(next)
+            .map_err(|_| Error::BadIndex)?
+            .0)
+    }
+}
+
+impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
+    fn string_set(
+        &mut self,
+        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        value: &[u8],
+    ) -> Result<(), Error> {
+        let i = self.index(topic_parts)?;
+        let ele = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
+        *ele = serde_json_core::from_slice(value)?.0;
         Ok(())
     }
 
     fn string_get(
         &self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        topic_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.len() {
-            return Err(Error::BadIndex);
-        }
-
-        if topic_parts.peek().is_some() {
-            return Err(Error::PathTooLong);
-        }
-
-        serde_json_core::to_slice(&self[i], value).map_err(|_| Error::SerializationFailed)
+        let i = self.index(topic_parts)?;
+        let ele = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
+        serde_json_core::to_slice(ele, value).map_err(|_| Error::SerializationFailed)
     }
 
     fn get_metadata(&self) -> MiniconfMetadata {
-        // First, figure out how many digits the maximum index requires when printing.
-        let mut index = N - 1;
-        let mut num_digits = 0;
-
-        while index > 0 {
-            index /= 10;
-            num_digits += 1;
-        }
-
         MiniconfMetadata {
-            max_topic_size: num_digits,
+            max_topic_size: digits(N - 1),
             max_depth: 1,
         }
     }
