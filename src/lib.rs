@@ -277,6 +277,16 @@ pub struct Metadata {
     pub max_depth: usize,
 }
 
+pub trait Peekable: core::iter::Iterator {
+    fn peek(&mut self) -> core::option::Option<&Self::Item>;
+}
+
+impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
+    fn peek(&mut self) -> core::option::Option<&Self::Item> {
+        core::iter::Peekable::peek(self)
+    }
+}
+
 /// Derive-able trait for structures that can be mutated using serialized paths and values.
 pub trait Miniconf {
     /// Update an element by path.
@@ -361,9 +371,9 @@ pub trait Miniconf {
         }
     }
 
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: P,
         value: &[u8],
     ) -> Result<(), Error>;
 

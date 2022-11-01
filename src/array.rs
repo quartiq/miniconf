@@ -11,7 +11,7 @@
 //! `Miniconf` items, you can (and often want to) use [`Array`]. However, if each element in your list is
 //! individually configurable as a single value (e.g. a list of u32), then you must use a
 //! standard [T; N] array.
-use super::{Error, Metadata, Miniconf};
+use super::{Error, Metadata, Miniconf, Peekable};
 
 use core::fmt::Write;
 
@@ -75,9 +75,9 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: P,
         value: &[u8],
     ) -> Result<(), Error> {
         let i = self.0.index(path_parts.next())?;
@@ -173,9 +173,9 @@ impl<T, const N: usize> IndexLookup for [T; N] {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: P,
         value: &[u8],
     ) -> Result<(), Error> {
         let i = self.index(path_parts.next())?;

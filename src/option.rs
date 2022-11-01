@@ -15,7 +15,7 @@
 //!
 //! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
 //! can be used to atomically access the nullable content within.
-use super::{Error, Metadata, Miniconf};
+use super::{Error, Metadata, Miniconf, Peekable};
 
 /// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
 pub struct Option<T>(pub core::option::Option<T>);
@@ -60,9 +60,9 @@ impl<T: Clone> Clone for Option<T> {
 impl<T: Copy> Copy for Option<T> {}
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: P,
         value: &[u8],
     ) -> Result<(), Error> {
         self.0.as_mut().map_or(Err(Error::PathNotFound), |inner| {
@@ -100,9 +100,9 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: P,
         value: &[u8],
     ) -> Result<(), Error> {
         if path_parts.peek().is_some() {
