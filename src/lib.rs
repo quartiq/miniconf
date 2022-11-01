@@ -15,10 +15,10 @@
 //! namespace. Control over namespace depth and access to individual elements or
 //! atomic updates of complete containers is configured at compile (derive) time.
 //!
-//! The `Miniconf` implementations for `[T; N]` arrays and `Option<T>` by default provides
+//! The `Miniconf` implementations for `[T; N]` arrays and `Option<T>` by default provide
 //! atomic access to their respective inner element(s). Alternatively, [`miniconf::Array`](struct.Array.html) and
-//! [`miniconf::Option`](struct.Option.html) can be used to expose the inner element(s) through their
-//! `Miniconf` implementations.
+//! [`miniconf::Option`](struct.Option.html) have `Miniconf` implementations that expose deep access into the
+//! inner element(s) through their respective `Miniconf` implementations.
 //!
 //! ### Supported formats
 //!
