@@ -18,46 +18,46 @@
 use super::{Error, Metadata, Miniconf};
 
 /// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
-pub struct Option<T: Miniconf>(pub core::option::Option<T>);
+pub struct Option<T>(pub core::option::Option<T>);
 
-impl<T: Miniconf> core::ops::Deref for Option<T> {
+impl<T> core::ops::Deref for Option<T> {
     type Target = core::option::Option<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T: Miniconf> core::ops::DerefMut for Option<T> {
+impl<T> core::ops::DerefMut for Option<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: Default + Miniconf> Default for Option<T> {
+impl<T: Default> Default for Option<T> {
     fn default() -> Self {
         Self(core::option::Option::<T>::default())
     }
 }
 
-impl<T: core::fmt::Debug + Miniconf> core::fmt::Debug for Option<T> {
+impl<T: core::fmt::Debug> core::fmt::Debug for Option<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<T: PartialEq + Miniconf> PartialEq for Option<T> {
+impl<T: PartialEq> PartialEq for Option<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<T: Clone + Miniconf> Clone for Option<T> {
+impl<T: Clone> Clone for Option<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<T: Copy + Miniconf> Copy for Option<T> {}
+impl<T: Copy> Copy for Option<T> {}
 
 impl<T: Miniconf> Miniconf for Option<T> {
     fn set_path(
