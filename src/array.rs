@@ -77,7 +77,7 @@ const fn digits(x: usize) -> usize {
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: P,
+        path_parts: &'a mut P,
         value: &[u8],
     ) -> Result<(), Error> {
         let i = self.0.index(path_parts.next())?;
@@ -92,7 +92,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: P,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         let i = self.0.index(path_parts.next())?;
@@ -175,7 +175,7 @@ impl<T, const N: usize> IndexLookup for [T; N] {
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: P,
+        path_parts: &mut P,
         value: &[u8],
     ) -> Result<(), Error> {
         let i = self.index(path_parts.next())?;
@@ -191,7 +191,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: P,
+        path_parts: &mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         let i = self.index(path_parts.next())?;

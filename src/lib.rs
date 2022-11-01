@@ -298,7 +298,7 @@ pub trait Miniconf {
     /// # Returns
     /// The result of the configuration operation.
     fn set(&mut self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.set_path(path.split('/').peekable(), data)
+        self.set_path(&mut path.split('/').peekable(), data)
     }
 
     /// Retrieve a serialized value by path.
@@ -310,7 +310,7 @@ pub trait Miniconf {
     /// # Returns
     /// The number of bytes used in the `data` buffer for serialization.
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
-        self.get_path(path.split('/').peekable(), data)
+        self.get_path(&mut path.split('/').peekable(), data)
     }
 
     /// Create an iterator of all possible paths.
@@ -373,13 +373,13 @@ pub trait Miniconf {
 
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        path_parts: P,
+        path_parts: &'a mut P,
         value: &[u8],
     ) -> Result<(), Error>;
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        path_parts: P,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 

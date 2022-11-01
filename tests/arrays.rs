@@ -24,17 +24,14 @@ fn simple_array() {
     let mut s = S::default();
 
     // Updating a single field should succeed.
-    let field = "a/0".split('/').peekable();
-    s.set_path(field, "99".as_bytes()).unwrap();
+    s.set("a/0", "99".as_bytes()).unwrap();
     assert_eq!(99, s.a[0]);
 
     // Updating entire array atomically is not supported.
-    let field = "a".split('/').peekable();
-    assert!(s.set_path(field, "[1,2,3]".as_bytes()).is_err());
+    assert!(s.set("a", "[1,2,3]".as_bytes()).is_err());
 
     // Invalid index should generate an error.
-    let field = "a/100".split('/').peekable();
-    assert!(s.set_path(field, "99".as_bytes()).is_err());
+    assert!(s.set("a/100", "99".as_bytes()).is_err());
 }
 
 #[test]
@@ -47,9 +44,7 @@ fn nonexistent_field() {
 
     let mut s = S::default();
 
-    let field = "a/b/1".split('/').peekable();
-
-    assert!(s.set_path(field, "7".as_bytes()).is_err());
+    assert!(s.set("a/1/b", "7".as_bytes()).is_err());
 }
 
 #[test]
@@ -62,18 +57,12 @@ fn simple_array_indexing() {
 
     let mut s = S::default();
 
-    let field = "a/1".split('/').peekable();
-
-    s.set_path(field, "7".as_bytes()).unwrap();
+    s.set("a/1", "7".as_bytes()).unwrap();
 
     assert_eq!([0, 7, 0], s.a);
 
     // Ensure that setting an out-of-bounds index generates an error.
-    let field = "a/3".split('/').peekable();
-    assert_eq!(
-        s.set_path(field, "7".as_bytes()).unwrap_err(),
-        Error::BadIndex
-    );
+    assert_eq!(s.set("a/3", "7".as_bytes()).unwrap_err(), Error::BadIndex);
 
     // Test metadata
     let metadata = s.metadata();
@@ -96,9 +85,7 @@ fn array_of_structs_indexing() {
 
     let mut s = S::default();
 
-    let field = "a/1/b".split('/').peekable();
-
-    s.set_path(field, "7".as_bytes()).unwrap();
+    s.set("a/1/b", "7".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -124,8 +111,7 @@ fn array_of_arrays() {
 
     let mut s = S::default();
 
-    let field = "data/0/0".split('/').peekable();
-    s.set_path(field, "7".as_bytes()).unwrap();
+    s.set("data/0/0", "7".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -145,8 +131,7 @@ fn atomic_array() {
 
     let mut s = S::default();
 
-    let field = "data".split('/').peekable();
-    s.set_path(field, "[1, 2]".as_bytes()).unwrap();
+    s.set("data", "[1, 2]".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();

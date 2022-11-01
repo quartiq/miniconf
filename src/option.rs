@@ -62,22 +62,26 @@ impl<T: Copy> Copy for Option<T> {}
 impl<T: Miniconf> Miniconf for Option<T> {
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        path_parts: P,
+        path_parts: &'a mut P,
         value: &[u8],
     ) -> Result<(), Error> {
-        self.0.as_mut().map_or(Err(Error::PathNotFound), |inner| {
+        if let Some(inner) = self.0.as_mut() {
             inner.set_path(path_parts, value)
-        })
+        } else {
+            Err(Error::PathNotFound)
+        }
     }
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        path_parts: P,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        self.0.as_ref().map_or(Err(Error::PathNotFound), |inner| {
+        if let Some(inner) = self.0.as_ref() {
             inner.get_path(path_parts, value)
-        })
+        } else {
+            Err(Error::PathNotFound)
+        }
     }
 
     fn metadata(&self) -> Metadata {
@@ -102,7 +106,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: P,
+        path_parts: &'a mut P,
         value: &[u8],
     ) -> Result<(), Error> {
         if path_parts.peek().is_some() {
@@ -115,7 +119,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: P,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         if path_parts.peek().is_some() {

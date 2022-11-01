@@ -385,7 +385,7 @@ where
 
             let mut new_settings = settings.clone();
             let message: SettingsResponse =
-                match new_settings.set_path(path.split('/').peekable(), message) {
+                match new_settings.set_path(&mut path.split('/').peekable(), message) {
                     Ok(_) => {
                         updated = true;
                         handler(path, settings, &new_settings).into()

@@ -222,7 +222,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
             fn set_path<'a, P: miniconf::Peekable<Item = &'a str>>(
                 &mut self,
-                mut path_parts: P,
+                path_parts: &'a mut P,
                 value: &[u8]
             ) -> Result<(), miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
@@ -235,7 +235,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
 
             fn get_path<'a, P: miniconf::Peekable<Item = &'a str>>(
                 &self,
-                mut path_parts: P,
+                path_parts: &'a mut P,
                 value: &mut [u8]
             ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;

@@ -9,9 +9,7 @@ fn generic_type() {
     }
 
     let mut settings = Settings::<f32>::default();
-    settings
-        .set_path("data".split('/').peekable(), b"3.0")
-        .unwrap();
+    settings.set("data", b"3.0").unwrap();
     assert_eq!(settings.data, 3.0);
 
     // Test metadata
@@ -29,9 +27,7 @@ fn generic_array() {
     }
 
     let mut settings = Settings::<f32>::default();
-    settings
-        .set_path("data/0".split('/').peekable(), b"3.0")
-        .unwrap();
+    settings.set("data/0", b"3.0").unwrap();
 
     assert_eq!(settings.data[0], 3.0);
 
@@ -54,9 +50,7 @@ fn generic_struct() {
     }
 
     let mut settings = Settings::<Inner>::default();
-    settings
-        .set_path("inner".split('/').peekable(), b"{\"data\": 3.0}")
-        .unwrap();
+    settings.set("inner", b"{\"data\": 3.0}").unwrap();
 
     assert_eq!(settings.inner.data, 3.0);
 
@@ -80,10 +74,7 @@ fn generic_atomic() {
 
     let mut settings = Settings::<f32>::default();
     settings
-        .set_path(
-            "atomic".split('/').peekable(),
-            b"{\"inner\": [3.0, 0, 0, 0, 0]}",
-        )
+        .set("atomic", b"{\"inner\": [3.0, 0, 0, 0, 0]}")
         .unwrap();
 
     assert_eq!(settings.atomic.inner[0], 3.0);
