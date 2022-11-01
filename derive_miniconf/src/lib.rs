@@ -23,7 +23,7 @@ impl TypeDefinition {
 ///
 /// Each field of the struct will be recursively used to construct a unique path for all elements.
 ///
-/// All settings paths are similar to file-system paths with variable names separated by forward
+/// All paths are similar to file-system paths with variable names separated by forward
 /// slashes.
 ///
 /// For arrays, the array index is treated as a unique identifier. That is, to access the first
@@ -82,18 +82,18 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         field.bound_generics(&mut typedef);
     }
 
-    let set_recurse_match_arms = fields.iter().map(|f| {
+    let set_path_arms = fields.iter().map(|f| {
         let match_name = &f.field.ident;
         if f.deferred {
             quote! {
                 stringify!(#match_name) => {
-                    self.#match_name.string_set(topic_parts, value)
+                    self.#match_name.set_path(path_parts, value)
                 }
             }
         } else {
             quote! {
                 stringify!(#match_name) => {
-                    if topic_parts.peek().is_some() {
+                    if path_parts.peek().is_some() {
                         return Err(miniconf::Error::PathTooLong)
                     }
 
@@ -104,18 +104,18 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         }
     });
 
-    let get_recurse_match_arms = fields.iter().map(|f| {
+    let get_path_arms = fields.iter().map(|f| {
         let match_name = &f.field.ident;
         if f.deferred {
             quote! {
                 stringify!(#match_name) => {
-                    self.#match_name.string_get(topic_parts, value)
+                    self.#match_name.get_path(path_parts, value)
                 }
             }
         } else {
             quote! {
                 stringify!(#match_name) => {
-                    if topic_parts.peek().is_some() {
+                    if path_parts.peek().is_some() {
                         return Err(miniconf::Error::PathTooLong);
                     }
 
@@ -125,78 +125,78 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         }
     });
 
-    let iter_match_arms = fields.iter().enumerate().map(|(i, f)| {
+    let next_path_arms = fields.iter().enumerate().map(|(i, f)| {
         let field_name = &f.field.ident;
         if f.deferred {
             quote! {
                 #i => {
-                    let original_length = topic.len();
+                    let original_length = path.len();
 
-                    let postfix = if topic.len() != 0 {
+                    let postfix = if path.len() != 0 {
                         concat!("/", stringify!(#field_name))
                     } else {
                         stringify!(#field_name)
                     };
 
-                    if topic.push_str(postfix).is_err() {
+                    if path.push_str(postfix).is_err() {
                         // Note: During expected execution paths using `into_iter()`, the size of the
                         // topic buffer is checked in advance to make sure this condition doesn't
                         // occur.  However, it's possible to happen if the user manually calls
-                        // `recurse_paths`.
+                        // `next_path`.
                         unreachable!("Topic buffer too short");
                     }
 
-                    if self.#field_name.recurse_paths(&mut index[1..], topic).is_some() {
-                        return Some(());
+                    if self.#field_name.next_path(&mut state[1..], path) {
+                        return true;
                     }
 
                     // Strip off the previously prepended index, since we completed that element and need
                     // to instead check the next one.
-                    topic.truncate(original_length);
+                    path.truncate(original_length);
 
-                    index[0] += 1;
-                    index[1..].iter_mut().for_each(|x| *x = 0);
+                    state[0] += 1;
+                    state[1..].iter_mut().for_each(|x| *x = 0);
                 }
             }
         } else {
             quote! {
                 #i => {
-                    let i = index[0];
-                    index[0] += 1;
+                    let i = state[0];
+                    state[0] += 1;
 
-                    let postfix = if topic.len() != 0 {
+                    let postfix = if path.len() != 0 {
                         concat!("/", stringify!(#field_name))
                     } else {
                         stringify!(#field_name)
                     };
 
-                    if topic.push_str(postfix).is_err() {
+                    if path.push_str(postfix).is_err() {
                         // Note: During expected execution paths using `into_iter()`, the size of the
                         // topic buffer is checked in advance to make sure this condition doesn't
                         // occur.  However, it's possible to happen if the user manually calls
-                        // `recurse_paths`.
+                        // `next_path`.
                         unreachable!("Topic buffer too short");
                     }
 
-                    return Some(());
+                    return true;
                 }
             }
         }
     });
 
-    let iter_metadata_arms = fields.iter().enumerate().map(|(i, f)| {
+    let metadata_arms = fields.iter().enumerate().map(|(i, f)| {
         let field_name = &f.field.ident;
         if f.deferred {
             quote! {
                 #i => {
-                    let mut meta = self.#field_name.get_metadata();
+                    let mut meta = self.#field_name.metadata();
 
                     // If the subfield has additional paths, we need to add space for a separator.
-                    if meta.max_topic_size > 0 {
-                        meta.max_topic_size += 1;
+                    if meta.max_length > 0 {
+                        meta.max_length += 1;
                     }
 
-                    meta.max_topic_size += stringify!(#field_name).len();
+                    meta.max_length += stringify!(#field_name).len();
 
                     meta
                 }
@@ -204,10 +204,12 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         } else {
             quote! {
                 #i => {
-                    miniconf::MiniconfMetadata {
-                        max_topic_size: stringify!(#field_name).len(),
-                        max_depth: 1,
-                    }
+                    let mut meta = miniconf::Metadata::default();
+
+                    meta.max_length = stringify!(#field_name).len();
+                    meta.max_depth = 1;
+
+                    meta
                 }
             }
         }
@@ -218,67 +220,59 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
 
     let expanded = quote! {
         impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
-            fn string_set(&mut self, mut topic_parts:
+            fn set_path(&mut self, mut path_parts:
             core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
             Result<(), miniconf::Error> {
-                let field = topic_parts.next().ok_or(miniconf::Error::PathTooShort)?;
+                let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {
-                    #(#set_recurse_match_arms ,)*
+                    #(#set_path_arms ,)*
                     _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 
-            fn string_get(&self, mut topic_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
-                let field = topic_parts.next().ok_or(miniconf::Error::PathTooShort)?;
+            fn get_path(&self, mut path_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
+                let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {
-                    #(#get_recurse_match_arms ,)*
+                    #(#get_path_arms ,)*
                     _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 
-            fn get_metadata(&self) -> miniconf::MiniconfMetadata {
+            fn metadata(&self) -> miniconf::Metadata {
                 // Loop through all child elements, collecting the maximum length + depth of any
                 // member.
-                let mut maximum_sizes = miniconf::MiniconfMetadata {
-                    max_topic_size: 0,
-                    max_depth: 0
-                };
+                let mut meta = miniconf::Metadata::default();
 
-                let mut index = 0;
-                loop {
-                    let metadata = match index {
-                        #(#iter_metadata_arms ,)*
+                for index in 0.. {
+                    let item_meta = match index {
+                        #(#metadata_arms ,)*
                         _ => break,
                     };
 
-                    maximum_sizes.max_topic_size = core::cmp::max(maximum_sizes.max_topic_size,
-                                                                  metadata.max_topic_size);
-                    maximum_sizes.max_depth = core::cmp::max(maximum_sizes.max_depth,
-                                                             metadata.max_depth);
-
-                    index += 1;
+                    meta.max_length = meta.max_length.max(item_meta.max_length);
+                    meta.max_depth = meta.max_depth.max(item_meta.max_depth);
                 }
 
-                // We need an additional index depth for this node.
-                maximum_sizes.max_depth += 1;
+                // We need an additional state depth for this node.
+                meta.max_depth += 1;
 
-                maximum_sizes
+                meta
             }
 
-            fn recurse_paths<const TS: usize>(&self, index: &mut [usize], topic: &mut miniconf::heapless::String<TS>) -> Option<()> {
-                if index.len() == 0 {
+            fn next_path<const TS: usize>(&self, state: &mut [usize], path: &mut miniconf::heapless::String<TS>) -> bool {
+                if state.len() == 0 {
                     // Note: During expected execution paths using `into_iter()`, the size of the
-                    // index stack is checked in advance to make sure this condition doesn't occur.
-                    // However, it's possible to happen if the user manually calls `recurse_paths`.
-                    unreachable!("Index stack too small");
+                    // state stack is checked in advance to make sure this condition doesn't occur.
+                    // However, it's possible to happen if the user manually calls `next_path`.
+                    unreachable!("State stack too small");
                 }
 
                 loop {
-                    match index[0] {
-                        #(#iter_match_arms ,)*
-                        _ => return None,
+                    match state[0] {
+                        #(#next_path_arms ,)*
+                        _ => return false,
 
                     };
                 }

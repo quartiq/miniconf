@@ -47,6 +47,8 @@ const MAX_RECURSION_DEPTH: usize = 8;
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
 mod sm {
+    #![allow(clippy::derive_partial_eq_without_eq)]
+
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -175,9 +177,7 @@ where
         let mut settings_prefix: String<MAX_TOPIC_LENGTH> = String::from(prefix);
         settings_prefix.push_str("/settings").unwrap();
 
-        assert!(
-            settings_prefix.len() + 1 + settings.get_metadata().max_topic_size <= MAX_TOPIC_LENGTH
-        );
+        assert!(settings_prefix.len() + 1 + settings.metadata().max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
@@ -195,7 +195,7 @@ where
 
         for topic in self
             .settings
-            .iter_settings::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
+            .iter_paths::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
             .unwrap()
         {
             let mut data = [0; MESSAGE_SIZE];
@@ -385,7 +385,7 @@ where
 
             let mut new_settings = settings.clone();
             let message: SettingsResponse =
-                match new_settings.string_set(path.split('/').peekable(), message) {
+                match new_settings.set_path(path.split('/').peekable(), message) {
                     Ok(_) => {
                         updated = true;
                         handler(path, settings, &new_settings).into()

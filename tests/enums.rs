@@ -18,14 +18,14 @@ fn simple_enum() {
 
     let field = "v".split('/').peekable();
 
-    s.string_set(field, "\"B\"".as_bytes()).unwrap();
+    s.set_path(field, "\"B\"".as_bytes()).unwrap();
 
     assert_eq!(s.v, Variant::B);
 
     // Test metadata
-    let metadata = s.get_metadata();
+    let metadata = s.metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_topic_size, "v".len());
+    assert_eq!(metadata.max_length, "v".len());
 }
 
 #[test]
@@ -45,5 +45,5 @@ fn invalid_enum() {
 
     let field = "v".split('/').peekable();
 
-    assert!(s.string_set(field, "\"C\"".as_bytes()).is_err());
+    assert!(s.set_path(field, "\"C\"".as_bytes()).is_err());
 }

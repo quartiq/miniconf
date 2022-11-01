@@ -2,9 +2,9 @@
 //!
 //! # Design
 //!
-//! Miniconf supports optional namespaces. These are handled via the [`Option`] type. If the
-//! `Option` is `None`, the namespace does not exist at run-time. It will not be iterated over and
-//! cannot be `get()` or `set()` using the Miniconf API.
+//! Miniconf supports optional values in two forms. The first for is the [`Option`] type. If the
+//! `Option` is `None`, the part of the namespace does not exist at run-time.
+//! It will not be iterated over and cannot be `get()` or `set()` using the Miniconf API.
 //!
 //! This is intended as a mechanism to provide run-time construction of the namespace. In some
 //! cases, run-time detection may indicate that some component is not present. In this case,
@@ -15,95 +15,97 @@
 //!
 //! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
 //! can be used to atomically access the nullable content within.
-use super::{Error, Miniconf, MiniconfMetadata};
+use super::{Error, Metadata, Miniconf};
 
-pub struct Option<T: Miniconf>(pub core::option::Option<T>);
+/// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
+pub struct Option<T>(pub core::option::Option<T>);
 
-impl<T: Miniconf> core::ops::Deref for Option<T> {
+impl<T> core::ops::Deref for Option<T> {
     type Target = core::option::Option<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T: Miniconf> core::ops::DerefMut for Option<T> {
+impl<T> core::ops::DerefMut for Option<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: Default + Miniconf> Default for Option<T> {
+impl<T: Default> Default for Option<T> {
     fn default() -> Self {
-        Self(core::option::Option::<T>::default())
+        Self(Default::default())
     }
 }
 
-impl<T: core::fmt::Debug + Miniconf> core::fmt::Debug for Option<T> {
+impl<T: core::fmt::Debug> core::fmt::Debug for Option<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<T: PartialEq + Miniconf> PartialEq for Option<T> {
+impl<T: PartialEq> PartialEq for Option<T> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<T: Clone + Miniconf> Clone for Option<T> {
+impl<T: Clone> Clone for Option<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
     }
 }
 
-impl<T: Copy + Miniconf> Copy for Option<T> {}
+impl<T: Copy> Copy for Option<T> {}
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn string_set(
+    fn set_path(
         &mut self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
         self.0.as_mut().map_or(Err(Error::PathNotFound), |inner| {
-            inner.string_set(topic_parts, value)
+            inner.set_path(path_parts, value)
         })
     }
 
-    fn string_get(
+    fn get_path(
         &self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         self.0.as_ref().map_or(Err(Error::PathNotFound), |inner| {
-            inner.string_get(topic_parts, value)
+            inner.get_path(path_parts, value)
         })
     }
 
-    fn get_metadata(&self) -> MiniconfMetadata {
+    fn metadata(&self) -> Metadata {
         self.0
             .as_ref()
-            .map(|value| value.get_metadata())
+            .map(|value| value.metadata())
             .unwrap_or_default()
     }
 
-    fn recurse_paths<const TS: usize>(
+    fn next_path<const TS: usize>(
         &self,
-        index: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> core::option::Option<()> {
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> bool {
         self.0
             .as_ref()
-            .and_then(|value| value.recurse_paths(index, topic))
+            .map(|value| value.next_path(state, path))
+            .unwrap_or(false)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn string_set(
+    fn set_path(
         &mut self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
-        if topic_parts.peek().is_some() {
+        if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -111,37 +113,35 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         Ok(())
     }
 
-    fn string_get(
+    fn get_path(
         &self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        if topic_parts.peek().is_some() {
+        if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
         serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn get_metadata(&self) -> MiniconfMetadata {
-        MiniconfMetadata {
-            max_topic_size: 0,
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            max_length: 0,
             max_depth: 1,
         }
     }
 
-    fn recurse_paths<const TS: usize>(
+    fn next_path<const TS: usize>(
         &self,
-        index: &mut [usize],
-        _topic: &mut heapless::String<TS>,
-    ) -> core::option::Option<()> {
-        if index[0] == 0 {
-            index[0] += 1;
-            if self.is_some() {
-                return Some(());
-            }
+        state: &mut [usize],
+        _path: &mut heapless::String<TS>,
+    ) -> bool {
+        if state[0] == 0 {
+            state[0] += 1;
+            self.is_some()
+        } else {
+            false
         }
-
-        None
     }
 }
