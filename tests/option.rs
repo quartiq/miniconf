@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, OptionalSetting};
+use miniconf::Miniconf;
 
 #[derive(PartialEq, Debug, Clone, Default, Miniconf)]
 struct Inner {
@@ -8,7 +8,7 @@ struct Inner {
 #[derive(Debug, Clone, Default, Miniconf)]
 struct Settings {
     #[miniconf(defer)]
-    value: OptionalSetting<Inner>,
+    value: miniconf::Option<Inner>,
 }
 
 #[test]
