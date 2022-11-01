@@ -277,6 +277,7 @@ pub struct Metadata {
     pub max_depth: usize,
 }
 
+/// Helper trait for `core::iter::Peekable`.
 pub trait Peekable: core::iter::Iterator {
     fn peek(&mut self) -> core::option::Option<&Self::Item>;
 }
@@ -292,7 +293,7 @@ pub trait Miniconf {
     /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to the element.
+    /// * `path` - The path to the element. With '/' as separator.
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
@@ -304,7 +305,7 @@ pub trait Miniconf {
     /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to the element.
+    /// * `path` - The path to the element. With '/' as separator.
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
