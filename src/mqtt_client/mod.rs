@@ -384,21 +384,20 @@ where
             };
 
             let mut new_settings = settings.clone();
-            let message: SettingsResponse =
-                match new_settings.set_path(&mut path.split('/').peekable(), message) {
-                    Ok(_) => {
-                        updated = true;
-                        handler(path, settings, &new_settings).into()
+            let message: SettingsResponse = match new_settings.set(path, message) {
+                Ok(_) => {
+                    updated = true;
+                    handler(path, settings, &new_settings).into()
+                }
+                err => {
+                    let mut msg = String::new();
+                    if write!(&mut msg, "{:?}", err).is_err() {
+                        msg = String::from("Configuration Error");
                     }
-                    err => {
-                        let mut msg = String::new();
-                        if write!(&mut msg, "{:?}", err).is_err() {
-                            msg = String::from("Configuration Error");
-                        }
 
-                        SettingsResponse::error(msg)
-                    }
-                };
+                    SettingsResponse::error(msg)
+                }
+            };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
 
