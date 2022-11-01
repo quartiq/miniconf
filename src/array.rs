@@ -72,21 +72,6 @@ impl<T: Clone, const N: usize> Clone for DeferredArray<T, N> {
 
 impl<T: Copy, const N: usize> Copy for DeferredArray<T, N> {}
 
-impl<T, const N: usize> DeferredArray<T, N> {
-    fn index(&self, next: Option<&str>) -> Result<usize, Error> {
-        let next = next.ok_or(Error::PathTooShort)?;
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0;
-
-        if i >= self.0.len() {
-            Err(Error::BadIndex)
-        } else {
-            Ok(i)
-        }
-    }
-}
-
 const fn digits(x: usize) -> usize {
     let mut n = 10;
     let mut num_digits = 1;
@@ -104,9 +89,12 @@ impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
         mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
-        let i = self.index(path_parts.next())?;
+        let i = self.0.index(path_parts.next())?;
 
-        self.0[i].set_path(path_parts, value)?;
+        self.0
+            .get_mut(i)
+            .ok_or(Error::BadIndex)?
+            .set_path(path_parts, value)?;
 
         Ok(())
     }
@@ -116,9 +104,12 @@ impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
         mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        let i = self.index(path_parts.next())?;
+        let i = self.0.index(path_parts.next())?;
 
-        self.0[i].get_path(path_parts, value)
+        self.0
+            .get(i)
+            .ok_or(Error::BadIndex)?
+            .get_path(path_parts, value)
     }
 
     fn metadata(&self) -> MiniconfMetadata {
@@ -180,37 +171,30 @@ impl<T: Miniconf, const N: usize> Miniconf for DeferredArray<T, N> {
 }
 
 trait IndexLookup {
-    fn index(
-        &self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
-    ) -> Result<usize, Error>;
+    fn index(&self, next: Option<&str>) -> Result<usize, Error>;
 }
 
 impl<T, const N: usize> IndexLookup for [T; N] {
-    fn index(
-        &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
-    ) -> Result<usize, Error> {
-        let next = path_parts.next().ok_or(Error::PathTooShort)?;
-
-        if path_parts.peek().is_some() {
-            return Err(Error::PathTooLong);
-        }
+    fn index(&self, next: Option<&str>) -> Result<usize, Error> {
+        let next = next.ok_or(Error::PathTooShort)?;
 
         // Parse what should be the index value
-        Ok(serde_json_core::from_str(next)
-            .map_err(|_| Error::BadIndex)?
-            .0)
+        Ok(serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn set_path(
         &mut self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
-        let i = self.index(path_parts)?;
+        let i = self.index(path_parts.next())?;
+
+        if path_parts.peek().is_some() {
+            return Err(Error::PathTooLong);
+        }
+
         let ele = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
         *ele = serde_json_core::from_slice(value)?.0;
         Ok(())
@@ -218,10 +202,15 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
     fn get_path(
         &self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        let i = self.index(path_parts)?;
+        let i = self.index(path_parts.next())?;
+
+        if path_parts.peek().is_some() {
+            return Err(Error::PathTooLong);
+        }
+
         let ele = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
         serde_json_core::to_slice(ele, value).map_err(|_| Error::SerializationFailed)
     }
