@@ -59,51 +59,52 @@ impl<T: Clone + Miniconf> Clone for OptionalSetting<T> {
 impl<T: Copy + Miniconf> Copy for OptionalSetting<T> {}
 
 impl<T: Miniconf> Miniconf for OptionalSetting<T> {
-    fn string_set(
+    fn set_path(
         &mut self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
         self.0.as_mut().map_or(Err(Error::PathNotFound), |inner| {
-            inner.string_set(topic_parts, value)
+            inner.set_path(path_parts, value)
         })
     }
 
-    fn string_get(
+    fn get_path(
         &self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         self.0.as_ref().map_or(Err(Error::PathNotFound), |inner| {
-            inner.string_get(topic_parts, value)
+            inner.get_path(path_parts, value)
         })
     }
 
-    fn get_metadata(&self) -> MiniconfMetadata {
+    fn metadata(&self) -> MiniconfMetadata {
         self.0
             .as_ref()
-            .map(|value| value.get_metadata())
+            .map(|value| value.metadata())
             .unwrap_or_default()
     }
 
-    fn recurse_paths<const TS: usize>(
+    fn next_path<const TS: usize>(
         &self,
-        index: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> Option<()> {
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> bool {
         self.0
             .as_ref()
-            .and_then(|value| value.recurse_paths(index, topic))
+            .map(|value| value.next_path(state, path))
+            .unwrap_or(false)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for Option<T> {
-    fn string_set(
+    fn set_path(
         &mut self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error> {
-        if topic_parts.peek().is_some() {
+        if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -111,37 +112,37 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for Option<T> {
         Ok(())
     }
 
-    fn string_get(
+    fn get_path(
         &self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        if topic_parts.peek().is_some() {
+        if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
         serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn get_metadata(&self) -> MiniconfMetadata {
+    fn metadata(&self) -> MiniconfMetadata {
         MiniconfMetadata {
             max_topic_size: 0,
             max_depth: 1,
         }
     }
 
-    fn recurse_paths<const TS: usize>(
+    fn next_path<const TS: usize>(
         &self,
-        index: &mut [usize],
-        _topic: &mut heapless::String<TS>,
-    ) -> Option<()> {
-        if index[0] == 0 {
-            index[0] += 1;
+        state: &mut [usize],
+        _path: &mut heapless::String<TS>,
+    ) -> bool {
+        if state[0] == 0 {
+            state[0] += 1;
             if self.is_some() {
-                return Some(());
+                return true;
             }
         }
 
-        None
+        false
     }
 }

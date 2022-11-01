@@ -102,7 +102,7 @@
 //! let settings = Settings::default();
 //!
 //!let mut state = [0; 8];
-//! for topic in settings.iter_settings::<128>(&mut state).unwrap() {
+//! for topic in settings.iter_paths::<128>(&mut state).unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
 //! ```
@@ -275,7 +275,7 @@ pub trait Miniconf {
     /// # Returns
     /// The result of the configuration operation.
     fn set(&mut self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.string_set(path.split('/').peekable(), data)
+        self.set_path(path.split('/').peekable(), data)
     }
 
     /// Retrieve a serialized settings value from a string path.
@@ -287,44 +287,48 @@ pub trait Miniconf {
     /// # Returns
     /// The number of bytes used in the `data` buffer for serialization.
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
-        self.string_get(path.split('/').peekable(), data)
+        self.get_path(path.split('/').peekable(), data)
     }
 
-    /// Create an iterator to read all possible settings paths.
+    /// Create an iterator of all possible paths.
+    ///
+    /// This is a depth-first walk.
     ///
     /// # Note
     /// The state vector can be used to resume iteration from a previous point in time. The data
     /// should be zero-initialized if starting iteration for the first time.
     ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a settings path into.
+    /// * `TS` - The maximum number of bytes to encode a path into.
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn iter_settings<'a, const TS: usize>(
+    fn iter_paths<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
-        let metadata = self.get_metadata();
+        let meta = self.metadata();
 
-        if TS < metadata.max_topic_size {
+        if TS < meta.max_topic_size {
             return Err(IterError::InsufficientTopicLength);
         }
 
-        if state.len() < metadata.max_depth {
+        if state.len() < meta.max_depth {
             return Err(IterError::InsufficientStateDepth);
         }
 
         Ok(iter::MiniconfIter {
-            settings: self,
+            namespace: self,
             state,
         })
     }
 
-    /// Create an iterator to read all possible settings paths.
+    /// Create an iterator of all possible paths.
+    ///
+    /// This is a depth-first walk.
     ///
     /// # Note
-    /// This does not check that the topic size or state vector are large enough. If they are not,
+    /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
     /// # Note
@@ -332,38 +336,38 @@ pub trait Miniconf {
     /// should be zero-initialized if starting iteration for the first time.
     ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a settings path into.
+    /// * `TS` - The maximum number of bytes to encode a path into.
     ///
     /// # Args
     /// * `state` - A state vector to record iteration state in.
-    fn unchecked_iter_settings<'a, const TS: usize>(
+    fn unchecked_iter_paths<'a, const TS: usize>(
         &'a self,
         state: &'a mut [usize],
     ) -> iter::MiniconfIter<'a, Self, TS> {
         iter::MiniconfIter {
-            settings: self,
+            namespace: self,
             state,
         }
     }
 
-    fn string_set(
+    fn set_path(
         &mut self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &[u8],
     ) -> Result<(), Error>;
 
-    fn string_get(
+    fn get_path(
         &self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: core::iter::Peekable<core::str::Split<char>>,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    /// Get metadata about the settings structure.
-    fn get_metadata(&self) -> MiniconfMetadata;
-
-    fn recurse_paths<const TS: usize>(
+    fn next_path<const TS: usize>(
         &self,
-        index: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> Option<()>;
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> bool;
+
+    /// Get metadata about the structure.
+    fn metadata(&self) -> MiniconfMetadata;
 }

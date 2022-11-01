@@ -10,12 +10,12 @@ fn generic_type() {
 
     let mut settings = Settings::<f32>::default();
     settings
-        .string_set("data".split('/').peekable(), b"3.0")
+        .set_path("data".split('/').peekable(), b"3.0")
         .unwrap();
     assert_eq!(settings.data, 3.0);
 
     // Test metadata
-    let metadata = settings.get_metadata();
+    let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_topic_size, "data".len());
 }
@@ -30,13 +30,13 @@ fn generic_array() {
 
     let mut settings = Settings::<f32>::default();
     settings
-        .string_set("data/0".split('/').peekable(), b"3.0")
+        .set_path("data/0".split('/').peekable(), b"3.0")
         .unwrap();
 
     assert_eq!(settings.data[0], 3.0);
 
     // Test metadata
-    let metadata = settings.get_metadata();
+    let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_topic_size, "data/0".len());
 }
@@ -55,13 +55,13 @@ fn generic_struct() {
 
     let mut settings = Settings::<Inner>::default();
     settings
-        .string_set("inner".split('/').peekable(), b"{\"data\": 3.0}")
+        .set_path("inner".split('/').peekable(), b"{\"data\": 3.0}")
         .unwrap();
 
     assert_eq!(settings.inner.data, 3.0);
 
     // Test metadata
-    let metadata = settings.get_metadata();
+    let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_topic_size, "inner".len());
 }
@@ -80,7 +80,7 @@ fn generic_atomic() {
 
     let mut settings = Settings::<f32>::default();
     settings
-        .string_set(
+        .set_path(
             "atomic".split('/').peekable(),
             b"{\"inner\": [3.0, 0, 0, 0, 0]}",
         )
@@ -89,7 +89,7 @@ fn generic_atomic() {
     assert_eq!(settings.atomic.inner[0], 3.0);
 
     // Test metadata
-    let metadata = settings.get_metadata();
+    let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_topic_size, "atomic".len());
 }

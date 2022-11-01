@@ -24,16 +24,16 @@ fn simple_array() {
 
     // Updating a single field should succeed.
     let field = "a/0".split('/').peekable();
-    s.string_set(field, "99".as_bytes()).unwrap();
+    s.set_path(field, "99".as_bytes()).unwrap();
     assert_eq!(99, s.a[0]);
 
     // Updating entire array atomically is not supported.
     let field = "a".split('/').peekable();
-    assert!(s.string_set(field, "[1,2,3]".as_bytes()).is_err());
+    assert!(s.set_path(field, "[1,2,3]".as_bytes()).is_err());
 
     // Invalid index should generate an error.
     let field = "a/100".split('/').peekable();
-    assert!(s.string_set(field, "99".as_bytes()).is_err());
+    assert!(s.set_path(field, "99".as_bytes()).is_err());
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn nonexistent_field() {
 
     let field = "a/b/1".split('/').peekable();
 
-    assert!(s.string_set(field, "7".as_bytes()).is_err());
+    assert!(s.set_path(field, "7".as_bytes()).is_err());
 }
 
 #[test]
@@ -61,19 +61,19 @@ fn simple_array_indexing() {
 
     let field = "a/1".split('/').peekable();
 
-    s.string_set(field, "7".as_bytes()).unwrap();
+    s.set_path(field, "7".as_bytes()).unwrap();
 
     assert_eq!([0, 7, 0], s.a);
 
     // Ensure that setting an out-of-bounds index generates an error.
     let field = "a/3".split('/').peekable();
     assert_eq!(
-        s.string_set(field, "7".as_bytes()).unwrap_err(),
+        s.set_path(field, "7".as_bytes()).unwrap_err(),
         Error::BadIndex
     );
 
     // Test metadata
-    let metadata = s.get_metadata();
+    let metadata = s.metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_topic_size, "a/2".len());
 }
@@ -95,7 +95,7 @@ fn array_of_structs_indexing() {
 
     let field = "a/1/b".split('/').peekable();
 
-    s.string_set(field, "7".as_bytes()).unwrap();
+    s.set_path(field, "7".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -106,7 +106,7 @@ fn array_of_structs_indexing() {
     assert_eq!(expected, s);
 
     // Test metadata
-    let metadata = s.get_metadata();
+    let metadata = s.metadata();
     assert_eq!(metadata.max_depth, 4);
     assert_eq!(metadata.max_topic_size, "a/2/b".len());
 }
@@ -122,7 +122,7 @@ fn array_of_arrays() {
     let mut s = S::default();
 
     let field = "data/0/0".split('/').peekable();
-    s.string_set(field, "7".as_bytes()).unwrap();
+    s.set_path(field, "7".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -144,7 +144,7 @@ fn atomic_array() {
     let mut s = S::default();
 
     let field = "data".split('/').peekable();
-    s.string_set(field, "[1, 2]".as_bytes()).unwrap();
+    s.set_path(field, "[1, 2]".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -164,11 +164,10 @@ fn short_array() {
     }
 
     // Test metadata
-    let meta = S::default().get_metadata();
+    let meta = S::default().metadata();
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_topic_size, "data/0".len());
 }
-
 
 /// Zero-length arrays are not supported
 #[test]
@@ -178,5 +177,5 @@ fn null_array() {
     struct S {
         data: [u32; 0],
     }
-    let _meta = S::default().get_metadata();
+    let _meta = S::default().metadata();
 }
