@@ -47,6 +47,8 @@ const MAX_RECURSION_DEPTH: usize = 8;
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
 mod sm {
+    #![allow(clippy::derive_partial_eq_without_eq)]
+    
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
