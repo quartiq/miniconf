@@ -138,11 +138,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
     ) -> bool {
         if state[0] == 0 {
             state[0] += 1;
-            if self.is_some() {
-                return true;
-            }
+            self.is_some()
+        } else {
+            false
         }
-
-        false
     }
 }

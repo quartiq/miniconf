@@ -185,8 +185,8 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
             return Err(Error::PathTooLong);
         }
 
-        let ele = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        *ele = serde_json_core::from_slice(value)?.0;
+        let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
+        *item = serde_json_core::from_slice(value)?.0;
         Ok(())
     }
 
@@ -201,8 +201,8 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
             return Err(Error::PathTooLong);
         }
 
-        let ele = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        serde_json_core::to_slice(ele, value).map_err(|_| Error::SerializationFailed)
+        let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
+        serde_json_core::to_slice(item, value).map_err(|_| Error::SerializationFailed)
     }
 
     fn metadata(&self) -> MiniconfMetadata {
