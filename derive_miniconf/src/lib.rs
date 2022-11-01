@@ -204,10 +204,12 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         } else {
             quote! {
                 #i => {
-                    miniconf::Metadata {
-                        max_length: stringify!(#field_name).len(),
-                        max_depth: 1,
-                    }
+                    let mut meta = miniconf::Metadata::default();
+
+                    meta.max_length = stringify!(#field_name).len();
+                    meta.max_depth = 1;
+
+                    meta
                 }
             }
         }

@@ -202,6 +202,7 @@ pub use derive_miniconf::Miniconf;
 pub use heapless;
 
 /// Errors that can occur when using the `Miniconf` API.
+#[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// The provided path wasn't found in the structure.
@@ -218,14 +219,6 @@ pub enum Error {
     ///
     /// Double check the ending and add the remainder of the path.
     PathTooShort,
-
-    /// The path provided refers to a member of a configurable structure, but the structure
-    /// must be updated all at once.
-    ///
-    /// Refactor the request to configure the surrounding structure at once.
-    ///
-    /// Note(deprecated): This error does not occur anymore as of `v0.6`.
-    AtomicUpdateRequired,
 
     /// The value provided for configuration could not be deserialized into the proper type.
     ///
@@ -244,6 +237,7 @@ pub enum Error {
 }
 
 /// Errors that occur during iteration over topic paths.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum IterError {
     /// The provided state vector is not long enough.
@@ -259,7 +253,6 @@ impl From<Error> for u8 {
             Error::PathNotFound => 1,
             Error::PathTooLong => 2,
             Error::PathTooShort => 3,
-            Error::AtomicUpdateRequired => 4,
             Error::Deserialization(_) => 5,
             Error::BadIndex => 6,
             Error::SerializationFailed => 7,
@@ -274,6 +267,7 @@ impl From<serde_json_core::de::Error> for Error {
 }
 
 /// Metadata about a Miniconf namespace.
+#[non_exhaustive]
 #[derive(Default)]
 pub struct Metadata {
     /// The maximum length of a path in the structure.

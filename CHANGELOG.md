@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Miniconf` implementation on most primitive types has been removed as it is no longer required.
 * [breaking] The API has changed to be agnostic to usage (e.g. now referring to namespace paths and values
   instead of topics and settings). Functions in the `Miniconf` trait have been renamed.
+* [breaking] Errors and the Metadata struct have beem marked `#[non_exhaustive]`
 
 ### Fixed
 * Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
