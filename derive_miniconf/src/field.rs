@@ -18,11 +18,7 @@ impl StructField {
             .map(|attr| AttributeParser::new(attr.tokens.clone()).parse())
             .collect();
 
-        let atomic = attributes.iter().any(|x| *x == MiniconfAttribute::Atomic);
-
-        // Arrays are deferred-by-default unless explicitly specified otherwise.
-        let deferred = attributes.iter().any(|x| *x == MiniconfAttribute::Defer)
-            || (matches!(field.ty, syn::Type::Array(_)) && !atomic);
+        let deferred = attributes.iter().any(|x| *x == MiniconfAttribute::Defer);
 
         Self { deferred, field }
     }

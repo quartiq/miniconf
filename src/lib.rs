@@ -34,7 +34,11 @@
 //! #[derive(Miniconf, Default)]
 //! struct Settings {
 //!     filter: Coefficients,
+//!
+//!     // Specify that the channel gains are individually configurable.
+//!     #[miniconf(defer)]
 //!     channel_gain: [f32; 2],
+//!
 //!     sample_rate: u32,
 //!     force_update: bool,
 //! }
@@ -131,7 +135,6 @@
 //!     filter: Coefficients,
 //!
 //!     // Explicitly require that the `channel_gain` array is updated in a single value.
-//!     #[miniconf(atomic)]
 //!     channel_gain: [f32; 2],
 //! }
 //!
@@ -175,8 +178,8 @@ pub use serde::{
     ser::Serialize,
 };
 
-pub use array::DeferredArray;
-pub use option::OptionalSetting;
+pub use array::Array;
+pub use option::Option;
 
 pub use serde_json_core;
 

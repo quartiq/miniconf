@@ -1,4 +1,4 @@
-use miniconf::{DeferredArray, Error, Miniconf};
+use miniconf::{Error, Miniconf};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Miniconf, Deserialize)]
@@ -17,6 +17,7 @@ struct Settings {
 fn simple_array() {
     #[derive(Miniconf, Default)]
     struct S {
+        #[miniconf(defer)]
         a: [u8; 3],
     }
 
@@ -40,6 +41,7 @@ fn simple_array() {
 fn nonexistent_field() {
     #[derive(Miniconf, Default)]
     struct S {
+        #[miniconf(defer)]
         a: [u8; 3],
     }
 
@@ -54,6 +56,7 @@ fn nonexistent_field() {
 fn simple_array_indexing() {
     #[derive(Miniconf, Default)]
     struct S {
+        #[miniconf(defer)]
         a: [u8; 3],
     }
 
@@ -88,7 +91,7 @@ fn array_of_structs_indexing() {
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
         #[miniconf(defer)]
-        a: DeferredArray<Inner, 3>,
+        a: miniconf::Array<Inner, 3>,
     }
 
     let mut s = S::default();
@@ -116,7 +119,7 @@ fn array_of_arrays() {
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
         #[miniconf(defer)]
-        data: DeferredArray<[u32; 2], 2>,
+        data: miniconf::Array<[u32; 2], 2>,
     }
 
     let mut s = S::default();
@@ -137,7 +140,6 @@ fn array_of_arrays() {
 fn atomic_array() {
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
-        #[miniconf(atomic)]
         data: [u32; 2],
     }
 
