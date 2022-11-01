@@ -6,7 +6,7 @@
 //! If the `OptionalSetting` is `None`, the field does not exist at run-time. It will not be
 //! iterated over and cannot be `get()` or `set()` using the Miniconf API.
 //!
-//! This is intended as a mechanism to provide run-time construction of the structure. In some
+//! This is intended as a mechanism to provide run-time construction of the namespace. In some
 //! cases, run-time detection may indicate that some component is not present. In this case,
 //! settings will not be exposed for it.
 //!
