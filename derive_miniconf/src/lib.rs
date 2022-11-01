@@ -132,13 +132,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 #i => {
                     let original_length = path.len();
 
-                    let postfix = if path.len() != 0 {
-                        concat!("/", stringify!(#field_name))
-                    } else {
-                        stringify!(#field_name)
-                    };
-
-                    if path.push_str(postfix).is_err() {
+                    if path.push_str(concat!(stringify!(#field_name), "/")).is_err() {
                         // Note: During expected execution paths using `into_iter()`, the size of the
                         // topic buffer is checked in advance to make sure this condition doesn't
                         // occur.  However, it's possible to happen if the user manually calls
@@ -161,22 +155,14 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         } else {
             quote! {
                 #i => {
-                    let i = state[0];
-                    state[0] += 1;
-
-                    let postfix = if path.len() != 0 {
-                        concat!("/", stringify!(#field_name))
-                    } else {
-                        stringify!(#field_name)
-                    };
-
-                    if path.push_str(postfix).is_err() {
+                    if path.push_str(stringify!(#field_name)).is_err() {
                         // Note: During expected execution paths using `into_iter()`, the size of the
                         // topic buffer is checked in advance to make sure this condition doesn't
                         // occur.  However, it's possible to happen if the user manually calls
                         // `next_path`.
                         unreachable!("Topic buffer too short");
                     }
+                    state[0] += 1;
 
                     return true;
                 }

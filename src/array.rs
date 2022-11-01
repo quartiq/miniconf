@@ -135,11 +135,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 
         while state[0] < N {
             // Add the array index to the topic name.
-            if topic.len() > 0 && topic.push('/').is_err() {
-                unreachable!("Topic buffer too short");
-            }
-
-            if write!(topic, "{}", state[0]).is_err() {
+            if write!(topic, "{}/", state[0]).is_err() {
                 unreachable!("Topic buffer too short");
             }
 
@@ -225,18 +221,14 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
         if state[0] < N {
             // Add the array index to the topic name.
-            if path.len() > 0 && path.push('/').is_err() {
-                unreachable!("Topic buffer too short");
-            }
-
             if write!(path, "{}", state[0]).is_err() {
                 unreachable!("Topic buffer too short");
             }
 
             state[0] += 1;
-            return true;
+            true
+        } else {
+            false
         }
-
-        false
     }
 }
