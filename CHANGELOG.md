@@ -13,9 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] Support for `#[derive(MiniconfAtomic)]` was removed.
 * Fields in `#[derive(Miniconf)]` are now atomic by default. To recurse, users must
   annotate fields with `#[miniconf(defer)]`
-* New `OptionalSetting` type has been added. Existing `Option` implementation has been changed to
+* New `miniconf::Option` type has been added. Existing `Option` implementation has been changed to
   allow run-time nullability of settings for more flexibility.
-* New `DeferredArray` type has been added, replacing the previous [T; N] implementation
+* New `miniconf::Array` type has been added, replacing the previous [T; N] implementation
 * `Miniconf` implementation on most primitive types has been removed as it is no longer required.
 
 ### Fixed
