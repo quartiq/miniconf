@@ -1,5 +1,3 @@
-use tokio;
-
 use miniconf::{minimq, Miniconf};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -12,6 +10,7 @@ struct AdditionalSettings {
 #[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     data: u32,
+    #[miniconf(defer)]
     more: AdditionalSettings,
 }
 

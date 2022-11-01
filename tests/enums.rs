@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 
 #[test]
 fn simple_enum() {
-    #[derive(Miniconf, Debug, Deserialize, Serialize, PartialEq)]
+    #[derive(Debug, Deserialize, Serialize, PartialEq)]
     enum Variant {
         A,
         B,
     }
 
-    #[derive(Miniconf, Debug, Deserialize, Serialize)]
+    #[derive(Miniconf, Debug)]
     struct S {
         v: Variant,
     }
@@ -30,13 +30,13 @@ fn simple_enum() {
 
 #[test]
 fn invalid_enum() {
-    #[derive(Miniconf, Debug, Serialize, Deserialize, PartialEq)]
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
     enum Variant {
         A,
         B,
     }
 
-    #[derive(Miniconf, Debug, Deserialize)]
+    #[derive(Miniconf, Debug)]
     struct S {
         v: Variant,
     }

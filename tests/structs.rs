@@ -1,9 +1,9 @@
-use miniconf::{Miniconf, MiniconfAtomic};
+use miniconf::Miniconf;
 use serde::{Deserialize, Serialize};
 
 #[test]
 fn atomic_struct() {
-    #[derive(MiniconfAtomic, Default, PartialEq, Debug, Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Default, PartialEq, Debug)]
     struct Inner {
         a: u32,
         b: u32,
@@ -53,6 +53,7 @@ fn recursive_struct() {
     struct Settings {
         a: f32,
         b: bool,
+        #[miniconf(defer)]
         c: Inner,
     }
 

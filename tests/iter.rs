@@ -9,6 +9,7 @@ struct Inner {
 struct Settings {
     a: f32,
     b: i32,
+    #[miniconf(defer)]
     c: Inner,
 }
 
@@ -50,14 +51,19 @@ fn test_iteration() {
 
 #[test]
 fn test_array_iteration() {
-    // TODO: Replace this with mutable iteration when implemented.
-    let settings = [false; 5];
-    let mut settings_copy = [false; 5];
+    #[derive(Miniconf, Default)]
+    struct Settings {
+        #[miniconf(defer)]
+        data: [bool; 5],
+    }
+
+    let settings = Settings::default();
+    let mut settings_copy = Settings::default();
 
     let mut iter_state = [0; 32];
     for field in settings.iter_settings::<256>(&mut iter_state).unwrap() {
         settings_copy.set(&field, b"true").unwrap();
     }
 
-    assert!(settings_copy.iter().all(|x| *x));
+    assert!(settings_copy.data.iter().all(|x| *x));
 }

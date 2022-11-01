@@ -1,14 +1,14 @@
 use miniconf::Miniconf;
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Miniconf, Serialize, Deserialize)]
+#[derive(Debug, Default, Miniconf)]
 struct AdditionalSettings {
     inner: u8,
     inner2: u32,
 }
 
-#[derive(Debug, Default, Miniconf, Serialize, Deserialize)]
+#[derive(Debug, Default, Miniconf)]
 struct Settings {
+    #[miniconf(defer)]
     more: AdditionalSettings,
     data: u32,
 }

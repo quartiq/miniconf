@@ -22,10 +22,10 @@
 //!
 //! ### Example
 //! ```
-//! use miniconf::{Miniconf, MiniconfAtomic};
+//! use miniconf::Miniconf;
 //! use serde::{Serialize, Deserialize};
 //!
-//! #[derive(Deserialize, Serialize, MiniconfAtomic, Default)]
+//! #[derive(Deserialize, Serialize, Default)]
 //! struct Coefficients {
 //!     forward: f32,
 //!     backward: f32,
@@ -34,7 +34,11 @@
 //! #[derive(Miniconf, Default)]
 //! struct Settings {
 //!     filter: Coefficients,
+//!
+//!     // Specify that the channel gains are individually configurable.
+//!     #[miniconf(defer)]
 //!     channel_gain: [f32; 2],
+//!
 //!     sample_rate: u32,
 //!     force_update: bool,
 //! }
@@ -107,6 +111,43 @@
 //! }
 //! ```
 //!
+//! ## Nesting
+//! Miniconf inherently assumes that (almost) all elements are atomicly updated using a single
+//! path. The only exception for this rule is arrays, which allow indexing individual elements by
+//! default. You can disable this behavior by placing `#[miniconf(atomic)]` attributes on the array.
+//!
+//! If you would like to nest settings in multiple structs, this is supported by explicitly
+//! deferring down to the inner structs Miniconf implementation using the `#[miniconf(defer)]`
+//! attribute:
+//!
+//! ```
+//! use miniconf::Miniconf;
+//! #[derive(Miniconf, Default)]
+//! struct Coefficients {
+//!     forward: f32,
+//!     backward: f32,
+//! }
+//!
+//! #[derive(Miniconf, Default)]
+//! struct Settings {
+//!     // Explicitly refer downwards into `Coefficient`'s members.
+//!     #[miniconf(defer)]
+//!     filter: Coefficients,
+//!
+//!     // Explicitly require that the `channel_gain` array is updated in a single value.
+//!     channel_gain: [f32; 2],
+//! }
+//!
+//! let mut settings = Settings::default();
+//!
+//! // Update filter parameters individually.
+//! settings.set("filter/forward", b"35.6").unwrap();
+//! settings.set("filter/backward", b"0.15").unwrap();
+//!
+//! // Update the gains simultaneously
+//! settings.set("channel_gain", b"[1.0, 2.0]").unwrap()
+//! ```
+//!
 //! ## Limitations
 //!
 //! Minconf cannot be used with some of Rust's more complex types. Some unsupported types:
@@ -137,9 +178,12 @@ pub use serde::{
     ser::Serialize,
 };
 
+pub use array::Array;
+pub use option::Option;
+
 pub use serde_json_core;
 
-pub use derive_miniconf::{Miniconf, MiniconfAtomic};
+pub use derive_miniconf::Miniconf;
 
 pub use heapless;
 
@@ -324,94 +368,5 @@ pub trait Miniconf {
         &self,
         index: &mut [usize],
         topic: &mut heapless::String<TS>,
-    ) -> Option<()>;
+    ) -> core::option::Option<()>;
 }
-
-macro_rules! impl_single {
-    ($x:ty) => {
-        impl Miniconf for $x {
-            impl_single!();
-        }
-    };
-
-    () => {
-        fn string_set(
-            &mut self,
-            mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-            value: &[u8],
-        ) -> Result<(), Error> {
-            if topic_parts.peek().is_some() {
-                return Err(Error::PathTooLong);
-            }
-            *self = serde_json_core::from_slice(value)?.0;
-            Ok(())
-        }
-
-        fn string_get(
-            &self,
-            mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-            value: &mut [u8],
-        ) -> Result<usize, Error> {
-            if topic_parts.peek().is_some() {
-                return Err(Error::PathTooLong);
-            }
-
-            serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
-        }
-
-        fn get_metadata(&self) -> MiniconfMetadata {
-            MiniconfMetadata {
-                // No topic length is needed, as there are no sub-members.
-                max_topic_size: 0,
-                // One index is required for the current element.
-                max_depth: 1,
-            }
-        }
-
-        // This implementation is the base case for primitives where it will
-        // yield once for self, then return None on subsequent calls.
-        fn recurse_paths<const TS: usize>(
-            &self,
-            index: &mut [usize],
-            _topic: &mut heapless::String<TS>,
-        ) -> Option<()> {
-            if index.len() == 0 {
-                // Note: During expected execution paths using `iter()`, the size of the
-                // index stack is checked in advance to make sure this condition doesn't occur.
-                // However, it's possible to happen if the user manually calls `recurse_paths`.
-                unreachable!("Index stack too small");
-            }
-
-            let i = index[0];
-            index[0] += 1;
-            index[1..].iter_mut().for_each(|x| *x = 0);
-
-            if i == 0 {
-                Some(())
-            } else {
-                None
-            }
-        }
-    };
-}
-
-impl<const N: usize> Miniconf for heapless::String<N> {
-    impl_single!();
-}
-
-// Implement trait for the primitive types
-impl_single!(u8);
-impl_single!(u16);
-impl_single!(u32);
-impl_single!(u64);
-
-impl_single!(i8);
-impl_single!(i16);
-impl_single!(i32);
-impl_single!(i64);
-
-impl_single!(f32);
-impl_single!(f64);
-
-impl_single!(usize);
-impl_single!(bool);
