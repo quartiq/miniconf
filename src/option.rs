@@ -70,9 +70,9 @@ impl<T: Miniconf> Miniconf for Option<T> {
         })
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         self.0.as_ref().map_or(Err(Error::PathNotFound), |inner| {
@@ -113,9 +113,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         Ok(())
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         if path_parts.peek().is_some() {

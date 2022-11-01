@@ -233,7 +233,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 }
             }
 
-            fn get_path(&self, mut path_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
+            fn get_path<'a, P: miniconf::Peekable<Item = &'a str>>(
+                &self,
+                mut path_parts: P,
+                value: &mut [u8]
+            ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {

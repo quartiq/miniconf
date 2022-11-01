@@ -90,9 +90,9 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         Ok(())
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         let i = self.0.index(path_parts.next())?;
@@ -189,9 +189,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         Ok(())
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        mut path_parts: P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         let i = self.index(path_parts.next())?;

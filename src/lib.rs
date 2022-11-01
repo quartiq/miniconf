@@ -377,9 +377,9 @@ pub trait Miniconf {
         value: &[u8],
     ) -> Result<(), Error>;
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: P,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
