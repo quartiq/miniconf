@@ -62,19 +62,49 @@ fn option_test_normal_option() {
     }
 
     let mut s = S::default();
-    s.data.take();
+    assert!(s.data.is_none());
 
     let mut state = [0; 10];
     let mut iterator = s.iter_paths::<128>(&mut state).unwrap();
-    assert!(iterator.next().is_some());
+    assert_eq!(iterator.next(), Some("data".into()));
+    assert!(iterator.next().is_none());
 
     s.set("data", b"7").unwrap();
-    assert_eq!(s.data.unwrap(), 7);
+    assert_eq!(s.data, Some(7));
 
     let mut state = [0; 10];
     let mut iterator = s.iter_paths::<128>(&mut state).unwrap();
-    assert!(iterator.next().is_some());
+    assert_eq!(iterator.next(), Some("data".into()));
+    assert!(iterator.next().is_none());
 
     s.set("data", b"null").unwrap();
     assert!(s.data.is_none());
+}
+
+#[test]
+fn option_test_defer_option() {
+    #[derive(Copy, Clone, Default, Miniconf)]
+    struct S {
+        #[miniconf(defer)]
+        data: Option<u32>,
+    }
+
+    let mut s = S::default();
+    assert!(s.data.is_none());
+
+    let mut state = [0; 10];
+    let mut iterator = s.iter_paths::<128>(&mut state).unwrap();
+    assert!(iterator.next().is_none());
+
+    assert!(s.set("data", b"7").is_err());
+    s.data = Some(0);
+    s.set("data", b"7").unwrap();
+    assert_eq!(s.data, Some(7));
+
+    let mut state = [0; 10];
+    let mut iterator = s.iter_paths::<128>(&mut state).unwrap();
+    assert_eq!(iterator.next(), Some("data".into()));
+    assert!(iterator.next().is_none());
+
+    assert!(s.set("data", b"null").is_err());
 }

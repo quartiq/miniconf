@@ -109,11 +109,15 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         path_parts: &mut P,
         value: &[u8],
     ) -> Result<(), Error> {
+        if self.is_none() {
+            return Err(Error::PathNotFound);
+        }
+
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        *self = serde_json_core::from_slice(value)?.0;
+        *self = Some(serde_json_core::from_slice(value)?.0);
         Ok(())
     }
 
@@ -122,18 +126,21 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         path_parts: &mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
+        if self.is_none() {
+            return Err(Error::PathNotFound);
+        }
+
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
+        // Note(unwrap): checked above
+        serde_json_core::to_slice(self.as_ref().unwrap(), value)
+            .map_err(|_| Error::SerializationFailed)
     }
 
     fn metadata(&self) -> Metadata {
-        Metadata {
-            max_length: 0,
-            max_depth: 1,
-        }
+        Metadata::default()
     }
 
     fn next_path<const TS: usize>(
@@ -141,9 +148,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         state: &mut [usize],
         _path: &mut heapless::String<TS>,
     ) -> bool {
-        if state[0] == 0 {
+        if self.is_some() && state[0] == 0 {
             state[0] += 1;
-            self.is_some()
+            true
         } else {
             false
         }
