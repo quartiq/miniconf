@@ -11,10 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `heapless::String` now implements `Miniconf` directly.
 * Python client API is no longer retain by default. CLI is unchanged
 * [breaking] Support for `#[derive(MiniconfAtomic)]` was removed.
-* Fields in `#[derive(Miniconf)]` are now (generally) atomic by default. To recurse, users must
+* Fields in `#[derive(Miniconf)]` are now atomic by default. To recurse, users must
   annotate fields with `#[miniconf(defer)]`
-  - Arrays have an implied `#[miniconf(defer)]` attribute that can be disabled via a
-   `#[miniconf(atomic)]` attribute.
 * New `OptionalSetting` type has been added. Existing `Option` implementation has been changed to
   allow run-time nullability of settings for more flexibility.
 * New `DeferredArray` type has been added, replacing the previous [T; N] implementation
