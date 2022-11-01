@@ -35,7 +35,7 @@ impl<T> core::ops::DerefMut for Option<T> {
 
 impl<T: Default> Default for Option<T> {
     fn default() -> Self {
-        Self(core::option::Option::<T>::default())
+        Self(Default::default())
     }
 }
 

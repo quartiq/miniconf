@@ -348,7 +348,6 @@ pub trait Miniconf {
     /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
-    ///
     /// # Note
     /// The state vector can be used to resume iteration from a previous point in time. The data
     /// should be zero-initialized if starting iteration for the first time.

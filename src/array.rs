@@ -104,8 +104,6 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     }
 
     fn metadata(&self) -> Metadata {
-        // First, figure out how many digits the maximum index requires when printing.
-
         let mut meta = self.0[0].metadata();
 
         // If the sub-members have topic size, we also need to include an additional character for
