@@ -8,7 +8,7 @@
 //! values (i.e. a single Miniconf item).
 //!
 //! The type you should use depends on what data is contained in your array. If your array contains
-//! trees of settings, you should use [`DeferredArray`]. However, if each element in your list is
+//! `Miniconf` items, you can (and often want to) use [`DeferredArray`]. However, if each element in your list is
 //! individually configurable as a single value (e.g. a list of u32), then you should use a
 //! standard [T; N] array.
 //!
