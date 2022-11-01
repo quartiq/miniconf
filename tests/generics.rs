@@ -17,7 +17,7 @@ fn generic_type() {
     // Test metadata
     let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_topic_size, "data".len());
+    assert_eq!(metadata.max_length, "data".len());
 }
 
 #[test]
@@ -38,7 +38,7 @@ fn generic_array() {
     // Test metadata
     let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_topic_size, "data/0".len());
+    assert_eq!(metadata.max_length, "data/0".len());
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn generic_struct() {
     // Test metadata
     let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_topic_size, "inner".len());
+    assert_eq!(metadata.max_length, "inner".len());
 }
 
 #[test]
@@ -91,5 +91,5 @@ fn generic_atomic() {
     // Test metadata
     let metadata = settings.metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_topic_size, "atomic".len());
+    assert_eq!(metadata.max_length, "atomic".len());
 }

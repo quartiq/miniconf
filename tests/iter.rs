@@ -18,7 +18,7 @@ fn insufficient_space() {
     let settings = Settings::default();
     let meta = settings.metadata();
     assert_eq!(meta.max_depth, 3);
-    assert_eq!(meta.max_topic_size, "c/inner".len());
+    assert_eq!(meta.max_length, "c/inner".len());
 
     // Ensure that we can't iterate if we make a state vector that is too small.
     let mut small_state = [0; 2];

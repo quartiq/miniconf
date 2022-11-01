@@ -15,12 +15,13 @@ information.
 Miniconf provides simple tools to bring run-time configuration up on any project. Any device that
 can send and receive data can leverage Miniconf to provide run-time configuration utilities.
 
-This crate provides a Derive macro is provided to automatically map Rust structures into a key-value
+This crate provides a derive macro to automatically map Rust structures into a key-value
 lookup tool, where keys use a string-based, path-like syntax to access and modify structure members.
 
 Miniconf also provides an MQTT client and Python utility to quickly bring IoT and remote
 configuration to your project. After running programming your device, settings updates are easily
 accomplished using Python:
+
 ```sh
 # Set the `sample_rate_hz` value of device with identifier `quartiq/example_device` to `10`.
 python -m miniconf quartiq/example_device sample_rate_hz=10

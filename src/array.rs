@@ -1,20 +1,21 @@
 //! Array support
 //!
 //! # Design
-//! Miniconf supports lists of items in configurable structures using two forms. For the
-//! [`Array`], all of the contents of the array are accessed as `Miniconf` settings trees.
+//! Miniconf supports homogeneous arrays of items contained in structures using two forms. For the
+//! [`Array`], each item of the array is accessed as a `Miniconf` tree.
 //!
-//! For standard arrays of [T; N] form, the individual elements of the array are accessed as atomic
-//! values (i.e. a single Miniconf item).
+//! For standard arrays of [T; N] form, each item of the array is accessed as one atomic
+//! value (i.e. a single Miniconf item).
 //!
 //! The type you should use depends on what data is contained in your array. If your array contains
 //! `Miniconf` items, you can (and often want to) use [`Array`]. However, if each element in your list is
-//! individually configurable as a single value (e.g. a list of u32), then you should use a
+//! individually configurable as a single value (e.g. a list of u32), then you must use a
 //! standard [T; N] array.
-use super::{Error, Miniconf, MiniconfMetadata};
+use super::{Error, Metadata, Miniconf};
 
 use core::fmt::Write;
 
+/// An array that exposes each element through their [`Miniconf`](trait.Miniconf.html) implementation.
 pub struct Array<T, const N: usize>(pub [T; N]);
 
 impl<T, const N: usize> core::ops::Deref for Array<T, N> {
@@ -102,7 +103,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             .get_path(path_parts, value)
     }
 
-    fn metadata(&self) -> MiniconfMetadata {
+    fn metadata(&self) -> Metadata {
         // First, figure out how many digits the maximum index requires when printing.
 
         let mut meta = self.0[0].metadata();
@@ -110,11 +111,11 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         // If the sub-members have topic size, we also need to include an additional character for
         // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
         // types, enums).
-        if meta.max_topic_size > 0 {
-            meta.max_topic_size += 1;
+        if meta.max_length > 0 {
+            meta.max_length += 1;
         }
 
-        meta.max_topic_size += digits(N - 1);
+        meta.max_length += digits(N - 1);
         meta.max_depth += 1;
 
         meta
@@ -205,9 +206,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         serde_json_core::to_slice(item, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn metadata(&self) -> MiniconfMetadata {
-        MiniconfMetadata {
-            max_topic_size: digits(N - 1),
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            max_length: digits(N - 1),
             max_depth: 1,
         }
     }

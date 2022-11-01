@@ -1,6 +1,7 @@
 use super::Miniconf;
 use heapless::String;
 
+/// An iterator over the paths in a Miniconf namespace.
 pub struct MiniconfIter<'a, M: ?Sized, const TS: usize> {
     pub(crate) namespace: &'a M,
     pub(crate) state: &'a mut [usize],

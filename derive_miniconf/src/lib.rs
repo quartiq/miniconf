@@ -23,7 +23,7 @@ impl TypeDefinition {
 ///
 /// Each field of the struct will be recursively used to construct a unique path for all elements.
 ///
-/// All settings paths are similar to file-system paths with variable names separated by forward
+/// All paths are similar to file-system paths with variable names separated by forward
 /// slashes.
 ///
 /// For arrays, the array index is treated as a unique identifier. That is, to access the first
@@ -192,11 +192,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                     let mut meta = self.#field_name.metadata();
 
                     // If the subfield has additional paths, we need to add space for a separator.
-                    if meta.max_topic_size > 0 {
-                        meta.max_topic_size += 1;
+                    if meta.max_length > 0 {
+                        meta.max_length += 1;
                     }
 
-                    meta.max_topic_size += stringify!(#field_name).len();
+                    meta.max_length += stringify!(#field_name).len();
 
                     meta
                 }
@@ -204,8 +204,8 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         } else {
             quote! {
                 #i => {
-                    miniconf::MiniconfMetadata {
-                        max_topic_size: stringify!(#field_name).len(),
+                    miniconf::Metadata {
+                        max_length: stringify!(#field_name).len(),
                         max_depth: 1,
                     }
                 }
@@ -238,10 +238,10 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 }
             }
 
-            fn metadata(&self) -> miniconf::MiniconfMetadata {
+            fn metadata(&self) -> miniconf::Metadata {
                 // Loop through all child elements, collecting the maximum length + depth of any
                 // member.
-                let mut meta = miniconf::MiniconfMetadata::default();
+                let mut meta = miniconf::Metadata::default();
 
                 for index in 0.. {
                     let item_meta = match index {
@@ -249,7 +249,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                         _ => break,
                     };
 
-                    meta.max_topic_size = meta.max_topic_size.max(item_meta.max_topic_size);
+                    meta.max_length = meta.max_length.max(item_meta.max_length);
                     meta.max_depth = meta.max_depth.max(item_meta.max_depth);
                 }
 

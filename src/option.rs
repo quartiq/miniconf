@@ -2,9 +2,9 @@
 //!
 //! # Design
 //!
-//! Miniconf supports optional namespaces. These are handled via the [`Option`] type. If the
-//! `Option` is `None`, the namespace does not exist at run-time. It will not be iterated over and
-//! cannot be `get()` or `set()` using the Miniconf API.
+//! Miniconf supports optional values in two forms. The first for is the [`Option`] type. If the
+//! `Option` is `None`, the part of the namespace does not exist at run-time.
+//! It will not be iterated over and cannot be `get()` or `set()` using the Miniconf API.
 //!
 //! This is intended as a mechanism to provide run-time construction of the namespace. In some
 //! cases, run-time detection may indicate that some component is not present. In this case,
@@ -15,8 +15,9 @@
 //!
 //! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
 //! can be used to atomically access the nullable content within.
-use super::{Error, Miniconf, MiniconfMetadata};
+use super::{Error, Metadata, Miniconf};
 
+/// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
 pub struct Option<T: Miniconf>(pub core::option::Option<T>);
 
 impl<T: Miniconf> core::ops::Deref for Option<T> {
@@ -79,7 +80,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         })
     }
 
-    fn metadata(&self) -> MiniconfMetadata {
+    fn metadata(&self) -> Metadata {
         self.0
             .as_ref()
             .map(|value| value.metadata())
@@ -124,9 +125,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn metadata(&self) -> MiniconfMetadata {
-        MiniconfMetadata {
-            max_topic_size: 0,
+    fn metadata(&self) -> Metadata {
+        Metadata {
+            max_length: 0,
             max_depth: 1,
         }
     }

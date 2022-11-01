@@ -25,7 +25,7 @@ fn simple_enum() {
     // Test metadata
     let metadata = s.metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_topic_size, "v".len());
+    assert_eq!(metadata.max_length, "v".len());
 }
 
 #[test]

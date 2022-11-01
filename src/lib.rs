@@ -1,24 +1,38 @@
 #![no_std]
 //! # Miniconf
 //!
-//! Miniconf is a a lightweight utility to manage run-time configurable settings. It allows
-//! access and manipulation of struct fields by assigning each field a unique path-like identifier.
+//! Miniconf is a lightweight utility to manage serialization (retrieval) and deserialization
+//! (updates, modification) of individual elements of a namespace.
 //!
 //! ## Overview
 //!
-//! Miniconf uses a [Derive macro](derive.Miniconf.html) to automatically assign unique paths to
-//! each setting. All values are transmitted and received in JSON format.
+//! For structs with named fields, Miniconf uses a [Derive macro](derive.Miniconf.html) to automatically
+//! assign a unique path to each item in the namespace. The macro implements the
+//! [`Miniconf`](trait.Miniconf.html) trait that exposes access to serialized field values through their path.
 //!
-//! With the derive macro, field values can be easily retrieved or modified using a run-time
-//! string.
+//! Elements of homogeneous arrays are similarly accessed through their numeric indices.
+//! Structs, arrays, and Options can then be cascaded to construct a multi-level
+//! namespace. Control over namespace depth and access to individual elements or
+//! atomic updates of complete containers is configured at compile (derive) time.
 //!
-//! ### Supported Protocols
+//! The `Miniconf` implementations for `[T; N]` arrays and `Option<T>` by provides
+//! atomic access to their respective inner element(s). Alternatively, [`miniconf::Array`](struct.Array.html) and
+//! [`miniconf::Option`](struct.Option.html) can be used to expose the inner element(s) through their
+//! `Miniconf` implementations.
 //!
-//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
-//! some external source can be used to acquire paths and values for updating settings.
+//! ### Supported formats
 //!
-//! There is also an [MQTT-based client](MqttClient) provided to manage settings via the [MQTT
-//! protocol](https://mqtt.org) and JSON.
+//! The path hierarchy separator is the slash `/`.
+//!
+//! Values are serialized into and deserialized from JSON format.
+//!
+//! ### Supported transport protocols
+//!
+//! Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from
+//! some external source can be used to modify values by path.
+//!
+//! There is an [MQTT-based client](MqttClient) provided to manage a namespace via the [MQTT
+//! protocol](https://mqtt.org) and JSON. See the `mqtt-client` feature.
 //!
 //! ### Example
 //! ```
@@ -35,9 +49,9 @@
 //! struct Settings {
 //!     filter: Coefficients,
 //!
-//!     // Specify that the channel gains are individually configurable.
+//!     // The channel gains are individually configurable.
 //!     #[miniconf(defer)]
-//!     channel_gain: [f32; 2],
+//!     gain: [f32; 2],
 //!
 //!     sample_rate: u32,
 //!     force_update: bool,
@@ -52,7 +66,7 @@
 //! settings.set("filter", b"{\"forward\": 35.6, \"backward\": 0.0}").unwrap();
 //!
 //! // Update channel gain for channel 0.
-//! settings.set("channel_gain/0", b"15").unwrap();
+//! settings.set("gain/0", b"15").unwrap();
 //!
 //! // Serialize the current sample rate into the provided buffer.
 //! let mut buffer = [0u8; 256];
@@ -113,12 +127,11 @@
 //!
 //! ## Nesting
 //! Miniconf inherently assumes that (almost) all elements are atomicly updated using a single
-//! path. The only exception for this rule is arrays, which allow indexing individual elements by
-//! default. You can disable this behavior by placing `#[miniconf(atomic)]` attributes on the array.
+//! path.
 //!
-//! If you would like to nest settings in multiple structs, this is supported by explicitly
-//! deferring down to the inner structs Miniconf implementation using the `#[miniconf(defer)]`
-//! attribute:
+//! If you would like to nest namespaces, this is supported by explicitly
+//! deferring down to the inner Miniconf implementation using the `#[miniconf(defer)]`
+//! attribute (compare this to the first example):
 //!
 //! ```
 //! use miniconf::Miniconf;
@@ -130,12 +143,12 @@
 //!
 //! #[derive(Miniconf, Default)]
 //! struct Settings {
-//!     // Explicitly refer downwards into `Coefficient`'s members.
+//!     // Explicitly defer downwards into `Coefficient`'s members.
 //!     #[miniconf(defer)]
 //!     filter: Coefficients,
 //!
-//!     // Explicitly require that the `channel_gain` array is updated in a single value.
-//!     channel_gain: [f32; 2],
+//!     // The `gain` array is updated in a single value.
+//!     gain: [f32; 2],
 //! }
 //!
 //! let mut settings = Settings::default();
@@ -145,23 +158,23 @@
 //! settings.set("filter/backward", b"0.15").unwrap();
 //!
 //! // Update the gains simultaneously
-//! settings.set("channel_gain", b"[1.0, 2.0]").unwrap()
+//! settings.set("gain", b"[1.0, 2.0]").unwrap()
 //! ```
 //!
 //! ## Limitations
 //!
 //! Minconf cannot be used with some of Rust's more complex types. Some unsupported types:
-//! * Complex enums
+//! * Complex enums (other than `Option`)
 //! * Tuples
 
 #[cfg(feature = "mqtt-client")]
 mod mqtt_client;
 
 mod array;
+mod iter;
 mod option;
 
-/// Provides iteration utilities over [Miniconf] structures.
-pub mod iter;
+pub use iter::MiniconfIter;
 
 #[cfg(feature = "mqtt-client")]
 pub use mqtt_client::MqttClient;
@@ -181,13 +194,14 @@ pub use serde::{
 pub use array::Array;
 pub use option::Option;
 
+pub use serde;
 pub use serde_json_core;
 
 pub use derive_miniconf::Miniconf;
 
 pub use heapless;
 
-/// Errors that occur during settings configuration
+/// Errors that can occur when using the `Miniconf` API.
 #[derive(Debug, PartialEq)]
 pub enum Error {
     /// The provided path wasn't found in the structure.
@@ -209,6 +223,8 @@ pub enum Error {
     /// must be updated all at once.
     ///
     /// Refactor the request to configure the surrounding structure at once.
+    ///
+    /// Note(deprecated): This error does not occur anymore as of `v0.6`.
     AtomicUpdateRequired,
 
     /// The value provided for configuration could not be deserialized into the proper type.
@@ -257,23 +273,23 @@ impl From<serde_json_core::de::Error> for Error {
     }
 }
 
-/// Metadata about a settings structure.
+/// Metadata about a Miniconf namespace.
 #[derive(Default)]
-pub struct MiniconfMetadata {
-    /// The maximum length of a topic in the structure.
-    pub max_topic_size: usize,
+pub struct Metadata {
+    /// The maximum length of a path in the structure.
+    pub max_length: usize,
 
-    /// The maximum recursive depth of the structure.
+    /// The maximum depth of the structure.
     pub max_depth: usize,
 }
 
 /// Derive-able trait for structures that can be mutated using serialized paths and values.
 pub trait Miniconf {
-    /// Update settings directly from a string path and data.
+    /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to update within `settings`.
-    /// * `data` - The serialized data making up the contents of the configured value.
+    /// * `path` - The path to the element.
+    /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
     /// The result of the configuration operation.
@@ -281,11 +297,11 @@ pub trait Miniconf {
         self.set_path(path.split('/').peekable(), data)
     }
 
-    /// Retrieve a serialized settings value from a string path.
+    /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to retrieve.
-    /// * `data` - The location to serialize the data into.
+    /// * `path` - The path to the element.
+    /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
     /// The number of bytes used in the `data` buffer for serialization.
@@ -298,8 +314,9 @@ pub trait Miniconf {
     /// This is a depth-first walk.
     ///
     /// # Note
-    /// The state vector can be used to resume iteration from a previous point in time. The data
-    /// should be zero-initialized if starting iteration for the first time.
+    /// To start the iteration from the first path,
+    /// the state vector should be initialized with zeros.
+    /// The state vector can be used to resume iteration from a previous point in time.
     ///
     /// # Template Arguments
     /// * `TS` - The maximum number of bytes to encode a path into.
@@ -312,7 +329,7 @@ pub trait Miniconf {
     ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
         let meta = self.metadata();
 
-        if TS < meta.max_topic_size {
+        if TS < meta.max_length {
             return Err(IterError::InsufficientTopicLength);
         }
 
@@ -320,10 +337,7 @@ pub trait Miniconf {
             return Err(IterError::InsufficientStateDepth);
         }
 
-        Ok(iter::MiniconfIter {
-            namespace: self,
-            state,
-        })
+        Ok(self.unchecked_iter_paths(state))
     }
 
     /// Create an iterator of all possible paths.
@@ -333,6 +347,7 @@ pub trait Miniconf {
     /// # Note
     /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
+    ///
     ///
     /// # Note
     /// The state vector can be used to resume iteration from a previous point in time. The data
@@ -372,5 +387,5 @@ pub trait Miniconf {
     ) -> bool;
 
     /// Get metadata about the structure.
-    fn metadata(&self) -> MiniconfMetadata;
+    fn metadata(&self) -> Metadata;
 }
