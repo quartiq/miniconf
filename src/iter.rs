@@ -24,7 +24,7 @@ impl<M: Miniconf + ?Sized, const L: usize, const TS: usize> Iterator for Minicon
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::new();
 
-        if M::next_path(&mut self.state, &mut path) {
+        if M::next_path(&mut self.state, &mut path).unwrap() {
             Some(path)
         } else {
             None

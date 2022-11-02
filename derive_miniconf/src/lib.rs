@@ -134,16 +134,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 #i => {
                     let original_length = path.len();
 
-                    if path.push_str(concat!(stringify!(#field_name), "/")).is_err() {
-                        // Note: During expected execution paths using `into_iter()`, the size of the
-                        // topic buffer is checked in advance to make sure this condition doesn't
-                        // occur.  However, it's possible to happen if the user manually calls
-                        // `next_path`.
-                        unreachable!("Topic buffer too short");
-                    }
+                    path.push_str(concat!(stringify!(#field_name), "/"))
+                        .map_err(|_| miniconf::IterError::PathLength)?;
 
-                    if <#field_type>::next_path(&mut state[1..], path) {
-                        return true;
+                    if <#field_type>::next_path(&mut state[1..], path)? {
+                        return Ok(true);
                     }
 
                     // Strip off the previously prepended index, since we completed that element and need
@@ -157,16 +152,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         } else {
             quote! {
                 #i => {
-                    if path.push_str(stringify!(#field_name)).is_err() {
-                        // Note: During expected execution paths using `into_iter()`, the size of the
-                        // topic buffer is checked in advance to make sure this condition doesn't
-                        // occur.  However, it's possible to happen if the user manually calls
-                        // `next_path`.
-                        unreachable!("Topic buffer too short");
-                    }
+                    path.push_str(stringify!(#field_name))
+                        .map_err(|_| miniconf::IterError::PathLength)?;
                     state[0] += 1;
 
-                    return true;
+                    return Ok(true);
                 }
             }
         }
@@ -252,19 +242,14 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 meta
             }
 
-            fn next_path<const TS: usize>(state: &mut [usize], path: &mut miniconf::heapless::String<TS>) -> bool {
-                if state.len() == 0 {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
-                    // state stack is checked in advance to make sure this condition doesn't occur.
-                    // However, it's possible to happen if the user manually calls `next_path`.
-                    unreachable!("State stack too small");
-                }
-
+            fn next_path<const TS: usize>(
+                state: &mut [usize],
+                path: &mut miniconf::heapless::String<TS>
+            ) -> Result<bool, miniconf::IterError> {
                 loop {
-                    match state[0] {
+                    match *state.first().ok_or(miniconf::IterError::PathDepth)? {
                         #(#next_path_arms ,)*
-                        _ => return false,
-
+                        _ => return Ok(false),
                     };
                 }
             }

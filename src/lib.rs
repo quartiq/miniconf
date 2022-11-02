@@ -246,10 +246,10 @@ pub enum Error {
 #[derive(Debug)]
 pub enum IterError {
     /// The provided state vector is not long enough.
-    InsufficientStateDepth,
+    PathDepth,
 
     /// The provided topic length is not long enough.
-    InsufficientTopicLength,
+    PathLength,
 }
 
 impl From<Error> for u8 {
@@ -338,11 +338,11 @@ pub trait Miniconf {
         let meta = Self::metadata();
 
         if TS < meta.max_length {
-            return Err(IterError::InsufficientTopicLength);
+            return Err(IterError::PathLength);
         }
 
         if L < meta.max_depth {
-            return Err(IterError::InsufficientStateDepth);
+            return Err(IterError::PathDepth);
         }
 
         Ok(Self::unchecked_iter_paths())
@@ -375,7 +375,10 @@ pub trait Miniconf {
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool;
+    fn next_path<const TS: usize>(
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> Result<bool, IterError>;
 
     /// Get metadata about the structure.
     fn metadata() -> Metadata;
