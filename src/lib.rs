@@ -348,7 +348,7 @@ pub trait Miniconf {
             return Err(IterError::PathDepth);
         }
 
-        Ok(Self::unchecked_iter_paths())
+        Ok(Self::unchecked_iter_paths(Some(meta.count)))
     }
 
     /// Create an iterator of all possible paths.
@@ -359,11 +359,16 @@ pub trait Miniconf {
     /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
+    /// # Args
+    /// * count: Optional iterator length
+    ///
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS> {
-        iter::MiniconfIter::default()
+    fn unchecked_iter_paths<const L: usize, const TS: usize>(
+        count: core::option::Option<usize>,
+    ) -> iter::MiniconfIter<Self, L, TS> {
+        iter::MiniconfIter::new(count)
     }
 
     fn set_path<'a, P: Peekable<Item = &'a str>>(
