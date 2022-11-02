@@ -101,8 +101,8 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             .get_path(path_parts, value)
     }
 
-    fn metadata(&self) -> Metadata {
-        let mut meta = self.0[0].metadata();
+    fn metadata() -> Metadata {
+        let mut meta = T::metadata();
 
         // Unconditionally account for separator since we add it
         // even if elements that are deferred to (`Options`)
@@ -194,7 +194,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         serde_json_core::to_slice(item, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn metadata(&self) -> Metadata {
+    fn metadata() -> Metadata {
         Metadata {
             max_length: digits(N - 1),
             max_depth: 1,

@@ -65,7 +65,7 @@ fn simple_array_indexing() {
     assert_eq!(s.set("a/3", "7".as_bytes()).unwrap_err(), Error::BadIndex);
 
     // Test metadata
-    let metadata = s.metadata();
+    let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "a/2".len());
 }
@@ -96,7 +96,7 @@ fn array_of_structs_indexing() {
     assert_eq!(expected, s);
 
     // Test metadata
-    let metadata = s.metadata();
+    let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length, "a/2/b".len());
 }
@@ -152,7 +152,7 @@ fn short_array() {
     }
 
     // Test metadata
-    let meta = S::default().metadata();
+    let meta = S::metadata();
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length, "data/0".len());
 }
@@ -166,5 +166,5 @@ fn null_array() {
         #[miniconf(defer)]
         data: [u32; 0],
     }
-    let _meta = S::default().metadata();
+    let _meta = S::metadata();
 }

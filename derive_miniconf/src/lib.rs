@@ -27,7 +27,7 @@ impl TypeDefinition {
 /// slashes.
 ///
 /// For arrays, the array index is treated as a unique identifier. That is, to access the first
-/// element of array `test`, the path would be `test/0`.
+/// element of array `data`, the path would be `data/0`.
 ///
 /// # Example
 /// ```rust
@@ -171,11 +171,12 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
     });
 
     let metadata_arms = fields.iter().enumerate().map(|(i, f)| {
+        let field_type = &f.field.ty;
         let field_name = &f.field.ident;
         if f.deferred {
             quote! {
                 #i => {
-                    let mut meta = self.#field_name.metadata();
+                    let mut meta = <#field_type>::metadata();
 
                     // Unconditionally account for separator since we add it
                     // even if elements that are deferred to (`Options`)
@@ -231,7 +232,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 }
             }
 
-            fn metadata(&self) -> miniconf::Metadata {
+            fn metadata() -> miniconf::Metadata {
                 // Loop through all child elements, collecting the maximum length + depth of any
                 // member.
                 let mut meta = miniconf::Metadata::default();

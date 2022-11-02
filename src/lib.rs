@@ -332,7 +332,7 @@ pub trait Miniconf {
         &'a self,
         state: &'a mut [usize],
     ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
-        let meta = self.metadata();
+        let meta = Self::metadata();
 
         if TS < meta.max_length {
             return Err(IterError::InsufficientTopicLength);
@@ -391,5 +391,5 @@ pub trait Miniconf {
     ) -> bool;
 
     /// Get metadata about the structure.
-    fn metadata(&self) -> Metadata;
+    fn metadata() -> Metadata;
 }

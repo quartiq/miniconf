@@ -84,11 +84,8 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn metadata(&self) -> Metadata {
-        self.0
-            .as_ref()
-            .map(|value| value.metadata())
-            .unwrap_or_default()
+    fn metadata() -> Metadata {
+        T::metadata()
     }
 
     fn next_path<const TS: usize>(
@@ -139,7 +136,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             .map_err(|_| Error::SerializationFailed)
     }
 
-    fn metadata(&self) -> Metadata {
+    fn metadata() -> Metadata {
         Metadata::default()
     }
 

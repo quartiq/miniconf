@@ -177,7 +177,7 @@ where
         let mut settings_prefix: String<MAX_TOPIC_LENGTH> = String::from(prefix);
         settings_prefix.push_str("/settings").unwrap();
 
-        assert!(settings_prefix.len() + 1 + settings.metadata().max_length <= MAX_TOPIC_LENGTH);
+        assert!(settings_prefix.len() + 1 + Settings::metadata().max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
