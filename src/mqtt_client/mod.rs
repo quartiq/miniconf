@@ -198,9 +198,12 @@ where
         for topic in &mut self.state.context_mut().republish_state {
             let mut data = [0; MESSAGE_SIZE];
 
-            // Note(unwrap): We know this topic exists already because we just got it from the
-            // iterator.
-            let len = self.settings.get(&topic, &mut data).unwrap();
+            // Note: The topic may not exist at runtime (`miniconf::Option` or deferred `Option`).
+            let len = match self.settings.get(&topic, &mut data) {
+                Err(crate::Error::PathNotFound) => continue,
+                Ok(len) => len,
+                e => e.unwrap(),
+            };
 
             let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
             write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
