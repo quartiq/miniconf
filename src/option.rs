@@ -99,12 +99,12 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         path_parts: &mut P,
         value: &[u8],
     ) -> Result<usize, Error> {
-        if self.is_none() {
-            return Err(Error::PathNotFound);
-        }
-
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
+        }
+
+        if self.is_none() {
+            return Err(Error::PathAbsent);
         }
 
         let (value, len) = serde_json_core::from_slice(value)?;
@@ -117,17 +117,13 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         path_parts: &mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        if self.is_none() {
-            return Err(Error::PathNotFound);
-        }
-
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
         // Note(unwrap): checked above
-        serde_json_core::to_slice(self.as_ref().unwrap(), value)
-            .map_err(|_| Error::SerializationFailed)
+        let data = self.as_ref().ok_or(Error::PathAbsent)?;
+        serde_json_core::to_slice(data, value).map_err(|_| Error::SerializationFailed)
     }
 
     fn metadata() -> Metadata {

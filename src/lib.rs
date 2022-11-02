@@ -233,6 +233,12 @@ pub enum Error {
     ///
     /// Check array indices to ensure that bounds for all paths are respected.
     BadIndex,
+
+    /// The path does not exist at runtime.
+    ///
+    /// This is the case if a deferred `core::option::Option` or `miniconf::Option`
+    /// is `None` at runtime.
+    PathAbsent,
 }
 
 /// Errors that occur during iteration over topic paths.
@@ -255,6 +261,7 @@ impl From<Error> for u8 {
             Error::Deserialization(_) => 5,
             Error::BadIndex => 6,
             Error::SerializationFailed => 7,
+            Error::PathAbsent => 8,
         }
     }
 }

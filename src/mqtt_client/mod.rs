@@ -198,9 +198,9 @@ where
         for topic in &mut self.state.context_mut().republish_state {
             let mut data = [0; MESSAGE_SIZE];
 
-            // Note: The topic may not exist at runtime (`miniconf::Option` or deferred `Option`).
+            // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get(&topic, &mut data) {
-                Err(crate::Error::PathNotFound) => continue,
+                Err(crate::Error::PathAbsent) => continue,
                 Ok(len) => len,
                 e => e.unwrap(),
             };
