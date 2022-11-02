@@ -24,6 +24,7 @@ fn simple_enum() {
     let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "v".len());
+    assert_eq!(metadata.count, 1);
 }
 
 #[test]

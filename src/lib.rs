@@ -243,7 +243,7 @@ pub enum Error {
 
 /// Errors that occur during iteration over topic paths.
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum IterError {
     /// The provided state vector is not long enough.
     PathDepth,
@@ -280,13 +280,16 @@ impl From<serde_json_core::ser::Error> for Error {
 
 /// Metadata about a Miniconf namespace.
 #[non_exhaustive]
-#[derive(Default)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Metadata {
-    /// The maximum length of a path in the structure.
+    /// The maximum length of a path.
     pub max_length: usize,
 
-    /// The maximum depth of the structure.
+    /// The maximum path depth.
     pub max_depth: usize,
+
+    /// The number of paths.
+    pub count: usize,
 }
 
 /// Helper trait for `core::iter::Peekable`.

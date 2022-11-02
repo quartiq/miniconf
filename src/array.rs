@@ -109,6 +109,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         // may have no further hierarchy to add and remove the separator again.
         meta.max_length += digits(N - 1) + 1;
         meta.max_depth += 1;
+        meta.count *= N;
 
         meta
     }
@@ -189,6 +190,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         Metadata {
             max_length: digits(N - 1),
             max_depth: 1,
+            count: N,
         }
     }
 

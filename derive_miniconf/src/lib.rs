@@ -186,6 +186,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
 
                     meta.max_length = stringify!(#field_name).len();
                     meta.max_depth = 1;
+                    meta.count = 1;
 
                     meta
                 }
@@ -237,6 +238,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
 
                     meta.max_length = meta.max_length.max(item_meta.max_length);
                     meta.max_depth = meta.max_depth.max(item_meta.max_depth);
+                    meta.count += item_meta.count;
                 }
 
                 meta

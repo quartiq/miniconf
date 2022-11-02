@@ -130,7 +130,10 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
     }
 
     fn metadata() -> Metadata {
-        Metadata::default()
+        Metadata {
+            count: 1,
+            ..Default::default()
+        }
     }
 
     fn next_path<const TS: usize>(
