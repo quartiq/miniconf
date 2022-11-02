@@ -332,6 +332,7 @@ pub trait Miniconf {
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
+    /// It will return all paths, even those that may be absent at run-time.
     ///
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
@@ -354,6 +355,7 @@ pub trait Miniconf {
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
+    /// It will return all paths, even those that may be absent at run-time.
     ///
     /// # Note
     /// This does not check that the path size or state vector are large enough. If they are not,
