@@ -79,7 +79,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         &mut self,
         path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let i = self.0.index(path_parts.next())?;
 
         self.0
@@ -167,7 +167,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         &mut self,
         path_parts: &mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let i = self.index(path_parts.next())?;
 
         if path_parts.peek().is_some() {
@@ -175,8 +175,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        *item = serde_json_core::from_slice(value)?.0;
-        Ok(())
+        let (value, len) = serde_json_core::from_slice(value)?;
+        *item = value;
+        Ok(len)
     }
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(

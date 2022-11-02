@@ -97,8 +97,9 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                         return Err(miniconf::Error::PathTooLong)
                     }
 
-                    self.#match_name = miniconf::serde_json_core::from_slice(value)?.0;
-                    Ok(())
+                    let (value, len) = miniconf::serde_json_core::from_slice(value)?;
+                    self.#match_name = value;
+                    Ok(len)
                 }
             }
         }
@@ -210,7 +211,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 &mut self,
                 path_parts: &'a mut P,
                 value: &[u8]
-            ) -> Result<(), miniconf::Error> {
+            ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {

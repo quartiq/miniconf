@@ -158,7 +158,7 @@
 //! settings.set("filter/backward", b"0.15").unwrap();
 //!
 //! // Update the gains simultaneously
-//! settings.set("gain", b"[1.0, 2.0]").unwrap()
+//! settings.set("gain", b"[1.0, 2.0]").unwrap();
 //! ```
 //!
 //! ## Limitations
@@ -298,7 +298,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// The result of the configuration operation.
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<(), Error> {
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         self.set_path(&mut path.split('/').peekable(), data)
     }
 
@@ -376,7 +376,7 @@ pub trait Miniconf {
         &mut self,
         path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error>;
+    ) -> Result<usize, Error>;
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,

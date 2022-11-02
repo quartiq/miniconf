@@ -64,7 +64,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         &mut self,
         path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         if let Some(inner) = self.0.as_mut() {
             inner.set_path(path_parts, value)
         } else {
@@ -105,7 +105,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         &mut self,
         path_parts: &mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         if self.is_none() {
             return Err(Error::PathNotFound);
         }
@@ -114,8 +114,9 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathTooLong);
         }
 
-        *self = Some(serde_json_core::from_slice(value)?.0);
-        Ok(())
+        let (value, len) = serde_json_core::from_slice(value)?;
+        *self = Some(value);
+        Ok(len)
     }
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
