@@ -35,7 +35,7 @@ fn atomic_struct() {
 
     // Check that metadata is correct.
     let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "c".len());
 }
 
@@ -70,7 +70,7 @@ fn recursive_struct() {
 
     // Check that metadata is correct.
     let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "c/a".len());
 }
 

@@ -97,7 +97,7 @@ fn array_of_structs_indexing() {
 
     // Test metadata
     let metadata = s.metadata();
-    assert_eq!(metadata.max_depth, 4);
+    assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length, "a/2/b".len());
 }
 

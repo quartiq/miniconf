@@ -177,12 +177,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 #i => {
                     let mut meta = self.#field_name.metadata();
 
-                    // If the subfield has additional paths, we need to add space for a separator.
-                    if meta.max_length > 0 {
-                        meta.max_length += 1;
-                    }
-
-                    meta.max_length += stringify!(#field_name).len();
+                    // Unconditionally account for separator since we add it
+                    // even if elements that are deferred to (`Options`)
+                    // may have no further hierarchy to add and remove the separator again.
+                    meta.max_length += concat!(stringify!(#field_name), "/").len();
+                    meta.max_depth += 1;
 
                     meta
                 }
@@ -246,9 +245,6 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                     meta.max_length = meta.max_length.max(item_meta.max_length);
                     meta.max_depth = meta.max_depth.max(item_meta.max_depth);
                 }
-
-                // We need an additional state depth for this node.
-                meta.max_depth += 1;
 
                 meta
             }

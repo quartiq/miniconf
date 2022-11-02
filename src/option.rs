@@ -99,7 +99,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         self.0
             .as_ref()
             .map(|value| value.next_path(state, path))
-            .unwrap_or(false)
+            .unwrap_or_default()
     }
 }
 
@@ -146,10 +146,15 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
     fn next_path<const TS: usize>(
         &self,
         state: &mut [usize],
-        _path: &mut heapless::String<TS>,
+        path: &mut heapless::String<TS>,
     ) -> bool {
         if self.is_some() && state[0] == 0 {
             state[0] += 1;
+
+            // Remove trailing slash added by a deferring container (array or struct).
+            if path.ends_with('/') {
+                path.pop();
+            }
             true
         } else {
             false

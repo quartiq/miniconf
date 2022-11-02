@@ -85,9 +85,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         self.0
             .get_mut(i)
             .ok_or(Error::BadIndex)?
-            .set_path(path_parts, value)?;
-
-        Ok(())
+            .set_path(path_parts, value)
     }
 
     fn get_path<'a, P: Peekable<Item = &'a str>>(
@@ -106,14 +104,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn metadata(&self) -> Metadata {
         let mut meta = self.0[0].metadata();
 
-        // If the sub-members have topic size, we also need to include an additional character for
-        // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
-        // types, enums).
-        if meta.max_length > 0 {
-            meta.max_length += 1;
-        }
-
-        meta.max_length += digits(N - 1);
+        // Unconditionally account for separator since we add it
+        // even if elements that are deferred to (`Options`)
+        // may have no further hierarchy to add and remove the separator again.
+        meta.max_length += digits(N - 1) + 1;
         meta.max_depth += 1;
 
         meta
@@ -134,7 +128,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         let original_length = topic.len();
 
         while state[0] < N {
-            // Add the array index to the topic name.
+            // Add the array index and separator to the topic name.
             if write!(topic, "{}/", state[0]).is_err() {
                 unreachable!("Topic buffer too short");
             }
@@ -164,7 +158,7 @@ impl<T, const N: usize> IndexLookup for [T; N] {
         let next = next.ok_or(Error::PathTooShort)?;
 
         // Parse what should be the index value
-        Ok(serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0)
+        next.parse().map_err(|_| Error::BadIndex)
     }
 }
 

@@ -14,7 +14,7 @@ fn generic_type() {
 
     // Test metadata
     let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "data".len());
 }
 
@@ -56,7 +56,7 @@ fn generic_struct() {
 
     // Test metadata
     let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "inner".len());
 }
 
@@ -81,6 +81,6 @@ fn generic_atomic() {
 
     // Test metadata
     let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 2);
+    assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "atomic".len());
 }
