@@ -121,7 +121,6 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathTooLong);
         }
 
-        // Note(unwrap): checked above
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
         serde_json_core::to_slice(data, value).map_err(|_| Error::SerializationFailed)
     }
