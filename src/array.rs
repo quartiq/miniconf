@@ -113,11 +113,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         meta
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> bool {
+    fn next_path<const TS: usize>(state: &mut [usize], topic: &mut heapless::String<TS>) -> bool {
         // Note(unreachable): During expected execution paths using `into_iter()`, the size of the
         // index stack is checked in advance to make sure this condition doesn't occur.
         // However, it's possible to happen if the user manually calls `next_path`.
@@ -133,7 +129,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
                 unreachable!("Topic buffer too short");
             }
 
-            if self.0[state[0]].next_path(&mut state[1..], topic) {
+            if T::next_path(&mut state[1..], topic) {
                 return true;
             }
 
@@ -202,11 +198,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool {
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
         // Note(unreachable): During expected execution paths using `into_iter()`, the size of the
         // index stack is checked in advance to make sure this condition doesn't occur.
         // However, it's possible to happen if the user manually calls `next_path`.

@@ -127,6 +127,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
     });
 
     let next_path_arms = fields.iter().enumerate().map(|(i, f)| {
+        let field_type = &f.field.ty;
         let field_name = &f.field.ident;
         if f.deferred {
             quote! {
@@ -141,7 +142,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                         unreachable!("Topic buffer too short");
                     }
 
-                    if self.#field_name.next_path(&mut state[1..], path) {
+                    if <#field_type>::next_path(&mut state[1..], path) {
                         return true;
                     }
 
@@ -251,7 +252,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 meta
             }
 
-            fn next_path<const TS: usize>(&self, state: &mut [usize], path: &mut miniconf::heapless::String<TS>) -> bool {
+            fn next_path<const TS: usize>(state: &mut [usize], path: &mut miniconf::heapless::String<TS>) -> bool {
                 if state.len() == 0 {
                     // Note: During expected execution paths using `into_iter()`, the size of the
                     // state stack is checked in advance to make sure this condition doesn't occur.

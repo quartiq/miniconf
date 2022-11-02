@@ -41,10 +41,11 @@ fn option_get_set_some() {
 fn option_iterate_some_none() {
     let mut settings = Settings::default();
 
-    // When the value is None, it should not be iterated over as a topic.
+    // When the value is None, it will still be iterated over as a topic but may not exist at runtime.
     let mut state = [0; 10];
     settings.value.take();
     let mut iterator = settings.iter_paths::<128>(&mut state).unwrap();
+    assert_eq!(iterator.next().unwrap(), "value/data");
     assert!(iterator.next().is_none());
 
     // When the value is Some, it should be iterated over.
@@ -52,6 +53,7 @@ fn option_iterate_some_none() {
     settings.value.replace(Inner { data: 5 });
     let mut iterator = settings.iter_paths::<128>(&mut state).unwrap();
     assert_eq!(iterator.next().unwrap(), "value/data");
+    assert!(iterator.next().is_none());
 }
 
 #[test]
@@ -94,6 +96,7 @@ fn option_test_defer_option() {
 
     let mut state = [0; 10];
     let mut iterator = s.iter_paths::<128>(&mut state).unwrap();
+    assert_eq!(iterator.next(), Some("data".into()));
     assert!(iterator.next().is_none());
 
     assert!(s.set("data", b"7").is_err());

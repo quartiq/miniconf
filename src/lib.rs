@@ -367,7 +367,7 @@ pub trait Miniconf {
         state: &'a mut [usize],
     ) -> iter::MiniconfIter<'a, Self, TS> {
         iter::MiniconfIter {
-            namespace: self,
+            marker: core::marker::PhantomData,
             state,
         }
     }
@@ -384,11 +384,7 @@ pub trait Miniconf {
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool;
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool;
 
     /// Get metadata about the structure.
     fn metadata() -> Metadata;

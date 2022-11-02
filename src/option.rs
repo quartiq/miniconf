@@ -88,15 +88,8 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool {
-        self.0
-            .as_ref()
-            .map(|value| value.next_path(state, path))
-            .unwrap_or_default()
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
+        T::next_path(state, path)
     }
 }
 
@@ -141,12 +134,8 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         Metadata::default()
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool {
-        if self.is_some() && state[0] == 0 {
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
+        if state[0] == 0 {
             state[0] += 1;
 
             // Remove trailing slash added by a deferring container (array or struct).

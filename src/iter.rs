@@ -3,7 +3,7 @@ use heapless::String;
 
 /// An iterator over the paths in a Miniconf namespace.
 pub struct MiniconfIter<'a, M: ?Sized, const TS: usize> {
-    pub(crate) namespace: &'a M,
+    pub(crate) marker: core::marker::PhantomData<M>,
     pub(crate) state: &'a mut [usize],
 }
 
@@ -13,7 +13,7 @@ impl<'a, M: Miniconf + ?Sized, const TS: usize> Iterator for MiniconfIter<'a, M,
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::new();
 
-        if self.namespace.next_path(self.state, &mut path) {
+        if M::next_path(self.state, &mut path) {
             Some(path)
         } else {
             None
