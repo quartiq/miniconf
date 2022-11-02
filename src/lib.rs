@@ -292,7 +292,7 @@ pub trait Miniconf {
     /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to the element. With '/' as separator.
+    /// * `path` - The path to the element with '/' as the separator.
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
@@ -304,7 +304,7 @@ pub trait Miniconf {
     /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to the element. With '/' as separator.
+    /// * `path` - The path to the element with '/' as the separator.
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
