@@ -5,8 +5,8 @@ use heapless::String;
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize> {
-    pub(crate) marker: PhantomData<M>,
-    pub(crate) state: [usize; L],
+    marker: PhantomData<M>,
+    state: [usize; L],
 }
 
 impl<M: ?Sized, const L: usize, const TS: usize> Default for MiniconfIter<M, L, TS> {
