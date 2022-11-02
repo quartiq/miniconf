@@ -188,7 +188,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        serde_json_core::to_slice(item, value).map_err(|_| Error::SerializationFailed)
+        Ok(serde_json_core::to_slice(item, value)?)
     }
 
     fn metadata() -> Metadata {
