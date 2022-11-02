@@ -120,7 +120,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                         return Err(miniconf::Error::PathTooLong);
                     }
 
-                    miniconf::serde_json_core::to_slice(&self.#match_name, value).map_err(|_| miniconf::Error::SerializationFailed)
+                    Ok(miniconf::serde_json_core::to_slice(&self.#match_name, value)?)
                 }
             }
         }

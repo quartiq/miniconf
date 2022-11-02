@@ -202,7 +202,7 @@ pub use heapless;
 
 /// Errors that can occur when using the `Miniconf` API.
 #[non_exhaustive]
-#[derive(Debug, PartialEq)]
+#[derive(Debug)] // Copy, Clone, PartialEq, Eq once https://github.com/rust-embedded-community/serde-json-core/pull/67
 pub enum Error {
     /// The provided path wasn't found in the structure.
     ///
@@ -227,7 +227,7 @@ pub enum Error {
     /// The value provided could not be serialized.
     ///
     /// Check that the buffer had sufficient space.
-    SerializationFailed,
+    Serialization(serde_json_core::ser::Error),
 
     /// When indexing into an array, the index provided was out of bounds.
     ///
@@ -260,7 +260,7 @@ impl From<Error> for u8 {
             Error::PathTooShort => 3,
             Error::Deserialization(_) => 5,
             Error::BadIndex => 6,
-            Error::SerializationFailed => 7,
+            Error::Serialization(_) => 7,
             Error::PathAbsent => 8,
         }
     }
@@ -269,6 +269,12 @@ impl From<Error> for u8 {
 impl From<serde_json_core::de::Error> for Error {
     fn from(err: serde_json_core::de::Error) -> Error {
         Error::Deserialization(err)
+    }
+}
+
+impl From<serde_json_core::ser::Error> for Error {
+    fn from(err: serde_json_core::ser::Error) -> Error {
+        Error::Serialization(err)
     }
 }
 

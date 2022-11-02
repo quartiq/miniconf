@@ -62,7 +62,10 @@ fn simple_array_indexing() {
     assert_eq!([0, 7, 0], s.a);
 
     // Ensure that setting an out-of-bounds index generates an error.
-    assert_eq!(s.set("a/3", "7".as_bytes()).unwrap_err(), Error::BadIndex);
+    assert!(matches!(
+        s.set("a/3", "7".as_bytes()).unwrap_err(),
+        Error::BadIndex
+    ));
 
     // Test metadata
     let metadata = S::metadata();
