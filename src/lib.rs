@@ -296,7 +296,7 @@ pub trait Miniconf {
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
-    /// The result of the configuration operation.
+    /// The number of bytes consumed from `data` or an `Error`.
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         self.set_path(&mut path.split('/').peekable(), data)
     }
@@ -308,7 +308,7 @@ pub trait Miniconf {
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
-    /// The number of bytes used in the `data` buffer for serialization.
+    /// The number of bytes used in the `data` buffer or an `Error`.
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         self.get_path(&mut path.split('/').peekable(), data)
     }
