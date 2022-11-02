@@ -46,6 +46,8 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
+type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH>;
+
 mod sm {
     #![allow(clippy::derive_partial_eq_without_eq)]
 
@@ -78,18 +80,18 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock> {
+    pub struct Context<C: embedded_time::Clock, M: super::Miniconf + ?Sized> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: [usize; super::MAX_RECURSION_DEPTH],
+        pub republish_state: super::MiniconfIter<M>,
     }
 
-    impl<C: embedded_time::Clock> Context<C> {
+    impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
                 timeout: None,
-                republish_state: [0; super::MAX_RECURSION_DEPTH],
+                republish_state: Default::default(),
             }
         }
 
@@ -102,7 +104,7 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock> StateMachineContext for Context<C> {
+    impl<C: embedded_time::Clock, M: super::Miniconf> StateMachineContext for Context<C, M> {
         fn start_republish_timeout(&mut self) {
             self.timeout.replace(
                 self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
@@ -110,7 +112,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = [0; super::MAX_RECURSION_DEPTH];
+            self.republish_state = Default::default();
         }
     }
 }
@@ -124,7 +126,7 @@ where
 {
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     settings: Settings,
-    state: sm::StateMachine<sm::Context<Clock>>,
+    state: sm::StateMachine<sm::Context<Clock, Settings>>,
     settings_prefix: String<MAX_TOPIC_LENGTH>,
     prefix: String<MAX_TOPIC_LENGTH>,
 }
@@ -177,7 +179,7 @@ where
         let mut settings_prefix: String<MAX_TOPIC_LENGTH> = String::from(prefix);
         settings_prefix.push_str("/settings").unwrap();
 
-        assert!(settings_prefix.len() + 1 + settings.metadata().max_length <= MAX_TOPIC_LENGTH);
+        assert!(settings_prefix.len() + 1 + Settings::metadata().max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
@@ -193,16 +195,15 @@ where
             return;
         }
 
-        for topic in self
-            .settings
-            .iter_paths::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
-            .unwrap()
-        {
+        for topic in &mut self.state.context_mut().republish_state {
             let mut data = [0; MESSAGE_SIZE];
 
-            // Note(unwrap): We know this topic exists already because we just got it from the
-            // iterator.
-            let len = self.settings.get(&topic, &mut data).unwrap();
+            // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
+            let len = match self.settings.get(&topic, &mut data) {
+                Err(crate::Error::PathAbsent) => continue,
+                Ok(len) => len,
+                e => e.unwrap(),
+            };
 
             let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
             write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
@@ -384,21 +385,20 @@ where
             };
 
             let mut new_settings = settings.clone();
-            let message: SettingsResponse =
-                match new_settings.set_path(path.split('/').peekable(), message) {
-                    Ok(_) => {
-                        updated = true;
-                        handler(path, settings, &new_settings).into()
+            let message: SettingsResponse = match new_settings.set(path, message) {
+                Ok(_) => {
+                    updated = true;
+                    handler(path, settings, &new_settings).into()
+                }
+                err => {
+                    let mut msg = String::new();
+                    if write!(&mut msg, "{:?}", err).is_err() {
+                        msg = String::from("Configuration Error");
                     }
-                    err => {
-                        let mut msg = String::new();
-                        if write!(&mut msg, "{:?}", err).is_err() {
-                            msg = String::from("Configuration Error");
-                        }
 
-                        SettingsResponse::error(msg)
-                    }
-                };
+                    SettingsResponse::error(msg)
+                }
+            };
 
             let response = MqttMessage::new(properties, default_response_topic, &message);
 

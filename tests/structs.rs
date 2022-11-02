@@ -18,14 +18,11 @@ fn atomic_struct() {
 
     let mut settings = Settings::default();
 
-    let field = "c/a".split('/').peekable();
-
     // Inner settings structure is atomic, so cannot be set.
-    assert!(settings.set_path(field, b"4").is_err());
+    assert!(settings.set("c/a", b"4").is_err());
 
     // Inner settings can be updated atomically.
-    let field = "c".split('/').peekable();
-    settings.set_path(field, b"{\"a\": 5, \"b\": 3}").unwrap();
+    settings.set("c", b"{\"a\": 5, \"b\": 3}").unwrap();
 
     let expected = {
         let mut expected = Settings::default();
@@ -37,8 +34,8 @@ fn atomic_struct() {
     assert_eq!(settings, expected);
 
     // Check that metadata is correct.
-    let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 2);
+    let metadata = Settings::metadata();
+    assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "c".len());
 }
 
@@ -59,9 +56,7 @@ fn recursive_struct() {
 
     let mut settings = Settings::default();
 
-    let field = "c/a".split('/').peekable();
-
-    settings.set_path(field, b"3").unwrap();
+    settings.set("c/a", b"3").unwrap();
     let expected = {
         let mut expected = Settings::default();
         expected.c.a = 3;
@@ -71,12 +66,11 @@ fn recursive_struct() {
     assert_eq!(settings, expected);
 
     // It is not allowed to set a non-terminal node.
-    let field = "c".split('/').peekable();
-    assert!(settings.set_path(field, b"{\"a\": 5}").is_err());
+    assert!(settings.set("c", b"{\"a\": 5}").is_err());
 
     // Check that metadata is correct.
-    let metadata = settings.metadata();
-    assert_eq!(metadata.max_depth, 3);
+    let metadata = Settings::metadata();
+    assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "c/a".len());
 }
 
@@ -89,12 +83,10 @@ fn struct_with_string() {
 
     let mut s = Settings::default();
 
-    let field = "string".split('/').peekable();
     let mut buf = [0u8; 256];
-    let len = s.get_path(field, &mut buf).unwrap();
+    let len = s.get("string", &mut buf).unwrap();
     assert_eq!(&buf[..len], b"\"\"");
 
-    let field = "string".split('/').peekable();
-    s.set_path(field, br#""test""#).unwrap();
+    s.set("string", br#""test""#).unwrap();
     assert_eq!(s.string, "test");
 }

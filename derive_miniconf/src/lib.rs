@@ -27,7 +27,7 @@ impl TypeDefinition {
 /// slashes.
 ///
 /// For arrays, the array index is treated as a unique identifier. That is, to access the first
-/// element of array `test`, the path would be `test/0`.
+/// element of array `data`, the path would be `data/0`.
 ///
 /// # Example
 /// ```rust
@@ -97,8 +97,9 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                         return Err(miniconf::Error::PathTooLong)
                     }
 
-                    self.#match_name = miniconf::serde_json_core::from_slice(value)?.0;
-                    Ok(())
+                    let (value, len) = miniconf::serde_json_core::from_slice(value)?;
+                    self.#match_name = value;
+                    Ok(len)
                 }
             }
         }
@@ -126,19 +127,14 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
     });
 
     let next_path_arms = fields.iter().enumerate().map(|(i, f)| {
+        let field_type = &f.field.ty;
         let field_name = &f.field.ident;
         if f.deferred {
             quote! {
                 #i => {
                     let original_length = path.len();
 
-                    let postfix = if path.len() != 0 {
-                        concat!("/", stringify!(#field_name))
-                    } else {
-                        stringify!(#field_name)
-                    };
-
-                    if path.push_str(postfix).is_err() {
+                    if path.push_str(concat!(stringify!(#field_name), "/")).is_err() {
                         // Note: During expected execution paths using `into_iter()`, the size of the
                         // topic buffer is checked in advance to make sure this condition doesn't
                         // occur.  However, it's possible to happen if the user manually calls
@@ -146,7 +142,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                         unreachable!("Topic buffer too short");
                     }
 
-                    if self.#field_name.next_path(&mut state[1..], path) {
+                    if <#field_type>::next_path(&mut state[1..], path) {
                         return true;
                     }
 
@@ -161,22 +157,14 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
         } else {
             quote! {
                 #i => {
-                    let i = state[0];
-                    state[0] += 1;
-
-                    let postfix = if path.len() != 0 {
-                        concat!("/", stringify!(#field_name))
-                    } else {
-                        stringify!(#field_name)
-                    };
-
-                    if path.push_str(postfix).is_err() {
+                    if path.push_str(stringify!(#field_name)).is_err() {
                         // Note: During expected execution paths using `into_iter()`, the size of the
                         // topic buffer is checked in advance to make sure this condition doesn't
                         // occur.  However, it's possible to happen if the user manually calls
                         // `next_path`.
                         unreachable!("Topic buffer too short");
                     }
+                    state[0] += 1;
 
                     return true;
                 }
@@ -185,18 +173,18 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
     });
 
     let metadata_arms = fields.iter().enumerate().map(|(i, f)| {
+        let field_type = &f.field.ty;
         let field_name = &f.field.ident;
         if f.deferred {
             quote! {
                 #i => {
-                    let mut meta = self.#field_name.metadata();
+                    let mut meta = <#field_type>::metadata();
 
-                    // If the subfield has additional paths, we need to add space for a separator.
-                    if meta.max_length > 0 {
-                        meta.max_length += 1;
-                    }
-
-                    meta.max_length += stringify!(#field_name).len();
+                    // Unconditionally account for separator since we add it
+                    // even if elements that are deferred to (`Options`)
+                    // may have no further hierarchy to add and remove the separator again.
+                    meta.max_length += concat!(stringify!(#field_name), "/").len();
+                    meta.max_depth += 1;
 
                     meta
                 }
@@ -220,9 +208,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
 
     let expanded = quote! {
         impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
-            fn set_path(&mut self, mut path_parts:
-            core::iter::Peekable<core::str::Split<char>>, value: &[u8]) ->
-            Result<(), miniconf::Error> {
+            fn set_path<'a, P: miniconf::Peekable<Item = &'a str>>(
+                &mut self,
+                path_parts: &'a mut P,
+                value: &[u8]
+            ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {
@@ -231,7 +221,11 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 }
             }
 
-            fn get_path(&self, mut path_parts: core::iter::Peekable<core::str::Split<char>>, value: &mut [u8]) -> Result<usize, miniconf::Error> {
+            fn get_path<'a, P: miniconf::Peekable<Item = &'a str>>(
+                &self,
+                path_parts: &'a mut P,
+                value: &mut [u8]
+            ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
 
                 match field {
@@ -240,7 +234,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 }
             }
 
-            fn metadata(&self) -> miniconf::Metadata {
+            fn metadata() -> miniconf::Metadata {
                 // Loop through all child elements, collecting the maximum length + depth of any
                 // member.
                 let mut meta = miniconf::Metadata::default();
@@ -255,13 +249,10 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                     meta.max_depth = meta.max_depth.max(item_meta.max_depth);
                 }
 
-                // We need an additional state depth for this node.
-                meta.max_depth += 1;
-
                 meta
             }
 
-            fn next_path<const TS: usize>(&self, state: &mut [usize], path: &mut miniconf::heapless::String<TS>) -> bool {
+            fn next_path<const TS: usize>(state: &mut [usize], path: &mut miniconf::heapless::String<TS>) -> bool {
                 if state.len() == 0 {
                     // Note: During expected execution paths using `into_iter()`, the size of the
                     // state stack is checked in advance to make sure this condition doesn't occur.

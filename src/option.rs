@@ -15,7 +15,7 @@
 //!
 //! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
 //! can be used to atomically access the nullable content within.
-use super::{Error, Metadata, Miniconf};
+use super::{Error, Metadata, Miniconf, Peekable};
 
 /// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
 pub struct Option<T>(pub core::option::Option<T>);
@@ -60,86 +60,84 @@ impl<T: Clone> Clone for Option<T> {
 impl<T: Copy> Copy for Option<T> {}
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
-        self.0.as_mut().map_or(Err(Error::PathNotFound), |inner| {
+    ) -> Result<usize, Error> {
+        if let Some(inner) = self.0.as_mut() {
             inner.set_path(path_parts, value)
-        })
+        } else {
+            Err(Error::PathNotFound)
+        }
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
-        self.0.as_ref().map_or(Err(Error::PathNotFound), |inner| {
+        if let Some(inner) = self.0.as_ref() {
             inner.get_path(path_parts, value)
-        })
+        } else {
+            Err(Error::PathNotFound)
+        }
     }
 
-    fn metadata(&self) -> Metadata {
-        self.0
-            .as_ref()
-            .map(|value| value.metadata())
-            .unwrap_or_default()
+    fn metadata() -> Metadata {
+        T::metadata()
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool {
-        self.0
-            .as_ref()
-            .map(|value| value.next_path(state, path))
-            .unwrap_or(false)
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
+        T::next_path(state, path)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        *self = serde_json_core::from_slice(value)?.0;
-        Ok(())
+        if self.is_none() {
+            return Err(Error::PathAbsent);
+        }
+
+        let (value, len) = serde_json_core::from_slice(value)?;
+        *self = Some(value);
+        Ok(len)
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
+        let data = self.as_ref().ok_or(Error::PathAbsent)?;
+        serde_json_core::to_slice(data, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn metadata(&self) -> Metadata {
-        Metadata {
-            max_length: 0,
-            max_depth: 1,
-        }
+    fn metadata() -> Metadata {
+        Metadata::default()
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        _path: &mut heapless::String<TS>,
-    ) -> bool {
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
         if state[0] == 0 {
             state[0] += 1;
-            self.is_some()
+
+            // Remove trailing slash added by a deferring container (array or struct).
+            if path.ends_with('/') {
+                path.pop();
+            }
+            true
         } else {
             false
         }

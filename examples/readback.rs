@@ -22,14 +22,8 @@ fn main() {
         },
     };
 
-    // Maintains our state of iteration. This is created external from the
-    // iterator struct so that we can destroy the iterator struct, create a new
-    // one, and resume from where we left off.
-    // Perhaps we can wrap this up as some sort of templated `MiniconfIterState`
-    // type? That way we can hide what it is.
-    let mut iterator_state = [0; 5];
-
-    let mut settings_iter = s.iter_paths::<128>(&mut iterator_state).unwrap();
+    // Maintains our state of iteration.
+    let mut settings_iter = Settings::iter_paths::<5, 128>().unwrap();
 
     // Just get one topic/value from the iterator
     if let Some(topic) = settings_iter.next() {
@@ -46,8 +40,7 @@ fn main() {
     // the settings
     s.data = 3;
 
-    // Create a new settings iterator, print remaining values
-    for topic in s.iter_paths::<128>(&mut iterator_state).unwrap() {
+    for topic in settings_iter {
         let mut value = [0; 256];
         let len = s.get(&topic, &mut value).unwrap();
         println!(

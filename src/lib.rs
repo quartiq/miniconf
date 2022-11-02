@@ -119,8 +119,7 @@
 //!
 //! let settings = Settings::default();
 //!
-//!let mut state = [0; 8];
-//! for topic in settings.iter_paths::<128>(&mut state).unwrap() {
+//! for topic in Settings::iter_paths::<8, 128>().unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
 //! ```
@@ -158,7 +157,7 @@
 //! settings.set("filter/backward", b"0.15").unwrap();
 //!
 //! // Update the gains simultaneously
-//! settings.set("gain", b"[1.0, 2.0]").unwrap()
+//! settings.set("gain", b"[1.0, 2.0]").unwrap();
 //! ```
 //!
 //! ## Limitations
@@ -234,6 +233,12 @@ pub enum Error {
     ///
     /// Check array indices to ensure that bounds for all paths are respected.
     BadIndex,
+
+    /// The path does not exist at runtime.
+    ///
+    /// This is the case if a deferred `core::option::Option` or `miniconf::Option`
+    /// is `None` at runtime.
+    PathAbsent,
 }
 
 /// Errors that occur during iteration over topic paths.
@@ -256,6 +261,7 @@ impl From<Error> for u8 {
             Error::Deserialization(_) => 5,
             Error::BadIndex => 6,
             Error::SerializationFailed => 7,
+            Error::PathAbsent => 8,
         }
     }
 }
@@ -277,61 +283,63 @@ pub struct Metadata {
     pub max_depth: usize,
 }
 
+/// Helper trait for `core::iter::Peekable`.
+pub trait Peekable: core::iter::Iterator {
+    fn peek(&mut self) -> core::option::Option<&Self::Item>;
+}
+
+impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
+    fn peek(&mut self) -> core::option::Option<&Self::Item> {
+        core::iter::Peekable::peek(self)
+    }
+}
+
 /// Derive-able trait for structures that can be mutated using serialized paths and values.
 pub trait Miniconf {
     /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to the element.
+    /// * `path` - The path to the element with '/' as the separator.
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
-    /// The result of the configuration operation.
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.set_path(path.split('/').peekable(), data)
+    /// The number of bytes consumed from `data` or an `Error`.
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
+        self.set_path(&mut path.split('/').peekable(), data)
     }
 
     /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to the element.
+    /// * `path` - The path to the element with '/' as the separator.
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
-    /// The number of bytes used in the `data` buffer for serialization.
+    /// The number of bytes used in the `data` buffer or an `Error`.
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
-        self.get_path(path.split('/').peekable(), data)
+        self.get_path(&mut path.split('/').peekable(), data)
     }
 
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
     ///
-    /// # Note
-    /// To start the iteration from the first path,
-    /// the state vector should be initialized with zeros.
-    /// The state vector can be used to resume iteration from a previous point in time.
-    ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a path into.
-    ///
-    /// # Args
-    /// * `state` - A state vector to record iteration state in.
-    fn iter_paths<'a, const TS: usize>(
-        &'a self,
-        state: &'a mut [usize],
-    ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
-        let meta = self.metadata();
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    fn iter_paths<const L: usize, const TS: usize>(
+    ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
+        let meta = Self::metadata();
 
         if TS < meta.max_length {
             return Err(IterError::InsufficientTopicLength);
         }
 
-        if state.len() < meta.max_depth {
+        if L < meta.max_depth {
             return Err(IterError::InsufficientStateDepth);
         }
 
-        Ok(self.unchecked_iter_paths(state))
+        Ok(Self::unchecked_iter_paths())
     }
 
     /// Create an iterator of all possible paths.
@@ -342,43 +350,27 @@ pub trait Miniconf {
     /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
-    /// # Note
-    /// The state vector can be used to resume iteration from a previous point in time. The data
-    /// should be zero-initialized if starting iteration for the first time.
-    ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a path into.
-    ///
-    /// # Args
-    /// * `state` - A state vector to record iteration state in.
-    fn unchecked_iter_paths<'a, const TS: usize>(
-        &'a self,
-        state: &'a mut [usize],
-    ) -> iter::MiniconfIter<'a, Self, TS> {
-        iter::MiniconfIter {
-            namespace: self,
-            state,
-        }
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS> {
+        iter::MiniconfIter::default()
     }
 
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error>;
+    ) -> Result<usize, Error>;
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool;
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool;
 
     /// Get metadata about the structure.
-    fn metadata(&self) -> Metadata;
+    fn metadata() -> Metadata;
 }

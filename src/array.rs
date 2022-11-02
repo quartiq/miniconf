@@ -11,7 +11,7 @@
 //! `Miniconf` items, you can (and often want to) use [`Array`]. However, if each element in your list is
 //! individually configurable as a single value (e.g. a list of u32), then you must use a
 //! standard [T; N] array.
-use super::{Error, Metadata, Miniconf};
+use super::{Error, Metadata, Miniconf, Peekable};
 
 use core::fmt::Write;
 
@@ -75,24 +75,22 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let i = self.0.index(path_parts.next())?;
 
         self.0
             .get_mut(i)
             .ok_or(Error::BadIndex)?
-            .set_path(path_parts, value)?;
-
-        Ok(())
+            .set_path(path_parts, value)
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         let i = self.0.index(path_parts.next())?;
@@ -103,29 +101,19 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             .get_path(path_parts, value)
     }
 
-    fn metadata(&self) -> Metadata {
-        let mut meta = self.0[0].metadata();
+    fn metadata() -> Metadata {
+        let mut meta = T::metadata();
 
-        // If the sub-members have topic size, we also need to include an additional character for
-        // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
-        // types, enums).
-        if meta.max_length > 0 {
-            meta.max_length += 1;
-        }
-
-        meta.max_length += digits(N - 1);
+        // Unconditionally account for separator since we add it
+        // even if elements that are deferred to (`Options`)
+        // may have no further hierarchy to add and remove the separator again.
+        meta.max_length += digits(N - 1) + 1;
         meta.max_depth += 1;
 
         meta
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> bool {
-        let original_length = topic.len();
-
+    fn next_path<const TS: usize>(state: &mut [usize], topic: &mut heapless::String<TS>) -> bool {
         // Note(unreachable): During expected execution paths using `into_iter()`, the size of the
         // index stack is checked in advance to make sure this condition doesn't occur.
         // However, it's possible to happen if the user manually calls `next_path`.
@@ -133,17 +121,15 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             unreachable!("Index stack too small");
         }
 
+        let original_length = topic.len();
+
         while state[0] < N {
-            // Add the array index to the topic name.
-            if topic.len() > 0 && topic.push('/').is_err() {
+            // Add the array index and separator to the topic name.
+            if write!(topic, "{}/", state[0]).is_err() {
                 unreachable!("Topic buffer too short");
             }
 
-            if write!(topic, "{}", state[0]).is_err() {
-                unreachable!("Topic buffer too short");
-            }
-
-            if self.0[state[0]].next_path(&mut state[1..], topic) {
+            if T::next_path(&mut state[1..], topic) {
                 return true;
             }
 
@@ -168,16 +154,16 @@ impl<T, const N: usize> IndexLookup for [T; N] {
         let next = next.ok_or(Error::PathTooShort)?;
 
         // Parse what should be the index value
-        Ok(serde_json_core::from_str(next).or(Err(Error::BadIndex))?.0)
+        next.parse().map_err(|_| Error::BadIndex)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn set_path(
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &mut P,
         value: &[u8],
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let i = self.index(path_parts.next())?;
 
         if path_parts.peek().is_some() {
@@ -185,13 +171,14 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        *item = serde_json_core::from_slice(value)?.0;
-        Ok(())
+        let (value, len) = serde_json_core::from_slice(value)?;
+        *item = value;
+        Ok(len)
     }
 
-    fn get_path(
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        mut path_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &mut P,
         value: &mut [u8],
     ) -> Result<usize, Error> {
         let i = self.index(path_parts.next())?;
@@ -204,18 +191,14 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         serde_json_core::to_slice(item, value).map_err(|_| Error::SerializationFailed)
     }
 
-    fn metadata(&self) -> Metadata {
+    fn metadata() -> Metadata {
         Metadata {
             max_length: digits(N - 1),
             max_depth: 1,
         }
     }
 
-    fn next_path<const TS: usize>(
-        &self,
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-    ) -> bool {
+    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
         // Note(unreachable): During expected execution paths using `into_iter()`, the size of the
         // index stack is checked in advance to make sure this condition doesn't occur.
         // However, it's possible to happen if the user manually calls `next_path`.
@@ -225,18 +208,14 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
         if state[0] < N {
             // Add the array index to the topic name.
-            if path.len() > 0 && path.push('/').is_err() {
-                unreachable!("Topic buffer too short");
-            }
-
             if write!(path, "{}", state[0]).is_err() {
                 unreachable!("Topic buffer too short");
             }
 
             state[0] += 1;
-            return true;
+            true
+        } else {
+            false
         }
-
-        false
     }
 }

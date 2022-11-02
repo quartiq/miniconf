@@ -16,15 +16,13 @@ fn simple_enum() {
 
     let mut s = S { v: Variant::A };
 
-    let field = "v".split('/').peekable();
-
-    s.set_path(field, "\"B\"".as_bytes()).unwrap();
+    s.set("v", "\"B\"".as_bytes()).unwrap();
 
     assert_eq!(s.v, Variant::B);
 
     // Test metadata
-    let metadata = s.metadata();
-    assert_eq!(metadata.max_depth, 2);
+    let metadata = S::metadata();
+    assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "v".len());
 }
 
@@ -43,7 +41,5 @@ fn invalid_enum() {
 
     let mut s = S { v: Variant::A };
 
-    let field = "v".split('/').peekable();
-
-    assert!(s.set_path(field, "\"C\"".as_bytes()).is_err());
+    assert!(s.set("v", "\"C\"".as_bytes()).is_err());
 }
