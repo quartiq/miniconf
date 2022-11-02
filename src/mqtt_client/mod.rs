@@ -46,6 +46,8 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
+type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH>;
+
 mod sm {
     #![allow(clippy::derive_partial_eq_without_eq)]
 
@@ -78,18 +80,18 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock> {
+    pub struct Context<C: embedded_time::Clock, M: super::Miniconf + ?Sized> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: [usize; super::MAX_RECURSION_DEPTH],
+        pub republish_state: super::MiniconfIter<M>,
     }
 
-    impl<C: embedded_time::Clock> Context<C> {
+    impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
                 timeout: None,
-                republish_state: [0; super::MAX_RECURSION_DEPTH],
+                republish_state: Default::default(),
             }
         }
 
@@ -102,7 +104,7 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock> StateMachineContext for Context<C> {
+    impl<C: embedded_time::Clock, M: super::Miniconf> StateMachineContext for Context<C, M> {
         fn start_republish_timeout(&mut self) {
             self.timeout.replace(
                 self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
@@ -110,7 +112,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = [0; super::MAX_RECURSION_DEPTH];
+            self.republish_state = Default::default();
         }
     }
 }
@@ -124,7 +126,7 @@ where
 {
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     settings: Settings,
-    state: sm::StateMachine<sm::Context<Clock>>,
+    state: sm::StateMachine<sm::Context<Clock, Settings>>,
     settings_prefix: String<MAX_TOPIC_LENGTH>,
     prefix: String<MAX_TOPIC_LENGTH>,
 }
@@ -193,11 +195,7 @@ where
             return;
         }
 
-        for topic in self
-            .settings
-            .iter_paths::<MAX_TOPIC_LENGTH>(&mut self.state.context_mut().republish_state)
-            .unwrap()
-        {
+        for topic in &mut self.state.context_mut().republish_state {
             let mut data = [0; MESSAGE_SIZE];
 
             // Note(unwrap): We know this topic exists already because we just got it from the

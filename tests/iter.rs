@@ -15,32 +15,26 @@ struct Settings {
 
 #[test]
 fn insufficient_space() {
-    let settings = Settings::default();
     let meta = Settings::metadata();
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length, "c/inner".len());
 
     // Ensure that we can't iterate if we make a state vector that is too small.
-    let mut small_state = [0; 1];
-    assert!(settings.iter_paths::<256>(&mut small_state).is_err());
+    assert!(Settings::iter_paths::<1, 256>().is_err());
 
     // Ensure that we can't iterate if the topic buffer is too small.
-    let mut state = [0; 10];
-    assert!(settings.iter_paths::<1>(&mut state).is_err());
+    assert!(Settings::iter_paths::<10, 1>().is_err());
 }
 
 #[test]
 fn test_iteration() {
-    let settings = Settings::default();
-
     let mut iterated = std::collections::HashMap::from([
         ("a".to_string(), false),
         ("b".to_string(), false),
         ("c/inner".to_string(), false),
     ]);
 
-    let mut iter_state = [0; 32];
-    for field in settings.iter_paths::<256>(&mut iter_state).unwrap() {
+    for field in Settings::iter_paths::<32, 256>().unwrap() {
         assert!(iterated.contains_key(&field.as_str().to_string()));
         iterated.insert(field.as_str().to_string(), true);
     }
@@ -57,13 +51,11 @@ fn test_array_iteration() {
         data: [bool; 5],
     }
 
-    let settings = Settings::default();
-    let mut settings_copy = Settings::default();
+    let mut settings = Settings::default();
 
-    let mut iter_state = [0; 32];
-    for field in settings.iter_paths::<256>(&mut iter_state).unwrap() {
-        settings_copy.set(&field, b"true").unwrap();
+    for field in Settings::iter_paths::<32, 256>().unwrap() {
+        settings.set(&field, b"true").unwrap();
     }
 
-    assert!(settings_copy.data.iter().all(|x| *x));
+    assert!(settings.data.iter().all(|x| *x));
 }

@@ -119,8 +119,7 @@
 //!
 //! let settings = Settings::default();
 //!
-//!let mut state = [0; 8];
-//! for topic in settings.iter_paths::<128>(&mut state).unwrap() {
+//! for topic in Settings::iter_paths::<8, 128>().unwrap() {
 //!     println!("Discovered topic: `{:?}`", topic);
 //! }
 //! ```
@@ -318,31 +317,22 @@ pub trait Miniconf {
     ///
     /// This is a depth-first walk.
     ///
-    /// # Note
-    /// To start the iteration from the first path,
-    /// the state vector should be initialized with zeros.
-    /// The state vector can be used to resume iteration from a previous point in time.
-    ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a path into.
-    ///
-    /// # Args
-    /// * `state` - A state vector to record iteration state in.
-    fn iter_paths<'a, const TS: usize>(
-        &'a self,
-        state: &'a mut [usize],
-    ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    fn iter_paths<const L: usize, const TS: usize>(
+    ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
         let meta = Self::metadata();
 
         if TS < meta.max_length {
             return Err(IterError::InsufficientTopicLength);
         }
 
-        if state.len() < meta.max_depth {
+        if L < meta.max_depth {
             return Err(IterError::InsufficientStateDepth);
         }
 
-        Ok(self.unchecked_iter_paths(state))
+        Ok(Self::unchecked_iter_paths())
     }
 
     /// Create an iterator of all possible paths.
@@ -353,23 +343,11 @@ pub trait Miniconf {
     /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
-    /// # Note
-    /// The state vector can be used to resume iteration from a previous point in time. The data
-    /// should be zero-initialized if starting iteration for the first time.
-    ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a path into.
-    ///
-    /// # Args
-    /// * `state` - A state vector to record iteration state in.
-    fn unchecked_iter_paths<'a, const TS: usize>(
-        &'a self,
-        state: &'a mut [usize],
-    ) -> iter::MiniconfIter<'a, Self, TS> {
-        iter::MiniconfIter {
-            marker: core::marker::PhantomData,
-            state,
-        }
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS> {
+        iter::MiniconfIter::default()
     }
 
     fn set_path<'a, P: Peekable<Item = &'a str>>(
