@@ -3,21 +3,21 @@ use miniconf::{
     minimq::{types::TopicFilter, Publication},
     Miniconf,
 };
-use serde::Deserialize;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
 #[macro_use]
 extern crate log;
 
-#[derive(Clone, Debug, Default, Miniconf, Deserialize)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Clone, Debug, Default, Miniconf, Deserialize)]
+#[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     data: u32,
+    #[miniconf(defer)]
     more: AdditionalSettings,
 }
 

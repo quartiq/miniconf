@@ -13,6 +13,7 @@ struct AdditionalSettings {
 #[derive(Clone, Debug, Default, Miniconf)]
 struct Settings {
     data: u32,
+    #[miniconf(defer)]
     more: AdditionalSettings,
 }
 

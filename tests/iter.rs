@@ -9,37 +9,32 @@ struct Inner {
 struct Settings {
     a: f32,
     b: i32,
+    #[miniconf(defer)]
     c: Inner,
 }
 
 #[test]
 fn insufficient_space() {
-    let settings = Settings::default();
-    let meta = settings.get_metadata();
-    assert_eq!(meta.max_depth, 3);
-    assert_eq!(meta.max_topic_size, "c/inner".len());
+    let meta = Settings::metadata();
+    assert_eq!(meta.max_depth, 2);
+    assert_eq!(meta.max_length, "c/inner".len());
 
     // Ensure that we can't iterate if we make a state vector that is too small.
-    let mut small_state = [0; 2];
-    assert!(settings.iter_settings::<256>(&mut small_state).is_err());
+    assert!(Settings::iter_paths::<1, 256>().is_err());
 
     // Ensure that we can't iterate if the topic buffer is too small.
-    let mut state = [0; 10];
-    assert!(settings.iter_settings::<1>(&mut state).is_err());
+    assert!(Settings::iter_paths::<10, 1>().is_err());
 }
 
 #[test]
 fn test_iteration() {
-    let settings = Settings::default();
-
     let mut iterated = std::collections::HashMap::from([
         ("a".to_string(), false),
         ("b".to_string(), false),
         ("c/inner".to_string(), false),
     ]);
 
-    let mut iter_state = [0; 32];
-    for field in settings.iter_settings::<256>(&mut iter_state).unwrap() {
+    for field in Settings::iter_paths::<32, 256>().unwrap() {
         assert!(iterated.contains_key(&field.as_str().to_string()));
         iterated.insert(field.as_str().to_string(), true);
     }
@@ -50,14 +45,17 @@ fn test_iteration() {
 
 #[test]
 fn test_array_iteration() {
-    // TODO: Replace this with mutable iteration when implemented.
-    let settings = [false; 5];
-    let mut settings_copy = [false; 5];
-
-    let mut iter_state = [0; 32];
-    for field in settings.iter_settings::<256>(&mut iter_state).unwrap() {
-        settings_copy.set(&field, b"true").unwrap();
+    #[derive(Miniconf, Default)]
+    struct Settings {
+        #[miniconf(defer)]
+        data: [bool; 5],
     }
 
-    assert!(settings_copy.iter().all(|x| *x));
+    let mut settings = Settings::default();
+
+    for field in Settings::iter_paths::<32, 256>().unwrap() {
+        settings.set(&field, b"true").unwrap();
+    }
+
+    assert!(settings.data.iter().all(|x| *x));
 }

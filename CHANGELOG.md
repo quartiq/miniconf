@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 * python module: don't emite whitespace in JSON to match serde-json-core (#92)
+* `heapless::String` now implements `Miniconf` directly.
+* Python client API is no longer retain by default. CLI is unchanged
+* [breaking] Support for `#[derive(MiniconfAtomic)]` was removed.
+* Fields in `#[derive(Miniconf)]` are now atomic by default. To recurse, users must
+  annotate fields with `#[miniconf(defer)]`
+* New `miniconf::Option` type has been added. Existing `Option` implementation has been changed to
+  allow run-time nullability of values for more flexibility.
+* New `miniconf::Array` type has been added, replacing the previous [T; N] implementation
+* `Miniconf` implementation on most primitive types has been removed as it is no longer required.
+* [breaking] The API has changed to be agnostic to usage (e.g. now referring to namespace paths and values
+  instead of topics and settings). Functions in the `Miniconf` trait have been renamed.
+* [breaking] Errors and the Metadata struct have beem marked `#[non_exhaustive]`
+* [breaking] `metadata()`, `unchecked_iter_paths()`, `iter_paths()`, `next_path()` are
+  all associated functions now.
+* [breaking] Path iteration has been changed to move ownership of the iteration state into the iterator.
+  And the path depth is now a const generic.
+* [breaking] Path iteration will always return all paths regardless of potential runtime `miniconf::Option`
+  or deferred `Option` being `None`.
+
+### Fixed
+* Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
+* Python requests API updated to use a static response topic
+* Python requests now have a timeout
+* Generic trait bound requirements have been made more specific.
+
 
 ## [0.5.0] - 2022-05-12
 
