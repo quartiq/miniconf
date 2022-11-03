@@ -337,6 +337,9 @@ pub trait Miniconf {
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
+    ///
+    /// # Returns
+    /// An `MiniconfIter` of paths or an `IterError` if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
     ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
         let meta = Self::metadata();
@@ -362,7 +365,7 @@ pub trait Miniconf {
     /// panics may be generated internally by the library.
     ///
     /// # Args
-    /// * count: Optional iterator length
+    /// * `count`: Optional iterator length if known.
     ///
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
@@ -373,23 +376,53 @@ pub trait Miniconf {
         iter::MiniconfIter::new(count)
     }
 
+    /// Deserialize an element by path.
+    ///
+    /// # Args
+    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
+    /// * `value`: A slice containing the data to be deserialized.
+    ///
+    /// # Returns
+    /// The number of bytes consumed from `value` or an `Error`.
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
         path_parts: &'a mut P,
         value: &[u8],
     ) -> Result<usize, Error>;
 
+    /// Serialize an element by path.
+    ///
+    /// # Args
+    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
+    /// * `value`: A slice for the value to be serialized into.
+    ///
+    /// # Returns
+    /// The number of bytes written to `value` or an `Error`.
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
         path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
+    /// Get the next path in the namespace.
+    ///
+    /// # Args
+    /// * `state`: A state array indicating the path to be retrieved.
+    ///   A zeroed vector indicates the first path. The vector is advanced
+    ///   such that the next element will be retrieved when called again.
+    ///   The array needs to be at least as long as the maximum path depth.
+    /// * `path`: A string to write the path into.
+    ///
+    /// # Returns
+    /// A `bool` indicating a valid path was written to `path` from the given `state`.
+    /// If `false`, `path` is invalid and there are no more paths within `self` at and
+    /// beyond `state`.
+    /// May return `IterError` indicating insufficient `state` or `path` size.
     fn next_path<const TS: usize>(
         state: &mut [usize],
         path: &mut heapless::String<TS>,
     ) -> Result<bool, IterError>;
 
-    /// Get metadata about the structure.
+    /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
 }

@@ -5,8 +5,19 @@ use heapless::String;
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize> {
+    /// Zero-size marker field to allow being generic over M and gaining access to M.
     marker: PhantomData<M>,
+
+    /// The iteration state.
+    ///
+    /// It contains the current field/element index at each path hierarchy level
+    /// and needs to be at least as large as the maximum path depth.
     state: [usize; L],
+
+    /// The remaining length of the iterator.
+    ///
+    /// It is used to provide `Iterator::size_hint()`
+    /// and may be None to indicate unknown length.
     count: Option<usize>,
 }
 
