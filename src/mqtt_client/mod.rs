@@ -1,40 +1,38 @@
-/// MQTT-based Run-time Settings Client
-///
-/// # Design
-/// The MQTT client places all settings paths behind a `<prefix>/settings/` path prefix, where
-/// `<prefix>` is provided in the client constructor. This prefix is then stripped away to get the
-/// settings path for [Miniconf].
-///
-/// ## Example
-/// With an MQTT client prefix of `dt/sinara/stabilizer` and a settings path of `adc/0/gain`, the
-/// full MQTT path would be `dt/sinara/stabilizer/settings/adc/0/gain`.
-///
-/// # Limitations
-/// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
-/// connect to it when errors occur.
-///
-/// Responses to settings updates are sent without quality-of-service guarantees, so there's no
-/// guarantee that the requestee will be informed that settings have been applied.
-///
-/// The library only supports serialized settings up to 256 bytes currently.
-mod messages;
-
-use serde_json_core::heapless::String;
-
-use minimq::embedded_nal::{IpAddr, TcpClientStack};
+//! MQTT-based Run-time Settings Client
+//!
+//! # Design
+//! The MQTT client places all settings paths behind a `<prefix>/settings/` path prefix, where
+//! `<prefix>` is provided in the client constructor. This prefix is then stripped away to get the
+//! settings path for [Miniconf].
+//!
+//! ## Example
+//! With an MQTT client prefix of `dt/sinara/stabilizer` and a settings path of `adc/0/gain`, the
+//! full MQTT path would be `dt/sinara/stabilizer/settings/adc/0/gain`.
+//!
+//! # Limitations
+//! The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
+//! connect to it when errors occur.
+//!
+//! Responses to settings updates are sent without quality-of-service guarantees, so there's no
+//! guarantee that the requestee will be informed that settings have been applied.
+//!
+//! The library only supports serialized settings up to 256 bytes currently.
+use serde::Serialize;
+use serde_json_core::heapless::{String, Vec};
 
 use crate::Miniconf;
-use log::{debug, info};
-use messages::{MqttMessage, SettingsResponse};
-use minimq::{embedded_time, Property, QoS, Retain};
+use log::info;
+use minimq::{
+    embedded_nal::{IpAddr, TcpClientStack},
+    embedded_time,
+    types::{SubscriptionOptions, TopicFilter},
+    Publication, QoS, Retain,
+};
 
 use core::fmt::Write;
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
-
-// Correlation data reserved for indicating a republished message.
-const REPUBLISH_CORRELATION_DATA: Property = Property::CorrelationData("REPUBLISH".as_bytes());
 
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
@@ -49,8 +47,6 @@ const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH>;
 
 mod sm {
-    #![allow(clippy::derive_partial_eq_without_eq)]
-
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -71,12 +67,7 @@ mod sm {
             RepublishingSettings + RepublishComplete = Active,
 
             // All states transition back to `initial` on reset.
-            Initial + Reset = Initial,
-            ConnectedToBroker + Reset = Initial,
-            PendingSubscribe + Reset = Initial,
-            PendingRepublish + Reset = Initial,
-            RepublishingSettings + Reset = Initial,
-            Active + Reset = Initial,
+            _ + Reset = Initial,
         }
     }
 
@@ -159,14 +150,14 @@ where
 
         // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
         // now, since we're not yet connected to the broker.
-        mqtt.client
+        mqtt.client()
             .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
             .unwrap();
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(prefix);
         connection_topic.push_str("/alive").unwrap();
-        mqtt.client
+        mqtt.client()
             .set_will(
                 &connection_topic,
                 "0".as_bytes(),
@@ -191,7 +182,7 @@ where
     }
 
     fn handle_republish(&mut self) {
-        if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
+        if !self.mqtt.client().can_publish(QoS::AtMostOnce) {
             return;
         }
 
@@ -211,19 +202,18 @@ where
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
             self.mqtt
-                .client
+                .client()
                 .publish(
-                    &prefixed_topic,
-                    &data[..len],
-                    QoS::AtMostOnce,
-                    Retain::NotRetained,
-                    &[REPUBLISH_CORRELATION_DATA],
+                    Publication::new(&data[..len])
+                        .topic(&prefixed_topic)
+                        .finish()
+                        .unwrap(),
                 )
                 .unwrap();
 
             // If we can't publish any more messages, bail out now to prevent the iterator from
             // progressing. If we don't bail out now, we'd silently drop a setting.
-            if !self.mqtt.client.can_publish(QoS::AtMostOnce) {
+            if !self.mqtt.client().can_publish(QoS::AtMostOnce) {
                 return;
             }
         }
@@ -243,7 +233,10 @@ where
             String::from(self.settings_prefix.as_str());
         settings_topic.push_str("/#").unwrap();
 
-        if self.mqtt.client.subscribe(&settings_topic, &[]).is_ok() {
+        let topic_filter = TopicFilter::new(&settings_topic)
+            .options(SubscriptionOptions::default().ignore_local_messages());
+
+        if self.mqtt.client().subscribe(&[topic_filter], &[]).is_ok() {
             self.state.process_event(sm::Events::Subscribed).unwrap();
         }
     }
@@ -255,13 +248,13 @@ where
 
         if self
             .mqtt
-            .client
+            .client()
             .publish(
-                &connection_topic,
-                "1".as_bytes(),
-                QoS::AtMostOnce,
-                Retain::Retained,
-                &[],
+                Publication::new("1".as_bytes())
+                    .topic(&connection_topic)
+                    .retain()
+                    .finish()
+                    .unwrap(),
             )
             .is_ok()
         {
@@ -312,14 +305,14 @@ where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: AsRef<str>,
     {
-        if !self.mqtt.client.is_connected() {
+        if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
             self.state.process_event(sm::Events::Reset).unwrap();
         }
 
         match *self.state.state() {
             sm::States::Initial => {
-                if self.mqtt.client.is_connected() {
+                if self.mqtt.client().is_connected() {
                     self.state.process_event(sm::Events::Connected).unwrap();
                 }
             }
@@ -360,15 +353,6 @@ where
 
         let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
-            // If the incoming message has republish correlation data, ignore it.
-            if properties
-                .iter()
-                .any(|&prop| prop == REPUBLISH_CORRELATION_DATA)
-            {
-                debug!("Ignoring republish data");
-                return;
-            }
-
             let path = match topic.strip_prefix(prefix) {
                 // For paths, we do not want to include the leading slash.
                 Some(path) => {
@@ -400,17 +384,18 @@ where
                 }
             };
 
-            let response = MqttMessage::new(properties, default_response_topic, &message);
+            // Note(unwrap): All SettingsResponse objects are guaranteed to fit in the vector.
+            let message: Vec<u8, 128> = serde_json_core::to_vec(&message).unwrap();
 
             client
                 .publish(
-                    response.topic,
-                    &response.message,
-                    // TODO: When Minimq supports more QoS levels, this should be increased to
-                    // ensure that the client has received it at least once.
-                    QoS::AtMostOnce,
-                    Retain::NotRetained,
-                    &response.properties,
+                    minimq::Publication::new(&message)
+                        .topic(default_response_topic)
+                        .reply(properties)
+                        // TODO: Utilize at-least-once QoS for transmission
+                        .qos(QoS::AtMostOnce)
+                        .finish()
+                        .unwrap(),
                 )
                 .ok();
         }) {
@@ -447,5 +432,42 @@ where
     /// another setting.
     pub fn force_republish(&mut self) {
         self.state.process_event(sm::Events::StartRepublish).ok();
+    }
+}
+
+/// The payload of the MQTT response message to a settings update request.
+#[derive(Serialize)]
+pub struct SettingsResponse {
+    code: u8,
+    msg: String<64>,
+}
+
+impl SettingsResponse {
+    pub fn ok() -> Self {
+        Self {
+            msg: String::from("OK"),
+            code: 0,
+        }
+    }
+
+    pub fn error(msg: String<64>) -> Self {
+        Self { code: 255, msg }
+    }
+}
+
+impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
+    fn from(result: Result<T, E>) -> Self {
+        match result {
+            Ok(_) => SettingsResponse::ok(),
+
+            Err(error) => {
+                let mut msg = String::new();
+                if msg.push_str(error.as_ref()).is_err() {
+                    msg = String::from("Configuration Error");
+                }
+
+                Self::error(msg)
+            }
+        }
     }
 }

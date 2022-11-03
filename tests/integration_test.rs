@@ -1,6 +1,6 @@
 use machine::*;
 use miniconf::{
-    minimq::{QoS, Retain},
+    minimq::{types::TopicFilter, Publication},
     Miniconf,
 };
 use std_embedded_nal::Stack;
@@ -126,19 +126,20 @@ fn main() -> std::io::Result<()> {
         let setting_update = interface.update().unwrap();
         match state {
             TestState::Started(_) => {
-                if timer.is_complete() && mqtt.client.is_connected() {
+                if timer.is_complete() && mqtt.client().is_connected() {
                     // Subscribe to the default device log topic.
-                    mqtt.client.subscribe("device/log", &[]).unwrap();
+                    mqtt.client()
+                        .subscribe(&[TopicFilter::new("device/log")], &[])
+                        .unwrap();
 
                     // Send a request to set a property.
                     info!("Sending first settings value");
-                    mqtt.client
+                    mqtt.client()
                         .publish(
-                            "device/settings/data",
-                            "500".as_bytes(),
-                            QoS::AtMostOnce,
-                            Retain::NotRetained,
-                            &[],
+                            Publication::new(b"500")
+                                .topic("device/settings/data")
+                                .finish()
+                                .unwrap(),
                         )
                         .unwrap();
                     state = state.on_advance(Advance);
@@ -150,13 +151,12 @@ fn main() -> std::io::Result<()> {
                 if timer.is_complete() || setting_update {
                     assert!(setting_update);
                     info!("Sending inner settings value");
-                    mqtt.client
+                    mqtt.client()
                         .publish(
-                            "device/settings/more/inner",
-                            "100".as_bytes(),
-                            QoS::AtMostOnce,
-                            Retain::NotRetained,
-                            &[],
+                            Publication::new(b"100")
+                                .topic("device/settings/more/inner")
+                                .finish()
+                                .unwrap(),
                         )
                         .unwrap();
                     state = state.on_advance(Advance);
