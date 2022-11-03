@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] Path iteration will always return all paths regardless of potential runtime `miniconf::Option`
   or deferred `Option` being `None`.
 * [breaking] `unchecked_iter_paths()` takes an optional iterator size to be used in `Iterator::size_hint()`.
+* MQTT client now publishes responses with a quality of service of at-least-once to ensure
+  transmission.
+* MQTT client no longer uses correlation data to ignore local transmissions.
 
 ### Fixed
 * Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
