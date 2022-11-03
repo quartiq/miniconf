@@ -202,7 +202,7 @@ pub use heapless;
 
 /// Errors that can occur when using the `Miniconf` API.
 #[non_exhaustive]
-#[derive(Debug)] // Copy, Clone, PartialEq, Eq once https://github.com/rust-embedded-community/serde-json-core/pull/67
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error {
     /// The provided path wasn't found in the structure.
     ///
