@@ -392,7 +392,8 @@ where
                     minimq::Publication::new(&message)
                         .topic(default_response_topic)
                         .reply(properties)
-                        .qos(QoS::AtLeastOnce)
+                        // TODO: Utilize at-least-once QoS for transmission
+                        .qos(QoS::AtMostOnce)
                         .finish()
                         .unwrap(),
                 )

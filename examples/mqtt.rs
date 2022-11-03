@@ -13,8 +13,10 @@ struct NestedSettings {
 struct Settings {
     #[miniconf(defer)]
     inner: NestedSettings,
+
     #[miniconf(defer)]
     amplitude: [f32; 2],
+
     exit: bool,
 }
 
