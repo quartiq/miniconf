@@ -16,6 +16,7 @@ fn generic_type() {
     let metadata = Settings::<f32>::metadata();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "data".len());
+    assert_eq!(metadata.count, 1);
 }
 
 #[test]
@@ -35,6 +36,7 @@ fn generic_array() {
     let metadata = Settings::<f32>::metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "data/0".len());
+    assert_eq!(metadata.count, 2);
 }
 
 #[test]
@@ -58,6 +60,7 @@ fn generic_struct() {
     let metadata = Settings::<Inner>::metadata();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "inner".len());
+    assert_eq!(metadata.count, 1);
 }
 
 #[test]
