@@ -133,7 +133,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             topic.truncate(original_length);
 
             state[0] += 1;
-            state[1..].iter_mut().for_each(|x| *x = 0);
+            state[1..].fill(0);
         }
 
         Ok(false)
