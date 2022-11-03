@@ -11,7 +11,7 @@
 //! `Miniconf` items, you can (and often want to) use [`Array`]. However, if each element in your list is
 //! individually configurable as a single value (e.g. a list of u32), then you must use a
 //! standard [T; N] array.
-use super::{Error, Metadata, Miniconf, Peekable};
+use super::{Error, IterError, Metadata, Miniconf, Peekable};
 
 use core::fmt::Write;
 
@@ -109,28 +109,23 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         // may have no further hierarchy to add and remove the separator again.
         meta.max_length += digits(N - 1) + 1;
         meta.max_depth += 1;
+        meta.count *= N;
 
         meta
     }
 
-    fn next_path<const TS: usize>(state: &mut [usize], topic: &mut heapless::String<TS>) -> bool {
-        // Note(unreachable): During expected execution paths using `into_iter()`, the size of the
-        // index stack is checked in advance to make sure this condition doesn't occur.
-        // However, it's possible to happen if the user manually calls `next_path`.
-        if state.is_empty() {
-            unreachable!("Index stack too small");
-        }
-
+    fn next_path<const TS: usize>(
+        state: &mut [usize],
+        topic: &mut heapless::String<TS>,
+    ) -> Result<bool, IterError> {
         let original_length = topic.len();
 
-        while state[0] < N {
+        while *state.first().ok_or(IterError::PathDepth)? < N {
             // Add the array index and separator to the topic name.
-            if write!(topic, "{}/", state[0]).is_err() {
-                unreachable!("Topic buffer too short");
-            }
+            write!(topic, "{}/", state[0]).map_err(|_| IterError::PathLength)?;
 
-            if T::next_path(&mut state[1..], topic) {
-                return true;
+            if T::next_path(&mut state[1..], topic)? {
+                return Ok(true);
             }
 
             // Strip off the previously prepended index, since we completed that element and need
@@ -141,7 +136,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             state[1..].iter_mut().for_each(|x| *x = 0);
         }
 
-        false
+        Ok(false)
     }
 }
 
@@ -195,27 +190,22 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         Metadata {
             max_length: digits(N - 1),
             max_depth: 1,
+            count: N,
         }
     }
 
-    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool {
-        // Note(unreachable): During expected execution paths using `into_iter()`, the size of the
-        // index stack is checked in advance to make sure this condition doesn't occur.
-        // However, it's possible to happen if the user manually calls `next_path`.
-        if state.is_empty() {
-            unreachable!("Index stack too small");
-        }
-
-        if state[0] < N {
+    fn next_path<const TS: usize>(
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> Result<bool, IterError> {
+        if *state.first().ok_or(IterError::PathDepth)? < N {
             // Add the array index to the topic name.
-            if write!(path, "{}", state[0]).is_err() {
-                unreachable!("Topic buffer too short");
-            }
+            write!(path, "{}", state[0]).map_err(|_| IterError::PathLength)?;
 
             state[0] += 1;
-            true
+            Ok(true)
         } else {
-            false
+            Ok(false)
         }
     }
 }

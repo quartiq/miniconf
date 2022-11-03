@@ -71,6 +71,7 @@ fn simple_array_indexing() {
     let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "a/2".len());
+    assert_eq!(metadata.count, 3);
 }
 
 #[test]
@@ -102,6 +103,7 @@ fn array_of_structs_indexing() {
     let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length, "a/2/b".len());
+    assert_eq!(metadata.count, 3);
 }
 
 #[test]
@@ -158,6 +160,7 @@ fn short_array() {
     let meta = S::metadata();
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length, "data/0".len());
+    assert_eq!(meta.count, 1);
 }
 
 /// Zero-length arrays are not supported

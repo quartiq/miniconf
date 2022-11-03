@@ -37,6 +37,7 @@ fn atomic_struct() {
     let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "c".len());
+    assert_eq!(metadata.count, 3);
 }
 
 #[test]
@@ -72,6 +73,7 @@ fn recursive_struct() {
     let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "c/a".len());
+    assert_eq!(metadata.count, 3);
 }
 
 #[test]

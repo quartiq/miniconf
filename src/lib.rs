@@ -243,13 +243,13 @@ pub enum Error {
 
 /// Errors that occur during iteration over topic paths.
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum IterError {
     /// The provided state vector is not long enough.
-    InsufficientStateDepth,
+    PathDepth,
 
     /// The provided topic length is not long enough.
-    InsufficientTopicLength,
+    PathLength,
 }
 
 impl From<Error> for u8 {
@@ -280,13 +280,16 @@ impl From<serde_json_core::ser::Error> for Error {
 
 /// Metadata about a Miniconf namespace.
 #[non_exhaustive]
-#[derive(Default)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Metadata {
-    /// The maximum length of a path in the structure.
+    /// The maximum length of a path.
     pub max_length: usize,
 
-    /// The maximum depth of the structure.
+    /// The maximum path depth.
     pub max_depth: usize,
+
+    /// The number of paths.
+    pub count: usize,
 }
 
 /// Helper trait for `core::iter::Peekable`.
@@ -329,54 +332,97 @@ pub trait Miniconf {
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
+    /// It will return all paths, even those that may be absent at run-time.
     ///
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
+    ///
+    /// # Returns
+    /// An `MiniconfIter` of paths or an `IterError` if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
     ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
         let meta = Self::metadata();
 
         if TS < meta.max_length {
-            return Err(IterError::InsufficientTopicLength);
+            return Err(IterError::PathLength);
         }
 
         if L < meta.max_depth {
-            return Err(IterError::InsufficientStateDepth);
+            return Err(IterError::PathDepth);
         }
 
-        Ok(Self::unchecked_iter_paths())
+        Ok(Self::unchecked_iter_paths(Some(meta.count)))
     }
 
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
+    /// It will return all paths, even those that may be absent at run-time.
     ///
     /// # Note
     /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
+    /// # Args
+    /// * `count`: Optional iterator length if known.
+    ///
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS> {
-        iter::MiniconfIter::default()
+    fn unchecked_iter_paths<const L: usize, const TS: usize>(
+        count: core::option::Option<usize>,
+    ) -> iter::MiniconfIter<Self, L, TS> {
+        iter::MiniconfIter::new(count)
     }
 
+    /// Deserialize an element by path.
+    ///
+    /// # Args
+    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
+    /// * `value`: A slice containing the data to be deserialized.
+    ///
+    /// # Returns
+    /// The number of bytes consumed from `value` or an `Error`.
     fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
         path_parts: &'a mut P,
         value: &[u8],
     ) -> Result<usize, Error>;
 
+    /// Serialize an element by path.
+    ///
+    /// # Args
+    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
+    /// * `value`: A slice for the value to be serialized into.
+    ///
+    /// # Returns
+    /// The number of bytes written to `value` or an `Error`.
     fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
         path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    fn next_path<const TS: usize>(state: &mut [usize], path: &mut heapless::String<TS>) -> bool;
+    /// Get the next path in the namespace.
+    ///
+    /// # Args
+    /// * `state`: A state array indicating the path to be retrieved.
+    ///   A zeroed vector indicates the first path. The vector is advanced
+    ///   such that the next element will be retrieved when called again.
+    ///   The array needs to be at least as long as the maximum path depth.
+    /// * `path`: A string to write the path into.
+    ///
+    /// # Returns
+    /// A `bool` indicating a valid path was written to `path` from the given `state`.
+    /// If `false`, `path` is invalid and there are no more paths within `self` at and
+    /// beyond `state`.
+    /// May return `IterError` indicating insufficient `state` or `path` size.
+    fn next_path<const TS: usize>(
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> Result<bool, IterError>;
 
-    /// Get metadata about the structure.
+    /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
 }
