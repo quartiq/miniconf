@@ -47,8 +47,6 @@ const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH>;
 
 mod sm {
-    #![allow(clippy::derive_partial_eq_without_eq)]
-
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -69,12 +67,7 @@ mod sm {
             RepublishingSettings + RepublishComplete = Active,
 
             // All states transition back to `initial` on reset.
-            Initial + Reset = Initial,
-            ConnectedToBroker + Reset = Initial,
-            PendingSubscribe + Reset = Initial,
-            PendingRepublish + Reset = Initial,
-            RepublishingSettings + Reset = Initial,
-            Active + Reset = Initial,
+            _ + Reset = Initial,
         }
     }
 
