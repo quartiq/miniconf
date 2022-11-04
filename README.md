@@ -5,10 +5,10 @@
 [![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
 Miniconf enables lightweight (`no_std`) partial serialization (retrieval) and deserialization
-(updates, modification) within a namespace by path. The namespace is backed by a hierarchy of
-structs and arrays.
+(updates, modification) within a hierarchical namespace by path. The namespace is backed by
+structs and arrays of serializable types.
 
-It can be used as a very simple and flexible backend for run-time settings management in embedded devices
+Miniconf can be used as a very simple and flexible backend for run-time settings management in embedded devices
 over any transport. It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
 payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a comlete [MQTT settings management
 client](MqttClient) and a Python reference implementation to ineract with it.
@@ -17,7 +17,6 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 ```rust
 use miniconf::{Miniconf, IterError, Error};
 use serde::{Serialize, Deserialize};
-use heapless::{String, Vec};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
 enum Either {
@@ -61,23 +60,26 @@ struct Settings {
 }
 
 let mut settings = Settings::default();
+let mut buf = [0; 64];
 
-// Primitive atomic updates located by namne
+// Atomic updates by field name
 settings.set("foo", b"true")?;
+assert_eq!(settings.foo, true);
+
 settings.set("enum_", br#""Good""#)?;
 settings.set("struct_", br#"{"a": 3, "b": 3}"#)?;
 settings.set("array", b"[6, 6]")?;
 settings.set("option", b"12")?;
 settings.set("option", b"null")?;
 
-// Deep access to named fields
+// Deep access by field name in a struct
 settings.set("struct_defer/a", b"4")?;
-// ... or by index
+// ... or by index in an array
 settings.set("array_defer/0", b"7")?;
-// ... or by index and then inner field name
+// ... or by index and then struct field name
 settings.set("array_miniconf/1/b", b"11")?;
 
-// If a deferred Option is `None`, it is hidden
+// If a deferred Option is `None` it is hidden at runtime
 settings.set("option_defer", b"13").unwrap_err();
 settings.option_defer = Some(0);
 settings.set("option_defer", b"13")?;
@@ -85,15 +87,17 @@ settings.set("option_miniconf/a", b"14").unwrap_err();
 *settings.option_miniconf = Some(Inner::default());
 settings.set("option_miniconf/a", b"14")?;
 
-// Getting/serializing elements by path
-let mut buf = [0; 8];
-let len = settings.get("option_miniconf/a", &mut buf)?;
-assert_eq!(&buf[..len], b"14");
-// ... etc
+// Serializing an element by path
+let len = settings.get("foo", &mut buf)?;
+assert_eq!(&buf[..len], b"true");
 
-// Iterating all paths
-let paths = Settings::iter_paths::<3, 32>().unwrap();
-assert_eq!(paths.last(), Some("option_miniconf/b".into()));
+// Iterating over all elements
+for path in Settings::iter_paths::<3, 32>().unwrap() {
+    let len = settings.get(&path, &mut buf)?;
+    if path.as_str() == "option_miniconf/a" {
+        assert_eq!(&buf[..len], b"14");
+    }
+}
 
 # Ok::<(), miniconf::Error>(())
 ```
@@ -127,12 +131,12 @@ atomic access to their respective inner element(s), [Array] and
 [Option] have alternative [Miniconf] implementations that expose deep access
 into the inner element(s) through their respective inner [Miniconf] implementations.
 
-### Formats
+## Formats
 The path hierarchy separator is the slash `/`.
 
 Values are serialized into and deserialized from JSON.
 
-### Transport
+## Transport
 Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from
 some external source can be used to modify values by path.
 
