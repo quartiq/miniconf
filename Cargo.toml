@@ -14,7 +14,7 @@ categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]
 derive_miniconf = { path = "derive_miniconf" , version = "0.5" }
-serde-json-core = { git = "https://github.com/quartiq/serde-json-core", branch = "rj/maybeuninit" }
+serde-json-core = { git = "https://github.com/quartiq/serde-json-core", branch = "master" }
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
