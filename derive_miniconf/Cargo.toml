@@ -1,6 +1,6 @@
 [package]
 name = "derive_miniconf"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2018"
 license = "MIT"
