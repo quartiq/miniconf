@@ -16,8 +16,10 @@ pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize> {
 
     /// The remaining length of the iterator.
     ///
-    /// It is used to provide `Iterator::size_hint()`
-    /// and may be None to indicate unknown length.
+    /// It is used to provide an exact and trusted [Iterator::size_hint].
+    /// C.f. [core::iter::TrustedLen].
+    ///
+    /// It may be None to indicate unknown length.
     count: Option<usize>,
 }
 

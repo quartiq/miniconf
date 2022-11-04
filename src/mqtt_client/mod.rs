@@ -1,22 +1,3 @@
-//! MQTT-based Run-time Settings Client
-//!
-//! # Design
-//! The MQTT client places all settings paths behind a `<prefix>/settings/` path prefix, where
-//! `<prefix>` is provided in the client constructor. This prefix is then stripped away to get the
-//! settings path for [Miniconf].
-//!
-//! ## Example
-//! With an MQTT client prefix of `dt/sinara/stabilizer` and a settings path of `adc/0/gain`, the
-//! full MQTT path would be `dt/sinara/stabilizer/settings/adc/0/gain`.
-//!
-//! # Limitations
-//! The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
-//! connect to it when errors occur.
-//!
-//! Responses to settings updates are sent without quality-of-service guarantees, so there's no
-//! guarantee that the requestee will be informed that settings have been applied.
-//!
-//! The library only supports serialized settings up to 256 bytes currently.
 use serde::Serialize;
 use serde_json_core::heapless::{String, Vec};
 
@@ -109,6 +90,48 @@ mod sm {
 }
 
 /// MQTT settings interface.
+///
+/// # Design
+/// The MQTT client places the [Miniconf] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
+/// where `<prefix>` is provided in the client constructor.
+///
+/// It publishes its alive-ness as a `1` to `<prefix>/alive` and sets a will to publish `0` there when
+/// it is disconnected.
+///
+/// # Limitations
+/// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
+/// connect to it when errors occur.
+///
+/// The client only supports paths up to 128 byte length and maximum depth of 8.
+/// Keepalive interval and re-publication timeout are fixed to 60 and 2 seconds respectively.
+///
+/// # Example
+/// ```
+/// use miniconf::{MqttClient, Miniconf};
+///
+/// #[derive(Miniconf, Clone, Default)]
+/// struct Settings {
+///     foo: bool,
+/// }
+///
+/// let mut client: MqttClient<Settings, _, _, 256> = MqttClient::new(
+///     std_embedded_nal::Stack::default(),
+///     "",  // client_id auto-assign
+///     "quartiq/application/12345",  // prefix
+///     "127.0.0.1".parse().unwrap(),
+///     std_embedded_time::StandardClock::default(),
+///     Settings::default(),
+/// )
+/// .unwrap();
+///
+/// client.handled_update(|path, old_settings, new_settings| {
+///     if new_settings.foo {
+///         return Err("Foo!");
+///     }
+///     *old_settings = new_settings.clone();
+///     Ok(())
+/// }).unwrap();
+/// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
     Settings: Miniconf + Clone,
@@ -268,35 +291,6 @@ where
     /// # Args
     /// * `handler` - A closure called with updated settings that can be used to apply current
     ///   settings or validate the configuration. Arguments are (path, old_settings, new_settings).
-    ///
-    /// # Example
-    /// ```rust
-    /// #[derive(miniconf::Miniconf, Clone)]
-    /// struct Settings {
-    ///     threshold: u32,
-    /// }
-    ///
-    /// # let mut client: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
-    /// #     std_embedded_nal::Stack::default(),
-    /// #     "",
-    /// #     "sample/prefix",
-    /// #     "127.0.0.1".parse().unwrap(),
-    /// #     std_embedded_time::StandardClock::default(),
-    /// #     Settings { threshold: 0 },
-    /// # )
-    /// # .unwrap();
-    ///
-    /// // let mut client = miniconf::MqttClient::new(...);
-    /// client.handled_update(|path, old_settings, new_settings| {
-    ///     if new_settings.threshold > 5 {
-    ///         return Err("Requested threshold too high");
-    ///     }
-    ///
-    ///     *old_settings = new_settings.clone();
-    ///
-    ///     Ok(())
-    /// }).unwrap();
-    /// ```
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.

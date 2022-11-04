@@ -7,9 +7,9 @@ version = "0.6.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2018"
 license = "MIT"
-description = "Lightweight support for run-time settings configuration"
+description = "Access serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
-keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
+keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]
