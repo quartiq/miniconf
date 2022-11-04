@@ -2,9 +2,9 @@
 name = "miniconf"
 
 # Don't forget to change `derive_miniconf`'s version as well.
-version = "0.5.0"
+version = "0.6.0"
 
-authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
+authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2018"
 license = "MIT"
 description = "Lightweight support for run-time settings configuration"
@@ -13,8 +13,8 @@ keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
 categories = ["no-std", "config", "embedded", "parsing"]
 
 [dependencies]
-derive_miniconf = { path = "derive_miniconf" , version = "0.5" }
-serde-json-core = "0.4.0"
+derive_miniconf = { path = "derive_miniconf" , version = "0.6" }
+serde-json-core = "0.5.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
