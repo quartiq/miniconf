@@ -2,23 +2,106 @@
 //! # Miniconf
 //!
 //! Miniconf is a lightweight utility to manage serialization (retrieval) and deserialization
-//! (updates, modification) of individual elements of a namespace.
+//! (updates, modification) of individual elements of a namespace by path.
+//!
+//! ### Example
+//!
+//! ```
+//! use miniconf::{Miniconf, IterError, Error};
+//! use serde::{Serialize, Deserialize};
+//! use heapless::{String, Vec};
+//!
+//! #[derive(Deserialize, Serialize, Copy, Clone, Default, Miniconf)]
+//! struct Inner {
+//!     a: i32,
+//!     b: i32,
+//! }
+//!
+//! #[derive(Miniconf, Default)]
+//! struct Settings {
+//!     // Primitive access by name
+//!     foo: bool,
+//!     bar: f32,
+//!
+//!     // Atomic struct
+//!     struct_: Inner,
+//!
+//!     // Inner access by name
+//!     #[miniconf(defer)]
+//!     struct_defer: Inner,
+//!
+//!     // Atomic array
+//!     array: [i32; 2],
+//!
+//!     // Access by index
+//!     #[miniconf(defer)]
+//!     array_defer: [i32; 2],
+//!
+//!     // Inner access by index and then name
+//!     #[miniconf(defer)]
+//!     array_miniconf: miniconf::Array<Inner, 2>,
+//!
+//!     // Atomic
+//!     option: core::option::Option<i32>,
+//!
+//!     // Run-time optional
+//!     #[miniconf(defer)]
+//!     option_defer: core::option::Option<i32>,
+//!
+//!     // Run-time optional with inner access by name
+//!     #[miniconf(defer)]
+//!     option_miniconf: miniconf::Option<Inner>
+//! }
+//!
+//! let mut settings = Settings::default();
+//!
+//! // Setting/deserializing elements by paths
+//! settings.set("foo", b"true")?;
+//! settings.set("bar", b"2.0")?;
+//!
+//! settings.set("struct_", br#"{"a": 3, "b": 3}"#)?;
+//! settings.set("struct_defer/a", b"4")?;
+//!
+//! settings.set("array", b"[6, 6]")?;
+//! settings.set("array_defer/0", b"7")?;
+//! settings.set("array_miniconf/1/b", b"11")?;
+//!
+//! settings.set("option", b"12")?;
+//! settings.set("option", b"null")?;
+//! settings.set("option_defer", b"13").unwrap_err();
+//! settings.option_defer = Some(0);
+//! settings.set("option_defer", b"13")?;
+//! settings.set("option_miniconf/a", b"14").unwrap_err();
+//! *settings.option_miniconf = Some(Inner::default());
+//! settings.set("option_miniconf/a", b"14")?;
+//!
+//! // Getting/serializing elements by path
+//! let mut buffer = [0; 256];
+//! let len = settings.get("option_miniconf/a", &mut buffer)?;
+//! assert_eq!(&buffer[..len], b"14");
+//!
+//! let paths = Settings::iter_paths::<3, 32>().unwrap();
+//! assert_eq!(paths.skip(15).next(), Some("option_miniconf/b".into()));
+//!
+//! # Ok::<(), miniconf::Error>(())
+//! ```
 //!
 //! ## Overview
 //!
-//! For structs with named fields, Miniconf uses a [Derive macro](derive.Miniconf.html) to automatically
+//! For structs with named fields, Miniconf offers a [derive macro](derive.Miniconf.html) to automatically
 //! assign a unique path to each item in the namespace. The macro implements the
-//! [`Miniconf`](trait.Miniconf.html) trait that exposes access to serialized field values through their path.
+//! [Miniconf] trait that exposes access to serialized field values through their path.
 //!
 //! Elements of homogeneous arrays are similarly accessed through their numeric indices.
 //! Structs, arrays, and Options can then be cascaded to construct a multi-level
 //! namespace. Control over namespace depth and access to individual elements or
-//! atomic updates of complete containers is configured at compile (derive) time.
+//! atomic updates of complete containers is configured at compile (derive) time using
+//! the `#[miniconf(defer)]` attribute.
 //!
-//! The `Miniconf` implementations for `[T; N]` arrays and `Option<T>` by default provide
-//! atomic access to their respective inner element(s). Alternatively, [`miniconf::Array`](struct.Array.html) and
-//! [`miniconf::Option`](struct.Option.html) have `Miniconf` implementations that expose deep access into the
-//! inner element(s) through their respective `Miniconf` implementations.
+//! The [Miniconf] implementations for [core::array] and [core::option::Option] by provide
+//! atomic access to their respective inner element(s). The alternatives [Array] and
+//! [Option] have [Miniconf] implementations that expose deep access into the
+//! inner element(s) through their respective inner [Miniconf] implementations.
 //!
 //! ### Supported formats
 //!
@@ -34,137 +117,16 @@
 //! There is an [MQTT-based client](MqttClient) provided to manage a namespace via the [MQTT
 //! protocol](https://mqtt.org) and JSON. See the `mqtt-client` feature.
 //!
-//! ### Example
-//! ```
-//! use miniconf::Miniconf;
-//! use serde::{Serialize, Deserialize};
-//!
-//! #[derive(Deserialize, Serialize, Default)]
-//! struct Coefficients {
-//!     forward: f32,
-//!     backward: f32,
-//! }
-//!
-//! #[derive(Miniconf, Default)]
-//! struct Settings {
-//!     filter: Coefficients,
-//!
-//!     // The channel gains are individually configurable.
-//!     #[miniconf(defer)]
-//!     gain: [f32; 2],
-//!
-//!     sample_rate: u32,
-//!     force_update: bool,
-//! }
-//!
-//! let mut settings = Settings::default();
-//!
-//! // Update sample rate.
-//! settings.set("sample_rate", b"350").unwrap();
-//!
-//! // Update filter coefficients.
-//! settings.set("filter", b"{\"forward\": 35.6, \"backward\": 0.0}").unwrap();
-//!
-//! // Update channel gain for channel 0.
-//! settings.set("gain/0", b"15").unwrap();
-//!
-//! // Serialize the current sample rate into the provided buffer.
-//! let mut buffer = [0u8; 256];
-//! let len = settings.get("sample_rate", &mut buffer).unwrap();
-//!
-//! assert_eq!(&buffer[..len], b"350");
-//! ```
-//!
-//! ## Features
-//! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
-//! To enable this feature, enable the `mqtt-client` feature.
-//!
-//! ```no_run
-//! #[derive(miniconf::Miniconf, Default, Clone, Debug)]
-//! struct Settings {
-//!     forward: f32,
-//! }
-//!
-//! // Construct the MQTT client.
-//! let mut client: miniconf::MqttClient<_, _, _, 256> = miniconf::MqttClient::new(
-//!     std_embedded_nal::Stack::default(),
-//!     "example-device",
-//!     "quartiq/miniconf-sample",
-//!     "127.0.0.1".parse().unwrap(),
-//!     std_embedded_time::StandardClock::default(),
-//!     Settings::default(),
-//! )
-//! .unwrap();
-//!
-//! loop {
-//!     // Continually process client updates to detect settings changes.
-//!     if client.update().unwrap() {
-//!         println!("Settings updated: {:?}", client.settings());
-//!     }
-//! }
-//!
-//! ```
-//!
-//! ### Path iteration
-//!
-//! Miniconf also allows iteration over all settings paths:
-//! ```rust
-//! use miniconf::Miniconf;
-//!
-//! #[derive(Default, Miniconf)]
-//! struct Settings {
-//!     sample_rate: u32,
-//!     update: bool,
-//! }
-//!
-//! let settings = Settings::default();
-//!
-//! for topic in Settings::iter_paths::<8, 128>().unwrap() {
-//!     println!("Discovered topic: `{:?}`", topic);
-//! }
-//! ```
-//!
-//! ## Nesting
-//! Miniconf inherently assumes that (almost) all elements are atomicly updated using a single
-//! path.
-//!
-//! If you would like to nest namespaces, this is supported by explicitly
-//! deferring down to the inner Miniconf implementation using the `#[miniconf(defer)]`
-//! attribute (compare this to the first example):
-//!
-//! ```
-//! use miniconf::Miniconf;
-//! #[derive(Miniconf, Default)]
-//! struct Coefficients {
-//!     forward: f32,
-//!     backward: f32,
-//! }
-//!
-//! #[derive(Miniconf, Default)]
-//! struct Settings {
-//!     // Explicitly defer downwards into `Coefficient`'s members.
-//!     #[miniconf(defer)]
-//!     filter: Coefficients,
-//!
-//!     // The `gain` array is updated in a single value.
-//!     gain: [f32; 2],
-//! }
-//!
-//! let mut settings = Settings::default();
-//!
-//! // Update filter parameters individually.
-//! settings.set("filter/forward", b"35.6").unwrap();
-//! settings.set("filter/backward", b"0.15").unwrap();
-//!
-//! // Update the gains simultaneously
-//! settings.set("gain", b"[1.0, 2.0]").unwrap();
-//! ```
-//!
 //! ## Limitations
 //!
-//! Minconf cannot be used with some of Rust's more complex types. Some unsupported types:
-//! * Complex enums (other than `Option`)
+//! Minconf cannot be used with some of Rust's more complex types. Some unsupported types are:
+//! * Complex enums other than [core::option::Option] and [Option]
 //! * Tuples
+//!
+//! ## Features
+//!
+//! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
+//! To enable this feature, enable the `mqtt-client` feature. See the example in [MqttClient].
 
 #[cfg(feature = "mqtt-client")]
 mod mqtt_client;
