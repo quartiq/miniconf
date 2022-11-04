@@ -106,28 +106,27 @@ mod sm {
 /// Keepalive interval and re-publication timeout are fixed to 60 and 2 seconds respectively.
 ///
 /// # Example
-///
 /// ```
 /// use miniconf::{MqttClient, Miniconf};
 ///
-/// #[derive(Miniconf, Clone)]
+/// #[derive(Miniconf, Clone, Default)]
 /// struct Settings {
-///     foo: u32,
+///     foo: bool,
 /// }
 ///
 /// let mut client: MqttClient<Settings, _, _, 256> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
-///     "", // client_id auto-assign
-///     "prefix",
+///     "",  // client_id auto-assign
+///     "quartiq/application/12345",  // prefix
 ///     "127.0.0.1".parse().unwrap(),
 ///     std_embedded_time::StandardClock::default(),
-///     Settings { foo: 0 },
+///     Settings::default(),
 /// )
 /// .unwrap();
 ///
 /// client.handled_update(|path, old_settings, new_settings| {
-///     if new_settings.foo > 5 {
-///         return Err("Foo too high");
+///     if new_settings.foo {
+///         return Err("Foo!");
 ///     }
 ///     *old_settings = new_settings.clone();
 ///     Ok(())
