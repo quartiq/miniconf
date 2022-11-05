@@ -7,18 +7,6 @@ mod field;
 
 use field::StructField;
 
-/// Represents a type definition with associated generics.
-pub(crate) struct TypeDefinition {
-    pub generics: syn::Generics,
-    pub name: syn::Ident,
-}
-
-impl TypeDefinition {
-    pub fn new(generics: syn::Generics, name: syn::Ident) -> Self {
-        Self { generics, name }
-    }
-}
-
 /// Derive the Miniconf trait for custom types.
 ///
 /// Each field of the struct will be recursively used to construct a unique path for all elements.
@@ -49,10 +37,8 @@ impl TypeDefinition {
 pub fn derive(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
 
-    let typedef = TypeDefinition::new(input.generics, input.ident);
-
     match input.data {
-        syn::Data::Struct(struct_data) => derive_struct(typedef, struct_data),
+        syn::Data::Struct(_) => derive_struct(input),
         _ => unimplemented!(),
     }
 }
@@ -163,35 +149,35 @@ fn metadata_arm((i, f): (usize, &StructField)) -> proc_macro2::TokenStream {
 /// Derive the Miniconf trait for structs.
 ///
 /// # Args
-/// * `typedef` - The type definition.
+/// * `input` - The derive input token stream.
 /// * `data` - The data associated with the struct definition.
 /// * `atomic` - specified true if the data must be updated atomically. If false, data must be
 ///   set at a terminal node.
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStream {
-    let raw_fields = match data.fields {
-        syn::Fields::Named(syn::FieldsNamed { ref named, .. }) => named,
+fn derive_struct(mut input: DeriveInput) -> TokenStream {
+    let data = match &input.data {
+        syn::Data::Struct(data) => data,
+        _ => unimplemented!(),
+    };
+    let fields: Vec<_> = match &data.fields {
+        syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
+            named.iter().cloned().map(StructField::new).collect()
+        }
         _ => unimplemented!("Only named fields are supported in structs."),
     };
-
-    let fields: Vec<StructField> = raw_fields
+    fields
         .iter()
-        .map(|x| StructField::new(x.clone()))
-        .collect();
-
-    for field in fields.iter() {
-        field.bound_generics(&mut typedef);
-    }
+        .for_each(|f| f.bound_generics(&mut input.generics));
 
     let set_path_arms = fields.iter().map(set_path_arm);
     let get_path_arms = fields.iter().map(get_path_arm);
     let next_path_arms = fields.iter().enumerate().map(next_path_arm);
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
 
-    let (impl_generics, ty_generics, where_clause) = typedef.generics.split_for_impl();
-    let name = typedef.name;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let name = input.ident;
 
     quote! {
         impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
@@ -223,6 +209,31 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
                 }
             }
 
+            fn next_path<const TS: usize>(
+                state: &mut [usize],
+                path: &mut miniconf::heapless::String<TS>
+            ) -> Result<bool, miniconf::IterError> {
+                loop {
+                    let original_length = path.len();
+
+                    match *state.first().ok_or(miniconf::IterError::PathDepth)? {
+                        #(#next_path_arms ,)*
+                        _ => return Ok(false),
+                    };
+
+                    // Note(unreachable) Without any deferred fields, every arm above returns
+                    #[allow(unreachable_code)]
+                    {
+                        // If a deferred field is done, strip off the field name again,
+                        // and advance to the next field.
+                        path.truncate(original_length);
+
+                        state[0] += 1;
+                        state[1..].fill(0);
+                    }
+                }
+            }
+
             fn metadata() -> miniconf::Metadata {
                 // Loop through all child elements, collecting the maximum length + depth of any
                 // member.
@@ -241,31 +252,7 @@ fn derive_struct(mut typedef: TypeDefinition, data: syn::DataStruct) -> TokenStr
 
                 meta
             }
-
-            fn next_path<const TS: usize>(
-                state: &mut [usize],
-                path: &mut miniconf::heapless::String<TS>
-            ) -> Result<bool, miniconf::IterError> {
-                loop {
-                    let original_length = path.len();
-
-                    match *state.first().ok_or(miniconf::IterError::PathDepth)? {
-                        #(#next_path_arms ,)*
-                        _ => return Ok(false),
-                    };
-
-                    // Note(unreachable) Without any deferred fields, every arm above returns
-                    #[allow(unreachable_code)]
-                    {
-                        // Strip off the previously prepended index, since we completed a deferred
-                        // field and need to instead check the next one.
-                        path.truncate(original_length);
-
-                        state[0] += 1;
-                        state[1..].fill(0);
-                    }
-                }
-            }
         }
-    }.into()
+    }
+    .into()
 }

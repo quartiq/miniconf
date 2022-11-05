@@ -1,8 +1,5 @@
-use super::{
-    attributes::{AttributeParser, MiniconfAttribute},
-    TypeDefinition,
-};
-use syn::parse_quote;
+use super::attributes::{AttributeParser, MiniconfAttribute};
+use syn::{parse_quote, Generics};
 
 pub struct StructField {
     pub field: syn::Field,
@@ -23,8 +20,8 @@ impl StructField {
         Self { deferred, field }
     }
 
-    fn bound_type(&self, ident: &syn::Ident, typedef: &mut TypeDefinition, array: bool) {
-        for generic in &mut typedef.generics.params {
+    fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, array: bool) {
+        for generic in &mut generics.params {
             if let syn::GenericParam::Type(type_param) = generic {
                 if type_param.ident == *ident {
                     // Deferred array types are a special case. These types defer directly into a
@@ -55,14 +52,14 @@ impl StructField {
     ///
     /// # Args
     /// * `typ` The Type encountered.
-    /// * `typedef` - The generic type parameters of the structure.
+    /// * `generics` - The generic type parameters of the structure.
     /// * `array` - Specified true if this type belongs to an upper-level array type.
-    fn handle_type(&self, typ: &syn::Type, typedef: &mut TypeDefinition, array: bool) {
+    fn handle_type(&self, typ: &syn::Type, generics: &mut Generics, array: bool) {
         // Check our type. Path-like types may need to be bound.
         let path = match &typ {
             syn::Type::Path(syn::TypePath { path, .. }) => path,
             syn::Type::Array(syn::TypeArray { elem, .. }) => {
-                self.handle_type(elem, typedef, true);
+                self.handle_type(elem, generics, true);
                 return;
             }
             other => panic!("Unsupported type: {:?}", other),
@@ -70,7 +67,7 @@ impl StructField {
 
         // Generics will have an ident only as the type. Grab it.
         if let Some(ident) = path.get_ident() {
-            self.bound_type(ident, typedef, array);
+            self.bound_type(ident, generics, array);
         }
 
         // Search for generics in the type signature.
@@ -78,7 +75,7 @@ impl StructField {
             if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                 for arg in args.args.iter() {
                     if let syn::GenericArgument::Type(typ) = arg {
-                        self.handle_type(typ, typedef, array);
+                        self.handle_type(typ, generics, array);
                     }
                 }
             }
@@ -88,8 +85,8 @@ impl StructField {
     /// Bound the generic parameters of the field.
     ///
     /// # Args
-    /// * `typedef` The typedefinitions for the structure.
-    pub(crate) fn bound_generics(&self, typedef: &mut TypeDefinition) {
-        self.handle_type(&self.field.ty, typedef, false)
+    /// * `generics` The generics for the structure.
+    pub(crate) fn bound_generics(&self, generics: &mut Generics) {
+        self.handle_type(&self.field.ty, generics, false)
     }
 }
