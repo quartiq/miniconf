@@ -19,7 +19,20 @@
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
 
 /// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
-pub struct Option<T>(pub core::option::Option<T>);
+#[derive(
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Debug,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+pub struct Option<T>(core::option::Option<T>);
 
 impl<T> core::ops::Deref for Option<T> {
     type Target = core::option::Option<T>;
@@ -34,31 +47,17 @@ impl<T> core::ops::DerefMut for Option<T> {
     }
 }
 
-impl<T: Default> Default for Option<T> {
-    fn default() -> Self {
-        Self(Default::default())
+impl<T> From<core::option::Option<T>> for Option<T> {
+    fn from(x: core::option::Option<T>) -> Self {
+        Self(x)
     }
 }
 
-impl<T: core::fmt::Debug> core::fmt::Debug for Option<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.fmt(f)
+impl<T> From<Option<T>> for core::option::Option<T> {
+    fn from(x: Option<T>) -> Self {
+        x.0
     }
 }
-
-impl<T: PartialEq> PartialEq for Option<T> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
-    }
-}
-
-impl<T: Clone> Clone for Option<T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T: Copy> Copy for Option<T> {}
 
 impl<T: Miniconf> Miniconf for Option<T> {
     fn set_path<'a, P: Peekable<Item = &'a str>>(

@@ -16,7 +16,8 @@ use super::{Error, IterError, Metadata, Miniconf, Peekable};
 use core::fmt::Write;
 
 /// An array that exposes each element through their [`Miniconf`](trait.Miniconf.html) implementation.
-pub struct Array<T, const N: usize>(pub [T; N]);
+#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+pub struct Array<T, const N: usize>([T; N]);
 
 impl<T, const N: usize> core::ops::Deref for Array<T, N> {
     type Target = [T; N];
@@ -37,31 +38,17 @@ impl<T: Default + Copy, const N: usize> Default for Array<T, N> {
     }
 }
 
-impl<T: core::fmt::Debug, const N: usize> core::fmt::Debug for Array<T, N> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.fmt(f)
+impl<T, const N: usize> From<[T; N]> for Array<T, N> {
+    fn from(x: [T; N]) -> Self {
+        Self(x)
     }
 }
 
-impl<T: PartialEq, const N: usize> PartialEq<[T; N]> for Array<T, N> {
-    fn eq(&self, other: &[T; N]) -> bool {
-        self.0.eq(other)
+impl<T, const N: usize> From<Array<T, N>> for [T; N] {
+    fn from(x: Array<T, N>) -> Self {
+        x.0
     }
 }
-
-impl<T: PartialEq, const N: usize> PartialEq for Array<T, N> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0.eq(&other.0)
-    }
-}
-
-impl<T: Clone, const N: usize> Clone for Array<T, N> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T: Copy, const N: usize> Copy for Array<T, N> {}
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
