@@ -92,3 +92,10 @@ fn struct_with_string() {
     s.set("string", br#""test""#).unwrap();
     assert_eq!(s.string, "test");
 }
+
+#[test]
+fn empty_struct() {
+    #[derive(Miniconf, Default)]
+    struct Settings {}
+    assert!(Settings::iter_paths::<1, 0>().unwrap().next().is_none());
+}

@@ -187,6 +187,7 @@ fn derive_struct(mut input: DeriveInput) -> TokenStream {
                 value: &[u8]
             ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
+                #[allow(unreachable_code)]
                 let peek = path_parts.peek().is_some();
 
                 match field {
@@ -201,6 +202,7 @@ fn derive_struct(mut input: DeriveInput) -> TokenStream {
                 value: &mut [u8]
             ) -> Result<usize, miniconf::Error> {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
+                #[allow(unreachable_code)]
                 let peek = path_parts.peek().is_some();
 
                 match field {
@@ -213,9 +215,9 @@ fn derive_struct(mut input: DeriveInput) -> TokenStream {
                 state: &mut [usize],
                 path: &mut miniconf::heapless::String<TS>
             ) -> Result<bool, miniconf::IterError> {
+                #[allow(unreachable_code)]
+                let original_length = path.len();
                 loop {
-                    let original_length = path.len();
-
                     match *state.first().ok_or(miniconf::IterError::PathDepth)? {
                         #(#next_path_arms ,)*
                         _ => return Ok(false),
@@ -240,14 +242,17 @@ fn derive_struct(mut input: DeriveInput) -> TokenStream {
                 let mut meta = miniconf::Metadata::default();
 
                 for index in 0.. {
-                    let item_meta = match index {
+                    let item_meta: miniconf::Metadata = match index {
                         #(#metadata_arms ,)*
                         _ => break,
                     };
 
-                    meta.max_length = meta.max_length.max(item_meta.max_length);
-                    meta.max_depth = meta.max_depth.max(item_meta.max_depth);
-                    meta.count += item_meta.count;
+                    #[allow(unreachable_code)]
+                    {
+                        meta.max_length = meta.max_length.max(item_meta.max_length);
+                        meta.max_depth = meta.max_depth.max(item_meta.max_depth);
+                        meta.count += item_meta.count;
+                    }
                 }
 
                 meta

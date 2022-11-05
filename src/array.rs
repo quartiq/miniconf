@@ -63,11 +63,12 @@ impl<T: Clone, const N: usize> Clone for Array<T, N> {
 
 impl<T: Copy, const N: usize> Copy for Array<T, N> {}
 
+/// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
     let mut n = 10;
     let mut num_digits = 1;
 
-    while x >= n {
+    while x > n {
         n *= 10;
         num_digits += 1;
     }
@@ -107,7 +108,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         // Unconditionally account for separator since we add it
         // even if elements that are deferred to (`Options`)
         // may have no further hierarchy to add and remove the separator again.
-        meta.max_length += digits(N - 1) + 1;
+        meta.max_length += digits(N) + 1;
         meta.max_depth += 1;
         meta.count *= N;
 
@@ -188,7 +189,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
     fn metadata() -> Metadata {
         Metadata {
-            max_length: digits(N - 1),
+            max_length: digits(N),
             max_depth: 1,
             count: N,
         }
