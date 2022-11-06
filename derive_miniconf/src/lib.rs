@@ -134,11 +134,13 @@ fn metadata_arm((i, f): (usize, &StructField)) -> proc_macro2::TokenStream {
     } else {
         quote! {
             #i => {
-                miniconf::Metadata {
-                    max_length: stringify!(#field_name).len(),
-                    max_depth: 1,
-                    count: 1,
-                }
+                let mut meta = miniconf::Metadata::default();
+
+                meta.max_length = stringify!(#field_name).len();
+                meta.max_depth = 1;
+                meta.count = 1;
+
+                meta
             }
         }
     }
