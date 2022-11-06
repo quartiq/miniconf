@@ -125,7 +125,7 @@ fn metadata_arm((i, f): (usize, &StructField)) -> proc_macro2::TokenStream {
                 // Unconditionally account for separator since we add it
                 // even if elements that are deferred to (`Options`)
                 // may have no further hierarchy to add and remove the separator again.
-                meta.max_length += concat!(stringify!(#field_name), "/").len();
+                meta.max_length += stringify!(#field_name).len() + 1;
                 meta.max_depth += 1;
 
                 meta
@@ -244,6 +244,7 @@ fn derive_struct(mut input: DeriveInput) -> TokenStream {
                         _ => break,
                     };
 
+                    // Note(unreachable) Empty structs break immediatly
                     #[allow(unreachable_code)]
                     {
                         meta.max_length = meta.max_length.max(item_meta.max_length);
