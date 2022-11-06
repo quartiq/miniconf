@@ -55,7 +55,7 @@ fn get_path_arm(f: &StructField) -> proc_macro2::TokenStream {
         quote! {
             stringify!(#match_name) => {
                 if peek {
-                    return Err(miniconf::Error::PathTooLong);
+                    Err(miniconf::Error::PathTooLong)
                 } else {
                     Ok(miniconf::serde_json_core::to_slice(&self.#match_name, value)?)
                 }
