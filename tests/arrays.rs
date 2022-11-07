@@ -1,4 +1,4 @@
-use miniconf::{Error, Miniconf};
+use miniconf::{Array, Error, Miniconf};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Miniconf, Deserialize)]
@@ -163,14 +163,26 @@ fn short_array() {
     assert_eq!(meta.count, 1);
 }
 
-/// Zero-length arrays are not supported
 #[test]
-#[should_panic]
 fn null_array() {
     #[derive(Miniconf, Default, PartialEq, Debug)]
     struct S {
         #[miniconf(defer)]
         data: [u32; 0],
     }
-    let _meta = S::metadata();
+    assert!(S::iter_paths::<2, 6>().unwrap().next().is_none());
+}
+
+#[test]
+fn null_miniconf_array() {
+    #[derive(Miniconf, Default, Debug, PartialEq, Copy, Clone)]
+    struct I {
+        a: i32,
+    }
+    #[derive(Miniconf, Default, PartialEq, Debug)]
+    struct S {
+        #[miniconf(defer)]
+        data: Array<I, 0>,
+    }
+    assert!(S::iter_paths::<3, 8>().unwrap().next().is_none());
 }
