@@ -44,6 +44,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 }
 
 fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `self`, `path_parts`, `peek`, and `value` available.
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
@@ -65,6 +66,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
 }
 
 fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `self`, `path_parts`, `peek`, and `value` available.
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
@@ -88,6 +90,7 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
 }
 
 fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index with `self`, `state`, and `path` available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
     if struct_field.deferred {
@@ -115,6 +118,7 @@ fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Token
 }
 
 fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
     if struct_field.deferred {
