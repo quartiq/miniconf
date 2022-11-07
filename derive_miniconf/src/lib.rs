@@ -43,9 +43,9 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 }
 
-fn get_path_arm(f: &StructField) -> proc_macro2::TokenStream {
-    let match_name = &f.field.ident;
-    if f.deferred {
+fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
+    let match_name = &struct_field.field.ident;
+    if struct_field.deferred {
         quote! {
             stringify!(#match_name) => {
                 self.#match_name.get_path(path_parts, value)
@@ -64,9 +64,9 @@ fn get_path_arm(f: &StructField) -> proc_macro2::TokenStream {
     }
 }
 
-fn set_path_arm(f: &StructField) -> proc_macro2::TokenStream {
-    let match_name = &f.field.ident;
-    if f.deferred {
+fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
+    let match_name = &struct_field.field.ident;
+    if struct_field.deferred {
         quote! {
             stringify!(#match_name) => {
                 self.#match_name.set_path(path_parts, value)
@@ -87,10 +87,10 @@ fn set_path_arm(f: &StructField) -> proc_macro2::TokenStream {
     }
 }
 
-fn next_path_arm((i, f): (usize, &StructField)) -> proc_macro2::TokenStream {
-    let field_type = &f.field.ty;
-    let field_name = &f.field.ident;
-    if f.deferred {
+fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    let field_type = &struct_field.field.ty;
+    let field_name = &struct_field.field.ident;
+    if struct_field.deferred {
         quote! {
             #i => {
                 path.push_str(concat!(stringify!(#field_name), "/"))
@@ -114,10 +114,10 @@ fn next_path_arm((i, f): (usize, &StructField)) -> proc_macro2::TokenStream {
     }
 }
 
-fn metadata_arm((i, f): (usize, &StructField)) -> proc_macro2::TokenStream {
-    let field_type = &f.field.ty;
-    let field_name = &f.field.ident;
-    if f.deferred {
+fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    let field_type = &struct_field.field.ty;
+    let field_name = &struct_field.field.ident;
+    if struct_field.deferred {
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
