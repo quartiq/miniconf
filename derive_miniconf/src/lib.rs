@@ -153,10 +153,9 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
 /// Derive the Miniconf trait for structs.
 ///
 /// # Args
-/// * `input` - The derive input token stream.
 /// * `data` - The data associated with the struct definition.
-/// * `atomic` - specified true if the data must be updated atomically. If false, data must be
-///   set at a terminal node.
+/// * `generics` - The generics of the definition. Sufficient bounds will be added here.
+/// * `ident` - The identifier to derive the impl for.
 ///
 /// # Returns
 /// A token stream of the generated code.
