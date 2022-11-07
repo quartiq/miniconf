@@ -35,10 +35,10 @@ use field::StructField;
 /// }
 #[proc_macro_derive(Miniconf, attributes(miniconf))]
 pub fn derive(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
+    let mut input = parse_macro_input!(input as DeriveInput);
 
     match input.data {
-        syn::Data::Struct(_) => derive_struct(input),
+        syn::Data::Struct(ref data) => derive_struct(data, &mut input.generics, &input.ident),
         _ => unimplemented!(),
     }
 }
@@ -156,31 +156,28 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
 ///
 /// # Returns
 /// A token stream of the generated code.
-fn derive_struct(mut input: DeriveInput) -> TokenStream {
-    let data = match &input.data {
-        syn::Data::Struct(data) => data,
-        _ => unimplemented!(),
-    };
+fn derive_struct(
+    data: &syn::DataStruct,
+    generics: &mut syn::Generics,
+    ident: &syn::Ident,
+) -> TokenStream {
     let fields: Vec<_> = match &data.fields {
         syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
             named.iter().cloned().map(StructField::new).collect()
         }
         _ => unimplemented!("Only named fields are supported in structs."),
     };
-    fields
-        .iter()
-        .for_each(|f| f.bound_generics(&mut input.generics));
+    fields.iter().for_each(|f| f.bound_generics(generics));
 
     let set_path_arms = fields.iter().map(set_path_arm);
     let get_path_arms = fields.iter().map(get_path_arm);
     let next_path_arms = fields.iter().enumerate().map(next_path_arm);
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
 
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let name = input.ident;
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
-        impl #impl_generics miniconf::Miniconf for #name #ty_generics #where_clause {
+        impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn set_path<'a, P: miniconf::Peekable<Item = &'a str>>(
                 &mut self,
                 path_parts: &'a mut P,
