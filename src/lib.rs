@@ -6,8 +6,8 @@ mod iter;
 mod option;
 
 pub use array::Array;
-pub use miniconf_derive::Miniconf;
 pub use iter::MiniconfIter;
+pub use miniconf_derive::Miniconf;
 pub use option::Option;
 
 #[cfg(feature = "mqtt-client")]
