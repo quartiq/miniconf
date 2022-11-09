@@ -6,7 +6,7 @@ mod iter;
 mod option;
 
 pub use array::Array;
-pub use derive_miniconf::Miniconf;
+pub use miniconf_derive::Miniconf;
 pub use iter::MiniconfIter;
 pub use option::Option;
 
