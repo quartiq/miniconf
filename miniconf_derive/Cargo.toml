@@ -1,14 +1,13 @@
 [package]
-name = "derive_miniconf"
-version = "0.6.1"
+name = "miniconf_derive"
+version = "0.6.2"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2018"
 license = "MIT"
-description = "Derive utilities for Miniconf run-time settings configuration"
+description = "Inspect serde namespaces by path (Miniconf derive macro)"
 repository = "https://github.com/quartiq/miniconf"
-
-keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
-categories = ["no-std", "config", "embedded", "parsing"]
+keywords = ["settings", "serde", "no_std", "json", "mqtt"]
+categories = ["no-std", "config", "rust-patterns", "parsing"]
 
 [lib]
 proc-macro = true
