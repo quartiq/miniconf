@@ -1,98 +1,25 @@
 #![no_std]
-//! # Miniconf
-//!
-//! Miniconf is a a lightweight utility to manage run-time configurable settings. It allows
-//! access and manipulation of struct fields by assigning each field a unique path-like identifier.
-//!
-//! ## Overview
-//!
-//! Miniconf uses a [Derive macro](derive.Miniconf.html) to automatically assign unique paths to
-//! each setting. All values are transmitted and received in JSON format.
-//!
-//! With the derive macro, field values can be easily retrieved or modified using a run-time
-//! string.
-//!
-//! ### Example
-//! ```
-//! use miniconf::{Miniconf, MiniconfAtomic};
-//! use serde::{Serialize, Deserialize};
-//!
-//! #[derive(Deserialize, Serialize, MiniconfAtomic, Default)]
-//! struct Coefficients {
-//!     forward: f32,
-//!     backward: f32,
-//! }
-//!
-//! #[derive(Miniconf, Default)]
-//! struct Settings {
-//!     filter: Coefficients,
-//!     channel_gain: [f32; 2],
-//!     sample_rate: u32,
-//!     force_update: bool,
-//! }
-//!
-//! let mut settings = Settings::default();
-//!
-//! // Update sample rate.
-//! settings.set("sample_rate", b"350").unwrap();
-//!
-//! // Update filter coefficients.
-//! settings.set("filter", b"{\"forward\": 35.6, \"backward\": 0.0}").unwrap();
-//!
-//! // Update channel gain for channel 0.
-//! settings.set("channel_gain/0", b"15").unwrap();
-//!
-//! // Serialize the current sample rate into the provided buffer.
-//! let mut buffer = [0u8; 256];
-//! let len = settings.get("sample_rate", &mut buffer).unwrap();
-//! // `sample_rate`'s serialized value now exists in `buffer[..len]`.
-//! ```
-//!
-//! ## Features
-//! Miniconf supports an MQTT-based client for configuring and managing run-time settings via MQTT.
-//! To enable this feature, enable the `mqtt-client` feature.
-//!
-//! ### Path iteration
-//!
-//! Miniconf also allows iteration over all settings paths:
-//! ```rust
-//! use miniconf::Miniconf;
-//!
-//! #[derive(Default, Miniconf)]
-//! struct Settings {
-//!     sample_rate: u32,
-//!     update: bool,
-//! }
-//!
-//! let settings = Settings::default();
-//!
-//!let mut state = [0; 8];
-//! for topic in settings.into_iter::<128>(&mut state).unwrap() {
-//!     println!("Discovered topic: `{:?}`", topic);
-//! }
-//! ```
-//!
-//! ## Supported Protocols
-//!
-//! Miniconf is designed to be protocol-agnostic. Any means that you have of receiving input from
-//! some external source can be used to acquire paths and values for updating settings.
-//!
-//! While Miniconf is platform agnostic, there is an [MQTT-based client](MqttClient) provided to
-//! manage settings via the [MQTT protocol](https://mqtt.org).
-//!
-//! ## Limitations
-//!
-//! Minconf cannot be used with some of Rust's more complex types. Some unsupported types:
-//! * Complex enums
-//! * Tuples
+#![doc = include_str!("../README.md")]
+
+mod array;
+mod iter;
+mod option;
+
+pub use array::Array;
+pub use iter::MiniconfIter;
+pub use miniconf_derive::Miniconf;
+pub use option::Option;
 
 #[cfg(feature = "mqtt-client")]
 mod mqtt_client;
 
-pub mod iter;
-
 #[cfg(feature = "mqtt-client")]
 pub use mqtt_client::MqttClient;
+
+// Re-exports
+pub use heapless;
+pub use serde;
+pub use serde_json_core;
 
 #[cfg(feature = "mqtt-client")]
 pub use minimq;
@@ -106,16 +33,9 @@ pub use serde::{
     ser::Serialize,
 };
 
-pub use serde_json_core;
-
-pub use derive_miniconf::{Miniconf, MiniconfAtomic};
-
-pub use heapless;
-
-use core::fmt::Write;
-
-/// Errors that occur during settings configuration
-#[derive(Debug, PartialEq)]
+/// Errors that can occur when using the [Miniconf] API.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error {
     /// The provided path wasn't found in the structure.
     ///
@@ -132,12 +52,6 @@ pub enum Error {
     /// Double check the ending and add the remainder of the path.
     PathTooShort,
 
-    /// The path provided refers to a member of a configurable structure, but the structure
-    /// must be updated all at once.
-    ///
-    /// Refactor the request to configure the surrounding structure at once.
-    AtomicUpdateRequired,
-
     /// The value provided for configuration could not be deserialized into the proper type.
     ///
     /// Check that the serialized data is valid JSON and of the correct type.
@@ -146,22 +60,29 @@ pub enum Error {
     /// The value provided could not be serialized.
     ///
     /// Check that the buffer had sufficient space.
-    SerializationFailed,
+    Serialization(serde_json_core::ser::Error),
 
     /// When indexing into an array, the index provided was out of bounds.
     ///
     /// Check array indices to ensure that bounds for all paths are respected.
     BadIndex,
+
+    /// The path does not exist at runtime.
+    ///
+    /// This is the case if a deferred [core::option::Option] or [Option]
+    /// is `None` at runtime.
+    PathAbsent,
 }
 
 /// Errors that occur during iteration over topic paths.
-#[derive(Debug)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum IterError {
     /// The provided state vector is not long enough.
-    InsufficientStateDepth,
+    PathDepth,
 
     /// The provided topic length is not long enough.
-    InsufficientTopicLength,
+    PathLength,
 }
 
 impl From<Error> for u8 {
@@ -170,10 +91,10 @@ impl From<Error> for u8 {
             Error::PathNotFound => 1,
             Error::PathTooLong => 2,
             Error::PathTooShort => 3,
-            Error::AtomicUpdateRequired => 4,
             Error::Deserialization(_) => 5,
             Error::BadIndex => 6,
-            Error::SerializationFailed => 7,
+            Error::Serialization(_) => 7,
+            Error::PathAbsent => 8,
         }
     }
 }
@@ -184,321 +105,160 @@ impl From<serde_json_core::de::Error> for Error {
     }
 }
 
-/// Metadata about a settings structure.
-pub struct MiniconfMetadata {
-    /// The maximum length of a topic in the structure.
-    pub max_topic_size: usize,
-
-    /// The maximum recursive depth of the structure.
-    pub max_depth: usize,
+impl From<serde_json_core::ser::Error> for Error {
+    fn from(err: serde_json_core::ser::Error) -> Error {
+        Error::Serialization(err)
+    }
 }
 
+/// Metadata about a [Miniconf] namespace.
+#[non_exhaustive]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+pub struct Metadata {
+    /// The maximum length of a path.
+    pub max_length: usize,
+
+    /// The maximum path depth.
+    pub max_depth: usize,
+
+    /// The number of paths.
+    pub count: usize,
+}
+
+/// Helper trait for [core::iter::Peekable].
+pub trait Peekable: core::iter::Iterator {
+    fn peek(&mut self) -> core::option::Option<&Self::Item>;
+}
+
+impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
+    fn peek(&mut self) -> core::option::Option<&Self::Item> {
+        core::iter::Peekable::peek(self)
+    }
+}
+
+/// Trait exposing serialization/deserialization of elements by path.
 pub trait Miniconf {
-    /// Update settings directly from a string path and data.
+    /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to update within `settings`.
-    /// * `data` - The serialized data making up the contents of the configured value.
+    /// * `path` - The path to the element with '/' as the separator.
+    /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
-    /// The result of the configuration operation.
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<(), Error> {
-        self.string_set(path.split('/').peekable(), data)
+    /// The number of bytes consumed from `data` or an [Error].
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
+        self.set_path(&mut path.split('/').peekable(), data)
     }
 
-    /// Retrieve a serialized settings value from a string path.
+    /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to retrieve.
-    /// * `data` - The location to serialize the data into.
+    /// * `path` - The path to the element with '/' as the separator.
+    /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
-    /// The number of bytes used in the `data` buffer for serialization.
+    /// The number of bytes used in the `data` buffer or an [Error].
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
-        self.string_get(path.split('/').peekable(), data)
+        self.get_path(&mut path.split('/').peekable(), data)
     }
 
-    /// Create an iterator to read all possible settings paths.
+    /// Create an iterator of all possible paths.
     ///
-    /// # Note
-    /// The state vector can be used to resume iteration from a previous point in time. The data
-    /// should be zero-initialized if starting iteration for the first time.
+    /// This is a depth-first walk.
+    /// The iterator will walk all paths, even those that may be absent at run-time (see [Option]).
+    /// The iterator has an exact and trusted [Iterator::size_hint].
     ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a settings path into.
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
     ///
-    /// # Args
-    /// * `state` - A state vector to record iteration state in.
-    fn into_iter<'a, const TS: usize>(
-        &'a self,
-        state: &'a mut [usize],
-    ) -> Result<iter::MiniconfIter<'a, Self, TS>, IterError> {
-        let metadata = self.get_metadata();
+    /// # Returns
+    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
+    fn iter_paths<const L: usize, const TS: usize>(
+    ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
+        let meta = Self::metadata();
 
-        if TS < metadata.max_topic_size {
-            return Err(IterError::InsufficientTopicLength);
+        if TS < meta.max_length {
+            return Err(IterError::PathLength);
         }
 
-        if state.len() < metadata.max_depth {
-            return Err(IterError::InsufficientStateDepth);
+        if L < meta.max_depth {
+            return Err(IterError::PathDepth);
         }
 
-        Ok(iter::MiniconfIter {
-            settings: self,
-            state,
-        })
+        Ok(Self::unchecked_iter_paths(Some(meta.count)))
     }
 
-    /// Create an iterator to read all possible settings paths.
+    /// Create an iterator of all possible paths.
+    ///
+    /// This is a depth-first walk.
+    /// It will return all paths, even those that may be absent at run-time.
     ///
     /// # Note
-    /// This does not check that the topic size or state vector are large enough. If they are not,
+    /// This does not check that the path size or state vector are large enough. If they are not,
     /// panics may be generated internally by the library.
     ///
-    /// # Note
-    /// The state vector can be used to resume iteration from a previous point in time. The data
-    /// should be zero-initialized if starting iteration for the first time.
+    /// # Args
+    /// * `count`: Optional iterator length if known.
     ///
     /// # Template Arguments
-    /// * `TS` - The maximum number of bytes to encode a settings path into.
-    ///
-    /// # Args
-    /// * `state` - A state vector to record iteration state in.
-    fn unchecked_into_iter<'a, const TS: usize>(
-        &'a self,
-        state: &'a mut [usize],
-    ) -> iter::MiniconfIter<'a, Self, TS> {
-        iter::MiniconfIter {
-            settings: self,
-            state,
-        }
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    fn unchecked_iter_paths<const L: usize, const TS: usize>(
+        count: core::option::Option<usize>,
+    ) -> iter::MiniconfIter<Self, L, TS> {
+        iter::MiniconfIter::new(count)
     }
 
-    fn string_set(
+    /// Deserialize an element by path.
+    ///
+    /// # Args
+    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
+    /// * `value`: A slice containing the data to be deserialized.
+    ///
+    /// # Returns
+    /// The number of bytes consumed from `value` or an `Error`.
+    fn set_path<'a, P: Peekable<Item = &'a str>>(
         &mut self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &[u8],
-    ) -> Result<(), Error>;
+    ) -> Result<usize, Error>;
 
-    fn string_get(
+    /// Serialize an element by path.
+    ///
+    /// # Args
+    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
+    /// * `value`: A slice for the value to be serialized into.
+    ///
+    /// # Returns
+    /// The number of bytes written to `value` or an `Error`.
+    fn get_path<'a, P: Peekable<Item = &'a str>>(
         &self,
-        topic_parts: core::iter::Peekable<core::str::Split<char>>,
+        path_parts: &'a mut P,
         value: &mut [u8],
     ) -> Result<usize, Error>;
 
-    /// Get metadata about the settings structure.
-    fn get_metadata(&self) -> MiniconfMetadata;
+    /// Get the next path in the namespace.
+    ///
+    /// This is usually not called directly but through a [MiniconfIter] returned by [Miniconf::iter_paths].
+    ///
+    /// # Args
+    /// * `state`: A state array indicating the path to be retrieved.
+    ///   A zeroed vector indicates the first path. The vector is advanced
+    ///   such that the next element will be retrieved when called again.
+    ///   The array needs to be at least as long as the maximum path depth.
+    /// * `path`: A string to write the path into.
+    ///
+    /// # Returns
+    /// A `bool` indicating a valid path was written to `path` from the given `state`.
+    /// If `false`, `path` is invalid and there are no more paths within `self` at and
+    /// beyond `state`.
+    /// May return `IterError` indicating insufficient `state` or `path` size.
+    fn next_path<const TS: usize>(
+        state: &mut [usize],
+        path: &mut heapless::String<TS>,
+    ) -> Result<bool, IterError>;
 
-    fn recurse_paths<const TS: usize>(
-        &self,
-        index: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> Option<()>;
+    /// Get metadata about the paths in the namespace.
+    fn metadata() -> Metadata;
 }
-
-macro_rules! impl_single {
-    ($x:ty) => {
-        impl Miniconf for $x {
-            fn string_set(
-                &mut self,
-                mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-                value: &[u8],
-            ) -> Result<(), Error> {
-                if topic_parts.peek().is_some() {
-                    return Err(Error::PathTooLong);
-                }
-                *self = serde_json_core::from_slice(value)?.0;
-                Ok(())
-            }
-
-            fn string_get(
-                &self,
-                mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-                value: &mut [u8],
-            ) -> Result<usize, Error> {
-                if topic_parts.peek().is_some() {
-                    return Err(Error::PathTooLong);
-                }
-
-                serde_json_core::to_slice(self, value).map_err(|_| Error::SerializationFailed)
-            }
-
-            fn get_metadata(&self) -> MiniconfMetadata {
-                MiniconfMetadata {
-                    // No topic length is needed, as there are no sub-members.
-                    max_topic_size: 0,
-                    // One index is required for the current element.
-                    max_depth: 1,
-                }
-            }
-
-            // This implementation is the base case for primitives where it will
-            // yield once for self, then return None on subsequent calls.
-            fn recurse_paths<const TS: usize>(
-                &self,
-                index: &mut [usize],
-                _topic: &mut heapless::String<TS>,
-            ) -> Option<()> {
-                if index.len() == 0 {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
-                    // index stack is checked in advance to make sure this condition doesn't occur.
-                    // However, it's possible to happen if the user manually calls `recurse_paths`.
-                    unreachable!("Index stack too small");
-                }
-
-                let i = index[0];
-                index[0] += 1;
-                index[1..].iter_mut().for_each(|x| *x = 0);
-
-                if i == 0 {
-                    Some(())
-                } else {
-                    None
-                }
-            }
-        }
-    };
-}
-
-impl<T: Miniconf, const N: usize> Miniconf for [T; N] {
-    fn string_set(
-        &mut self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-        value: &[u8],
-    ) -> Result<(), Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.len() {
-            return Err(Error::BadIndex);
-        }
-
-        self[i].string_set(topic_parts, value)?;
-
-        Ok(())
-    }
-
-    fn string_get(
-        &self,
-        mut topic_parts: core::iter::Peekable<core::str::Split<char>>,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
-        let next = topic_parts.next();
-        if next.is_none() {
-            return Err(Error::PathTooShort);
-        }
-
-        // Parse what should be the index value
-        let i: usize = serde_json_core::from_str(next.unwrap())
-            .or(Err(Error::BadIndex))?
-            .0;
-
-        if i >= self.len() {
-            return Err(Error::BadIndex);
-        }
-
-        self[i].string_get(topic_parts, value)
-    }
-
-    fn get_metadata(&self) -> MiniconfMetadata {
-        // First, figure out how many digits the maximum index requires when printing.
-        let mut index = N - 1;
-        let mut num_digits = 0;
-
-        while index > 0 {
-            index /= 10;
-            num_digits += 1;
-        }
-
-        let metadata = self[0].get_metadata();
-
-        // If the sub-members have topic size, we also need to include an additional character for
-        // the path separator. This is ommitted if the sub-members have no topic (e.g. fundamental
-        // types, enums).
-        if metadata.max_topic_size > 0 {
-            MiniconfMetadata {
-                max_topic_size: metadata.max_topic_size + num_digits + 1,
-                max_depth: metadata.max_depth + 1,
-            }
-        } else {
-            MiniconfMetadata {
-                max_topic_size: num_digits,
-                max_depth: metadata.max_depth + 1,
-            }
-        }
-    }
-
-    fn recurse_paths<const TS: usize>(
-        &self,
-        index: &mut [usize],
-        topic: &mut heapless::String<TS>,
-    ) -> Option<()> {
-        let original_length = topic.len();
-
-        if index.len() == 0 {
-            // Note: During expected execution paths using `into_iter()`, the size of the
-            // index stack is checked in advance to make sure this condition doesn't occur.
-            // However, it's possible to happen if the user manually calls `recurse_paths`.
-            unreachable!("Index stack too small");
-        }
-
-        while index[0] < N {
-            // Add the array index to the topic name.
-            if topic.len() > 0 {
-                if topic.push('/').is_err() {
-                    // Note: During expected execution paths using `into_iter()`, the size of the
-                    // topic buffer is checked in advance to make sure this condition doesn't occur.
-                    // However, it's possible to happen if the user manually calls `recurse_paths`.
-                    unreachable!("Topic buffer too short");
-                }
-            }
-
-            if write!(topic, "{}", index[0]).is_err() {
-                // Note: During expected execution paths using `into_iter()`, the size of the
-                // topic buffer is checked in advance to make sure this condition doesn't occur.
-                // However, it's possible to happen if the user manually calls `recurse_paths`.
-                unreachable!("Topic buffer too short");
-            }
-
-            if self[index[0]]
-                .recurse_paths(&mut index[1..], topic)
-                .is_some()
-            {
-                return Some(());
-            }
-
-            // Strip off the previously prepended index, since we completed that element and need
-            // to instead check the next one.
-            topic.truncate(original_length);
-
-            index[0] += 1;
-            index[1..].iter_mut().for_each(|x| *x = 0);
-        }
-
-        None
-    }
-}
-
-// Implement trait for the primitive types
-impl_single!(u8);
-impl_single!(u16);
-impl_single!(u32);
-impl_single!(u64);
-
-impl_single!(i8);
-impl_single!(i16);
-impl_single!(i32);
-impl_single!(i64);
-
-impl_single!(f32);
-impl_single!(f64);
-
-impl_single!(usize);
-impl_single!(bool);

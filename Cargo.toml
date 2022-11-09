@@ -1,22 +1,25 @@
 [package]
 name = "miniconf"
-version = "0.3.0"
-authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com"]
+
+# Don't forget to change `miniconf_derive`'s version as well.
+version = "0.6.2"
+
+authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2018"
 license = "MIT"
-description = "Lightweight support for run-time settings configuration"
+description = "Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
-keywords = ["settings", "embedded", "no_std", "configuration", "mqtt"]
-categories = ["no-std", "config", "embedded", "parsing"]
+keywords = ["settings", "serde", "no_std", "json", "mqtt"]
+categories = ["no-std", "config", "rust-patterns", "parsing"]
 
 [dependencies]
-derive_miniconf = { path = "derive_miniconf" , version = "0.3" }
-serde-json-core = "0.4.0"
+miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
+serde-json-core = "0.5.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
-minimq = { version = "^0.5.1", optional = true }
-smlang = { version = "0.4", optional = true }
+minimq = { version = "^0.6.1", optional = true }
+smlang = { version = "0.6", optional = true }
 
 [features]
 default = ["mqtt-client"]
