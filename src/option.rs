@@ -5,17 +5,25 @@ use core::ops::{Deref, DerefMut};
 ///
 /// # Design
 ///
-/// Miniconf supports optional values in two forms. The first for is the [`miniconf::Option`](Option)
-/// type. If the `Option` is `None`, the part of the namespace does not exist at run-time.
-/// It will not be iterated over and cannot be `get()` or `set()` using the [`Miniconf`] API.
+/// Miniconf supports optional values in two forms.
+///
+/// In both forms, the `Option` may be marked as `#[miniconf(defer)]` attribute,
+/// and be `None` at runtime. This makes the corresponding part of the namespace inaccessible
+/// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but cannot be
+/// `get()` or `set()` using the [`Miniconf`] API.
 ///
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
+/// The first form is the [`miniconf::Option`](Option) type which optionally exposes its
+/// interior `Miniconf` value as a sub-tree. A [`miniconf::Option`](Option) should usually be marked
+/// with `#[miniconf(defer)]`.
+///
 /// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
-/// the `Option` can be used to atomically access the nullable content within if marked with the
-/// `#[miniconf(defer)]` attribute.
+/// the `Option` can be used to atomically access the content within. If marked with `#[miniconf(defer)]`
+/// and `None` at runtime, it is inaccessible through `Miniconf`. Otherwise, JSON `null` corresponds to
+/// `None` as usual.
 ///
 /// # Construction
 ///
