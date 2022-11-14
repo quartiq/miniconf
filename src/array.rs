@@ -25,6 +25,7 @@ use core::ops::{Deref, DerefMut};
 /// An `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
+#[repr(transparent)]
 pub struct Array<T, const N: usize>([T; N]);
 
 impl<T, const N: usize> Deref for Array<T, N> {
