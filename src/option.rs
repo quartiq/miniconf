@@ -16,9 +16,9 @@ use core::ops::{Deref, DerefMut};
 /// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
 /// the `Option` can be used to atomically access the nullable content within if marked with the
 /// `#[miniconf(defer)]` attribute.
-/// 
+///
 /// # Construction
-/// 
+///
 /// The `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(
