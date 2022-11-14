@@ -7,8 +7,8 @@ use core::ops::{Deref, DerefMut};
 ///
 /// Miniconf supports optional values in two forms.
 ///
-/// In both forms, the `Option` may be marked as `#[miniconf(defer)]` attribute,
-/// and be `None` at runtime. This makes the corresponding part of the namespace inaccessible
+/// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
+/// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
 /// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but cannot be
 /// `get()` or `set()` using the [`Miniconf`] API.
 ///
@@ -17,7 +17,7 @@ use core::ops::{Deref, DerefMut};
 /// namespaces will not be exposed for it.
 ///
 /// The first form is the [`miniconf::Option`](Option) type which optionally exposes its
-/// interior `Miniconf` value as a sub-tree. A [`miniconf::Option`](Option) should usually be marked
+/// interior `Miniconf` value as a sub-tree. A [`miniconf::Option`](Option) should usually be
 /// with `#[miniconf(defer)]`.
 ///
 /// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
@@ -27,7 +27,7 @@ use core::ops::{Deref, DerefMut};
 ///
 /// # Construction
 ///
-/// The `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
+/// A `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(
     Clone,

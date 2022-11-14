@@ -22,7 +22,7 @@ use core::ops::{Deref, DerefMut};
 ///
 /// # Construction
 ///
-/// The `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
+/// An `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
 pub struct Array<T, const N: usize>([T; N]);
