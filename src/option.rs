@@ -42,6 +42,7 @@ use core::ops::{Deref, DerefMut};
     serde::Serialize,
     serde::Deserialize,
 )]
+#[repr(transparent)]
 pub struct Option<T>(core::option::Option<T>);
 
 impl<T> Deref for Option<T> {
