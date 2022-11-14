@@ -1,24 +1,34 @@
-//! Option Support
-//!
-//! # Design
-//!
-//! Miniconf supports optional values in two forms. The first for is the [`Option`] type. If the
-//! `Option` is `None`, the part of the namespace does not exist at run-time.
-//! It will not be iterated over and cannot be `get()` or `set()` using the Miniconf API.
-//!
-//! This is intended as a mechanism to provide run-time construction of the namespace. In some
-//! cases, run-time detection may indicate that some component is not present. In this case,
-//! namespaces will not be exposed for it.
-//!
-//!
-//! # Standard Options
-//!
-//! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
-//! can be used to atomically access the nullable content within.
-
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
+use core::ops::{Deref, DerefMut};
 
-/// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
+/// An `Option` that exposes its value through their [`Miniconf`] implementation.
+///
+/// # Design
+///
+/// Miniconf supports optional values in two forms.
+///
+/// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
+/// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
+/// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but cannot be
+/// `get()` or `set()` using the [`Miniconf`] API.
+///
+/// This is intended as a mechanism to provide run-time construction of the namespace. In some
+/// cases, run-time detection may indicate that some component is not present. In this case,
+/// namespaces will not be exposed for it.
+///
+/// The first form is the [`miniconf::Option`](Option) type which optionally exposes its
+/// interior `Miniconf` value as a sub-tree. An [`miniconf::Option`](Option) should usually be
+/// `#[miniconf(defer)]`.
+///
+/// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
+/// the `Option` can be used to atomically access the content within. If marked with `#[miniconf(defer)]`
+/// and `None` at runtime, it is inaccessible through `Miniconf`. Otherwise, JSON `null` corresponds to
+/// `None` as usual.
+///
+/// # Construction
+///
+/// An `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
+/// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(
     Clone,
     Copy,
@@ -34,14 +44,14 @@ use super::{Error, IterError, Metadata, Miniconf, Peekable};
 )]
 pub struct Option<T>(core::option::Option<T>);
 
-impl<T> core::ops::Deref for Option<T> {
+impl<T> Deref for Option<T> {
     type Target = core::option::Option<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T> core::ops::DerefMut for Option<T> {
+impl<T> DerefMut for Option<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
