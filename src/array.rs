@@ -1,32 +1,40 @@
-//! Array support
-//!
-//! # Design
-//! Miniconf supports homogeneous arrays of items contained in structures using two forms. For the
-//! [`Array`], each item of the array is accessed as a `Miniconf` tree.
-//!
-//! For standard arrays of [T; N] form, each item of the array is accessed as one atomic
-//! value (i.e. a single Miniconf item).
-//!
-//! The type you should use depends on what data is contained in your array. If your array contains
-//! `Miniconf` items, you can (and often want to) use [`Array`]. However, if each element in your list is
-//! individually configurable as a single value (e.g. a list of u32), then you must use a
-//! standard [T; N] array.
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
 
 use core::fmt::Write;
+use core::ops::{Deref, DerefMut};
 
-/// An array that exposes each element through their [`Miniconf`](trait.Miniconf.html) implementation.
+/// An array that exposes each element through their [`Miniconf`] implementation.
+///
+/// # Design
+///
+/// Miniconf supports homogeneous arrays of items contained in structures using two forms. For the
+/// [`miniconf::Array`](Array), each item of the array is accessed as a [`Miniconf`] tree.
+///
+/// For standard arrays of [`[T; N]`](array) form, by default the entire array is accessed as one atomic
+/// value. By adding the `#[miniconf(defer)]` attribute, each index of the array is is instead accessed as
+/// one atomic value (i.e. a single Miniconf item).
+///
+/// The type you should use depends on what data is contained in your array. If your array contains
+/// `Miniconf` items, you can (and often want to) use [`Array`] and the `#[miniconf(defer)]` attribute.
+/// However, if each element in your list is individually configurable as a single value (e.g. a list
+/// of `u32`), then you must use a standard [`[T; N]`](array) array but you may optionally
+/// `#[miniconf(defer)]` access to individual indices.
+///
+/// # Construction
+///
+/// The `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
+/// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
 pub struct Array<T, const N: usize>([T; N]);
 
-impl<T, const N: usize> core::ops::Deref for Array<T, N> {
+impl<T, const N: usize> Deref for Array<T, N> {
     type Target = [T; N];
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T, const N: usize> core::ops::DerefMut for Array<T, N> {
+impl<T, const N: usize> DerefMut for Array<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }

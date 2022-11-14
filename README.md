@@ -84,7 +84,7 @@ settings.set("option_defer", b"13").unwrap_err();
 settings.option_defer = Some(0);
 settings.set("option_defer", b"13")?;
 settings.set("option_miniconf/a", b"14").unwrap_err();
-*settings.option_miniconf = Some(Inner::default());
+settings.option_miniconf = Some(Inner::default()).into();
 settings.set("option_miniconf/a", b"14")?;
 
 // Serializing an element by path

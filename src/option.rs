@@ -1,24 +1,26 @@
-//! Option Support
-//!
-//! # Design
-//!
-//! Miniconf supports optional values in two forms. The first for is the [`Option`] type. If the
-//! `Option` is `None`, the part of the namespace does not exist at run-time.
-//! It will not be iterated over and cannot be `get()` or `set()` using the Miniconf API.
-//!
-//! This is intended as a mechanism to provide run-time construction of the namespace. In some
-//! cases, run-time detection may indicate that some component is not present. In this case,
-//! namespaces will not be exposed for it.
-//!
-//!
-//! # Standard Options
-//!
-//! Miniconf also allows for the normal usage of Rust `Option` types. In this case, the `Option`
-//! can be used to atomically access the nullable content within.
-
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
+use core::ops::{Deref, DerefMut};
 
-/// An `Option` that exposes its value through their [`Miniconf`](trait.Miniconf.html) implementation.
+/// An `Option` that exposes its value through their [`Miniconf`] implementation.
+///
+/// # Design
+///
+/// Miniconf supports optional values in two forms. The first for is the [`miniconf::Option`](Option)
+/// type. If the `Option` is `None`, the part of the namespace does not exist at run-time.
+/// It will not be iterated over and cannot be `get()` or `set()` using the [`Miniconf`] API.
+///
+/// This is intended as a mechanism to provide run-time construction of the namespace. In some
+/// cases, run-time detection may indicate that some component is not present. In this case,
+/// namespaces will not be exposed for it.
+///
+/// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
+/// the `Option` can be used to atomically access the nullable content within if marked with the
+/// `#[miniconf(defer)]` attribute.
+/// 
+/// # Construction
+/// 
+/// The `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
+/// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 #[derive(
     Clone,
     Copy,
@@ -34,14 +36,14 @@ use super::{Error, IterError, Metadata, Miniconf, Peekable};
 )]
 pub struct Option<T>(core::option::Option<T>);
 
-impl<T> core::ops::Deref for Option<T> {
+impl<T> Deref for Option<T> {
     type Target = core::option::Option<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T> core::ops::DerefMut for Option<T> {
+impl<T> DerefMut for Option<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
