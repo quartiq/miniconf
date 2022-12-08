@@ -40,9 +40,9 @@ mod sm {
             PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
 
             // Settings republish can be completed any time after subscription.
-            PendingRepublish + StartRepublish / start_iteration = RepublishingSettings,
-            RepublishingSettings + StartRepublish / start_iteration = RepublishingSettings,
-            Active + StartRepublish / start_iteration = RepublishingSettings,
+            PendingRepublish + StartRepublish / start_republish = RepublishingSettings,
+            RepublishingSettings + StartRepublish / start_republish = RepublishingSettings,
+            Active + StartRepublish / start_republish = RepublishingSettings,
 
             // After republishing settings, we are in an idle "active" state.
             RepublishingSettings + Complete = Active,
@@ -55,7 +55,7 @@ mod sm {
     pub struct Context<C: embedded_time::Clock, M: super::Miniconf + ?Sized> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub iteration_state: super::MiniconfIter<M>,
+        pub republish_state: super::MiniconfIter<M>,
     }
 
     impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
@@ -63,7 +63,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                iteration_state: Default::default(),
+                republish_state: Default::default(),
             }
         }
 
@@ -83,9 +83,34 @@ mod sm {
             );
         }
 
-        fn start_iteration(&mut self) {
-            self.iteration_state = Default::default();
+        fn start_republish(&mut self) {
+            self.republish_state = Default::default();
         }
+    }
+}
+
+enum Command<'a> {
+    Query,
+    List,
+    Modify(&'a str),
+}
+
+impl<'a> Command<'a> {
+    fn from_str(string: &'a str) -> Result<Self, ()> {
+        let path = string.strip_prefix('/').unwrap_or(string);
+        let parsed = path
+            .split_once('/')
+            .map(|(head, tail)| (head, Some(tail)))
+            .unwrap_or((path, None));
+
+        let command = match parsed {
+            ("query", None) => Command::Query,
+            ("list", None) => Command::List,
+            ("settings", Some(path)) => Command::Modify(path),
+            _ => return Err(()),
+        };
+
+        Ok(command)
     }
 }
 
@@ -207,7 +232,7 @@ where
     }
 
     fn handle_listing(&mut self) {
-        let Some((ref topic, ref mut iteration_state)) = &mut self.listing_state else {
+        let Some((ref topic, ref mut republish_state)) = &mut self.listing_state else {
             return;
         };
 
@@ -215,7 +240,7 @@ where
             return;
         }
 
-        for path in iteration_state {
+        for path in republish_state {
             info!("Listing: {path}");
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
@@ -237,6 +262,7 @@ where
             }
         }
 
+        // Publish an empty message to denote that the listing action has completed.
         self.mqtt
             .client()
             .publish(
@@ -247,7 +273,6 @@ where
             )
             .unwrap();
 
-        info!("Listing complete");
         // If we got here, we completed iterating over the topics and published them all.
         self.listing_state.take();
     }
@@ -257,7 +282,7 @@ where
             return;
         }
 
-        for topic in &mut self.state.context_mut().iteration_state {
+        for topic in &mut self.state.context_mut().republish_state {
             let mut data = [0; MESSAGE_SIZE];
 
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
@@ -396,35 +421,24 @@ where
                 return;
             };
 
-            // For paths, we do not want to include the leading slash.
-            let path = path.strip_prefix('/').unwrap_or(path);
-
-            let command = {
-                match path.split_once('/') {
-                    Some((root, tail)) => (root, Some(tail)),
-                    None => (path, None),
-                }
+            let Ok(command) = Command::from_str(path) else {
+                info!("Unknown Miniconf command: {path}");
+                return;
             };
 
-            let message: Vec<u8, MESSAGE_SIZE> = match command {
-                ("query", None) => {
-                    let mut data: Vec<u8, MESSAGE_SIZE> = Vec::new();
-                    data.resize_default(MESSAGE_SIZE).unwrap();
-
+            let mut data = [0u8; MESSAGE_SIZE];
+            let message = match command {
+                Command::Query => {
                     let path = core::str::from_utf8(message).unwrap_or("");
 
-                    log::info!("Querying: {path}");
                     // Get a specific settings value with the provided path.
-                    match settings.get(path, &mut data) {
-                        Ok(len) => {
-                            data.resize_default(len).unwrap();
-                            data
-                        }
-                        _ => serde_json_core::to_vec("Invalid path").unwrap(),
-                    }
+                    settings
+                        .get(path, &mut data)
+                        .map(|len| &data[..len])
+                        .unwrap_or(b"Invalid path")
                 }
 
-                ("list", None) => {
+                Command::List => {
                     let Some(response_topic) = properties.into_iter().find_map(|p| {
                         if let Ok(minimq::Property::ResponseTopic(topic)) = p {
                             Some(topic.0)
@@ -438,12 +452,11 @@ where
                     };
 
                     // TODO: Handle too-long response topics.
-                    info!("Starting to list to: {response_topic}");
                     listing_state.replace((String::from(response_topic), Default::default()));
                     return;
                 }
 
-                ("settings", Some(path)) => {
+                Command::Modify(path) => {
                     let mut new_settings = settings.clone();
                     let message: SettingsResponse = match new_settings.set(path, message) {
                         Ok(_) => {
@@ -460,17 +473,16 @@ where
                         }
                     };
 
-                    // Note(unwrap): All SettingsResponse objects are guaranteed to fit in the vector.
-                    serde_json_core::to_vec(&message).unwrap()
-                }
+                    match serde_json_core::to_slice(&message, &mut data) {
+                        Ok(len) => &data[..len],
 
-                _ => {
-                    info!("Unknown Miniconf command: {path}");
-                    return;
+                        // If the message buffer is too small, we can't ever provide a response.
+                        _ => return,
+                    }
                 }
             };
 
-            minimq::Publication::new(&message)
+            minimq::Publication::new(message)
                 .reply(properties)
                 .qos(QoS::AtLeastOnce)
                 .finish()
