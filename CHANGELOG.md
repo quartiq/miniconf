@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.6.2...HEAD)
 
 * `Array` and `Option` are `repr(transparent)`
+* New `query` and `list` commands are exposed under the Miniconf prefix to allow PC software to
+  discover and query current device settings.
 
 ## [0.6.2](https://github.com/quartiq/miniconf/compare/v0.6.1...v0.6.2) - 2022-11-09
 
