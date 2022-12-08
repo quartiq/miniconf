@@ -40,12 +40,12 @@ mod sm {
             PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
 
             // Settings republish can be completed any time after subscription.
-            PendingRepublish + StartRepublish / start_republish = RepublishingSettings,
-            RepublishingSettings + StartRepublish / start_republish = RepublishingSettings,
-            Active + StartRepublish / start_republish = RepublishingSettings,
+            PendingRepublish + StartRepublish / start_iteration = RepublishingSettings,
+            RepublishingSettings + StartRepublish / start_iteration = RepublishingSettings,
+            Active + StartRepublish / start_iteration = RepublishingSettings,
 
             // After republishing settings, we are in an idle "active" state.
-            RepublishingSettings + RepublishComplete = Active,
+            RepublishingSettings + Complete = Active,
 
             // All states transition back to `initial` on reset.
             _ + Reset = Initial,
@@ -55,7 +55,7 @@ mod sm {
     pub struct Context<C: embedded_time::Clock, M: super::Miniconf + ?Sized> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: super::MiniconfIter<M>,
+        pub iteration_state: super::MiniconfIter<M>,
     }
 
     impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
@@ -63,7 +63,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: Default::default(),
+                iteration_state: Default::default(),
             }
         }
 
@@ -83,8 +83,8 @@ mod sm {
             );
         }
 
-        fn start_republish(&mut self) {
-            self.republish_state = Default::default();
+        fn start_iteration(&mut self) {
+            self.iteration_state = Default::default();
         }
     }
 }
@@ -143,6 +143,7 @@ where
     state: sm::StateMachine<sm::Context<Clock, Settings>>,
     settings_prefix: String<MAX_TOPIC_LENGTH>,
     prefix: String<MAX_TOPIC_LENGTH>,
+    listing_state: Option<(String<MAX_TOPIC_LENGTH>, MiniconfIter<Settings>)>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -201,7 +202,54 @@ where
             settings,
             settings_prefix,
             prefix: String::from(prefix),
+            listing_state: None,
         })
+    }
+
+    fn handle_listing(&mut self) {
+        let Some((ref topic, ref mut iteration_state)) = &mut self.listing_state else {
+            return;
+        };
+
+        if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+            return;
+        }
+
+        for path in iteration_state {
+            info!("Listing: {path}");
+            // Note(unwrap): This should not fail because `can_publish()` was checked before
+            // attempting this publish.
+            self.mqtt
+                .client()
+                .publish(
+                    Publication::new(path.as_bytes())
+                        .topic(topic)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
+                        .unwrap(),
+                )
+                .unwrap();
+
+            // If we can't publish any more messages, bail out now to prevent the iterator from
+            // progressing. If we don't bail out now, we'd silently drop a setting.
+            if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+                return;
+            }
+        }
+
+        self.mqtt
+            .client()
+            .publish(
+                Publication::new("".as_bytes())
+                    .topic(topic)
+                    .finish()
+                    .unwrap(),
+            )
+            .unwrap();
+
+        info!("Listing complete");
+        // If we got here, we completed iterating over the topics and published them all.
+        self.listing_state.take();
     }
 
     fn handle_republish(&mut self) {
@@ -209,7 +257,7 @@ where
             return;
         }
 
-        for topic in &mut self.state.context_mut().republish_state {
+        for topic in &mut self.state.context_mut().iteration_state {
             let mut data = [0; MESSAGE_SIZE];
 
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
@@ -242,9 +290,7 @@ where
         }
 
         // If we got here, we completed iterating over the topics and published them all.
-        self.state
-            .process_event(sm::Events::RepublishComplete)
-            .unwrap();
+        self.state.process_event(sm::Events::Complete).unwrap();
     }
 
     fn handle_subscription(&mut self) {
@@ -252,8 +298,7 @@ where
 
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
-        let mut settings_topic: String<MAX_TOPIC_LENGTH> =
-            String::from(self.settings_prefix.as_str());
+        let mut settings_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
         settings_topic.push_str("/#").unwrap();
 
         let topic_filter = TopicFilter::new(&settings_topic)
@@ -302,14 +347,12 @@ where
         if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
             self.state.process_event(sm::Events::Reset).unwrap();
+        } else {
+            self.state.process_event(sm::Events::Connected).ok();
         }
 
         match *self.state.state() {
-            sm::States::Initial => {
-                if self.mqtt.client().is_connected() {
-                    self.state.process_event(sm::Events::Connected).unwrap();
-                }
-            }
+            sm::States::Initial => {}
             sm::States::ConnectedToBroker => self.handle_indicating_alive(),
             sm::States::PendingSubscribe => self.handle_subscription(),
             sm::States::PendingRepublish => {
@@ -323,6 +366,10 @@ where
 
             // Nothing to do in the active state.
             sm::States::Active => {}
+        }
+
+        if self.listing_state.is_some() {
+            self.handle_listing();
         }
 
         // All states must handle MQTT traffic.
@@ -339,58 +386,96 @@ where
     {
         let settings = &mut self.settings;
         let mqtt = &mut self.mqtt;
-        let prefix = self.settings_prefix.as_str();
-
-        let mut response_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
-        response_topic.push_str("/log").unwrap();
-        let default_response_topic = response_topic.as_str();
+        let prefix = self.prefix.as_str();
+        let listing_state = &mut self.listing_state;
 
         let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
-            let path = match topic.strip_prefix(prefix) {
-                // For paths, we do not want to include the leading slash.
-                Some(path) => {
-                    if !path.is_empty() {
-                        &path[1..]
-                    } else {
-                        path
+            let Some(path) = topic.strip_prefix(prefix) else {
+                info!("Unexpected MQTT topic: {}", topic);
+                return;
+            };
+
+            // For paths, we do not want to include the leading slash.
+            let path = path.strip_prefix('/').unwrap_or(path);
+
+            let command = {
+                match path.split_once('/') {
+                    Some((root, tail)) => (root, Some(tail)),
+                    None => (path, None),
+                }
+            };
+
+            let message: Vec<u8, MESSAGE_SIZE> = match command {
+                ("query", None) => {
+                    let mut data: Vec<u8, MESSAGE_SIZE> = Vec::new();
+                    data.resize_default(MESSAGE_SIZE).unwrap();
+
+                    let path = core::str::from_utf8(message).unwrap_or("");
+
+                    log::info!("Querying: {path}");
+                    // Get a specific settings value with the provided path.
+                    match settings.get(path, &mut data) {
+                        Ok(len) => {
+                            data.resize_default(len).unwrap();
+                            data
+                        }
+                        _ => serde_json_core::to_vec("Invalid path").unwrap(),
                     }
                 }
-                None => {
-                    info!("Unexpected MQTT topic: {}", topic);
+
+                ("list", None) => {
+                    let Some(response_topic) = properties.into_iter().find_map(|p| {
+                        if let Ok(minimq::Property::ResponseTopic(topic)) = p {
+                            Some(topic.0)
+                        } else {
+                            None
+                        }
+                    }) else {
+                        // There's no topic provided to list properties on, so there's nothing to
+                        // do.
+                        return;
+                    };
+
+                    // TODO: Handle too-long response topics.
+                    info!("Starting to list to: {response_topic}");
+                    listing_state.replace((String::from(response_topic), Default::default()));
+                    return;
+                }
+
+                ("settings", Some(path)) => {
+                    let mut new_settings = settings.clone();
+                    let message: SettingsResponse = match new_settings.set(path, message) {
+                        Ok(_) => {
+                            updated = true;
+                            handler(path, settings, &new_settings).into()
+                        }
+                        err => {
+                            let mut msg = String::new();
+                            if write!(&mut msg, "{:?}", err).is_err() {
+                                msg = String::from("Configuration Error");
+                            }
+
+                            SettingsResponse::error(msg)
+                        }
+                    };
+
+                    // Note(unwrap): All SettingsResponse objects are guaranteed to fit in the vector.
+                    serde_json_core::to_vec(&message).unwrap()
+                }
+
+                _ => {
+                    info!("Unknown Miniconf command: {path}");
                     return;
                 }
             };
 
-            let mut new_settings = settings.clone();
-            let message: SettingsResponse = match new_settings.set(path, message) {
-                Ok(_) => {
-                    updated = true;
-                    handler(path, settings, &new_settings).into()
-                }
-                err => {
-                    let mut msg = String::new();
-                    if write!(&mut msg, "{:?}", err).is_err() {
-                        msg = String::from("Configuration Error");
-                    }
-
-                    SettingsResponse::error(msg)
-                }
-            };
-
-            // Note(unwrap): All SettingsResponse objects are guaranteed to fit in the vector.
-            let message: Vec<u8, 128> = serde_json_core::to_vec(&message).unwrap();
-
-            client
-                .publish(
-                    minimq::Publication::new(&message)
-                        .topic(default_response_topic)
-                        .reply(properties)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        .unwrap(),
-                )
-                .ok();
+            minimq::Publication::new(&message)
+                .reply(properties)
+                .qos(QoS::AtLeastOnce)
+                .finish()
+                .ok()
+                .and_then(|message| client.publish(message).ok());
         }) {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
