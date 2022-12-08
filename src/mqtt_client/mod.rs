@@ -1,5 +1,5 @@
 use serde::Serialize;
-use serde_json_core::heapless::{String, Vec};
+use serde_json_core::heapless::String;
 
 use crate::Miniconf;
 use log::info;
@@ -166,9 +166,8 @@ where
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings>>,
-    settings_prefix: String<MAX_TOPIC_LENGTH>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<(String<MAX_TOPIC_LENGTH>, MiniconfIter<Settings>)>,
+    listing_state: Option<(String<MESSAGE_SIZE>, MiniconfIter<Settings>)>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -225,7 +224,6 @@ where
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
             settings,
-            settings_prefix,
             prefix: String::from(prefix),
             listing_state: None,
         })
@@ -293,7 +291,7 @@ where
             };
 
             let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
-            write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
+            write!(&mut prefixed_topic, "{}/settings/{}", &self.prefix, &topic).unwrap();
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
@@ -451,7 +449,6 @@ where
                         return;
                     };
 
-                    // TODO: Handle too-long response topics.
                     listing_state.replace((String::from(response_topic), Default::default()));
                     return;
                 }
