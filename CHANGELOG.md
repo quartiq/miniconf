@@ -4,9 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.6.2...HEAD)
+## [0.6.3](https://github.com/quartiq/miniconf/releases/tag/v0.6.3) - 2022-12-09
 
 * `Array` and `Option` are `repr(transparent)`
+* Fixed documentation for `Array` and `Option`
 
 ## [0.6.2](https://github.com/quartiq/miniconf/compare/v0.6.1...v0.6.2) - 2022-11-09
 
