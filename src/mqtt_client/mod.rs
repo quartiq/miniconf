@@ -1,5 +1,5 @@
 use serde::Serialize;
-use serde_json_core::heapless::String;
+use serde_json_core::heapless::{String, Vec};
 
 use crate::Miniconf;
 use log::info;
@@ -90,7 +90,7 @@ mod sm {
 }
 
 enum Command<'a> {
-    Query,
+    Get,
     List,
     Modify(&'a str),
 }
@@ -104,7 +104,7 @@ impl<'a> Command<'a> {
             .unwrap_or((path, None));
 
         let command = match parsed {
-            ("query", None) => Command::Query,
+            ("get", None) => Command::Get,
             ("list", None) => Command::List,
             ("settings", Some(path)) => Command::Modify(path),
             _ => return Err(()),
@@ -167,7 +167,7 @@ where
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<(String<MESSAGE_SIZE>, MiniconfIter<Settings>)>,
+    listing_state: Option<(Vec<u8, MESSAGE_SIZE>, MiniconfIter<Settings>)>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -230,23 +230,26 @@ where
     }
 
     fn handle_listing(&mut self) {
-        let Some((ref topic, ref mut republish_state)) = &mut self.listing_state else {
+        let Some((ref props, ref mut republish_state)) = &mut self.listing_state else {
             return;
         };
+
+        let props = minimq::types::Properties::DataBlock(props);
 
         if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             return;
         }
 
         for path in republish_state {
-            info!("Listing: {path}");
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
             self.mqtt
                 .client()
                 .publish(
+                    // Note(unwrap): We already guaranteed that the reply properties have a response
+                    // topic.
                     Publication::new(path.as_bytes())
-                        .topic(topic)
+                        .reply(&props)
                         .qos(QoS::AtLeastOnce)
                         .finish()
                         .unwrap(),
@@ -264,8 +267,11 @@ where
         self.mqtt
             .client()
             .publish(
-                Publication::new("".as_bytes())
-                    .topic(topic)
+                // Note(unwrap): We already guaranteed that the reply properties have a response
+                // topic.
+                Publication::new(b"")
+                    .reply(&props)
+                    .qos(QoS::AtLeastOnce)
                     .finish()
                     .unwrap(),
             )
@@ -426,7 +432,7 @@ where
 
             let mut data = [0u8; MESSAGE_SIZE];
             let message = match command {
-                Command::Query => {
+                Command::Get => {
                     let path = core::str::from_utf8(message).unwrap_or("");
 
                     // Get a specific settings value with the provided path.
@@ -437,19 +443,26 @@ where
                 }
 
                 Command::List => {
-                    let Some(response_topic) = properties.into_iter().find_map(|p| {
-                        if let Ok(minimq::Property::ResponseTopic(topic)) = p {
-                            Some(topic.0)
-                        } else {
-                            None
-                        }
-                    }) else {
-                        // There's no topic provided to list properties on, so there's nothing to
-                        // do.
+                    if !properties
+                        .into_iter()
+                        .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
+                    {
+                        // If there's no response topic, there's no where we can publish the list.
+                        // Ignore the request.
                         return;
+                    }
+
+                    let minimq::types::Properties::DataBlock(binary_props) = properties else {
+                        // Received properties are always serialized, so this path should never be
+                        // executed.
+                        unreachable!();
                     };
 
-                    listing_state.replace((String::from(response_topic), Default::default()));
+                    // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                    // message size, so the properties (which are a portion of the message) will
+                    // always fit into it.
+                    listing_state
+                        .replace((Vec::from_slice(binary_props).unwrap(), Default::default()));
                     return;
                 }
 

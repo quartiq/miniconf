@@ -41,7 +41,7 @@ class Miniconf:
         self.client.on_message = self._handle_response
         self.command_response_topic = f'{prefix}/response/command'
         self.list_response_topic = f'{prefix}/response/list'
-        self.query_response_topic = f'{prefix}/response/query'
+        self.get_response_topic = f'{prefix}/response/get'
         self.client.subscribe(f'{prefix}/response/#')
         self._topics = []
 
@@ -56,7 +56,7 @@ class Miniconf:
             properties: A dictionary of properties associated with the message.
         """
         logging.info(f'Received message: {topic}={payload}')
-        if topic in (self.command_response_topic, self.query_response_topic):
+        if topic in (self.command_response_topic, self.get_response_topic):
             # Extract request_id corrleation data from the properties
             request_id = properties['correlation_data'][0]
 
@@ -123,7 +123,7 @@ class Miniconf:
         return await asyncio.wait_for(fut, timeout)
 
 
-    async def query_value(self, path, timeout=5.0):
+    async def get_value(self, path, timeout=5.0):
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch
@@ -132,8 +132,8 @@ class Miniconf:
         self.inflight[request_id] = fut
 
         self.client.publish(
-            f'{self.prefix}/query', payload=path, qos=0,
-            response_topic=self.query_response_topic,
+            f'{self.prefix}/get', payload=path, qos=0,
+            response_topic=self.get_response_topic,
             correlation_data=request_id)
 
         return await asyncio.wait_for(fut, timeout)
