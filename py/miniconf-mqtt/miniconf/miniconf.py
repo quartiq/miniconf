@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import uuid
+import warnings
 
 from gmqtt import Client as MqttClient
 
@@ -76,7 +77,14 @@ class Miniconf:
         else:
             LOGGER.warning('Unexpected message on "%s"', topic)
 
-    async def command(self, path, value, retain=False, timeout=5):
+    async def command(self, *args, **kwargs):
+        """ Refer to `set` for more information. """
+        warnings.warn("The `command` API function is deprecated in favor of `set`",
+                      DeprecationWarning)
+        return self.set(*args, **kwargs)
+
+
+    async def set(self, path, value, retain=False, timeout=5):
         """Write the provided data to the specified path.
 
         Args:
@@ -124,8 +132,8 @@ class Miniconf:
         return fut
 
 
-    def get_value(self, path):
-        """ Query the specific value of a given path. """
+    def get(self, path):
+        """ Get the specific value of a given path. """
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch

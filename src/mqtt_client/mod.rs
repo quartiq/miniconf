@@ -92,7 +92,7 @@ mod sm {
 enum Command<'a> {
     Get,
     List,
-    Modify(&'a str),
+    Set(&'a str),
 }
 
 impl<'a> Command<'a> {
@@ -106,7 +106,7 @@ impl<'a> Command<'a> {
         let command = match parsed {
             ("get", None) => Command::Get,
             ("list", None) => Command::List,
-            ("settings", Some(path)) => Command::Modify(path),
+            ("settings", Some(path)) => Command::Set(path),
             _ => return Err(()),
         };
 
@@ -230,55 +230,47 @@ where
     }
 
     fn handle_listing(&mut self) {
-        let Some((ref props, ref mut republish_state)) = &mut self.listing_state else {
+        let Some((ref props, ref mut iter)) = &mut self.listing_state else {
             return;
         };
 
         let props = minimq::types::Properties::DataBlock(props);
 
-        if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            return;
-        }
-
-        for path in republish_state {
-            // Note(unwrap): This should not fail because `can_publish()` was checked before
+        while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+            // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
             // attempting this publish.
-            self.mqtt
-                .client()
-                .publish(
-                    // Note(unwrap): We already guaranteed that the reply properties have a response
-                    // topic.
-                    Publication::new(path.as_bytes())
-                        .reply(&props)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        .unwrap(),
-                )
-                .unwrap();
+            if let Some(path) = iter.next() {
+                self.mqtt
+                    .client()
+                    .publish(
+                        // Note(unwrap): We already guaranteed that the reply properties have a response
+                        // topic.
+                        Publication::new(path.as_bytes())
+                            .reply(&props)
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
+                            .unwrap(),
+                    )
+                    .unwrap();
+            } else {
+                self.mqtt
+                    .client()
+                    .publish(
+                        // Note(unwrap): We already guaranteed that the reply properties have a response
+                        // topic.
+                        Publication::new(b"")
+                            .reply(&props)
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
+                            .unwrap(),
+                    )
+                    .unwrap();
 
-            // If we can't publish any more messages, bail out now to prevent the iterator from
-            // progressing. If we don't bail out now, we'd silently drop a setting.
-            if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-                return;
-            }
+                // We just completed listing topics, so clear the state.
+                self.listing_state.take();
+                break;
+            };
         }
-
-        // Publish an empty message to denote that the listing action has completed.
-        self.mqtt
-            .client()
-            .publish(
-                // Note(unwrap): We already guaranteed that the reply properties have a response
-                // topic.
-                Publication::new(b"")
-                    .reply(&props)
-                    .qos(QoS::AtLeastOnce)
-                    .finish()
-                    .unwrap(),
-            )
-            .unwrap();
-
-        // If we got here, we completed iterating over the topics and published them all.
-        self.listing_state.take();
     }
 
     fn handle_republish(&mut self) {
@@ -397,9 +389,7 @@ where
             sm::States::Active => {}
         }
 
-        if self.listing_state.is_some() {
-            self.handle_listing();
-        }
+        self.handle_listing();
 
         // All states must handle MQTT traffic.
         self.handle_mqtt_traffic(handler)
@@ -466,7 +456,7 @@ where
                     return;
                 }
 
-                Command::Modify(path) => {
+                Command::Set(path) => {
                     let mut new_settings = settings.clone();
                     let message: SettingsResponse = match new_settings.set(path, message) {
                         Ok(_) => {
