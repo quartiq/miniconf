@@ -55,7 +55,6 @@ class Miniconf:
             _qos: The quality-of-service level of the received packet
             properties: A dictionary of properties associated with the message.
         """
-        logging.info(f'Received message: {topic}={payload}')
         if topic in (self.command_response_topic, self.get_response_topic):
             # Extract request_id corrleation data from the properties
             request_id = properties['correlation_data'][0]
@@ -112,7 +111,8 @@ class Miniconf:
             raise MiniconfException(result['msg'])
 
 
-    def list_paths(self, timeout=5.0):
+    def list_paths(self):
+        """ Get a list of all the paths available on the device. """
         self._topics = []
         fut = asyncio.get_running_loop().create_future()
 
@@ -125,6 +125,7 @@ class Miniconf:
 
 
     def get_value(self, path):
+        """ Query the specific value of a given path. """
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch
