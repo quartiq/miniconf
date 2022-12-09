@@ -111,7 +111,8 @@ class Miniconf:
         if result['code'] != 0:
             raise MiniconfException(result['msg'])
 
-    async def list_paths(self, timeout=5.0):
+
+    def list_paths(self, timeout=5.0):
         self._topics = []
         fut = asyncio.get_running_loop().create_future()
 
@@ -120,10 +121,10 @@ class Miniconf:
 
         self.client.publish(f'{self.prefix}/list', payload='Test',
                             response_topic=self.list_response_topic)
-        return await asyncio.wait_for(fut, timeout)
+        return fut
 
 
-    async def get_value(self, path, timeout=5.0):
+    def get_value(self, path):
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch
@@ -136,4 +137,4 @@ class Miniconf:
             response_topic=self.get_response_topic,
             correlation_data=request_id)
 
-        return await asyncio.wait_for(fut, timeout)
+        return fut
