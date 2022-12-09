@@ -103,7 +103,7 @@ class Miniconf:
 
         self.client.publish(
             topic, payload=payload, qos=0, retain=retain,
-            response_topic=self.response_topic,
+            response_topic=self.command_response_topic,
             correlation_data=request_id)
 
         result = await asyncio.wait_for(fut, timeout)
