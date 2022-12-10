@@ -16,7 +16,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 ## Example
 ```rust
 use miniconf::Miniconf;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
 enum Either {
@@ -56,7 +56,11 @@ struct Settings {
     option_defer: Option<i32>,
     // Hiding a path and deferring to the inner
     #[miniconf(defer)]
-    option_miniconf: miniconf::Option<Inner>
+    option_miniconf: miniconf::Option<Inner>,
+
+    // Array of Options of Miniconf
+    #[miniconf(defer)]
+    array_option_miniconf: miniconf::Array<miniconf::Option<Inner>, 2>,
 }
 
 let mut settings = Settings::default();
@@ -87,15 +91,29 @@ settings.set("option_miniconf/a", b"14").unwrap_err();
 settings.option_miniconf = Some(Inner::default()).into();
 settings.set("option_miniconf/a", b"14")?;
 
+settings
+    .set("array_option_miniconf/1/a", b"15")
+    .unwrap_err();
+settings.array_option_miniconf[1] = Some(Inner::default()).into();
+settings.set("array_option_miniconf/1/a", b"15")?;
+
 // Serializing an element by path
 let len = settings.get("foo", &mut buf)?;
 assert_eq!(&buf[..len], b"true");
 
 // Iterating over all elements
 for path in Settings::iter_paths::<3, 32>().unwrap() {
-    let len = settings.get(&path, &mut buf)?;
-    if path.as_str() == "option_miniconf/a" {
-        assert_eq!(&buf[..len], b"14");
+    // Serialize the element
+    let len = match settings.get(&path, &mut buf) {
+        // One array element is still `None` and thus its paths are absent
+        Err(miniconf::Error::PathAbsent) => {
+            assert!(path.starts_with("array_option_miniconf/0/"));
+            continue;
+        }
+        other => other,
+    }?;
+    if path.as_str() == "array_option_miniconf/1/a" {
+        assert_eq!(&buf[..len], b"15");
     }
 }
 
