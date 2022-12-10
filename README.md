@@ -104,16 +104,16 @@ assert_eq!(&buf[..len], b"true");
 // Iterating over all elements
 for path in Settings::iter_paths::<3, 32>().unwrap() {
     // Serialize the element
-    let len = match settings.get(&path, &mut buf) {
-        // One array element is still `None` and thus its paths are absent
-        Err(miniconf::Error::PathAbsent) => {
-            assert!(path.starts_with("array_option_miniconf/0/"));
-            continue;
-        }
-        other => other,
-    }?;
-    if path.as_str() == "array_option_miniconf/1/a" {
-        assert_eq!(&buf[..len], b"15");
+    let ret = settings.get(&path, &mut buf);
+    // One array element is still `None` and thus its paths are absent
+    if path.starts_with("array_option_miniconf/0/") {
+        assert_eq!(ret, Err(miniconf::Error::PathAbsent));
+    // Check this path's value
+    } else if path.as_str() == "array_option_miniconf/1/a" {
+        assert_eq!(&buf[..ret.unwrap()], b"15");
+    // The others are all valid
+    } else {
+        ret.unwrap();
     }
 }
 
