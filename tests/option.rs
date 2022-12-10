@@ -18,8 +18,18 @@ fn option_get_set_none() {
 
     // Check that if the option is None, the value cannot be get or set.
     settings.value.take();
-    assert!(settings.get("value", &mut data).is_err());
-    assert!(settings.set("value/data", b"5").is_err());
+    assert_eq!(
+        settings.get("value_foo", &mut data),
+        Err(miniconf::Error::PathNotFound)
+    );
+    assert_eq!(
+        settings.get("value", &mut data),
+        Err(miniconf::Error::PathAbsent)
+    );
+    assert_eq!(
+        settings.set("value/data", b"5"),
+        Err(miniconf::Error::PathAbsent)
+    );
 }
 
 #[test]
