@@ -220,7 +220,9 @@ where
             };
 
             let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
-            write!(&mut prefixed_topic, "{}/{}", &self.settings_prefix, &topic).unwrap();
+            prefixed_topic.push_str(&self.settings_prefix).unwrap();
+            prefixed_topic.push('/').unwrap();
+            prefixed_topic.push_str(&topic).unwrap();
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
