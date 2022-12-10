@@ -20,6 +20,7 @@ log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
 minimq = { version = "^0.6.1", optional = true }
 smlang = { version = "0.6", optional = true }
+itoa = "1.0.4"
 
 [features]
 default = ["mqtt-client"]

@@ -1,6 +1,4 @@
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
-
-use core::fmt::Write;
 use core::ops::{Deref, DerefMut};
 
 /// An array that exposes each element through their [`Miniconf`] implementation.
@@ -119,7 +117,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 
         while *state.first().ok_or(IterError::PathDepth)? < N {
             // Add the array index and separator to the topic name.
-            write!(topic, "{}/", state[0]).map_err(|_| IterError::PathLength)?;
+            topic
+                .push_str(itoa::Buffer::new().format(state[0]))
+                .map_err(|_| IterError::PathLength)?;
+            topic.push('/').map_err(|_| IterError::PathLength)?;
 
             if T::next_path(&mut state[1..], topic)? {
                 return Ok(true);
@@ -197,7 +198,8 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
     ) -> Result<bool, IterError> {
         if *state.first().ok_or(IterError::PathDepth)? < N {
             // Add the array index to the topic name.
-            write!(path, "{}", state[0]).map_err(|_| IterError::PathLength)?;
+            path.push_str(itoa::Buffer::new().format(state[0]))
+                .map_err(|_| IterError::PathLength)?;
 
             state[0] += 1;
             Ok(true)
