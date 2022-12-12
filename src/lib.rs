@@ -70,7 +70,9 @@ pub enum Error {
     /// The path does not exist at runtime.
     ///
     /// This is the case if a deferred [core::option::Option] or [Option]
-    /// is `None` at runtime.
+    /// is `None` at runtime. `PathAbsent` takes precedence over `PathNotFound`
+    /// if the path is simultaneously masked by a `Option::None` at runtime but
+    /// would still be non-existent if it weren't.
     PathAbsent,
 }
 

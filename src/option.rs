@@ -79,7 +79,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         if let Some(inner) = self.0.as_mut() {
             inner.set_path(path_parts, value)
         } else {
-            Err(Error::PathNotFound)
+            Err(Error::PathAbsent)
         }
     }
 
@@ -91,7 +91,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         if let Some(inner) = self.0.as_ref() {
             inner.get_path(path_parts, value)
         } else {
-            Err(Error::PathNotFound)
+            Err(Error::PathAbsent)
         }
     }
 
