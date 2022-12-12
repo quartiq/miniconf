@@ -40,11 +40,20 @@ class Miniconf:
         self.prefix = prefix
         self.inflight = {}
         self.client.on_message = self._handle_response
-        self.command_response_topic = f'{prefix}/response/command'
-        self.list_response_topic = f'{prefix}/response/list'
-        self.get_response_topic = f'{prefix}/response/get'
-        self.client.subscribe(f'{prefix}/response/#')
-        self._topics = []
+        self.client.on_subscribe = self._handle_subscription
+        self.response_topic = f'{prefix}/response'
+        self.client.subscribe(f'{prefix}/response')
+        self._pending_subscriptions = {}
+
+
+    def _handle_subscription(self, client, mid, qos, props):
+        LOGGER.info("Handling subscription for %s", mid)
+        if mid not in self._pending_subscriptions:
+            return
+
+        self._pending_subscriptions[mid].set_result(True)
+        del self._pending_subscriptions[mid]
+
 
     def _handle_response(self, _client, topic, payload, _qos, properties):
         """Callback function for when messages are received over MQTT.
@@ -56,26 +65,39 @@ class Miniconf:
             _qos: The quality-of-service level of the received packet
             properties: A dictionary of properties associated with the message.
         """
-        if topic in (self.command_response_topic, self.get_response_topic):
-            # Extract request_id corrleation data from the properties
-            request_id = properties['correlation_data'][0]
+        if 'correlation_data' not in properties:
+            LOGGER.warn("Discarding message without CD")
+            return
 
-            if request_id not in self.inflight:
-                LOGGER.info("Discarding message with CD: %s", request_id)
-                return
+        # Extract request_id corrleation data from the properties
+        request_id = properties['correlation_data'][0]
 
-            self.inflight[request_id].set_result(json.loads(payload))
-            del self.inflight[request_id]
+        if request_id not in self.inflight:
+            LOGGER.info("Discarding message with CD: %s", request_id)
+            return
 
-        elif topic == self.list_response_topic:
-            if payload == b'':
-                self.inflight['LIST'].set_result(self._topics)
-                del self.inflight['LIST']
+        response = json.loads(payload)
+        if topic == self.response_topic:
+            # Handle list responses
+            if isinstance(self.inflight[request_id], tuple):
+                if response['code'] == 0xFF:
+                    self.inflight[request_id][1].set_result(response)
+                    del self.inflight[request_id]
+                elif response['code'] == 0:
+                    self.inflight[request_id][1].set_result(self.inflight[request_id][0])
+                    del self.inflight[request_id]
+                else:
+                    self.inflight[request_id][0].append(response["msg"])
+
+            # Handle get/set responses
             else:
-                self._topics.append(payload.decode('ascii'))
-
+                self.inflight[request_id].set_result((response, self.inflight[request_id][0]))
+                del self.inflight[request_id]
         else:
-            LOGGER.warning('Unexpected message on "%s"', topic)
+            # Handle get subscription data.
+            self.inflight[request_id][0] = response
+
+
 
     async def command(self, *args, **kwargs):
         """ Refer to `set` for more information. """
@@ -111,7 +133,7 @@ class Miniconf:
 
         self.client.publish(
             topic, payload=payload, qos=0, retain=retain,
-            response_topic=self.command_response_topic,
+            response_topic=self.response_topic,
             correlation_data=request_id)
 
         result = await asyncio.wait_for(fut, timeout)
@@ -124,26 +146,39 @@ class Miniconf:
         self._topics = []
         fut = asyncio.get_running_loop().create_future()
 
-        assert 'LIST' not in self.inflight
-        self.inflight['LIST'] = fut
+        request_id = uuid.uuid1().hex.encode()
+        assert request_id not in self.inflight
+        self.inflight[request_id] = ([], fut)
 
-        self.client.publish(f'{self.prefix}/list', payload='Test',
-                            response_topic=self.list_response_topic)
+        self.client.publish(f'{self.prefix}/list', payload='',
+                            correlation_data=request_id,
+                            response_topic=self.response_topic)
         return fut
 
 
-    def get(self, path):
+    async def get(self, path, timeout=5):
         """ Get the specific value of a given path. """
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch
         request_id = uuid.uuid1().hex.encode()
         assert request_id not in self.inflight
-        self.inflight[request_id] = fut
+        self.inflight[request_id] = [None, fut]
+
+        subscription = self.client.subscribe(f'{self.prefix}/settings/{path}', no_local=True)
+        self._pending_subscriptions[subscription] = asyncio.get_running_loop().create_future()
+        await self._pending_subscriptions[subscription]
 
         self.client.publish(
-            f'{self.prefix}/get', payload=path, qos=0,
-            response_topic=self.get_response_topic,
+            f'{self.prefix}/settings/{path}', payload='', qos=0,
+            response_topic=self.response_topic,
             correlation_data=request_id)
 
-        return fut
+        result, value = await asyncio.wait_for(fut, timeout)
+
+        self.client.unsubscribe(f'{self.prefix}/settings/{path}')
+
+        if result['code'] != 0:
+            raise MiniconfException(result['msg'])
+
+        return value

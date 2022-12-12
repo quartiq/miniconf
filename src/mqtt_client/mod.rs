@@ -453,8 +453,9 @@ where
                 }
 
                 Command::Get(path) => {
+                    // TODO: Mark the provided path as requiring republication.
                     match settings.get(path, &mut data) {
-                        Ok(_) => {
+                        Ok(len) => {
                             let mut topic: String<MAX_TOPIC_LENGTH> = String::new();
 
                             // Note(unwraps): We check that the string will fit during
@@ -465,7 +466,7 @@ where
 
                             // Note(unwrap): This construction cannot fail because there's always a
                             // valid topic.
-                            let message = minimq::Publication::new(message)
+                            let message = minimq::Publication::new(&data[..len])
                                 .reply(properties)
                                 // Override the response topic with the path.
                                 .topic(&topic)
@@ -502,6 +503,8 @@ where
                 _ => return,
             };
 
+            // TODO: Need to handle failures to send this publication properly. For some paths
+            // above, if a publication was just enqueued, it can block this publication.
             minimq::Publication::new(message)
                 .reply(properties)
                 .qos(QoS::AtLeastOnce)

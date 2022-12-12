@@ -22,7 +22,7 @@ struct Settings {
 
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: Minimq<_, _, 256, 1> = Minimq::new(
+    let mut mqtt: Minimq<_, _, 256, 4> = Minimq::new(
         "127.0.0.1".parse().unwrap(),
         "tester",
         Stack::default(),
@@ -93,7 +93,7 @@ async fn main() {
         }
 
         if client.settings().exit {
-            break;
+            //break;
         }
 
         tokio::time::sleep(Duration::from_millis(10)).await;
