@@ -90,23 +90,28 @@ mod sm {
 }
 
 enum Command<'a> {
-    Get,
     List,
-    Set(&'a str),
+    Get(&'a str),
+    Set { path: &'a str, value: &'a [u8] },
 }
 
 impl<'a> Command<'a> {
-    fn from_str(string: &'a str) -> Result<Self, ()> {
-        let path = string.strip_prefix('/').unwrap_or(string);
+    fn from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
+        let path = topic.strip_prefix('/').unwrap_or(topic);
         let parsed = path
             .split_once('/')
             .map(|(head, tail)| (head, Some(tail)))
             .unwrap_or((path, None));
 
         let command = match parsed {
-            ("get", None) => Command::Get,
             ("list", None) => Command::List,
-            ("settings", Some(path)) => Command::Set(path),
+            ("settings", Some(path)) => {
+                if value.is_empty() {
+                    Command::Get(path)
+                } else {
+                    Command::Set { path, value }
+                }
+            }
             _ => return Err(()),
         };
 
@@ -236,40 +241,41 @@ where
 
         let props = minimq::types::Properties::DataBlock(props);
 
+        let mut data = [0u8; MESSAGE_SIZE];
+
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
             // attempting this publish.
-            if let Some(path) = iter.next() {
-                self.mqtt
-                    .client()
-                    .publish(
-                        // Note(unwrap): We already guaranteed that the reply properties have a response
-                        // topic.
-                        Publication::new(path.as_bytes())
-                            .reply(&props)
-                            .qos(QoS::AtLeastOnce)
-                            .finish()
-                            .unwrap(),
-                    )
-                    .unwrap();
-            } else {
-                self.mqtt
-                    .client()
-                    .publish(
-                        // Note(unwrap): We already guaranteed that the reply properties have a response
-                        // topic.
-                        Publication::new(b"")
-                            .reply(&props)
-                            .qos(QoS::AtLeastOnce)
-                            .finish()
-                            .unwrap(),
-                    )
-                    .unwrap();
+            let response: Response<MAX_TOPIC_LENGTH> = iter
+                .next()
+                .map(|path| Response::custom(ResponseCode::Continue, &path))
+                .unwrap_or_else(Response::ok);
 
-                // We just completed listing topics, so clear the state.
+            let message = match serde_json_core::to_slice(&response, &mut data) {
+                Ok(len) => &data[..len],
+
+                // If the message buffer is too small, we can't ever provide a response.
+                _ => return,
+            };
+
+            self.mqtt
+                .client()
+                .publish(
+                    // Note(unwrap): We already guaranteed that the reply properties have a response
+                    // topic.
+                    Publication::new(message)
+                        .reply(&props)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
+                        .unwrap(),
+                )
+                .unwrap();
+
+            // If we're done with listing, bail out of the loop.
+            if response.code != ResponseCode::Continue as u8 {
                 self.listing_state.take();
                 break;
-            };
+            }
         }
     }
 
@@ -415,23 +421,13 @@ where
                 return;
             };
 
-            let Ok(command) = Command::from_str(path) else {
+            let Ok(command) = Command::from_message(path, message) else {
                 info!("Unknown Miniconf command: {path}");
                 return;
             };
 
             let mut data = [0u8; MESSAGE_SIZE];
-            let message = match command {
-                Command::Get => {
-                    let path = core::str::from_utf8(message).unwrap_or("");
-
-                    // Get a specific settings value with the provided path.
-                    settings
-                        .get(path, &mut data)
-                        .map(|len| &data[..len])
-                        .unwrap_or(b"Invalid path")
-                }
-
+            let message: Response<64> = match command {
                 Command::List => {
                     if !properties
                         .into_iter()
@@ -456,30 +452,54 @@ where
                     return;
                 }
 
-                Command::Set(path) => {
+                Command::Get(path) => {
+                    match settings.get(path, &mut data) {
+                        Ok(_) => {
+                            let mut topic: String<MAX_TOPIC_LENGTH> = String::new();
+
+                            // Note(unwraps): We check that the string will fit during
+                            // construction.
+                            topic.push_str(prefix).unwrap();
+                            topic.push_str("/settings/").unwrap();
+                            topic.push_str(path).unwrap();
+
+                            // Note(unwrap): This construction cannot fail because there's always a
+                            // valid topic.
+                            let message = minimq::Publication::new(message)
+                                .reply(properties)
+                                // Override the response topic with the path.
+                                .topic(&topic)
+                                .qos(QoS::AtLeastOnce)
+                                .finish()
+                                .unwrap();
+
+                            if client.publish(message).is_err() {
+                                Response::error("Can't publish")
+                            } else {
+                                Response::ok()
+                            }
+                        }
+                        Err(err) => err.into(),
+                    }
+                }
+
+                Command::Set { path, value } => {
                     let mut new_settings = settings.clone();
-                    let message: SettingsResponse = match new_settings.set(path, message) {
+                    match new_settings.set(path, value) {
                         Ok(_) => {
                             updated = true;
                             handler(path, settings, &new_settings).into()
                         }
-                        err => {
-                            let mut msg = String::new();
-                            if write!(&mut msg, "{:?}", err).is_err() {
-                                msg = String::from("Configuration Error");
-                            }
-
-                            SettingsResponse::error(msg)
-                        }
-                    };
-
-                    match serde_json_core::to_slice(&message, &mut data) {
-                        Ok(len) => &data[..len],
-
-                        // If the message buffer is too small, we can't ever provide a response.
-                        _ => return,
+                        Err(err) => err.into(),
                     }
                 }
+            };
+
+            let message = match serde_json_core::to_slice(&message, &mut data) {
+                Ok(len) => &data[..len],
+
+                // If the message buffer is too small, we can't ever provide a response.
+                _ => return,
             };
 
             minimq::Publication::new(message)
@@ -525,30 +545,54 @@ where
     }
 }
 
-/// The payload of the MQTT response message to a settings update request.
-#[derive(Serialize)]
-pub struct SettingsResponse {
-    code: u8,
-    msg: String<64>,
+#[repr(u8)]
+pub enum ResponseCode {
+    Ok = 0,
+    Continue = 1,
+
+    Error = 0xFF,
 }
 
-impl SettingsResponse {
+/// The payload of the MQTT response message to a settings update request.
+#[derive(Serialize)]
+struct Response<const N: usize> {
+    code: u8,
+    msg: String<N>,
+}
+
+impl<const N: usize> Response<N> {
     pub fn ok() -> Self {
         Self {
             msg: String::from("OK"),
-            code: 0,
+            code: ResponseCode::Ok as u8,
         }
     }
 
-    pub fn error(msg: String<64>) -> Self {
-        Self { code: 255, msg }
+    pub fn custom(code: ResponseCode, message: &str) -> Self {
+        let mut msg = String::new();
+        match msg.push_str(message) {
+            Ok(_) => Self {
+                code: code as u8,
+                msg,
+            },
+            Err(_) => Self::error("Message too long"),
+        }
+    }
+
+    pub fn error(message: &str) -> Self {
+        let mut msg = String::new();
+        msg.push_str(message).ok();
+        Self {
+            code: ResponseCode::Error as u8,
+            msg,
+        }
     }
 }
 
-impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
+impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
     fn from(result: Result<T, E>) -> Self {
         match result {
-            Ok(_) => SettingsResponse::ok(),
+            Ok(_) => Response::ok(),
 
             Err(error) => {
                 let mut msg = String::new();
@@ -556,8 +600,25 @@ impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
                     msg = String::from("Configuration Error");
                 }
 
-                Self::error(msg)
+                Self {
+                    code: ResponseCode::Error as u8,
+                    msg,
+                }
             }
+        }
+    }
+}
+
+impl<const N: usize> From<crate::Error> for Response<N> {
+    fn from(err: crate::Error) -> Self {
+        let mut msg = String::new();
+        if write!(&mut msg, "{:?}", err).is_err() {
+            msg = String::from("Configuration Error");
+        }
+
+        Self {
+            code: ResponseCode::Error as u8,
+            msg,
         }
     }
 }
