@@ -2,7 +2,6 @@ use serde::Serialize;
 use serde_json_core::heapless::{String, Vec};
 
 use crate::Miniconf;
-use log::info;
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
@@ -91,7 +90,7 @@ mod sm {
 
 enum Command<'a> {
     List,
-    Get(&'a str),
+    Get { path: &'a str },
     Set { path: &'a str, value: &'a [u8] },
 }
 
@@ -107,7 +106,7 @@ impl<'a> Command<'a> {
             ("list", None) => Command::List,
             ("settings", Some(path)) => {
                 if value.is_empty() {
-                    Command::Get(path)
+                    Command::Get { path }
                 } else {
                     Command::Set { path, value }
                 }
@@ -172,7 +171,9 @@ where
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<(Vec<u8, MESSAGE_SIZE>, MiniconfIter<Settings>)>,
+    listing_state: Option<MiniconfIter<Settings>>,
+    properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
+    pending_response: Option<Response<32>>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -231,12 +232,18 @@ where
             settings,
             prefix: String::from(prefix),
             listing_state: None,
+            properties_cache: None,
+            pending_response: None,
         })
     }
 
     fn handle_listing(&mut self) {
-        let Some((ref props, ref mut iter)) = &mut self.listing_state else {
+        let Some(ref mut iter) = &mut self.listing_state else {
             return;
+        };
+
+        let Some(ref props) = self.properties_cache else {
+            return
         };
 
         let props = minimq::types::Properties::DataBlock(props);
@@ -397,8 +404,46 @@ where
 
         self.handle_listing();
 
+        self.handle_pending_response()?;
+
         // All states must handle MQTT traffic.
         self.handle_mqtt_traffic(handler)
+    }
+
+    fn handle_pending_response(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
+        // Try to publish any pending response.
+        if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+            return Ok(());
+        }
+
+        let Some(response) = self.pending_response.take() else {
+            return Ok(());
+        };
+
+        let Some(props) = self.properties_cache.as_ref() else {
+            return Ok(());
+        };
+
+        let props = minimq::types::Properties::DataBlock(props);
+
+        let mut data = [0u8; MESSAGE_SIZE];
+        let message = match serde_json_core::to_slice(&response, &mut data) {
+            Ok(len) => &data[..len],
+
+            // If the message buffer is too small, we can't ever provide a response.
+            _ => return Ok(()),
+        };
+
+        let Ok(response) = minimq::Publication::new(message)
+                        .reply(&props)
+                        .qos(QoS::AtLeastOnce)
+                        .finish() else {
+            return Ok(());
+        };
+
+        self.mqtt.client().publish(response)?;
+
+        Ok(())
     }
 
     fn handle_mqtt_traffic<F, E>(
@@ -409,51 +454,64 @@ where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: AsRef<str>,
     {
-        let settings = &mut self.settings;
-        let mqtt = &mut self.mqtt;
-        let prefix = self.prefix.as_str();
-        let listing_state = &mut self.listing_state;
+        let Self {
+            ref mut settings,
+            ref mut mqtt,
+            prefix,
+            ref mut listing_state,
+            ref mut pending_response,
+            ref mut properties_cache,
+            ..
+        } = self;
 
         let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
-            let Some(path) = topic.strip_prefix(prefix) else {
-                info!("Unexpected MQTT topic: {}", topic);
+            let Some(path) = topic.strip_prefix(prefix.as_str()) else {
+                log::info!("Unexpected MQTT topic: {}", topic);
                 return;
             };
 
             let Ok(command) = Command::from_message(path, message) else {
-                info!("Unknown Miniconf command: {path}");
+                log::info!("Unknown Miniconf command: {path}");
                 return;
             };
 
+            if pending_response.is_some() {
+                log::warn!("There is still a response pending, ignoring inbound traffic");
+                return;
+            }
+
+            let minimq::types::Properties::DataBlock(binary_props) = properties else {
+                // Received properties are always serialized, so this path should never be
+                // executed.
+                unreachable!();
+            };
+
             let mut data = [0u8; MESSAGE_SIZE];
-            let message: Response<64> = match command {
+            let response: Response<32> = match command {
                 Command::List => {
-                    if !properties
-                        .into_iter()
-                        .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
-                    {
-                        // If there's no response topic, there's no where we can publish the list.
-                        // Ignore the request.
+                    if listing_state.is_none() {
+                        if !properties
+                            .into_iter()
+                            .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
+                        {
+                            // If there's no response topic, there's no where we can publish the list.
+                            // Ignore the request.
+                            return;
+                        }
+
+                        // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                        // message size, so the properties (which are a portion of the message) will
+                        // always fit into it.
+                        properties_cache.replace(Vec::from_slice(binary_props).unwrap());
+                        listing_state.replace(Default::default());
                         return;
                     }
 
-                    let minimq::types::Properties::DataBlock(binary_props) = properties else {
-                        // Received properties are always serialized, so this path should never be
-                        // executed.
-                        unreachable!();
-                    };
-
-                    // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
-                    // message size, so the properties (which are a portion of the message) will
-                    // always fit into it.
-                    listing_state
-                        .replace((Vec::from_slice(binary_props).unwrap(), Default::default()));
-                    return;
+                    Response::error("Listing in progress")
                 }
 
-                Command::Get(path) => {
-                    // TODO: Mark the provided path as requiring republication.
+                Command::Get { path } => {
                     match settings.get(path, &mut data) {
                         Ok(len) => {
                             let mut topic: String<MAX_TOPIC_LENGTH> = String::new();
@@ -496,21 +554,29 @@ where
                 }
             };
 
-            let message = match serde_json_core::to_slice(&message, &mut data) {
+            let message = match serde_json_core::to_slice(&response, &mut data) {
                 Ok(len) => &data[..len],
 
                 // If the message buffer is too small, we can't ever provide a response.
                 _ => return,
             };
 
-            // TODO: Need to handle failures to send this publication properly. For some paths
-            // above, if a publication was just enqueued, it can block this publication.
-            minimq::Publication::new(message)
-                .reply(properties)
-                .qos(QoS::AtLeastOnce)
-                .finish()
-                .ok()
-                .and_then(|message| client.publish(message).ok());
+            let Ok(response_pub) = minimq::Publication::new(message)
+                            .reply(properties)
+                            .qos(QoS::AtLeastOnce)
+                            .finish() else {
+                return;
+            };
+
+            // If we cannot publish the response yet (possibly because we just published something
+            // that hasn't completed yet), cache the response for future transmission.
+            if client.publish(response_pub).is_err() {
+                // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                // message size, so the properties (which are a portion of the message) will
+                // always fit into it.
+                properties_cache.replace(Vec::from_slice(binary_props).unwrap());
+                pending_response.replace(response);
+            }
         }) {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
@@ -556,6 +622,12 @@ pub enum ResponseCode {
     Error = 0xFF,
 }
 
+impl From<ResponseCode> for u8 {
+    fn from(code: ResponseCode) -> u8 {
+        code as u8
+    }
+}
+
 /// The payload of the MQTT response message to a settings update request.
 #[derive(Serialize)]
 struct Response<const N: usize> {
@@ -571,23 +643,40 @@ impl<const N: usize> Response<N> {
         }
     }
 
-    pub fn custom(code: ResponseCode, message: &str) -> Self {
-        let mut msg = String::new();
-        match msg.push_str(message) {
-            Ok(_) => Self {
-                code: code as u8,
-                msg,
-            },
-            Err(_) => Self::error("Message too long"),
+    /// Generate a custom response with any response code.
+    ///
+    /// # Args
+    /// * `code` - The code to provide in the response.
+    /// * `msg` - The message to provide in the response.
+    pub fn custom(code: impl Into<u8>, message: &str) -> Self {
+        // Truncate the provided message to ensure it fits within the heapless String.
+        let message = if message.len() > N {
+            &message[..N]
+        } else {
+            message
+        };
+
+        Self {
+            code: code.into(),
+            msg: String::from(message),
         }
     }
 
+    /// Generate an error response
+    ///
+    /// # Args
+    /// * `message` - A message to provide in the response. Will be truncated to fit.
     pub fn error(message: &str) -> Self {
-        let mut msg = String::new();
-        msg.push_str(message).ok();
+        // Truncate the provided message to ensure it fits within the heapless String.
+        let message = if message.len() > N {
+            &message[..N]
+        } else {
+            message
+        };
+
         Self {
             code: ResponseCode::Error as u8,
-            msg,
+            msg: String::from(message),
         }
     }
 }

@@ -27,7 +27,10 @@ class Miniconf:
         """Create a connection to the broker and a Miniconf device using it."""
         client = MqttClient(client_id='')
         await client.connect(broker)
-        return cls(client, prefix)
+        miniconf = cls(client, prefix)
+        await miniconf.subscriptions_complete()
+        return miniconf
+
 
     def __init__(self, client, prefix):
         """Constructor.
@@ -42,13 +45,20 @@ class Miniconf:
         self.client.on_message = self._handle_response
         self.client.on_subscribe = self._handle_subscription
         self.response_topic = f'{prefix}/response'
-        self.client.subscribe(f'{prefix}/response')
-        self._pending_subscriptions = {}
+        mid = self.client.subscribe(f'{prefix}/response')
+        self._pending_subscriptions = {mid: asyncio.get_running_loop().create_future()}
 
 
-    def _handle_subscription(self, client, mid, qos, props):
+    async def subscriptions_complete(self):
+        """ Wait for all pending subscriptions to complete. """
+        for subscription in list(self._pending_subscriptions.values()):
+            await subscription
+
+
+    def _handle_subscription(self, _client, mid, _qos, _props):
         LOGGER.info("Handling subscription for %s", mid)
         if mid not in self._pending_subscriptions:
+            LOGGER.warning("MID: %s, unexpected subscription", mid)
             return
 
         self._pending_subscriptions[mid].set_result(True)
@@ -65,38 +75,40 @@ class Miniconf:
             _qos: The quality-of-service level of the received packet
             properties: A dictionary of properties associated with the message.
         """
-        if 'correlation_data' not in properties:
-            LOGGER.warn("Discarding message without CD")
+        # Extract request_id corrleation data from the properties
+        try:
+            request_id = properties['correlation_data'][0]
+        except KeyError:
+            LOGGER.info("Discarding message without CD")
             return
 
-        # Extract request_id corrleation data from the properties
-        request_id = properties['correlation_data'][0]
-
-        if request_id not in self.inflight:
-            LOGGER.info("Discarding message with CD: %s", request_id)
+        try:
+            handler = self.inflight[request_id]
+        except KeyError:
+            LOGGER.info("Discarding message with unexpected CD: %s", request_id)
             return
 
         response = json.loads(payload)
+
         if topic == self.response_topic:
             # Handle list responses
             if isinstance(self.inflight[request_id], tuple):
                 if response['code'] == 0xFF:
-                    self.inflight[request_id][1].set_result(response)
+                    handler[1].set_result(response)
                     del self.inflight[request_id]
                 elif response['code'] == 0:
-                    self.inflight[request_id][1].set_result(self.inflight[request_id][0])
+                    handler[1].set_result(self.inflight[request_id][0])
                     del self.inflight[request_id]
                 else:
-                    self.inflight[request_id][0].append(response["msg"])
+                    handler[0].append(response["msg"])
 
             # Handle get/set responses
             else:
-                self.inflight[request_id].set_result((response, self.inflight[request_id][0]))
+                handler[1].set_result((response, self.inflight[request_id][0]))
                 del self.inflight[request_id]
         else:
             # Handle get subscription data.
-            self.inflight[request_id][0] = response
-
+            handler[0] = response
 
 
     async def command(self, *args, **kwargs):
@@ -143,7 +155,6 @@ class Miniconf:
 
     def list_paths(self):
         """ Get a list of all the paths available on the device. """
-        self._topics = []
         fut = asyncio.get_running_loop().create_future()
 
         request_id = uuid.uuid1().hex.encode()
@@ -174,11 +185,11 @@ class Miniconf:
             response_topic=self.response_topic,
             correlation_data=request_id)
 
-        result, value = await asyncio.wait_for(fut, timeout)
+        response, value = await asyncio.wait_for(fut, timeout)
 
         self.client.unsubscribe(f'{self.prefix}/settings/{path}')
 
-        if result['code'] != 0:
-            raise MiniconfException(result['msg'])
+        if response['code'] != 0:
+            raise MiniconfException(response['msg'])
 
         return value
