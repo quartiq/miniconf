@@ -113,7 +113,7 @@ class Miniconf:
 
     async def command(self, *args, **kwargs):
         """ Refer to `set` for more information. """
-        warnings.warn("The `command` API function is deprecated in favor of `set`",
+        warnings.warn("Use `set()` instead of `command()`.",
                       DeprecationWarning)
         return self.set(*args, **kwargs)
 
