@@ -261,8 +261,15 @@ where
             let message = match serde_json_core::to_slice(&response, &mut data) {
                 Ok(len) => &data[..len],
 
-                // If the message buffer is too small, we can't ever provide a response.
-                _ => return,
+                _ => {
+                    let response: Response<32> = Response::error("Buffer too small");
+                    let Ok(len) = serde_json_core::to_slice(&response, &mut data) else {
+                        log::warn!("Message size is too small for responses");
+                        return;
+                    };
+
+                    &data[..len]
+                }
             };
 
             self.mqtt
@@ -558,7 +565,10 @@ where
                 Ok(len) => &data[..len],
 
                 // If the message buffer is too small, we can't ever provide a response.
-                _ => return,
+                _ => {
+                    log::warn!("Message size is too small for a response");
+                    return;
+                }
             };
 
             let Ok(response_pub) = minimq::Publication::new(message)
