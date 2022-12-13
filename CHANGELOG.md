@@ -4,16 +4,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-
-## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.6.3...main)
+## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.6.3...HEAD)
 
 ### Added
 * New `get` and `list` commands are exposed under the Miniconf prefix to allow host software to
   discover and query current device settings.
 * Python client updated to deprecate `command` in favor of `set`
+* Python client now exposes `get()`, `set()`, and `list_paths()` APIs
+
+### Fixed
+* `miniconf::Option`'s `get_path()` and `set_path()` return `Err(Error::PathAbsent)`
+  if `None`
 
 
-## [0.6.3](https://github.com/quartiq/miniconf/releases/tag/v0.6.3) - 2022-12-09
+## [0.6.3](https://github.com/quartiq/miniconf/compare/v0.6.2...v0.6.3) - 2022-12-09
 
 * `Array` and `Option` are `repr(transparent)`
 * Fixed documentation for `Array` and `Option`
