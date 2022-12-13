@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.6.3...HEAD)
 
 ### Added
-* New `get` and `list` commands are exposed under the Miniconf prefix to allow host software to
+* [MQTT client] Getting values is now supported by publishing an empty message to the topic.
+* [MQTT client] New `list` command is exposed under the Miniconf prefix to allow host software to
+
   discover and query current device settings.
 * Python client updated to deprecate `command` in favor of `set`
 * Python client now exposes `get()`, `set()`, and `list_paths()` APIs
