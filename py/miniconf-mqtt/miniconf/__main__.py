@@ -38,7 +38,7 @@ def main():
     parser.add_argument('--discover', '-d', action='store_true',
                         help='Detect and list device prefixes')
     parser.add_argument('--list', '-l', action='store_true',
-                        help='List all active settings and exit')
+                        help='List all active settings after modification')
 
     args = parser.parse_args()
 
@@ -63,22 +63,17 @@ def main():
         prefix = devices.pop()
         logging.info('Automatically using detected device prefix: %s', prefix)
 
-    async def list_paths():
-        interface = await Miniconf.create(prefix, args.broker)
-        for path in await interface.list_paths():
-            value = await interface.get(path)
-            print(f'{path} = {value}')
-
-    if args.list:
-        loop.run_until_complete(list_paths())
-        return
-
     async def configure_settings():
         interface = await Miniconf.create(prefix, args.broker)
         for setting in args.settings:
             path, value = setting.split("=", 1)
             await asyncio.wait_for(interface.set(path, json.loads(value), not args.no_retain), 5)
-            print(f'{path}: OK')
+            print(f'Set {path}: OK')
+
+        if args.list:
+            for path in await interface.list_paths():
+                value = await interface.get(path)
+                print(f'{path} = {value}')
 
     loop.run_until_complete(configure_settings())
 
