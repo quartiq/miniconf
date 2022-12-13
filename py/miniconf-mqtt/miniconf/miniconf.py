@@ -118,7 +118,7 @@ class Miniconf:
         return self.set(*args, **kwargs)
 
 
-    async def set(self, path, value, retain=False, timeout=5):
+    async def set(self, path, value, retain=False):
         """Write the provided data to the specified path.
 
         Args:
@@ -126,7 +126,6 @@ class Miniconf:
             value: The value to write to the path.
             retain: Retain the MQTT message changing the setting
                 by the broker.
-            timeout: The maximum time to wait for the response in seconds.
 
         Returns:
             The response to the command as a dictionary.
@@ -148,7 +147,7 @@ class Miniconf:
             response_topic=self.response_topic,
             correlation_data=request_id)
 
-        result = await asyncio.wait_for(fut, timeout)
+        result = await fut
         if result['code'] != 0:
             raise MiniconfException(result['msg'])
 
@@ -167,7 +166,7 @@ class Miniconf:
         return fut
 
 
-    async def get(self, path, timeout=5):
+    async def get(self, path):
         """ Get the specific value of a given path. """
         fut = asyncio.get_running_loop().create_future()
 
@@ -185,7 +184,7 @@ class Miniconf:
             response_topic=self.response_topic,
             correlation_data=request_id)
 
-        response, value = await asyncio.wait_for(fut, timeout)
+        response, value = await fut
 
         self.client.unsubscribe(f'{self.prefix}/settings/{path}')
 
