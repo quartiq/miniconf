@@ -388,12 +388,14 @@ where
         if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
             self.state.process_event(sm::Events::Reset).unwrap();
-        } else {
-            self.state.process_event(sm::Events::Connected).ok();
         }
 
         match *self.state.state() {
-            sm::States::Initial => {}
+            sm::States::Initial => {
+                if self.mqtt.client().is_connected() {
+                    self.state.process_event(sm::Events::Connected).unwrap();
+                }
+            }
             sm::States::ConnectedToBroker => self.handle_indicating_alive(),
             sm::States::PendingSubscribe => self.handle_subscription(),
             sm::States::PendingRepublish => {
