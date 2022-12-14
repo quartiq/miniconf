@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 * [MQTT client] Getting values is now supported by publishing an empty message to the topic.
 * [MQTT client] New `list` command is exposed under the Miniconf prefix to allow host software to
-
-  discover and query current device settings.
+  discover current device settings tree structure.
 * Python client updated to deprecate `command` in favor of `set`
 * Python client now exposes `get()`, `set()`, and `list_paths()` APIs
 
