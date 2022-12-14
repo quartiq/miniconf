@@ -14,8 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Python client now exposes `get()`, `set()`, and `list_paths()` APIs
 
 ### Changed
-* [breaking] `SettingsResponse` has been renamed to `Response` and has been made generic over the
-  size. New convenience APIs have been added
+* Responses now encode status values as strings in a `UserProperty` with key "code"
 
 ### Fixed
 * `miniconf::Option`'s `get_path()` and `set_path()` return `Err(Error::PathAbsent)`

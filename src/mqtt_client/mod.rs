@@ -1,4 +1,3 @@
-use serde::Serialize;
 use serde_json_core::heapless::{String, Vec};
 
 use crate::Miniconf;
@@ -246,9 +245,7 @@ where
             return
         };
 
-        let props = minimq::types::Properties::DataBlock(props);
-
-        let mut data = [0u8; MESSAGE_SIZE];
+        let reply_props = minimq::types::Properties::DataBlock(props);
 
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
@@ -258,27 +255,19 @@ where
                 .map(|path| Response::custom(ResponseCode::Continue, &path))
                 .unwrap_or_else(Response::ok);
 
-            let message = match serde_json_core::to_slice(&response, &mut data) {
-                Ok(len) => &data[..len],
-
-                _ => {
-                    let response: Response<32> = Response::error("Buffer too small");
-                    let Ok(len) = serde_json_core::to_slice(&response, &mut data) else {
-                        log::warn!("Message size is too small for responses");
-                        return;
-                    };
-
-                    &data[..len]
-                }
-            };
+            let props = [minimq::Property::UserProperty(
+                minimq::types::Utf8String("code"),
+                minimq::types::Utf8String(response.code.as_ref()),
+            )];
 
             self.mqtt
                 .client()
                 .publish(
                     // Note(unwrap): We already guaranteed that the reply properties have a response
                     // topic.
-                    Publication::new(message)
-                        .reply(&props)
+                    Publication::new(response.msg.as_bytes())
+                        .reply(&reply_props)
+                        .properties(&props)
                         .qos(QoS::AtLeastOnce)
                         .finish()
                         .unwrap(),
@@ -286,7 +275,7 @@ where
                 .unwrap();
 
             // If we're done with listing, bail out of the loop.
-            if response.code != ResponseCode::Continue as u8 {
+            if response.code != ResponseCode::Continue {
                 self.listing_state.take();
                 break;
             }
@@ -298,9 +287,8 @@ where
             return;
         }
 
+        let mut data = [0; MESSAGE_SIZE];
         for topic in &mut self.state.context_mut().republish_state {
-            let mut data = [0; MESSAGE_SIZE];
-
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get(&topic, &mut data) {
                 Err(crate::Error::PathAbsent) => continue,
@@ -433,18 +421,16 @@ where
             return Ok(());
         };
 
-        let props = minimq::types::Properties::DataBlock(props);
+        let reply_props = minimq::types::Properties::DataBlock(props);
 
-        let mut data = [0u8; MESSAGE_SIZE];
-        let message = match serde_json_core::to_slice(&response, &mut data) {
-            Ok(len) => &data[..len],
+        let props = [minimq::Property::UserProperty(
+            minimq::types::Utf8String("code"),
+            minimq::types::Utf8String(response.code.as_ref()),
+        )];
 
-            // If the message buffer is too small, we can't ever provide a response.
-            _ => return Ok(()),
-        };
-
-        let Ok(response) = minimq::Publication::new(message)
-                        .reply(&props)
+        let Ok(response) = minimq::Publication::new(response.msg.as_bytes())
+                        .reply(&reply_props)
+                        .properties(&props)
                         .qos(QoS::AtLeastOnce)
                         .finish() else {
             return Ok(());
@@ -563,18 +549,14 @@ where
                 }
             };
 
-            let message = match serde_json_core::to_slice(&response, &mut data) {
-                Ok(len) => &data[..len],
+            let props = [minimq::Property::UserProperty(
+                minimq::types::Utf8String("code"),
+                minimq::types::Utf8String(response.code.as_ref()),
+            )];
 
-                // If the message buffer is too small, we can't ever provide a response.
-                _ => {
-                    log::warn!("Message size is too small for a response");
-                    return;
-                }
-            };
-
-            let Ok(response_pub) = minimq::Publication::new(message)
+            let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
                             .reply(properties)
+                            .properties(&props)
                             .qos(QoS::AtLeastOnce)
                             .finish() else {
                 return;
@@ -626,24 +608,26 @@ where
     }
 }
 
-#[repr(u8)]
-pub enum ResponseCode {
-    Ok = 0,
-    Continue = 1,
-
-    Error = 0xFF,
+#[derive(PartialEq)]
+enum ResponseCode {
+    Ok,
+    Continue,
+    Error,
 }
 
-impl From<ResponseCode> for u8 {
-    fn from(code: ResponseCode) -> u8 {
-        code as u8
+impl AsRef<str> for ResponseCode {
+    fn as_ref(&self) -> &str {
+        match self {
+            ResponseCode::Ok => "Ok",
+            ResponseCode::Continue => "Continue",
+            ResponseCode::Error => "Error",
+        }
     }
 }
 
 /// The payload of the MQTT response message to a settings update request.
-#[derive(Serialize)]
 struct Response<const N: usize> {
-    code: u8,
+    code: ResponseCode,
     msg: String<N>,
 }
 
@@ -651,7 +635,7 @@ impl<const N: usize> Response<N> {
     pub fn ok() -> Self {
         Self {
             msg: String::from("OK"),
-            code: ResponseCode::Ok as u8,
+            code: ResponseCode::Ok,
         }
     }
 
@@ -660,10 +644,10 @@ impl<const N: usize> Response<N> {
     /// # Args
     /// * `code` - The code to provide in the response.
     /// * `msg` - The message to provide in the response.
-    pub fn custom(code: impl Into<u8>, message: &str) -> Self {
+    pub fn custom(code: ResponseCode, message: &str) -> Self {
         // Truncate the provided message to ensure it fits within the heapless String.
         Self {
-            code: code.into(),
+            code,
             msg: String::from(&message[..N.min(message.len())]),
         }
     }
@@ -689,7 +673,7 @@ impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
                 }
 
                 Self {
-                    code: ResponseCode::Error as u8,
+                    code: ResponseCode::Error,
                     msg,
                 }
             }
@@ -705,7 +689,7 @@ impl<const N: usize> From<crate::Error> for Response<N> {
         }
 
         Self {
-            code: ResponseCode::Error as u8,
+            code: ResponseCode::Error,
             msg,
         }
     }
