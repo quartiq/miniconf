@@ -504,9 +504,9 @@ where
 
                 Command::Get { path } => {
                     let mut data = [0u8; MESSAGE_SIZE];
-                    settings.get(path, &mut data).map_or_else(
-                        |err| err.into(),
-                        |len| {
+                    match settings.get(path, &mut data) {
+                        Err(err) => err.into(),
+                        Ok(len) => {
                             let mut topic = prefix.clone();
 
                             // Note(unwrap): We check that the string will fit during
@@ -531,18 +531,18 @@ where
                             } else {
                                 Response::ok()
                             }
-                        },
-                    )
+                        }
+                    }
                 }
                 Command::Set { path, value } => {
                     let mut new_settings = settings.clone();
-                    new_settings.set(path, value).map_or_else(
-                        |err| err.into(),
-                        |_| {
+                    match new_settings.set(path, value) {
+                        Err(err) => err.into(),
+                        Ok(_) => {
                             updated = true;
                             handler(path, settings, &new_settings).into()
-                        },
-                    )
+                        }
+                    }
                 }
             };
 
