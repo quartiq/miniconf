@@ -662,15 +662,9 @@ impl<const N: usize> Response<N> {
     /// * `msg` - The message to provide in the response.
     pub fn custom(code: impl Into<u8>, message: &str) -> Self {
         // Truncate the provided message to ensure it fits within the heapless String.
-        let message = if message.len() > N {
-            &message[..N]
-        } else {
-            message
-        };
-
         Self {
             code: code.into(),
-            msg: String::from(message),
+            msg: String::from(&message[..N.min(message.len())]),
         }
     }
 
