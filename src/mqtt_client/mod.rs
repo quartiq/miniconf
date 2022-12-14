@@ -1,8 +1,6 @@
-use serde::Serialize;
 use serde_json_core::heapless::{String, Vec};
 
 use crate::Miniconf;
-use log::info;
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
@@ -45,7 +43,7 @@ mod sm {
             Active + StartRepublish / start_republish = RepublishingSettings,
 
             // After republishing settings, we are in an idle "active" state.
-            RepublishingSettings + RepublishComplete = Active,
+            RepublishingSettings + Complete = Active,
 
             // All states transition back to `initial` on reset.
             _ + Reset = Initial,
@@ -86,6 +84,36 @@ mod sm {
         fn start_republish(&mut self) {
             self.republish_state = Default::default();
         }
+    }
+}
+
+enum Command<'a> {
+    List,
+    Get { path: &'a str },
+    Set { path: &'a str, value: &'a [u8] },
+}
+
+impl<'a> Command<'a> {
+    fn from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
+        let path = topic.strip_prefix('/').unwrap_or(topic);
+        let parsed = path
+            .split_once('/')
+            .map(|(head, tail)| (head, Some(tail)))
+            .unwrap_or((path, None));
+
+        let command = match parsed {
+            ("list", None) => Command::List,
+            ("settings", Some(path)) => {
+                if value.is_empty() {
+                    Command::Get { path }
+                } else {
+                    Command::Set { path, value }
+                }
+            }
+            _ => return Err(()),
+        };
+
+        Ok(command)
     }
 }
 
@@ -141,8 +169,10 @@ where
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings>>,
-    settings_prefix: String<MAX_TOPIC_LENGTH>,
     prefix: String<MAX_TOPIC_LENGTH>,
+    listing_state: Option<MiniconfIter<Settings>>,
+    properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
+    pending_response: Option<Response<32>>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -199,9 +229,57 @@ where
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
             settings,
-            settings_prefix,
             prefix: String::from(prefix),
+            listing_state: None,
+            properties_cache: None,
+            pending_response: None,
         })
+    }
+
+    fn handle_listing(&mut self) {
+        let Some(ref mut iter) = &mut self.listing_state else {
+            return;
+        };
+
+        let Some(ref props) = self.properties_cache else {
+            return
+        };
+
+        let reply_props = minimq::types::Properties::DataBlock(props);
+
+        while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+            // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
+            // attempting this publish.
+            let response: Response<MAX_TOPIC_LENGTH> = iter
+                .next()
+                .map(|path| Response::custom(ResponseCode::Continue, &path))
+                .unwrap_or_else(Response::ok);
+
+            let props = [minimq::Property::UserProperty(
+                minimq::types::Utf8String("code"),
+                minimq::types::Utf8String(response.code.as_ref()),
+            )];
+
+            self.mqtt
+                .client()
+                .publish(
+                    // Note(unwrap): We already guaranteed that the reply properties have a response
+                    // topic.
+                    Publication::new(response.msg.as_bytes())
+                        .reply(&reply_props)
+                        .properties(&props)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
+                        .unwrap(),
+                )
+                .unwrap();
+
+            // If we're done with listing, bail out of the loop.
+            if response.code != ResponseCode::Continue {
+                self.listing_state.take();
+                break;
+            }
+        }
     }
 
     fn handle_republish(&mut self) {
@@ -209,9 +287,8 @@ where
             return;
         }
 
+        let mut data = [0; MESSAGE_SIZE];
         for topic in &mut self.state.context_mut().republish_state {
-            let mut data = [0; MESSAGE_SIZE];
-
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get(&topic, &mut data) {
                 Err(crate::Error::PathAbsent) => continue,
@@ -220,9 +297,11 @@ where
             };
 
             let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
-            prefixed_topic.push_str(&self.settings_prefix).unwrap();
-            prefixed_topic.push('/').unwrap();
-            prefixed_topic.push_str(&topic).unwrap();
+            prefixed_topic
+                .push_str(&self.prefix)
+                .and_then(|_| prefixed_topic.push_str("/settings/"))
+                .and_then(|_| prefixed_topic.push_str(&topic))
+                .unwrap();
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
@@ -244,9 +323,7 @@ where
         }
 
         // If we got here, we completed iterating over the topics and published them all.
-        self.state
-            .process_event(sm::Events::RepublishComplete)
-            .unwrap();
+        self.state.process_event(sm::Events::Complete).unwrap();
     }
 
     fn handle_subscription(&mut self) {
@@ -254,8 +331,7 @@ where
 
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
-        let mut settings_topic: String<MAX_TOPIC_LENGTH> =
-            String::from(self.settings_prefix.as_str());
+        let mut settings_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
         settings_topic.push_str("/#").unwrap();
 
         let topic_filter = TopicFilter::new(&settings_topic)
@@ -327,8 +403,46 @@ where
             sm::States::Active => {}
         }
 
+        self.handle_listing();
+
+        self.handle_pending_response()?;
+
         // All states must handle MQTT traffic.
         self.handle_mqtt_traffic(handler)
+    }
+
+    fn handle_pending_response(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
+        // Try to publish any pending response.
+        if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+            return Ok(());
+        }
+
+        let Some(response) = self.pending_response.take() else {
+            return Ok(());
+        };
+
+        let Some(props) = self.properties_cache.as_ref() else {
+            return Ok(());
+        };
+
+        let reply_props = minimq::types::Properties::DataBlock(props);
+
+        let props = [minimq::Property::UserProperty(
+            minimq::types::Utf8String("code"),
+            minimq::types::Utf8String(response.code.as_ref()),
+        )];
+
+        let Ok(response) = minimq::Publication::new(response.msg.as_bytes())
+                        .reply(&reply_props)
+                        .properties(&props)
+                        .qos(QoS::AtLeastOnce)
+                        .finish() else {
+            return Ok(());
+        };
+
+        self.mqtt.client().publish(response)?;
+
+        Ok(())
     }
 
     fn handle_mqtt_traffic<F, E>(
@@ -339,60 +453,128 @@ where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: AsRef<str>,
     {
-        let settings = &mut self.settings;
-        let mqtt = &mut self.mqtt;
-        let prefix = self.settings_prefix.as_str();
-
-        let mut response_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
-        response_topic.push_str("/log").unwrap();
-        let default_response_topic = response_topic.as_str();
+        let Self {
+            ref mut settings,
+            ref mut mqtt,
+            prefix,
+            ref mut listing_state,
+            ref mut pending_response,
+            ref mut properties_cache,
+            ..
+        } = self;
 
         let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
-            let path = match topic.strip_prefix(prefix) {
-                // For paths, we do not want to include the leading slash.
-                Some(path) => {
-                    if !path.is_empty() {
-                        &path[1..]
-                    } else {
-                        path
+            let Some(path) = topic.strip_prefix(prefix.as_str()) else {
+                log::info!("Unexpected MQTT topic: {}", topic);
+                return;
+            };
+
+            let Ok(command) = Command::from_message(path, message) else {
+                log::info!("Unknown Miniconf command: {path}");
+                return;
+            };
+
+            if pending_response.is_some() {
+                log::warn!("There is still a response pending, ignoring inbound traffic");
+                return;
+            }
+
+            let minimq::types::Properties::DataBlock(binary_props) = properties else {
+                // Received properties are always serialized, so this path should never be
+                // executed.
+                unreachable!();
+            };
+
+            let mut data = [0u8; MESSAGE_SIZE];
+            let response: Response<32> = match command {
+                Command::List => {
+                    if listing_state.is_none() {
+                        if !properties
+                            .into_iter()
+                            .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
+                        {
+                            // If there's no response topic, there's no where we can publish the list.
+                            // Ignore the request.
+                            return;
+                        }
+
+                        // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                        // message size, so the properties (which are a portion of the message) will
+                        // always fit into it.
+                        properties_cache.replace(Vec::from_slice(binary_props).unwrap());
+                        listing_state.replace(Default::default());
+                        return;
+                    }
+
+                    Response::error("Listing in progress")
+                }
+
+                Command::Get { path } => {
+                    match settings.get(path, &mut data) {
+                        Ok(len) => {
+                            let mut topic: String<MAX_TOPIC_LENGTH> = String::new();
+
+                            // Note(unwraps): We check that the string will fit during
+                            // construction.
+                            topic.push_str(prefix).unwrap();
+                            topic.push_str("/settings/").unwrap();
+                            topic.push_str(path).unwrap();
+
+                            // Note(unwrap): This construction cannot fail because there's always a
+                            // valid topic.
+                            let message = minimq::Publication::new(&data[..len])
+                                .reply(properties)
+                                // Override the response topic with the path.
+                                .topic(&topic)
+                                .qos(QoS::AtLeastOnce)
+                                .finish()
+                                .unwrap();
+
+                            if client.publish(message).is_err() {
+                                Response::error("Can't publish")
+                            } else {
+                                Response::ok()
+                            }
+                        }
+                        Err(err) => err.into(),
                     }
                 }
-                None => {
-                    info!("Unexpected MQTT topic: {}", topic);
-                    return;
+
+                Command::Set { path, value } => {
+                    let mut new_settings = settings.clone();
+                    match new_settings.set(path, value) {
+                        Ok(_) => {
+                            updated = true;
+                            handler(path, settings, &new_settings).into()
+                        }
+                        Err(err) => err.into(),
+                    }
                 }
             };
 
-            let mut new_settings = settings.clone();
-            let message: SettingsResponse = match new_settings.set(path, message) {
-                Ok(_) => {
-                    updated = true;
-                    handler(path, settings, &new_settings).into()
-                }
-                err => {
-                    let mut msg = String::new();
-                    if write!(&mut msg, "{:?}", err).is_err() {
-                        msg = String::from("Configuration Error");
-                    }
+            let props = [minimq::Property::UserProperty(
+                minimq::types::Utf8String("code"),
+                minimq::types::Utf8String(response.code.as_ref()),
+            )];
 
-                    SettingsResponse::error(msg)
-                }
+            let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
+                            .reply(properties)
+                            .properties(&props)
+                            .qos(QoS::AtLeastOnce)
+                            .finish() else {
+                return;
             };
 
-            // Note(unwrap): All SettingsResponse objects are guaranteed to fit in the vector.
-            let message: Vec<u8, 128> = serde_json_core::to_vec(&message).unwrap();
-
-            client
-                .publish(
-                    minimq::Publication::new(&message)
-                        .topic(default_response_topic)
-                        .reply(properties)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        .unwrap(),
-                )
-                .ok();
+            // If we cannot publish the response yet (possibly because we just published something
+            // that hasn't completed yet), cache the response for future transmission.
+            if client.publish(response_pub).is_err() {
+                // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                // message size, so the properties (which are a portion of the message) will
+                // always fit into it.
+                properties_cache.replace(Vec::from_slice(binary_props).unwrap());
+                pending_response.replace(response);
+            }
         }) {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
@@ -430,30 +612,63 @@ where
     }
 }
 
-/// The payload of the MQTT response message to a settings update request.
-#[derive(Serialize)]
-pub struct SettingsResponse {
-    code: u8,
-    msg: String<64>,
+#[derive(PartialEq)]
+enum ResponseCode {
+    Ok,
+    Continue,
+    Error,
 }
 
-impl SettingsResponse {
+impl AsRef<str> for ResponseCode {
+    fn as_ref(&self) -> &str {
+        match self {
+            ResponseCode::Ok => "Ok",
+            ResponseCode::Continue => "Continue",
+            ResponseCode::Error => "Error",
+        }
+    }
+}
+
+/// The payload of the MQTT response message to a settings update request.
+struct Response<const N: usize> {
+    code: ResponseCode,
+    msg: String<N>,
+}
+
+impl<const N: usize> Response<N> {
     pub fn ok() -> Self {
         Self {
             msg: String::from("OK"),
-            code: 0,
+            code: ResponseCode::Ok,
         }
     }
 
-    pub fn error(msg: String<64>) -> Self {
-        Self { code: 255, msg }
+    /// Generate a custom response with any response code.
+    ///
+    /// # Args
+    /// * `code` - The code to provide in the response.
+    /// * `msg` - The message to provide in the response.
+    pub fn custom(code: ResponseCode, message: &str) -> Self {
+        // Truncate the provided message to ensure it fits within the heapless String.
+        Self {
+            code,
+            msg: String::from(&message[..N.min(message.len())]),
+        }
+    }
+
+    /// Generate an error response
+    ///
+    /// # Args
+    /// * `message` - A message to provide in the response. Will be truncated to fit.
+    pub fn error(message: &str) -> Self {
+        Self::custom(ResponseCode::Error, message)
     }
 }
 
-impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
+impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
     fn from(result: Result<T, E>) -> Self {
         match result {
-            Ok(_) => SettingsResponse::ok(),
+            Ok(_) => Response::ok(),
 
             Err(error) => {
                 let mut msg = String::new();
@@ -461,8 +676,25 @@ impl<T, E: AsRef<str>> From<Result<T, E>> for SettingsResponse {
                     msg = String::from("Configuration Error");
                 }
 
-                Self::error(msg)
+                Self {
+                    code: ResponseCode::Error,
+                    msg,
+                }
             }
+        }
+    }
+}
+
+impl<const N: usize> From<crate::Error> for Response<N> {
+    fn from(err: crate::Error) -> Self {
+        let mut msg = String::new();
+        if write!(&mut msg, "{:?}", err).is_err() {
+            msg = String::from("Configuration Error");
+        }
+
+        Self {
+            code: ResponseCode::Error,
+            msg,
         }
     }
 }
