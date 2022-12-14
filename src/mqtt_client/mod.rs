@@ -207,20 +207,22 @@ where
             .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
             .unwrap();
 
+        let prefix = String::from(prefix);
+
         // Configure a will so that we can indicate whether or not we are connected.
-        let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(prefix);
+        let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
         mqtt.client()
             .set_will(
                 &connection_topic,
-                "0".as_bytes(),
+                b"0",
                 QoS::AtMostOnce,
                 Retain::Retained,
                 &[],
             )
             .unwrap();
 
-        let mut settings_prefix: String<MAX_TOPIC_LENGTH> = String::from(prefix);
+        let mut settings_prefix = prefix.clone();
         settings_prefix.push_str("/settings").unwrap();
 
         assert!(settings_prefix.len() + 1 + Settings::metadata().max_length <= MAX_TOPIC_LENGTH);
@@ -229,7 +231,7 @@ where
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
             settings,
-            prefix: String::from(prefix),
+            prefix,
             listing_state: None,
             properties_cache: None,
             pending_response: None,
@@ -283,12 +285,15 @@ where
     }
 
     fn handle_republish(&mut self) {
-        if !self.mqtt.client().can_publish(QoS::AtMostOnce) {
-            return;
-        }
-
         let mut data = [0; MESSAGE_SIZE];
-        for topic in &mut self.state.context_mut().republish_state {
+
+        while self.mqtt.client().can_publish(QoS::AtMostOnce) {
+            let Some(topic) = self.state.context_mut().republish_state.next() else {
+                // If we got here, we completed iterating over the topics and published them all.
+                self.state.process_event(sm::Events::Complete).unwrap();
+                break
+            };
+
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get(&topic, &mut data) {
                 Err(crate::Error::PathAbsent) => continue,
@@ -314,16 +319,7 @@ where
                         .unwrap(),
                 )
                 .unwrap();
-
-            // If we can't publish any more messages, bail out now to prevent the iterator from
-            // progressing. If we don't bail out now, we'd silently drop a setting.
-            if !self.mqtt.client().can_publish(QoS::AtMostOnce) {
-                return;
-            }
         }
-
-        // If we got here, we completed iterating over the topics and published them all.
-        self.state.process_event(sm::Events::Complete).unwrap();
     }
 
     fn handle_subscription(&mut self) {
@@ -351,7 +347,7 @@ where
             .mqtt
             .client()
             .publish(
-                Publication::new("1".as_bytes())
+                Publication::new(b"1")
                     .topic(&connection_topic)
                     .retain()
                     .finish()
