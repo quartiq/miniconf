@@ -15,7 +15,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 * Responses now encode status values as strings in a `UserProperty` with key "code"
-* Handled updates now require an `&'static str` error value
 
 ### Fixed
 * `miniconf::Option`'s `get_path()` and `set_path()` return `Err(Error::PathAbsent)`
