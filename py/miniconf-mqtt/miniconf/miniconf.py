@@ -6,7 +6,6 @@ Author: Vertigo Designs, Ryan Summers
 Description: Provides an API for controlling Miniconf devices over MQTT.
 """
 import asyncio
-import enum
 import json
 import logging
 import uuid
