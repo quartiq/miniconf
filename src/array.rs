@@ -119,8 +119,8 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             // Add the array index and separator to the topic name.
             topic
                 .push_str(itoa::Buffer::new().format(state[0]))
+                .and_then(|_| topic.push('/'))
                 .map_err(|_| IterError::PathLength)?;
-            topic.push('/').map_err(|_| IterError::PathLength)?;
 
             if T::next_path(&mut state[1..], topic)? {
                 return Ok(true);
