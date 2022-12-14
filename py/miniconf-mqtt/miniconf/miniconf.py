@@ -52,8 +52,12 @@ class Miniconf:
         self.client.on_message = self._handle_response
         self.client.on_subscribe = self._handle_subscription
         self.response_topic = f'{prefix}/response'
-        mid = self.client.subscribe(f'{prefix}/response')
-        self._pending_subscriptions = {mid: asyncio.get_running_loop().create_future()}
+        response_mid = self.client.subscribe(f'{prefix}/response')
+        settings_mid = self.client.subscribe(f'{self.prefix}/settings/#', no_local=True)
+        self._pending_subscriptions = {
+            response_mid: asyncio.get_running_loop().create_future(),
+            settings_mid: asyncio.get_running_loop().create_future(),
+        }
 
 
     async def subscriptions_complete(self):
@@ -121,7 +125,7 @@ class Miniconf:
 
     async def command(self, *args, **kwargs):
         """ Refer to `set` for more information. """
-        warnings.warn("Use `set()` instead of `command()`.",
+        warnings.warn("The `command` API function is deprecated in favor of `set`",
                       DeprecationWarning)
         return self.set(*args, **kwargs)
 
@@ -178,18 +182,11 @@ class Miniconf:
         assert request_id not in self.inflight
         self.inflight[request_id] = ([], fut)
 
-        subscription = self.client.subscribe(f'{self.prefix}/settings/{path}', no_local=True)
-        self._pending_subscriptions[subscription] = asyncio.get_running_loop().create_future()
-        await self._pending_subscriptions[subscription]
-
         self.client.publish(
             f'{self.prefix}/settings/{path}', payload='', qos=0,
             response_topic=self.response_topic,
             correlation_data=request_id)
 
-        try:
-            result = await fut
-        finally:
-            self.client.unsubscribe(f'{self.prefix}/settings/{path}')
+        result = await fut
 
         return result[0]
