@@ -673,17 +673,7 @@ impl<const N: usize> Response<N> {
     /// # Args
     /// * `message` - A message to provide in the response. Will be truncated to fit.
     pub fn error(message: &str) -> Self {
-        // Truncate the provided message to ensure it fits within the heapless String.
-        let message = if message.len() > N {
-            &message[..N]
-        } else {
-            message
-        };
-
-        Self {
-            code: ResponseCode::Error as u8,
-            msg: String::from(message),
-        }
+        Self::custom(ResponseCode::Error, message)
     }
 }
 
