@@ -172,7 +172,7 @@ where
     prefix: String<MAX_TOPIC_LENGTH>,
     listing_state: Option<MiniconfIter<Settings>>,
     properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
-    pending_response: Option<Response<32>>,
+    pending_response: Option<Response>,
 }
 
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
@@ -248,24 +248,26 @@ where
         let reply_props = minimq::types::Properties::DataBlock(props);
 
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
-            // attempting this publish.
-            let response: Response<MAX_TOPIC_LENGTH> = iter
-                .next()
-                .map(|path| Response::custom(ResponseCode::Continue, &path))
-                .unwrap_or_else(Response::ok);
+            let path = iter.next().unwrap_or(String::new());
+            let code = if path.is_empty() {
+                ResponseCode::Ok
+            } else {
+                ResponseCode::Continue
+            };
 
             let props = [minimq::Property::UserProperty(
                 minimq::types::Utf8String("code"),
-                minimq::types::Utf8String(response.code.as_ref()),
+                minimq::types::Utf8String(code.as_ref()),
             )];
 
+            // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
+            // attempting this publish.
             self.mqtt
                 .client()
                 .publish(
                     // Note(unwrap): We already guaranteed that the reply properties have a response
                     // topic.
-                    Publication::new(response.msg.as_bytes())
+                    Publication::new(path.as_bytes())
                         .reply(&reply_props)
                         .properties(&props)
                         .qos(QoS::AtLeastOnce)
@@ -275,7 +277,7 @@ where
                 .unwrap();
 
             // If we're done with listing, bail out of the loop.
-            if response.code != ResponseCode::Continue {
+            if code != ResponseCode::Continue {
                 self.listing_state.take();
                 break;
             }
@@ -368,10 +370,9 @@ where
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
+    pub fn handled_update<F>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: AsRef<str>,
+        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), &'static str>,
     {
         if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
@@ -441,13 +442,12 @@ where
         Ok(())
     }
 
-    fn handle_mqtt_traffic<F, E>(
+    fn handle_mqtt_traffic<F>(
         &mut self,
         mut handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: AsRef<str>,
+        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), &'static str>,
     {
         let Self {
             ref mut settings,
@@ -483,7 +483,7 @@ where
             };
 
             let mut data = [0u8; MESSAGE_SIZE];
-            let response: Response<32> = match command {
+            let response: Response = match command {
                 Command::List => {
                     if listing_state.is_none() {
                         if !properties
@@ -533,7 +533,7 @@ where
                                 Response::ok()
                             }
                         }
-                        Err(err) => err.into(),
+                        Err(err) => Response::error(err.as_str()),
                     }
                 }
 
@@ -544,7 +544,7 @@ where
                             updated = true;
                             handler(path, settings, &new_settings).into()
                         }
-                        Err(err) => err.into(),
+                        Err(err) => Response::error(err.as_str()),
                     }
                 }
             };
@@ -626,15 +626,15 @@ impl AsRef<str> for ResponseCode {
 }
 
 /// The payload of the MQTT response message to a settings update request.
-struct Response<const N: usize> {
+struct Response {
     code: ResponseCode,
-    msg: String<N>,
+    msg: &'static str,
 }
 
-impl<const N: usize> Response<N> {
+impl Response {
     pub fn ok() -> Self {
         Self {
-            msg: String::from("OK"),
+            msg: "OK",
             code: ResponseCode::Ok,
         }
     }
@@ -644,53 +644,94 @@ impl<const N: usize> Response<N> {
     /// # Args
     /// * `code` - The code to provide in the response.
     /// * `msg` - The message to provide in the response.
-    pub fn custom(code: ResponseCode, message: &str) -> Self {
+    pub fn custom(code: ResponseCode, msg: &'static str) -> Self {
         // Truncate the provided message to ensure it fits within the heapless String.
-        Self {
-            code,
-            msg: String::from(&message[..N.min(message.len())]),
-        }
+        Self { code, msg }
     }
 
     /// Generate an error response
     ///
     /// # Args
     /// * `message` - A message to provide in the response. Will be truncated to fit.
-    pub fn error(message: &str) -> Self {
+    pub fn error(message: &'static str) -> Self {
         Self::custom(ResponseCode::Error, message)
     }
 }
 
-impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
-    fn from(result: Result<T, E>) -> Self {
+impl<T> From<Result<T, &'static str>> for Response {
+    fn from(result: Result<T, &'static str>) -> Self {
         match result {
             Ok(_) => Response::ok(),
 
-            Err(error) => {
-                let mut msg = String::new();
-                if msg.push_str(error.as_ref()).is_err() {
-                    msg = String::from("Configuration Error");
-                }
-
-                Self {
-                    code: ResponseCode::Error,
-                    msg,
-                }
-            }
+            Err(error) => Self {
+                code: ResponseCode::Error,
+                msg: error,
+            },
         }
     }
 }
 
-impl<const N: usize> From<crate::Error> for Response<N> {
-    fn from(err: crate::Error) -> Self {
-        let mut msg = String::new();
-        if write!(&mut msg, "{:?}", err).is_err() {
-            msg = String::from("Configuration Error");
-        }
-
-        Self {
-            code: ResponseCode::Error,
-            msg,
+impl crate::Error {
+    fn as_str(&self) -> &'static str {
+        match self {
+            crate::Error::PathNotFound => "PathNotFound",
+            crate::Error::PathTooLong => "PathTooLong",
+            crate::Error::PathTooShort => "PathTooShort",
+            crate::Error::BadIndex => "BadIndex",
+            crate::Error::PathAbsent => "PathAbsent",
+            crate::Error::Serialization(serde_json_core::ser::Error::BufferFull) => {
+                "Serialization(BufferFull)"
+            }
+            crate::Error::Serialization(_) => "Serialization(Unknown)",
+            crate::Error::Deserialization(serde_json_core::de::Error::EofWhileParsingList) => {
+                "Deserialization(EofWhileParsingList)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::EofWhileParsingObject) => {
+                "Deserialization(EofWhileParsingObject)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::EofWhileParsingString) => {
+                "Deserialization(EofWhileParsingString)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::EofWhileParsingNumber) => {
+                "Deserialization(EofWhileParsingNumber)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::ExpectedColon) => {
+                "Deserialization(ExpectedColon)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::ExpectedListCommaOrEnd) => {
+                "Deserialization(ExpectedListCommaOrEnd)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::ExpectedObjectCommaOrEnd) => {
+                "Deserialization(ExpectedObjectCommaOrEnd)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::ExpectedSomeIdent) => {
+                "Deserialization(ExpectedSomeIdent)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::ExpectedSomeValue) => {
+                "Deserialization(ExpectedSomeValue)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::InvalidNumber) => {
+                "Deserialization(InvalidNumber)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::InvalidType) => {
+                "Deserialization(InvalidType)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::InvalidUnicodeCodePoint) => {
+                "Deserialization(InvalidUnicodeCodePoint)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::KeyMustBeAString) => {
+                "Deserialization(KeyMustBeAString)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::TrailingCharacters) => {
+                "Deserialization(TrailingCharacters)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::TrailingComma) => {
+                "Deserialization(TrailingComma)"
+            }
+            crate::Error::Deserialization(serde_json_core::de::Error::CustomError) => {
+                "Deserialization(CustomError)"
+            }
+            crate::Error::Deserialization(_) => "Deserialization(Unknown)",
         }
     }
 }
