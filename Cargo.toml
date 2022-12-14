@@ -11,6 +11,7 @@ description = "Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
+rust-version = "1.65.0"
 
 [dependencies]
 miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
