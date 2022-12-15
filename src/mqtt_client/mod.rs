@@ -101,19 +101,17 @@ impl<'a> Command<'a> {
             .map(|(head, tail)| (head, Some(tail)))
             .unwrap_or((path, None));
 
-        let command = match parsed {
-            ("list", None) => Command::List,
+        match parsed {
+            ("list", None) => Ok(Command::List),
             ("settings", Some(path)) => {
                 if value.is_empty() {
-                    Command::Get { path }
+                    Ok(Command::Get { path })
                 } else {
-                    Command::Set { path, value }
+                    Ok(Command::Set { path, value })
                 }
             }
-            _ => return Err(()),
-        };
-
-        Ok(command)
+            _ => Err(()),
+        }
     }
 }
 
@@ -207,29 +205,30 @@ where
             .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
             .unwrap();
 
+        let prefix = String::from(prefix);
+
         // Configure a will so that we can indicate whether or not we are connected.
-        let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(prefix);
+        let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
         mqtt.client()
             .set_will(
                 &connection_topic,
-                "0".as_bytes(),
+                b"0",
                 QoS::AtMostOnce,
                 Retain::Retained,
                 &[],
             )
             .unwrap();
 
-        let mut settings_prefix: String<MAX_TOPIC_LENGTH> = String::from(prefix);
-        settings_prefix.push_str("/settings").unwrap();
-
-        assert!(settings_prefix.len() + 1 + Settings::metadata().max_length <= MAX_TOPIC_LENGTH);
+        assert!(
+            prefix.len() + "/settings/".len() + Settings::metadata().max_length <= MAX_TOPIC_LENGTH
+        );
 
         Ok(Self {
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
             settings,
-            prefix: String::from(prefix),
+            prefix,
             listing_state: None,
             properties_cache: None,
             pending_response: None,
@@ -283,12 +282,15 @@ where
     }
 
     fn handle_republish(&mut self) {
-        if !self.mqtt.client().can_publish(QoS::AtMostOnce) {
-            return;
-        }
-
         let mut data = [0; MESSAGE_SIZE];
-        for topic in &mut self.state.context_mut().republish_state {
+
+        while self.mqtt.client().can_publish(QoS::AtMostOnce) {
+            let Some(topic) = self.state.context_mut().republish_state.next() else {
+                // If we got here, we completed iterating over the topics and published them all.
+                self.state.process_event(sm::Events::Complete).unwrap();
+                break
+            };
+
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get(&topic, &mut data) {
                 Err(crate::Error::PathAbsent) => continue,
@@ -296,8 +298,11 @@ where
                 e => e.unwrap(),
             };
 
-            let mut prefixed_topic: String<MAX_TOPIC_LENGTH> = String::new();
-            write!(&mut prefixed_topic, "{}/settings/{}", &self.prefix, &topic).unwrap();
+            let mut prefixed_topic = self.prefix.clone();
+            prefixed_topic
+                .push_str("/settings/")
+                .and_then(|_| prefixed_topic.push_str(&topic))
+                .unwrap();
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
@@ -310,16 +315,7 @@ where
                         .unwrap(),
                 )
                 .unwrap();
-
-            // If we can't publish any more messages, bail out now to prevent the iterator from
-            // progressing. If we don't bail out now, we'd silently drop a setting.
-            if !self.mqtt.client().can_publish(QoS::AtMostOnce) {
-                return;
-            }
         }
-
-        // If we got here, we completed iterating over the topics and published them all.
-        self.state.process_event(sm::Events::Complete).unwrap();
     }
 
     fn handle_subscription(&mut self) {
@@ -327,7 +323,7 @@ where
 
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
-        let mut settings_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
+        let mut settings_topic = self.prefix.clone();
         settings_topic.push_str("/#").unwrap();
 
         let topic_filter = TopicFilter::new(&settings_topic)
@@ -340,14 +336,14 @@ where
 
     fn handle_indicating_alive(&mut self) {
         // Publish a connection status message.
-        let mut connection_topic: String<MAX_TOPIC_LENGTH> = String::from(self.prefix.as_str());
+        let mut connection_topic = self.prefix.clone();
         connection_topic.push_str("/alive").unwrap();
 
         if self
             .mqtt
             .client()
             .publish(
-                Publication::new("1".as_bytes())
+                Publication::new(b"1")
                     .topic(&connection_topic)
                     .retain()
                     .finish()
@@ -462,7 +458,7 @@ where
         let mut updated = false;
         match mqtt.poll(|client, topic, message, properties| {
             let Some(path) = topic.strip_prefix(prefix.as_str()) else {
-                log::info!("Unexpected MQTT topic: {}", topic);
+                log::info!("Unexpected MQTT topic: {topic}");
                 return;
             };
 
@@ -482,24 +478,21 @@ where
                 unreachable!();
             };
 
-            let mut data = [0u8; MESSAGE_SIZE];
             let response: Response<32> = match command {
                 Command::List => {
                     if listing_state.is_none() {
-                        if !properties
+                        if properties
                             .into_iter()
                             .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
                         {
-                            // If there's no response topic, there's no where we can publish the list.
-                            // Ignore the request.
-                            return;
+                            // We only reply if there is a response topic to publish the list to.
+                            // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                            // message size, so the properties (which are a portion of the message) will
+                            // always fit into it.
+                            properties_cache.replace(Vec::from_slice(binary_props).unwrap());
+                            listing_state.replace(Default::default());
                         }
-
-                        // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
-                        // message size, so the properties (which are a portion of the message) will
-                        // always fit into it.
-                        properties_cache.replace(Vec::from_slice(binary_props).unwrap());
-                        listing_state.replace(Default::default());
+                        // Response sent with listing.
                         return;
                     }
 
@@ -507,15 +500,18 @@ where
                 }
 
                 Command::Get { path } => {
+                    let mut data = [0u8; MESSAGE_SIZE];
                     match settings.get(path, &mut data) {
+                        Err(err) => err.into(),
                         Ok(len) => {
-                            let mut topic: String<MAX_TOPIC_LENGTH> = String::new();
+                            let mut topic = prefix.clone();
 
-                            // Note(unwraps): We check that the string will fit during
+                            // Note(unwrap): We check that the string will fit during
                             // construction.
-                            topic.push_str(prefix).unwrap();
-                            topic.push_str("/settings/").unwrap();
-                            topic.push_str(path).unwrap();
+                            topic
+                                .push_str("/settings/")
+                                .and_then(|_| topic.push_str(path))
+                                .unwrap();
 
                             // Note(unwrap): This construction cannot fail because there's always a
                             // valid topic.
@@ -533,18 +529,16 @@ where
                                 Response::ok()
                             }
                         }
-                        Err(err) => err.into(),
                     }
                 }
-
                 Command::Set { path, value } => {
                     let mut new_settings = settings.clone();
                     match new_settings.set(path, value) {
+                        Err(err) => err.into(),
                         Ok(_) => {
                             updated = true;
                             handler(path, settings, &new_settings).into()
                         }
-                        Err(err) => err.into(),
                     }
                 }
             };
@@ -559,6 +553,7 @@ where
                             .properties(&props)
                             .qos(QoS::AtLeastOnce)
                             .finish() else {
+                log::warn!("Failed to build response message");
                 return;
             };
 
