@@ -101,19 +101,17 @@ impl<'a> Command<'a> {
             .map(|(head, tail)| (head, Some(tail)))
             .unwrap_or((path, None));
 
-        let command = match parsed {
-            ("list", None) => Command::List,
+        match parsed {
+            ("list", None) => Ok(Command::List),
             ("settings", Some(path)) => {
                 if value.is_empty() {
-                    Command::Get { path }
+                    Ok(Command::Get { path })
                 } else {
-                    Command::Set { path, value }
+                    Ok(Command::Set { path, value })
                 }
             }
-            _ => return Err(()),
-        };
-
-        Ok(command)
+            _ => Err(()),
+        }
     }
 }
 
@@ -222,10 +220,9 @@ where
             )
             .unwrap();
 
-        let mut settings_prefix = prefix.clone();
-        settings_prefix.push_str("/settings").unwrap();
-
-        assert!(settings_prefix.len() + 1 + Settings::metadata().max_length <= MAX_TOPIC_LENGTH);
+        assert!(
+            prefix.len() + "/settings/".len() + Settings::metadata().max_length <= MAX_TOPIC_LENGTH
+        );
 
         Ok(Self {
             mqtt,
