@@ -202,23 +202,20 @@ where
         // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
         // now, since we're not yet connected to the broker.
         mqtt.client()
-            .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
-            .unwrap();
+            .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)?;
 
         let prefix = String::from(prefix);
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
-        mqtt.client()
-            .set_will(
-                &connection_topic,
-                b"0",
-                QoS::AtMostOnce,
-                Retain::Retained,
-                &[],
-            )
-            .unwrap();
+        mqtt.client().set_will(
+            &connection_topic,
+            b"0",
+            QoS::AtMostOnce,
+            Retain::Retained,
+            &[],
+        )?;
 
         assert!(
             prefix.len() + "/settings/".len() + Settings::metadata().max_length <= MAX_TOPIC_LENGTH
