@@ -106,9 +106,8 @@ class Miniconf:
         response = payload.decode('utf-8')
 
         try:
-            # Note: Order of key/value should be swapped when fixed in minimq
-            response_prop = next(prop for prop in properties['user_property'] if prop[1] == 'code')
-            code = response_prop[0]
+            response_prop = next(prop for prop in properties['user_property'] if prop[0] == 'code')
+            code = response_prop[1]
         except (KeyError, StopIteration):
             LOGGER.warning("Discarding message without response code user property")
             return
