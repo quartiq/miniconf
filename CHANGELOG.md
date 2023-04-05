@@ -19,7 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 * `miniconf::Option`'s `get_path()` and `set_path()` return `Err(Error::PathAbsent)`
   if `None`
-* Updated to Minimq 0.6.3, which fixes an issue with serializing user properties
 
 
 ## [0.6.3](https://github.com/quartiq/miniconf/compare/v0.6.2...v0.6.3) - 2022-12-09
