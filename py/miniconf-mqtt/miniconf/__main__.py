@@ -10,7 +10,7 @@ import argparse
 import logging
 import json
 
-from .miniconf import Miniconf
+from .miniconf import Miniconf, MiniconfException
 from . import discover
 
 
@@ -55,7 +55,7 @@ def main():
         devices = loop.run_until_complete(discover(args.broker, args.prefix))
 
         if not devices:
-            raise Exception('No Miniconf devices found. Please specify a --prefix')
+            raise MiniconfException('No Miniconf devices found. Please specify a --prefix')
 
         assert len(devices) == 1, \
             f'Multiple miniconf devices found ({devices}). Please specify a more specific --prefix'
