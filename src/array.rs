@@ -51,6 +51,42 @@ impl<T, const N: usize> From<[T; N]> for Array<T, N> {
     }
 }
 
+impl<T, const N: usize> core::convert::AsRef<[T; N]> for Array<T, N> {
+    fn as_ref(&self) -> &[T; N] {
+        &self.0
+    }
+}
+
+impl<T, const N: usize> core::convert::AsMut<[T; N]> for Array<T, N> {
+    fn as_mut(&mut self) -> &mut [T; N] {
+        &mut self.0
+    }
+}
+
+impl<T, const N: usize> IntoIterator for Array<T, N> {
+    type Item = T;
+    type IntoIter = <[T; N] as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a Array<T, N> {
+    type Item = &'a T;
+    type IntoIter = <&'a [T; N] as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a mut Array<T, N> {
+    type Item = &'a mut T;
+    type IntoIter = <&'a mut [T; N] as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
+    }
+}
+
 impl<T, const N: usize> From<Array<T, N>> for [T; N] {
     fn from(x: Array<T, N>) -> Self {
         x.0
