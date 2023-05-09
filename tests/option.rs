@@ -44,7 +44,7 @@ fn option_get_set_some() {
     assert_eq!(&data[..len], b"5");
 
     settings.set("value/data", b"7").unwrap();
-    assert_eq!(settings.value.as_ref().unwrap().data, 7);
+    assert_eq!((*settings.value).as_ref().unwrap().data, 7);
 }
 
 #[test]

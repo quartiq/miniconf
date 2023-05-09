@@ -58,6 +58,18 @@ impl<T> DerefMut for Option<T> {
     }
 }
 
+impl<T> AsRef<core::option::Option<T>> for Option<T> {
+    fn as_ref(&self) -> &core::option::Option<T> {
+        self
+    }
+}
+
+impl<T> AsMut<core::option::Option<T>> for Option<T> {
+    fn as_mut(&mut self) -> &mut core::option::Option<T> {
+        self
+    }
+}
+
 impl<T> From<core::option::Option<T>> for Option<T> {
     fn from(x: core::option::Option<T>) -> Self {
         Self(x)
