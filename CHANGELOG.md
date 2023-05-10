@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   discover current device settings tree structure.
 * Python client updated to deprecate `command` in favor of `set`
 * Python client now exposes `get()`, `set()`, and `list_paths()` APIs
+* `AsRef`, `AsMut`, `IntoIterator` for `Array` and `Option`.
 
 ### Changed
 * Responses now encode status values as strings in a `UserProperty` with key "code"
