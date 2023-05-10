@@ -52,6 +52,7 @@ impl<T> Deref for Option<T> {
         &self.0
     }
 }
+
 impl<T> DerefMut for Option<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
