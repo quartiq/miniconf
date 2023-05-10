@@ -75,6 +75,28 @@ fn simple_array_indexing() {
 }
 
 #[test]
+fn array_iter() {
+    #[derive(Miniconf, Default, Clone, Copy, Debug, PartialEq)]
+    struct Inner {
+        b: u8,
+    }
+
+    #[derive(Miniconf, Default)]
+    struct S {
+        #[miniconf(defer)]
+        a: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
+    }
+
+    let mut s = S::default();
+
+    for _i in s.a.into_iter().flatten() {}
+
+    for _i in s.a.iter().flatten() {}
+
+    for _i in s.a.iter_mut().flatten() {}
+}
+
+#[test]
 fn array_of_structs_indexing() {
     #[derive(Miniconf, Default, Clone, Copy, Debug, PartialEq)]
     struct Inner {

@@ -33,6 +33,7 @@ impl<T, const N: usize> Deref for Array<T, N> {
         &self.0
     }
 }
+
 impl<T, const N: usize> DerefMut for Array<T, N> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -48,6 +49,42 @@ impl<T: Default + Copy, const N: usize> Default for Array<T, N> {
 impl<T, const N: usize> From<[T; N]> for Array<T, N> {
     fn from(x: [T; N]) -> Self {
         Self(x)
+    }
+}
+
+impl<T, const N: usize> AsRef<[T; N]> for Array<T, N> {
+    fn as_ref(&self) -> &[T; N] {
+        self
+    }
+}
+
+impl<T, const N: usize> AsMut<[T; N]> for Array<T, N> {
+    fn as_mut(&mut self) -> &mut [T; N] {
+        self
+    }
+}
+
+impl<T, const N: usize> IntoIterator for Array<T, N> {
+    type Item = T;
+    type IntoIter = <[T; N] as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a Array<T, N> {
+    type Item = <&'a [T; N] as IntoIterator>::Item;
+    type IntoIter = <&'a [T; N] as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<'a, T, const N: usize> IntoIterator for &'a mut Array<T, N> {
+    type Item = <&'a mut [T; N] as IntoIterator>::Item;
+    type IntoIter = <&'a mut [T; N] as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 

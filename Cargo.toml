@@ -5,7 +5,7 @@ name = "miniconf"
 version = "0.6.3"
 
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
-edition = "2018"
+edition = "2021"
 license = "MIT"
 description = "Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"

@@ -52,9 +52,22 @@ impl<T> Deref for Option<T> {
         &self.0
     }
 }
+
 impl<T> DerefMut for Option<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl<T> AsRef<core::option::Option<T>> for Option<T> {
+    fn as_ref(&self) -> &core::option::Option<T> {
+        self
+    }
+}
+
+impl<T> AsMut<core::option::Option<T>> for Option<T> {
+    fn as_mut(&mut self) -> &mut core::option::Option<T> {
+        self
     }
 }
 
