@@ -318,10 +318,8 @@ where
     fn handle_subscription(&mut self) {
         log::info!("MQTT connected, subscribing to settings");
 
-        // Note(unwrap): We construct a string with two more characters than the prefix
-        // structure, so we are guaranteed to have space for storage.
         let mut settings_topic = self.prefix.clone();
-        settings_topic.push_str("/#").unwrap();
+        settings_topic.push_str("/settings/#").unwrap();
 
         let topic_filter = TopicFilter::new(&settings_topic)
             .options(SubscriptionOptions::default().ignore_local_messages());
