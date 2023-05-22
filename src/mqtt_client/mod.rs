@@ -453,6 +453,9 @@ where
         } = self;
 
         let mut updated = false;
+        let mut response_topic: String<MAX_TOPIC_LENGTH> = String::from(prefix.as_str());
+        response_topic.push_str("/log").unwrap();
+        let default_response_topic = response_topic.as_str();
         match mqtt.poll(|client, topic, message, properties| {
             let Some(path) = topic.strip_prefix(prefix.as_str()) else {
                 log::info!("Unexpected MQTT topic: {topic}");
@@ -546,6 +549,7 @@ where
             )];
 
             let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
+                            .topic(default_response_topic)
                             .reply(properties)
                             .properties(&props)
                             .qos(QoS::AtLeastOnce)
