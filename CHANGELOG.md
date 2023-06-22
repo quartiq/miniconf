@@ -4,7 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.6.3...HEAD)
+## Unreleased
+
+
+## [0.7.0](https://github.com/quartiq/miniconf/compare/v0.6.3...v0.7.0)
 
 ### Added
 * [MQTT client] Getting values is now supported by publishing an empty message to the topic.
@@ -13,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Python client updated to deprecate `command` in favor of `set`
 * Python client now exposes `get()`, `set()`, and `list_paths()` APIs
 * `AsRef`, `AsMut`, `IntoIterator` for `Array` and `Option`.
+* Updated to minimq 0.7
 
 ### Changed
 * Responses now encode status values as strings in a `UserProperty` with key "code"

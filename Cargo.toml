@@ -2,7 +2,7 @@
 name = "miniconf"
 
 # Don't forget to change `miniconf_derive`'s version as well.
-version = "0.6.3"
+version = "0.7.0"
 
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
@@ -19,7 +19,7 @@ serde-json-core = "0.5.0"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }
-minimq = { version = "^0.6.2", optional = true }
+minimq = { version = "0.7", optional = true }
 smlang = { version = "0.6", optional = true }
 itoa = "1.0.4"
 
@@ -33,6 +33,11 @@ env_logger = "0.9"
 std-embedded-nal = "0.1"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
+
+[patch.crates-io.std-embedded-nal]
+version = "0.1"
+git = "https://gitlab.com/ryan-summers/std-embedded-nal"
+branch = "feature/0.7"
 
 [[example]]
 name = "mqtt"
