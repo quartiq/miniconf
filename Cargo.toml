@@ -34,5 +34,10 @@ std-embedded-nal = "0.1"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
 
+[patch.crates-io.std-embedded-nal]
+version = "0.1"
+git = "https://gitlab.com/ryan-summers/std-embedded-nal"
+branch = "feature/0.7"
+
 [[example]]
 name = "mqtt"
