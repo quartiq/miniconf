@@ -96,21 +96,20 @@ enum Command<'a> {
 impl<'a> Command<'a> {
     fn from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
         let path = topic.strip_prefix('/').unwrap_or(topic);
-        let parsed = path
-            .split_once('/')
-            .map(|(head, tail)| (head, Some(tail)))
-            .unwrap_or((path, None));
 
-        match parsed {
-            ("list", None) => Ok(Command::List),
-            ("settings", Some(path)) => {
-                if value.is_empty() {
-                    Ok(Command::Get { path })
-                } else {
-                    Ok(Command::Set { path, value })
+        if path == "list" {
+            Ok(Command::List)
+        } else {
+            match path.split_once('/') {
+                Some(("settings", path)) => {
+                    if value.is_empty() {
+                        Ok(Command::Get { path })
+                    } else {
+                        Ok(Command::Set { path, value })
+                    }
                 }
+                _ => Err(()),
             }
-            _ => Err(()),
         }
     }
 }
@@ -540,12 +539,16 @@ where
                 }
             };
 
-            let props = [minimq::Property::UserProperty(
-                minimq::types::Utf8String("code"),
-                minimq::types::Utf8String(response.code.as_ref()),
-            )];
+            if properties
+                .into_iter()
+                .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
+            {
+                let props = [minimq::Property::UserProperty(
+                    minimq::types::Utf8String("code"),
+                    minimq::types::Utf8String(response.code.as_ref()),
+                )];
 
-            let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
+                let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
                             .reply(properties)
                             .properties(&props)
                             .qos(QoS::AtLeastOnce)
@@ -554,14 +557,15 @@ where
                 return;
             };
 
-            // If we cannot publish the response yet (possibly because we just published something
-            // that hasn't completed yet), cache the response for future transmission.
-            if client.publish(response_pub).is_err() {
-                // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
-                // message size, so the properties (which are a portion of the message) will
-                // always fit into it.
-                properties_cache.replace(Vec::from_slice(binary_props).unwrap());
-                pending_response.replace(response);
+                // If we cannot publish the response yet (possibly because we just published something
+                // that hasn't completed yet), cache the response for future transmission.
+                if client.publish(response_pub).is_err() {
+                    // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                    // message size, so the properties (which are a portion of the message) will
+                    // always fit into it.
+                    properties_cache.replace(Vec::from_slice(binary_props).unwrap());
+                    pending_response.replace(response);
+                }
             }
         }) {
             Ok(_) => Ok(updated),
