@@ -459,7 +459,7 @@ where
             };
 
             let Ok(command) = Command::from_message(path, message) else {
-                log::info!("Unknown Miniconf command: {path}");
+                log::debug!("Unknown Miniconf command: {path}");
                 return;
             };
 
