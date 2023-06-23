@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+* [MQTT] Now only subscribes to the `settings/#` and `list` topics to avoid unnecessary
+  MQTT traffic and logging messages.
+* [MQTT] Logging messages about omitted responses in case of missing `ResponseTopic` have been removed.
 
 ## [0.7.0](https://github.com/quartiq/miniconf/compare/v0.6.3...v0.7.0)
 

@@ -96,21 +96,20 @@ enum Command<'a> {
 impl<'a> Command<'a> {
     fn from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
         let path = topic.strip_prefix('/').unwrap_or(topic);
-        let parsed = path
-            .split_once('/')
-            .map(|(head, tail)| (head, Some(tail)))
-            .unwrap_or((path, None));
 
-        match parsed {
-            ("list", None) => Ok(Command::List),
-            ("settings", Some(path)) => {
-                if value.is_empty() {
-                    Ok(Command::Get { path })
-                } else {
-                    Ok(Command::Set { path, value })
+        if path == "list" {
+            Ok(Command::List)
+        } else {
+            match path.split_once('/') {
+                Some(("settings", path)) => {
+                    if value.is_empty() {
+                        Ok(Command::Get { path })
+                    } else {
+                        Ok(Command::Set { path, value })
+                    }
                 }
+                _ => Err(()),
             }
-            _ => Err(()),
         }
     }
 }
@@ -233,11 +232,11 @@ where
     }
 
     fn handle_listing(&mut self) {
-        let Some(ref mut iter) = &mut self.listing_state else {
+        let Some(iter) = &mut self.listing_state else {
             return;
         };
 
-        let Some(ref props) = self.properties_cache else {
+        let Some(props) = &self.properties_cache else {
             return
         };
 
@@ -321,12 +320,17 @@ where
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
         let mut settings_topic = self.prefix.clone();
-        settings_topic.push_str("/#").unwrap();
+        settings_topic.push_str("/settings/#").unwrap();
+        let mut list_topic = self.prefix.clone();
+        list_topic.push_str("/list").unwrap();
 
-        let topic_filter = TopicFilter::new(&settings_topic)
-            .options(SubscriptionOptions::default().ignore_local_messages());
+        let opts = SubscriptionOptions::default().ignore_local_messages();
+        let topics = [
+            TopicFilter::new(&settings_topic).options(opts),
+            TopicFilter::new(&list_topic).options(opts),
+        ];
 
-        if self.mqtt.client().subscribe(&[topic_filter], &[]).is_ok() {
+        if self.mqtt.client().subscribe(&topics, &[]).is_ok() {
             self.state.process_event(sm::Events::Subscribed).unwrap();
         }
     }
@@ -442,20 +446,10 @@ where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: AsRef<str>,
     {
-        let Self {
-            ref mut settings,
-            ref mut mqtt,
-            prefix,
-            ref mut listing_state,
-            ref mut pending_response,
-            ref mut properties_cache,
-            ..
-        } = self;
-
         let mut updated = false;
-        match mqtt.poll(|client, topic, message, properties| {
-            let Some(path) = topic.strip_prefix(prefix.as_str()) else {
-                log::info!("Unexpected MQTT topic: {topic}");
+        match self.mqtt.poll(|client, topic, message, properties| {
+            let Some(path) = topic.strip_prefix(self.prefix.as_str()) else {
+                log::info!("Unexpected topic prefix: {topic}");
                 return;
             };
 
@@ -464,44 +458,47 @@ where
                 return;
             };
 
-            if pending_response.is_some() {
-                log::warn!("There is still a response pending, ignoring inbound traffic");
+            if self.pending_response.is_some() {
+                log::warn!("Discarding command due to pending response");
                 return;
             }
 
             let minimq::types::Properties::DataBlock(binary_props) = properties else {
-                // Received properties are always serialized, so this path should never be
-                // executed.
+                // Received properties are always serialized.
                 unreachable!();
             };
 
+            let have_response_topic = properties
+                .into_iter()
+                .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))));
+
             let response: Response<32> = match command {
                 Command::List => {
-                    if listing_state.is_none() {
-                        if properties
-                            .into_iter()
-                            .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
-                        {
+                    if self.listing_state.is_none() {
+                        if have_response_topic {
                             // We only reply if there is a response topic to publish the list to.
                             // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
                             // message size, so the properties (which are a portion of the message) will
                             // always fit into it.
-                            properties_cache.replace(Vec::from_slice(binary_props).unwrap());
-                            listing_state.replace(Default::default());
+                            self.properties_cache
+                                .replace(Vec::from_slice(binary_props).unwrap());
+                            self.listing_state.replace(Default::default());
+                        } else {
+                            log::info!("Discarding `List` without `ResponseTopic`");
                         }
                         // Response sent with listing.
                         return;
+                    } else {
+                        Response::error("`List` already in progress")
                     }
-
-                    Response::error("Listing in progress")
                 }
 
                 Command::Get { path } => {
                     let mut data = [0u8; MESSAGE_SIZE];
-                    match settings.get(path, &mut data) {
+                    match self.settings.get(path, &mut data) {
                         Err(err) => err.into(),
                         Ok(len) => {
-                            let mut topic = prefix.clone();
+                            let mut topic = self.prefix.clone();
 
                             // Note(unwrap): We check that the string will fit during
                             // construction.
@@ -521,7 +518,7 @@ where
                                 .unwrap();
 
                             if client.publish(message).is_err() {
-                                Response::error("Can't publish")
+                                Response::error("Can't publish `Get` response")
                             } else {
                                 Response::ok()
                             }
@@ -529,44 +526,47 @@ where
                     }
                 }
                 Command::Set { path, value } => {
-                    let mut new_settings = settings.clone();
+                    let mut new_settings = self.settings.clone();
                     match new_settings.set(path, value) {
                         Err(err) => err.into(),
                         Ok(_) => {
                             updated = true;
-                            handler(path, settings, &new_settings).into()
+                            handler(path, &mut self.settings, &new_settings).into()
                         }
                     }
                 }
             };
 
-            let props = [minimq::Property::UserProperty(
-                minimq::types::Utf8String("code"),
-                minimq::types::Utf8String(response.code.as_ref()),
-            )];
+            if have_response_topic {
+                let props = [minimq::Property::UserProperty(
+                    minimq::types::Utf8String("code"),
+                    minimq::types::Utf8String(response.code.as_ref()),
+                )];
 
-            let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
+                let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
                             .reply(properties)
                             .properties(&props)
                             .qos(QoS::AtLeastOnce)
                             .finish() else {
-                log::warn!("Failed to build response message");
-                return;
-            };
+                    log::warn!("Failed to build response `Pub`");
+                    return;
+                };
 
-            // If we cannot publish the response yet (possibly because we just published something
-            // that hasn't completed yet), cache the response for future transmission.
-            if client.publish(response_pub).is_err() {
-                // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
-                // message size, so the properties (which are a portion of the message) will
-                // always fit into it.
-                properties_cache.replace(Vec::from_slice(binary_props).unwrap());
-                pending_response.replace(response);
+                // If we cannot publish the response yet (possibly because we just published something
+                // that hasn't completed yet), cache the response for future transmission.
+                if client.publish(response_pub).is_err() {
+                    // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
+                    // message size, so the properties (which are a portion of the message) will
+                    // always fit into it.
+                    self.properties_cache
+                        .replace(Vec::from_slice(binary_props).unwrap());
+                    self.pending_response.replace(response);
+                }
             }
         }) {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
-                log::warn!("Settings MQTT session reset");
+                log::warn!("Session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
                 Ok(false)
             }
@@ -581,7 +581,7 @@ where
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         self.handled_update(|_, old, new| {
             *old = new.clone();
-            Result::<(), &'static str>::Ok(())
+            Result::<_, &'static str>::Ok(())
         })
     }
 
