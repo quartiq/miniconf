@@ -484,7 +484,7 @@ where
                                 .replace(Vec::from_slice(binary_props).unwrap());
                             self.listing_state.replace(Default::default());
                         } else {
-                            log::info!("`List` command without `ResponseTopic`");
+                            log::info!("Discarding `List` without `ResponseTopic`");
                         }
                         // Response sent with listing.
                         return;
@@ -548,9 +548,9 @@ where
                             .properties(&props)
                             .qos(QoS::AtLeastOnce)
                             .finish() else {
-                log::warn!("Failed to build response `Pub`");
-                return;
-            };
+                    log::warn!("Failed to build response `Pub`");
+                    return;
+                };
 
                 // If we cannot publish the response yet (possibly because we just published something
                 // that hasn't completed yet), cache the response for future transmission.
