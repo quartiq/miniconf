@@ -441,19 +441,9 @@ where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
         E: AsRef<str>,
     {
-        let Self {
-            ref mut settings,
-            ref mut mqtt,
-            prefix,
-            ref mut listing_state,
-            ref mut pending_response,
-            ref mut properties_cache,
-            ..
-        } = self;
-
         let mut updated = false;
-        match mqtt.poll(|client, topic, message, properties| {
-            let Some(path) = topic.strip_prefix(prefix.as_str()) else {
+        match self.mqtt.poll(|client, topic, message, properties| {
+            let Some(path) = topic.strip_prefix(self.prefix.as_str()) else {
                 log::info!("Unexpected MQTT topic: {topic}");
                 return;
             };
@@ -463,7 +453,7 @@ where
                 return;
             };
 
-            if pending_response.is_some() {
+            if self.pending_response.is_some() {
                 log::warn!("There is still a response pending, ignoring inbound traffic");
                 return;
             }
@@ -476,7 +466,7 @@ where
 
             let response: Response<32> = match command {
                 Command::List => {
-                    if listing_state.is_none() {
+                    if self.listing_state.is_none() {
                         if properties
                             .into_iter()
                             .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
@@ -485,8 +475,9 @@ where
                             // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
                             // message size, so the properties (which are a portion of the message) will
                             // always fit into it.
-                            properties_cache.replace(Vec::from_slice(binary_props).unwrap());
-                            listing_state.replace(Default::default());
+                            self.properties_cache
+                                .replace(Vec::from_slice(binary_props).unwrap());
+                            self.listing_state.replace(Default::default());
                         }
                         // Response sent with listing.
                         return;
@@ -497,10 +488,10 @@ where
 
                 Command::Get { path } => {
                     let mut data = [0u8; MESSAGE_SIZE];
-                    match settings.get(path, &mut data) {
+                    match self.settings.get(path, &mut data) {
                         Err(err) => err.into(),
                         Ok(len) => {
-                            let mut topic = prefix.clone();
+                            let mut topic = self.prefix.clone();
 
                             // Note(unwrap): We check that the string will fit during
                             // construction.
@@ -528,12 +519,12 @@ where
                     }
                 }
                 Command::Set { path, value } => {
-                    let mut new_settings = settings.clone();
+                    let mut new_settings = self.settings.clone();
                     match new_settings.set(path, value) {
                         Err(err) => err.into(),
                         Ok(_) => {
                             updated = true;
-                            handler(path, settings, &new_settings).into()
+                            handler(path, &mut self.settings, &new_settings).into()
                         }
                     }
                 }
@@ -563,8 +554,9 @@ where
                     // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
                     // message size, so the properties (which are a portion of the message) will
                     // always fit into it.
-                    properties_cache.replace(Vec::from_slice(binary_props).unwrap());
-                    pending_response.replace(response);
+                    self.properties_cache
+                        .replace(Vec::from_slice(binary_props).unwrap());
+                    self.pending_response.replace(response);
                 }
             }
         }) {
