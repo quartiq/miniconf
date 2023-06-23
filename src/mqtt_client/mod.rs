@@ -232,11 +232,11 @@ where
     }
 
     fn handle_listing(&mut self) {
-        let Some(ref mut iter) = &mut self.listing_state else {
+        let Some(iter) = &mut self.listing_state else {
             return;
         };
 
-        let Some(ref props) = self.properties_cache else {
+        let Some(props) = &self.properties_cache else {
             return
         };
 
@@ -320,12 +320,17 @@ where
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
         let mut settings_topic = self.prefix.clone();
-        settings_topic.push_str("/#").unwrap();
+        settings_topic.push_str("/settings/#").unwrap();
+        let mut list_topic = self.prefix.clone();
+        list_topic.push_str("/list").unwrap();
 
-        let topic_filter = TopicFilter::new(&settings_topic)
-            .options(SubscriptionOptions::default().ignore_local_messages());
+        let opts = SubscriptionOptions::default().ignore_local_messages();
+        let topics = [
+            TopicFilter::new(&settings_topic).options(opts),
+            TopicFilter::new(&list_topic).options(opts),
+        ];
 
-        if self.mqtt.client().subscribe(&[topic_filter], &[]).is_ok() {
+        if self.mqtt.client().subscribe(&topics, &[]).is_ok() {
             self.state.process_event(sm::Events::Subscribed).unwrap();
         }
     }
@@ -444,7 +449,7 @@ where
         let mut updated = false;
         match self.mqtt.poll(|client, topic, message, properties| {
             let Some(path) = topic.strip_prefix(self.prefix.as_str()) else {
-                log::info!("Unexpected MQTT topic: {topic}");
+                log::info!("Unexpected topic prefix: {topic}");
                 return;
             };
 
@@ -454,23 +459,23 @@ where
             };
 
             if self.pending_response.is_some() {
-                log::warn!("There is still a response pending, ignoring inbound traffic");
+                log::warn!("Discarding command due to pending response");
                 return;
             }
 
             let minimq::types::Properties::DataBlock(binary_props) = properties else {
-                // Received properties are always serialized, so this path should never be
-                // executed.
+                // Received properties are always serialized.
                 unreachable!();
             };
+
+            let have_response_topic = properties
+                .into_iter()
+                .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))));
 
             let response: Response<32> = match command {
                 Command::List => {
                     if self.listing_state.is_none() {
-                        if properties
-                            .into_iter()
-                            .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
-                        {
+                        if have_response_topic {
                             // We only reply if there is a response topic to publish the list to.
                             // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
                             // message size, so the properties (which are a portion of the message) will
@@ -478,12 +483,14 @@ where
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
                             self.listing_state.replace(Default::default());
+                        } else {
+                            log::info!("`List` command without `ResponseTopic`");
                         }
                         // Response sent with listing.
                         return;
+                    } else {
+                        Response::error("`List` already in progress")
                     }
-
-                    Response::error("Listing in progress")
                 }
 
                 Command::Get { path } => {
@@ -511,7 +518,7 @@ where
                                 .unwrap();
 
                             if client.publish(message).is_err() {
-                                Response::error("Can't publish")
+                                Response::error("Can't publish `Get` response")
                             } else {
                                 Response::ok()
                             }
@@ -530,10 +537,7 @@ where
                 }
             };
 
-            if properties
-                .into_iter()
-                .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
-            {
+            if have_response_topic {
                 let props = [minimq::Property::UserProperty(
                     minimq::types::Utf8String("code"),
                     minimq::types::Utf8String(response.code.as_ref()),
@@ -544,7 +548,7 @@ where
                             .properties(&props)
                             .qos(QoS::AtLeastOnce)
                             .finish() else {
-                log::warn!("Failed to build response message");
+                log::warn!("Failed to build response `Pub`");
                 return;
             };
 
@@ -562,7 +566,7 @@ where
         }) {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
-                log::warn!("Settings MQTT session reset");
+                log::warn!("Session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
                 Ok(false)
             }
@@ -577,7 +581,7 @@ where
     pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
         self.handled_update(|_, old, new| {
             *old = new.clone();
-            Result::<(), &'static str>::Ok(())
+            Result::<_, &'static str>::Ok(())
         })
     }
 
