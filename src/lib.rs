@@ -185,9 +185,7 @@ pub trait Miniconf {
     fn metadata() -> Metadata;
 }
 
-pub trait Spec {}
-
-pub trait SerDe<S: Spec>: Miniconf {
+pub trait SerDe<S>: Miniconf {
     const SEPARATOR: char;
 
     /// Create an iterator of all possible paths.
@@ -264,8 +262,6 @@ pub trait SerDe<S: Spec>: Miniconf {
 
 pub struct JsonCoreSlash;
 
-impl Spec for JsonCoreSlash {}
-
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization format.
 impl<T> SerDe<JsonCoreSlash> for T
@@ -276,13 +272,23 @@ where
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(&mut path.split(Self::SEPARATOR).peekable(), &mut de)?;
+        self.set_path(
+            &mut path
+                .split(<Self as SerDe<JsonCoreSlash>>::SEPARATOR)
+                .peekable(),
+            &mut de,
+        )?;
         de.end().map_err(|_| Error::Deserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(&mut path.split(Self::SEPARATOR).peekable(), &mut ser)?;
+        self.get_path(
+            &mut path
+                .split(<Self as SerDe<JsonCoreSlash>>::SEPARATOR)
+                .peekable(),
+            &mut ser,
+        )?;
         Ok(ser.end())
     }
 }
