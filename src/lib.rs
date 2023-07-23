@@ -185,17 +185,11 @@ pub trait Miniconf {
     fn metadata() -> Metadata;
 }
 
-pub trait Spec {
-    const SEPARATOR: char;
-}
-
-pub struct CoreJsonSlash;
-
-impl Spec for CoreJsonSlash {
-    const SEPARATOR: char = '/';
-}
+pub trait Spec {}
 
 pub trait MiniconfSpec<S: Spec>: Miniconf {
+    const SEPARATOR: char;
+
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
@@ -244,7 +238,7 @@ pub trait MiniconfSpec<S: Spec>: Miniconf {
     fn unchecked_iter_paths<const L: usize, const TS: usize>(
         count: core::option::Option<usize>,
     ) -> iter::MiniconfIter<Self, L, TS> {
-        iter::MiniconfIter::new(count, S::SEPARATOR)
+        iter::MiniconfIter::new(count, Self::SEPARATOR)
     }
 
     /// Update an element by path.
@@ -268,21 +262,27 @@ pub trait MiniconfSpec<S: Spec>: Miniconf {
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error>;
 }
 
+pub struct JsonCoreSlash;
+
+impl Spec for JsonCoreSlash {}
+
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization format.
-impl<T> MiniconfSpec<CoreJsonSlash> for T
+impl<T> MiniconfSpec<JsonCoreSlash> for T
 where
     T: Miniconf,
 {
+    const SEPARATOR: char = '/';
+
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(&mut path.split('/').peekable(), &mut de)?;
+        self.set_path(&mut path.split(Self::SEPARATOR).peekable(), &mut de)?;
         de.end().map_err(|_| Error::Deserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(&mut path.split('/').peekable(), &mut ser)?;
+        self.get_path(&mut path.split(Self::SEPARATOR).peekable(), &mut ser)?;
         Ok(ser.end())
     }
 }
