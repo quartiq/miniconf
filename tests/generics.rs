@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, MiniconfJson};
+use miniconf::{Miniconf, MiniconfSpec};
 use serde::{Deserialize, Serialize};
 
 #[test]

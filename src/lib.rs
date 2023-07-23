@@ -128,56 +128,6 @@ impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
 
 /// Trait exposing serialization/deserialization of elements by path.
 pub trait Miniconf {
-    /// Create an iterator of all possible paths.
-    ///
-    /// This is a depth-first walk.
-    /// The iterator will walk all paths, even those that may be absent at run-time (see [Option]).
-    /// The iterator has an exact and trusted [Iterator::size_hint].
-    ///
-    /// # Template Arguments
-    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `TS` - The maximum length of the path in bytes.
-    ///
-    /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn iter_paths<const L: usize, const TS: usize>(
-        separator: char,
-    ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
-        let meta = Self::metadata();
-
-        if TS < meta.max_length {
-            return Err(IterError::PathLength);
-        }
-
-        if L < meta.max_depth {
-            return Err(IterError::PathDepth);
-        }
-
-        Ok(Self::unchecked_iter_paths(Some(meta.count), separator))
-    }
-
-    /// Create an iterator of all possible paths.
-    ///
-    /// This is a depth-first walk.
-    /// It will return all paths, even those that may be absent at run-time.
-    ///
-    /// # Note
-    /// This does not check that the path size or state vector are large enough. If they are not,
-    /// panics may be generated internally by the library.
-    ///
-    /// # Args
-    /// * `count`: Optional iterator length if known.
-    ///
-    /// # Template Arguments
-    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `TS` - The maximum length of the path in bytes.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>(
-        count: core::option::Option<usize>,
-        separator: char,
-    ) -> iter::MiniconfIter<Self, L, TS> {
-        iter::MiniconfIter::new(count, separator)
-    }
-
     /// Deserialize an element by path.
     ///
     /// # Args
@@ -218,6 +168,7 @@ pub trait Miniconf {
     ///   such that the next element will be retrieved when called again.
     ///   The array needs to be at least as long as the maximum path depth.
     /// * `path`: A string to write the path into.
+    /// * `separator` - The path hierarchy separator.
     ///
     /// # Returns
     /// A `bool` indicating a valid path was written to `path` from the given `state`.
@@ -234,9 +185,68 @@ pub trait Miniconf {
     fn metadata() -> Metadata;
 }
 
-/// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
-/// as serialization/deserialization format.
-pub trait MiniconfJson: Miniconf {
+pub trait Spec {
+    const SEPARATOR: char;
+}
+
+pub struct CoreJsonSlash;
+
+impl Spec for CoreJsonSlash {
+    const SEPARATOR: char = '/';
+}
+
+pub trait MiniconfSpec<S: Spec>: Miniconf {
+    /// Create an iterator of all possible paths.
+    ///
+    /// This is a depth-first walk.
+    /// The iterator will walk all paths, even those that may be absent at run-time (see [Option]).
+    /// The iterator has an exact and trusted [Iterator::size_hint].
+    ///
+    /// # Generics
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    ///
+    /// # Args
+    /// * `separator` - The path hierarchy separator.
+    ///
+    /// # Returns
+    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
+    fn iter_paths<const L: usize, const TS: usize>(
+    ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
+        let meta = Self::metadata();
+
+        if TS < meta.max_length {
+            return Err(IterError::PathLength);
+        }
+
+        if L < meta.max_depth {
+            return Err(IterError::PathDepth);
+        }
+
+        Ok(Self::unchecked_iter_paths(Some(meta.count)))
+    }
+
+    /// Create an iterator of all possible paths.
+    ///
+    /// This is a depth-first walk.
+    /// It will return all paths, even those that may be absent at run-time.
+    ///
+    /// # Note
+    /// This does not check that the path size or state vector are large enough. If they are not,
+    /// panics may be generated internally by the library.
+    ///
+    /// # Args
+    /// * `count`: Optional iterator length if known.
+    ///
+    /// # Template Arguments
+    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `TS` - The maximum length of the path in bytes.
+    fn unchecked_iter_paths<const L: usize, const TS: usize>(
+        count: core::option::Option<usize>,
+    ) -> iter::MiniconfIter<Self, L, TS> {
+        iter::MiniconfIter::new(count, S::SEPARATOR)
+    }
+
     /// Update an element by path.
     ///
     /// # Args
@@ -258,7 +268,9 @@ pub trait MiniconfJson: Miniconf {
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error>;
 }
 
-impl<T> MiniconfJson for T
+/// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
+/// as serialization/deserialization format.
+impl<T> MiniconfSpec<CoreJsonSlash> for T
 where
     T: Miniconf,
 {
