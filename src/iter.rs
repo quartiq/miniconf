@@ -35,6 +35,17 @@ pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize, S> {
     count: Option<usize>,
 }
 
+impl<M: ?Sized, const L: usize, const TS: usize, S> Default for MiniconfIter<M, L, TS, S> {
+    fn default() -> Self {
+        Self {
+            count: None,
+            miniconf: PhantomData,
+            spec: PhantomData,
+            state: [0; L],
+        }
+    }
+}
+
 impl<M: ?Sized + Miniconf, const L: usize, const TS: usize, S> MiniconfIter<M, L, TS, S> {
     pub fn metadata() -> Result<Metadata, IterError> {
         let meta = M::metadata();
@@ -57,17 +68,6 @@ impl<M: ?Sized + Miniconf, const L: usize, const TS: usize, S> MiniconfIter<M, L
     }
 }
 
-impl<M: ?Sized, const L: usize, const TS: usize, S> Default for MiniconfIter<M, L, TS, S> {
-    fn default() -> Self {
-        Self {
-            count: None,
-            miniconf: PhantomData,
-            spec: PhantomData,
-            state: [0; L],
-        }
-    }
-}
-
 impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterator
     for MiniconfIter<M, L, TS, S>
 {
@@ -76,7 +76,7 @@ impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterat
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::new();
 
-        if M::next_path(&mut self.state, &mut path, <M as SerDe<S>>::SEPARATOR).unwrap() {
+        if M::next_path(&mut self.state, &mut path, M::SEPARATOR).unwrap() {
             self.count = self.count.map(|c| c - 1);
             Some(path)
         } else {
