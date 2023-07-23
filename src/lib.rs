@@ -128,34 +128,6 @@ impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
 
 /// Trait exposing serialization/deserialization of elements by path.
 pub trait Miniconf {
-    /// Update an element by path.
-    ///
-    /// # Args
-    /// * `path` - The path to the element with '/' as the separator.
-    /// * `data` - The serialized data making up the content.
-    ///
-    /// # Returns
-    /// The number of bytes consumed from `data` or an [Error].
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
-        let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(&mut path.split('/').peekable(), &mut de)?;
-        de.end().map_err(|_| Error::Deserialization)
-    }
-
-    /// Retrieve a serialized value by path.
-    ///
-    /// # Args
-    /// * `path` - The path to the element with '/' as the separator.
-    /// * `data` - The buffer to serialize the data into.
-    ///
-    /// # Returns
-    /// The number of bytes used in the `data` buffer or an [Error].
-    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
-        let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(&mut path.split('/').peekable(), &mut ser)?;
-        Ok(ser.current_length())
-    }
-
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
@@ -257,4 +229,45 @@ pub trait Miniconf {
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
+}
+
+/// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
+/// as serialization/deserialization format.
+pub trait MiniconfJson: Miniconf {
+    /// Update an element by path.
+    ///
+    /// # Args
+    /// * `path` - The path to the element with '/' as the separator.
+    /// * `data` - The serialized data making up the content.
+    ///
+    /// # Returns
+    /// The number of bytes consumed from `data` or an [Error].
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error>;
+
+    /// Retrieve a serialized value by path.
+    ///
+    /// # Args
+    /// * `path` - The path to the element with '/' as the separator.
+    /// * `data` - The buffer to serialize the data into.
+    ///
+    /// # Returns
+    /// The number of bytes used in the `data` buffer or an [Error].
+    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error>;
+}
+
+impl<T> MiniconfJson for T
+where
+    T: Miniconf,
+{
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
+        let mut de = serde_json_core::de::Deserializer::new(data);
+        self.set_path(&mut path.split('/').peekable(), &mut de)?;
+        de.end().map_err(|_| Error::Deserialization)
+    }
+
+    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
+        let mut ser = serde_json_core::ser::Serializer::new(data);
+        self.get_path(&mut path.split('/').peekable(), &mut ser)?;
+        Ok(ser.end())
+    }
 }

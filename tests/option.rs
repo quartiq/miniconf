@@ -1,4 +1,4 @@
-use miniconf::Miniconf;
+use miniconf::{Miniconf, MiniconfJson};
 
 #[derive(PartialEq, Debug, Clone, Default, Miniconf)]
 struct Inner {

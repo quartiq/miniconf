@@ -191,9 +191,7 @@ fn derive_struct(
 
                 match field {
                     #(#set_path_arms ,)*
-                    _ => {
-                        Err(miniconf::Error::PathNotFound)
-                    }
+                    _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 
@@ -207,9 +205,7 @@ fn derive_struct(
 
                 match field {
                     #(#get_path_arms ,)*
-                    _ => {
-                        Err(miniconf::Error::PathNotFound)
-                    }
+                    _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 

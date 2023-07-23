@@ -1,6 +1,6 @@
 use serde_json_core::heapless::{String, Vec};
 
-use crate::Miniconf;
+use crate::MiniconfJson;
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
@@ -50,13 +50,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf + ?Sized> {
+    pub struct Context<C: embedded_time::Clock, M: super::MiniconfJson + ?Sized> {
         clock: C,
         timeout: Option<Instant<C>>,
         pub republish_state: super::MiniconfIter<M>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::MiniconfJson> Context<C, M> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -74,7 +74,7 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> StateMachineContext for Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::MiniconfJson> StateMachineContext for Context<C, M> {
         fn start_republish_timeout(&mut self) {
             self.timeout.replace(
                 self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
@@ -117,7 +117,7 @@ impl<'a> Command<'a> {
 /// MQTT settings interface.
 ///
 /// # Design
-/// The MQTT client places the [Miniconf] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
+/// The MQTT client places the [MiniconfJson] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
 /// where `<prefix>` is provided in the client constructor.
 ///
 /// It publishes its alive-ness as a `1` to `<prefix>/alive` and sets a will to publish `0` there when
@@ -159,7 +159,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf + Clone,
+    Settings: MiniconfJson + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -175,7 +175,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf + Clone,
+    Settings: MiniconfJson + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {
