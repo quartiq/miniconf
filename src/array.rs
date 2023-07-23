@@ -110,7 +110,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::de::Deserializer<'b>,
+        &'a mut D: serde::Deserializer<'b>,
     {
         let i = self.0.index(path_parts.next())?;
 
@@ -123,7 +123,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::ser::Serializer,
+        &'a mut S: serde::Serializer,
     {
         let i = self.0.index(path_parts.next())?;
 
@@ -193,7 +193,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::de::Deserializer<'b>,
+        &'a mut D: serde::Deserializer<'b>,
     {
         let i = self.index(path_parts.next())?;
 
@@ -202,14 +202,14 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        *item = serde::de::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?;
+        *item = serde::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?;
         Ok(())
     }
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::ser::Serializer,
+        &'a mut S: serde::Serializer,
     {
         let i = self.index(path_parts.next())?;
 
@@ -218,7 +218,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        serde::ser::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)?;
+        serde::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)?;
         Ok(())
     }
 

@@ -143,7 +143,7 @@ pub trait Miniconf {
     ) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::de::Deserializer<'b>;
+        &'a mut D: serde::Deserializer<'b>;
 
     /// Serialize an element by path.
     ///
@@ -156,7 +156,7 @@ pub trait Miniconf {
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::ser::Serializer;
+        &'a mut S: serde::Serializer;
 
     /// Get the next path in the namespace.
     ///

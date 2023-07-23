@@ -87,7 +87,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::de::Deserializer<'b>,
+        &'a mut D: serde::Deserializer<'b>,
     {
         if let Some(inner) = self.0.as_mut() {
             inner.set_path(path_parts, de)
@@ -99,7 +99,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::ser::Serializer,
+        &'a mut S: serde::Serializer,
     {
         if let Some(inner) = self.0.as_ref() {
             inner.get_path(path_parts, ser)
@@ -125,7 +125,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::de::Deserializer<'b>,
+        &'a mut D: serde::Deserializer<'b>,
     {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
@@ -135,21 +135,21 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathAbsent);
         }
 
-        *self = Some(serde::de::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?);
+        *self = Some(serde::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?);
         Ok(())
     }
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::ser::Serializer,
+        &'a mut S: serde::Serializer,
     {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        serde::ser::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)?;
+        serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)?;
         Ok(())
     }
 
