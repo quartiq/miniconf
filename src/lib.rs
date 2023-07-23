@@ -142,7 +142,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
         P: Peekable<Item = &'a str>,
         S: serde::Serializer;

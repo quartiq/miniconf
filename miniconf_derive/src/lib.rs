@@ -58,8 +58,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if peek {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)?;
-                    Ok(())
+                    serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
                 }
             }
         }
@@ -195,7 +194,7 @@ fn derive_struct(
                 }
             }
 
-            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), miniconf::Error>
+            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error>
             where
                 P: miniconf::Peekable<Item = &'a str>,
                 S: serde::Serializer,

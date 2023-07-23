@@ -120,7 +120,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             .set_path(path_parts, de)
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
         P: Peekable<Item = &'a str>,
         S: serde::Serializer,
@@ -206,7 +206,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
         P: Peekable<Item = &'a str>,
         S: serde::Serializer,
@@ -218,8 +218,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        serde::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)?;
-        Ok(())
+        serde::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)
     }
 
     fn metadata() -> Metadata {

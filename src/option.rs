@@ -96,7 +96,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
         P: Peekable<Item = &'a str>,
         S: serde::Serializer,
@@ -139,7 +139,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
         P: Peekable<Item = &'a str>,
         S: serde::Serializer,
@@ -149,8 +149,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)?;
-        Ok(())
+        serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)
     }
 
     fn metadata() -> Metadata {
