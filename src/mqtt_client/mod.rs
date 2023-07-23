@@ -61,7 +61,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: super::MiniconfIter::default(),
+                republish_state: Default::default(),
             }
         }
 
@@ -82,7 +82,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = super::MiniconfIter::default();
+            self.republish_state = Default::default();
         }
     }
 }
@@ -481,7 +481,7 @@ where
                             // always fit into it.
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
-                            self.listing_state.replace(super::MiniconfIter::default());
+                            self.listing_state.replace(Default::default());
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }
