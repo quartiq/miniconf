@@ -12,6 +12,7 @@ Miniconf can be used as a very simple and flexible backend for run-time settings
 over any transport. It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
 payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a comlete [MQTT settings management
 client](MqttClient) and a Python reference implementation to ineract with it.
+`Miniconf` is generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
 
 ## Example
 ```rust
@@ -121,7 +122,7 @@ python -m miniconf -d quartiq/application/+ foo=true
 For structs with named fields, Miniconf offers a [derive macro](derive.Miniconf.html) to automatically
 assign a unique path to each item in the namespace of the struct.
 The macro implements the [Miniconf] trait that exposes access to serialized field values through their path.
-All types supported by [serde_json_core] can be used as fields.
+All types supported by [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) can be used as fields.
 
 Elements of homogeneous [core::array]s are similarly accessed through their numeric indices.
 Structs, arrays, and Options can then be cascaded to construct a multi-level namespace.
@@ -136,9 +137,11 @@ atomic access to their respective inner element(s), [Array] and
 into the inner element(s) through their respective inner [Miniconf] implementations.
 
 ## Formats
-The path hierarchy separator is the slash `/`.
 
-Values are serialized into and deserialized from JSON.
+Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator
+(as long as the path can be split by it unambiguously).
+
+Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented.
 
 ## Transport
 Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from

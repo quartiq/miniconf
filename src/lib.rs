@@ -120,11 +120,11 @@ pub trait Miniconf {
     /// Deserialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
-    /// * `value`: A slice containing the data to be deserialized.
+    /// * `path_parts`: A [Peekable] [Iterator] identifying the element.
+    /// * `de`: A [serde::Deserializer] to use to deserialize the value.
     ///
     /// # Returns
-    /// The number of bytes consumed from `value` or an `Error`.
+    /// May return an [Error].
     fn set_path<'a, 'b: 'a, P, D>(
         &mut self,
         path_parts: &mut P,
@@ -137,11 +137,11 @@ pub trait Miniconf {
     /// Serialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: A `Peekable` `Iterator` identifying the element.
-    /// * `value`: A slice for the value to be serialized into.
+    /// * `path_parts`: A [Peekable] [Iterator] identifying the element.
+    /// * `ser`: A [serde::Serializer] to use to serialize the value.
     ///
     /// # Returns
-    /// The number of bytes written to `value` or an `Error`.
+    /// May return an [Error].
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
@@ -149,7 +149,7 @@ pub trait Miniconf {
 
     /// Get the next path in the namespace.
     ///
-    /// This is usually not called directly but through a [MiniconfIter] returned by [Miniconf::iter_paths].
+    /// This is usually not called directly but through a [MiniconfIter] returned by [SerDe::iter_paths].
     ///
     /// # Args
     /// * `state`: A state array indicating the path to be retrieved.
@@ -194,17 +194,21 @@ pub trait SerDe<S>: Miniconf {
         iter::MiniconfIter::new()
     }
 
-    /// Create an iterator of all possible paths.
+    /// Create an unchecked iterator of all possible paths.
     ///
-    /// This is a depth-first walk.
-    /// It will return all paths, even those that may be absent at run-time.
+    /// See also [SerDe::iter_paths].
     ///
     /// # Panic
     /// This does not check that the path size or state vector are large enough.
+    /// While this function will not panic itself, calling `Iterator::next()` on its
+    /// return value may.
     ///
-    /// # Template Arguments
+    /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
+    ///
+    /// # Returns
+    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
     fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS, S>
     {
         iter::MiniconfIter::default()
@@ -213,7 +217,7 @@ pub trait SerDe<S>: Miniconf {
     /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to the element with '/' as the separator.
+    /// * `path` - The path to the element.
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
@@ -223,7 +227,7 @@ pub trait SerDe<S>: Miniconf {
     /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to the element with '/' as the separator.
+    /// * `path` - The path to the element.
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
@@ -231,10 +235,12 @@ pub trait SerDe<S>: Miniconf {
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error>;
 }
 
+/// Marker struct for [SerDe].
+///
+/// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
+/// as serialization/deserialization payload format.
 pub struct JsonCoreSlash;
 
-/// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
-/// as serialization/deserialization format.
 impl<T> SerDe<JsonCoreSlash> for T
 where
     T: Miniconf,
