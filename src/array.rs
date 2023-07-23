@@ -201,7 +201,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        *item = serde::de::Deserialize::deserialize(de).unwrap();
+        *item = serde::de::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?;
         Ok(())
     }
 
@@ -217,7 +217,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        serde::ser::Serialize::serialize(item, ser).unwrap();
+        serde::ser::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)?;
         Ok(())
     }
 

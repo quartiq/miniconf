@@ -58,7 +58,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if peek {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    serde::ser::Serialize::serialize(&self.#match_name, ser).unwrap();
+                    serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)?;
                     Ok(())
                 }
             }
@@ -81,7 +81,7 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if peek {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    self.#match_name = serde::de::Deserialize::deserialize(de).unwrap();
+                    self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
                     Ok(())
                 }
             }

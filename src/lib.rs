@@ -54,13 +54,13 @@ pub enum Error {
 
     /// The value provided for configuration could not be deserialized into the proper type.
     ///
-    /// Check that the serialized data is valid JSON and of the correct type.
-    Deserialization(serde_json_core::de::Error),
+    /// Check that the serialized data is valid and of the correct type.
+    Deserialization,
 
     /// The value provided could not be serialized.
     ///
     /// Check that the buffer had sufficient space.
-    Serialization(serde_json_core::ser::Error),
+    Serialization,
 
     /// When indexing into an array, the index provided was out of bounds.
     ///
@@ -93,23 +93,11 @@ impl From<Error> for u8 {
             Error::PathNotFound => 1,
             Error::PathTooLong => 2,
             Error::PathTooShort => 3,
-            Error::Deserialization(_) => 5,
+            Error::Deserialization => 5,
             Error::BadIndex => 6,
-            Error::Serialization(_) => 7,
+            Error::Serialization => 7,
             Error::PathAbsent => 8,
         }
-    }
-}
-
-impl From<serde_json_core::de::Error> for Error {
-    fn from(err: serde_json_core::de::Error) -> Error {
-        Error::Deserialization(err)
-    }
-}
-
-impl From<serde_json_core::ser::Error> for Error {
-    fn from(err: serde_json_core::ser::Error) -> Error {
-        Error::Serialization(err)
     }
 }
 
@@ -151,8 +139,7 @@ pub trait Miniconf {
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
         self.set_path(&mut path.split('/').peekable(), &mut de)?;
-        de.end()?;
-        Ok(0)
+        de.end().map_err(|_| Error::Deserialization)
     }
 
     /// Retrieve a serialized value by path.
@@ -225,7 +212,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// The number of bytes consumed from `value` or an `Error`.
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: &'a mut D,
+    ) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
         &'a mut D: serde::de::Deserializer<'b>;

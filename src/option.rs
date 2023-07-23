@@ -134,7 +134,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathAbsent);
         }
 
-        *self = Some(serde::de::Deserialize::deserialize(de).unwrap());
+        *self = Some(serde::de::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?);
         Ok(())
     }
 
@@ -148,7 +148,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        serde::ser::Serialize::serialize(data, ser).unwrap();
+        serde::ser::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)?;
         Ok(())
     }
 
