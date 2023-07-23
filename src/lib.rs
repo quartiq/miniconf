@@ -125,14 +125,10 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: &'a mut D,
-    ) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::Deserializer<'b>;
+        D: serde::Deserializer<'b>;
 
     /// Serialize an element by path.
     ///

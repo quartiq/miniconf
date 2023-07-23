@@ -180,10 +180,10 @@ fn derive_struct(
 
     quote! {
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
-            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), miniconf::Error>
+            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error>
             where
                 P: miniconf::Peekable<Item = &'a str>,
-                &'a mut D: serde::Deserializer<'b>,
+                D: serde::Deserializer<'b>,
             {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
                 let peek = path_parts.peek().is_some();

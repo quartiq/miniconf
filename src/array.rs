@@ -107,10 +107,10 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::Deserializer<'b>,
+        D: serde::Deserializer<'b>,
     {
         let i = self.0.index(path_parts.next())?;
 
@@ -190,10 +190,10 @@ impl<T, const N: usize> IndexLookup for [T; N] {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::Deserializer<'b>,
+        D: serde::Deserializer<'b>,
     {
         let i = self.index(path_parts.next())?;
 

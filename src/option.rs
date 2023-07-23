@@ -84,10 +84,10 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::Deserializer<'b>,
+        D: serde::Deserializer<'b>,
     {
         if let Some(inner) = self.0.as_mut() {
             inner.set_path(path_parts, de)
@@ -122,10 +122,10 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut D: serde::Deserializer<'b>,
+        D: serde::Deserializer<'b>,
     {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
