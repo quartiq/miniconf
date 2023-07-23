@@ -192,7 +192,7 @@ fn null_array() {
         #[miniconf(defer)]
         data: [u32; 0],
     }
-    assert!(S::iter_paths::<2, 6>().unwrap().next().is_none());
+    assert!(S::iter_paths::<2, 6>('/').unwrap().next().is_none());
 }
 
 #[test]
@@ -206,5 +206,5 @@ fn null_miniconf_array() {
         #[miniconf(defer)]
         data: Array<I, 0>,
     }
-    assert!(S::iter_paths::<3, 8>().unwrap().next().is_none());
+    assert!(S::iter_paths::<3, 8>('/').unwrap().next().is_none());
 }

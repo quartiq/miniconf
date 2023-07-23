@@ -99,7 +99,7 @@ fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Token
                 path.push_str(concat!(stringify!(#field_name), "/"))
                     .map_err(|_| miniconf::IterError::PathLength)?;
 
-                if <#field_type>::next_path(&mut state[1..], path)? {
+                if <#field_type>::next_path(&mut state[1..], path, separator)? {
                     return Ok(true);
                 }
             }
@@ -211,7 +211,8 @@ fn derive_struct(
 
             fn next_path<const TS: usize>(
                 state: &mut [usize],
-                path: &mut miniconf::heapless::String<TS>
+                path: &mut miniconf::heapless::String<TS>,
+                separator: char,
             ) -> Result<bool, miniconf::IterError> {
                 let original_length = path.len();
                 loop {

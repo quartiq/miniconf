@@ -21,23 +21,17 @@ pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize> {
     ///
     /// It may be None to indicate unknown length.
     count: Option<usize>,
-}
 
-impl<M: ?Sized, const L: usize, const TS: usize> Default for MiniconfIter<M, L, TS> {
-    fn default() -> Self {
-        MiniconfIter {
-            marker: PhantomData,
-            state: [0; L],
-            count: None,
-        }
-    }
+    separator: char,
 }
 
 impl<M: ?Sized, const L: usize, const TS: usize> MiniconfIter<M, L, TS> {
-    pub fn new(count: Option<usize>) -> Self {
+    pub fn new(count: Option<usize>, separator: char) -> Self {
         Self {
             count,
-            ..Default::default()
+            separator,
+            marker: PhantomData,
+            state: [0; L],
         }
     }
 }
@@ -48,7 +42,7 @@ impl<M: Miniconf + ?Sized, const L: usize, const TS: usize> Iterator for Minicon
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::new();
 
-        if M::next_path(&mut self.state, &mut path).unwrap() {
+        if M::next_path(&mut self.state, &mut path, self.separator).unwrap() {
             self.count = self.count.map(|c| c - 1);
             Some(path)
         } else {

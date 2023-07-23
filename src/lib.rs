@@ -141,6 +141,7 @@ pub trait Miniconf {
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
+        separator: char,
     ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
         let meta = Self::metadata();
 
@@ -152,7 +153,7 @@ pub trait Miniconf {
             return Err(IterError::PathDepth);
         }
 
-        Ok(Self::unchecked_iter_paths(Some(meta.count)))
+        Ok(Self::unchecked_iter_paths(Some(meta.count), separator))
     }
 
     /// Create an iterator of all possible paths.
@@ -172,8 +173,9 @@ pub trait Miniconf {
     /// * `TS` - The maximum length of the path in bytes.
     fn unchecked_iter_paths<const L: usize, const TS: usize>(
         count: core::option::Option<usize>,
+        separator: char,
     ) -> iter::MiniconfIter<Self, L, TS> {
-        iter::MiniconfIter::new(count)
+        iter::MiniconfIter::new(count, separator)
     }
 
     /// Deserialize an element by path.
@@ -225,6 +227,7 @@ pub trait Miniconf {
     fn next_path<const TS: usize>(
         state: &mut [usize],
         path: &mut heapless::String<TS>,
+        separator: char,
     ) -> Result<bool, IterError>;
 
     /// Get metadata about the paths in the namespace.

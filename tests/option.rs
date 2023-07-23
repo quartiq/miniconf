@@ -53,13 +53,13 @@ fn option_iterate_some_none() {
 
     // When the value is None, it will still be iterated over as a topic but may not exist at runtime.
     settings.value.take();
-    let mut iterator = Settings::iter_paths::<10, 128>().unwrap();
+    let mut iterator = Settings::iter_paths::<10, 128>('/').unwrap();
     assert_eq!(iterator.next().unwrap(), "value/data");
     assert!(iterator.next().is_none());
 
     // When the value is Some, it should be iterated over.
     settings.value.replace(Inner { data: 5 });
-    let mut iterator = Settings::iter_paths::<10, 128>().unwrap();
+    let mut iterator = Settings::iter_paths::<10, 128>('/').unwrap();
     assert_eq!(iterator.next().unwrap(), "value/data");
     assert!(iterator.next().is_none());
 }
@@ -74,14 +74,14 @@ fn option_test_normal_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::iter_paths::<10, 128>().unwrap();
+    let mut iterator = S::iter_paths::<10, 128>('/').unwrap();
     assert_eq!(iterator.next(), Some("data".into()));
     assert!(iterator.next().is_none());
 
     s.set("data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
-    let mut iterator = S::iter_paths::<10, 128>().unwrap();
+    let mut iterator = S::iter_paths::<10, 128>('/').unwrap();
     assert_eq!(iterator.next(), Some("data".into()));
     assert!(iterator.next().is_none());
 
@@ -100,7 +100,7 @@ fn option_test_defer_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::iter_paths::<10, 128>().unwrap();
+    let mut iterator = S::iter_paths::<10, 128>('/').unwrap();
     assert_eq!(iterator.next(), Some("data".into()));
     assert!(iterator.next().is_none());
 
@@ -109,7 +109,7 @@ fn option_test_defer_option() {
     s.set("data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
-    let mut iterator = S::iter_paths::<10, 128>().unwrap();
+    let mut iterator = S::iter_paths::<10, 128>('/').unwrap();
     assert_eq!(iterator.next(), Some("data".into()));
     assert!(iterator.next().is_none());
 

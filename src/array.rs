@@ -149,6 +149,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn next_path<const TS: usize>(
         state: &mut [usize],
         topic: &mut heapless::String<TS>,
+        separator: char,
     ) -> Result<bool, IterError> {
         let original_length = topic.len();
 
@@ -156,10 +157,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             // Add the array index and separator to the topic name.
             topic
                 .push_str(itoa::Buffer::new().format(state[0]))
-                .and_then(|_| topic.push('/'))
+                .and_then(|_| topic.push(separator))
                 .map_err(|_| IterError::PathLength)?;
 
-            if T::next_path(&mut state[1..], topic)? {
+            if T::next_path(&mut state[1..], topic, separator)? {
                 return Ok(true);
             }
 
@@ -232,6 +233,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
     fn next_path<const TS: usize>(
         state: &mut [usize],
         path: &mut heapless::String<TS>,
+        _separator: char,
     ) -> Result<bool, IterError> {
         if *state.first().ok_or(IterError::PathDepth)? < N {
             // Add the array index to the topic name.
