@@ -1,6 +1,6 @@
 use serde_json_core::heapless::{String, Vec};
 
-use crate::{Miniconf, SerDe};
+use crate::{JsonCoreSlash, Miniconf, SerDe};
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
@@ -23,7 +23,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH>;
+type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH, JsonCoreSlash>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -61,7 +61,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: super::MiniconfIter::new(None, '/'),
+                republish_state: super::MiniconfIter::default(),
             }
         }
 
@@ -82,7 +82,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = super::MiniconfIter::new(None, '/');
+            self.republish_state = super::MiniconfIter::default();
         }
     }
 }
@@ -216,9 +216,8 @@ where
             &[],
         )?;
 
-        assert!(
-            prefix.len() + "/settings/".len() + Settings::metadata().max_length <= MAX_TOPIC_LENGTH
-        );
+        let meta = MiniconfIter::<Settings>::metadata().unwrap();
+        assert!(prefix.len() + "/settings/".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
@@ -482,8 +481,7 @@ where
                             // always fit into it.
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
-                            self.listing_state
-                                .replace(super::MiniconfIter::new(None, '/'));
+                            self.listing_state.replace(super::MiniconfIter::default());
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }

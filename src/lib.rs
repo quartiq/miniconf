@@ -6,7 +6,7 @@ mod iter;
 mod option;
 
 pub use array::Array;
-pub use iter::MiniconfIter;
+pub use iter::{IterError, MiniconfIter};
 pub use miniconf_derive::Miniconf;
 pub use option::Option;
 
@@ -74,17 +74,6 @@ pub enum Error {
     /// if the path is simultaneously masked by a `Option::None` at runtime but
     /// would still be non-existent if it weren't.
     PathAbsent,
-}
-
-/// Errors that occur during iteration over topic paths.
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum IterError {
-    /// The provided state vector is not long enough.
-    PathDepth,
-
-    /// The provided topic length is not long enough.
-    PathLength,
 }
 
 impl From<Error> for u8 {
@@ -198,24 +187,11 @@ pub trait SerDe<S>: Miniconf {
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
     ///
-    /// # Args
-    /// * `separator` - The path hierarchy separator.
-    ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
-    ) -> Result<iter::MiniconfIter<Self, L, TS>, IterError> {
-        let meta = Self::metadata();
-
-        if TS < meta.max_length {
-            return Err(IterError::PathLength);
-        }
-
-        if L < meta.max_depth {
-            return Err(IterError::PathDepth);
-        }
-
-        Ok(Self::unchecked_iter_paths(Some(meta.count)))
+    ) -> Result<iter::MiniconfIter<Self, L, TS, S>, IterError> {
+        iter::MiniconfIter::new()
     }
 
     /// Create an iterator of all possible paths.
@@ -223,20 +199,15 @@ pub trait SerDe<S>: Miniconf {
     /// This is a depth-first walk.
     /// It will return all paths, even those that may be absent at run-time.
     ///
-    /// # Note
-    /// This does not check that the path size or state vector are large enough. If they are not,
-    /// panics may be generated internally by the library.
-    ///
-    /// # Args
-    /// * `count`: Optional iterator length if known.
+    /// # Panic
+    /// This does not check that the path size or state vector are large enough.
     ///
     /// # Template Arguments
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
     /// * `TS` - The maximum length of the path in bytes.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>(
-        count: core::option::Option<usize>,
-    ) -> iter::MiniconfIter<Self, L, TS> {
-        iter::MiniconfIter::new(count, Self::SEPARATOR)
+    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS, S>
+    {
+        iter::MiniconfIter::default()
     }
 
     /// Update an element by path.
