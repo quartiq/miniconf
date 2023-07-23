@@ -149,7 +149,10 @@ pub trait Miniconf {
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
-        self.set_path(&mut path.split('/').peekable(), data)
+        let mut de = serde_json_core::de::Deserializer::new(data);
+        self.set_path(&mut path.split('/').peekable(), &mut de)?;
+        de.end()?;
+        Ok(0)
     }
 
     /// Retrieve a serialized value by path.
@@ -161,7 +164,9 @@ pub trait Miniconf {
     /// # Returns
     /// The number of bytes used in the `data` buffer or an [Error].
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
-        self.get_path(&mut path.split('/').peekable(), data)
+        let mut ser = serde_json_core::ser::Serializer::new(data);
+        self.get_path(&mut path.split('/').peekable(), &mut ser)?;
+        Ok(ser.current_length())
     }
 
     /// Create an iterator of all possible paths.
@@ -220,11 +225,10 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// The number of bytes consumed from `value` or an `Error`.
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &'a mut P,
-        value: &[u8],
-    ) -> Result<usize, Error>;
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut D: serde::de::Deserializer<'b>;
 
     /// Serialize an element by path.
     ///
@@ -234,11 +238,10 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// The number of bytes written to `value` or an `Error`.
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &'a mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error>;
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut S: serde::ser::Serializer;
 
     /// Get the next path in the namespace.
     ///

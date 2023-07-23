@@ -107,30 +107,30 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &'a mut P,
-        value: &[u8],
-    ) -> Result<usize, Error> {
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut D: serde::de::Deserializer<'b>,
+    {
         let i = self.0.index(path_parts.next())?;
 
         self.0
             .get_mut(i)
             .ok_or(Error::BadIndex)?
-            .set_path(path_parts, value)
+            .set_path(path_parts, de)
     }
 
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &'a mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut S: serde::ser::Serializer,
+    {
         let i = self.0.index(path_parts.next())?;
 
         self.0
             .get(i)
             .ok_or(Error::BadIndex)?
-            .get_path(path_parts, value)
+            .get_path(path_parts, ser)
     }
 
     fn metadata() -> Metadata {
@@ -189,11 +189,11 @@ impl<T, const N: usize> IndexLookup for [T; N] {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &mut P,
-        value: &[u8],
-    ) -> Result<usize, Error> {
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut D: serde::de::Deserializer<'b>,
+    {
         let i = self.index(path_parts.next())?;
 
         if path_parts.peek().is_some() {
@@ -201,16 +201,15 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        let (value, len) = serde_json_core::from_slice(value)?;
-        *item = value;
-        Ok(len)
+        *item = serde::de::Deserialize::deserialize(de).unwrap();
+        Ok(())
     }
 
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut S: serde::ser::Serializer,
+    {
         let i = self.index(path_parts.next())?;
 
         if path_parts.peek().is_some() {
@@ -218,7 +217,8 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         }
 
         let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        Ok(serde_json_core::to_slice(item, value)?)
+        serde::ser::Serialize::serialize(item, ser).unwrap();
+        Ok(())
     }
 
     fn metadata() -> Metadata {

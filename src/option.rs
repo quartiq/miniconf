@@ -84,25 +84,25 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &'a mut P,
-        value: &[u8],
-    ) -> Result<usize, Error> {
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut D: serde::de::Deserializer<'b>,
+    {
         if let Some(inner) = self.0.as_mut() {
-            inner.set_path(path_parts, value)
+            inner.set_path(path_parts, de)
         } else {
             Err(Error::PathAbsent)
         }
     }
 
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &'a mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut S: serde::ser::Serializer,
+    {
         if let Some(inner) = self.0.as_ref() {
-            inner.get_path(path_parts, value)
+            inner.get_path(path_parts, ser)
         } else {
             Err(Error::PathAbsent)
         }
@@ -121,11 +121,11 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &mut P,
-        value: &[u8],
-    ) -> Result<usize, Error> {
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: &'a mut D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut D: serde::de::Deserializer<'b>,
+    {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
@@ -134,22 +134,22 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathAbsent);
         }
 
-        let (value, len) = serde_json_core::from_slice(value)?;
-        *self = Some(value);
-        Ok(len)
+        *self = Some(serde::de::Deserialize::deserialize(de).unwrap());
+        Ok(())
     }
 
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        &'a mut S: serde::ser::Serializer,
+    {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        Ok(serde_json_core::to_slice(data, value)?)
+        serde::ser::Serialize::serialize(data, ser).unwrap();
+        Ok(())
     }
 
     fn metadata() -> Metadata {
