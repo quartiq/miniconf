@@ -15,7 +15,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Example
 ```rust
-use miniconf::{Error, Miniconf, MiniconfSpec};
+use miniconf::{Error, Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]

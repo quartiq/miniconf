@@ -187,7 +187,7 @@ pub trait Miniconf {
 
 pub trait Spec {}
 
-pub trait MiniconfSpec<S: Spec>: Miniconf {
+pub trait SerDe<S: Spec>: Miniconf {
     const SEPARATOR: char;
 
     /// Create an iterator of all possible paths.
@@ -268,7 +268,7 @@ impl Spec for JsonCoreSlash {}
 
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization format.
-impl<T> MiniconfSpec<JsonCoreSlash> for T
+impl<T> SerDe<JsonCoreSlash> for T
 where
     T: Miniconf,
 {

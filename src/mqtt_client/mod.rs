@@ -1,6 +1,6 @@
 use serde_json_core::heapless::{String, Vec};
 
-use crate::{Miniconf, MiniconfSpec};
+use crate::{Miniconf, SerDe};
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
