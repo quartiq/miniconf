@@ -195,10 +195,10 @@ fn derive_struct(
                 }
             }
 
-            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), miniconf::Error>
+            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), miniconf::Error>
             where
                 P: miniconf::Peekable<Item = &'a str>,
-                &'a mut S: serde::Serializer,
+                S: serde::Serializer,
             {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
                 let peek = path_parts.peek().is_some();

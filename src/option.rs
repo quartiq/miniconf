@@ -96,10 +96,10 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::Serializer,
+        S: serde::Serializer,
     {
         if let Some(inner) = self.0.as_ref() {
             inner.get_path(path_parts, ser)
@@ -139,10 +139,10 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::Serializer,
+        S: serde::Serializer,
     {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);

@@ -120,10 +120,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             .set_path(path_parts, de)
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::Serializer,
+        S: serde::Serializer,
     {
         let i = self.0.index(path_parts.next())?;
 
@@ -206,10 +206,10 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: &'a mut S) -> Result<(), Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<(), Error>
     where
         P: Peekable<Item = &'a str>,
-        &'a mut S: serde::Serializer,
+        S: serde::Serializer,
     {
         let i = self.index(path_parts.next())?;
 
