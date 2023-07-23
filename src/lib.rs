@@ -175,6 +175,7 @@ pub trait Miniconf {
 }
 
 pub trait SerDe<S>: Miniconf {
+    /// The path hierarchy separator.
     const SEPARATOR: char;
 
     /// Create an iterator of all possible paths.
@@ -249,23 +250,13 @@ where
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(
-            &mut path
-                .split(<Self as SerDe<JsonCoreSlash>>::SEPARATOR)
-                .peekable(),
-            &mut de,
-        )?;
+        self.set_path(&mut path.split(Self::SEPARATOR).peekable(), &mut de)?;
         de.end().map_err(|_| Error::Deserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(
-            &mut path
-                .split(<Self as SerDe<JsonCoreSlash>>::SEPARATOR)
-                .peekable(),
-            &mut ser,
-        )?;
+        self.get_path(&mut path.split(Self::SEPARATOR).peekable(), &mut ser)?;
         Ok(ser.end())
     }
 }
