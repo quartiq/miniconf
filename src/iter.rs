@@ -77,6 +77,8 @@ impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterat
                     return None;
                 }
                 Err(IterError::Next(depth)) => {
+                    path.clear();
+                    self.state[depth] = 0;
                     self.state[depth - 1] += 1;
                 }
                 e => {

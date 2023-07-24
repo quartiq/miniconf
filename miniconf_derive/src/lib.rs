@@ -48,14 +48,18 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
-            (stringify!(#match_name), _) => {
+            stringify!(#match_name) => {
                 self.#match_name.get_path(path_parts, ser)
             }
         }
     } else {
         quote! {
-            (stringify!(#match_name), false) => {
-                serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
+            stringify!(#match_name) => {
+                if peek {
+                    Err(miniconf::Error::PathTooLong)
+                } else {
+                    serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
+                }
             }
         }
     }
@@ -66,15 +70,19 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
-            (stringify!(#match_name), _) => {
+            stringify!(#match_name) => {
                 self.#match_name.set_path(path_parts, de)
             }
         }
     } else {
         quote! {
-            (stringify!(#match_name), false) => {
-                self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
-                Ok(())
+            stringify!(#match_name) => {
+                if peek {
+                    Err(miniconf::Error::PathTooLong)
+                } else {
+                    self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
+                    Ok(())
+                }
             }
         }
     }
@@ -175,9 +183,8 @@ fn derive_struct(
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
                 let peek = path_parts.peek().is_some();
 
-                match (field, peek) {
+                match field {
                     #(#set_path_arms ,)*
-                    (_, true) => Err(miniconf::Error::PathTooLong),
                     _ => Err(miniconf::Error::PathNotFound),
                 }
             }
@@ -190,9 +197,8 @@ fn derive_struct(
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
                 let peek = path_parts.peek().is_some();
 
-                match (field, peek) {
+                match field {
                     #(#get_path_arms ,)*
-                    (_, true) => Err(miniconf::Error::PathTooLong),
                     _ => Err(miniconf::Error::PathNotFound)
                 }
             }

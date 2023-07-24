@@ -16,14 +16,14 @@ fn simple_enum() {
 
     let mut s = S { v: Variant::A };
 
-    s.set("v", "\"B\"".as_bytes()).unwrap();
+    s.set("/v", "\"B\"".as_bytes()).unwrap();
 
     assert_eq!(s.v, Variant::B);
 
     // Test metadata
     let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "v".len());
+    assert_eq!(metadata.max_length, "/v".len());
     assert_eq!(metadata.count, 1);
 }
 

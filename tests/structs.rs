@@ -19,10 +19,10 @@ fn atomic_struct() {
     let mut settings = Settings::default();
 
     // Inner settings structure is atomic, so cannot be set.
-    assert!(settings.set("c/a", b"4").is_err());
+    assert!(settings.set("/c/a", b"4").is_err());
 
     // Inner settings can be updated atomically.
-    settings.set("c", b"{\"a\": 5, \"b\": 3}").unwrap();
+    settings.set("/c", b"{\"a\": 5, \"b\": 3}").unwrap();
 
     let expected = {
         let mut expected = Settings::default();
@@ -36,7 +36,7 @@ fn atomic_struct() {
     // Check that metadata is correct.
     let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "c".len());
+    assert_eq!(metadata.max_length, "/c".len());
     assert_eq!(metadata.count, 3);
 }
 
@@ -57,7 +57,7 @@ fn recursive_struct() {
 
     let mut settings = Settings::default();
 
-    settings.set("c/a", b"3").unwrap();
+    settings.set("/c/a", b"3").unwrap();
     let expected = {
         let mut expected = Settings::default();
         expected.c.a = 3;
@@ -67,12 +67,12 @@ fn recursive_struct() {
     assert_eq!(settings, expected);
 
     // It is not allowed to set a non-terminal node.
-    assert!(settings.set("c", b"{\"a\": 5}").is_err());
+    assert!(settings.set("/c", b"{\"a\": 5}").is_err());
 
     // Check that metadata is correct.
     let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length, "c/a".len());
+    assert_eq!(metadata.max_length, "/c/a".len());
     assert_eq!(metadata.count, 3);
 }
 
@@ -86,10 +86,10 @@ fn struct_with_string() {
     let mut s = Settings::default();
 
     let mut buf = [0u8; 256];
-    let len = s.get("string", &mut buf).unwrap();
+    let len = s.get("/string", &mut buf).unwrap();
     assert_eq!(&buf[..len], b"\"\"");
 
-    s.set("string", br#""test""#).unwrap();
+    s.set("/string", br#""test""#).unwrap();
     assert_eq!(s.string, "test");
 }
 

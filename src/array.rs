@@ -158,7 +158,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
                     .write_char(separator)
                     .and_then(|_| topic.write_str(itoa::Buffer::new().format(i)))
                     .map_err(|_| IterError::Length)?;
-                T::next_path(state, depth, topic, separator)
+                T::next_path(state, depth + 1, topic, separator)
             }
             Some(_) => Err(IterError::Next(depth)),
             None => Err(IterError::Depth),

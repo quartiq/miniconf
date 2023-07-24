@@ -42,6 +42,7 @@ fn main() {
 
     for topic in settings_iter {
         let mut value = [0; 256];
+        println!("{topic}");
         let len = s.get(&topic, &mut value).unwrap();
         println!(
             "{:?}: {:?}",
