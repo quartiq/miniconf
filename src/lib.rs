@@ -120,43 +120,32 @@ pub struct Metadata {
     pub count: usize,
 }
 
-/// Helper trait for [core::iter::Peekable].
-pub trait Peekable: core::iter::Iterator {
-    fn peek(&mut self) -> core::option::Option<&Self::Item>;
-}
-
-impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
-    fn peek(&mut self) -> core::option::Option<&Self::Item> {
-        core::iter::Peekable::peek(self)
-    }
-}
-
 /// Trait exposing serialization/deserialization of elements by path.
 pub trait Miniconf {
     /// Deserialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: A [Peekable] [Iterator] identifying the element.
+    /// * `path_parts`: An [Iterator] identifying the element.
     /// * `de`: A [serde::Deserializer] to use to deserialize the value.
     ///
     /// # Returns
     /// May return an [Error].
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>;
 
     /// Serialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: A [Peekable] [Iterator] identifying the element.
+    /// * `path_parts`: An [Iterator] identifying the element.
     /// * `ser`: A [serde::Serializer] to use to serialize the value.
     ///
     /// # Returns
     /// May return an [Error].
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer;
 
     /// Get the next path in the namespace.
@@ -263,16 +252,13 @@ where
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(&mut path.split(Self::SEPARATOR).skip(1).peekable(), &mut de)?;
+        self.set_path(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
         de.end().map_err(|_| Error::Deserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(
-            &mut path.split(Self::SEPARATOR).skip(1).peekable(),
-            &mut ser,
-        )?;
+        self.get_path(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
         Ok(ser.end())
     }
 }

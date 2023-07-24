@@ -44,7 +44,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 }
 
 fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `self`, `path_parts`, `peek`, and `value` available.
+    // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
@@ -55,7 +55,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     } else {
         quote! {
             stringify!(#match_name) => {
-                if peek {
+                if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
                     serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
@@ -66,7 +66,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
 }
 
 fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `self`, `path_parts`, `peek`, and `value` available.
+    // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
@@ -77,7 +77,7 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     } else {
         quote! {
             stringify!(#match_name) => {
-                if peek {
+                if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
                     self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
@@ -177,11 +177,10 @@ fn derive_struct(
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error>
             where
-                P: miniconf::Peekable<Item = &'a str>,
+                P: Iterator<Item = &'a str>,
                 D: serde::Deserializer<'b>,
             {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
-                let peek = path_parts.peek().is_some();
 
                 match field {
                     #(#set_path_arms ,)*
@@ -191,11 +190,10 @@ fn derive_struct(
 
             fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error>
             where
-                P: miniconf::Peekable<Item = &'a str>,
+                P: Iterator<Item = &'a str>,
                 S: serde::Serializer,
             {
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
-                let peek = path_parts.peek().is_some();
 
                 match field {
                     #(#get_path_arms ,)*

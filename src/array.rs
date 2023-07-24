@@ -1,4 +1,4 @@
-use super::{Error, IterError, Metadata, Miniconf, Peekable};
+use super::{Error, IterError, Metadata, Miniconf};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -112,7 +112,7 @@ const fn digits(x: usize) -> usize {
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
         let i = self.0.index(path_parts.next())?;
@@ -125,7 +125,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
         let i = self.0.index(path_parts.next())?;
@@ -182,7 +182,7 @@ impl<T, const N: usize> IndexLookup for [T; N] {
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
         let i = self.index(path_parts.next())?;
@@ -198,7 +198,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
         let i = self.index(path_parts.next())?;

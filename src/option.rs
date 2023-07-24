@@ -1,4 +1,4 @@
-use super::{Error, IterError, Metadata, Miniconf, Peekable};
+use super::{Error, IterError, Metadata, Miniconf};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -89,7 +89,7 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 impl<T: Miniconf> Miniconf for Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
         if let Some(inner) = self.0.as_mut() {
@@ -101,7 +101,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
         if let Some(inner) = self.0.as_ref() {
@@ -128,7 +128,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
         if path_parts.next().is_some() {
@@ -145,7 +145,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
         if path_parts.next().is_some() {
