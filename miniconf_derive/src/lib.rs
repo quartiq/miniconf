@@ -48,18 +48,14 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
-            stringify!(#match_name) => {
+            (stringify!(#match_name), _) => {
                 self.#match_name.get_path(path_parts, ser)
             }
         }
     } else {
         quote! {
-            stringify!(#match_name) => {
-                if peek {
-                    Err(miniconf::Error::PathTooLong)
-                } else {
-                    serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
-                }
+            (stringify!(#match_name), false) => {
+                serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
             }
         }
     }
@@ -70,19 +66,15 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
-            stringify!(#match_name) => {
+            (stringify!(#match_name), _) => {
                 self.#match_name.set_path(path_parts, de)
             }
         }
     } else {
         quote! {
-            stringify!(#match_name) => {
-                if peek {
-                    Err(miniconf::Error::PathTooLong)
-                } else {
-                    self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
-                    Ok(())
-                }
+            (stringify!(#match_name), false) => {
+                self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
+                Ok(())
             }
         }
     }
@@ -94,23 +86,18 @@ fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Token
     let field_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
-            #i => {
-                path.push_str(concat!(stringify!(#field_name), "/"))
-                    .map_err(|_| miniconf::IterError::PathLength)?;
-
-                if <#field_type>::next_path(&mut state[1..], path, separator)? {
-                    return Ok(true);
-                }
+            Some(#i) => {
+                path.write_str(concat!("/", stringify!(#field_name)))
+                    .map_err(|_| miniconf::IterError::Length)?;
+                <#field_type>::next_path(state, depth + 1, path, separator)
             }
         }
     } else {
         quote! {
-            #i => {
-                path.push_str(stringify!(#field_name))
-                    .map_err(|_| miniconf::IterError::PathLength)?;
-                state[0] += 1;
-
-                return Ok(true);
+            Some(#i) => {
+                path.write_str(concat!("/", stringify!(#field_name)))
+                    .map_err(|_| miniconf::IterError::Length)?;
+                Ok(depth)
             }
         }
     }
@@ -128,7 +115,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
                 // Unconditionally account for separator since we add it
                 // even if elements that are deferred to (`Options`)
                 // may have no further hierarchy to add and remove the separator again.
-                meta.max_length += stringify!(#field_name).len() + 1;
+                meta.max_length += 1 + stringify!(#field_name).len();
                 meta.max_depth += 1;
 
                 meta
@@ -139,7 +126,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
             #i => {
                 let mut meta = miniconf::Metadata::default();
 
-                meta.max_length = stringify!(#field_name).len();
+                meta.max_length = 1 + stringify!(#field_name).len();
                 meta.max_depth = 1;
                 meta.count = 1;
 
@@ -188,9 +175,10 @@ fn derive_struct(
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
                 let peek = path_parts.peek().is_some();
 
-                match field {
+                match (field, peek) {
                     #(#set_path_arms ,)*
-                    _ => Err(miniconf::Error::PathNotFound)
+                    (_, true) => Err(miniconf::Error::PathTooLong),
+                    _ => Err(miniconf::Error::PathNotFound),
                 }
             }
 
@@ -202,34 +190,23 @@ fn derive_struct(
                 let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
                 let peek = path_parts.peek().is_some();
 
-                match field {
+                match (field, peek) {
                     #(#get_path_arms ,)*
+                    (_, true) => Err(miniconf::Error::PathTooLong),
                     _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 
-            fn next_path<const TS: usize>(
-                state: &mut [usize],
-                path: &mut miniconf::heapless::String<TS>,
+            fn next_path(
+                state: &[usize],
+                depth: usize,
+                mut path: impl core::fmt::Write,
                 separator: char,
-            ) -> Result<bool, miniconf::IterError> {
-                let original_length = path.len();
-                loop {
-                    match *state.first().ok_or(miniconf::IterError::PathDepth)? {
-                        #(#next_path_arms ,)*
-                        _ => return Ok(false),
-                    };
-
-                    // Note(unreachable) Without any deferred fields, every arm above returns
-                    #[allow(unreachable_code)]
-                    {
-                        // If a deferred field is done, strip off the field name again,
-                        // and advance to the next field.
-                        path.truncate(original_length);
-
-                        state[0] += 1;
-                        state[1..].fill(0);
-                    }
+            ) -> Result<usize, miniconf::IterError> {
+                match state.get(depth).copied() {
+                    #(#next_path_arms ,)*
+                    Some(_) => Err(miniconf::IterError::Next(depth)),
+                    None => Err(miniconf::IterError::Depth),
                 }
             }
 

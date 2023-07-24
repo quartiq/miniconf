@@ -1,12 +1,14 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 
+use core::fmt::Write;
+
 mod array;
 mod iter;
 mod option;
 
 pub use array::Array;
-pub use iter::{IterError, MiniconfIter};
+pub use iter::MiniconfIter;
 pub use miniconf_derive::Miniconf;
 pub use option::Option;
 
@@ -32,6 +34,20 @@ pub use serde::{
     de::{Deserialize, DeserializeOwned},
     ser::Serialize,
 };
+
+/// Errors that occur during iteration over topic paths.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum IterError {
+    /// No element was found at the given depth
+    Next(usize),
+
+    /// The provided state vector is not long enough.
+    Depth,
+
+    /// The provided buffer is not long enough.
+    Length,
+}
 
 /// Errors that can occur when using the [Miniconf] API.
 #[non_exhaustive]
@@ -160,11 +176,12 @@ pub trait Miniconf {
     /// If `false`, `path` is invalid and there are no more paths within `self` at and
     /// beyond `state`.
     /// May return `IterError` indicating insufficient `state` or `path` size.
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        path: impl Write,
         separator: char,
-    ) -> Result<bool, IterError>;
+    ) -> Result<usize, IterError>;
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
@@ -188,7 +205,7 @@ pub trait SerDe<S>: Miniconf {
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
     ) -> Result<iter::MiniconfIter<Self, L, TS, S>, IterError> {
-        iter::MiniconfIter::new()
+        MiniconfIter::new()
     }
 
     /// Create an unchecked iterator of all possible paths.
@@ -246,13 +263,16 @@ where
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(&mut path.split(Self::SEPARATOR).peekable(), &mut de)?;
+        self.set_path(&mut path.split(Self::SEPARATOR).skip(1).peekable(), &mut de)?;
         de.end().map_err(|_| Error::Deserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(&mut path.split(Self::SEPARATOR).peekable(), &mut ser)?;
+        self.get_path(
+            &mut path.split(Self::SEPARATOR).skip(1).peekable(),
+            &mut ser,
+        )?;
         Ok(ser.end())
     }
 }

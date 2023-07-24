@@ -30,9 +30,9 @@ fn insufficient_space() {
 #[test]
 fn test_iteration() {
     let mut iterated = std::collections::HashMap::from([
-        ("a".to_string(), false),
-        ("b".to_string(), false),
-        ("c/inner".to_string(), false),
+        ("/a".to_string(), false),
+        ("/b".to_string(), false),
+        ("/c/inner".to_string(), false),
     ]);
 
     for field in Settings::iter_paths::<32, 256>().unwrap() {

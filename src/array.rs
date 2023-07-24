@@ -1,5 +1,8 @@
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
-use core::ops::{Deref, DerefMut};
+use core::{
+    fmt::Write,
+    ops::{Deref, DerefMut},
+};
 
 /// An array that exposes each element through their [`Miniconf`] implementation.
 ///
@@ -136,43 +139,30 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn metadata() -> Metadata {
         let mut meta = T::metadata();
 
-        // Unconditionally account for separator since we add it
-        // even if elements that are deferred to (`Options`)
-        // may have no further hierarchy to add and remove the separator again.
-        meta.max_length += digits(N) + 1;
+        meta.max_length += 1 + digits(N);
         meta.max_depth += 1;
         meta.count *= N;
 
         meta
     }
 
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        topic: &mut heapless::String<TS>,
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        mut topic: impl Write,
         separator: char,
-    ) -> Result<bool, IterError> {
-        let original_length = topic.len();
-
-        while *state.first().ok_or(IterError::PathDepth)? < N {
-            // Add the array index and separator to the topic name.
-            topic
-                .push_str(itoa::Buffer::new().format(state[0]))
-                .and_then(|_| topic.push(separator))
-                .map_err(|_| IterError::PathLength)?;
-
-            if T::next_path(&mut state[1..], topic, separator)? {
-                return Ok(true);
+    ) -> Result<usize, IterError> {
+        match state.get(depth) {
+            Some(&i) if i < N => {
+                topic
+                    .write_char(separator)
+                    .and_then(|_| topic.write_str(itoa::Buffer::new().format(i)))
+                    .map_err(|_| IterError::Length)?;
+                T::next_path(state, depth, topic, separator)
             }
-
-            // Strip off the previously prepended index, since we completed that element and need
-            // to instead check the next one.
-            topic.truncate(original_length);
-
-            state[0] += 1;
-            state[1..].fill(0);
+            Some(_) => Err(IterError::Next(depth)),
+            None => Err(IterError::Depth),
         }
-
-        Ok(false)
     }
 }
 
@@ -197,7 +187,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
     {
         let i = self.index(path_parts.next())?;
 
-        if path_parts.peek().is_some() {
+        if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -213,7 +203,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
     {
         let i = self.index(path_parts.next())?;
 
-        if path_parts.peek().is_some() {
+        if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -223,26 +213,27 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
     fn metadata() -> Metadata {
         Metadata {
-            max_length: digits(N),
+            max_length: 1 + digits(N),
             max_depth: 1,
             count: N,
         }
     }
 
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-        _separator: char,
-    ) -> Result<bool, IterError> {
-        if *state.first().ok_or(IterError::PathDepth)? < N {
-            // Add the array index to the topic name.
-            path.push_str(itoa::Buffer::new().format(state[0]))
-                .map_err(|_| IterError::PathLength)?;
-
-            state[0] += 1;
-            Ok(true)
-        } else {
-            Ok(false)
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        mut path: impl Write,
+        separator: char,
+    ) -> Result<usize, IterError> {
+        match state.get(depth) {
+            Some(&i) if i < N => {
+                path.write_char(separator)
+                    .and_then(|_| path.write_str(itoa::Buffer::new().format(i)))
+                    .map_err(|_| IterError::Length)?;
+                Ok(depth)
+            }
+            Some(_) => Err(IterError::Next(depth)),
+            None => Err(IterError::Depth),
         }
     }
 }

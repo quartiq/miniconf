@@ -1,5 +1,8 @@
 use super::{Error, IterError, Metadata, Miniconf, Peekable};
-use core::ops::{Deref, DerefMut};
+use core::{
+    fmt::Write,
+    ops::{Deref, DerefMut},
+};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
 ///
@@ -112,12 +115,13 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        path: impl Write,
         separator: char,
-    ) -> Result<bool, IterError> {
-        T::next_path(state, path, separator)
+    ) -> Result<usize, IterError> {
+        T::next_path(state, depth, path, separator)
     }
 }
 
@@ -127,7 +131,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         P: Peekable<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        if path_parts.peek().is_some() {
+        if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -144,7 +148,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         P: Peekable<Item = &'a str>,
         S: serde::Serializer,
     {
-        if path_parts.peek().is_some() {
+        if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -159,21 +163,16 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         }
     }
 
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-        separator: char,
-    ) -> Result<bool, IterError> {
-        if *state.first().ok_or(IterError::PathDepth)? == 0 {
-            state[0] += 1;
-
-            // Remove trailing slash added by a deferring container (array or struct).
-            if path.ends_with(separator) {
-                path.pop();
-            }
-            Ok(true)
-        } else {
-            Ok(false)
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        _path: impl Write,
+        _separator: char,
+    ) -> Result<usize, IterError> {
+        match state.get(depth) {
+            Some(0) => Ok(depth),
+            Some(_) => Err(IterError::Next(depth)),
+            None => Err(IterError::Depth),
         }
     }
 }
