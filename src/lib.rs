@@ -212,9 +212,8 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS, S>
-    {
-        iter::MiniconfIter::default()
+    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> MiniconfIter<Self, L, TS, S> {
+        MiniconfIter::default()
     }
 
     /// Update an element by path.
