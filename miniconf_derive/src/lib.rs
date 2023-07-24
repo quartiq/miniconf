@@ -180,9 +180,7 @@ fn derive_struct(
                 P: Iterator<Item = &'a str>,
                 D: serde::Deserializer<'b>,
             {
-                let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
-
-                match field {
+                match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
                     #(#set_path_arms ,)*
                     _ => Err(miniconf::Error::PathNotFound),
                 }
@@ -193,9 +191,7 @@ fn derive_struct(
                 P: Iterator<Item = &'a str>,
                 S: serde::Serializer,
             {
-                let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
-
-                match field {
+                match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
                     #(#get_path_arms ,)*
                     _ => Err(miniconf::Error::PathNotFound)
                 }
