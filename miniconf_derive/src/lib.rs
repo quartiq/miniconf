@@ -119,13 +119,8 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
-
-                // Unconditionally account for separator since we add it
-                // even if elements that are deferred to (`Options`)
-                // may have no further hierarchy to add and remove the separator again.
                 meta.max_length += 1 + stringify!(#field_name).len();
                 meta.max_depth += 1;
-
                 meta
             }
         }
@@ -133,11 +128,9 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
-
                 meta.max_length = 1 + stringify!(#field_name).len();
                 meta.max_depth = 1;
                 meta.count = 1;
-
                 meta
             }
         }
@@ -211,8 +204,6 @@ fn derive_struct(
             }
 
             fn metadata() -> miniconf::Metadata {
-                // Loop through all child elements, collecting the maximum length + depth of any
-                // member.
                 let mut meta = miniconf::Metadata::default();
 
                 for index in 0.. {
