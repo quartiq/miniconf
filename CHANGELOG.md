@@ -9,16 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
-  doesn't enforce `serde-json-core` or `u8` buffers anymore.
-* `MiniconfIter` takes the path hierarchy separator and passes it on to
-  `Miniconf::next_path`.
+  doesn't enforce `serde-json-core` or `u8` buffers or `/` as the path hierarchy
+  separator anymore.
 * The `Miniconf` trait has been stripped of the provided functions that depended
   on the `serde`-backend and path hierarchy separator. Those have been
   moved into a super trait `SerDe<S>` that is generic over a specification marker
   struct `S`. `SerDe<JsonCoreSlash>` has been implemented for all `Miniconf`
   to provide the previously existing functionality.
+* `MiniconfIter` takes the path hierarchy separator from `SerDe` and passes it on to
+  `Miniconf::next_path`.
 * The only required change for most downstream crates to adapt to the above is to
   make sure the `SerDe` trait is in scope (`use miniconf::SerDe`).
+* Paths now start with the path separator (unless they are empty).
+* The path iterator does not need to be `Peekable` anymore.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 
