@@ -12,6 +12,13 @@ struct Settings {
 }
 
 #[test]
+fn just_option() {
+    let mut it = Option::<u32>::iter_paths::<1, 0>().unwrap();
+    assert_eq!(it.next(), Some("".into()));
+    assert_eq!(it.next(), None);
+}
+
+#[test]
 fn option_get_set_none() {
     let mut settings = Settings::default();
     let mut data = [0; 100];
