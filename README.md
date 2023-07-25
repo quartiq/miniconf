@@ -110,7 +110,7 @@ for path in Settings::iter_paths::<3, 32>().unwrap() {
     }
 }
 
-# Ok::<(), miniconf::Error<()>>(())
+# Ok::<(), miniconf::Error<miniconf::serde_json_core::de::Error>>(())
 ```
 
 ## MQTT

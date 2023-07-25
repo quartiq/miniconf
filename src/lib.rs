@@ -97,6 +97,7 @@ pub enum Error<T> {
 
 impl<T> From<T> for Error<T> {
     fn from(err: T) -> Self {
+        // By default in our context every T is a SerDe error.
         Error::SerDe(err)
     }
 }
@@ -273,15 +274,20 @@ where
     }
 }
 
-// These are allow erasing the serde error information to make writing examples
-// and tests easier. Doing so is explicit and optional.
-impl From<Error<serde_json_core::ser::Error>> for Error<()> {
-    fn from(_value: Error<serde_json_core::ser::Error>) -> Self {
-        Self::SerDe(())
-    }
-}
-impl From<Error<serde_json_core::de::Error>> for Error<()> {
-    fn from(_value: Error<serde_json_core::de::Error>) -> Self {
-        Self::SerDe(())
+// These are allow unifying serde error information to make writing examples
+// and tests easier. Doing this conversion is always explicit and optional.
+impl From<Error<serde_json_core::ser::Error>> for Error<serde_json_core::de::Error> {
+    fn from(value: Error<serde_json_core::ser::Error>) -> Self {
+        match value {
+            Error::BadIndex => Self::BadIndex,
+            Error::PathAbsent => Self::PathAbsent,
+            Error::PathNotFound => Self::PathNotFound,
+            Error::PathTooLong => Self::PathTooLong,
+            Error::PathTooShort => Self::PathTooShort,
+            Error::PostDeserialization(_) => {
+                Error::PostDeserialization(serde_json_core::de::Error::CustomError)
+            }
+            Error::SerDe(_) => Self::SerDe(serde_json_core::de::Error::CustomError),
+        }
     }
 }
