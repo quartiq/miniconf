@@ -153,17 +153,17 @@ pub trait Miniconf {
     /// This is usually not called directly but through a [MiniconfIter] returned by [SerDe::iter_paths].
     ///
     /// # Args
-    /// * `state`: A state array indicating the path to be retrieved.
-    ///   A zeroed vector indicates the first path. The vector is advanced
-    ///   such that the next element will be retrieved when called again.
-    ///   The array needs to be at least as long as the maximum path depth.
+    /// * `state`: A state slice indicating the path to be retrieved.
+    ///   A zeroed vector indicates the first path.
+    ///   The slice needs to be at least as long as the maximum path depth.
+    /// * `depth`: The path depth this struct is at.
     /// * `path`: A string to write the path into.
     /// * `separator` - The path hierarchy separator.
     ///
     /// # Returns
-    /// A `bool` indicating a valid path was written to `path` from the given `state`.
-    /// If `false`, `path` is invalid and there are no more paths within `self` at and
-    /// beyond `state`.
+    /// A `usize` indicating the final depth of the valid path.
+    /// Must return `IterError::Next(usize)` with the final depth if there are
+    /// no more elements at that index and depth.
     /// May return `IterError` indicating insufficient `state` or `path` size.
     fn next_path(
         state: &[usize],
