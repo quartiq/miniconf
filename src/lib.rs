@@ -246,7 +246,7 @@ pub trait SerDe<S>: Miniconf + Sized {
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>>;
 }
 
-/// Marker struct for [SerDe].
+/// Marker struct for the "JSON and `/`" [SerDe] specification.
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
