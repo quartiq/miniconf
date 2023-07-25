@@ -672,8 +672,8 @@ impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
     }
 }
 
-impl<const N: usize> From<crate::Error> for Response<N> {
-    fn from(err: crate::Error) -> Self {
+impl<const N: usize, T> From<crate::Error<T>> for Response<N> {
+    fn from(err: crate::Error<T>) -> Self {
         let mut msg = String::new();
         if write!(&mut msg, "{:?}", err).is_err() {
             msg = String::from("Configuration Error");
