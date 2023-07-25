@@ -95,20 +95,6 @@ pub enum Error<T> {
     PathAbsent,
 }
 
-impl<T> From<Error<T>> for u8 {
-    fn from(err: Error<T>) -> Self {
-        match err {
-            Error::PathNotFound => 1,
-            Error::PathTooLong => 2,
-            Error::PathTooShort => 3,
-            Error::PostDeserialization(_) => 4,
-            Error::SerDe(_) => 5,
-            Error::BadIndex => 6,
-            Error::PathAbsent => 8,
-        }
-    }
-}
-
 impl<T> From<T> for Error<T> {
     fn from(err: T) -> Self {
         Error::SerDe(err)
