@@ -9,7 +9,7 @@ use core::ops::{Deref, DerefMut};
 ///
 /// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
 /// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
-/// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but cannot be
+/// at run-time. It will still be iterated over by [`crate::SerDe::iter_paths()`] but cannot be
 /// `get()` or `set()` using the [`Miniconf`] API.
 ///
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
@@ -84,25 +84,25 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &'a mut P,
-        value: &[u8],
-    ) -> Result<usize, Error> {
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        D: serde::Deserializer<'b>,
+    {
         if let Some(inner) = self.0.as_mut() {
-            inner.set_path(path_parts, value)
+            inner.set_path(path_parts, de)
         } else {
             Err(Error::PathAbsent)
         }
     }
 
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &'a mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    where
+        P: Peekable<Item = &'a str>,
+        S: serde::Serializer,
+    {
         if let Some(inner) = self.0.as_ref() {
-            inner.get_path(path_parts, value)
+            inner.get_path(path_parts, ser)
         } else {
             Err(Error::PathAbsent)
         }
@@ -115,17 +115,18 @@ impl<T: Miniconf> Miniconf for Option<T> {
     fn next_path<const TS: usize>(
         state: &mut [usize],
         path: &mut heapless::String<TS>,
+        separator: char,
     ) -> Result<bool, IterError> {
-        T::next_path(state, path)
+        T::next_path(state, path, separator)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path<'a, P: Peekable<Item = &'a str>>(
-        &mut self,
-        path_parts: &mut P,
-        value: &[u8],
-    ) -> Result<usize, Error> {
+    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    where
+        P: Peekable<Item = &'a str>,
+        D: serde::Deserializer<'b>,
+    {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
@@ -134,22 +135,21 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathAbsent);
         }
 
-        let (value, len) = serde_json_core::from_slice(value)?;
-        *self = Some(value);
-        Ok(len)
+        *self = Some(serde::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?);
+        Ok(())
     }
 
-    fn get_path<'a, P: Peekable<Item = &'a str>>(
-        &self,
-        path_parts: &mut P,
-        value: &mut [u8],
-    ) -> Result<usize, Error> {
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    where
+        P: Peekable<Item = &'a str>,
+        S: serde::Serializer,
+    {
         if path_parts.peek().is_some() {
             return Err(Error::PathTooLong);
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        Ok(serde_json_core::to_slice(data, value)?)
+        serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)
     }
 
     fn metadata() -> Metadata {
@@ -162,12 +162,13 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
     fn next_path<const TS: usize>(
         state: &mut [usize],
         path: &mut heapless::String<TS>,
+        separator: char,
     ) -> Result<bool, IterError> {
         if *state.first().ok_or(IterError::PathDepth)? == 0 {
             state[0] += 1;
 
-            // Remove trailing slash added by a deferring container (array or struct).
-            if path.ends_with('/') {
+            // Remove trailing separator added by a deferring container (array or struct).
+            if path.ends_with(separator) {
                 path.pop();
             }
             Ok(true)

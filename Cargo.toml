@@ -15,7 +15,7 @@ rust-version = "1.65.0"
 
 [dependencies]
 miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
-serde-json-core = "0.5.0"
+serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" }
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 log = "0.4"
 heapless = { version = "0.7", features = ["serde"] }

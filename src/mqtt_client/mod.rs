@@ -1,6 +1,6 @@
 use serde_json_core::heapless::{String, Vec};
 
-use crate::Miniconf;
+use crate::{JsonCoreSlash, Miniconf, SerDe};
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
@@ -23,7 +23,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH>;
+type MiniconfIter<M> = crate::MiniconfIter<M, MAX_RECURSION_DEPTH, MAX_TOPIC_LENGTH, JsonCoreSlash>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -216,9 +216,8 @@ where
             &[],
         )?;
 
-        assert!(
-            prefix.len() + "/settings/".len() + Settings::metadata().max_length <= MAX_TOPIC_LENGTH
-        );
+        let meta = MiniconfIter::<Settings>::metadata().unwrap();
+        assert!(prefix.len() + "/settings/".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
