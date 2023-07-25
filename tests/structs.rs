@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, SerDe};
+use miniconf::{heapless::String, Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[test]
@@ -97,5 +97,8 @@ fn struct_with_string() {
 fn empty_struct() {
     #[derive(Miniconf, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<1, 0>().unwrap().next().is_none());
+    assert!(Settings::iter_paths::<1, String<0>>()
+        .unwrap()
+        .next()
+        .is_none());
 }

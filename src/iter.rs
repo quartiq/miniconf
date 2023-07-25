@@ -1,13 +1,11 @@
-use super::{IterError, Metadata, Miniconf, SerDe};
-use core::marker::PhantomData;
-use heapless::String;
+use super::{IterError, Metadata, SerDe};
+use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize, S> {
+pub struct MiniconfIter<M, S, const L: usize, P> {
     /// Zero-size marker field to allow being generic over M and gaining access to M.
-    miniconf: PhantomData<M>,
-    spec: PhantomData<S>,
+    marker: PhantomData<(M, S, P)>,
 
     /// The iteration state.
     ///
@@ -24,26 +22,19 @@ pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize, S> {
     count: Option<usize>,
 }
 
-impl<M: ?Sized, const L: usize, const TS: usize, S> Default for MiniconfIter<M, L, TS, S> {
+impl<M, S, const L: usize, P> Default for MiniconfIter<M, S, L, P> {
     fn default() -> Self {
         Self {
             count: None,
-            miniconf: PhantomData,
-            spec: PhantomData,
+            marker: PhantomData,
             state: [0; L],
         }
     }
 }
 
-impl<M: ?Sized + Miniconf + SerDe<S>, const L: usize, const TS: usize, S>
-    MiniconfIter<M, L, TS, S>
-{
+impl<M: SerDe<S>, S, const L: usize, P> MiniconfIter<M, S, L, P> {
     pub fn metadata() -> Result<Metadata, IterError> {
         let meta = M::metadata(M::SEPARATOR.len_utf8());
-        if TS < meta.max_length {
-            return Err(IterError::Length);
-        }
-
         if L < meta.max_depth {
             return Err(IterError::Depth);
         }
@@ -59,13 +50,11 @@ impl<M: ?Sized + Miniconf + SerDe<S>, const L: usize, const TS: usize, S>
     }
 }
 
-impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterator
-    for MiniconfIter<M, L, TS, S>
-{
-    type Item = String<TS>;
+impl<M: SerDe<S>, S, const L: usize, P: Write + Default> Iterator for MiniconfIter<M, S, L, P> {
+    type Item = P;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut path = Self::Item::new();
+        let mut path = Self::Item::default();
 
         loop {
             match M::next_path(&self.state, 0, &mut path, M::SEPARATOR) {
@@ -79,7 +68,7 @@ impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterat
                     return None;
                 }
                 Err(IterError::Next(depth)) => {
-                    path.clear();
+                    path = Self::Item::default();
                     self.state[depth] = 0;
                     self.state[depth - 1] += 1;
                 }

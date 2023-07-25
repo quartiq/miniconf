@@ -181,7 +181,7 @@ pub trait Miniconf {
 
 /// Trait for implementing a specific way of serialization/deserialization into/from a slice
 /// and splitting/joining the path with a separator.
-pub trait SerDe<S>: Miniconf {
+pub trait SerDe<S>: Miniconf + Sized {
     /// The path hierarchy separator.
     ///
     /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
@@ -201,12 +201,11 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `TS` - The maximum length of the path in bytes.
+    /// * `P`  - The type to hold the path.
     ///
     /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn iter_paths<const L: usize, const TS: usize>(
-    ) -> Result<iter::MiniconfIter<Self, L, TS, S>, IterError> {
+    /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
+    fn iter_paths<const L: usize, P>() -> Result<iter::MiniconfIter<Self, S, L, P>, IterError> {
         MiniconfIter::new()
     }
 
@@ -221,11 +220,11 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `TS` - The maximum length of the path in bytes.
+    /// * `P`  - The type to hold the path.
     ///
     /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> MiniconfIter<Self, L, TS, S> {
+    /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
+    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<Self, S, L, P> {
         MiniconfIter::default()
     }
 
@@ -250,7 +249,7 @@ pub trait SerDe<S>: Miniconf {
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>>;
 }
 
-/// Marker struct for [SerDe].
+/// Marker struct for the "JSON and `/`" [SerDe] specification.
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
