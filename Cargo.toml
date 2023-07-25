@@ -23,7 +23,7 @@ smlang = { version = "0.6", optional = true }
 itoa = "1.0.4"
 
 [features]
-default = ["mqtt", "json"]
+default = ["mqtt"]
 json = ["dep:serde-json-core", "dep:heapless"]
 mqtt = ["dep:minimq", "dep:smlang", "dep:log", "json"]
 
@@ -41,3 +41,8 @@ branch = "feature/0.7"
 
 [[example]]
 name = "mqtt"
+required-features = ["mqtt"]
+
+[[example]]
+name = "readback"
+required-features = ["json"]

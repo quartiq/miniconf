@@ -1,5 +1,5 @@
 #![cfg_attr(not(any(test, doctest)), no_std)]
-#![doc = include_str!("../README.md")]
+#![cfg_attr(feature = "json", doc = include_str!("../README.md"))]
 
 use core::fmt::Write;
 

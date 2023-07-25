@@ -1,3 +1,5 @@
+#![cfg(feature = "json")]
+
 use miniconf::{heapless::String, Array, Error, Miniconf, SerDe};
 use serde::Deserialize;
 

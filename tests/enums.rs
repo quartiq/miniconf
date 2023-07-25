@@ -1,3 +1,5 @@
+#![cfg(feature = "json")]
+
 use miniconf::{Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 

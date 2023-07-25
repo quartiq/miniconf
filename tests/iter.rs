@@ -1,3 +1,5 @@
+#![cfg(feature = "json")]
+
 use miniconf::{heapless::String, Miniconf, SerDe};
 
 #[derive(Miniconf, Default)]

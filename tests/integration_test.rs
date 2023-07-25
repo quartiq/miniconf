@@ -1,3 +1,5 @@
+#![cfg(features = "mqtt")]
+
 use machine::*;
 use miniconf::{
     minimq::{types::TopicFilter, Publication},

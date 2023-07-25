@@ -1,3 +1,5 @@
+#![cfg(features = "mqtt")]
+
 use miniconf::{minimq, Miniconf};
 use serde::Deserialize;
 use std_embedded_nal::Stack;
