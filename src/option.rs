@@ -1,8 +1,5 @@
 use super::{Error, Inner, IterError, Metadata, Miniconf, Outer};
-use core::{
-    fmt::Write,
-    ops::{Deref, DerefMut},
-};
+use core::fmt::Write;
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
 ///
@@ -32,20 +29,7 @@ use core::{
 ///
 /// An `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    Debug,
-    PartialOrd,
-    Ord,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[repr(transparent)]
+
 pub type Option<T> = core::option::Option<T>;
 
 impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
@@ -58,7 +42,7 @@ impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        if let Some(inner) = self.0.as_mut() {
+        if let Some(inner) = self.as_mut() {
             inner.set_path(path_parts, de)
         } else {
             Err(Error::PathAbsent)
@@ -70,7 +54,7 @@ impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        if let Some(inner) = self.0.as_ref() {
+        if let Some(inner) = self.as_ref() {
             inner.get_path(path_parts, ser)
         } else {
             Err(Error::PathAbsent)

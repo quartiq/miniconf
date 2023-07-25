@@ -116,14 +116,11 @@ pub struct Metadata {
     pub count: usize,
 }
 
-pub trait Style {}
 pub struct Outer;
-impl Style for Outer {}
 pub struct Inner;
-impl Style for Inner {}
 
 /// Trait exposing serialization/deserialization of elements by path.
-pub trait Miniconf<Y: Style> {
+pub trait Miniconf<Y> {
     /// Deserialize an element by path.
     ///
     /// # Args

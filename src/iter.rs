@@ -1,4 +1,4 @@
-use super::{IterError, Metadata, SerDe};
+use super::{IterError, Metadata, Miniconf, SerDe};
 use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
@@ -32,7 +32,7 @@ impl<M, S, const L: usize, P, Y> Default for MiniconfIter<M, S, L, P, Y> {
     }
 }
 
-impl<M: Miniconf<Y> + SerDe<S>, S, const L: usize, P, Y> MiniconfIter<M, S, L, P, Y> {
+impl<M: Miniconf<Y> + SerDe<S, Y>, S, const L: usize, P, Y> MiniconfIter<M, S, L, P, Y> {
     pub fn metadata() -> Result<Metadata, IterError> {
         let meta = M::metadata(M::SEPARATOR.len_utf8());
         if L < meta.max_depth {
