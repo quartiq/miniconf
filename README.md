@@ -160,4 +160,7 @@ Deferred (non-atomic) access to inner elements of some types is not yet supporte
 * Tuple structs (other than [Option], [Array])
 
 ## Features
-* `mqtt-client` Enabled the MQTT client feature. See the example in [MqttClient].
+* `mqtt` Enable the MQTT client feature. See the example in [MqttClient].
+* `json` Enable the [Serde] implementation for the [JsonCoreSlash] style.
+
+Both features are enabled by default.
