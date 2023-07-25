@@ -181,7 +181,10 @@ pub trait Miniconf {
     ) -> Result<usize, IterError>;
 
     /// Get metadata about the paths in the namespace.
-    fn metadata() -> Metadata;
+    ///
+    /// # Args
+    /// * `separator_length` - The path hierarchy separator length in bytes.
+    fn metadata(separator_length: usize) -> Metadata;
 }
 
 /// Trait for implementing a specific way of serialization/deserialization into/from a slice

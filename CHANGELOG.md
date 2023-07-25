@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   doesn't enforce `serde-json-core` or `u8` buffers or `/` as the path hierarchy
   separator anymore.
 * [breaking] `MiniconfIter` takes the path hierarchy separator from `SerDe` and passes it on to
-  `Miniconf::next_path`.
+  `Miniconf::next_path` and `Miniconf::metadata`.
 * [breaking] The `Miniconf` trait has been stripped of the provided functions that depended
   on the `serde`-backend and path hierarchy separator. Those have been
   moved into a super trait `SerDe<S>` that is generic over a specification marker

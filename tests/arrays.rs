@@ -68,7 +68,7 @@ fn simple_array_indexing() {
     ));
 
     // Test metadata
-    let metadata = S::metadata();
+    let metadata = S::metadata(1);
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "/a/2".len());
     assert_eq!(metadata.count, 3);
@@ -122,7 +122,7 @@ fn array_of_structs_indexing() {
     assert_eq!(expected, s);
 
     // Test metadata
-    let metadata = S::metadata();
+    let metadata = S::metadata(1);
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length, "/a/2/b".len());
     assert_eq!(metadata.count, 3);
@@ -179,7 +179,7 @@ fn short_array() {
     }
 
     // Test metadata
-    let meta = S::metadata();
+    let meta = S::metadata(1);
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length, "/data/0".len());
     assert_eq!(meta.count, 1);

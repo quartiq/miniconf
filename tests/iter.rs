@@ -15,7 +15,7 @@ struct Settings {
 
 #[test]
 fn insufficient_space() {
-    let meta = Settings::metadata();
+    let meta = Settings::metadata(1);
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length, "/c/inner".len());
     assert_eq!(meta.count, 3);
