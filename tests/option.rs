@@ -1,6 +1,6 @@
 #![cfg(feature = "json")]
 
-use miniconf::{Miniconf, SerDe};
+use miniconf::{Error, Miniconf, SerDe};
 
 #[derive(PartialEq, Debug, Clone, Default, Miniconf)]
 struct Inner {
@@ -123,4 +123,23 @@ fn option_test_defer_option() {
     assert!(iterator.next().is_none());
 
     assert!(s.set("/data", b"null").is_err());
+}
+
+#[test]
+fn option_absent() {
+    #[derive(Copy, Clone, Default, Miniconf)]
+    struct S {
+        #[miniconf(defer)]
+        data: Option<u32>,
+    }
+
+    let mut s = S::default();
+    assert!(matches!(s.set("/data", b"7"), Err(Error::PathAbsent)));
+    assert!(matches!(s.set("/data", b""), Err(Error::PathAbsent)));
+    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
+    assert!(matches!(s.set("", b"7"), Err(Error::PathTooShort)));
+    s.data = Some(9);
+    assert!(matches!(s.set("/data", b"7"), Ok(1)));
+    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
+    assert!(matches!(s.set("/data", b""), Err(Error::SerDe(_))));
 }
