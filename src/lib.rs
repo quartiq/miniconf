@@ -17,11 +17,13 @@ mod json;
 pub use json::*;
 
 #[cfg(feature = "mqtt")]
+pub use minimq; // re-export
+#[cfg(feature = "mqtt")]
 mod mqtt_client;
 #[cfg(feature = "mqtt")]
 pub use mqtt_client::*;
 
-pub use serde;
+pub use serde; // re-export
 #[doc(hidden)]
 pub use serde::{de::DeserializeOwned, Serialize};
 

@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
   `iter_paths::<L, heapless::String<TS>>()`.
 * The `mqtt-client` feature has been renamed into `mqtt` with backward compatibility.
+* [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they are
+  not needed to work with the public API.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 
