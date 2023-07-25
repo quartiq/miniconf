@@ -87,7 +87,11 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
@@ -99,7 +103,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
@@ -126,7 +130,11 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
@@ -139,11 +147,11 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
             return Err(Error::PathAbsent);
         }
 
-        *self = Some(serde::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?);
+        *self = Some(serde::Deserialize::deserialize(de)?);
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
@@ -153,7 +161,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)
+        Ok(serde::Serialize::serialize(data, ser)?)
     }
 
     fn metadata(_separator_length: usize) -> Metadata {

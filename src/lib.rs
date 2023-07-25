@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, doctest)), no_std)]
 #![doc = include_str!("../README.md")]
 
 use core::fmt::Write;
@@ -52,7 +52,7 @@ pub enum IterError {
 /// Errors that can occur when using the [Miniconf] API.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Error {
+pub enum Error<T> {
     /// The provided path wasn't found in the structure.
     ///
     /// Double check the provided path to verify that it's valid.
@@ -68,22 +68,18 @@ pub enum Error {
     /// Double check the ending and add the remainder of the path.
     PathTooShort,
 
-    /// The value provided for configuration could not be deserialized into the proper type.
+    /// The value provided could not be serialized or deserialized.
     ///
     /// Check that the serialized data is valid and of the correct type.
-    Deserialization,
+    /// Check that the buffer had sufficient space.
+    SerDe(T),
 
     /// There was an error after deserializing a value.
     ///
     /// If the `Deserializer` encounters an error only after successfully
     /// deserializing a value (as is the case if there is additional unexpected data),
     /// the update may have taken place but this error will still be returned.
-    PostDeserialization,
-
-    /// The value provided could not be serialized.
-    ///
-    /// Check that the buffer had sufficient space.
-    Serialization,
+    PostDeserialization(T),
 
     /// When indexing into an array, the index provided was out of bounds.
     ///
@@ -99,18 +95,10 @@ pub enum Error {
     PathAbsent,
 }
 
-impl From<Error> for u8 {
-    fn from(err: Error) -> u8 {
-        match err {
-            Error::PathNotFound => 1,
-            Error::PathTooLong => 2,
-            Error::PathTooShort => 3,
-            Error::PostDeserialization => 4,
-            Error::Deserialization => 5,
-            Error::BadIndex => 6,
-            Error::Serialization => 7,
-            Error::PathAbsent => 8,
-        }
+impl<T> From<T> for Error<T> {
+    fn from(err: T) -> Self {
+        // By default in our context every T is a SerDe error.
+        Error::SerDe(err)
     }
 }
 
@@ -138,7 +126,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>;
@@ -151,7 +143,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer;
@@ -195,6 +187,11 @@ pub trait SerDe<S>: Miniconf {
     /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
     /// used in [SerDe::set] and [SerDe::get] to split the path.
     const SEPARATOR: char;
+
+    /// The [serde::Serializer::Error] type.
+    type SerError;
+    /// The [serde::Deserializer::Error] type.
+    type DeError;
 
     /// Create an iterator of all possible paths.
     ///
@@ -240,7 +237,7 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error>;
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>>;
 
     /// Retrieve a serialized value by path.
     ///
@@ -250,7 +247,7 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// The number of bytes used in the `data` buffer or an [Error].
-    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error>;
+    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>>;
 }
 
 /// Marker struct for [SerDe].
@@ -264,16 +261,37 @@ where
     T: Miniconf,
 {
     const SEPARATOR: char = '/';
+    type DeError = serde_json_core::de::Error;
+    type SerError = serde_json_core::ser::Error;
 
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
+    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>> {
         let mut de = serde_json_core::de::Deserializer::new(data);
         self.set_path(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
-        de.end().map_err(|_| Error::PostDeserialization)
+        de.end().map_err(Error::PostDeserialization)
     }
 
-    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
+    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
         self.get_path(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
         Ok(ser.end())
+    }
+}
+
+// These allow unifying serde error information to make writing examples
+// and tests easier. Doing this conversion is optional.
+// #[cfg(any(test, doctest))]
+impl From<Error<serde_json_core::ser::Error>> for Error<serde_json_core::de::Error> {
+    fn from(value: Error<serde_json_core::ser::Error>) -> Self {
+        match value {
+            Error::BadIndex => Self::BadIndex,
+            Error::PathAbsent => Self::PathAbsent,
+            Error::PathNotFound => Self::PathNotFound,
+            Error::PathTooLong => Self::PathTooLong,
+            Error::PathTooShort => Self::PathTooShort,
+            Error::PostDeserialization(_) => {
+                Error::PostDeserialization(serde_json_core::de::Error::CustomError)
+            }
+            Error::SerDe(_) => Self::SerDe(serde_json_core::de::Error::CustomError),
+        }
     }
 }
