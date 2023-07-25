@@ -170,6 +170,8 @@ pub trait Miniconf {
     fn metadata() -> Metadata;
 }
 
+/// Trait for implementing a specific way of serialization/deserialization into/from a slice
+/// and splitting/joining the path with a separator.
 pub trait SerDe<S>: Miniconf {
     /// The path hierarchy separator.
     ///
