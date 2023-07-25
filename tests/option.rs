@@ -142,4 +142,6 @@ fn option_absent() {
     assert!(matches!(s.set("/data", b"7"), Ok(1)));
     assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
     assert!(matches!(s.set("/data", b""), Err(Error::SerDe(_))));
+    assert!(matches!(s.set("/data", b"7 "), Ok(2)));
+    assert!(matches!(s.set("/data", b"7i"), Err(Error::PostDeserialization(_))));
 }
