@@ -266,24 +266,36 @@ pub trait SerDe<S>: Miniconf {
 /// as serialization/deserialization payload format.
 pub struct JsonCoreSlash;
 
-impl<'a, T> SerDe<&'a JsonCoreSlash> for T
+impl<T> SerDe<JsonCoreSlash> for T
 where
     T: Miniconf,
 {
     const SEPARATOR: char = '/';
-    type DeError =
-        <&'a mut serde_json_core::de::Deserializer<'a> as serde::Deserializer<'a>>::Error;
-    type SerError = <&'a mut serde_json_core::ser::Serializer<'a> as serde::Serializer>::Error;
+    type DeError = serde_json_core::de::Error;
+    type SerError = serde_json_core::ser::Error;
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>> {
         let mut de = serde_json_core::de::Deserializer::new(data);
         self.set_path(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
-        de.end().map_err(|e| Error::PostDeserialization(e))
+        de.end().map_err(Error::PostDeserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
         self.get_path(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
         Ok(ser.end())
+    }
+}
+
+// These are allow erasing the serde error information to make writing examples
+// and tests easier. Doing so is explicit and optional.
+impl From<Error<serde_json_core::ser::Error>> for Error<()> {
+    fn from(_value: Error<serde_json_core::ser::Error>) -> Self {
+        Self::SerDe(())
+    }
+}
+impl From<Error<serde_json_core::de::Error>> for Error<()> {
+    fn from(_value: Error<serde_json_core::de::Error>) -> Self {
+        Self::SerDe(())
     }
 }
