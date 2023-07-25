@@ -159,7 +159,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf + SerDe<JsonCoreSlash> + Clone,
+    Settings: SerDe<JsonCoreSlash> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -175,7 +175,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf + SerDe<JsonCoreSlash> + Clone,
+    Settings: SerDe<JsonCoreSlash> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Settings::DeError: core::fmt::Debug,
