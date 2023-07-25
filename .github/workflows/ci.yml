@@ -75,40 +75,41 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - beta
+          - 1.65.0  # keep in sync with manifest MSRV
+        target:
+          - thumbv7em-none-eabihf
 
     steps:
       - uses: actions/checkout@v2
-
       - name: Install Rust ${{ matrix.toolchain }}
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
-          target: thumbv7em-none-eabihf
+          target: ${{ matrix.target }}
           override: true
 
       - name: Cargo Check
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --verbose
+          args: --verbose --target ${{ matrix.target }}
 
       - name: Cargo Build [No-Features]
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features
+          args: --no-default-features --target ${{ matrix.target }}
 
       - name: Cargo Build
         uses: actions-rs/cargo@v1
         with:
-          command: build
+          command: build --target ${{ matrix.target }}
 
       - name: Cargo Build [Release]
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release
+          args: --release --target ${{ matrix.target }}
 
       - name: Cargo Build [Examples]
         uses: actions-rs/cargo@v1
@@ -117,7 +118,17 @@ jobs:
           args: --examples
 
   test:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          - 1.65.0  # keep in sync with manifest MSRV
+        args:
+          - --all-features
+          - --no-default-features
+          - --no-default-features --features json
+
     steps:
       - uses: actions/checkout@v2
 
@@ -130,20 +141,22 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           override: true
-          toolchain: stable
+          toolchain: ${{ matrix.toolchain }}
           profile: minimal
 
       - name: Cargo Test
         uses: actions-rs/cargo@v1
         with:
           command: test
+          args: ${{ matrix.args }}
 
   examples:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         example:
           - mqtt
+          - readback
     steps:
       - uses: actions/checkout@v2
 

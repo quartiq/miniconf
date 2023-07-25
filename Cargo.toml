@@ -9,7 +9,7 @@ description = "Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
-rust-version = "1.65.0"
+rust-version = "1.65.0"  # keep in sync with CI
 resolver = "2"
 
 [dependencies]
