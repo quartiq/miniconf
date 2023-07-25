@@ -266,15 +266,14 @@ pub trait SerDe<S>: Miniconf {
 /// as serialization/deserialization payload format.
 pub struct JsonCoreSlash;
 
-type E<'a> = <&'a mut serde_json_core::de::Deserializer<'a> as serde::Deserializer<'a>>::Error;
-
 impl<'a, T> SerDe<&'a JsonCoreSlash> for T
 where
     T: Miniconf,
 {
     const SEPARATOR: char = '/';
-    type DeError = ();
-    type SerError = ();
+    type DeError =
+        <&'a mut serde_json_core::de::Deserializer<'a> as serde::Deserializer<'a>>::Error;
+    type SerError = <&'a mut serde_json_core::ser::Serializer<'a> as serde::Serializer>::Error;
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>> {
         let mut de = serde_json_core::de::Deserializer::new(data);

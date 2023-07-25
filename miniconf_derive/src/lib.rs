@@ -58,7 +58,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    miniconf::serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
+                    Ok(miniconf::serde::ser::Serialize::serialize(&self.#match_name, ser)?)
                 }
             }
         }
@@ -80,7 +80,7 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    self.#match_name = miniconf::serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
+                    self.#match_name = miniconf::serde::de::Deserialize::deserialize(de)?;
                     Ok(())
                 }
             }
@@ -168,7 +168,7 @@ fn derive_struct(
 
     quote! {
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
-            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error>
+            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error<D::Error>>
             where
                 P: Iterator<Item = &'a str>,
                 D: miniconf::serde::Deserializer<'b>,
@@ -179,7 +179,7 @@ fn derive_struct(
                 }
             }
 
-            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error>
+            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error<S::Error>>
             where
                 P: Iterator<Item = &'a str>,
                 S: miniconf::serde::Serializer,
