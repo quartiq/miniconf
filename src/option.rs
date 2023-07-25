@@ -111,8 +111,8 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn metadata() -> Metadata {
-        T::metadata()
+    fn metadata(separator_length: usize) -> Metadata {
+        T::metadata(separator_length)
     }
 
     fn next_path(
@@ -156,7 +156,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)
     }
 
-    fn metadata() -> Metadata {
+    fn metadata(_separator_length: usize) -> Metadata {
         Metadata {
             count: 1,
             ..Default::default()

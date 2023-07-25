@@ -35,9 +35,11 @@ impl<M: ?Sized, const L: usize, const TS: usize, S> Default for MiniconfIter<M, 
     }
 }
 
-impl<M: ?Sized + Miniconf, const L: usize, const TS: usize, S> MiniconfIter<M, L, TS, S> {
+impl<M: ?Sized + Miniconf + SerDe<S>, const L: usize, const TS: usize, S>
+    MiniconfIter<M, L, TS, S>
+{
     pub fn metadata() -> Result<Metadata, IterError> {
-        let meta = M::metadata();
+        let meta = M::metadata(M::SEPARATOR.len_utf8());
         if TS < meta.max_length {
             return Err(IterError::Length);
         }

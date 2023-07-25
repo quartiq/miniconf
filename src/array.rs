@@ -136,11 +136,11 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             .get_path(path_parts, ser)
     }
 
-    fn metadata() -> Metadata {
-        let mut meta = T::metadata();
+    fn metadata(separator_length: usize) -> Metadata {
+        let mut meta = T::metadata(separator_length);
 
         // We add separator and index
-        meta.max_length += 1 + digits(N);
+        meta.max_length += separator_length + digits(N);
         meta.max_depth += 1;
         meta.count *= N;
 
@@ -212,10 +212,10 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
         serde::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)
     }
 
-    fn metadata() -> Metadata {
+    fn metadata(separator_length: usize) -> Metadata {
         Metadata {
             // We add separator and index
-            max_length: 1 + digits(N),
+            max_length: separator_length + digits(N),
             max_depth: 1,
             count: N,
         }
