@@ -103,7 +103,8 @@ jobs:
       - name: Cargo Build
         uses: actions-rs/cargo@v1
         with:
-          command: build --target ${{ matrix.target }}
+          command: build
+          args: --target ${{ matrix.target }}
 
       - name: Cargo Build [Release]
         uses: actions-rs/cargo@v1
