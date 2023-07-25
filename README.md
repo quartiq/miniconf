@@ -147,7 +147,8 @@ into the inner element(s) through their respective inner [Miniconf] implementati
 Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator
 (as long as the path can be split by it unambiguously).
 
-Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented.
+Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
+through [SerDe] for the [JsonCoreSlash] style.
 
 ## Transport
 Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from
