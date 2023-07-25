@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to provide the previously existing functionality.
 * The only required change for most downstream crates to adapt to the above is to
   make sure the `SerDe` trait is in scope (`use miniconf::SerDe`).
-* Paths now start with the path separator (unless they are empty).
+* Paths now start with the path separator (unless they are empty). This affects the `miniconf_derive`
+  crate and both `Miniconf` implementation pairs for `Option`/`Array`.
 * The path iterator does not need to be `Peekable` anymore.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
