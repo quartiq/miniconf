@@ -46,48 +46,14 @@ use core::{
     serde::Deserialize,
 )]
 #[repr(transparent)]
-pub struct Option<T>(core::option::Option<T>);
-
-impl<T> Deref for Option<T> {
-    type Target = core::option::Option<T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for Option<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T> AsRef<core::option::Option<T>> for Option<T> {
-    fn as_ref(&self) -> &core::option::Option<T> {
-        self
-    }
-}
-
-impl<T> AsMut<core::option::Option<T>> for Option<T> {
-    fn as_mut(&mut self) -> &mut core::option::Option<T> {
-        self
-    }
-}
-
-impl<T> From<core::option::Option<T>> for Option<T> {
-    fn from(x: core::option::Option<T>) -> Self {
-        Self(x)
-    }
-}
-
-impl<T> From<Option<T>> for core::option::Option<T> {
-    fn from(x: Option<T>) -> Self {
-        x.0
-    }
-}
+pub type Option<T> = core::option::Option<T>;
 
 impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
@@ -99,7 +65,7 @@ impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
         }
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
@@ -111,8 +77,8 @@ impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
         }
     }
 
-    fn metadata() -> Metadata {
-        T::metadata()
+    fn metadata(separator_length: usize) -> Metadata {
+        T::metadata(separator_length)
     }
 
     fn next_path(
@@ -126,7 +92,11 @@ impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf<Outer> for core::option::Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
@@ -139,11 +109,11 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf<Outer> for core::op
             return Err(Error::PathAbsent);
         }
 
-        *self = Some(serde::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?);
+        *self = Some(serde::Deserialize::deserialize(de)?);
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
@@ -153,10 +123,10 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf<Outer> for core::op
         }
 
         let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        serde::Serialize::serialize(data, ser).map_err(|_| Error::Serialization)
+        Ok(serde::Serialize::serialize(data, ser)?)
     }
 
-    fn metadata() -> Metadata {
+    fn metadata(_separator_length: usize) -> Metadata {
         Metadata {
             count: 1,
             ..Default::default()

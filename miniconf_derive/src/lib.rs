@@ -58,7 +58,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
+                    Ok(miniconf::serde::ser::Serialize::serialize(&self.#match_name, ser)?)
                 }
             }
         }
@@ -80,7 +80,7 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
                 if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
-                    self.#match_name = serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
+                    self.#match_name = miniconf::serde::de::Deserialize::deserialize(de)?;
                     Ok(())
                 }
             }
@@ -118,8 +118,8 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     if struct_field.defer {
         quote! {
             #i => {
-                let mut meta = <#field_type>::metadata();
-                meta.max_length += 1 + stringify!(#field_name).len();
+                let mut meta = <#field_type>::metadata(separator_length);
+                meta.max_length += separator_length + stringify!(#field_name).len();
                 meta.max_depth += 1;
                 meta
             }
@@ -128,7 +128,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
-                meta.max_length = 1 + stringify!(#field_name).len();
+                meta.max_length = separator_length + stringify!(#field_name).len();
                 meta.max_depth = 1;
                 meta.count = 1;
                 meta
@@ -168,10 +168,10 @@ fn derive_struct(
 
     quote! {
         impl #impl_generics miniconf::Miniconf<miniconf::Outer> for #ident #ty_generics #where_clause {
-            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error>
+            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error<D::Error>>
             where
                 P: Iterator<Item = &'a str>,
-                D: serde::Deserializer<'b>,
+                D: miniconf::serde::Deserializer<'b>,
             {
                 match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
                     #(#set_path_arms ,)*
@@ -179,10 +179,10 @@ fn derive_struct(
                 }
             }
 
-            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error>
+            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error<S::Error>>
             where
                 P: Iterator<Item = &'a str>,
-                S: serde::Serializer,
+                S: miniconf::serde::Serializer,
             {
                 match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
                     #(#get_path_arms ,)*
@@ -203,7 +203,7 @@ fn derive_struct(
                 }
             }
 
-            fn metadata() -> miniconf::Metadata {
+            fn metadata(separator_length: usize) -> miniconf::Metadata {
                 let mut meta = miniconf::Metadata::default();
 
                 for index in 0.. {

@@ -19,7 +19,11 @@ impl StructField {
         let defer = attributes.iter().any(|x| *x == MiniconfAttribute::Defer);
         let inner = attributes.iter().any(|x| *x == MiniconfAttribute::Inner);
 
-        Self { field, defer, inner }
+        Self {
+            field,
+            defer,
+            inner,
+        }
     }
 
     fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, array: bool) {
@@ -32,9 +36,13 @@ impl StructField {
                         // For deferred, non-array data types, we will recursively call into
                         // Miniconf trait functions.
                         if self.inner {
-                            type_param.bounds.push(parse_quote!(miniconf::Miniconf<miniconf::Inner>));
+                            type_param
+                                .bounds
+                                .push(parse_quote!(miniconf::Miniconf<miniconf::Inner>));
                         } else {
-                            type_param.bounds.push(parse_quote!(miniconf::Miniconf<miniconf::Outer>));
+                            type_param
+                                .bounds
+                                .push(parse_quote!(miniconf::Miniconf<miniconf::Outer>));
                         }
                     } else {
                         // For other data types, we will call into serde functions directly.

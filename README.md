@@ -16,7 +16,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Example
 ```rust
-use miniconf::{Error, Miniconf, SerDe};
+use miniconf::{heapless::String, Error, Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
@@ -97,20 +97,20 @@ let len = settings.get("/struct_", &mut buf)?;
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over and serializing all paths
-for path in Settings::iter_paths::<3, 32>().unwrap() {
+for path in Settings::iter_paths::<3, String<32>>().unwrap() {
     match settings.get(&path, &mut buf) {
         Ok(len) => {
             settings.set(&path, &buf[..len]).unwrap();
         }
         // Some settings are still `None` and thus their paths are expected to be absent
-        Err(Error::PathAbsent) => {},
+        Err(Error::PathAbsent) => {}
         e => {
             e.unwrap();
         }
     }
 }
 
-# Ok::<(), miniconf::Error>(())
+# Ok::<(), miniconf::Error<miniconf::serde_json_core::de::Error>>(())
 ```
 
 ## MQTT
@@ -147,7 +147,8 @@ into the inner element(s) through their respective inner [Miniconf] implementati
 Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator
 (as long as the path can be split by it unambiguously).
 
-Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented.
+Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
+through [SerDe] for the [JsonCoreSlash] style.
 
 ## Transport
 Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from

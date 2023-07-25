@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, SerDe};
+use miniconf::{heapless::String, Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[test]
@@ -34,7 +34,7 @@ fn atomic_struct() {
     assert_eq!(settings, expected);
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata();
+    let metadata = Settings::metadata(1);
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "/c".len());
     assert_eq!(metadata.count, 3);
@@ -70,7 +70,7 @@ fn recursive_struct() {
     assert!(settings.set("/c", b"{\"a\": 5}").is_err());
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata();
+    let metadata = Settings::metadata(1);
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "/c/a".len());
     assert_eq!(metadata.count, 3);
@@ -97,5 +97,8 @@ fn struct_with_string() {
 fn empty_struct() {
     #[derive(Miniconf, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<1, 0>().unwrap().next().is_none());
+    assert!(Settings::iter_paths::<1, String<0>>()
+        .unwrap()
+        .next()
+        .is_none());
 }

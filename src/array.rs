@@ -37,35 +37,42 @@ const fn digits(x: usize) -> usize {
     num_digits
 }
 
-impl<T: Miniconf<Outer>, const N: usize> Miniconf<Inner> for Array<T, N> {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+impl<T: Miniconf<Outer>, const N: usize> Miniconf<Inner> for [T; N] {
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        let i = self.index(path_parts.next())?;
+        let next = path_parts.next().ok_or(Error::PathTooShort)?;
+        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
 
-        self.get_mut(i)
+        self.get_mut(index)
             .ok_or(Error::BadIndex)?
             .set_path(path_parts, de)
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        let i = self.index(path_parts.next())?;
+        let next = path_parts.next().ok_or(Error::PathTooShort)?;
+        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
 
-        self.get(i)
+        self.get(index)
             .ok_or(Error::BadIndex)?
             .get_path(path_parts, ser)
     }
 
-    fn metadata() -> Metadata {
-        let mut meta = T::metadata();
+    fn metadata(separator_length: usize) -> Metadata {
+        let mut meta = T::metadata(separator_length);
 
-        meta.max_length += 1 + digits(N);
+        // We add separator and index
+        meta.max_length += separator_length + digits(N);
         meta.max_depth += 1;
         meta.count *= N;
 
@@ -92,54 +99,48 @@ impl<T: Miniconf<Outer>, const N: usize> Miniconf<Inner> for Array<T, N> {
     }
 }
 
-trait IndexLookup {
-    fn index(&self, next: Option<&str>) -> Result<usize, Error>;
-}
-
-impl<T, const N: usize> IndexLookup for [T; N] {
-    fn index(&self, next: Option<&str>) -> Result<usize, Error> {
-        let next = next.ok_or(Error::PathTooShort)?;
-
-        // Parse what should be the index value
-        next.parse().map_err(|_| Error::BadIndex)
-    }
-}
-
 impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf<Outer> for [T; N] {
-    fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
+    fn set_path<'a, 'b: 'a, P, D>(
+        &mut self,
+        path_parts: &mut P,
+        de: D,
+    ) -> Result<(), Error<D::Error>>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        let i = self.index(path_parts.next())?;
+        let next = path_parts.next().ok_or(Error::PathTooShort)?;
+        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
 
         if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        let item = <[T]>::get_mut(self, i).ok_or(Error::BadIndex)?;
-        *item = serde::Deserialize::deserialize(de).map_err(|_| Error::Deserialization)?;
+        let item = <[T]>::get_mut(self, index).ok_or(Error::BadIndex)?;
+        *item = serde::Deserialize::deserialize(de)?;
         Ok(())
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
+    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        let i = self.index(path_parts.next())?;
+        let next = path_parts.next().ok_or(Error::PathTooShort)?;
+        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
 
         if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
-        let item = <[T]>::get(self, i).ok_or(Error::BadIndex)?;
-        serde::Serialize::serialize(item, ser).map_err(|_| Error::Serialization)
+        let item = <[T]>::get(self, index).ok_or(Error::BadIndex)?;
+        Ok(serde::Serialize::serialize(item, ser)?)
     }
 
-    fn metadata() -> Metadata {
+    fn metadata(separator_length: usize) -> Metadata {
         Metadata {
-            max_length: 1 + digits(N),
+            // We add separator and index
+            max_length: separator_length + digits(N),
             max_depth: 1,
             count: N,
         }
