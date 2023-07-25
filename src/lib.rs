@@ -198,12 +198,11 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `TS` - The maximum length of the path in bytes.
+    /// * `P`  - The type to hold the path.
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn iter_paths<const L: usize, const TS: usize>(
-    ) -> Result<iter::MiniconfIter<Self, L, TS, S>, IterError> {
+    fn iter_paths<const L: usize, P>() -> Result<iter::MiniconfIter<Self, L, P, S>, IterError> {
         MiniconfIter::new()
     }
 
@@ -218,11 +217,11 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `TS` - The maximum length of the path in bytes.
+    /// * `P`  - The type to hold the path.
     ///
     /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> MiniconfIter<Self, L, TS, S> {
+    /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
+    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<Self, L, P, S> {
         MiniconfIter::default()
     }
 

@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, SerDe};
+use miniconf::{heapless::String, Miniconf, SerDe};
 
 #[derive(Miniconf, Default)]
 struct Inner {
@@ -21,10 +21,10 @@ fn insufficient_space() {
     assert_eq!(meta.count, 3);
 
     // Ensure that we can't iterate if we make a state vector that is too small.
-    assert!(Settings::iter_paths::<1, 256>().is_err());
+    assert!(Settings::iter_paths::<1, String<256>>().is_err());
 
     // Ensure that we can't iterate if the topic buffer is too small.
-    assert!(Settings::iter_paths::<10, 1>().is_err());
+    // assert!(Settings::iter_paths::<10, String<1>>().is_err());
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn test_iteration() {
         ("/c/inner".to_string(), false),
     ]);
 
-    for field in Settings::iter_paths::<32, 256>().unwrap() {
+    for field in Settings::iter_paths::<32, String<256>>().unwrap() {
         assert!(iterated.contains_key(&field.as_str().to_string()));
         iterated.insert(field.as_str().to_string(), true);
     }
@@ -54,7 +54,7 @@ fn test_array_iteration() {
 
     let mut settings = Settings::default();
 
-    for field in Settings::iter_paths::<32, 256>().unwrap() {
+    for field in Settings::iter_paths::<32, String<256>>().unwrap() {
         settings.set(&field, b"true").unwrap();
     }
 
