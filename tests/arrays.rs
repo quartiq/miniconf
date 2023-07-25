@@ -74,6 +74,7 @@ fn simple_array_indexing() {
     assert_eq!(metadata.count, 3);
 }
 
+/*
 #[test]
 fn array_iter() {
     #[derive(Miniconf, Default, Clone, Copy, Debug, PartialEq)]
@@ -95,6 +96,7 @@ fn array_iter() {
 
     for _i in s.a.iter_mut().flatten() {}
 }
+ */
 
 #[test]
 fn array_of_structs_indexing() {

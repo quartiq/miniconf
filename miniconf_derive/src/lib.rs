@@ -46,7 +46,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
     let match_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             stringify!(#match_name) => {
                 self.#match_name.get_path(path_parts, ser)
@@ -68,7 +68,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
 fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
     let match_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             stringify!(#match_name) => {
                 self.#match_name.set_path(path_parts, de)
@@ -92,7 +92,7 @@ fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Token
     // Quote context is a match of the field index with `self`, `state`, and `path` available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             Some(#i) => {
                 path.write_str(concat!("/", stringify!(#field_name)))
@@ -115,7 +115,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     // Quote context is a match of the field index.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
@@ -167,7 +167,7 @@ fn derive_struct(
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
-        impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
+        impl #impl_generics miniconf::Miniconf<miniconf::Outer> for #ident #ty_generics #where_clause {
             fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error>
             where
                 P: Iterator<Item = &'a str>,

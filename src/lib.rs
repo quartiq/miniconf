@@ -120,8 +120,14 @@ pub struct Metadata {
     pub count: usize,
 }
 
+pub trait Style {}
+pub struct Outer;
+impl Style for Outer {}
+pub struct Inner;
+impl Style for Inner {}
+
 /// Trait exposing serialization/deserialization of elements by path.
-pub trait Miniconf {
+pub trait Miniconf<Y: Style> {
     /// Deserialize an element by path.
     ///
     /// # Args
@@ -176,7 +182,7 @@ pub trait Miniconf {
     fn metadata() -> Metadata;
 }
 
-pub trait SerDe<S>: Miniconf {
+pub trait SerDe<S: Spec, Y: Style>: Miniconf<Y> {
     /// The path hierarchy separator.
     const SEPARATOR: char;
 
@@ -193,7 +199,7 @@ pub trait SerDe<S>: Miniconf {
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
-    ) -> Result<iter::MiniconfIter<Self, L, TS, S>, IterError> {
+    ) -> Result<iter::MiniconfIter<Self, L, TS, S, Y>, IterError> {
         MiniconfIter::new()
     }
 
@@ -212,7 +218,7 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> MiniconfIter<Self, L, TS, S> {
+    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> MiniconfIter<Self, L, TS, S, Y> {
         MiniconfIter::default()
     }
 
@@ -237,15 +243,19 @@ pub trait SerDe<S>: Miniconf {
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error>;
 }
 
+pub trait Spec {}
+
 /// Marker struct for [SerDe].
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
 pub struct JsonCoreSlash;
+impl Spec for JsonCoreSlash {}
 
-impl<T> SerDe<JsonCoreSlash> for T
+impl<T, Y> SerDe<JsonCoreSlash, Y> for T
 where
-    T: Miniconf,
+    T: Miniconf<Y>,
+    Y: Style,
 {
     const SEPARATOR: char = '/';
 

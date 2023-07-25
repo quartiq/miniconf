@@ -1,13 +1,12 @@
-use super::{IterError, Metadata, Miniconf, SerDe};
+use super::{IterError, Metadata, Miniconf, SerDe, Spec, Style};
 use core::marker::PhantomData;
 use heapless::String;
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize, S> {
+pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize, S, Y> {
     /// Zero-size marker field to allow being generic over M and gaining access to M.
-    miniconf: PhantomData<M>,
-    spec: PhantomData<S>,
+    marker: (PhantomData<M>, PhantomData<S>, PhantomData<Y>),
 
     /// The iteration state.
     ///
@@ -24,18 +23,19 @@ pub struct MiniconfIter<M: ?Sized, const L: usize, const TS: usize, S> {
     count: Option<usize>,
 }
 
-impl<M: ?Sized, const L: usize, const TS: usize, S> Default for MiniconfIter<M, L, TS, S> {
+impl<M: ?Sized, const L: usize, const TS: usize, S, Y> Default for MiniconfIter<M, L, TS, S, Y> {
     fn default() -> Self {
         Self {
             count: None,
-            miniconf: PhantomData,
-            spec: PhantomData,
+            marker: (PhantomData, PhantomData, PhantomData),
             state: [0; L],
         }
     }
 }
 
-impl<M: ?Sized + Miniconf, const L: usize, const TS: usize, S> MiniconfIter<M, L, TS, S> {
+impl<M: ?Sized + Miniconf<Y>, const L: usize, const TS: usize, S, Y: Style>
+    MiniconfIter<M, L, TS, S, Y>
+{
     pub fn metadata() -> Result<Metadata, IterError> {
         let meta = M::metadata();
         if TS < meta.max_length {
@@ -57,8 +57,8 @@ impl<M: ?Sized + Miniconf, const L: usize, const TS: usize, S> MiniconfIter<M, L
     }
 }
 
-impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterator
-    for MiniconfIter<M, L, TS, S>
+impl<M: Miniconf<Y> + SerDe<S, Y> + ?Sized, const L: usize, const TS: usize, S: Spec, Y: Style>
+    Iterator for MiniconfIter<M, L, TS, S, Y>
 {
     type Item = String<TS>;
 

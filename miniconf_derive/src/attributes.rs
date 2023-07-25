@@ -5,6 +5,7 @@ use std::str::FromStr;
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum MiniconfAttribute {
     Defer,
+    Inner,
 }
 
 impl FromStr for MiniconfAttribute {
@@ -12,6 +13,7 @@ impl FromStr for MiniconfAttribute {
     fn from_str(s: &str) -> Result<Self, String> {
         let attr = match s {
             "defer" => MiniconfAttribute::Defer,
+            "inner" => MiniconfAttribute::Inner,
             other => return Err(format!("Unknown attribute: {other}")),
         };
 

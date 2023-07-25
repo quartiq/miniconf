@@ -1,4 +1,4 @@
-use super::{Error, IterError, Metadata, Miniconf};
+use super::{Error, Inner, IterError, Metadata, Miniconf, Outer};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -86,7 +86,7 @@ impl<T> From<Option<T>> for core::option::Option<T> {
     }
 }
 
-impl<T: Miniconf> Miniconf for Option<T> {
+impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Iterator<Item = &'a str>,
@@ -125,7 +125,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     }
 }
 
-impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
+impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf<Outer> for core::option::Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Iterator<Item = &'a str>,

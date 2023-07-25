@@ -1,4 +1,4 @@
-use super::{Error, IterError, Metadata, Miniconf};
+use super::{Error, Inner, IterError, Metadata, Miniconf, Outer};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -109,7 +109,7 @@ const fn digits(x: usize) -> usize {
     num_digits
 }
 
-impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
+impl<T: Miniconf<Outer>, const N: usize> Miniconf<Inner> for Array<T, N> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Iterator<Item = &'a str>,
@@ -179,7 +179,7 @@ impl<T, const N: usize> IndexLookup for [T; N] {
     }
 }
 
-impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
+impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf<Outer> for [T; N] {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
         P: Iterator<Item = &'a str>,

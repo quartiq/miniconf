@@ -3,7 +3,8 @@ use syn::{parse_quote, Generics};
 
 pub struct StructField {
     pub field: syn::Field,
-    pub deferred: bool,
+    pub defer: bool,
+    pub inner: bool,
 }
 
 impl StructField {
@@ -15,9 +16,10 @@ impl StructField {
             .map(|attr| AttributeParser::new(attr.tokens.clone()).parse())
             .collect();
 
-        let deferred = attributes.iter().any(|x| *x == MiniconfAttribute::Defer);
+        let defer = attributes.iter().any(|x| *x == MiniconfAttribute::Defer);
+        let inner = attributes.iter().any(|x| *x == MiniconfAttribute::Inner);
 
-        Self { deferred, field }
+        Self { field, defer, inner }
     }
 
     fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, array: bool) {
@@ -26,10 +28,14 @@ impl StructField {
                 if type_param.ident == *ident {
                     // Deferred array types are a special case. These types defer directly into a
                     // manual implementation of Miniconf that calls serde functions directly.
-                    if self.deferred && !array {
+                    if self.defer && !array {
                         // For deferred, non-array data types, we will recursively call into
                         // Miniconf trait functions.
-                        type_param.bounds.push(parse_quote!(miniconf::Miniconf));
+                        if self.inner {
+                            type_param.bounds.push(parse_quote!(miniconf::Miniconf<miniconf::Inner>));
+                        } else {
+                            type_param.bounds.push(parse_quote!(miniconf::Miniconf<miniconf::Outer>));
+                        }
                     } else {
                         // For other data types, we will call into serde functions directly.
                         type_param.bounds.push(parse_quote!(miniconf::Serialize));
