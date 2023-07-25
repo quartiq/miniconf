@@ -274,8 +274,8 @@ where
     }
 }
 
-// These are allow unifying serde error information to make writing examples
-// and tests easier. Doing this conversion is always explicit and optional.
+// These allow unifying serde error information to make writing examples
+// and tests easier. Doing this conversion is optional.
 impl From<Error<serde_json_core::ser::Error>> for Error<serde_json_core::de::Error> {
     fn from(value: Error<serde_json_core::ser::Error>) -> Self {
         match value {
