@@ -1,8 +1,5 @@
 use super::{Error, Inner, IterError, Metadata, Miniconf, Outer};
-use core::{
-    fmt::Write,
-    ops::{Deref, DerefMut},
-};
+use core::fmt::Write;
 
 /// An array that exposes each element through their [`Miniconf`] implementation.
 ///
@@ -25,77 +22,8 @@ use core::{
 ///
 /// An `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
-#[derive(Clone, Copy, PartialEq, Eq, Debug, PartialOrd, Ord, Hash)]
-#[repr(transparent)]
-pub struct Array<T, const N: usize>([T; N]);
 
-impl<T, const N: usize> Deref for Array<T, N> {
-    type Target = [T; N];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T, const N: usize> DerefMut for Array<T, N> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T: Default + Copy, const N: usize> Default for Array<T, N> {
-    fn default() -> Self {
-        Self([T::default(); N])
-    }
-}
-
-impl<T, const N: usize> From<[T; N]> for Array<T, N> {
-    fn from(x: [T; N]) -> Self {
-        Self(x)
-    }
-}
-
-impl<T, const N: usize> AsRef<[T; N]> for Array<T, N> {
-    fn as_ref(&self) -> &[T; N] {
-        self
-    }
-}
-
-impl<T, const N: usize> AsMut<[T; N]> for Array<T, N> {
-    fn as_mut(&mut self) -> &mut [T; N] {
-        self
-    }
-}
-
-impl<T, const N: usize> IntoIterator for Array<T, N> {
-    type Item = T;
-    type IntoIter = <[T; N] as IntoIterator>::IntoIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
-    }
-}
-
-impl<'a, T, const N: usize> IntoIterator for &'a Array<T, N> {
-    type Item = <&'a [T; N] as IntoIterator>::Item;
-    type IntoIter = <&'a [T; N] as IntoIterator>::IntoIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl<'a, T, const N: usize> IntoIterator for &'a mut Array<T, N> {
-    type Item = <&'a mut [T; N] as IntoIterator>::Item;
-    type IntoIter = <&'a mut [T; N] as IntoIterator>::IntoIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter_mut()
-    }
-}
-
-impl<T, const N: usize> From<Array<T, N>> for [T; N] {
-    fn from(x: Array<T, N>) -> Self {
-        x.0
-    }
-}
+pub type Array<T, const N: usize> = [T; N];
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
@@ -115,10 +43,9 @@ impl<T: Miniconf<Outer>, const N: usize> Miniconf<Inner> for Array<T, N> {
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        let i = self.0.index(path_parts.next())?;
+        let i = self.index(path_parts.next())?;
 
-        self.0
-            .get_mut(i)
+        self.get_mut(i)
             .ok_or(Error::BadIndex)?
             .set_path(path_parts, de)
     }
@@ -128,10 +55,9 @@ impl<T: Miniconf<Outer>, const N: usize> Miniconf<Inner> for Array<T, N> {
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        let i = self.0.index(path_parts.next())?;
+        let i = self.index(path_parts.next())?;
 
-        self.0
-            .get(i)
+        self.get(i)
             .ok_or(Error::BadIndex)?
             .get_path(path_parts, ser)
     }
