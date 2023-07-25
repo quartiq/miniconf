@@ -57,6 +57,13 @@ pub enum Error {
     /// Check that the serialized data is valid and of the correct type.
     Deserialization,
 
+    /// There was an error after deserializing a value.
+    ///
+    /// If the `Deserializer` encounters an error only after successfully
+    /// deserializing a value (as is the case if there is additional unexpected data),
+    /// the update may have taken place but this error will still be returned.
+    PostDeserialization,
+
     /// The value provided could not be serialized.
     ///
     /// Check that the buffer had sufficient space.
@@ -82,6 +89,7 @@ impl From<Error> for u8 {
             Error::PathNotFound => 1,
             Error::PathTooLong => 2,
             Error::PathTooShort => 3,
+            Error::PostDeserialization => 4,
             Error::Deserialization => 5,
             Error::BadIndex => 6,
             Error::Serialization => 7,
@@ -252,7 +260,7 @@ where
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
         self.set_path(&mut path.split(Self::SEPARATOR).peekable(), &mut de)?;
-        de.end().map_err(|_| Error::Deserialization)
+        de.end().map_err(|_| Error::PostDeserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
