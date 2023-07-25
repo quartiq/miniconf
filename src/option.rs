@@ -167,7 +167,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         if *state.first().ok_or(IterError::PathDepth)? == 0 {
             state[0] += 1;
 
-            // Remove trailing slash added by a deferring container (array or struct).
+            // Remove trailing separator added by a deferring container (array or struct).
             if path.ends_with(separator) {
                 path.pop();
             }

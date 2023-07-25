@@ -172,6 +172,9 @@ pub trait Miniconf {
 
 pub trait SerDe<S>: Miniconf {
     /// The path hierarchy separator.
+    ///
+    /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
+    /// used in [SerDe::set] and [SerDe::get] to split the path.
     const SEPARATOR: char;
 
     /// Create an iterator of all possible paths.

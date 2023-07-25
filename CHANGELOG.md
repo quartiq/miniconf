@@ -8,11 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
+* [breaking] The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
   doesn't enforce `serde-json-core` or `u8` buffers anymore.
-* `MiniconfIter` takes the path hierarchy separator and passes it on to
+* [breaking] `MiniconfIter` takes the path hierarchy separator and passes it on to
   `Miniconf::next_path`.
-* The `Miniconf` trait has been stripped of the provided functions that depended
+* [breaking] The `Miniconf` trait has been stripped of the provided functions that depended
   on the `serde`-backend and path hierarchy separator. Those have been
   moved into a super trait `SerDe<S>` that is generic over a specification marker
   struct `S`. `SerDe<JsonCoreSlash>` has been implemented for all `Miniconf`
