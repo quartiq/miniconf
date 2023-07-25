@@ -1,4 +1,4 @@
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(any(test, doctest)), no_std)]
 #![doc = include_str!("../README.md")]
 
 use core::fmt::Write;
@@ -187,7 +187,10 @@ pub trait SerDe<S>: Miniconf {
     /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
     /// used in [SerDe::set] and [SerDe::get] to split the path.
     const SEPARATOR: char;
+
+    /// The [serde::Serializer::Error] type.
     type SerError;
+    /// The [serde::Deserializer::Error] type.
     type DeError;
 
     /// Create an iterator of all possible paths.
@@ -276,6 +279,7 @@ where
 
 // These allow unifying serde error information to make writing examples
 // and tests easier. Doing this conversion is optional.
+// #[cfg(any(test, doctest))]
 impl From<Error<serde_json_core::ser::Error>> for Error<serde_json_core::de::Error> {
     fn from(value: Error<serde_json_core::ser::Error>) -> Self {
         match value {
