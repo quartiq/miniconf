@@ -16,7 +16,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Example
 ```rust
-use miniconf::{Error, Miniconf, SerDe, heapless::String};
+use miniconf::{heapless::String, Error, Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
@@ -103,7 +103,7 @@ for path in Settings::iter_paths::<3, String<32>>().unwrap() {
             settings.set(&path, &buf[..len]).unwrap();
         }
         // Some settings are still `None` and thus their paths are expected to be absent
-        Err(Error::PathAbsent) => {},
+        Err(Error::PathAbsent) => {}
         e => {
             e.unwrap();
         }
