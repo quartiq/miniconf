@@ -1,12 +1,14 @@
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![doc = include_str!("../README.md")]
+
+use core::fmt::Write;
 
 mod array;
 mod iter;
 mod option;
 
 pub use array::Array;
-pub use iter::{IterError, MiniconfIter};
+pub use iter::MiniconfIter;
 pub use miniconf_derive::Miniconf;
 pub use option::Option;
 
@@ -32,6 +34,20 @@ pub use serde::{
     de::{Deserialize, DeserializeOwned},
     ser::Serialize,
 };
+
+/// Errors that occur during iteration over topic paths.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum IterError {
+    /// No element was found at the given depth
+    Next(usize),
+
+    /// The provided state vector is not long enough.
+    Depth,
+
+    /// The provided buffer is not long enough.
+    Length,
+}
 
 /// Errors that can occur when using the [Miniconf] API.
 #[non_exhaustive]
@@ -112,43 +128,32 @@ pub struct Metadata {
     pub count: usize,
 }
 
-/// Helper trait for [core::iter::Peekable].
-pub trait Peekable: core::iter::Iterator {
-    fn peek(&mut self) -> core::option::Option<&Self::Item>;
-}
-
-impl<I: core::iter::Iterator> Peekable for core::iter::Peekable<I> {
-    fn peek(&mut self) -> core::option::Option<&Self::Item> {
-        core::iter::Peekable::peek(self)
-    }
-}
-
 /// Trait exposing serialization/deserialization of elements by path.
 pub trait Miniconf {
     /// Deserialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: A [Peekable] [Iterator] identifying the element.
+    /// * `path_parts`: An [Iterator] identifying the element.
     /// * `de`: A [serde::Deserializer] to use to deserialize the value.
     ///
     /// # Returns
     /// May return an [Error].
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>;
 
     /// Serialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: A [Peekable] [Iterator] identifying the element.
+    /// * `path_parts`: An [Iterator] identifying the element.
     /// * `ser`: A [serde::Serializer] to use to serialize the value.
     ///
     /// # Returns
     /// May return an [Error].
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer;
 
     /// Get the next path in the namespace.
@@ -156,23 +161,24 @@ pub trait Miniconf {
     /// This is usually not called directly but through a [MiniconfIter] returned by [SerDe::iter_paths].
     ///
     /// # Args
-    /// * `state`: A state array indicating the path to be retrieved.
-    ///   A zeroed vector indicates the first path. The vector is advanced
-    ///   such that the next element will be retrieved when called again.
-    ///   The array needs to be at least as long as the maximum path depth.
+    /// * `state`: A state slice indicating the path to be retrieved.
+    ///   A zeroed vector indicates the first path.
+    ///   The slice needs to be at least as long as the maximum path depth.
+    /// * `depth`: The path depth this struct is at.
     /// * `path`: A string to write the path into.
     /// * `separator` - The path hierarchy separator.
     ///
     /// # Returns
-    /// A `bool` indicating a valid path was written to `path` from the given `state`.
-    /// If `false`, `path` is invalid and there are no more paths within `self` at and
-    /// beyond `state`.
+    /// A `usize` indicating the final depth of the valid path.
+    /// Must return `IterError::Next(usize)` with the final depth if there are
+    /// no more elements at that index and depth.
     /// May return `IterError` indicating insufficient `state` or `path` size.
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        path: impl Write,
         separator: char,
-    ) -> Result<bool, IterError>;
+    ) -> Result<usize, IterError>;
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
@@ -201,7 +207,7 @@ pub trait SerDe<S>: Miniconf {
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
     fn iter_paths<const L: usize, const TS: usize>(
     ) -> Result<iter::MiniconfIter<Self, L, TS, S>, IterError> {
-        iter::MiniconfIter::new()
+        MiniconfIter::new()
     }
 
     /// Create an unchecked iterator of all possible paths.
@@ -219,9 +225,8 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> iter::MiniconfIter<Self, L, TS, S>
-    {
-        iter::MiniconfIter::default()
+    fn unchecked_iter_paths<const L: usize, const TS: usize>() -> MiniconfIter<Self, L, TS, S> {
+        MiniconfIter::default()
     }
 
     /// Update an element by path.
@@ -259,13 +264,13 @@ where
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error> {
         let mut de = serde_json_core::de::Deserializer::new(data);
-        self.set_path(&mut path.split(Self::SEPARATOR).peekable(), &mut de)?;
+        self.set_path(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
         de.end().map_err(|_| Error::PostDeserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error> {
         let mut ser = serde_json_core::ser::Serializer::new(data);
-        self.get_path(&mut path.split(Self::SEPARATOR).peekable(), &mut ser)?;
+        self.get_path(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
         Ok(ser.end())
     }
 }

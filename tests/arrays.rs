@@ -24,14 +24,14 @@ fn simple_array() {
     let mut s = S::default();
 
     // Updating a single field should succeed.
-    s.set("a/0", "99".as_bytes()).unwrap();
+    s.set("/a/0", "99".as_bytes()).unwrap();
     assert_eq!(99, s.a[0]);
 
     // Updating entire array atomically is not supported.
-    assert!(s.set("a", "[1,2,3]".as_bytes()).is_err());
+    assert!(s.set("/a", "[1,2,3]".as_bytes()).is_err());
 
     // Invalid index should generate an error.
-    assert!(s.set("a/100", "99".as_bytes()).is_err());
+    assert!(s.set("/a/100", "99".as_bytes()).is_err());
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn nonexistent_field() {
 
     let mut s = S::default();
 
-    assert!(s.set("a/1/b", "7".as_bytes()).is_err());
+    assert!(s.set("/a/1/b", "7".as_bytes()).is_err());
 }
 
 #[test]
@@ -57,20 +57,20 @@ fn simple_array_indexing() {
 
     let mut s = S::default();
 
-    s.set("a/1", "7".as_bytes()).unwrap();
+    s.set("/a/1", "7".as_bytes()).unwrap();
 
     assert_eq!([0, 7, 0], s.a);
 
     // Ensure that setting an out-of-bounds index generates an error.
     assert!(matches!(
-        s.set("a/3", "7".as_bytes()).unwrap_err(),
+        s.set("/a/3", "7".as_bytes()).unwrap_err(),
         Error::BadIndex
     ));
 
     // Test metadata
     let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length, "a/2".len());
+    assert_eq!(metadata.max_length, "/a/2".len());
     assert_eq!(metadata.count, 3);
 }
 
@@ -111,7 +111,7 @@ fn array_of_structs_indexing() {
 
     let mut s = S::default();
 
-    s.set("a/1/b", "7".as_bytes()).unwrap();
+    s.set("/a/1/b", "7".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -124,7 +124,7 @@ fn array_of_structs_indexing() {
     // Test metadata
     let metadata = S::metadata();
     assert_eq!(metadata.max_depth, 3);
-    assert_eq!(metadata.max_length, "a/2/b".len());
+    assert_eq!(metadata.max_length, "/a/2/b".len());
     assert_eq!(metadata.count, 3);
 }
 
@@ -138,7 +138,7 @@ fn array_of_arrays() {
 
     let mut s = S::default();
 
-    s.set("data/0/0", "7".as_bytes()).unwrap();
+    s.set("/data/0/0", "7".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -158,7 +158,7 @@ fn atomic_array() {
 
     let mut s = S::default();
 
-    s.set("data", "[1, 2]".as_bytes()).unwrap();
+    s.set("/data", "[1, 2]".as_bytes()).unwrap();
 
     let expected = {
         let mut e = S::default();
@@ -181,7 +181,7 @@ fn short_array() {
     // Test metadata
     let meta = S::metadata();
     assert_eq!(meta.max_depth, 2);
-    assert_eq!(meta.max_length, "data/0".len());
+    assert_eq!(meta.max_length, "/data/0".len());
     assert_eq!(meta.count, 1);
 }
 
@@ -192,7 +192,7 @@ fn null_array() {
         #[miniconf(defer)]
         data: [u32; 0],
     }
-    assert!(S::iter_paths::<2, 6>().unwrap().next().is_none());
+    assert!(S::iter_paths::<2, 7>().unwrap().next().is_none());
 }
 
 #[test]
@@ -206,5 +206,5 @@ fn null_miniconf_array() {
         #[miniconf(defer)]
         data: Array<I, 0>,
     }
-    assert!(S::iter_paths::<3, 8>().unwrap().next().is_none());
+    assert!(S::iter_paths::<3, 9>().unwrap().next().is_none());
 }

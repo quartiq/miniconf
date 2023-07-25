@@ -1,5 +1,8 @@
-use super::{Error, IterError, Metadata, Miniconf, Peekable};
-use core::ops::{Deref, DerefMut};
+use super::{Error, IterError, Metadata, Miniconf};
+use core::{
+    fmt::Write,
+    ops::{Deref, DerefMut},
+};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
 ///
@@ -86,7 +89,7 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 impl<T: Miniconf> Miniconf for Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
         if let Some(inner) = self.0.as_mut() {
@@ -98,7 +101,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
         if let Some(inner) = self.0.as_ref() {
@@ -112,22 +115,23 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        path: impl Write,
         separator: char,
-    ) -> Result<bool, IterError> {
-        T::next_path(state, path, separator)
+    ) -> Result<usize, IterError> {
+        T::next_path(state, depth, path, separator)
     }
 }
 
 impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        if path_parts.peek().is_some() {
+        if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -141,10 +145,10 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
 
     fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error>
     where
-        P: Peekable<Item = &'a str>,
+        P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        if path_parts.peek().is_some() {
+        if path_parts.next().is_some() {
             return Err(Error::PathTooLong);
         }
 
@@ -159,21 +163,16 @@ impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::O
         }
     }
 
-    fn next_path<const TS: usize>(
-        state: &mut [usize],
-        path: &mut heapless::String<TS>,
-        separator: char,
-    ) -> Result<bool, IterError> {
-        if *state.first().ok_or(IterError::PathDepth)? == 0 {
-            state[0] += 1;
-
-            // Remove trailing separator added by a deferring container (array or struct).
-            if path.ends_with(separator) {
-                path.pop();
-            }
-            Ok(true)
-        } else {
-            Ok(false)
+    fn next_path(
+        state: &[usize],
+        depth: usize,
+        _path: impl Write,
+        _separator: char,
+    ) -> Result<usize, IterError> {
+        match state.get(depth) {
+            Some(0) => Ok(depth),
+            Some(_) => Err(IterError::Next(depth)),
+            None => Err(IterError::Depth),
         }
     }
 }

@@ -100,8 +100,8 @@ impl<'a> Command<'a> {
         if path == "list" {
             Ok(Command::List)
         } else {
-            match path.split_once('/') {
-                Some(("settings", path)) => {
+            match path.strip_prefix("settings") {
+                Some(path) => {
                     if value.is_empty() {
                         Ok(Command::Get { path })
                     } else {
@@ -217,7 +217,7 @@ where
         )?;
 
         let meta = MiniconfIter::<Settings>::metadata().unwrap();
-        assert!(prefix.len() + "/settings/".len() + meta.max_length <= MAX_TOPIC_LENGTH);
+        assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
@@ -295,7 +295,7 @@ where
 
             let mut prefixed_topic = self.prefix.clone();
             prefixed_topic
-                .push_str("/settings/")
+                .push_str("/settings")
                 .and_then(|_| prefixed_topic.push_str(&topic))
                 .unwrap();
 
@@ -502,7 +502,7 @@ where
                             // Note(unwrap): We check that the string will fit during
                             // construction.
                             topic
-                                .push_str("/settings/")
+                                .push_str("/settings")
                                 .and_then(|_| topic.push_str(path))
                                 .unwrap();
 

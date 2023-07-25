@@ -1,17 +1,6 @@
-use super::{Metadata, Miniconf, SerDe};
+use super::{IterError, Metadata, Miniconf, SerDe};
 use core::marker::PhantomData;
 use heapless::String;
-
-/// Errors that occur during iteration over topic paths.
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum IterError {
-    /// The provided state vector is not long enough.
-    PathDepth,
-
-    /// The provided topic length is not long enough.
-    PathLength,
-}
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,11 +39,11 @@ impl<M: ?Sized + Miniconf, const L: usize, const TS: usize, S> MiniconfIter<M, L
     pub fn metadata() -> Result<Metadata, IterError> {
         let meta = M::metadata();
         if TS < meta.max_length {
-            return Err(IterError::PathLength);
+            return Err(IterError::Length);
         }
 
         if L < meta.max_depth {
-            return Err(IterError::PathDepth);
+            return Err(IterError::Depth);
         }
         Ok(meta)
     }
@@ -76,12 +65,26 @@ impl<M: Miniconf + SerDe<S> + ?Sized, const L: usize, const TS: usize, S> Iterat
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::new();
 
-        if M::next_path(&mut self.state, &mut path, M::SEPARATOR).unwrap() {
-            self.count = self.count.map(|c| c - 1);
-            Some(path)
-        } else {
-            debug_assert_eq!(self.count.unwrap_or_default(), 0);
-            None
+        loop {
+            match M::next_path(&self.state, 0, &mut path, M::SEPARATOR) {
+                Ok(depth) => {
+                    self.count = self.count.map(|c| c - 1);
+                    self.state[depth] += 1;
+                    return Some(path);
+                }
+                Err(IterError::Next(0)) => {
+                    debug_assert_eq!(self.count.unwrap_or_default(), 0);
+                    return None;
+                }
+                Err(IterError::Next(depth)) => {
+                    path.clear();
+                    self.state[depth] = 0;
+                    self.state[depth - 1] += 1;
+                }
+                e => {
+                    e.unwrap();
+                }
+            }
         }
     }
 

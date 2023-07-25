@@ -17,7 +17,7 @@ struct Settings {
 fn insufficient_space() {
     let meta = Settings::metadata();
     assert_eq!(meta.max_depth, 2);
-    assert_eq!(meta.max_length, "c/inner".len());
+    assert_eq!(meta.max_length, "/c/inner".len());
     assert_eq!(meta.count, 3);
 
     // Ensure that we can't iterate if we make a state vector that is too small.
@@ -30,9 +30,9 @@ fn insufficient_space() {
 #[test]
 fn test_iteration() {
     let mut iterated = std::collections::HashMap::from([
-        ("a".to_string(), false),
-        ("b".to_string(), false),
-        ("c/inner".to_string(), false),
+        ("/a".to_string(), false),
+        ("/b".to_string(), false),
+        ("/c/inner".to_string(), false),
     ]);
 
     for field in Settings::iter_paths::<32, 256>().unwrap() {

@@ -44,7 +44,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 }
 
 fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `self`, `path_parts`, `peek`, and `value` available.
+    // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
@@ -55,7 +55,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     } else {
         quote! {
             stringify!(#match_name) => {
-                if peek {
+                if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
                     miniconf::serde::ser::Serialize::serialize(&self.#match_name, ser).map_err(|_| miniconf::Error::Serialization)
@@ -66,7 +66,7 @@ fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
 }
 
 fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `self`, `path_parts`, `peek`, and `value` available.
+    // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
     let match_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
@@ -77,7 +77,7 @@ fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     } else {
         quote! {
             stringify!(#match_name) => {
-                if peek {
+                if path_parts.next().is_some() {
                     Err(miniconf::Error::PathTooLong)
                 } else {
                     self.#match_name = miniconf::serde::de::Deserialize::deserialize(de).map_err(|_| miniconf::Error::Deserialization)?;
@@ -94,23 +94,18 @@ fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Token
     let field_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
-            #i => {
-                path.push_str(concat!(stringify!(#field_name), "/"))
-                    .map_err(|_| miniconf::IterError::PathLength)?;
-
-                if <#field_type>::next_path(&mut state[1..], path, separator)? {
-                    return Ok(true);
-                }
+            Some(#i) => {
+                path.write_str(concat!("/", stringify!(#field_name)))
+                    .map_err(|_| miniconf::IterError::Length)?;
+                <#field_type>::next_path(state, depth + 1, path, separator)
             }
         }
     } else {
         quote! {
-            #i => {
-                path.push_str(stringify!(#field_name))
-                    .map_err(|_| miniconf::IterError::PathLength)?;
-                state[0] += 1;
-
-                return Ok(true);
+            Some(#i) => {
+                path.write_str(concat!("/", stringify!(#field_name)))
+                    .map_err(|_| miniconf::IterError::Length)?;
+                Ok(depth)
             }
         }
     }
@@ -124,13 +119,9 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
-
-                // Unconditionally account for separator since we add it
-                // even if elements that are deferred to (`Options`)
-                // may have no further hierarchy to add and remove the separator again.
-                meta.max_length += stringify!(#field_name).len() + 1;
+                // Length of separator and field name
+                meta.max_length += 1 + stringify!(#field_name).len();
                 meta.max_depth += 1;
-
                 meta
             }
         }
@@ -138,11 +129,10 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
-
-                meta.max_length = stringify!(#field_name).len();
+                // Length of separator and field name
+                meta.max_length = 1 + stringify!(#field_name).len();
                 meta.max_depth = 1;
                 meta.count = 1;
-
                 meta
             }
         }
@@ -182,60 +172,40 @@ fn derive_struct(
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error>
             where
-                P: miniconf::Peekable<Item = &'a str>,
+                P: Iterator<Item = &'a str>,
                 D: miniconf::serde::Deserializer<'b>,
             {
-                let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
-                let peek = path_parts.peek().is_some();
-
-                match field {
+                match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
                     #(#set_path_arms ,)*
-                    _ => Err(miniconf::Error::PathNotFound)
+                    _ => Err(miniconf::Error::PathNotFound),
                 }
             }
 
             fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error>
             where
-                P: miniconf::Peekable<Item = &'a str>,
+                P: Iterator<Item = &'a str>,
                 S: miniconf::serde::Serializer,
             {
-                let field = path_parts.next().ok_or(miniconf::Error::PathTooShort)?;
-                let peek = path_parts.peek().is_some();
-
-                match field {
+                match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
                     #(#get_path_arms ,)*
                     _ => Err(miniconf::Error::PathNotFound)
                 }
             }
 
-            fn next_path<const TS: usize>(
-                state: &mut [usize],
-                path: &mut miniconf::heapless::String<TS>,
+            fn next_path(
+                state: &[usize],
+                depth: usize,
+                mut path: impl core::fmt::Write,
                 separator: char,
-            ) -> Result<bool, miniconf::IterError> {
-                let original_length = path.len();
-                loop {
-                    match *state.first().ok_or(miniconf::IterError::PathDepth)? {
-                        #(#next_path_arms ,)*
-                        _ => return Ok(false),
-                    };
-
-                    // Note(unreachable) Without any deferred fields, every arm above returns
-                    #[allow(unreachable_code)]
-                    {
-                        // If a deferred field is done, strip off the field name again,
-                        // and advance to the next field.
-                        path.truncate(original_length);
-
-                        state[0] += 1;
-                        state[1..].fill(0);
-                    }
+            ) -> Result<usize, miniconf::IterError> {
+                match state.get(depth).copied() {
+                    #(#next_path_arms ,)*
+                    Some(_) => Err(miniconf::IterError::Next(depth)),
+                    None => Err(miniconf::IterError::Depth),
                 }
             }
 
             fn metadata() -> miniconf::Metadata {
-                // Loop through all child elements, collecting the maximum length + depth of any
-                // member.
                 let mut meta = miniconf::Metadata::default();
 
                 for index in 0.. {
