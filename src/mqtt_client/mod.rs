@@ -24,7 +24,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
 type MiniconfIter<M> =
-    crate::MiniconfIter<M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>, JsonCoreSlash>;
+    crate::MiniconfIter<M, JsonCoreSlash, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -51,7 +51,7 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf + ?Sized> {
+    pub struct Context<C: embedded_time::Clock, M: super::Miniconf> {
         clock: C,
         timeout: Option<Instant<C>>,
         pub republish_state: super::MiniconfIter<M>,

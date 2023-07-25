@@ -181,7 +181,7 @@ pub trait Miniconf {
 
 /// Trait for implementing a specific way of serialization/deserialization into/from a slice
 /// and splitting/joining the path with a separator.
-pub trait SerDe<S>: Miniconf {
+pub trait SerDe<S>: Miniconf + Sized {
     /// The path hierarchy separator.
     ///
     /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
@@ -202,7 +202,7 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
-    fn iter_paths<const L: usize, P>() -> Result<iter::MiniconfIter<Self, L, P, S>, IterError> {
+    fn iter_paths<const L: usize, P>() -> Result<iter::MiniconfIter<Self, S, L, P>, IterError> {
         MiniconfIter::new()
     }
 
@@ -221,7 +221,7 @@ pub trait SerDe<S>: Miniconf {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
-    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<Self, L, P, S> {
+    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<Self, S, L, P> {
         MiniconfIter::default()
     }
 
