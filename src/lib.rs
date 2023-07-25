@@ -16,9 +16,9 @@ pub use serde;
 
 // Re-exports
 #[cfg(feature = "json")]
-pub use serde_json_core;
-#[cfg(feature = "json")]
 pub use heapless;
+#[cfg(feature = "json")]
+pub use serde_json_core;
 #[cfg(feature = "json")]
 mod json;
 #[cfg(feature = "json")]
