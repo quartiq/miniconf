@@ -1,4 +1,4 @@
-use super::{Error, IterError, Metadata, Miniconf};
+use crate::{Error, IterError, Metadata, Miniconf};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -129,7 +129,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     }
 }
 
-impl<T: crate::Serialize + crate::DeserializeOwned> Miniconf for core::option::Option<T> {
+impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(
         &mut self,
         path_parts: &mut P,

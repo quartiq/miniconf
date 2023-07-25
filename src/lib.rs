@@ -23,10 +23,7 @@ pub use mqtt_client::*;
 
 pub use serde;
 #[doc(hidden)]
-pub use serde::{
-    de::{Deserialize, DeserializeOwned},
-    ser::Serialize,
-};
+pub use serde::{de::DeserializeOwned, Serialize};
 
 /// Errors that occur during iteration over topic paths.
 #[non_exhaustive]
