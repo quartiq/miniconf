@@ -159,7 +159,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: Miniconf + Clone,
+    Settings: Miniconf + SerDe<JsonCoreSlash> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -175,9 +175,11 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: Miniconf + Clone,
+    Settings: Miniconf + SerDe<JsonCoreSlash> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
+    Settings::DeError: core::fmt::Debug,
+    Settings::SerError: core::fmt::Debug,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -672,7 +674,7 @@ impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
     }
 }
 
-impl<const N: usize, T> From<crate::Error<T>> for Response<N> {
+impl<const N: usize, T: core::fmt::Debug> From<crate::Error<T>> for Response<N> {
     fn from(err: crate::Error<T>) -> Self {
         let mut msg = String::new();
         if write!(&mut msg, "{:?}", err).is_err() {
