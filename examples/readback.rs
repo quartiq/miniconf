@@ -1,4 +1,4 @@
-use miniconf::{heapless::String, Miniconf, SerDe};
+use miniconf::{Miniconf, SerDe};
 
 #[derive(Debug, Default, Miniconf)]
 struct AdditionalSettings {
@@ -23,7 +23,7 @@ fn main() {
     };
 
     // Maintains our state of iteration.
-    let mut settings_iter = Settings::iter_paths::<5, String<128>>().unwrap();
+    let mut settings_iter = Settings::iter_paths::<5, String>().unwrap();
 
     // Just get one topic/value from the iterator
     if let Some(topic) = settings_iter.next() {

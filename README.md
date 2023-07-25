@@ -16,7 +16,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Example
 ```rust
-use miniconf::{heapless::String, Error, Miniconf, SerDe};
+use miniconf::{Error, Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
@@ -97,7 +97,7 @@ let len = settings.get("/struct_", &mut buf)?;
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over and serializing all paths
-for path in Settings::iter_paths::<3, String<32>>().unwrap() {
+for path in Settings::iter_paths::<3, String>().unwrap() {
     match settings.get(&path, &mut buf) {
         Ok(len) => {
             settings.set(&path, &buf[..len]).unwrap();
@@ -110,7 +110,7 @@ for path in Settings::iter_paths::<3, String<32>>().unwrap() {
     }
 }
 
-# Ok::<(), miniconf::Error<miniconf::serde_json_core::de::Error>>(())
+# Ok::<(), miniconf::Error<serde_json_core::de::Error>>(())
 ```
 
 ## MQTT

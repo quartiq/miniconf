@@ -1,6 +1,6 @@
 #![cfg(feature = "json")]
 
-use miniconf::{heapless::String, Miniconf, SerDe};
+use miniconf::{Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
 
 #[test]
@@ -99,7 +99,7 @@ fn struct_with_string() {
 fn empty_struct() {
     #[derive(Miniconf, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<1, String<0>>()
+    assert!(Settings::iter_paths::<1, String>()
         .unwrap()
         .next()
         .is_none());

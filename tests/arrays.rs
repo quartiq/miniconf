@@ -1,6 +1,6 @@
 #![cfg(feature = "json")]
 
-use miniconf::{heapless::String, Array, Error, Miniconf, SerDe};
+use miniconf::{Array, Error, Miniconf, SerDe};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Miniconf, Deserialize)]
@@ -194,7 +194,7 @@ fn null_array() {
         #[miniconf(defer)]
         data: [u32; 0],
     }
-    assert!(S::iter_paths::<2, String<7>>().unwrap().next().is_none());
+    assert!(S::iter_paths::<2, String>().unwrap().next().is_none());
 }
 
 #[test]
@@ -208,5 +208,5 @@ fn null_miniconf_array() {
         #[miniconf(defer)]
         data: Array<I, 0>,
     }
-    assert!(S::iter_paths::<3, String<9>>().unwrap().next().is_none());
+    assert!(S::iter_paths::<3, String>().unwrap().next().is_none());
 }

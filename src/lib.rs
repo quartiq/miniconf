@@ -3,36 +3,25 @@
 
 use core::fmt::Write;
 
-mod array;
-mod iter;
-mod option;
-
-pub use array::*;
-pub use iter::*;
 pub use miniconf_derive::Miniconf;
+mod array;
+pub use array::*;
+mod iter;
+pub use iter::*;
+mod option;
 pub use option::*;
 
-pub use serde;
-
-// Re-exports
-#[cfg(feature = "json")]
-pub use heapless;
-#[cfg(feature = "json")]
-pub use serde_json_core;
 #[cfg(feature = "json")]
 mod json;
 #[cfg(feature = "json")]
-pub use json::JsonCoreSlash;
+pub use json::*;
 
-#[cfg(feature = "mqtt")]
-pub use minimq;
-#[cfg(feature = "mqtt")]
-pub use minimq::embedded_time;
 #[cfg(feature = "mqtt")]
 mod mqtt_client;
 #[cfg(feature = "mqtt")]
 pub use mqtt_client::*;
 
+pub use serde;
 #[doc(hidden)]
 pub use serde::{
     de::{Deserialize, DeserializeOwned},
