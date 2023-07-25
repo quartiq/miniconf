@@ -116,7 +116,13 @@ pub struct Metadata {
     pub count: usize,
 }
 
+/// Use the `Miniconf` features of the container.
+/// To use it, mark with #[miniconf(defer)]
 pub struct Outer;
+
+/// Expose the inner `Miniconf` features as well.
+/// These were previously `miniconf::{Option, Array}`
+/// To use it, mark with #[miniconf(defer, inner)]
 pub struct Inner;
 
 /// Trait exposing serialization/deserialization of elements by path.

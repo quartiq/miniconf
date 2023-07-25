@@ -23,6 +23,7 @@ use core::fmt::Write;
 /// An `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 
+// Local type alias to minimize the rename drama for now: FIXME
 pub type Array<T, const N: usize> = [T; N];
 
 /// Returns the number of digits required to format an integer less than `x`.

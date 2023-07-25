@@ -30,9 +30,10 @@ use core::fmt::Write;
 /// An `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
 
+/// local type alias to minimize rename drama for now: FIXME
 pub type Option<T> = core::option::Option<T>;
 
-impl<T: Miniconf<Outer>> Miniconf<Inner> for Option<T> {
+impl<T: Miniconf<Outer>> Miniconf<Inner> for core::option::Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(
         &mut self,
         path_parts: &mut P,
