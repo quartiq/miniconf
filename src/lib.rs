@@ -201,7 +201,7 @@ pub trait SerDe<S>: Miniconf + Sized {
     /// * `P`  - The type to hold the path.
     ///
     /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` or `TS` are insufficient.
+    /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
     fn iter_paths<const L: usize, P>() -> Result<iter::MiniconfIter<Self, S, L, P>, IterError> {
         MiniconfIter::new()
     }
