@@ -119,6 +119,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
+                // Length of separator and field name
                 meta.max_length += 1 + stringify!(#field_name).len();
                 meta.max_depth += 1;
                 meta
@@ -128,6 +129,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
+                // Length of separator and field name
                 meta.max_length = 1 + stringify!(#field_name).len();
                 meta.max_depth = 1;
                 meta.count = 1;

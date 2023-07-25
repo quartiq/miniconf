@@ -139,6 +139,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn metadata() -> Metadata {
         let mut meta = T::metadata();
 
+        // We add separator and index
         meta.max_length += 1 + digits(N);
         meta.max_depth += 1;
         meta.count *= N;
@@ -213,6 +214,7 @@ impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for
 
     fn metadata() -> Metadata {
         Metadata {
+            // We add separator and index
             max_length: 1 + digits(N),
             max_depth: 1,
             count: N,
