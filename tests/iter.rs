@@ -22,9 +22,6 @@ fn insufficient_space() {
 
     // Ensure that we can't iterate if we make a state vector that is too small.
     assert!(Settings::iter_paths::<1, String<256>>().is_err());
-
-    // Ensure that we can't iterate if the topic buffer is too small.
-    // assert!(Settings::iter_paths::<10, String<1>>().is_err());
 }
 
 #[test]
