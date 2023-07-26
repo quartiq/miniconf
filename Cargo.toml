@@ -19,15 +19,14 @@ itoa = "1.0.4"
 
 serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" , optional = true}
 log = {version = "0.4", optional = true}
-heapless = { version = "0.7", features = ["serde"], optional=true }
+heapless = { version = "0.7", optional=true }
 minimq = { version = "0.7", optional = true }
 smlang = { version = "0.6", optional = true }
 
 [features]
 default = ["mqtt"]
 json = ["dep:serde-json-core"]
-heapless = ["dep:heapless"]
-mqtt = ["heapless", "json", "dep:minimq", "dep:smlang", "dep:log"]
+mqtt = ["json", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
 mqtt-client = ["mqtt"]  # backwards compat
 
 [dev-dependencies]

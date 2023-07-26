@@ -78,24 +78,6 @@ fn recursive_struct() {
     assert_eq!(metadata.count, 3);
 }
 
-#[cfg(feature = "heapless")]
-#[test]
-fn struct_with_string() {
-    #[derive(Miniconf, Default)]
-    struct Settings {
-        string: heapless::String<10>,
-    }
-
-    let mut s = Settings::default();
-
-    let mut buf = [0u8; 256];
-    let len = s.get("/string", &mut buf).unwrap();
-    assert_eq!(&buf[..len], b"\"\"");
-
-    s.set("/string", br#""test""#).unwrap();
-    assert_eq!(s.string, "test");
-}
-
 #[test]
 fn empty_struct() {
     #[derive(Miniconf, Default)]
