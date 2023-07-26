@@ -136,6 +136,54 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     }
 }
 
+fn name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index with `self`, `state`, and `path` available.
+    let field_type = &struct_field.field.ty;
+    let field_name = &struct_field.field.ident;
+    if struct_field.deferred {
+        quote! {
+            Some(#i) => {
+                if full {
+                    name.write_str(separator)
+                        .and_then(|_| name.write_str(stringify!(#field_name)))?;
+                }
+                let r = <#field_type>::name(index, name, separator, full);
+                <miniconf::graph::Result as miniconf::graph::Up>::up(r)
+            }
+        }
+    } else {
+        quote! {
+            Some(#i) => {
+                name.write_str(separator)
+                    .and_then(|_| name.write_str(stringify!(#field_name)))?;
+                Ok(miniconf::graph::Ok::Leaf(1))
+            }
+        }
+    }
+}
+
+fn index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index with `self`, `state`, and `path` available.
+    let field_type = &struct_field.field.ty;
+    let field_name = &struct_field.field.ident;
+    if struct_field.deferred {
+        quote! {
+            Some(stringify!(#field_name)) => {
+                index[0] = #i;
+                let r = <#field_type>::index(path, &mut index[1..]);
+                <miniconf::graph::Result as miniconf::graph::Up>::up(r)
+            }
+        }
+    } else {
+        quote! {
+            Some(stringify!(#field_name)) => {
+                index[0] = #i;
+                Ok(miniconf::graph::Ok::Leaf(1))
+            }
+        }
+    }
+}
+
 /// Derive the Miniconf trait for structs.
 ///
 /// # Args
@@ -162,6 +210,8 @@ fn derive_struct(
     let get_path_arms = fields.iter().map(get_path_arm);
     let next_path_arms = fields.iter().enumerate().map(next_path_arm);
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
+    let name_arms = fields.iter().enumerate().map(name_arm);
+    let index_arms = fields.iter().enumerate().map(index_arm);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -221,6 +271,30 @@ fn derive_struct(
                 }
 
                 meta
+            }
+        }
+
+        impl #impl_generics miniconf::graph::Graph for #ident #ty_generics #where_clause {
+            fn name<I: Iterator<Item = usize>, N: core::fmt::Write>(
+                index: &mut I,
+                name: &mut N,
+                separator: &str,
+                full: bool,
+            ) -> miniconf::graph::Result {
+                match index.next() {
+                    None => Ok(miniconf::graph::Ok::Internal(0)),
+                    #(#name_arms ,)*
+                    _ => Err(miniconf::graph::Error::NotFound(0)),
+                }
+            }
+
+            fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> miniconf::graph::Result {
+                match path.next() {
+                    None => Ok(miniconf::graph::Ok::Internal(0)),
+                    _ if index.is_empty() => Err(miniconf::graph::Error::TooShort),
+                    #(#index_arms ,)*
+                    _ => Err(miniconf::graph::Error::NotFound(0)),
+                }
             }
         }
     }

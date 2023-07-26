@@ -1,4 +1,4 @@
-use crate::{Error, IterError, Metadata, Miniconf};
+use crate::{graph, graph::Up, Error, IterError, Metadata, Miniconf};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -173,6 +173,43 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     }
 }
 
+impl<T: graph::Graph, const N: usize> graph::Graph for Array<T, N> {
+    fn name<I: Iterator<Item = usize>, P: Write>(
+        index: &mut I,
+        name: &mut P,
+        separator: &str,
+        full: bool,
+    ) -> graph::Result {
+        match index.next() {
+            None => Ok(graph::Ok::Internal(0)),
+            Some(i) if i < N => {
+                if full {
+                    name.write_str(separator)
+                        .and_then(|_| name.write_str(itoa::Buffer::new().format(i)))?;
+                }
+                T::name(index, name, separator, full).up()
+            }
+            _ => Err(graph::Error::NotFound(0)),
+        }
+    }
+
+    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> graph::Result {
+        match path.next() {
+            None => Ok(graph::Ok::Internal(0)),
+            _ if index.is_empty() => Err(graph::Error::TooShort),
+            Some(i) => {
+                let idx: usize = i.parse()?;
+                if idx > N {
+                    Err(graph::Error::NotFound(0))
+                } else {
+                    index[0] = idx;
+                    T::index(path, &mut index[1..]).up()
+                }
+            }
+        }
+    }
+}
+
 impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn set_path<'a, 'b: 'a, P, D>(
         &mut self,
@@ -235,6 +272,41 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
             }
             Some(_) => Err(IterError::Next(depth)),
             None => Err(IterError::Depth),
+        }
+    }
+}
+
+impl<T, const N: usize> graph::Graph for [T; N] {
+    fn name<I: Iterator<Item = usize>, P: Write>(
+        index: &mut I,
+        name: &mut P,
+        separator: &str,
+        _full: bool,
+    ) -> graph::Result {
+        match index.next() {
+            None => Ok(graph::Ok::Internal(0)),
+            Some(i) if i < N => {
+                name.write_str(separator)
+                    .and_then(|_| name.write_str(itoa::Buffer::new().format(i)))?;
+                Ok(graph::Ok::Leaf(1))
+            }
+            _ => Err(graph::Error::NotFound(0)),
+        }
+    }
+
+    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> graph::Result {
+        match path.next() {
+            None => Ok(graph::Ok::Internal(0)),
+            _ if index.is_empty() => Err(graph::Error::TooShort),
+            Some(i) => {
+                let idx: usize = i.parse()?;
+                if idx > N {
+                    Err(graph::Error::NotFound(0))
+                } else {
+                    index[0] = idx;
+                    Ok(graph::Ok::Leaf(1))
+                }
+            }
         }
     }
 }

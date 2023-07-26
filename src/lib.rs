@@ -11,6 +11,8 @@ pub use iter::*;
 mod option;
 pub use option::*;
 
+pub mod graph;
+
 #[cfg(feature = "json-core")]
 mod json_core;
 #[cfg(feature = "json-core")]
@@ -175,6 +177,9 @@ pub trait Miniconf {
     /// * `separator_length` - The path hierarchy separator length in bytes.
     fn metadata(separator_length: usize) -> Metadata;
 }
+
+//impl<T> Miniconf for T where T: Serialize + DeserializeOwned {
+//}
 
 /// Trait for implementing a specific way of serialization/deserialization into/from a slice
 /// and splitting/joining the path with a separator.

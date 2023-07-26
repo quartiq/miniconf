@@ -1,4 +1,4 @@
-use crate::{Error, IterError, Metadata, Miniconf};
+use crate::{graph, Error, IterError, Metadata, Miniconf};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -129,6 +129,21 @@ impl<T: Miniconf> Miniconf for Option<T> {
     }
 }
 
+impl<T: graph::Graph> graph::Graph for Option<T> {
+    fn name<I: Iterator<Item = usize>, N: Write>(
+        index: &mut I,
+        name: &mut N,
+        separator: &str,
+        full: bool,
+    ) -> graph::Result {
+        T::name(index, name, separator, full)
+    }
+
+    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> graph::Result {
+        T::index(path, index)
+    }
+}
+
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn set_path<'a, 'b: 'a, P, D>(
         &mut self,
@@ -182,5 +197,23 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             Some(_) => Err(IterError::Next(depth)),
             None => Err(IterError::Depth),
         }
+    }
+}
+
+impl<T> graph::Graph for core::option::Option<T> {
+    fn name<I: Iterator<Item = usize>, N: Write>(
+        _index: &mut I,
+        _name: &mut N,
+        _separator: &str,
+        _full: bool,
+    ) -> graph::Result {
+        Ok(graph::Ok::Leaf(0))
+    }
+
+    fn index<'a, P: Iterator<Item = &'a str>>(
+        _path: &mut P,
+        _index: &mut [usize],
+    ) -> graph::Result {
+        Ok(graph::Ok::Leaf(0))
     }
 }

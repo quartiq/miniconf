@@ -1,4 +1,4 @@
-use crate::{JsonCoreSlash, Miniconf, SerDe};
+use crate::{graph::Graph, JsonCoreSlash, Miniconf, SerDe};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
@@ -158,7 +158,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: SerDe<JsonCoreSlash> + Clone,
+    Settings: SerDe<JsonCoreSlash> + Clone + Graph,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -174,7 +174,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: SerDe<JsonCoreSlash> + Clone,
+    Settings: SerDe<JsonCoreSlash> + Clone + Graph,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Settings::DeError: core::fmt::Debug,

@@ -36,6 +36,7 @@ impl StructField {
                         // For deferred, non-array data types, we will recursively call into
                         // Miniconf trait functions.
                         type_param.bounds.push(parse_quote!(miniconf::Miniconf));
+                        type_param.bounds.push(parse_quote!(miniconf::graph::Graph));
                     } else {
                         // For other data types, we will call into serde functions directly.
                         type_param.bounds.push(parse_quote!(miniconf::Serialize));
