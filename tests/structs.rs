@@ -78,6 +78,7 @@ fn recursive_struct() {
     assert_eq!(metadata.count, 3);
 }
 
+#[cfg(feature = "heapless")]
 #[test]
 fn struct_with_string() {
     #[derive(Miniconf, Default)]

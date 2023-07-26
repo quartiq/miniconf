@@ -25,8 +25,9 @@ smlang = { version = "0.6", optional = true }
 
 [features]
 default = ["mqtt"]
-json = ["dep:serde-json-core", "dep:heapless"]
-mqtt = ["dep:minimq", "dep:smlang", "dep:log", "json"]
+json = ["dep:serde-json-core"]
+heapless = ["dep:heapless"]
+mqtt = ["heapless", "json", "dep:minimq", "dep:smlang", "dep:log"]
 mqtt-client = ["mqtt"]  # backwards compat
 
 [dev-dependencies]
