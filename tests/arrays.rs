@@ -1,4 +1,4 @@
-#![cfg(feature = "json")]
+#![cfg(feature = "json-core")]
 
 use miniconf::{Array, Error, Miniconf, SerDe};
 use serde::Deserialize;

@@ -1,4 +1,4 @@
-#![cfg(features = "mqtt")]
+#![cfg(features = "mqtt-client")]
 
 use miniconf::{
     minimq::{self, types::TopicFilter},

@@ -17,17 +17,20 @@ serde = { version = "1.0.120", features = ["derive"], default-features = false }
 miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
 itoa = "1.0.4"
 
-serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" , optional = true}
-log = {version = "0.4", optional = true}
+serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" , optional = true }
+serde_json = { version = "1.0", optional = true }
+tinyvec = { version = "1.6", optional = true }
+log = {version = "0.4", optional = true }
 heapless = { version = "0.7", optional=true }
 minimq = { version = "0.7", optional = true }
 smlang = { version = "0.6", optional = true }
 
 [features]
-default = ["mqtt"]
-json = ["dep:serde-json-core"]
-mqtt = ["json", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
-mqtt-client = ["mqtt"]  # backwards compat
+default = ["mqtt-client"]
+json-core = ["dep:serde-json-core"]
+json = ["dep:serde_json", "dep:tinyvec", "std"]
+std = []
+mqtt-client = ["json-core", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
 
 [dev-dependencies]
 machine = "0.3"
@@ -43,8 +46,8 @@ branch = "feature/0.7"
 
 [[example]]
 name = "mqtt"
-required-features = ["mqtt"]
+required-features = ["mqtt-client"]
 
 [[example]]
 name = "readback"
-required-features = ["json"]
+required-features = ["json-core"]
