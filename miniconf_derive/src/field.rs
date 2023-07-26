@@ -1,4 +1,3 @@
-use super::attributes::{AttributeParser, MiniconfAttribute};
 use syn::{parse_quote, Generics};
 
 pub struct StructField {
@@ -8,14 +7,21 @@ pub struct StructField {
 
 impl StructField {
     pub fn new(field: syn::Field) -> Self {
-        let attributes: Vec<MiniconfAttribute> = field
-            .attrs
-            .iter()
-            .filter(|attr| attr.path.is_ident("miniconf"))
-            .map(|attr| AttributeParser::new(attr.tokens.clone()).parse())
-            .collect();
+        let mut deferred = false;
 
-        let deferred = attributes.iter().any(|x| *x == MiniconfAttribute::Defer);
+        for attr in field.attrs.iter() {
+            if attr.path().is_ident("miniconf") {
+                attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("defer") {
+                        deferred = true;
+                        Ok(())
+                    } else {
+                        Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
+                    }
+                })
+                .unwrap();
+            }
+        }
 
         Self { deferred, field }
     }

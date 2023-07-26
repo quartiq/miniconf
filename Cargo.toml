@@ -1,9 +1,7 @@
 [package]
 name = "miniconf"
-
 # Don't forget to change `miniconf_derive`'s version as well.
 version = "0.7.1"
-
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
@@ -11,21 +9,25 @@ description = "Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
-rust-version = "1.65.0"
+rust-version = "1.65.0"  # keep in sync with CI
+resolver = "2"
 
 [dependencies]
-miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
-serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" }
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
-log = "0.4"
-heapless = { version = "0.7", features = ["serde"] }
-minimq = { version = "0.7", optional = true }
-smlang = { version = "0.6", optional = true }
+miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
 itoa = "1.0.4"
 
+serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" , optional = true}
+log = {version = "0.4", optional = true}
+heapless = { version = "0.7", features = ["serde"], optional=true }
+minimq = { version = "0.7", optional = true }
+smlang = { version = "0.6", optional = true }
+
 [features]
-default = ["mqtt-client"]
-mqtt-client = ["minimq", "smlang"]
+default = ["mqtt"]
+json = ["dep:serde-json-core", "dep:heapless"]
+mqtt = ["dep:minimq", "dep:smlang", "dep:log", "json"]
+mqtt-client = ["mqtt"]  # backwards compat
 
 [dev-dependencies]
 machine = "0.3"
@@ -41,3 +43,8 @@ branch = "feature/0.7"
 
 [[example]]
 name = "mqtt"
+required-features = ["mqtt"]
+
+[[example]]
+name = "readback"
+required-features = ["json"]

@@ -1,4 +1,4 @@
-use super::{IterError, Metadata, SerDe};
+use crate::{IterError, Metadata, SerDe};
 use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.

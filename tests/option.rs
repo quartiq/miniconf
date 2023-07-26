@@ -1,4 +1,6 @@
-use miniconf::{heapless::String, Miniconf, SerDe};
+#![cfg(feature = "json")]
+
+use miniconf::{Error, Miniconf, SerDe};
 
 #[derive(PartialEq, Debug, Clone, Default, Miniconf)]
 struct Inner {
@@ -13,7 +15,7 @@ struct Settings {
 
 #[test]
 fn just_option() {
-    let mut it = Option::<u32>::iter_paths::<1, String<0>>().unwrap();
+    let mut it = Option::<u32>::iter_paths::<1, String>().unwrap();
     assert_eq!(it.next(), Some("".into()));
     assert_eq!(it.next(), None);
 }
@@ -60,13 +62,13 @@ fn option_iterate_some_none() {
 
     // When the value is None, it will still be iterated over as a topic but may not exist at runtime.
     settings.value.take();
-    let mut iterator = Settings::iter_paths::<10, String<128>>().unwrap();
+    let mut iterator = Settings::iter_paths::<10, String>().unwrap();
     assert_eq!(iterator.next().unwrap(), "/value/data");
     assert!(iterator.next().is_none());
 
     // When the value is Some, it should be iterated over.
     settings.value.replace(Inner { data: 5 });
-    let mut iterator = Settings::iter_paths::<10, String<128>>().unwrap();
+    let mut iterator = Settings::iter_paths::<10, String>().unwrap();
     assert_eq!(iterator.next().unwrap(), "/value/data");
     assert!(iterator.next().is_none());
 }
@@ -81,14 +83,14 @@ fn option_test_normal_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::iter_paths::<10, String<128>>().unwrap();
+    let mut iterator = S::iter_paths::<10, String>().unwrap();
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
     s.set("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
-    let mut iterator = S::iter_paths::<10, String<128>>().unwrap();
+    let mut iterator = S::iter_paths::<10, String>().unwrap();
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
@@ -107,7 +109,7 @@ fn option_test_defer_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::iter_paths::<10, String<128>>().unwrap();
+    let mut iterator = S::iter_paths::<10, String>().unwrap();
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
@@ -116,9 +118,34 @@ fn option_test_defer_option() {
     s.set("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
-    let mut iterator = S::iter_paths::<10, String<128>>().unwrap();
+    let mut iterator = S::iter_paths::<10, String>().unwrap();
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
     assert!(s.set("/data", b"null").is_err());
+}
+
+#[test]
+fn option_absent() {
+    #[derive(Copy, Clone, Default, Miniconf)]
+    struct S {
+        #[miniconf(defer)]
+        data: Option<u32>,
+    }
+
+    let mut s = S::default();
+    assert!(matches!(s.set("/data", b"7"), Err(Error::PathAbsent)));
+    assert!(matches!(s.set("/data", b""), Err(Error::PathAbsent)));
+    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
+    assert!(matches!(s.set("", b"7"), Err(Error::PathTooShort)));
+    s.data = Some(9);
+    assert!(matches!(s.set("/data", b"7"), Ok(1)));
+    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
+    assert!(matches!(s.set("/data", b""), Err(Error::SerDe(_))));
+    assert!(matches!(s.set("/data", b"7 "), Ok(2)));
+    assert!(matches!(s.set("/data", b" 7"), Ok(2)));
+    assert!(matches!(
+        s.set("/data", b"7i"),
+        Err(Error::PostDeserialization(_))
+    ));
 }

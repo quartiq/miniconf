@@ -1,4 +1,4 @@
-use super::{Error, IterError, Metadata, Miniconf};
+use crate::{Error, IterError, Metadata, Miniconf};
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
@@ -173,7 +173,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     }
 }
 
-impl<T: crate::Serialize + crate::DeserializeOwned, const N: usize> Miniconf for [T; N] {
+impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn set_path<'a, 'b: 'a, P, D>(
         &mut self,
         path_parts: &mut P,

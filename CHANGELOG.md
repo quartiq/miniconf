@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+* `json` feature to enable the `Serde<JsonCoreSlash>` spec. Enabled by default.
+
 ### Changed
 
 * [breaking] The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
@@ -29,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] `iter_paths`/`MiniconfIter` is now generic over the type
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
   `iter_paths::<L, heapless::String<TS>>()`.
+* The `mqtt-client` feature has been renamed into `mqtt` with backward compatibility.
+* [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they are
+  not needed to work with the public API.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 
