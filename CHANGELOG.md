@@ -33,7 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] `iter_paths`/`MiniconfIter` is now generic over the type
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
   `iter_paths::<L, heapless::String<TS>>()`.
-* The `mqtt-client` feature has been renamed into `mqtt` with backward compatibility.
 * [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they are
   not needed to work with the public API.
 

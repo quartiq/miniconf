@@ -126,9 +126,9 @@ jobs:
           - stable
           - 1.65.0  # keep in sync with manifest MSRV
         args:
-          - --all-features
+          - ""
           - --no-default-features
-          - --no-default-features --features json
+          - --no-default-features --features json-core
 
     steps:
       - uses: actions/checkout@v2

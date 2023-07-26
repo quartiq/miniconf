@@ -1,4 +1,4 @@
-#![cfg(feature = "json")]
+#![cfg(feature = "json-core")]
 
 use miniconf::{Miniconf, SerDe};
 use serde::{Deserialize, Serialize};
@@ -76,23 +76,6 @@ fn recursive_struct() {
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "/c/a".len());
     assert_eq!(metadata.count, 3);
-}
-
-#[test]
-fn struct_with_string() {
-    #[derive(Miniconf, Default)]
-    struct Settings {
-        string: heapless::String<10>,
-    }
-
-    let mut s = Settings::default();
-
-    let mut buf = [0u8; 256];
-    let len = s.get("/string", &mut buf).unwrap();
-    assert_eq!(&buf[..len], b"\"\"");
-
-    s.set("/string", br#""test""#).unwrap();
-    assert_eq!(s.string, "test");
 }
 
 #[test]

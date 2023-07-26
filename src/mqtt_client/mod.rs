@@ -1,12 +1,12 @@
 use crate::{JsonCoreSlash, Miniconf, SerDe};
 use core::fmt::Write;
+use heapless::{String, Vec};
 use minimq::{
     embedded_nal::{IpAddr, TcpClientStack},
     embedded_time,
     types::{SubscriptionOptions, TopicFilter},
     Publication, QoS, Retain,
 };
-use serde_json_core::heapless::{String, Vec};
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
