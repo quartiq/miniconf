@@ -59,7 +59,7 @@ impl<M: SerDe<S> + graph::Graph, S, const L: usize, P: Write + Default> Iterator
         let mut path = Self::Item::default();
 
         loop {
-            return match M::name(
+            return match M::path(
                 &mut self.state.iter().copied(),
                 &mut path,
                 M::SEPARATOR.encode_utf8(&mut [0; 4]),

@@ -7,7 +7,7 @@ pub trait Graph {
     /// `Internal(0)` will be returned.
     /// If `full`, all path elements are written, otherwise only the final element.
     /// Each element written will always be prefixed by the separator.
-    fn name<I, N>(
+    fn path<I, N>(
         indices: &mut I,
         path: &mut N,
         sep: &str,
@@ -33,7 +33,7 @@ pub trait Graph {
     /// If `Self` is non-leaf and  `path` is exhausted, nothing will be written to `index` and
     /// `Internal(0)` will be returned.
     /// Entries in `index` at and beyond the `depth` returned are unaffected.
-    fn index<'a, P>(path: &mut P, indices: &mut [usize]) -> GraphResult<SliceShort>
+    fn indices<'a, P>(path: &mut P, indices: &mut [usize]) -> GraphResult<SliceShort>
     where
         P: Iterator<Item = &'a str>,
     {
@@ -90,20 +90,6 @@ pub enum Ok {
 pub type GraphResult<E> = core::result::Result<Ok, Error<E>>;
 
 pub struct SliceShort;
-
-/*
-impl From<core::num::ParseIntError> for Error<core::num::ParseIntError> {
-    fn from(value: core::num::ParseIntError) -> Self {
-        Self::Parse(value)
-    }
-}
-
-impl From<core::fmt::Error> for Error<core::fmt::Error> {
-    fn from(value: core::fmt::Error) -> Self {
-        Self::Inner(value)
-    }
-}
- */
 
 pub trait Up {
     fn up(self) -> Self;
