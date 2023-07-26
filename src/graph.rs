@@ -7,12 +7,25 @@ pub trait Graph {
     /// `Internal(0)` will be returned.
     /// If `full`, all path elements are written, otherwise only the final element.
     /// Each element written will always be prefixed by the separator.
-    fn name<I: Iterator<Item = usize>, N: core::fmt::Write>(
-        index: &mut I,
-        name: &mut N,
-        separator: &str,
-        full: bool,
-    ) -> Result;
+    fn name<I, N>(
+        indices: &mut I,
+        path: &mut N,
+        sep: &str,
+        each: bool,
+    ) -> GraphResult<core::fmt::Error>
+    where
+        I: Iterator<Item = usize>,
+        N: core::fmt::Write,
+    {
+        Self::traverse_by_index(
+            indices,
+            |_index, name| {
+                path.write_str(sep).and_then(|_| path.write_str(name))?;
+                Ok(())
+            },
+            each,
+        )
+    }
     /// Determine the `index` of the item specified by `path`.
     /// May not exhaust the iterator if leaf is found early. I.e. the path may be too long.
     /// If `Self` is a leaf, nothing will be consumed from `path` or
@@ -20,20 +33,49 @@ pub trait Graph {
     /// If `Self` is non-leaf and  `path` is exhausted, nothing will be written to `index` and
     /// `Internal(0)` will be returned.
     /// Entries in `index` at and beyond the `depth` returned are unaffected.
-    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> Result;
+    fn index<'a, P>(path: &mut P, indices: &mut [usize]) -> GraphResult<SliceShort>
+    where
+        P: Iterator<Item = &'a str>,
+    {
+        let mut depth = 0;
+        Self::traverse_by_name(
+            path,
+            |index, _name| {
+                if indices.len() < depth {
+                    Err(SliceShort)
+                } else {
+                    indices[depth] = index;
+                    depth += 1;
+                    Ok(())
+                }
+            },
+            true,
+        )
+    }
+
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F, internal: bool) -> GraphResult<E>
+    where
+        P: Iterator<Item = &'a str>,
+        F: FnMut(usize, &str) -> Result<(), E>;
+
+    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> GraphResult<E>
+    where
+        P: Iterator<Item = usize>,
+        F: FnMut(usize, &str) -> Result<(), E>;
 }
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub enum Error {
+pub enum Error<E> {
     /// Index entry too large at depth
     NotFound(usize),
-    /// Index too short (for `index()`)
-    TooShort,
-    /// Formating error (Write::write_str failute)
-    Fmt(core::fmt::Error),
     /// Invalid number (for `name()`)
     Parse(core::num::ParseIntError),
+    /// Inner error, e.g.
+    /// Formating error (Write::write_str failure, for `name()`)
+    /// or
+    /// Index too short (for `index()`)
+    Inner(E),
 }
 
 #[non_exhaustive]
@@ -45,25 +87,29 @@ pub enum Ok {
     Leaf(usize),
 }
 
-pub type Result = core::result::Result<Ok, Error>;
+pub type GraphResult<E> = core::result::Result<Ok, Error<E>>;
 
-impl From<core::num::ParseIntError> for Error {
+pub struct SliceShort;
+
+/*
+impl From<core::num::ParseIntError> for Error<core::num::ParseIntError> {
     fn from(value: core::num::ParseIntError) -> Self {
         Self::Parse(value)
     }
 }
 
-impl From<core::fmt::Error> for Error {
+impl From<core::fmt::Error> for Error<core::fmt::Error> {
     fn from(value: core::fmt::Error) -> Self {
-        Self::Fmt(value)
+        Self::Inner(value)
     }
 }
+ */
 
 pub trait Up {
     fn up(self) -> Self;
 }
 
-impl Up for Result {
+impl<E> Up for GraphResult<E> {
     fn up(self) -> Self {
         match self {
             Ok(Ok::Internal(i)) => Ok(Ok::Internal(i + 1)),

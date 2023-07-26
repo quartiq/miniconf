@@ -174,36 +174,48 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 }
 
 impl<T: graph::Graph, const N: usize> graph::Graph for Array<T, N> {
-    fn name<I: Iterator<Item = usize>, P: Write>(
-        index: &mut I,
-        name: &mut P,
-        separator: &str,
-        full: bool,
-    ) -> graph::Result {
-        match index.next() {
+    fn traverse_by_index<P, F, E>(
+        indices: &mut P,
+        mut func: F,
+        internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = usize>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        match indices.next() {
             None => Ok(graph::Ok::Internal(0)),
-            Some(i) if i < N => {
-                if full {
-                    name.write_str(separator)
-                        .and_then(|_| name.write_str(itoa::Buffer::new().format(i)))?;
+            Some(index) if index < N => {
+                if internal {
+                    func(index, itoa::Buffer::new().format(index))
+                        .map_err(|e| graph::Error::Inner(e))?;
                 }
-                T::name(index, name, separator, full).up()
+                T::traverse_by_index(indices, func, internal).up()
             }
             _ => Err(graph::Error::NotFound(0)),
         }
     }
 
-    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> graph::Result {
-        match path.next() {
+    fn traverse_by_name<'a, P, F, E>(
+        names: &mut P,
+        mut func: F,
+        internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = &'a str>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        match names.next() {
             None => Ok(graph::Ok::Internal(0)),
-            _ if index.is_empty() => Err(graph::Error::TooShort),
-            Some(i) => {
-                let idx: usize = i.parse()?;
-                if idx > N {
+            Some(name) => {
+                let index: usize = name.parse().map_err(|e| graph::Error::Parse(e))?;
+                if index > N {
                     Err(graph::Error::NotFound(0))
                 } else {
-                    index[0] = idx;
-                    T::index(path, &mut index[1..]).up()
+                    if internal {
+                        func(index, name).map_err(|e| graph::Error::Inner(e))?;
+                    }
+                    T::traverse_by_name(names, func, internal).up()
                 }
             }
         }
@@ -277,33 +289,43 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
 }
 
 impl<T, const N: usize> graph::Graph for [T; N] {
-    fn name<I: Iterator<Item = usize>, P: Write>(
-        index: &mut I,
-        name: &mut P,
-        separator: &str,
-        _full: bool,
-    ) -> graph::Result {
-        match index.next() {
+    fn traverse_by_index<P, F, E>(
+        indices: &mut P,
+        mut func: F,
+        _internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = usize>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        match indices.next() {
             None => Ok(graph::Ok::Internal(0)),
-            Some(i) if i < N => {
-                name.write_str(separator)
-                    .and_then(|_| name.write_str(itoa::Buffer::new().format(i)))?;
+            Some(index) if index < N => {
+                func(index, itoa::Buffer::new().format(index))
+                    .map_err(|e| graph::Error::Inner(e))?;
                 Ok(graph::Ok::Leaf(1))
             }
             _ => Err(graph::Error::NotFound(0)),
         }
     }
 
-    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> graph::Result {
-        match path.next() {
+    fn traverse_by_name<'a, P, F, E>(
+        names: &mut P,
+        mut func: F,
+        _internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = &'a str>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        match names.next() {
             None => Ok(graph::Ok::Internal(0)),
-            _ if index.is_empty() => Err(graph::Error::TooShort),
-            Some(i) => {
-                let idx: usize = i.parse()?;
-                if idx > N {
+            Some(name) => {
+                let index: usize = name.parse().map_err(|e| graph::Error::Parse(e))?;
+                if index > N {
                     Err(graph::Error::NotFound(0))
                 } else {
-                    index[0] = idx;
+                    func(index, name).map_err(|e| graph::Error::Inner(e))?;
                     Ok(graph::Ok::Leaf(1))
                 }
             }

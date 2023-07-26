@@ -130,17 +130,24 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: graph::Graph> graph::Graph for Option<T> {
-    fn name<I: Iterator<Item = usize>, N: Write>(
-        index: &mut I,
-        name: &mut N,
-        separator: &str,
-        full: bool,
-    ) -> graph::Result {
-        T::name(index, name, separator, full)
+    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = usize>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        T::traverse_by_index(indices, func, internal)
     }
 
-    fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> graph::Result {
-        T::index(path, index)
+    fn traverse_by_name<'a, P, F, E>(
+        names: &mut P,
+        func: F,
+        internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = &'a str>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        T::traverse_by_name(names, func, internal)
     }
 }
 
@@ -201,19 +208,27 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
 }
 
 impl<T> graph::Graph for core::option::Option<T> {
-    fn name<I: Iterator<Item = usize>, N: Write>(
-        _index: &mut I,
-        _name: &mut N,
-        _separator: &str,
-        _full: bool,
-    ) -> graph::Result {
+    fn traverse_by_index<P, F, E>(
+        _indices: &mut P,
+        _func: F,
+        _internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = usize>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
         Ok(graph::Ok::Leaf(0))
     }
 
-    fn index<'a, P: Iterator<Item = &'a str>>(
-        _path: &mut P,
-        _index: &mut [usize],
-    ) -> graph::Result {
+    fn traverse_by_name<'a, P, F, E>(
+        _names: &mut P,
+        _func: F,
+        _internal: bool,
+    ) -> graph::GraphResult<E>
+    where
+        P: Iterator<Item = &'a str>,
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
         Ok(graph::Ok::Leaf(0))
     }
 }
