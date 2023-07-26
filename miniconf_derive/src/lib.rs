@@ -136,48 +136,49 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     }
 }
 
-fn name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `self`, `state`, and `path` available.
-    let field_type = &struct_field.field.ty;
-    let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
-        quote! {
-            Some(#i) => {
-                if full {
-                    name.write_str(separator)
-                        .and_then(|_| name.write_str(stringify!(#field_name)))?;
-                }
-                let r = <#field_type>::name(index, name, separator, full);
-                <miniconf::graph::Result as miniconf::graph::Up>::up(r)
-            }
-        }
-    } else {
-        quote! {
-            Some(#i) => {
-                name.write_str(separator)
-                    .and_then(|_| name.write_str(stringify!(#field_name)))?;
-                Ok(miniconf::graph::Ok::Leaf(1))
-            }
-        }
-    }
-}
-
 fn index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field index with `self`, `state`, and `path` available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
     if struct_field.deferred {
         quote! {
+            Some(#i) => {
+                if internal {
+                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
+
+                }
+                let r = <#field_type>::traverse_by_index(indices, func, internal);
+                <miniconf::graph::GraphResult<E> as miniconf::graph::Up>::up(r)
+            }
+        }
+    } else {
+        quote! {
+            Some(#i) => {
+                func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
+                Ok(miniconf::graph::Ok::Leaf(1))
+            }
+        }
+    }
+}
+
+fn name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index with `self`, `state`, and `path` available.
+    let field_type = &struct_field.field.ty;
+    let field_name = &struct_field.field.ident;
+    if struct_field.deferred {
+        quote! {
             Some(stringify!(#field_name)) => {
-                index[0] = #i;
-                let r = <#field_type>::index(path, &mut index[1..]);
-                <miniconf::graph::Result as miniconf::graph::Up>::up(r)
+                if internal {
+                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
+                }
+                let r = <#field_type>::traverse_by_name(names, func, internal);
+                <miniconf::graph::GraphResult<E> as miniconf::graph::Up>::up(r)
             }
         }
     } else {
         quote! {
             Some(stringify!(#field_name)) => {
-                index[0] = #i;
+                func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
                 Ok(miniconf::graph::Ok::Leaf(1))
             }
         }
@@ -275,24 +276,34 @@ fn derive_struct(
         }
 
         impl #impl_generics miniconf::graph::Graph for #ident #ty_generics #where_clause {
-            fn name<I: Iterator<Item = usize>, N: core::fmt::Write>(
-                index: &mut I,
-                name: &mut N,
-                separator: &str,
-                full: bool,
-            ) -> miniconf::graph::Result {
-                match index.next() {
+            fn traverse_by_index<P, F, E>(
+                indices: &mut P,
+                mut func: F,
+                internal: bool,
+            ) -> miniconf::graph::GraphResult<E>
+            where
+                P: Iterator<Item = usize>,
+                F: FnMut(usize, &str) -> Result<(), E>,
+            {
+                match indices.next() {
                     None => Ok(miniconf::graph::Ok::Internal(0)),
-                    #(#name_arms ,)*
+                    #(#index_arms ,)*
                     _ => Err(miniconf::graph::Error::NotFound(0)),
                 }
             }
 
-            fn index<'a, P: Iterator<Item = &'a str>>(path: &mut P, index: &mut [usize]) -> miniconf::graph::Result {
-                match path.next() {
+            fn traverse_by_name<'a, P, F, E>(
+                names: &mut P,
+                mut func: F,
+                internal: bool,
+            ) -> miniconf::graph::GraphResult<E>
+            where
+                P: Iterator<Item = &'a str>,
+                F: FnMut(usize, &str) -> Result<(), E>,
+            {
+                match names.next() {
                     None => Ok(miniconf::graph::Ok::Internal(0)),
-                    _ if index.is_empty() => Err(miniconf::graph::Error::TooShort),
-                    #(#index_arms ,)*
+                    #(#name_arms ,)*
                     _ => Err(miniconf::graph::Error::NotFound(0)),
                 }
             }
