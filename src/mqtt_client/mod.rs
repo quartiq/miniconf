@@ -214,7 +214,7 @@ where
             &[],
         )?;
 
-        let meta = Settings::metadata().add_separator("/".len());
+        let meta = Settings::metadata().separator("/");
         assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {

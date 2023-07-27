@@ -36,7 +36,7 @@ fn atomic_struct() {
     assert_eq!(settings, expected);
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata().add_separator("/".len());
+    let metadata = Settings::metadata().separator("/");
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "/c".len());
     assert_eq!(metadata.count, 3);
@@ -72,7 +72,7 @@ fn recursive_struct() {
     assert!(settings.set_json("/c", b"{\"a\": 5}").is_err());
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata().add_separator("/".len());
+    let metadata = Settings::metadata().separator("/");
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "/c/a".len());
     assert_eq!(metadata.count, 3);

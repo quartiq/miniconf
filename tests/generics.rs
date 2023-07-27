@@ -35,7 +35,7 @@ fn generic_array() {
     assert_eq!(settings.data[0], 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata().add_separator("/".len());
+    let metadata = Settings::<f32>::metadata().separator("/");
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "/data/0".len());
     assert_eq!(metadata.count, 2);
@@ -59,7 +59,7 @@ fn generic_struct() {
     assert_eq!(settings.inner.data, 3.0);
 
     // Test metadata
-    let metadata = Settings::<Inner>::metadata().add_separator("/".len());
+    let metadata = Settings::<Inner>::metadata().separator("/");
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "/inner".len());
     assert_eq!(metadata.count, 1);
@@ -85,7 +85,7 @@ fn generic_atomic() {
     assert_eq!(settings.atomic.inner[0], 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata().add_separator("/".len());
+    let metadata = Settings::<f32>::metadata().separator("/");
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "/atomic".len());
 }

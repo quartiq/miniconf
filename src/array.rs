@@ -242,7 +242,6 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
 
     fn metadata() -> Metadata {
         Metadata {
-            // We add separator and index
             max_length: digits(N),
             max_depth: 1,
             count: N,

@@ -4,7 +4,7 @@ use core::{fmt::Write, marker::PhantomData};
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Iter<'a, M: ?Sized, const L: usize, P> {
-    /// Zero-size marker field to allow being generic over M and gaining access to M.
+    /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
     m: PhantomData<M>,
     p: PhantomData<P>,
 
@@ -22,6 +22,7 @@ pub struct Iter<'a, M: ?Sized, const L: usize, P> {
     /// It may be None to indicate unknown length.
     count: Option<usize>,
 
+    /// The separator before each name.
     separator: &'a str,
 }
 
@@ -84,13 +85,15 @@ where
                     self.count = Some(0);
                     Some(path)
                 }
+                // Non-root leaf: advance at current depth
                 Ok(Ok::Leaf(depth)) => {
                     self.count = self.count.map(|c| c - 1);
                     self.state[depth - 1] += 1;
                     Some(path)
                 }
+                // If we end at a leaf node, the state array is too small.
                 Ok(Ok::Internal(_depth)) => {
-                    panic!("Indices short");
+                    panic!("State too small");
                 }
                 Err(e) => {
                     panic!("{e:?}");

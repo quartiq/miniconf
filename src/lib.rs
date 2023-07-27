@@ -33,32 +33,34 @@ pub use serde::{de::DeserializeOwned, Serialize};
 /// Errors that can occur when using the [Miniconf] API.
 /// A `usize` member indicates the depth where the error occurred.
 /// The depth is the number of names or indices consumed.
-/// The depth is is the number of separators on a path or the length
+/// It is also the number of separators in a path or the length
 /// of an indices slice.
+///
+/// The precedence in the case where multiple errors are applicable
+/// simultaneously is from high to low:
+///
+/// `Internal > Absent > TooLong > NotFound > Inner > PostDeserialization`
+/// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error<E> {
     /// A name was not found or an index was too large or invalid.
     NotFound(usize),
 
+    /// The names/indices are valid, but do not exist at runtime.
+    ///
+    /// This is the case if a deferred [core::option::Option] or [Option]
+    /// is `None` at runtime.
+    Absent(usize),
+
     /// The names/indices are valid, but there is trailing data at the end.
-    /// `TooLong` takes precedence over `NotFound`.
     TooLong(usize),
 
     /// The names/indices are valid, but end early and do not reach a leaf.
     Internal(usize),
 
-    /// The names/indices are valid, but do not exist at runtime.
-    ///
-    /// This is the case if a deferred [core::option::Option] or [Option]
-    /// is `None` at runtime. `Absent` takes precedence over `NotFound`.
-    Absent(usize),
-
-    /// The value provided could not be serialized or deserialized.
-    /// Or the traversal function returned an error.
-    ///
-    /// Check that the serialized data is valid and of the correct type.
-    /// Check that the buffer or indices slice have sufficient space.
+    /// The value provided could not be serialized or deserialized or
+    /// or the traversal function returned an error.
     Inner(E),
 
     /// There was an error after deserializing a value.
@@ -75,6 +77,7 @@ impl<T> From<T> for Error<T> {
     }
 }
 
+/// `Ok` return types for the [Miniconf] API.
 /// A `usize` member indicates the depth where the traversal ended.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -85,13 +88,16 @@ pub enum Ok {
     Leaf(usize),
 }
 
+/// Shorthand type alias.
 pub type Result<E> = core::result::Result<Ok, Error<E>>;
 
+/// Struct to indicate a short indices slice or a too small iterator state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SliceShort;
 
-/// Pass the `Result` up one hierarchy level.
 pub trait Increment {
+    /// Pass the `Result` up one hierarchy level.
+    /// This increments the `depth` member.
     fn increment(self) -> Self;
 }
 
@@ -127,20 +133,20 @@ pub struct Metadata {
 impl Metadata {
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, add `max_depth*separator_length`.
-    pub fn add_separator(self, separator_length: usize) -> Self {
+    pub fn separator(self, separator: &str) -> Self {
         Self {
-            max_length: self.max_length + self.max_depth * separator_length,
+            max_length: self.max_length + self.max_depth * separator.len(),
             ..self
         }
     }
 }
 
-/// Trait exposing serialization/deserialization of elements by path.
+/// Trait exposing serialization/deserialization of elements by path and traversal by path/indices.
 pub trait Miniconf {
     /// Deserialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: An [Iterator] identifying the element.
+    /// * `names`: An [Iterator] identifying the element.
     /// * `de`: A [serde::Deserializer] to use to deserialize the value.
     ///
     /// # Returns
@@ -153,7 +159,7 @@ pub trait Miniconf {
     /// Serialize an element by path.
     ///
     /// # Args
-    /// * `path_parts`: An [Iterator] identifying the element.
+    /// * `names`: An [Iterator] identifying the element.
     /// * `ser`: A [serde::Serializer] to use to serialize the value.
     ///
     /// # Returns
@@ -163,11 +169,31 @@ pub trait Miniconf {
         P: Iterator<Item = &'a str>,
         S: serde::Serializer;
 
+    /// Call `func` for each element on a path.
+    ///
+    /// Traversal is aborted once `func` returns an `Err(E)`.
+    ///
+    /// # Args
+    /// * `names`: An iterator identifying the element.
+    /// * `func`: A `FnMut` to be called for each element on the path. Its arguments are
+    ///    (a) an [Ok] indicating whether this is an internal or leaf node,
+    ///    (b) the index of the element at the given depth,
+    ///    (c) the name of the element at the given depth.
     fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
 
+    /// Call `func` for each element on a path.
+    ///
+    /// Traversal is aborted once `func` returns an `Err(E)`.
+    ///
+    /// # Args
+    /// * `names`: An iterator identifying the element.
+    /// * `func`: A `FnMut` to be called for each element on the path. Its arguments are
+    ///    (a) an [Ok] indicating whether this is an internal or leaf node,
+    ///    (b) the index of the element at the given depth,
+    ///    (c) the name of the element at the given depth.
     fn traverse_by_index<P, F, E>(indices: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
@@ -176,50 +202,46 @@ pub trait Miniconf {
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
 
-    /// Get the next path in the namespace.
+    /// Convert indices to path.
     ///
-    /// This is usually not called directly but through a [MiniconfIter] returned by [SerDe::iter_paths].
+    /// This is usually not called directly but through a [Iter] returned by [Miniconf::iter_paths].
+    ///
+    /// May not exhaust the iterator if a Leaf is found early. I.e. the index may be too long.
+    /// If `Self` is a leaf, nothing will be consumed from `indices` or
+    /// written to `path` and [`Ok::Leaf(0)`] will be returned.
+    /// If `Self` is non-leaf (internal) and  `indices` is exhausted (empty),
+    /// nothing will be written to `name` and [`Ok::Internal(0)`] will be returned.
     ///
     /// # Args
-    /// * `state`: A state slice indicating the path to be retrieved.
+    /// * `indices`: A state slice indicating the path to be retrieved.
+    ///   An empty vector indicates the root.
     ///   A zeroed vector indicates the first path.
-    ///   The slice needs to be at least as long as the maximum path depth.
-    /// * `depth`: The path depth this struct is at.
+    ///   The slice needs to be at least as long as the maximum path depth ([Metadata]).
     /// * `path`: A string to write the path into.
-    /// * `separator` - The path hierarchy separator.
+    /// * `sep`: The path hierarchy separator. It is inserted before each name.
     ///
     /// # Returns
-    /// A `usize` indicating the final depth of the valid path.
-    /// Must return `IterError::Next(usize)` with the final depth if there are
-    /// no more elements at that index and depth.
-    /// May return `IterError` indicating insufficient `state` or `path` size.
-    ///
-    /// Write the `name` of the item specified by `index`.
-    /// May not exhaust the iterator if a Leaf is found early. I.e. the index may be too long.
-    /// If `Self` is a leaf, nothing will be consumed from `index` or
-    /// written to `name` and `Leaf(0)` will be returned.
-    /// If `Self` is non-leaf and  `index` is exhausted, nothing will be written to `name` and
-    /// `Internal(0)` will be returned.
-    /// If `full`, all path elements are written, otherwise only the final element.
-    /// Each element written will always be prefixed by the separator.
+    /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     fn path<I, N>(indices: &mut I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
     where
         I: Iterator<Item = usize>,
         N: core::fmt::Write,
     {
         Self::traverse_by_index(indices, |_ok, _index, name| {
-            path.write_str(sep).and_then(|_| path.write_str(name))?;
-            Ok(())
+            path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
 
-    /// Determine the `index` of the item specified by `path`.
-    /// May not exhaust the iterator if leaf is found early. I.e. the path may be too long.
+    /// Convert `path` to `indices`.
+    ///
+    /// This determines the `indices` of the item specified by `path`.
+    ///
+    /// May not exhaust the iterator if a leaf is found early. I.e. the path may be too long.
     /// If `Self` is a leaf, nothing will be consumed from `path` or
-    /// written to `index` and `Leaf(0)` will be returned.
-    /// If `Self` is non-leaf and  `path` is exhausted, nothing will be written to `index` and
-    /// `Internal(0)` will be returned.
-    /// Entries in `index` at and beyond the `depth` returned are unaffected.
+    /// written to `indices` and [`Ok::Leaf(0)`] will be returned.
+    /// If `Self` is non-leaf (internal) and `path` is exhausted, nothing will be written to
+    /// `indices` and [`Ok::Internal(0)`] will be returned.
+    /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     fn indices<'a, P>(path: &mut P, indices: &mut [usize]) -> Result<SliceShort>
     where
         P: Iterator<Item = &'a str>,
