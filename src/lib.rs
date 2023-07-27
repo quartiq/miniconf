@@ -218,7 +218,7 @@ pub trait Miniconf {
 
     /// Convert indices to path.
     ///
-    /// This is usually not called directly but through a [Iter] returned by [Miniconf::iter_paths].
+    /// This is usually not called directly but through a [PathIter] returned by [Miniconf::iter_paths].
     ///
     /// May not exhaust the iterator if a Leaf is found early. I.e. the index may be too long.
     /// If `Self` is a leaf, nothing will be consumed from the iterator or
@@ -293,7 +293,7 @@ pub trait Miniconf {
     /// # Args
     ///
     /// # Returns
-    /// An [Iter] of paths or an [Error] if `L` is insufficient.
+    /// An iterator of paths or an [Error] if `L` is insufficient.
     fn iter_paths<const L: usize, P>(
         separator: &str,
     ) -> core::result::Result<PathIter<'_, Self, L, P>, Error<SliceShort>> {
@@ -305,7 +305,7 @@ pub trait Miniconf {
     /// See also [Miniconf::iter_paths].
     ///
     /// # Panic
-    /// This does not check that the path size or state vector are large enough.
+    /// `L` must be sufficiently large to hold the iterator state.
     /// While this function will not panic itself, calling `Iterator::next()` on its
     /// return value may.
     ///
@@ -314,7 +314,7 @@ pub trait Miniconf {
     /// * `P`  - The type to hold the path.
     ///
     /// # Returns
-    /// A [Iter] of paths.
+    /// A iterator of paths.
     fn unchecked_iter_paths<const L: usize, P>(separator: &str) -> PathIter<'_, Self, L, P> {
         PathIter::new_unchecked(separator)
     }
