@@ -1,4 +1,4 @@
-use miniconf::{Miniconf, SerDe};
+use miniconf::{JsonCoreSlash, Miniconf};
 
 #[derive(Debug, Default, Miniconf)]
 struct AdditionalSettings {
@@ -28,7 +28,7 @@ fn main() {
     // Just get one topic/value from the iterator
     if let Some(topic) = settings_iter.next() {
         let mut value = [0; 256];
-        let len = s.get(&topic, &mut value).unwrap();
+        let len = s.get_json(&topic, &mut value).unwrap();
         println!(
             "{:?}: {:?}",
             topic,
@@ -42,7 +42,7 @@ fn main() {
 
     for topic in settings_iter {
         let mut value = [0; 256];
-        let len = s.get(&topic, &mut value).unwrap();
+        let len = s.get_json(&topic, &mut value).unwrap();
         println!(
             "{:?}: {:?}",
             topic,

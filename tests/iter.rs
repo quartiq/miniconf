@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Miniconf, SerDe};
+use miniconf::{JsonCoreSlash, Miniconf};
 
 #[derive(Miniconf, Default, PartialEq, Debug)]
 struct Inner {
@@ -60,9 +60,9 @@ fn array_iter() {
     let mut s = Settings::default();
 
     for field in Settings::iter_paths::<4, String>("/").unwrap() {
-        s.set(&field, b"true").unwrap();
+        s.set_json(&field, b"true").unwrap();
         let mut buf = [0; 32];
-        let len = s.get(&field, &mut buf).unwrap();
+        let len = s.get_json(&field, &mut buf).unwrap();
         assert_eq!(&buf[..len], b"true");
     }
 

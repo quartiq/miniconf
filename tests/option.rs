@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, Miniconf, SerDe};
+use miniconf::{Error, JsonCoreSlash, Miniconf};
 
 #[derive(PartialEq, Debug, Clone, Default, Miniconf)]
 struct Inner {
@@ -28,15 +28,15 @@ fn option_get_set_none() {
     // Check that if the option is None, the value cannot be get or set.
     settings.value.take();
     assert_eq!(
-        settings.get("/value_foo", &mut data),
+        settings.get_json("/value_foo", &mut data),
         Err(miniconf::Error::NotFound(1))
     );
     assert_eq!(
-        settings.get("/value", &mut data),
+        settings.get_json("/value", &mut data),
         Err(miniconf::Error::Absent(1))
     );
     assert_eq!(
-        settings.set("/value/data", b"5"),
+        settings.set_json("/value/data", b"5"),
         Err(miniconf::Error::Absent(1))
     );
 }
@@ -49,10 +49,10 @@ fn option_get_set_some() {
     // Check that if the option is Some, the value can be get or set.
     settings.value.replace(Inner { data: 5 });
 
-    let len = settings.get("/value/data", &mut data).unwrap();
+    let len = settings.get_json("/value/data", &mut data).unwrap();
     assert_eq!(&data[..len], b"5");
 
-    settings.set("/value/data", b"7").unwrap();
+    settings.set_json("/value/data", b"7").unwrap();
     assert_eq!(settings.value.as_ref().as_ref().unwrap().data, 7);
 }
 
@@ -87,14 +87,14 @@ fn option_test_normal_option() {
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
-    s.set("/data", b"7").unwrap();
+    s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
     let mut iterator = S::iter_paths::<10, String>("/").unwrap();
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
-    s.set("/data", b"null").unwrap();
+    s.set_json("/data", b"null").unwrap();
     assert!(s.data.is_none());
 }
 
@@ -113,16 +113,16 @@ fn option_test_defer_option() {
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
-    assert!(s.set("/data", b"7").is_err());
+    assert!(s.set_json("/data", b"7").is_err());
     s.data = Some(0);
-    s.set("/data", b"7").unwrap();
+    s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
     let mut iterator = S::iter_paths::<10, String>("/").unwrap();
     assert_eq!(iterator.next(), Some("/data".into()));
     assert!(iterator.next().is_none());
 
-    assert!(s.set("/data", b"null").is_err());
+    assert!(s.set_json("/data", b"null").is_err());
 }
 
 #[test]
@@ -139,19 +139,19 @@ fn option_absent() {
     }
 
     let mut s = S::default();
-    assert_eq!(s.set("/d", b"7"), Err(Error::Absent(1)));
+    assert_eq!(s.set_json("/d", b"7"), Err(Error::Absent(1)));
     // Check precedence
-    assert_eq!(s.set("/d", b""), Err(Error::Absent(1)));
-    assert_eq!(s.set("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert_eq!(s.set("", b"7"), Err(Error::Internal(0)));
+    assert_eq!(s.set_json("/d", b""), Err(Error::Absent(1)));
+    assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
+    assert_eq!(s.set_json("", b"7"), Err(Error::Internal(0)));
     s.d = Some(3);
-    assert_eq!(s.set("/d", b"7"), Ok(1));
-    assert_eq!(s.set("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert!(matches!(s.set("/d", b""), Err(Error::Inner(_))));
-    assert_eq!(s.set("/d", b"7 "), Ok(2));
-    assert_eq!(s.set("/d", b" 7"), Ok(2));
+    assert_eq!(s.set_json("/d", b"7"), Ok(1));
+    assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
+    assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(_))));
+    assert_eq!(s.set_json("/d", b"7 "), Ok(2));
+    assert_eq!(s.set_json("/d", b" 7"), Ok(2));
     assert!(matches!(
-        s.set("/d", b"7i"),
+        s.set_json("/d", b"7i"),
         Err(Error::PostDeserialization(_))
     ));
 }

@@ -16,7 +16,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Example
 ```rust
-use miniconf::{Error, Miniconf, SerDe};
+use miniconf::{Error, Miniconf, JsonCoreSlash};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
@@ -67,40 +67,40 @@ let mut settings = Settings::default();
 let mut buf = [0; 64];
 
 // Atomic updates by field name
-settings.set("/foo", b"true")?;
+settings.set_json("/foo", b"true")?;
 assert_eq!(settings.foo, true);
-settings.set("/enum_", br#""Good""#)?;
-settings.set("/struct_", br#"{"a": 3, "b": 3}"#)?;
-settings.set("/array", b"[6, 6]")?;
-settings.set("/option", b"12")?;
-settings.set("/option", b"null")?;
+settings.set_json("/enum_", br#""Good""#)?;
+settings.set_json("/struct_", br#"{"a": 3, "b": 3}"#)?;
+settings.set_json("/array", b"[6, 6]")?;
+settings.set_json("/option", b"12")?;
+settings.set_json("/option", b"null")?;
 
 // Deep access by field name in a struct
-settings.set("/struct_defer/a", b"4")?;
+settings.set_json("/struct_defer/a", b"4")?;
 // ... or by index in an array
-settings.set("/array_defer/0", b"7")?;
+settings.set_json("/array_defer/0", b"7")?;
 // ... or by index and then struct field name
-settings.set("/array_miniconf/1/b", b"11")?;
+settings.set_json("/array_miniconf/1/b", b"11")?;
 
 // If a deferred Option is `None` it is hidden at runtime and can't be accessed
 settings.option_defer = None;
-assert_eq!(settings.set("/option_defer", b"13"), Err(Error::Absent(1)));
+assert_eq!(settings.set_json("/option_defer", b"13"), Err(Error::Absent(1)));
 settings.option_defer = Some(0);
-settings.set("/option_defer", b"13")?;
+settings.set_json("/option_defer", b"13")?;
 settings.option_miniconf = Some(Inner::default()).into();
-settings.set("/option_miniconf/a", b"14")?;
+settings.set_json("/option_miniconf/a", b"14")?;
 settings.array_option_miniconf[1] = Some(Inner::default()).into();
-settings.set("/array_option_miniconf/1/a", b"15")?;
+settings.set_json("/array_option_miniconf/1/a", b"15")?;
 
 // Serializing elements by path
-let len = settings.get("/struct_", &mut buf)?;
+let len = settings.get_json("/struct_", &mut buf)?;
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over and serializing all paths
 for path in Settings::iter_paths::<3, String>("/").unwrap() {
-    match settings.get(&path, &mut buf) {
+    match settings.get_json(&path, &mut buf) {
         Ok(len) => {
-            settings.set(&path, &buf[..len]).unwrap();
+            settings.set_json(&path, &buf[..len]).unwrap();
         }
         // Some settings are still `None` and thus their paths are expected to be absent
         Err(Error::Absent(_)) => {}

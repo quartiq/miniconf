@@ -1,4 +1,4 @@
-use crate::{Error, JsonCoreSlash, Miniconf, SerDe};
+use crate::{Error, JsonCoreSlash, Miniconf};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
@@ -157,7 +157,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: SerDe<JsonCoreSlash> + Clone,
+    Settings: JsonCoreSlash + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -173,11 +173,9 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: SerDe<JsonCoreSlash> + Clone,
+    Settings: JsonCoreSlash + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
-    Settings::DeError: core::fmt::Debug,
-    Settings::SerError: core::fmt::Debug,
 {
     /// Construct a new MQTT settings interface.
     ///
@@ -290,7 +288,7 @@ where
             };
 
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
-            let len = match self.settings.get(&topic, &mut data) {
+            let len = match self.settings.get_json(&topic, &mut data) {
                 Err(Error::Absent(_)) => continue,
                 Ok(len) => len,
                 e => e.unwrap(),
@@ -497,7 +495,7 @@ where
 
                 Command::Get { path } => {
                     let mut data = [0u8; MESSAGE_SIZE];
-                    match self.settings.get(path, &mut data) {
+                    match self.settings.get_json(path, &mut data) {
                         Err(err) => err.into(),
                         Ok(len) => {
                             let mut topic = self.prefix.clone();
@@ -529,7 +527,7 @@ where
                 }
                 Command::Set { path, value } => {
                     let mut new_settings = self.settings.clone();
-                    match new_settings.set(path, value) {
+                    match new_settings.set_json(path, value) {
                         Err(err) => err.into(),
                         Ok(_) => {
                             updated = true;

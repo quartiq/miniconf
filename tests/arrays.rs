@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, Miniconf, SerDe};
+use miniconf::{Error, JsonCoreSlash, Miniconf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, Default, Miniconf, Deserialize, Serialize)]
@@ -24,48 +24,48 @@ struct Settings {
 #[test]
 fn atomic() {
     let mut s = Settings::default();
-    s.set("/a", b"[1,2]").unwrap();
+    s.set_json("/a", b"[1,2]").unwrap();
     assert_eq!(s.a, [1, 2]);
 }
 
 #[test]
 fn defer() {
     let mut s = Settings::default();
-    s.set("/d/1", b"99").unwrap();
+    s.set_json("/d/1", b"99").unwrap();
     assert_eq!(s.d[1], 99);
 }
 
 #[test]
 fn defer_miniconf() {
     let mut s = Settings::default();
-    s.set("/am/0/c", b"1").unwrap();
+    s.set_json("/am/0/c", b"1").unwrap();
     assert_eq!(s.am[0].c, 1);
-    s.set("/aam/0/0/c", b"3").unwrap();
+    s.set_json("/aam/0/0/c", b"3").unwrap();
     assert_eq!(s.aam[0][0].c, 3);
 }
 
 #[test]
 fn too_short() {
     let mut s = Settings::default();
-    assert_eq!(s.set("/d", b"[1,2,3]"), Err(Error::Internal(1)));
+    assert_eq!(s.set_json("/d", b"[1,2,3]"), Err(Error::Internal(1)));
 }
 
 #[test]
 fn too_long() {
     assert_eq!(
-        Settings::default().set("/a/1", b"7"),
+        Settings::default().set_json("/a/1", b"7"),
         Err(Error::TooLong(1))
     );
     assert_eq!(
-        Settings::default().set("/d/0/b", b"7"),
+        Settings::default().set_json("/d/0/b", b"7"),
         Err(Error::TooLong(2))
     );
     assert_eq!(
-        Settings::default().set("/dm/0/c", b"7"),
+        Settings::default().set_json("/dm/0/c", b"7"),
         Err(Error::TooLong(2))
     );
     assert_eq!(
-        Settings::default().set("/dm/0/d", b"7"),
+        Settings::default().set_json("/dm/0/d", b"7"),
         Err(Error::TooLong(2))
     );
 }
@@ -73,12 +73,15 @@ fn too_long() {
 #[test]
 fn not_found() {
     assert_eq!(
-        Settings::default().set("/d/3", b"7"),
+        Settings::default().set_json("/d/3", b"7"),
         Err(Error::NotFound(2))
     );
-    assert_eq!(Settings::default().set("/b", b"7"), Err(Error::NotFound(1)));
     assert_eq!(
-        Settings::default().set("/aam/0/0/d", b"7"),
+        Settings::default().set_json("/b", b"7"),
+        Err(Error::NotFound(1))
+    );
+    assert_eq!(
+        Settings::default().set_json("/aam/0/0/d", b"7"),
         Err(Error::NotFound(4))
     );
 }
