@@ -115,8 +115,6 @@ impl<E> Increment for Result<E> {
 pub struct Metadata {
     /// The maximum length of a path.
     /// This does not include separators.
-    /// To obtain an upper bound on the maximum length of all paths
-    /// including separators, add `max_depth*separator.len()` to this.
     pub max_length: usize,
 
     /// The maximum path depth.
@@ -124,6 +122,17 @@ pub struct Metadata {
 
     /// The number of paths.
     pub count: usize,
+}
+
+impl Metadata {
+    /// To obtain an upper bound on the maximum length of all paths
+    /// including separators, add `max_depth*separator_length`.
+    pub fn add_separator(self, separator_length: usize) -> Self {
+        Self {
+            max_length: self.max_length + self.max_depth * separator_length,
+            ..self
+        }
+    }
 }
 
 /// Trait exposing serialization/deserialization of elements by path.

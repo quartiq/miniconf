@@ -214,11 +214,8 @@ where
             &[],
         )?;
 
-        let meta = Settings::metadata();
-        assert!(
-            prefix.len() + "/settings".len() + "/".len() * meta.max_depth + meta.max_length
-                <= MAX_TOPIC_LENGTH
-        );
+        let meta = Settings::metadata().add_separator("/".len());
+        assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,

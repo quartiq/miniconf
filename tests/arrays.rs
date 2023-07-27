@@ -88,9 +88,9 @@ fn not_found() {
 
 #[test]
 fn metadata() {
-    let metadata = Settings::metadata();
+    let metadata = Settings::metadata().add_separator("/".len());
     assert_eq!(metadata.max_depth, 4);
-    assert_eq!(metadata.max_length, "aam00c".len());
+    assert_eq!(metadata.max_length, "/aam/0/0/c".len());
     assert_eq!(metadata.count, 11);
 }
 
