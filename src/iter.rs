@@ -1,4 +1,4 @@
-use crate::{graph, IterError, Metadata, SerDe};
+use crate::{Error, Metadata, Ok, SerDe, SliceShort};
 use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
@@ -33,15 +33,15 @@ impl<M, S, const L: usize, P> Default for MiniconfIter<M, S, L, P> {
 }
 
 impl<M: SerDe<S>, S, const L: usize, P> MiniconfIter<M, S, L, P> {
-    pub fn metadata() -> Result<Metadata, IterError> {
-        let meta = M::metadata(M::SEPARATOR.len_utf8());
+    pub fn metadata() -> core::result::Result<Metadata, Error<SliceShort>> {
+        let meta = M::metadata(M::SEPARATOR.len());
         if L < meta.max_depth {
-            return Err(IterError::Depth);
+            return Err(Error::Inner(SliceShort));
         }
         Ok(meta)
     }
 
-    pub fn new() -> Result<Self, IterError> {
+    pub fn new() -> core::result::Result<Self, Error<SliceShort>> {
         let meta = Self::metadata()?;
         Ok(Self {
             count: Some(meta.count),
@@ -50,43 +50,36 @@ impl<M: SerDe<S>, S, const L: usize, P> MiniconfIter<M, S, L, P> {
     }
 }
 
-impl<M: SerDe<S> + graph::Graph, S, const L: usize, P: Write + Default> Iterator
-    for MiniconfIter<M, S, L, P>
-{
+impl<M: SerDe<S>, S, const L: usize, P: Write + Default> Iterator for MiniconfIter<M, S, L, P> {
     type Item = P;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::default();
 
         loop {
-            return match M::path(
-                &mut self.state.iter().copied(),
-                &mut path,
-                M::SEPARATOR.encode_utf8(&mut [0; 4]),
-                true,
-            ) {
-                Err(graph::Error::NotFound(0)) => {
+            return match M::path(&mut self.state.iter().copied(), &mut path, M::SEPARATOR) {
+                Err(Error::NotFound(0)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
                     None
                 }
-                Ok(graph::Ok::Leaf(0)) if self.count == Some(0) => None,
-                Ok(graph::Ok::Leaf(0)) => {
+                Ok(Ok::Leaf(0)) if self.count == Some(0) => None,
+                Ok(Ok::Leaf(0)) => {
                     debug_assert_eq!(self.count.unwrap_or(1), 1);
                     self.count = Some(0);
                     Some(path)
                 }
-                Ok(graph::Ok::Leaf(depth)) => {
+                Ok(Ok::Leaf(depth)) => {
                     self.count = self.count.map(|c| c - 1);
                     self.state[depth - 1] += 1;
                     Some(path)
                 }
-                Err(graph::Error::NotFound(depth)) => {
+                Err(Error::NotFound(depth)) => {
                     path = Self::Item::default();
                     self.state[depth - 1] += 1;
                     self.state[depth] = 0;
                     continue;
                 }
-                Ok(graph::Ok::Internal(_)) => {
+                Ok(Ok::Internal(_)) => {
                     panic!("state too short");
                 }
                 e => {

@@ -24,9 +24,9 @@ fn meta() {
 #[test]
 fn next_path() {
     let mut s = String::new();
-    Settings::next_path(&[1, 0, 0], 0, &mut s, '/').unwrap();
+    Settings::path(&mut [1, 0, 0].iter().copied(), &mut s, "/").unwrap();
     assert_eq!(s, "/b");
     s.clear();
-    Settings::next_path(&[2, 0, 0], 0, &mut s, '/').unwrap();
+    Settings::path(&mut [2, 0, 0].iter().copied(), &mut s, "/").unwrap();
     assert_eq!(s, "/c/inner");
 }

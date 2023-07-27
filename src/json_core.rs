@@ -11,19 +11,19 @@ impl<T> SerDe<JsonCoreSlash> for T
 where
     T: Miniconf,
 {
-    const SEPARATOR: char = '/';
+    const SEPARATOR: &'static str = "/";
     type DeError = de::Error;
     type SerError = ser::Error;
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>> {
         let mut de = de::Deserializer::new(data);
-        self.set_path(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
+        self.set_by_name(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
     }
 
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>> {
         let mut ser = ser::Serializer::new(data);
-        self.get_path(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
+        self.get_by_name(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
         Ok(ser.end())
     }
 }
@@ -34,13 +34,12 @@ where
 impl From<Error<ser::Error>> for Error<de::Error> {
     fn from(value: Error<ser::Error>) -> Self {
         match value {
-            Error::BadIndex => Self::BadIndex,
-            Error::PathAbsent => Self::PathAbsent,
-            Error::PathNotFound => Self::PathNotFound,
-            Error::PathTooLong => Self::PathTooLong,
-            Error::PathTooShort => Self::PathTooShort,
+            Error::NotFound(i) => Self::NotFound(i),
+            Error::TooLong(i) => Self::TooLong(i),
+            Error::Absent(i) => Self::Absent(i),
+            Error::Internal(i) => Self::Internal(i),
             Error::PostDeserialization(_) => Error::PostDeserialization(de::Error::CustomError),
-            Error::SerDe(_) => Self::SerDe(de::Error::CustomError),
+            Error::Inner(_) => Self::Inner(de::Error::CustomError),
         }
     }
 }

@@ -10,7 +10,7 @@ impl<T> SerDe<JsonSlash> for T
 where
     T: Miniconf,
 {
-    const SEPARATOR: char = '/';
+    const SEPARATOR: &'static str = "/";
     type DeError = serde_json::Error;
     type SerError = serde_json::Error;
 

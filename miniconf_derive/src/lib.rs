@@ -42,79 +42,57 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 }
 
-fn get_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
-    let match_name = &struct_field.field.ident;
-    if struct_field.deferred {
-        quote! {
-            stringify!(#match_name) => {
-                self.#match_name.get_path(path_parts, ser)
-            }
-        }
-    } else {
-        quote! {
-            stringify!(#match_name) => {
-                if path_parts.next().is_some() {
-                    Err(miniconf::Error::PathTooLong)
-                } else {
-                    Ok(miniconf::serde::ser::Serialize::serialize(&self.#match_name, ser)?)
-                }
-            }
-        }
-    }
-}
-
-fn set_path_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `self`, `path_parts`, and `value` available.
-    let match_name = &struct_field.field.ident;
-    if struct_field.deferred {
-        quote! {
-            stringify!(#match_name) => {
-                self.#match_name.set_path(path_parts, de)
-            }
-        }
-    } else {
-        quote! {
-            stringify!(#match_name) => {
-                if path_parts.next().is_some() {
-                    Err(miniconf::Error::PathTooLong)
-                } else {
-                    self.#match_name = miniconf::serde::de::Deserialize::deserialize(de)?;
-                    Ok(())
-                }
-            }
-        }
-    }
-}
-
-fn next_path_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `self`, `state`, and `path` available.
-    let field_type = &struct_field.field.ty;
+fn get_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `get_by_name()` args available.
     let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
-            Some(#i) => {
-                path.write_str(concat!("/", stringify!(#field_name)))
-                    .map_err(|_| miniconf::IterError::Length)?;
-                <#field_type>::next_path(state, depth + 1, path, separator)
+            stringify!(#field_name) => {
+                self.#field_name.get_by_name(names, ser)
             }
         }
     } else {
         quote! {
-            Some(#i) => {
-                path.write_str(concat!("/", stringify!(#field_name)))
-                    .map_err(|_| miniconf::IterError::Length)?;
-                Ok(depth)
+            stringify!(#field_name) => {
+                if names.next().is_some() {
+                    Err(miniconf::Error::TooLong(0))
+                } else {
+                    miniconf::serde::ser::Serialize::serialize(&self.#field_name, ser)?;
+                    Ok(miniconf::Ok::Leaf(1))
+                }
+            }
+        }
+    }
+}
+
+fn set_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `set_by_name()` args available.
+    let field_name = &struct_field.field.ident;
+    if struct_field.defer {
+        quote! {
+            stringify!(#field_name) => {
+                self.#field_name.set_by_name(names, de)
+            }
+        }
+    } else {
+        quote! {
+            stringify!(#field_name) => {
+                if names.next().is_some() {
+                    Err(miniconf::Error::TooLong(0))
+                } else {
+                    self.#field_name = miniconf::serde::de::Deserialize::deserialize(de)?;
+                    Ok(miniconf::Ok::Leaf(1))
+                }
             }
         }
     }
 }
 
 fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index.
+    // Quote context is a match of the field index with `metadata()` args available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata(separator_length);
@@ -136,50 +114,50 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     }
 }
 
-fn index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `self`, `state`, and `path` available.
+fn traverse_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index with `traverse_by_index()` args available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             Some(#i) => {
                 if internal {
-                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
+                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
 
                 }
                 let r = <#field_type>::traverse_by_index(indices, func, internal);
-                <miniconf::graph::GraphResult<E> as miniconf::graph::Up>::up(r)
+                miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             Some(#i) => {
-                func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
-                Ok(miniconf::graph::Ok::Leaf(1))
+                func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                Ok(miniconf::Ok::Leaf(1))
             }
         }
     }
 }
 
-fn name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `self`, `state`, and `path` available.
+fn traverse_by_name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field index with `traverse_by_name()` args available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
-    if struct_field.deferred {
+    if struct_field.defer {
         quote! {
             Some(stringify!(#field_name)) => {
                 if internal {
-                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
+                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 }
                 let r = <#field_type>::traverse_by_name(names, func, internal);
-                <miniconf::graph::GraphResult<E> as miniconf::graph::Up>::up(r)
+                miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             Some(stringify!(#field_name)) => {
-                func(#i, stringify!(#field_name)).map_err(|e| miniconf::graph::Error::Inner(e))?;
-                Ok(miniconf::graph::Ok::Leaf(1))
+                func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                Ok(miniconf::Ok::Leaf(1))
             }
         }
     }
@@ -207,49 +185,35 @@ fn derive_struct(
     };
     fields.iter().for_each(|f| f.bound_generics(generics));
 
-    let set_path_arms = fields.iter().map(set_path_arm);
-    let get_path_arms = fields.iter().map(get_path_arm);
-    let next_path_arms = fields.iter().enumerate().map(next_path_arm);
+    let set_by_name_arms = fields.iter().map(set_by_name_arm);
+    let get_by_name_arms = fields.iter().map(get_by_name_arm);
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
-    let name_arms = fields.iter().enumerate().map(name_arm);
-    let index_arms = fields.iter().enumerate().map(index_arm);
+    let traverse_by_index_arms = fields.iter().enumerate().map(traverse_by_index_arm);
+    let traverse_by_name_arms = fields.iter().enumerate().map(traverse_by_name_arm);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     quote! {
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
-            fn set_path<'a, 'b: 'a, P, D>(&mut self, path_parts: &mut P, de: D) -> Result<(), miniconf::Error<D::Error>>
+            fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> miniconf::Result<D::Error>
             where
                 P: Iterator<Item = &'a str>,
                 D: miniconf::serde::Deserializer<'b>,
             {
-                match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
-                    #(#set_path_arms ,)*
-                    _ => Err(miniconf::Error::PathNotFound),
+                match names.next().ok_or(miniconf::Error::Internal(0))? {
+                    #(#set_by_name_arms ,)*
+                    _ => Err(miniconf::Error::NotFound(0)),
                 }
             }
 
-            fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, miniconf::Error<S::Error>>
+            fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> miniconf::Result<S::Error>
             where
                 P: Iterator<Item = &'a str>,
                 S: miniconf::serde::Serializer,
             {
-                match path_parts.next().ok_or(miniconf::Error::PathTooShort)? {
-                    #(#get_path_arms ,)*
-                    _ => Err(miniconf::Error::PathNotFound)
-                }
-            }
-
-            fn next_path(
-                state: &[usize],
-                depth: usize,
-                mut path: impl core::fmt::Write,
-                separator: char,
-            ) -> Result<usize, miniconf::IterError> {
-                match state.get(depth).copied() {
-                    #(#next_path_arms ,)*
-                    Some(_) => Err(miniconf::IterError::Next(depth)),
-                    None => Err(miniconf::IterError::Depth),
+                match names.next().ok_or(miniconf::Error::Internal(0))? {
+                    #(#get_by_name_arms ,)*
+                    _ => Err(miniconf::Error::NotFound(0))
                 }
             }
 
@@ -273,22 +237,20 @@ fn derive_struct(
 
                 meta
             }
-        }
 
-        impl #impl_generics miniconf::graph::Graph for #ident #ty_generics #where_clause {
             fn traverse_by_index<P, F, E>(
                 indices: &mut P,
                 mut func: F,
                 internal: bool,
-            ) -> miniconf::graph::GraphResult<E>
+            ) -> miniconf::Result<E>
             where
                 P: Iterator<Item = usize>,
                 F: FnMut(usize, &str) -> Result<(), E>,
             {
                 match indices.next() {
-                    None => Ok(miniconf::graph::Ok::Internal(0)),
-                    #(#index_arms ,)*
-                    _ => Err(miniconf::graph::Error::NotFound(0)),
+                    None => Ok(miniconf::Ok::Internal(0)),
+                    #(#traverse_by_index_arms ,)*
+                    _ => Err(miniconf::Error::NotFound(0)),
                 }
             }
 
@@ -296,15 +258,15 @@ fn derive_struct(
                 names: &mut P,
                 mut func: F,
                 internal: bool,
-            ) -> miniconf::graph::GraphResult<E>
+            ) -> miniconf::Result<E>
             where
                 P: Iterator<Item = &'a str>,
                 F: FnMut(usize, &str) -> Result<(), E>,
             {
                 match names.next() {
-                    None => Ok(miniconf::graph::Ok::Internal(0)),
-                    #(#name_arms ,)*
-                    _ => Err(miniconf::graph::Error::NotFound(0)),
+                    None => Ok(miniconf::Ok::Internal(0)),
+                    #(#traverse_by_name_arms ,)*
+                    _ => Err(miniconf::Error::NotFound(0)),
                 }
             }
         }

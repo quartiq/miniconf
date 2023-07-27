@@ -1,8 +1,5 @@
-use crate::{graph, Error, IterError, Metadata, Miniconf};
-use core::{
-    fmt::Write,
-    ops::{Deref, DerefMut},
-};
+use crate::{Error, Metadata, Miniconf, Ok, Result};
+use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
 ///
@@ -87,31 +84,27 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
+    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
         if let Some(inner) = self.0.as_mut() {
-            inner.set_path(path_parts, de)
+            inner.set_by_name(names, de)
         } else {
-            Err(Error::PathAbsent)
+            Err(Error::Absent(0))
         }
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
         if let Some(inner) = self.0.as_ref() {
-            inner.get_path(path_parts, ser)
+            inner.get_by_name(names, ser)
         } else {
-            Err(Error::PathAbsent)
+            Err(Error::Absent(0))
         }
     }
 
@@ -119,71 +112,53 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata(separator_length)
     }
 
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        path: impl Write,
-        separator: char,
-    ) -> Result<usize, IterError> {
-        T::next_path(state, depth, path, separator)
-    }
-}
-
-impl<T: graph::Graph> graph::Graph for Option<T> {
-    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> graph::GraphResult<E>
+    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> core::result::Result<(), E>,
     {
         T::traverse_by_index(indices, func, internal)
     }
 
-    fn traverse_by_name<'a, P, F, E>(
-        names: &mut P,
-        func: F,
-        internal: bool,
-    ) -> graph::GraphResult<E>
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F, internal: bool) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> core::result::Result<(), E>,
     {
         T::traverse_by_name(names, func, internal)
     }
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
+    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        if path_parts.next().is_some() {
-            return Err(Error::PathTooLong);
+        if names.next().is_some() {
+            return Err(Error::TooLong(0));
         }
 
         if self.is_none() {
-            return Err(Error::PathAbsent);
+            return Err(Error::Absent(0));
         }
 
         *self = Some(serde::Deserialize::deserialize(de)?);
-        Ok(())
+        Ok(Ok::Leaf(0))
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        if path_parts.next().is_some() {
-            return Err(Error::PathTooLong);
+        if names.next().is_some() {
+            return Err(Error::TooLong(0));
         }
 
-        let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        Ok(serde::Serialize::serialize(data, ser)?)
+        let data = self.as_ref().ok_or(Error::Absent(0))?;
+        serde::Serialize::serialize(data, ser)?;
+        Ok(Ok::Leaf(0))
     }
 
     fn metadata(_separator_length: usize) -> Metadata {
@@ -193,42 +168,19 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        _path: impl Write,
-        _separator: char,
-    ) -> Result<usize, IterError> {
-        match state.get(depth) {
-            Some(0) => Ok(depth),
-            Some(_) => Err(IterError::Next(depth)),
-            None => Err(IterError::Depth),
-        }
-    }
-}
-
-impl<T> graph::Graph for core::option::Option<T> {
-    fn traverse_by_index<P, F, E>(
-        _indices: &mut P,
-        _func: F,
-        _internal: bool,
-    ) -> graph::GraphResult<E>
+    fn traverse_by_index<P, F, E>(_indices: &mut P, _func: F, _internal: bool) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> core::result::Result<(), E>,
     {
-        Ok(graph::Ok::Leaf(0))
+        Ok(Ok::Leaf(0))
     }
 
-    fn traverse_by_name<'a, P, F, E>(
-        _names: &mut P,
-        _func: F,
-        _internal: bool,
-    ) -> graph::GraphResult<E>
+    fn traverse_by_name<'a, P, F, E>(_names: &mut P, _func: F, _internal: bool) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> core::result::Result<(), E>,
     {
-        Ok(graph::Ok::Leaf(0))
+        Ok(Ok::Leaf(0))
     }
 }

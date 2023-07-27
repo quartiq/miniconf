@@ -84,7 +84,7 @@ settings.set("/array_miniconf/1/b", b"11")?;
 
 // If a deferred Option is `None` it is hidden at runtime and can't be accessed
 settings.option_defer = None;
-assert_eq!(settings.set("/option_defer", b"13"), Err(Error::PathAbsent));
+assert_eq!(settings.set("/option_defer", b"13"), Err(Error::Absent(0)));
 settings.option_defer = Some(0);
 settings.set("/option_defer", b"13")?;
 settings.option_miniconf = Some(Inner::default()).into();
@@ -103,7 +103,7 @@ for path in Settings::iter_paths::<3, String>().unwrap() {
             settings.set(&path, &buf[..len]).unwrap();
         }
         // Some settings are still `None` and thus their paths are expected to be absent
-        Err(Error::PathAbsent) => {}
+        Err(Error::Absent(_)) => {}
         e => {
             e.unwrap();
         }

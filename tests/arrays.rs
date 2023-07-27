@@ -13,17 +13,13 @@ struct Settings {
     data: u32,
     #[miniconf(defer)]
     more: AdditionalSettings,
+    #[miniconf(defer)]
+    a: [u8; 3],
 }
 
 #[test]
 fn simple_array() {
-    #[derive(Miniconf, Default)]
-    struct S {
-        #[miniconf(defer)]
-        a: [u8; 3],
-    }
-
-    let mut s = S::default();
+    let mut s = Settings::default();
 
     // Updating a single field should succeed.
     s.set("/a/0", "99".as_bytes()).unwrap();
@@ -38,15 +34,10 @@ fn simple_array() {
 
 #[test]
 fn nonexistent_field() {
-    #[derive(Miniconf, Default)]
-    struct S {
-        #[miniconf(defer)]
-        a: [u8; 3],
-    }
-
-    let mut s = S::default();
-
-    assert!(s.set("/a/1/b", "7".as_bytes()).is_err());
+    assert_eq!(
+        Settings::default().set("/a/1/b", b"7"),
+        Err(Error::TooLong(1))
+    );
 }
 
 #[test]
@@ -59,15 +50,12 @@ fn simple_array_indexing() {
 
     let mut s = S::default();
 
-    s.set("/a/1", "7".as_bytes()).unwrap();
+    s.set("/a/1", b"7").unwrap();
 
     assert_eq!([0, 7, 0], s.a);
 
     // Ensure that setting an out-of-bounds index generates an error.
-    assert!(matches!(
-        s.set("/a/3", "7".as_bytes()).unwrap_err(),
-        Error::BadIndex
-    ));
+    assert_eq!(s.set("/a/3", b"7"), Err(Error::NotFound(1)));
 
     // Test metadata
     let metadata = S::metadata(1);

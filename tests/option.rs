@@ -29,15 +29,15 @@ fn option_get_set_none() {
     settings.value.take();
     assert_eq!(
         settings.get("/value_foo", &mut data),
-        Err(miniconf::Error::PathNotFound)
+        Err(miniconf::Error::NotFound(0))
     );
     assert_eq!(
         settings.get("/value", &mut data),
-        Err(miniconf::Error::PathAbsent)
+        Err(miniconf::Error::Absent(1))
     );
     assert_eq!(
         settings.set("/value/data", b"5"),
-        Err(miniconf::Error::PathAbsent)
+        Err(miniconf::Error::TooLong(1))
     );
 }
 
@@ -53,7 +53,7 @@ fn option_get_set_some() {
     assert_eq!(&data[..len], b"5");
 
     settings.set("/value/data", b"7").unwrap();
-    assert_eq!((*settings.value).as_ref().unwrap().data, 7);
+    assert_eq!(settings.value.as_ref().as_ref().unwrap().data, 7);
 }
 
 #[test]
@@ -134,14 +134,14 @@ fn option_absent() {
     }
 
     let mut s = S::default();
-    assert!(matches!(s.set("/data", b"7"), Err(Error::PathAbsent)));
-    assert!(matches!(s.set("/data", b""), Err(Error::PathAbsent)));
-    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
-    assert!(matches!(s.set("", b"7"), Err(Error::PathTooShort)));
+    assert!(matches!(s.set("/data", b"7"), Err(Error::Absent(0))));
+    assert!(matches!(s.set("/data", b""), Err(Error::Absent(0))));
+    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::TooLong(0))));
+    assert!(matches!(s.set("", b"7"), Err(Error::Internal(0))));
     s.data = Some(9);
     assert!(matches!(s.set("/data", b"7"), Ok(1)));
-    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::PathTooLong)));
-    assert!(matches!(s.set("/data", b""), Err(Error::SerDe(_))));
+    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::TooLong(0))));
+    assert!(matches!(s.set("/data", b""), Err(Error::Inner(_))));
     assert!(matches!(s.set("/data", b"7 "), Ok(2)));
     assert!(matches!(s.set("/data", b" 7"), Ok(2)));
     assert!(matches!(

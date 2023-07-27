@@ -1,8 +1,6 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
 #![cfg_attr(feature = "json-core", doc = include_str!("../README.md"))]
 
-use core::fmt::Write;
-
 pub use miniconf_derive::Miniconf;
 mod array;
 pub use array::*;
@@ -10,8 +8,6 @@ mod iter;
 pub use iter::*;
 mod option;
 pub use option::*;
-
-pub mod graph;
 
 #[cfg(feature = "json-core")]
 mod json_core;
@@ -34,56 +30,26 @@ pub use serde; // re-export
 #[doc(hidden)]
 pub use serde::{de::DeserializeOwned, Serialize};
 
-/// Errors that occur during iteration over topic paths.
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum IterError {
-    /// No element was found at the given depth
-    Next(usize),
-
-    /// The provided state vector is not long enough.
-    Depth,
-
-    /// The provided buffer is not long enough.
-    Length,
-}
-
 /// Errors that can occur when using the [Miniconf] API.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Error<T> {
+pub enum Error<E> {
     /// The provided path wasn't found in the structure.
     ///
     /// Double check the provided path to verify that it's valid.
-    PathNotFound,
+    ///
+    /// Index entry too large at depth or invalid name.
+    NotFound(usize),
 
     /// The provided path was valid, but there was trailing data at the end.
     ///
     /// Check the end of the path and remove any excess characters.
-    PathTooLong,
+    TooLong(usize),
 
     /// The provided path was valid, but did not specify a value fully.
     ///
     /// Double check the ending and add the remainder of the path.
-    PathTooShort,
-
-    /// The value provided could not be serialized or deserialized.
-    ///
-    /// Check that the serialized data is valid and of the correct type.
-    /// Check that the buffer had sufficient space.
-    SerDe(T),
-
-    /// There was an error after deserializing a value.
-    ///
-    /// If the `Deserializer` encounters an error only after successfully
-    /// deserializing a value (as is the case if there is additional unexpected data),
-    /// the update may have taken place but this error will still be returned.
-    PostDeserialization(T),
-
-    /// When indexing into an array, the index provided was out of bounds.
-    ///
-    /// Check array indices to ensure that bounds for all paths are respected.
-    BadIndex,
+    Internal(usize),
 
     /// The path does not exist at runtime.
     ///
@@ -91,13 +57,61 @@ pub enum Error<T> {
     /// is `None` at runtime. `PathAbsent` takes precedence over `PathNotFound`
     /// if the path is simultaneously masked by a `Option::None` at runtime but
     /// would still be non-existent if it weren't.
-    PathAbsent,
+    Absent(usize),
+
+    /// The value provided could not be serialized or deserialized.
+    ///
+    /// Check that the serialized data is valid and of the correct type.
+    /// Check that the buffer had sufficient space.
+    /// Inner error, e.g.
+    /// Formating error (Write::write_str failure, for `name()`)
+    /// or
+    /// Index too short (for `index()`)
+    Inner(E),
+
+    /// There was an error after deserializing a value.
+    ///
+    /// If the `Deserializer` encounters an error only after successfully
+    /// deserializing a value (as is the case if there is additional unexpected data),
+    /// the update may have taken place but this error will still be returned.
+    PostDeserialization(E),
 }
 
 impl<T> From<T> for Error<T> {
-    fn from(err: T) -> Self {
-        // By default in our context every T is a SerDe error.
-        Error::SerDe(err)
+    fn from(value: T) -> Self {
+        Error::Inner(value)
+    }
+}
+
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Ok {
+    /// Non-leaf at depth
+    Internal(usize),
+    /// Leaf at depth
+    Leaf(usize),
+}
+
+pub type Result<E> = core::result::Result<Ok, Error<E>>;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct SliceShort;
+
+pub trait Increment {
+    fn increment(self) -> Self;
+}
+
+impl<E> Increment for Result<E> {
+    fn increment(self) -> Self {
+        match self {
+            Ok(Ok::Internal(i)) => Ok(Ok::Internal(i + 1)),
+            Ok(Ok::Leaf(i)) => Ok(Ok::Leaf(i + 1)),
+            Err(Error::NotFound(i)) => Err(Error::NotFound(i + 1)),
+            Err(Error::Internal(i)) => Err(Error::Internal(i + 1)),
+            Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
+            Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
+            e => e,
+        }
     }
 }
 
@@ -125,11 +139,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
+    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>;
@@ -142,10 +152,26 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer;
+
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F, internal: bool) -> Result<E>
+    where
+        P: Iterator<Item = &'a str>,
+        F: FnMut(usize, &str) -> core::result::Result<(), E>;
+
+    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> Result<E>
+    where
+        P: Iterator<Item = usize>,
+        F: FnMut(usize, &str) -> core::result::Result<(), E>;
+
+    /// Get metadata about the paths in the namespace.
+    ///
+    /// # Args
+    /// * `separator_length` - The path hierarchy separator length in bytes.
+    fn metadata(separator_length: usize) -> Metadata;
 
     /// Get the next path in the namespace.
     ///
@@ -164,22 +190,57 @@ pub trait Miniconf {
     /// Must return `IterError::Next(usize)` with the final depth if there are
     /// no more elements at that index and depth.
     /// May return `IterError` indicating insufficient `state` or `path` size.
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        path: impl Write,
-        separator: char,
-    ) -> Result<usize, IterError>;
-
-    /// Get metadata about the paths in the namespace.
     ///
-    /// # Args
-    /// * `separator_length` - The path hierarchy separator length in bytes.
-    fn metadata(separator_length: usize) -> Metadata;
-}
+    /// Write the `name` of the item specified by `index`.
+    /// May not exhaust the iterator if a Leaf is found early. I.e. the index may be too long.
+    /// If `Self` is a leaf, nothing will be consumed from `index` or
+    /// written to `name` and `Leaf(0)` will be returned.
+    /// If `Self` is non-leaf and  `index` is exhausted, nothing will be written to `name` and
+    /// `Internal(0)` will be returned.
+    /// If `full`, all path elements are written, otherwise only the final element.
+    /// Each element written will always be prefixed by the separator.
+    fn path<I, N>(indices: &mut I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
+    where
+        I: Iterator<Item = usize>,
+        N: core::fmt::Write,
+    {
+        Self::traverse_by_index(
+            indices,
+            |_index, name| {
+                path.write_str(sep).and_then(|_| path.write_str(name))?;
+                Ok(())
+            },
+            true,
+        )
+    }
 
-//impl<T> Miniconf for T where T: Serialize + DeserializeOwned {
-//}
+    /// Determine the `index` of the item specified by `path`.
+    /// May not exhaust the iterator if leaf is found early. I.e. the path may be too long.
+    /// If `Self` is a leaf, nothing will be consumed from `path` or
+    /// written to `index` and `Leaf(0)` will be returned.
+    /// If `Self` is non-leaf and  `path` is exhausted, nothing will be written to `index` and
+    /// `Internal(0)` will be returned.
+    /// Entries in `index` at and beyond the `depth` returned are unaffected.
+    fn indices<'a, P>(path: &mut P, indices: &mut [usize]) -> Result<SliceShort>
+    where
+        P: Iterator<Item = &'a str>,
+    {
+        let mut depth = 0;
+        Self::traverse_by_name(
+            path,
+            |index, _name| {
+                if indices.len() < depth {
+                    Err(SliceShort)
+                } else {
+                    indices[depth] = index;
+                    depth += 1;
+                    Ok(())
+                }
+            },
+            true,
+        )
+    }
+}
 
 /// Trait for implementing a specific way of serialization/deserialization into/from a slice
 /// and splitting/joining the path with a separator.
@@ -188,7 +249,7 @@ pub trait SerDe<S>: Miniconf + Sized {
     ///
     /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
     /// used in [SerDe::set] and [SerDe::get] to split the path.
-    const SEPARATOR: char;
+    const SEPARATOR: &'static str;
 
     /// The [serde::Serializer::Error] type.
     type SerError;
@@ -207,7 +268,8 @@ pub trait SerDe<S>: Miniconf + Sized {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
-    fn iter_paths<const L: usize, P>() -> Result<iter::MiniconfIter<Self, S, L, P>, IterError> {
+    fn iter_paths<const L: usize, P>(
+    ) -> core::result::Result<iter::MiniconfIter<Self, S, L, P>, Error<SliceShort>> {
         MiniconfIter::new()
     }
 
@@ -238,7 +300,8 @@ pub trait SerDe<S>: Miniconf + Sized {
     ///
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
-    fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>>;
+    fn set(&mut self, path: &str, data: &[u8])
+        -> core::result::Result<usize, Error<Self::DeError>>;
 
     /// Retrieve a serialized value by path.
     ///
@@ -248,5 +311,9 @@ pub trait SerDe<S>: Miniconf + Sized {
     ///
     /// # Returns
     /// The number of bytes used in the `data` buffer or an [Error].
-    fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>>;
+    fn get(
+        &self,
+        path: &str,
+        data: &mut [u8],
+    ) -> core::result::Result<usize, Error<Self::SerError>>;
 }

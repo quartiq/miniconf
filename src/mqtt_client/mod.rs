@@ -1,4 +1,4 @@
-use crate::{graph::Graph, JsonCoreSlash, Miniconf, SerDe};
+use crate::{Error, JsonCoreSlash, Miniconf, SerDe};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
@@ -158,7 +158,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: SerDe<JsonCoreSlash> + Clone + Graph,
+    Settings: SerDe<JsonCoreSlash> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -174,7 +174,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: SerDe<JsonCoreSlash> + Clone + Graph,
+    Settings: SerDe<JsonCoreSlash> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Settings::DeError: core::fmt::Debug,
@@ -289,7 +289,7 @@ where
 
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get(&topic, &mut data) {
-                Err(crate::Error::PathAbsent) => continue,
+                Err(Error::Absent(_)) => continue,
                 Ok(len) => len,
                 e => e.unwrap(),
             };
@@ -673,8 +673,8 @@ impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
     }
 }
 
-impl<const N: usize, T: core::fmt::Debug> From<crate::Error<T>> for Response<N> {
-    fn from(err: crate::Error<T>) -> Self {
+impl<const N: usize, T: core::fmt::Debug> From<Error<T>> for Response<N> {
+    fn from(err: Error<T>) -> Self {
         let mut msg = String::new();
         if write!(&mut msg, "{:?}", err).is_err() {
             msg = String::from("Configuration Error");
