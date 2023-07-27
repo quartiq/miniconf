@@ -31,49 +31,41 @@ pub use serde; // re-export
 pub use serde::{de::DeserializeOwned, Serialize};
 
 /// Errors that can occur when using the [Miniconf] API.
+/// A `usize` member indicates the depth where the error occurred.
+/// The depth is the number of names or indices consumed.
+/// The depth is is the number of separators on a path or the length
+/// of an indices slice.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error<E> {
-    /// The provided path wasn't found in the structure.
-    ///
-    /// Double check the provided path to verify that it's valid.
-    ///
-    /// Index entry too large at depth or invalid name.
+    /// A name was not found or an index was too large or invalid.
     NotFound(usize),
 
-    /// The provided path was valid, but there was trailing data at the end.
-    ///
-    /// Check the end of the path and remove any excess characters.
+    /// The names/indices are valid, but there is trailing data at the end.
+    /// `TooLong` takes precedence over `NotFound`.
     TooLong(usize),
 
-    /// The provided path was valid, but did not specify a value fully.
-    ///
-    /// Double check the ending and add the remainder of the path.
+    /// The names/indices are valid, but end early and do not reach a leaf.
     Internal(usize),
 
-    /// The path does not exist at runtime.
+    /// The names/indices are valid, but do not exist at runtime.
     ///
     /// This is the case if a deferred [core::option::Option] or [Option]
-    /// is `None` at runtime. `PathAbsent` takes precedence over `PathNotFound`
-    /// if the path is simultaneously masked by a `Option::None` at runtime but
-    /// would still be non-existent if it weren't.
+    /// is `None` at runtime. `Absent` takes precedence over `NotFound`.
     Absent(usize),
 
     /// The value provided could not be serialized or deserialized.
+    /// Or the traversal function returned an error.
     ///
     /// Check that the serialized data is valid and of the correct type.
-    /// Check that the buffer had sufficient space.
-    /// Inner error, e.g.
-    /// Formating error (Write::write_str failure, for `name()`)
-    /// or
-    /// Index too short (for `index()`)
+    /// Check that the buffer or indices slice have sufficient space.
     Inner(E),
 
     /// There was an error after deserializing a value.
     ///
     /// If the `Deserializer` encounters an error only after successfully
     /// deserializing a value (as is the case if there is additional unexpected data),
-    /// the update may have taken place but this error will still be returned.
+    /// the update takes place but this error will still be returned.
     PostDeserialization(E),
 }
 
@@ -83,6 +75,7 @@ impl<T> From<T> for Error<T> {
     }
 }
 
+/// A `usize` member indicates the depth where the traversal ended.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Ok {
@@ -97,6 +90,7 @@ pub type Result<E> = core::result::Result<Ok, Error<E>>;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SliceShort;
 
+/// Pass the `Result` up one hierarchy level.
 pub trait Increment {
     fn increment(self) -> Self;
 }

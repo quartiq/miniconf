@@ -58,11 +58,26 @@ impl<M: SerDe<S>, S, const L: usize, P: Write + Default> Iterator for MiniconfIt
 
         loop {
             return match M::path(&mut self.state.iter().copied(), &mut path, M::SEPARATOR) {
-                Err(Error::NotFound(0)) => {
+                // Not having consumed any name/index, the only possible case here is a bare option.
+                // And that can not return `NotFound`.
+                Err(Error::NotFound(0)) => unreachable!(),
+                // Iteration done
+                Err(Error::NotFound(1)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
                     None
                 }
+                // Node not found at depth: reset current index, increment parent index, then retry
+                Err(Error::NotFound(depth)) => {
+                    path = Self::Item::default();
+                    self.state[depth - 1] = 0;
+                    self.state[depth - 2] += 1;
+                    continue;
+                }
+                // Iteration done for a bare Option
                 Ok(Ok::Leaf(0)) if self.count == Some(0) => None,
+                // Root is `Leaf`: bare Option.
+                // Since there is no way to end iteration by triggering `NotFound` on a bare Option,
+                // we force the count to Some(0) and trigger on that (see above).
                 Ok(Ok::Leaf(0)) => {
                     debug_assert_eq!(self.count.unwrap_or(1), 1);
                     self.count = Some(0);
@@ -73,18 +88,11 @@ impl<M: SerDe<S>, S, const L: usize, P: Write + Default> Iterator for MiniconfIt
                     self.state[depth - 1] += 1;
                     Some(path)
                 }
-                Err(Error::NotFound(depth)) => {
-                    path = Self::Item::default();
-                    self.state[depth - 1] += 1;
-                    self.state[depth] = 0;
-                    continue;
+                Ok(Ok::Internal(_depth)) => {
+                    panic!("Indices short");
                 }
-                Ok(Ok::Internal(_)) => {
-                    panic!("state too short");
-                }
-                e => {
-                    e.unwrap();
-                    None
+                Err(e) => {
+                    panic!("{e:?}");
                 }
             };
         }

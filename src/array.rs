@@ -113,9 +113,6 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         D: serde::Deserializer<'b>,
     {
         let name = names.next().ok_or(Error::Internal(0))?;
-        if names.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
         let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
         let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
         item.set_by_name(names, de).increment()
@@ -127,9 +124,6 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         S: serde::Serializer,
     {
         let name = names.next().ok_or(Error::Internal(0))?;
-        if names.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
         let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
         let item = self.0.get(index).ok_or(Error::NotFound(1))?;
         item.get_by_name(names, ser).increment()

@@ -84,7 +84,7 @@ settings.set("/array_miniconf/1/b", b"11")?;
 
 // If a deferred Option is `None` it is hidden at runtime and can't be accessed
 settings.option_defer = None;
-assert_eq!(settings.set("/option_defer", b"13"), Err(Error::Absent(0)));
+assert_eq!(settings.set("/option_defer", b"13"), Err(Error::Absent(_)));
 settings.option_defer = Some(0);
 settings.set("/option_defer", b"13")?;
 settings.option_miniconf = Some(Inner::default()).into();
