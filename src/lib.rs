@@ -279,7 +279,7 @@ pub trait Miniconf {
     /// # Returns
     /// An [Iter] of paths or an [Error] if `L` is insufficient.
     fn iter_paths<const L: usize, P>(
-        separator: &'_ str,
+        separator: &str,
     ) -> core::result::Result<Iter<'_, Self, L, P>, Error<SliceShort>> {
         Iter::new(separator)
     }
@@ -299,7 +299,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// A [Iter] of paths.
-    fn unchecked_iter_paths<const L: usize, P>(separator: &'_ str) -> Iter<'_, Self, L, P> {
+    fn unchecked_iter_paths<const L: usize, P>(separator: &str) -> Iter<'_, Self, L, P> {
         Iter::new_unchecked(separator)
     }
 }
