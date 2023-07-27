@@ -104,7 +104,7 @@ fn iter() {
 
 #[test]
 fn empty() {
-    assert!(<[u32; 0]>::iter_paths::<2, String>()
+    assert!(<[u32; 0]>::iter_paths::<2, String>("")
         .unwrap()
         .next()
         .is_none());
@@ -112,12 +112,12 @@ fn empty() {
     #[derive(Miniconf, Serialize, Deserialize)]
     struct S {}
 
-    assert!(miniconf::Array::<S, 0>::iter_paths::<2, String>()
+    assert!(miniconf::Array::<S, 0>::iter_paths::<2, String>("")
         .unwrap()
         .next()
         .is_none());
     assert!(
-        miniconf::Array::<miniconf::Array<S, 0>, 0>::iter_paths::<2, String>()
+        miniconf::Array::<miniconf::Array<S, 0>, 0>::iter_paths::<2, String>("")
             .unwrap()
             .next()
             .is_none()
@@ -130,5 +130,5 @@ fn empty() {
         #[miniconf(defer)]
         b: [S; 0],
     }
-    assert!(Q::iter_paths::<3, String>().unwrap().next().is_none());
+    assert!(Q::iter_paths::<3, String>("").unwrap().next().is_none());
 }

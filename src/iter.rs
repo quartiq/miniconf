@@ -3,9 +3,10 @@ use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MiniconfIter<'a, M, const L: usize, P> {
+pub struct Iter<'a, M: ?Sized, const L: usize, P> {
     /// Zero-size marker field to allow being generic over M and gaining access to M.
-    marker: PhantomData<(M, P)>,
+    m: PhantomData<M>,
+    p: PhantomData<P>,
 
     /// The iteration state.
     ///
@@ -24,7 +25,7 @@ pub struct MiniconfIter<'a, M, const L: usize, P> {
     separator: &'a str,
 }
 
-impl<'a, M: Miniconf, const L: usize, P> MiniconfIter<'a, M, L, P> {
+impl<'a, M: Miniconf + ?Sized, const L: usize, P> Iter<'a, M, L, P> {
     pub fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
         let meta = M::metadata();
         if L < meta.max_depth {
@@ -40,12 +41,17 @@ impl<'a, M: Miniconf, const L: usize, P> MiniconfIter<'a, M, L, P> {
             count: None,
             separator,
             state: [0; L],
-            marker: PhantomData,
+            m: PhantomData,
+            p: PhantomData,
         }
     }
 }
 
-impl<'a, M: Miniconf, const L: usize, P: Write + Default> Iterator for MiniconfIter<'a, M, L, P> {
+impl<'a, M, const L: usize, P> Iterator for Iter<'a, M, L, P>
+where
+    M: Miniconf + ?Sized,
+    P: Write + Default,
+{
     type Item = P;
 
     fn next(&mut self) -> Option<Self::Item> {

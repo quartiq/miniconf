@@ -21,8 +21,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type MiniconfIter<M> =
-    crate::MiniconfIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
+type Iter<M> = crate::Iter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -52,7 +51,7 @@ mod sm {
     pub struct Context<C: embedded_time::Clock, M: super::Miniconf> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: super::MiniconfIter<M>,
+        pub republish_state: super::Iter<M>,
     }
 
     impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
@@ -60,7 +59,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: super::MiniconfIter::new_unchecked("/"),
+                republish_state: super::Iter::new_unchecked("/"),
             }
         }
 
@@ -81,7 +80,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = super::MiniconfIter::new_unchecked("/");
+            self.republish_state = super::Iter::new_unchecked("/");
         }
     }
 }
@@ -166,7 +165,7 @@ where
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<MiniconfIter<Settings>>,
+    listing_state: Option<Iter<Settings>>,
     properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
     pending_response: Option<Response<32>>,
 }
@@ -485,7 +484,7 @@ where
                             // always fit into it.
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
-                            self.listing_state.replace(MiniconfIter::new_unchecked("/"));
+                            self.listing_state.replace(Iter::new_unchecked("/"));
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }

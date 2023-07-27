@@ -234,21 +234,6 @@ pub trait Miniconf {
             true,
         )
     }
-}
-
-/// Trait for implementing a specific way of serialization/deserialization into/from a slice
-/// and splitting/joining the path with a separator.
-pub trait SerDe<S>: Miniconf + Sized {
-    /// The path hierarchy separator.
-    ///
-    /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
-    /// used in [SerDe::set] and [SerDe::get] to split the path.
-    const SEPARATOR: &'static str;
-
-    /// The [serde::Serializer::Error] type.
-    type SerError;
-    /// The [serde::Deserializer::Error] type.
-    type DeError;
 
     /// Create an iterator of all possible paths.
     ///
@@ -263,8 +248,9 @@ pub trait SerDe<S>: Miniconf + Sized {
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
     fn iter_paths<const L: usize, P>(
-    ) -> core::result::Result<iter::MiniconfIter<'static, Self, L, P>, Error<SliceShort>> {
-        MiniconfIter::new(Self::SEPARATOR)
+        separator: &'_ str,
+    ) -> core::result::Result<Iter<'_, Self, L, P>, Error<SliceShort>> {
+        Iter::new(separator)
     }
 
     /// Create an unchecked iterator of all possible paths.
@@ -282,9 +268,24 @@ pub trait SerDe<S>: Miniconf + Sized {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
-    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<'static, Self, L, P> {
-        MiniconfIter::new_unchecked(Self::SEPARATOR)
+    fn unchecked_iter_paths<const L: usize, P>(separator: &'_ str) -> Iter<'_, Self, L, P> {
+        Iter::new_unchecked(separator)
     }
+}
+
+/// Trait for implementing a specific way of serialization/deserialization into/from a slice
+/// and splitting/joining the path with a separator.
+pub trait SerDe<S>: Miniconf + Sized {
+    /// The path hierarchy separator.
+    ///
+    /// This is passed to [Miniconf::next_path] by [MiniconfIter] and
+    /// used in [SerDe::set] and [SerDe::get] to split the path.
+    const SEPARATOR: &'static str;
+
+    /// The [serde::Serializer::Error] type.
+    type SerError;
+    /// The [serde::Deserializer::Error] type.
+    type DeError;
 
     /// Update an element by path.
     ///

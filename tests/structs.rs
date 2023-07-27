@@ -82,7 +82,7 @@ fn recursive_struct() {
 fn empty_struct() {
     #[derive(Miniconf, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<1, String>()
+    assert!(Settings::iter_paths::<1, String>("/")
         .unwrap()
         .next()
         .is_none());

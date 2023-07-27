@@ -24,7 +24,7 @@ fn slice_short() {
 
     // Ensure that we can't iterate if we make a state vector that is too small.
     assert_eq!(
-        Settings::iter_paths::<1, String>(),
+        Settings::iter_paths::<1, String>(""),
         Err(miniconf::Error::Inner(miniconf::SliceShort))
     );
 }
@@ -32,7 +32,7 @@ fn slice_short() {
 #[test]
 fn struct_iter() {
     let mut paths = ["/a", "/b", "/c/inner"].into_iter();
-    for (have, expect) in Settings::iter_paths::<32, String>()
+    for (have, expect) in Settings::iter_paths::<32, String>("/")
         .unwrap()
         .zip(&mut paths)
     {
@@ -59,7 +59,7 @@ fn array_iter() {
 
     let mut s = Settings::default();
 
-    for field in Settings::iter_paths::<4, String>().unwrap() {
+    for field in Settings::iter_paths::<4, String>("/").unwrap() {
         s.set(&field, b"true").unwrap();
         let mut buf = [0; 32];
         let len = s.get(&field, &mut buf).unwrap();
