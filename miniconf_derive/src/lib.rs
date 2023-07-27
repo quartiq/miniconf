@@ -192,7 +192,7 @@ fn derive_struct(
 
     quote! {
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
-            fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> miniconf::Result<D::Error>
+            fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> miniconf::Result<D::Error>
             where
                 P: Iterator<Item = &'a str>,
                 D: miniconf::serde::Deserializer<'b>,

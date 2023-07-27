@@ -107,7 +107,7 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
+    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
@@ -175,7 +175,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
+    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,

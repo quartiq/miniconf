@@ -84,7 +84,7 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
+    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
@@ -130,7 +130,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
+    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,

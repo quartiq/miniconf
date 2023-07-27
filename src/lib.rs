@@ -146,7 +146,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn set_by_name<'a, 'b: 'a, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
+    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>;
