@@ -164,6 +164,32 @@ pub trait Miniconf {
         P: Iterator<Item = &'a str>,
         S: serde::Serializer;
 
+    /// Deserialize an element by index.
+    ///
+    /// # Args
+    /// * `indices`: An [Iterator] identifying the element.
+    /// * `de`: A [serde::Deserializer] to use to deserialize the value.
+    ///
+    /// # Returns
+    /// May return an [Error].
+    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator<Item = usize>,
+        D: serde::Deserializer<'b>;
+
+    /// Serialize an element by index.
+    ///
+    /// # Args
+    /// * `indices`: An [Iterator] identifying the element.
+    /// * `ser`: A [serde::Serializer] to use to serialize the value.
+    ///
+    /// # Returns
+    /// May return an [Error].
+    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
+    where
+        P: Iterator<Item = usize>,
+        S: serde::Serializer;
+
     /// Call `func` for each element on a path.
     ///
     /// Traversal is aborted once `func` returns an `Err(E)`.
@@ -181,14 +207,7 @@ pub trait Miniconf {
 
     /// Call `func` for each element on a path.
     ///
-    /// Traversal is aborted once `func` returns an `Err(E)`.
-    ///
-    /// # Args
-    /// * `names`: An iterator identifying the element.
-    /// * `func`: A `FnMut` to be called for each element on the path. Its arguments are
-    ///    (a) an [Ok] indicating whether this is an internal or leaf node,
-    ///    (b) the index of the element at the given depth,
-    ///    (c) the name of the element at the given depth.
+    /// Same as [`Miniconf::traverse_by_name()`] just for indices.
     fn traverse_by_index<P, F, E>(indices: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
@@ -202,10 +221,10 @@ pub trait Miniconf {
     /// This is usually not called directly but through a [Iter] returned by [Miniconf::iter_paths].
     ///
     /// May not exhaust the iterator if a Leaf is found early. I.e. the index may be too long.
-    /// If `Self` is a leaf, nothing will be consumed from `indices` or
-    /// written to `path` and [`Ok::Leaf(0)`] will be returned.
-    /// If `Self` is non-leaf (internal) and  `indices` is exhausted (empty),
-    /// nothing will be written to `name` and [`Ok::Internal(0)`] will be returned.
+    /// If `Self` is a leaf, nothing will be consumed from the iterator or
+    /// written and [`Ok::Leaf(0)`] will be returned.
+    /// If `Self` is non-leaf (internal) and the iterator is exhausted (empty),
+    /// nothing will be written and [`Ok::Internal(0)`] will be returned.
     ///
     /// # Args
     /// * `indices`: A state slice indicating the path to be retrieved.
@@ -235,11 +254,8 @@ pub trait Miniconf {
     ///
     /// This determines the `indices` of the item specified by `path`.
     ///
-    /// May not exhaust the iterator if a leaf is found early. I.e. the path may be too long.
-    /// If `Self` is a leaf, nothing will be consumed from `path` or
-    /// written to `indices` and [`Ok::Leaf(0)`] will be returned.
-    /// If `Self` is non-leaf (internal) and `path` is exhausted, nothing will be written to
-    /// `indices` and [`Ok::Internal(0)`] will be returned.
+    /// See also [`Miniconf::path()`] for the analogous function.
+    ///
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     ///
     /// # Args

@@ -108,6 +108,30 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
+    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator<Item = usize>,
+        D: serde::Deserializer<'b>,
+    {
+        if let Some(inner) = self.0.as_mut() {
+            inner.set_by_index(indices, de)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
+    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
+    where
+        P: Iterator<Item = usize>,
+        S: serde::Serializer,
+    {
+        if let Some(inner) = self.0.as_ref() {
+            inner.get_by_index(indices, ser)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
     fn metadata() -> Metadata {
         T::metadata()
     }
@@ -153,6 +177,40 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         S: serde::Serializer,
     {
         if names.next().is_some() {
+            return Err(Error::TooLong(0));
+        }
+
+        if let Some(inner) = self.as_ref() {
+            serde::Serialize::serialize(inner, ser)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
+    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator<Item = usize>,
+        D: serde::Deserializer<'b>,
+    {
+        if indices.next().is_some() {
+            return Err(Error::TooLong(0));
+        }
+
+        if let Some(inner) = self.as_mut() {
+            *inner = serde::Deserialize::deserialize(de)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
+    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
+    where
+        P: Iterator<Item = usize>,
+        S: serde::Serializer,
+    {
+        if indices.next().is_some() {
             return Err(Error::TooLong(0));
         }
 

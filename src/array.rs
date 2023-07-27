@@ -129,6 +129,26 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         item.get_by_name(names, ser).increment()
     }
 
+    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator<Item = usize>,
+        D: serde::Deserializer<'b>,
+    {
+        let index = indices.next().ok_or(Error::Internal(0))?;
+        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
+        item.set_by_index(indices, de).increment()
+    }
+
+    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
+    where
+        P: Iterator<Item = usize>,
+        S: serde::Serializer,
+    {
+        let index = indices.next().ok_or(Error::Internal(0))?;
+        let item = self.0.get(index).ok_or(Error::NotFound(1))?;
+        item.get_by_index(indices, ser).increment()
+    }
+
     fn metadata() -> Metadata {
         let mut meta = T::metadata();
 
@@ -200,6 +220,34 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
             return Err(Error::TooLong(1));
         }
         let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        serde::Serialize::serialize(item, ser)?;
+        Ok(Ok::Leaf(1))
+    }
+
+    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator<Item = usize>,
+        D: serde::Deserializer<'b>,
+    {
+        let index = indices.next().ok_or(Error::Internal(0))?;
+        if indices.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        *item = serde::Deserialize::deserialize(de)?;
+        Ok(Ok::Leaf(1))
+    }
+
+    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
+    where
+        P: Iterator<Item = usize>,
+        S: serde::Serializer,
+    {
+        let index = indices.next().ok_or(Error::Internal(0))?;
+        if indices.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         serde::Serialize::serialize(item, ser)?;
         Ok(Ok::Leaf(1))

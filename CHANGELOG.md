@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * Traversal by names or indices has been added through `Miniconf::traverse_by_{index,path}()`.
+* `Miniconf::{set,get}_by_index()` have been added to support deserialization/serialization
+  of individual elements by their graph indices.
 
 ### Changed
 
