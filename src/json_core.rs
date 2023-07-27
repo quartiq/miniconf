@@ -33,6 +33,34 @@ pub trait JsonCoreSlash: Miniconf {
         path: &str,
         data: &mut [u8],
     ) -> core::result::Result<usize, Error<ser::Error>>;
+
+    /// Update an element by indices.
+    ///
+    /// # Args
+    /// * `indices` - The indices to the element.
+    /// * `data` - The serialized data making up the content.
+    ///
+    /// # Returns
+    /// The number of bytes consumed from `data` or an [Error].
+    fn set_json_index(
+        &mut self,
+        indices: &[usize],
+        data: &[u8],
+    ) -> core::result::Result<usize, Error<de::Error>>;
+
+    /// Retrieve a serialized value by indices.
+    ///
+    /// # Args
+    /// * `indices` - The indices to the element.
+    /// * `data` - The buffer to serialize the data into.
+    ///
+    /// # Returns
+    /// The number of bytes used in the `data` buffer or an [Error].
+    fn get_json_index(
+        &self,
+        indices: &[usize],
+        data: &mut [u8],
+    ) -> core::result::Result<usize, Error<ser::Error>>;
 }
 
 impl<T: Miniconf> JsonCoreSlash for T {
@@ -45,6 +73,26 @@ impl<T: Miniconf> JsonCoreSlash for T {
     fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>> {
         let mut ser = ser::Serializer::new(data);
         self.get_by_name(&mut path.split('/').skip(1), &mut ser)?;
+        Ok(ser.end())
+    }
+
+    fn set_json_index(
+        &mut self,
+        indices: &[usize],
+        data: &[u8],
+    ) -> Result<usize, Error<de::Error>> {
+        let mut de = de::Deserializer::new(data);
+        self.set_by_index(&mut indices.iter().copied(), &mut de)?;
+        de.end().map_err(Error::PostDeserialization)
+    }
+
+    fn get_json_index(
+        &self,
+        indices: &[usize],
+        data: &mut [u8],
+    ) -> Result<usize, Error<ser::Error>> {
+        let mut ser = ser::Serializer::new(data);
+        self.get_by_index(&mut indices.iter().copied(), &mut ser)?;
         Ok(ser.end())
     }
 }
