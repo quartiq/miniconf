@@ -38,13 +38,13 @@ pub trait JsonCoreSlash: Miniconf {
 impl<T: Miniconf> JsonCoreSlash for T {
     fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
-        self.set_by_name(&mut path.split("/").skip(1), &mut de)?;
+        self.set_by_name(&mut path.split('/').skip(1), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
     }
 
     fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>> {
         let mut ser = ser::Serializer::new(data);
-        self.get_by_name(&mut path.split("/").skip(1), &mut ser)?;
+        self.get_by_name(&mut path.split('/').skip(1), &mut ser)?;
         Ok(ser.end())
     }
 }
