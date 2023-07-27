@@ -15,9 +15,9 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::metadata(1);
+    let meta = Settings::metadata();
     assert_eq!(meta.max_depth, 2);
-    assert_eq!(meta.max_length, "/c/inner".len());
+    assert_eq!(meta.max_length, "cinner".len());
     assert_eq!(meta.count, 3);
 }
 

@@ -114,6 +114,9 @@ impl<E> Increment for Result<E> {
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Metadata {
     /// The maximum length of a path.
+    /// This does not include separators.
+    /// To obtain an upper bound on the maximum length of all paths
+    /// including separators, add `max_depth*separator.len()` to this.
     pub max_length: usize,
 
     /// The maximum path depth.
@@ -162,10 +165,7 @@ pub trait Miniconf {
         F: FnMut(usize, &str) -> core::result::Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
-    ///
-    /// # Args
-    /// * `separator_length` - The path hierarchy separator length in bytes.
-    fn metadata(separator_length: usize) -> Metadata;
+    fn metadata() -> Metadata;
 
     /// Get the next path in the namespace.
     ///
@@ -263,8 +263,8 @@ pub trait SerDe<S>: Miniconf + Sized {
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
     fn iter_paths<const L: usize, P>(
-    ) -> core::result::Result<iter::MiniconfIter<Self, S, L, P>, Error<SliceShort>> {
-        MiniconfIter::new()
+    ) -> core::result::Result<iter::MiniconfIter<'static, Self, L, P>, Error<SliceShort>> {
+        MiniconfIter::new(Self::SEPARATOR)
     }
 
     /// Create an unchecked iterator of all possible paths.
@@ -282,8 +282,8 @@ pub trait SerDe<S>: Miniconf + Sized {
     ///
     /// # Returns
     /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
-    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<Self, S, L, P> {
-        MiniconfIter::default()
+    fn unchecked_iter_paths<const L: usize, P>() -> MiniconfIter<'static, Self, L, P> {
+        MiniconfIter::new_unchecked(Self::SEPARATOR)
     }
 
     /// Update an element by path.

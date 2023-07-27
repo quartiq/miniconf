@@ -1,11 +1,11 @@
-use crate::{Error, Metadata, Ok, SerDe, SliceShort};
+use crate::{Error, Miniconf, Ok, SliceShort};
 use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MiniconfIter<M, S, const L: usize, P> {
+pub struct MiniconfIter<'a, M, const L: usize, P> {
     /// Zero-size marker field to allow being generic over M and gaining access to M.
-    marker: PhantomData<(M, S, P)>,
+    marker: PhantomData<(M, P)>,
 
     /// The iteration state.
     ///
@@ -20,44 +20,39 @@ pub struct MiniconfIter<M, S, const L: usize, P> {
     ///
     /// It may be None to indicate unknown length.
     count: Option<usize>,
+
+    separator: &'a str,
 }
 
-impl<M, S, const L: usize, P> Default for MiniconfIter<M, S, L, P> {
-    fn default() -> Self {
-        Self {
-            count: None,
-            marker: PhantomData,
-            state: [0; L],
-        }
-    }
-}
-
-impl<M: SerDe<S>, S, const L: usize, P> MiniconfIter<M, S, L, P> {
-    pub fn metadata() -> core::result::Result<Metadata, Error<SliceShort>> {
-        let meta = M::metadata(M::SEPARATOR.len());
+impl<'a, M: Miniconf, const L: usize, P> MiniconfIter<'a, M, L, P> {
+    pub fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
+        let meta = M::metadata();
         if L < meta.max_depth {
             return Err(Error::Inner(SliceShort));
         }
-        Ok(meta)
+        let mut s = Self::new_unchecked(separator);
+        s.count = Some(meta.count);
+        Ok(s)
     }
 
-    pub fn new() -> core::result::Result<Self, Error<SliceShort>> {
-        let meta = Self::metadata()?;
-        Ok(Self {
-            count: Some(meta.count),
-            ..Default::default()
-        })
+    pub fn new_unchecked(separator: &'a str) -> Self {
+        Self {
+            count: None,
+            separator,
+            state: [0; L],
+            marker: PhantomData,
+        }
     }
 }
 
-impl<M: SerDe<S>, S, const L: usize, P: Write + Default> Iterator for MiniconfIter<M, S, L, P> {
+impl<'a, M: Miniconf, const L: usize, P: Write + Default> Iterator for MiniconfIter<'a, M, L, P> {
     type Item = P;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::default();
 
         loop {
-            return match M::path(&mut self.state.iter().copied(), &mut path, M::SEPARATOR) {
+            return match M::path(&mut self.state.iter().copied(), &mut path, self.separator) {
                 // Not having consumed any name/index, the only possible case here is a bare option.
                 // And that can not return `NotFound`.
                 Err(Error::NotFound(0)) => unreachable!(),

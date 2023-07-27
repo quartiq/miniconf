@@ -108,8 +108,8 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn metadata(separator_length: usize) -> Metadata {
-        T::metadata(separator_length)
+    fn metadata() -> Metadata {
+        T::metadata()
     }
 
     fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> Result<E>
@@ -164,7 +164,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn metadata(_separator_length: usize) -> Metadata {
+    fn metadata() -> Metadata {
         Metadata {
             count: 1,
             ..Default::default()

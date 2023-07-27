@@ -16,7 +16,7 @@ where
 
     fn set(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<Self::DeError>> {
         let mut de = serde_json::Deserializer::from_slice(data);
-        self.set_path(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
+        self.set_by_name(&mut path.split(Self::SEPARATOR).skip(1), &mut de)?;
         de.end()
             .map_err(Error::PostDeserialization)
             .map(|_| data.len())
@@ -25,7 +25,7 @@ where
     fn get(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<Self::SerError>> {
         let mut buf = std::io::Cursor::new(data);
         let mut ser = serde_json::Serializer::new(&mut buf);
-        self.get_path(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
+        self.get_by_name(&mut path.split(Self::SEPARATOR).skip(1), &mut ser)?;
         Ok(buf.position() as _)
     }
 }

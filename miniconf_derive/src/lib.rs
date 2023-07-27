@@ -97,8 +97,8 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     if struct_field.defer {
         quote! {
             #i => {
-                let mut meta = <#field_type>::metadata(separator_length);
-                meta.max_length += separator_length + stringify!(#field_name).len();
+                let mut meta = <#field_type>::metadata();
+                meta.max_length += stringify!(#field_name).len();
                 meta.max_depth += 1;
                 meta
             }
@@ -107,7 +107,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
-                meta.max_length = separator_length + stringify!(#field_name).len();
+                meta.max_length = stringify!(#field_name).len();
                 meta.max_depth = 1;
                 meta.count = 1;
                 meta
@@ -219,7 +219,7 @@ fn derive_struct(
                 }
             }
 
-            fn metadata(separator_length: usize) -> miniconf::Metadata {
+            fn metadata() -> miniconf::Metadata {
                 let mut meta = miniconf::Metadata::default();
 
                 for index in 0.. {

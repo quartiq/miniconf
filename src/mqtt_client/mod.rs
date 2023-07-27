@@ -22,7 +22,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
 type MiniconfIter<M> =
-    crate::MiniconfIter<M, JsonCoreSlash, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
+    crate::MiniconfIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -60,7 +60,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: Default::default(),
+                republish_state: super::MiniconfIter::new_unchecked("/"),
             }
         }
 
@@ -81,7 +81,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = Default::default();
+            self.republish_state = super::MiniconfIter::new_unchecked("/");
         }
     }
 }
@@ -217,8 +217,11 @@ where
             &[],
         )?;
 
-        let meta = MiniconfIter::<Settings>::metadata().unwrap();
-        assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
+        let meta = Settings::metadata();
+        assert!(
+            prefix.len() + "/settings".len() + "/".len() * meta.max_depth + meta.max_length
+                <= MAX_TOPIC_LENGTH
+        );
 
         Ok(Self {
             mqtt,
@@ -482,7 +485,7 @@ where
                             // always fit into it.
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
-                            self.listing_state.replace(Default::default());
+                            self.listing_state.replace(MiniconfIter::new_unchecked("/"));
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }

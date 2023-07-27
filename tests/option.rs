@@ -29,7 +29,7 @@ fn option_get_set_none() {
     settings.value.take();
     assert_eq!(
         settings.get("/value_foo", &mut data),
-        Err(miniconf::Error::NotFound(0))
+        Err(miniconf::Error::NotFound(1))
     );
     assert_eq!(
         settings.get("/value", &mut data),
@@ -37,7 +37,7 @@ fn option_get_set_none() {
     );
     assert_eq!(
         settings.set("/value/data", b"5"),
-        Err(miniconf::Error::TooLong(1))
+        Err(miniconf::Error::Absent(1))
     );
 }
 
@@ -128,24 +128,30 @@ fn option_test_defer_option() {
 #[test]
 fn option_absent() {
     #[derive(Copy, Clone, Default, Miniconf)]
+    struct I {}
+
+    #[derive(Copy, Clone, Default, Miniconf)]
     struct S {
         #[miniconf(defer)]
-        data: Option<u32>,
+        d: Option<u32>,
+        #[miniconf(defer)]
+        dm: miniconf::Option<I>,
     }
 
     let mut s = S::default();
-    assert!(matches!(s.set("/data", b"7"), Err(Error::Absent(0))));
-    assert!(matches!(s.set("/data", b""), Err(Error::Absent(0))));
-    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::TooLong(0))));
-    assert!(matches!(s.set("", b"7"), Err(Error::Internal(0))));
-    s.data = Some(9);
-    assert!(matches!(s.set("/data", b"7"), Ok(1)));
-    assert!(matches!(s.set("/data/foo", b"7"), Err(Error::TooLong(0))));
-    assert!(matches!(s.set("/data", b""), Err(Error::Inner(_))));
-    assert!(matches!(s.set("/data", b"7 "), Ok(2)));
-    assert!(matches!(s.set("/data", b" 7"), Ok(2)));
+    assert_eq!(s.set("/d", b"7"), Err(Error::Absent(1)));
+    // Check precedence
+    assert_eq!(s.set("/d", b""), Err(Error::Absent(1)));
+    assert_eq!(s.set("/d/foo", b"7"), Err(Error::TooLong(1)));
+    assert_eq!(s.set("", b"7"), Err(Error::Internal(0)));
+    s.d = Some(3);
+    assert_eq!(s.set("/d", b"7"), Ok(1));
+    assert_eq!(s.set("/d/foo", b"7"), Err(Error::TooLong(1)));
+    assert!(matches!(s.set("/d", b""), Err(Error::Inner(_))));
+    assert_eq!(s.set("/d", b"7 "), Ok(2));
+    assert_eq!(s.set("/d", b" 7"), Ok(2));
     assert!(matches!(
-        s.set("/data", b"7i"),
+        s.set("/d", b"7i"),
         Err(Error::PostDeserialization(_))
     ));
 }

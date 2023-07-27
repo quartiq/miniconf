@@ -129,11 +129,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         item.get_by_name(names, ser).increment()
     }
 
-    fn metadata(separator_length: usize) -> Metadata {
-        let mut meta = T::metadata(separator_length);
+    fn metadata() -> Metadata {
+        let mut meta = T::metadata();
 
-        // We add separator and index
-        meta.max_length += separator_length + digits(N);
+        meta.max_length += digits(N);
         meta.max_depth += 1;
         meta.count *= N;
 
@@ -244,10 +243,10 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         }
     }
 
-    fn metadata(separator_length: usize) -> Metadata {
+    fn metadata() -> Metadata {
         Metadata {
             // We add separator and index
-            max_length: separator_length + digits(N),
+            max_length: digits(N),
             max_depth: 1,
             count: N,
         }
