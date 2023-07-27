@@ -123,18 +123,15 @@ fn traverse_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro
     if struct_field.defer {
         quote! {
             Some(#i) => {
-                if internal {
-                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
-
-                }
-                let r = <#field_type>::traverse_by_index(indices, func, internal);
+                func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                let r = <#field_type>::traverse_by_index(indices, func);
                 miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             Some(#i) => {
-                func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 Ok(miniconf::Ok::Leaf(1))
             }
         }
@@ -148,17 +145,15 @@ fn traverse_by_name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2
     if struct_field.defer {
         quote! {
             Some(stringify!(#field_name)) => {
-                if internal {
-                    func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
-                }
-                let r = <#field_type>::traverse_by_name(names, func, internal);
+                func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                let r = <#field_type>::traverse_by_name(names, func);
                 miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             Some(stringify!(#field_name)) => {
-                func(#i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 Ok(miniconf::Ok::Leaf(1))
             }
         }
@@ -243,11 +238,10 @@ fn derive_struct(
             fn traverse_by_index<P, F, E>(
                 indices: &mut P,
                 mut func: F,
-                internal: bool,
             ) -> miniconf::Result<E>
             where
                 P: Iterator<Item = usize>,
-                F: FnMut(usize, &str) -> Result<(), E>,
+                F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
             {
                 match indices.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
@@ -259,11 +253,10 @@ fn derive_struct(
             fn traverse_by_name<'a, P, F, E>(
                 names: &mut P,
                 mut func: F,
-                internal: bool,
             ) -> miniconf::Result<E>
             where
                 P: Iterator<Item = &'a str>,
-                F: FnMut(usize, &str) -> Result<(), E>,
+                F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
             {
                 match names.next() {
                     None => Ok(miniconf::Ok::Internal(0)),

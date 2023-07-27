@@ -112,20 +112,20 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> Result<E>
+    fn traverse_by_index<P, F, E>(indices: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
-        T::traverse_by_index(indices, func, internal)
+        T::traverse_by_index(indices, func)
     }
 
-    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F, internal: bool) -> Result<E>
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
-        T::traverse_by_name(names, func, internal)
+        T::traverse_by_name(names, func)
     }
 }
 
@@ -171,18 +171,18 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn traverse_by_index<P, F, E>(_indices: &mut P, _func: F, _internal: bool) -> Result<E>
+    fn traverse_by_index<P, F, E>(_indices: &mut P, _func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         Ok(Ok::Leaf(0))
     }
 
-    fn traverse_by_name<'a, P, F, E>(_names: &mut P, _func: F, _internal: bool) -> Result<E>
+    fn traverse_by_name<'a, P, F, E>(_names: &mut P, _func: F) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         Ok(Ok::Leaf(0))
     }

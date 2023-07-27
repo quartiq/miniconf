@@ -139,27 +139,25 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         meta
     }
 
-    fn traverse_by_index<P, F, E>(indices: &mut P, mut func: F, internal: bool) -> Result<E>
+    fn traverse_by_index<P, F, E>(indices: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match indices.next() {
             None => Ok(Ok::Internal(0)),
             Some(index) if index < N => {
-                if internal {
-                    func(index, itoa::Buffer::new().format(index))?;
-                }
-                T::traverse_by_index(indices, func, internal).increment()
+                func(Ok::Internal(1), index, itoa::Buffer::new().format(index))?;
+                T::traverse_by_index(indices, func).increment()
             }
             _ => Err(Error::NotFound(1)),
         }
     }
 
-    fn traverse_by_name<'a, P, F, E>(names: &mut P, mut func: F, internal: bool) -> Result<E>
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match names.next() {
             None => Ok(Ok::Internal(0)),
@@ -168,10 +166,8 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
                 if index > N {
                     Err(Error::NotFound(1))
                 } else {
-                    if internal {
-                        func(index, name)?;
-                    }
-                    T::traverse_by_name(names, func, internal).increment()
+                    func(Ok::Internal(1), index, name)?;
+                    T::traverse_by_name(names, func).increment()
                 }
             }
         }
@@ -209,25 +205,26 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         Ok(Ok::Leaf(1))
     }
 
-    fn traverse_by_index<P, F, E>(indices: &mut P, mut func: F, _internal: bool) -> Result<E>
+    fn traverse_by_index<P, F, E>(indices: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match indices.next() {
             None => Ok(Ok::Internal(0)),
             Some(index) if index < N => {
-                func(index, itoa::Buffer::new().format(index)).map_err(|e| Error::Inner(e))?;
+                func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))
+                    .map_err(|e| Error::Inner(e))?;
                 Ok(Ok::Leaf(1))
             }
             _ => Err(Error::NotFound(1)),
         }
     }
 
-    fn traverse_by_name<'a, P, F, E>(names: &mut P, mut func: F, _internal: bool) -> Result<E>
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match names.next() {
             None => Ok(Ok::Internal(0)),
@@ -236,7 +233,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
                 if index > N {
                     Err(Error::NotFound(1))
                 } else {
-                    func(index, name).map_err(|e| Error::Inner(e))?;
+                    func(Ok::Leaf(1), index, name).map_err(|e| Error::Inner(e))?;
                     Ok(Ok::Leaf(1))
                 }
             }

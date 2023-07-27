@@ -163,15 +163,15 @@ pub trait Miniconf {
         P: Iterator<Item = &'a str>,
         S: serde::Serializer;
 
-    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F, internal: bool) -> Result<E>
+    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = &'a str>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>;
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
 
-    fn traverse_by_index<P, F, E>(indices: &mut P, func: F, internal: bool) -> Result<E>
+    fn traverse_by_index<P, F, E>(indices: &mut P, func: F) -> Result<E>
     where
         P: Iterator<Item = usize>,
-        F: FnMut(usize, &str) -> core::result::Result<(), E>;
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
@@ -207,14 +207,10 @@ pub trait Miniconf {
         I: Iterator<Item = usize>,
         N: core::fmt::Write,
     {
-        Self::traverse_by_index(
-            indices,
-            |_index, name| {
-                path.write_str(sep).and_then(|_| path.write_str(name))?;
-                Ok(())
-            },
-            true,
-        )
+        Self::traverse_by_index(indices, |_ok, _index, name| {
+            path.write_str(sep).and_then(|_| path.write_str(name))?;
+            Ok(())
+        })
     }
 
     /// Determine the `index` of the item specified by `path`.
@@ -229,19 +225,15 @@ pub trait Miniconf {
         P: Iterator<Item = &'a str>,
     {
         let mut depth = 0;
-        Self::traverse_by_name(
-            path,
-            |index, _name| {
-                if indices.len() < depth {
-                    Err(SliceShort)
-                } else {
-                    indices[depth] = index;
-                    depth += 1;
-                    Ok(())
-                }
-            },
-            true,
-        )
+        Self::traverse_by_name(path, |_ok, index, _name| {
+            if indices.len() < depth {
+                Err(SliceShort)
+            } else {
+                indices[depth] = index;
+                depth += 1;
+                Ok(())
+            }
+        })
     }
 
     /// Create an iterator of all possible paths.
