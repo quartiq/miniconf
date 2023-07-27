@@ -96,16 +96,18 @@ settings.set_json("/array_option_miniconf/1/a", b"15")?;
 let len = settings.get_json("/struct_", &mut buf)?;
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
-// Iterating over and serializing all paths
+// Iterating over all paths
 for path in Settings::iter_paths::<3, String>("/").unwrap() {
+    // Serializing each
     match settings.get_json(&path, &mut buf) {
         Ok(len) => {
-            settings.set_json(&path, &buf[..len]).unwrap();
+            // Deserialize again
+            settings.set_json(&path, &buf[..len])?;
         }
         // Some settings are still `None` and thus their paths are expected to be absent
         Err(Error::Absent(_)) => {}
         e => {
-            e.unwrap();
+            e?;
         }
     }
 }
