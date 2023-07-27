@@ -42,44 +42,20 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 }
 
-fn get_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `get_by_name()` args available.
-    let field_name = &struct_field.field.ident;
-    if struct_field.defer {
-        quote! {
-            stringify!(#field_name) => {
-                let r = self.#field_name.get_by_name(names, ser);
-                miniconf::Increment::increment(r)
-            }
-        }
-    } else {
-        quote! {
-            stringify!(#field_name) => {
-                if names.next().is_some() {
-                    Err(miniconf::Error::TooLong(1))
-                } else {
-                    miniconf::serde::ser::Serialize::serialize(&self.#field_name, ser)?;
-                    Ok(miniconf::Ok::Leaf(1))
-                }
-            }
-        }
-    }
-}
-
-fn get_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `get_by_index()` args available.
     let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
             #i => {
-                let r = self.#field_name.get_by_index(indices, ser);
+                let r = self.#field_name.get_by_key(keys, ser);
                 miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             #i => {
-                if indices.next().is_some() {
+                if keys.next().is_some() {
                     Err(miniconf::Error::TooLong(1))
                 } else {
                     miniconf::serde::ser::Serialize::serialize(&self.#field_name, ser)?;
@@ -140,7 +116,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     }
 }
 
-fn traverse_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field index with `traverse_by_index()` args available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
@@ -148,35 +124,13 @@ fn traverse_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro
         quote! {
             #i => {
                 func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
-                let r = <#field_type>::traverse_by_index(indices, func);
+                let r = <#field_type>::traverse_by_key(keys, func);
                 miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             #i => {
-                func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
-                Ok(miniconf::Ok::Leaf(1))
-            }
-        }
-    }
-}
-
-fn traverse_by_name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `traverse_by_name()` args available.
-    let field_type = &struct_field.field.ty;
-    let field_name = &struct_field.field.ident;
-    if struct_field.defer {
-        quote! {
-            stringify!(#field_name) => {
-                func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
-                let r = <#field_type>::traverse_by_name(names, func);
-                miniconf::Increment::increment(r)
-            }
-        }
-    } else {
-        quote! {
-            stringify!(#field_name) => {
                 func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 Ok(miniconf::Ok::Leaf(1))
             }
@@ -208,11 +162,9 @@ fn derive_struct(
     fields.iter().for_each(|f| f.bound_generics(generics));
 
     let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
-    let get_by_name_arms = fields.iter().map(get_by_name_arm);
-    let get_by_index_arms = fields.iter().enumerate().map(get_by_index_arm);
+    let get_by_key_arms = fields.iter().enumerate().map(get_by_key_arm);
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
-    let traverse_by_index_arms = fields.iter().enumerate().map(traverse_by_index_arm);
-    let traverse_by_name_arms = fields.iter().enumerate().map(traverse_by_name_arm);
+    let traverse_by_key_arms = fields.iter().enumerate().map(traverse_by_key_arm);
     let names = fields.iter().map(|field| {
         let name = &field.field.ident;
         quote! { stringify!(#name) }
@@ -244,24 +196,16 @@ fn derive_struct(
                 }
             }
 
-            fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> miniconf::Result<S::Error>
+            fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> miniconf::Result<S::Error>
             where
-                P: Iterator<Item = &'a str>,
+                P: Iterator,
                 S: miniconf::serde::Serializer,
+                P::Item: miniconf::ToIndex,
             {
-                match names.next().ok_or(miniconf::Error::Internal(0))? {
-                    #(#get_by_name_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(1))
-                }
-            }
-
-            fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> miniconf::Result<S::Error>
-            where
-                P: Iterator<Item = usize>,
-                S: miniconf::serde::Serializer,
-            {
-                match indices.next().ok_or(miniconf::Error::Internal(0))? {
-                    #(#get_by_index_arms ,)*
+                let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
+                let index = miniconf::ToIndex::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                match index {
+                    #(#get_by_key_arms ,)*
                     _ => Err(miniconf::Error::NotFound(1))
                 }
             }
@@ -287,36 +231,23 @@ fn derive_struct(
                 meta
             }
 
-            fn traverse_by_index<P, F, E>(
-                indices: &mut P,
+            fn traverse_by_key<P, F, E>(
+                keys: &mut P,
                 mut func: F,
             ) -> miniconf::Result<E>
             where
-                P: Iterator<Item = usize>,
+                P: Iterator,
+                P::Item: miniconf::ToIndex,
                 F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
             {
-                match indices.next() {
+                match keys.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
-                    Some(index) => match index {
-                        #(#traverse_by_index_arms ,)*
-                        _ => Err(miniconf::Error::NotFound(1)),
-                    }
-                }
-            }
-
-            fn traverse_by_name<'a, P, F, E>(
-                names: &mut P,
-                mut func: F,
-            ) -> miniconf::Result<E>
-            where
-                P: Iterator<Item = &'a str>,
-                F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
-            {
-                match names.next() {
-                    None => Ok(miniconf::Ok::Internal(0)),
-                    Some(name) => match name {
-                        #(#traverse_by_name_arms ,)*
-                        _ => Err(miniconf::Error::NotFound(1)),
+                    Some(key) => {
+                        let index = miniconf::ToIndex::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                        match index {
+                            #(#traverse_by_key_arms ,)*
+                            _ => Err(miniconf::Error::NotFound(1)),
+                        }
                     }
                 }
             }

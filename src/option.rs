@@ -99,25 +99,14 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
     where
-        P: Iterator<Item = &'a str>,
+        P: Iterator,
         S: serde::Serializer,
+        P::Item: ToIndex,
     {
         if let Some(inner) = self.0.as_ref() {
-            inner.get_by_name(names, ser)
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
-    where
-        P: Iterator<Item = usize>,
-        S: serde::Serializer,
-    {
-        if let Some(inner) = self.0.as_ref() {
-            inner.get_by_index(indices, ser)
+            inner.get_by_key(keys, ser)
         } else {
             Err(Error::Absent(0))
         }
@@ -127,20 +116,13 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn traverse_by_index<P, F, E>(indices: &mut P, func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(indices: &mut P, func: F) -> Result<E>
     where
-        P: Iterator<Item = usize>,
+        P: Iterator,
+        P::Item: ToIndex,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
-        T::traverse_by_index(indices, func)
-    }
-
-    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F) -> Result<E>
-    where
-        P: Iterator<Item = &'a str>,
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
-    {
-        T::traverse_by_name(names, func)
+        T::traverse_by_key(indices, func)
     }
 }
 
@@ -165,29 +147,13 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
     where
-        P: Iterator<Item = &'a str>,
+        P: Iterator,
         S: serde::Serializer,
+        P::Item: ToIndex,
     {
-        if names.next().is_some() {
-            return Err(Error::TooLong(0));
-        }
-
-        if let Some(inner) = self.as_ref() {
-            serde::Serialize::serialize(inner, ser)?;
-            Ok(Ok::Leaf(0))
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
-    where
-        P: Iterator<Item = usize>,
-        S: serde::Serializer,
-    {
-        if indices.next().is_some() {
+        if keys.next().is_some() {
             return Err(Error::TooLong(0));
         }
 
@@ -206,17 +172,10 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn traverse_by_index<P, F, E>(_indices: &mut P, _func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(_keys: &mut P, _func: F) -> Result<E>
     where
-        P: Iterator<Item = usize>,
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
-    {
-        Ok(Ok::Leaf(0))
-    }
-
-    fn traverse_by_name<'a, P, F, E>(_names: &mut P, _func: F) -> Result<E>
-    where
-        P: Iterator<Item = &'a str>,
+        P: Iterator,
+        P::Item: ToIndex,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         Ok(Ok::Leaf(0))

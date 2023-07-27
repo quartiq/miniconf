@@ -188,23 +188,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<'a, P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
     where
-        P: Iterator<Item = &'a str>,
-        S: serde::Serializer;
-
-    /// Serialize an element by index.
-    ///
-    /// # Args
-    /// * `indices`: An [Iterator] identifying the element.
-    /// * `ser`: A [serde::Serializer] to use to serialize the value.
-    ///
-    /// # Returns
-    /// May return an [Error].
-    fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
-    where
-        P: Iterator<Item = usize>,
-        S: serde::Serializer;
+        P: Iterator,
+        S: serde::Serializer,
+        P::Item: ToIndex;
 
     /// Call `func` for each element on a path.
     ///
@@ -216,17 +204,10 @@ pub trait Miniconf {
     ///    (a) an [Ok] indicating whether this is an internal or leaf node,
     ///    (b) the index of the element at the given depth,
     ///    (c) the name of the element at the given depth.
-    fn traverse_by_name<'a, P, F, E>(names: &mut P, func: F) -> Result<E>
+    fn traverse_by_key<'a, P, F, E>(keys: &mut P, func: F) -> Result<E>
     where
-        P: Iterator<Item = &'a str>,
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
-
-    /// Call `func` for each element on a path.
-    ///
-    /// Same as [`Miniconf::traverse_by_name()`] just for indices.
-    fn traverse_by_index<P, F, E>(indices: &mut P, func: F) -> Result<E>
-    where
-        P: Iterator<Item = usize>,
+        P: Iterator,
+        P::Item: ToIndex,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
@@ -261,7 +242,7 @@ pub trait Miniconf {
         I: Iterator<Item = usize>,
         N: core::fmt::Write,
     {
-        Self::traverse_by_index(indices, |_ok, _index, name| {
+        Self::traverse_by_key(indices, |_ok, _index, name| {
             path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
@@ -285,7 +266,7 @@ pub trait Miniconf {
         P: Iterator<Item = &'a str>,
     {
         let mut depth = 0;
-        Self::traverse_by_name(names, |_ok, index, _name| {
+        Self::traverse_by_key(names, |_ok, index, _name| {
             if indices.len() < depth {
                 Err(SliceShort)
             } else {

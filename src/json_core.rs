@@ -72,7 +72,7 @@ impl<T: Miniconf> JsonCoreSlash for T {
 
     fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>> {
         let mut ser = ser::Serializer::new(data);
-        self.get_by_name(&mut path.split('/').skip(1), &mut ser)?;
+        self.get_by_key(&mut path.split('/').skip(1), &mut ser)?;
         Ok(ser.end())
     }
 
@@ -92,7 +92,7 @@ impl<T: Miniconf> JsonCoreSlash for T {
         data: &mut [u8],
     ) -> Result<usize, Error<ser::Error>> {
         let mut ser = ser::Serializer::new(data);
-        self.get_by_index(&mut indices.iter().copied(), &mut ser)?;
+        self.get_by_key(&mut indices.iter().copied(), &mut ser)?;
         Ok(ser.end())
     }
 }
