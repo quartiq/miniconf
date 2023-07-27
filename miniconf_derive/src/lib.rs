@@ -138,6 +138,30 @@ fn set_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::To
     }
 }
 
+fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `set_by_index()` args available.
+    let field_name = &struct_field.field.ident;
+    if struct_field.defer {
+        quote! {
+            #i => {
+                let r = self.#field_name.set_by_key(keys, de);
+                miniconf::Increment::increment(r)
+            }
+        }
+    } else {
+        quote! {
+            #i => {
+                if keys.next().is_some() {
+                    Err(miniconf::Error::TooLong(1))
+                } else {
+                    self.#field_name = miniconf::serde::de::Deserialize::deserialize(de)?;
+                    Ok(miniconf::Ok::Leaf(1))
+                }
+            }
+        }
+    }
+}
+
 fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field index with `metadata()` args available.
     let field_type = &struct_field.field.ty;
@@ -228,8 +252,10 @@ fn derive_struct(
         }
         _ => unimplemented!("Only named fields are supported in structs."),
     };
+    let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
 
+    let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
     let set_by_name_arms = fields.iter().map(set_by_name_arm);
     let get_by_name_arms = fields.iter().map(get_by_name_arm);
     let set_by_index_arms = fields.iter().enumerate().map(set_by_index_arm);
@@ -237,11 +263,37 @@ fn derive_struct(
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
     let traverse_by_index_arms = fields.iter().enumerate().map(traverse_by_index_arm);
     let traverse_by_name_arms = fields.iter().enumerate().map(traverse_by_name_arm);
+    let names = fields.iter().map(|field| {
+        let name = &field.field.ident;
+        quote! { stringify!(#name) }
+    });
+    let n = fields.len();
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let (impl_generics_orig, ty_generics_orig, where_clause_orig) = orig_generics.split_for_impl();
 
     quote! {
+        impl #impl_generics_orig #ident #ty_generics_orig #where_clause_orig {
+            const NAMES: [&str; #n] = [#(#names ,)*];
+        }
+
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
+            const NAMES: &'static [&'static str] = &<#ident #ty_generics_orig>::NAMES;
+
+            fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> miniconf::Result<D::Error>
+            where
+                P: Iterator,
+                D: miniconf::serde::Deserializer<'a>,
+                P::Item: miniconf::ToIndex,
+            {
+                let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
+                let index = miniconf::ToIndex::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                match index {
+                    #(#set_by_key_arms ,)*
+                    _ => Err(miniconf::Error::NotFound(1)),
+                }
+            }
+
             fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> miniconf::Result<D::Error>
             where
                 P: Iterator<Item = &'a str>,

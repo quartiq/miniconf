@@ -1,4 +1,4 @@
-use crate::{Error, Increment, Metadata, Miniconf, Ok, Result};
+use crate::{Error, Increment, Metadata, Miniconf, Ok, Result, ToIndex};
 use core::ops::{Deref, DerefMut};
 
 /// An array that exposes each element through their [`Miniconf`] implementation.
@@ -107,6 +107,20 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
+    const NAMES: &'static [&'static str] = &[];
+
+    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator,
+        D: serde::Deserializer<'a>,
+        P::Item: ToIndex,
+    {
+        let key = keys.next().ok_or(Error::Internal(0))?;
+        let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
+        item.set_by_key(keys, de).increment()
+    }
+
     fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
@@ -195,6 +209,24 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
+    const NAMES: &'static [&'static str] = &[];
+
+    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator,
+        D: serde::Deserializer<'a>,
+        P::Item: ToIndex,
+    {
+        let key = keys.next().ok_or(Error::Internal(0))?;
+        if keys.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
+        let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        *item = serde::Deserialize::deserialize(de)?;
+        Ok(Ok::Leaf(1))
+    }
+
     fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,

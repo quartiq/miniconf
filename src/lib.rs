@@ -136,8 +136,42 @@ impl Metadata {
     }
 }
 
+pub trait ToIndex {
+    fn find<M: Miniconf>(self) -> core::option::Option<usize>;
+    fn parse(self) -> core::option::Option<usize>;
+}
+
+impl ToIndex for usize {
+    fn find<M: Miniconf>(self) -> core::option::Option<usize> {
+        Some(self)
+    }
+    fn parse(self) -> core::option::Option<usize> {
+        Some(self)
+    }
+}
+
+impl ToIndex for &str {
+    fn find<M: Miniconf>(self) -> core::option::Option<usize> {
+        M::name_to_index(self)
+    }
+    fn parse(self) -> core::option::Option<usize> {
+        self.parse::<usize>().ok()
+    }
+}
+
 /// Trait exposing serialization/deserialization of elements by path and traversal by path/indices.
 pub trait Miniconf {
+    const NAMES: &'static [&'static str];
+    fn name_to_index(value: &str) -> core::option::Option<usize> {
+        Self::NAMES.iter().position(|&n| n == value)
+    }
+
+    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator,
+        D: serde::Deserializer<'a>,
+        P::Item: ToIndex;
+
     /// Deserialize an element by path.
     ///
     /// # Args

@@ -66,7 +66,7 @@ pub trait JsonCoreSlash: Miniconf {
 impl<T: Miniconf> JsonCoreSlash for T {
     fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
-        self.set_by_name(&mut path.split('/').skip(1), &mut de)?;
+        self.set_by_key(&mut path.split('/').skip(1), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
     }
 
@@ -82,7 +82,7 @@ impl<T: Miniconf> JsonCoreSlash for T {
         data: &[u8],
     ) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
-        self.set_by_index(&mut indices.iter().copied(), &mut de)?;
+        self.set_by_key(&mut indices.iter().copied(), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
     }
 

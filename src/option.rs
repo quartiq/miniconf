@@ -1,4 +1,4 @@
-use crate::{Error, Metadata, Miniconf, Ok, Result};
+use crate::{Error, Metadata, Miniconf, Ok, Result, ToIndex};
 use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
@@ -84,6 +84,21 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
+    const NAMES: &'static [&'static str] = &[];
+
+    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator,
+        D: serde::Deserializer<'a>,
+        P::Item: ToIndex,
+    {
+        if let Some(inner) = self.0.as_mut() {
+            inner.set_by_key(keys, de)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
     fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
@@ -154,6 +169,26 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
+    const NAMES: &'static [&'static str] = &[];
+
+    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    where
+        P: Iterator,
+        D: serde::Deserializer<'a>,
+        P::Item: ToIndex,
+    {
+        if keys.next().is_some() {
+            return Err(Error::TooLong(0));
+        }
+
+        if let Some(inner) = self.as_mut() {
+            *inner = serde::Deserialize::deserialize(de)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
     fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator<Item = &'a str>,
