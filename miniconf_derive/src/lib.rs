@@ -122,7 +122,7 @@ fn traverse_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro
     let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
-            Some(#i) => {
+            #i => {
                 func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 let r = <#field_type>::traverse_by_index(indices, func);
                 miniconf::Increment::increment(r)
@@ -130,7 +130,7 @@ fn traverse_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro
         }
     } else {
         quote! {
-            Some(#i) => {
+            #i => {
                 func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 Ok(miniconf::Ok::Leaf(1))
             }
@@ -144,7 +144,7 @@ fn traverse_by_name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2
     let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
-            Some(stringify!(#field_name)) => {
+            stringify!(#field_name) => {
                 func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 let r = <#field_type>::traverse_by_name(names, func);
                 miniconf::Increment::increment(r)
@@ -152,7 +152,7 @@ fn traverse_by_name_arm((i, struct_field): (usize, &StructField)) -> proc_macro2
         }
     } else {
         quote! {
-            Some(stringify!(#field_name)) => {
+            stringify!(#field_name) => {
                 func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
                 Ok(miniconf::Ok::Leaf(1))
             }
@@ -245,8 +245,10 @@ fn derive_struct(
             {
                 match indices.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
-                    #(#traverse_by_index_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(1)),
+                    Some(index) => match index {
+                        #(#traverse_by_index_arms ,)*
+                        _ => Err(miniconf::Error::NotFound(1)),
+                    }
                 }
             }
 
@@ -260,8 +262,10 @@ fn derive_struct(
             {
                 match names.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
-                    #(#traverse_by_name_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(1)),
+                    Some(name) => match name {
+                        #(#traverse_by_name_arms ,)*
+                        _ => Err(miniconf::Error::NotFound(1)),
+                    }
                 }
             }
         }
