@@ -27,7 +27,7 @@ pub struct Iter<'a, M: ?Sized, const L: usize, P> {
 }
 
 impl<'a, M: Miniconf + ?Sized, const L: usize, P> Iter<'a, M, L, P> {
-    pub fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
+    pub(crate) fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
         let meta = M::metadata();
         if L < meta.max_depth {
             return Err(Error::Inner(SliceShort));
@@ -37,7 +37,7 @@ impl<'a, M: Miniconf + ?Sized, const L: usize, P> Iter<'a, M, L, P> {
         Ok(s)
     }
 
-    pub fn new_unchecked(separator: &'a str) -> Self {
+    pub(crate) fn new_unchecked(separator: &'a str) -> Self {
         Self {
             count: None,
             separator,

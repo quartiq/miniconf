@@ -59,7 +59,7 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: super::Iter::new_unchecked("/"),
+                republish_state: M::iter_paths("/").unwrap(),
             }
         }
 
@@ -80,7 +80,7 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = super::Iter::new_unchecked("/");
+            self.republish_state = M::iter_paths("/").unwrap();
         }
     }
 }
@@ -479,7 +479,8 @@ where
                             // always fit into it.
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
-                            self.listing_state.replace(Iter::new_unchecked("/"));
+                            self.listing_state
+                                .replace(Settings::iter_paths("/").unwrap());
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }
