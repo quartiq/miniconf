@@ -42,7 +42,7 @@ pub trait JsonCoreSlash: Miniconf {
     ///
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
-    fn set_json_index(
+    fn set_json_by_index(
         &mut self,
         indices: &[usize],
         data: &[u8],
@@ -56,7 +56,7 @@ pub trait JsonCoreSlash: Miniconf {
     ///
     /// # Returns
     /// The number of bytes used in the `data` buffer or an [Error].
-    fn get_json_index(
+    fn get_json_by_index(
         &self,
         indices: &[usize],
         data: &mut [u8],
@@ -76,7 +76,7 @@ impl<T: Miniconf> JsonCoreSlash for T {
         Ok(ser.end())
     }
 
-    fn set_json_index(
+    fn set_json_by_index(
         &mut self,
         indices: &[usize],
         data: &[u8],
@@ -86,7 +86,7 @@ impl<T: Miniconf> JsonCoreSlash for T {
         de.end().map_err(Error::PostDeserialization)
     }
 
-    fn get_json_index(
+    fn get_json_by_index(
         &self,
         indices: &[usize],
         data: &mut [u8],
