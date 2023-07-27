@@ -3,7 +3,7 @@ use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Iter<'a, M: ?Sized, const L: usize, P> {
+pub struct PathIter<'a, M: ?Sized, const L: usize, P> {
     /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
     m: PhantomData<M>,
     p: PhantomData<P>,
@@ -26,7 +26,7 @@ pub struct Iter<'a, M: ?Sized, const L: usize, P> {
     separator: &'a str,
 }
 
-impl<'a, M: Miniconf + ?Sized, const L: usize, P> Iter<'a, M, L, P> {
+impl<'a, M: Miniconf + ?Sized, const L: usize, P> PathIter<'a, M, L, P> {
     pub(crate) fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
         let meta = M::metadata();
         if L < meta.max_depth {
@@ -48,7 +48,7 @@ impl<'a, M: Miniconf + ?Sized, const L: usize, P> Iter<'a, M, L, P> {
     }
 }
 
-impl<'a, M, const L: usize, P> Iterator for Iter<'a, M, L, P>
+impl<'a, M, const L: usize, P> Iterator for PathIter<'a, M, L, P>
 where
     M: Miniconf + ?Sized,
     P: Write + Default,

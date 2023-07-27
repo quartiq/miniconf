@@ -21,7 +21,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M> = crate::Iter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
+type Iter<M> = crate::PathIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
