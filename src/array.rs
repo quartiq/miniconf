@@ -153,11 +153,11 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             None => Ok(Ok::Internal(0)),
             Some(key) => {
                 let index: usize = key.parse().ok_or(Error::NotFound(1))?;
-                if index > N {
-                    Err(Error::NotFound(1))
-                } else {
+                if index < N {
                     func(Ok::Internal(1), index, itoa::Buffer::new().format(index))?;
                     T::traverse_by_key(keys, func).increment()
+                } else {
+                    Err(Error::NotFound(1))
                 }
             }
         }
@@ -209,12 +209,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
             None => Ok(Ok::Internal(0)),
             Some(key) => {
                 let index: usize = key.parse().ok_or(Error::NotFound(1))?;
-                if index > N {
-                    Err(Error::NotFound(1))
-                } else {
+                if index < N {
                     func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))
                         .map_err(|e| Error::Inner(e))?;
                     Ok(Ok::Leaf(1))
+                } else {
+                    Err(Error::NotFound(1))
                 }
             }
         }
