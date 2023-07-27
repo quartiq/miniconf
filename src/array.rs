@@ -121,17 +121,6 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         item.set_by_key(keys, de).increment()
     }
 
-    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
-    where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>,
-    {
-        let name = names.next().ok_or(Error::Internal(0))?;
-        let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
-        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
-        item.set_by_name(names, de).increment()
-    }
-
     fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
     where
         P: Iterator<Item = &'a str>,
@@ -141,16 +130,6 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
         let item = self.0.get(index).ok_or(Error::NotFound(1))?;
         item.get_by_name(names, ser).increment()
-    }
-
-    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
-    where
-        P: Iterator<Item = usize>,
-        D: serde::Deserializer<'b>,
-    {
-        let index = indices.next().ok_or(Error::Internal(0))?;
-        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
-        item.set_by_index(indices, de).increment()
     }
 
     fn get_by_index<P, S>(&self, indices: &mut P, ser: S) -> Result<S::Error>
@@ -227,21 +206,6 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         Ok(Ok::Leaf(1))
     }
 
-    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
-    where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>,
-    {
-        let name = names.next().ok_or(Error::Internal(0))?;
-        if names.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
-        let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-        *item = serde::Deserialize::deserialize(de)?;
-        Ok(Ok::Leaf(1))
-    }
-
     fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
     where
         P: Iterator<Item = &'a str>,
@@ -254,20 +218,6 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         serde::Serialize::serialize(item, ser)?;
-        Ok(Ok::Leaf(1))
-    }
-
-    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
-    where
-        P: Iterator<Item = usize>,
-        D: serde::Deserializer<'b>,
-    {
-        let index = indices.next().ok_or(Error::Internal(0))?;
-        if indices.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-        *item = serde::Deserialize::deserialize(de)?;
         Ok(Ok::Leaf(1))
     }
 

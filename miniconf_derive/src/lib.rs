@@ -66,30 +66,6 @@ fn get_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     }
 }
 
-fn set_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `set_by_name()` args available.
-    let field_name = &struct_field.field.ident;
-    if struct_field.defer {
-        quote! {
-            stringify!(#field_name) => {
-                let r = self.#field_name.set_by_name(names, de);
-                miniconf::Increment::increment(r)
-            }
-        }
-    } else {
-        quote! {
-            stringify!(#field_name) => {
-                if names.next().is_some() {
-                    Err(miniconf::Error::TooLong(1))
-                } else {
-                    self.#field_name = miniconf::serde::de::Deserialize::deserialize(de)?;
-                    Ok(miniconf::Ok::Leaf(1))
-                }
-            }
-        }
-    }
-}
-
 fn get_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `get_by_index()` args available.
     let field_name = &struct_field.field.ident;
@@ -107,30 +83,6 @@ fn get_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::To
                     Err(miniconf::Error::TooLong(1))
                 } else {
                     miniconf::serde::ser::Serialize::serialize(&self.#field_name, ser)?;
-                    Ok(miniconf::Ok::Leaf(1))
-                }
-            }
-        }
-    }
-}
-
-fn set_by_index_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `set_by_index()` args available.
-    let field_name = &struct_field.field.ident;
-    if struct_field.defer {
-        quote! {
-            #i => {
-                let r = self.#field_name.set_by_index(indices, de);
-                miniconf::Increment::increment(r)
-            }
-        }
-    } else {
-        quote! {
-            #i => {
-                if indices.next().is_some() {
-                    Err(miniconf::Error::TooLong(1))
-                } else {
-                    self.#field_name = miniconf::serde::de::Deserialize::deserialize(de)?;
                     Ok(miniconf::Ok::Leaf(1))
                 }
             }
@@ -256,9 +208,7 @@ fn derive_struct(
     fields.iter().for_each(|f| f.bound_generics(generics));
 
     let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
-    let set_by_name_arms = fields.iter().map(set_by_name_arm);
     let get_by_name_arms = fields.iter().map(get_by_name_arm);
-    let set_by_index_arms = fields.iter().enumerate().map(set_by_index_arm);
     let get_by_index_arms = fields.iter().enumerate().map(get_by_index_arm);
     let metadata_arms = fields.iter().enumerate().map(metadata_arm);
     let traverse_by_index_arms = fields.iter().enumerate().map(traverse_by_index_arm);
@@ -294,17 +244,6 @@ fn derive_struct(
                 }
             }
 
-            fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> miniconf::Result<D::Error>
-            where
-                P: Iterator<Item = &'a str>,
-                D: miniconf::serde::Deserializer<'b>,
-            {
-                match names.next().ok_or(miniconf::Error::Internal(0))? {
-                    #(#set_by_name_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(1)),
-                }
-            }
-
             fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> miniconf::Result<S::Error>
             where
                 P: Iterator<Item = &'a str>,
@@ -313,17 +252,6 @@ fn derive_struct(
                 match names.next().ok_or(miniconf::Error::Internal(0))? {
                     #(#get_by_name_arms ,)*
                     _ => Err(miniconf::Error::NotFound(1))
-                }
-            }
-
-            fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> miniconf::Result<D::Error>
-            where
-                P: Iterator<Item = usize>,
-                D: miniconf::serde::Deserializer<'b>,
-            {
-                match indices.next().ok_or(miniconf::Error::Internal(0))? {
-                    #(#set_by_index_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(1)),
                 }
             }
 

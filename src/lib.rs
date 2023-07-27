@@ -166,12 +166,6 @@ pub trait Miniconf {
         Self::NAMES.iter().position(|&n| n == value)
     }
 
-    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
-    where
-        P: Iterator,
-        D: serde::Deserializer<'a>,
-        P::Item: ToIndex;
-
     /// Deserialize an element by path.
     ///
     /// # Args
@@ -180,10 +174,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn set_by_name<'a, 'b, P, D>(&mut self, names: &mut P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
     where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>;
+        P: Iterator,
+        D: serde::Deserializer<'a>,
+        P::Item: ToIndex;
 
     /// Serialize an element by path.
     ///
@@ -197,19 +192,6 @@ pub trait Miniconf {
     where
         P: Iterator<Item = &'a str>,
         S: serde::Serializer;
-
-    /// Deserialize an element by index.
-    ///
-    /// # Args
-    /// * `indices`: An [Iterator] identifying the element.
-    /// * `de`: A [serde::Deserializer] to use to deserialize the value.
-    ///
-    /// # Returns
-    /// May return an [Error].
-    fn set_by_index<'b, P, D>(&mut self, indices: &mut P, de: D) -> Result<D::Error>
-    where
-        P: Iterator<Item = usize>,
-        D: serde::Deserializer<'b>;
 
     /// Serialize an element by index.
     ///
