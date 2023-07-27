@@ -215,6 +215,10 @@ pub trait Miniconf {
     /// * `path`: A string to write the path into.
     /// * `sep`: The path hierarchy separator. It is inserted before each name.
     ///
+    /// # Args
+    /// * `indices`: A slice of indices describing the path.
+    /// * `path`: The `Write` to write the path to.
+    ///
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     fn path<I, N>(indices: &mut I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
@@ -237,12 +241,19 @@ pub trait Miniconf {
     /// If `Self` is non-leaf (internal) and `path` is exhausted, nothing will be written to
     /// `indices` and [`Ok::Internal(0)`] will be returned.
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
-    fn indices<'a, P>(path: &mut P, indices: &mut [usize]) -> Result<SliceShort>
+    ///
+    /// # Args
+    /// * `names`: An iterator of path elements.
+    /// * `indices`: A slice to write the element indices into.
+    ///
+    /// # Returns
+    /// A [Ok] where the `usize` member indicates the final depth of the valid path.
+    fn indices<'a, P>(names: &mut P, indices: &mut [usize]) -> Result<SliceShort>
     where
         P: Iterator<Item = &'a str>,
     {
         let mut depth = 0;
-        Self::traverse_by_name(path, |_ok, index, _name| {
+        Self::traverse_by_name(names, |_ok, index, _name| {
             if indices.len() < depth {
                 Err(SliceShort)
             } else {
@@ -260,11 +271,13 @@ pub trait Miniconf {
     /// The iterator has an exact and trusted [Iterator::size_hint].
     ///
     /// # Generics
-    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
+    /// * `L`  - The maximum depth of the path, i.e. the number of separators.
     /// * `P`  - The type to hold the path.
     ///
+    /// # Args
+    ///
     /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
+    /// An [Iter] of paths or an [Error] if `L` is insufficient.
     fn iter_paths<const L: usize, P>(
         separator: &'_ str,
     ) -> core::result::Result<Iter<'_, Self, L, P>, Error<SliceShort>> {
@@ -273,7 +286,7 @@ pub trait Miniconf {
 
     /// Create an unchecked iterator of all possible paths.
     ///
-    /// See also [SerDe::iter_paths].
+    /// See also [Miniconf::iter_paths].
     ///
     /// # Panic
     /// This does not check that the path size or state vector are large enough.
@@ -285,7 +298,7 @@ pub trait Miniconf {
     /// * `P`  - The type to hold the path.
     ///
     /// # Returns
-    /// A [MiniconfIter] of paths or an [IterError] if `L` is insufficient.
+    /// A [Iter] of paths.
     fn unchecked_iter_paths<const L: usize, P>(separator: &'_ str) -> Iter<'_, Self, L, P> {
         Iter::new_unchecked(separator)
     }

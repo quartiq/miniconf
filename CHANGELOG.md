@@ -8,33 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* `json` feature to enable the `Serde<JsonCoreSlash>` spec. Enabled by default.
+* Traversal by names or indices has been added through `Miniconf::traverse_by_{index,path}()`.
 
 ### Changed
 
 * [breaking] The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
   doesn't enforce `serde-json-core` or `u8` buffers or `/` as the path hierarchy
   separator anymore.
-* [breaking] `MiniconfIter` takes the path hierarchy separator from `SerDe` and passes it on to
-  `Miniconf::next_path` and `Miniconf::metadata`.
+* [breaking] `Iter` and `Miniconf::iter_paths()` take the path hierarchy separator and passes
+  it on to `Miniconf::path()` and `Metadata::separator()`.
 * [breaking] The `Miniconf` trait has been stripped of the provided functions that depended
   on the `serde`-backend and path hierarchy separator. Those have been
-  moved into a super trait `SerDe<S>` that is generic over a specification marker
-  struct `S`. `SerDe<JsonCoreSlash>` has been implemented for all `Miniconf`
+  moved into the `JsonCoreSlash` trait that has been implemented for all `Miniconf`
   to provide the previously existing functionality.
 * The only required change for most downstream crates to adapt to the above is to
-  make sure the `SerDe` trait is in scope (`use miniconf::SerDe`).
+  make sure the `JsonCoreSlash` trait is in scope (`use miniconf::JsonCoreSlash`).
 * [breaking] Paths now start with the path separator (unless they are empty).
   This affects the `Miniconf` derive macro and the `Miniconf` implementation pairs
   for `Option`/`Array`.
   Downstram crates should ensure non-empty paths start with the separator and
   expect `next_path` paths to start with the separator or be empty.
+* `set()` and `get()` have been renamed to `set_json()` and `get_json()` respectively to
+  avoid overlap.
 * The path iterator does not need to be `Peekable` anymore.
-* [breaking] `iter_paths`/`MiniconfIter` is now generic over the type
+* [breaking] `iter_paths`/`Iter` is now generic over the type
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
   `iter_paths::<L, heapless::String<TS>>()`.
 * [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they are
   not needed to work with the public API.
+* [breaking] Metadata is now computed by default without taking account path separators.
+  These can be included using [Metadata::separator()].
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 

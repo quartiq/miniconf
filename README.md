@@ -148,7 +148,7 @@ Miniconf is generic over the `serde` backend/payload format and the path hierarc
 (as long as the path can be split by it unambiguously).
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
-through [SerDe] for the [JsonCoreSlash] style.
+through the [JsonCoreSlash] style.
 
 ## Transport
 Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from
@@ -161,7 +161,7 @@ Deferred (non-atomic) access to inner elements of some types is not yet supporte
 
 ## Features
 * `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].
-* `json-core` Enable the [SerDe] implementation for the [JsonCoreSlash] style
-  (using `serde_json_core`).
+* `json-core` Enable the [JsonCoreSlash] implementation of serializing from and
+  into json slices (using `serde_json_core`).
 
 The `mqtt-client` and `json-core` features are enabled by default.

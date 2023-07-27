@@ -9,8 +9,8 @@ use core::ops::{Deref, DerefMut};
 ///
 /// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
 /// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
-/// at run-time. It will still be iterated over by [`crate::SerDe::iter_paths()`] but cannot be
-/// `get()` or `set()` using the [`Miniconf`] API.
+/// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but cannot be
+/// `get_by_name()` or `set_by_name()` using the [`Miniconf`] API.
 ///
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
