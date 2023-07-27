@@ -139,12 +139,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             return Err(Error::TooLong(0));
         }
 
-        if self.is_none() {
-            return Err(Error::Absent(0));
+        if let Some(inner) = self.as_mut() {
+            *inner = serde::Deserialize::deserialize(de)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
         }
-
-        *self = Some(serde::Deserialize::deserialize(de)?);
-        Ok(Ok::Leaf(0))
     }
 
     fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
@@ -156,9 +156,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             return Err(Error::TooLong(0));
         }
 
-        let data = self.as_ref().ok_or(Error::Absent(0))?;
-        serde::Serialize::serialize(data, ser)?;
-        Ok(Ok::Leaf(0))
+        if let Some(inner) = self.as_ref() {
+            serde::Serialize::serialize(inner, ser)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
+        }
     }
 
     fn metadata(_separator_length: usize) -> Metadata {

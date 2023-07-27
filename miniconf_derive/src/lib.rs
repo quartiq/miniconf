@@ -48,14 +48,15 @@ fn get_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     if struct_field.defer {
         quote! {
             stringify!(#field_name) => {
-                self.#field_name.get_by_name(names, ser)
+                let r = self.#field_name.get_by_name(names, ser);
+                miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             stringify!(#field_name) => {
                 if names.next().is_some() {
-                    Err(miniconf::Error::TooLong(0))
+                    Err(miniconf::Error::TooLong(1))
                 } else {
                     miniconf::serde::ser::Serialize::serialize(&self.#field_name, ser)?;
                     Ok(miniconf::Ok::Leaf(1))
@@ -71,14 +72,15 @@ fn set_by_name_arm(struct_field: &StructField) -> proc_macro2::TokenStream {
     if struct_field.defer {
         quote! {
             stringify!(#field_name) => {
-                self.#field_name.set_by_name(names, de)
+                let r = self.#field_name.set_by_name(names, de);
+                miniconf::Increment::increment(r)
             }
         }
     } else {
         quote! {
             stringify!(#field_name) => {
                 if names.next().is_some() {
-                    Err(miniconf::Error::TooLong(0))
+                    Err(miniconf::Error::TooLong(1))
                 } else {
                     self.#field_name = miniconf::serde::de::Deserialize::deserialize(de)?;
                     Ok(miniconf::Ok::Leaf(1))
@@ -202,7 +204,7 @@ fn derive_struct(
             {
                 match names.next().ok_or(miniconf::Error::Internal(0))? {
                     #(#set_by_name_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(0)),
+                    _ => Err(miniconf::Error::NotFound(1)),
                 }
             }
 
@@ -213,7 +215,7 @@ fn derive_struct(
             {
                 match names.next().ok_or(miniconf::Error::Internal(0))? {
                     #(#get_by_name_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(0))
+                    _ => Err(miniconf::Error::NotFound(1))
                 }
             }
 
@@ -250,7 +252,7 @@ fn derive_struct(
                 match indices.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
                     #(#traverse_by_index_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(0)),
+                    _ => Err(miniconf::Error::NotFound(1)),
                 }
             }
 
@@ -266,7 +268,7 @@ fn derive_struct(
                 match names.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
                     #(#traverse_by_name_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(0)),
+                    _ => Err(miniconf::Error::NotFound(1)),
                 }
             }
         }

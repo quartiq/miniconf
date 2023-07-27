@@ -112,14 +112,13 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        let next = names.next().ok_or(Error::Internal(0))?;
-        let index: usize = next.parse().map_err(|_| Error::NotFound(0))?;
-
-        self.0
-            .get_mut(index)
-            .ok_or(Error::NotFound(0))?
-            .set_by_name(names, de)
-            .increment()
+        let name = names.next().ok_or(Error::Internal(0))?;
+        if names.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
+        let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
+        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
+        item.set_by_name(names, de).increment()
     }
 
     fn get_by_name<'a, P, S>(&self, names: &mut P, ser: S) -> Result<S::Error>
@@ -127,14 +126,13 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        let next = names.next().ok_or(Error::Internal(0))?;
-        let index: usize = next.parse().map_err(|_| Error::NotFound(0))?;
-
-        self.0
-            .get(index)
-            .ok_or(Error::NotFound(0))?
-            .get_by_name(names, ser)
-            .increment()
+        let name = names.next().ok_or(Error::Internal(0))?;
+        if names.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
+        let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
+        let item = self.0.get(index).ok_or(Error::NotFound(1))?;
+        item.get_by_name(names, ser).increment()
     }
 
     fn metadata(separator_length: usize) -> Metadata {
@@ -157,11 +155,11 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
             None => Ok(Ok::Internal(0)),
             Some(index) if index < N => {
                 if internal {
-                    func(index, itoa::Buffer::new().format(index)).map_err(|e| Error::Inner(e))?;
+                    func(index, itoa::Buffer::new().format(index))?;
                 }
                 T::traverse_by_index(indices, func, internal).increment()
             }
-            _ => Err(Error::NotFound(0)),
+            _ => Err(Error::NotFound(1)),
         }
     }
 
@@ -173,12 +171,12 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         match names.next() {
             None => Ok(Ok::Internal(0)),
             Some(name) => {
-                let index: usize = name.parse().map_err(|_| Error::NotFound(0))?;
+                let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
                 if index > N {
-                    Err(Error::NotFound(0))
+                    Err(Error::NotFound(1))
                 } else {
                     if internal {
-                        func(index, name).map_err(|e| Error::Inner(e))?;
+                        func(index, name)?;
                     }
                     T::traverse_by_name(names, func, internal).increment()
                 }
@@ -193,14 +191,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         P: Iterator<Item = &'a str>,
         D: serde::Deserializer<'b>,
     {
-        let next = names.next().ok_or(Error::Internal(0))?;
-
+        let name = names.next().ok_or(Error::Internal(0))?;
         if names.next().is_some() {
             return Err(Error::TooLong(1));
         }
-
-        let index: usize = next.parse().map_err(|_| Error::NotFound(0))?;
-        let item = <[T]>::get_mut(self, index).ok_or(Error::NotFound(0))?;
+        let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         *item = serde::Deserialize::deserialize(de)?;
         Ok(Ok::Leaf(1))
     }
@@ -210,14 +206,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         P: Iterator<Item = &'a str>,
         S: serde::Serializer,
     {
-        let next = names.next().ok_or(Error::Internal(0))?;
-
+        let name = names.next().ok_or(Error::Internal(0))?;
         if names.next().is_some() {
-            return Err(Error::TooLong(0));
+            return Err(Error::TooLong(1));
         }
-
-        let index: usize = next.parse().map_err(|_| Error::NotFound(0))?;
-        let item = <[T]>::get(self, index).ok_or(Error::NotFound(0))?;
+        let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Error::NotFound(1))?;
         serde::Serialize::serialize(item, ser)?;
         Ok(Ok::Leaf(1))
     }
@@ -233,7 +227,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
                 func(index, itoa::Buffer::new().format(index)).map_err(|e| Error::Inner(e))?;
                 Ok(Ok::Leaf(1))
             }
-            _ => Err(Error::NotFound(0)),
+            _ => Err(Error::NotFound(1)),
         }
     }
 
@@ -245,9 +239,9 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         match names.next() {
             None => Ok(Ok::Internal(0)),
             Some(name) => {
-                let index: usize = name.parse().map_err(|_| Error::NotFound(0))?;
+                let index: usize = name.parse().map_err(|_| Error::NotFound(1))?;
                 if index > N {
-                    Err(Error::NotFound(0))
+                    Err(Error::NotFound(1))
                 } else {
                     func(index, name).map_err(|e| Error::Inner(e))?;
                     Ok(Ok::Leaf(1))
