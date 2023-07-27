@@ -14,11 +14,6 @@ mod json_core;
 #[cfg(feature = "json-core")]
 pub use json_core::*;
 
-#[cfg(feature = "json")]
-mod json;
-#[cfg(feature = "json")]
-pub use json::*;
-
 #[cfg(feature = "mqtt-client")]
 pub use minimq; // re-export
 #[cfg(feature = "mqtt-client")]

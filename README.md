@@ -163,7 +163,5 @@ Deferred (non-atomic) access to inner elements of some types is not yet supporte
 * `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].
 * `json-core` Enable the [SerDe] implementation for the [JsonCoreSlash] style
   (using `serde_json_core`).
-* `json` Enable the [SerDe] implementation for the [JsonSlash] style (using
-  `serde_json`).
 
 The `mqtt-client` and `json-core` features are enabled by default.
