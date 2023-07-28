@@ -93,12 +93,11 @@ fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
 fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field index with `metadata()` args available.
     let field_type = &struct_field.field.ty;
-    let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
-                meta.max_length += stringify!(#field_name).len();
+                meta.max_length += Self::NAMES[#i].len();
                 meta.max_depth += 1;
                 meta
             }
@@ -107,7 +106,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
-                meta.max_length = stringify!(#field_name).len();
+                meta.max_length = Self::NAMES[#i].len();
                 meta.max_depth = 1;
                 meta.count = 1;
                 meta
@@ -119,11 +118,10 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
 fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field index with `traverse_by_key()` args available.
     let field_type = &struct_field.field.ty;
-    let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
             #i => {
-                func(miniconf::Ok::Internal(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                func(miniconf::Ok::Internal(1), #i, Self::NAMES[#i]).map_err(|e| miniconf::Error::Inner(e))?;
                 let r = <#field_type>::traverse_by_key(keys, func);
                 miniconf::Increment::increment(r)
             }
@@ -131,7 +129,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     } else {
         quote! {
             #i => {
-                func(miniconf::Ok::Leaf(1), #i, stringify!(#field_name)).map_err(|e| miniconf::Error::Inner(e))?;
+                func(miniconf::Ok::Leaf(1), #i, Self::NAMES[#i]).map_err(|e| miniconf::Error::Inner(e))?;
                 Ok(miniconf::Ok::Leaf(1))
             }
         }
