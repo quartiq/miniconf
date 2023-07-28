@@ -1,8 +1,5 @@
-use crate::{Error, IterError, Metadata, Miniconf};
-use core::{
-    fmt::Write,
-    ops::{Deref, DerefMut},
-};
+use crate::{Error, Increment, Key, Metadata, Miniconf, Ok, Result};
+use core::ops::{Deref, DerefMut};
 
 /// An array that exposes each element through their [`Miniconf`] implementation.
 ///
@@ -110,131 +107,128 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
-    where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>,
-    {
-        let next = path_parts.next().ok_or(Error::PathTooShort)?;
-        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
-
-        self.0
-            .get_mut(index)
-            .ok_or(Error::BadIndex)?
-            .set_path(path_parts, de)
+    fn name_to_index(value: &str) -> core::option::Option<usize> {
+        value.parse().ok()
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator<Item = &'a str>,
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>,
+    {
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
+        item.set_by_key(keys, de).increment()
+    }
+
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
+    where
+        K: Iterator,
+        K::Item: Key,
         S: serde::Serializer,
     {
-        let next = path_parts.next().ok_or(Error::PathTooShort)?;
-        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
-
-        self.0
-            .get(index)
-            .ok_or(Error::BadIndex)?
-            .get_path(path_parts, ser)
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.0.get(index).ok_or(Error::NotFound(1))?;
+        item.get_by_key(keys, ser).increment()
     }
 
-    fn metadata(separator_length: usize) -> Metadata {
-        let mut meta = T::metadata(separator_length);
+    fn metadata() -> Metadata {
+        let mut meta = T::metadata();
 
-        // We add separator and index
-        meta.max_length += separator_length + digits(N);
+        meta.max_length += digits(N);
         meta.max_depth += 1;
         meta.count *= N;
 
         meta
     }
 
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        mut topic: impl Write,
-        separator: char,
-    ) -> Result<usize, IterError> {
-        match state.get(depth) {
-            Some(&i) if i < N => {
-                topic
-                    .write_char(separator)
-                    .and_then(|_| topic.write_str(itoa::Buffer::new().format(i)))
-                    .map_err(|_| IterError::Length)?;
-                T::next_path(state, depth + 1, topic, separator)
+    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<E>
+    where
+        K: Iterator,
+        K::Item: Key,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+    {
+        match keys.next() {
+            None => Ok(Ok::Internal(0)),
+            Some(key) => {
+                let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
+                if index < N {
+                    func(Ok::Internal(1), index, itoa::Buffer::new().format(index))?;
+                    T::traverse_by_key(keys, func).increment()
+                } else {
+                    Err(Error::NotFound(1))
+                }
             }
-            Some(_) => Err(IterError::Next(depth)),
-            None => Err(IterError::Depth),
         }
     }
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
-    where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>,
-    {
-        let next = path_parts.next().ok_or(Error::PathTooShort)?;
-        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
-
-        if path_parts.next().is_some() {
-            return Err(Error::PathTooLong);
-        }
-
-        let item = <[T]>::get_mut(self, index).ok_or(Error::BadIndex)?;
-        *item = serde::Deserialize::deserialize(de)?;
-        Ok(())
+    fn name_to_index(value: &str) -> core::option::Option<usize> {
+        value.parse().ok()
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator<Item = &'a str>,
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>,
+    {
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        if keys.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
+        let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        *item = serde::Deserialize::deserialize(de)?;
+        Ok(Ok::Leaf(1))
+    }
+
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
+    where
+        K: Iterator,
+        K::Item: Key,
         S: serde::Serializer,
     {
-        let next = path_parts.next().ok_or(Error::PathTooShort)?;
-        let index: usize = next.parse().map_err(|_| Error::BadIndex)?;
-
-        if path_parts.next().is_some() {
-            return Err(Error::PathTooLong);
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        if keys.next().is_some() {
+            return Err(Error::TooLong(1));
         }
-
-        let item = <[T]>::get(self, index).ok_or(Error::BadIndex)?;
-        Ok(serde::Serialize::serialize(item, ser)?)
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        serde::Serialize::serialize(item, ser)?;
+        Ok(Ok::Leaf(1))
     }
 
-    fn metadata(separator_length: usize) -> Metadata {
+    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<E>
+    where
+        K: Iterator,
+        K::Item: Key,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+    {
+        match keys.next() {
+            None => Ok(Ok::Internal(0)),
+            Some(key) => {
+                let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
+                if index < N {
+                    func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))
+                        .map_err(|e| Error::Inner(e))?;
+                    Ok(Ok::Leaf(1))
+                } else {
+                    Err(Error::NotFound(1))
+                }
+            }
+        }
+    }
+
+    fn metadata() -> Metadata {
         Metadata {
-            // We add separator and index
-            max_length: separator_length + digits(N),
+            max_length: digits(N),
             max_depth: 1,
             count: N,
-        }
-    }
-
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        mut path: impl Write,
-        separator: char,
-    ) -> Result<usize, IterError> {
-        match state.get(depth) {
-            Some(&i) if i < N => {
-                path.write_char(separator)
-                    .and_then(|_| path.write_str(itoa::Buffer::new().format(i)))
-                    .map_err(|_| IterError::Length)?;
-                Ok(depth)
-            }
-            Some(_) => Err(IterError::Next(depth)),
-            None => Err(IterError::Depth),
         }
     }
 }

@@ -2,18 +2,18 @@ use syn::{parse_quote, Generics};
 
 pub struct StructField {
     pub field: syn::Field,
-    pub deferred: bool,
+    pub defer: bool,
 }
 
 impl StructField {
     pub fn new(field: syn::Field) -> Self {
-        let mut deferred = false;
+        let mut defer = false;
 
         for attr in field.attrs.iter() {
             if attr.path().is_ident("miniconf") {
                 attr.parse_nested_meta(|meta| {
                     if meta.path.is_ident("defer") {
-                        deferred = true;
+                        defer = true;
                         Ok(())
                     } else {
                         Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
@@ -23,7 +23,7 @@ impl StructField {
             }
         }
 
-        Self { deferred, field }
+        Self { defer, field }
     }
 
     fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, array: bool) {
@@ -32,7 +32,7 @@ impl StructField {
                 if type_param.ident == *ident {
                     // Deferred array types are a special case. These types defer directly into a
                     // manual implementation of Miniconf that calls serde functions directly.
-                    if self.deferred && !array {
+                    if self.defer && !array {
                         // For deferred, non-array data types, we will recursively call into
                         // Miniconf trait functions.
                         type_param.bounds.push(parse_quote!(miniconf::Miniconf));

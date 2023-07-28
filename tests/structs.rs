@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Miniconf, SerDe};
+use miniconf::{JsonCoreSlash, Miniconf};
 use serde::{Deserialize, Serialize};
 
 #[test]
@@ -21,10 +21,10 @@ fn atomic_struct() {
     let mut settings = Settings::default();
 
     // Inner settings structure is atomic, so cannot be set.
-    assert!(settings.set("/c/a", b"4").is_err());
+    assert!(settings.set_json("/c/a", b"4").is_err());
 
     // Inner settings can be updated atomically.
-    settings.set("/c", b"{\"a\": 5, \"b\": 3}").unwrap();
+    settings.set_json("/c", b"{\"a\": 5, \"b\": 3}").unwrap();
 
     let expected = {
         let mut expected = Settings::default();
@@ -36,7 +36,7 @@ fn atomic_struct() {
     assert_eq!(settings, expected);
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata(1);
+    let metadata = Settings::metadata().separator("/");
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "/c".len());
     assert_eq!(metadata.count, 3);
@@ -59,7 +59,7 @@ fn recursive_struct() {
 
     let mut settings = Settings::default();
 
-    settings.set("/c/a", b"3").unwrap();
+    settings.set_json("/c/a", b"3").unwrap();
     let expected = {
         let mut expected = Settings::default();
         expected.c.a = 3;
@@ -69,10 +69,10 @@ fn recursive_struct() {
     assert_eq!(settings, expected);
 
     // It is not allowed to set a non-terminal node.
-    assert!(settings.set("/c", b"{\"a\": 5}").is_err());
+    assert!(settings.set_json("/c", b"{\"a\": 5}").is_err());
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata(1);
+    let metadata = Settings::metadata().separator("/");
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length, "/c/a".len());
     assert_eq!(metadata.count, 3);
@@ -82,7 +82,7 @@ fn recursive_struct() {
 fn empty_struct() {
     #[derive(Miniconf, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<1, String>()
+    assert!(Settings::iter_paths::<1, String>("/")
         .unwrap()
         .next()
         .is_none());

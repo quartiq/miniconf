@@ -1,11 +1,12 @@
-use crate::{IterError, Metadata, SerDe};
+use crate::{Error, Miniconf, Ok, SliceShort};
 use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MiniconfIter<M, S, const L: usize, P> {
-    /// Zero-size marker field to allow being generic over M and gaining access to M.
-    marker: PhantomData<(M, S, P)>,
+pub struct PathIter<'a, M: ?Sized, const L: usize, P> {
+    /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
+    m: PhantomData<M>,
+    p: PhantomData<P>,
 
     /// The iteration state.
     ///
@@ -20,62 +21,80 @@ pub struct MiniconfIter<M, S, const L: usize, P> {
     ///
     /// It may be None to indicate unknown length.
     count: Option<usize>,
+
+    /// The separator before each name.
+    separator: &'a str,
 }
 
-impl<M, S, const L: usize, P> Default for MiniconfIter<M, S, L, P> {
-    fn default() -> Self {
+impl<'a, M: Miniconf + ?Sized, const L: usize, P> PathIter<'a, M, L, P> {
+    pub(crate) fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
+        let meta = M::metadata();
+        if L < meta.max_depth {
+            return Err(Error::Inner(SliceShort));
+        }
+        let mut s = Self::new_unchecked(separator);
+        s.count = Some(meta.count);
+        Ok(s)
+    }
+
+    pub(crate) fn new_unchecked(separator: &'a str) -> Self {
         Self {
             count: None,
-            marker: PhantomData,
+            separator,
             state: [0; L],
+            m: PhantomData,
+            p: PhantomData,
         }
     }
 }
 
-impl<M: SerDe<S>, S, const L: usize, P> MiniconfIter<M, S, L, P> {
-    pub fn metadata() -> Result<Metadata, IterError> {
-        let meta = M::metadata(M::SEPARATOR.len_utf8());
-        if L < meta.max_depth {
-            return Err(IterError::Depth);
-        }
-        Ok(meta)
-    }
-
-    pub fn new() -> Result<Self, IterError> {
-        let meta = Self::metadata()?;
-        Ok(Self {
-            count: Some(meta.count),
-            ..Default::default()
-        })
-    }
-}
-
-impl<M: SerDe<S>, S, const L: usize, P: Write + Default> Iterator for MiniconfIter<M, S, L, P> {
+impl<'a, M, const L: usize, P> Iterator for PathIter<'a, M, L, P>
+where
+    M: Miniconf + ?Sized,
+    P: Write + Default,
+{
     type Item = P;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = Self::Item::default();
 
         loop {
-            match M::next_path(&self.state, 0, &mut path, M::SEPARATOR) {
-                Ok(depth) => {
-                    self.count = self.count.map(|c| c - 1);
-                    self.state[depth] += 1;
-                    return Some(path);
-                }
-                Err(IterError::Next(0)) => {
+            return match M::path(self.state.iter().copied(), &mut path, self.separator) {
+                // Not having consumed any name/index, the only possible case here is a bare option.
+                // And that can not return `NotFound`.
+                Err(Error::NotFound(0)) => unreachable!(),
+                // Iteration done
+                Err(Error::NotFound(1)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
-                    return None;
+                    None
                 }
-                Err(IterError::Next(depth)) => {
+                // Node not found at depth: reset current index, increment parent index, then retry
+                Err(Error::NotFound(depth)) => {
                     path = Self::Item::default();
-                    self.state[depth] = 0;
+                    self.state[depth - 1] = 0;
+                    self.state[depth - 2] += 1;
+                    continue;
+                }
+                // Iteration done for a bare Option
+                Ok(Ok::Leaf(0)) if self.count == Some(0) => None,
+                // Root is `Leaf`: bare Option.
+                // Since there is no way to end iteration by triggering `NotFound` on a bare Option,
+                // we force the count to Some(0) and trigger on that (see above).
+                Ok(Ok::Leaf(0)) => {
+                    debug_assert_eq!(self.count.unwrap_or(1), 1);
+                    self.count = Some(0);
+                    Some(path)
+                }
+                // Non-root leaf: advance at current depth
+                Ok(Ok::Leaf(depth)) => {
+                    self.count = self.count.map(|c| c - 1);
                     self.state[depth - 1] += 1;
+                    Some(path)
                 }
-                e => {
-                    e.unwrap();
-                }
-            }
+                // If we end at a leaf node, the state array is too small.
+                Ok(Ok::Internal(_depth)) => panic!("Path iteration state too small"),
+                Err(e) => panic!("Path iteration: {e:?}"),
+            };
         }
     }
 

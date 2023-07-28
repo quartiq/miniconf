@@ -1,212 +1,139 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Array, Error, Miniconf, SerDe};
-use serde::Deserialize;
+use miniconf::{Error, JsonCoreSlash, Miniconf};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Miniconf, Deserialize)]
-struct AdditionalSettings {
-    inner: u8,
+#[derive(Debug, Copy, Clone, Default, Miniconf, Deserialize, Serialize)]
+struct Inner {
+    c: u8,
 }
 
-#[derive(Debug, Default, Miniconf, Deserialize)]
+#[derive(Debug, Default, Miniconf)]
 struct Settings {
-    data: u32,
+    a: [u8; 2],
     #[miniconf(defer)]
-    more: AdditionalSettings,
+    d: [u8; 2],
+    #[miniconf(defer)]
+    dm: [Inner; 2],
+    #[miniconf(defer)]
+    am: miniconf::Array<Inner, 2>,
+    #[miniconf(defer)]
+    aam: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
 }
 
 #[test]
-fn simple_array() {
-    #[derive(Miniconf, Default)]
-    struct S {
+fn atomic() {
+    let mut s = Settings::default();
+    s.set_json("/a", b"[1,2]").unwrap();
+    assert_eq!(s.a, [1, 2]);
+}
+
+#[test]
+fn defer() {
+    let mut s = Settings::default();
+    s.set_json("/d/1", b"99").unwrap();
+    assert_eq!(s.d[1], 99);
+}
+
+#[test]
+fn defer_miniconf() {
+    let mut s = Settings::default();
+    s.set_json("/am/0/c", b"1").unwrap();
+    assert_eq!(s.am[0].c, 1);
+    s.set_json("/aam/0/0/c", b"3").unwrap();
+    assert_eq!(s.aam[0][0].c, 3);
+}
+
+#[test]
+fn too_short() {
+    let mut s = Settings::default();
+    assert_eq!(s.set_json("/d", b"[1,2]"), Err(Error::TooShort(1)));
+    // Check precedence over `Inner`.
+    assert_eq!(s.set_json("/d", b"[1,2,3]"), Err(Error::TooShort(1)));
+}
+
+#[test]
+fn too_long() {
+    assert_eq!(
+        Settings::default().set_json("/a/1", b"7"),
+        Err(Error::TooLong(1))
+    );
+    assert_eq!(
+        Settings::default().set_json("/d/0/b", b"7"),
+        Err(Error::TooLong(2))
+    );
+    assert_eq!(
+        Settings::default().set_json("/dm/0/c", b"7"),
+        Err(Error::TooLong(2))
+    );
+    assert_eq!(
+        Settings::default().set_json("/dm/0/d", b"7"),
+        Err(Error::TooLong(2))
+    );
+}
+
+#[test]
+fn not_found() {
+    assert_eq!(
+        Settings::default().set_json("/d/3", b"7"),
+        Err(Error::NotFound(2))
+    );
+    assert_eq!(
+        Settings::default().set_json("/b", b"7"),
+        Err(Error::NotFound(1))
+    );
+    assert_eq!(
+        Settings::default().set_json("/aam/0/0/d", b"7"),
+        Err(Error::NotFound(4))
+    );
+}
+
+#[test]
+fn metadata() {
+    let metadata = Settings::metadata().separator("/");
+    assert_eq!(metadata.max_depth, 4);
+    assert_eq!(metadata.max_length, "/aam/0/0/c".len());
+    assert_eq!(metadata.count, 11);
+}
+
+#[test]
+fn iter() {
+    let mut s = Settings::default();
+
+    s.aam.iter().last();
+
+    s.aam.into_iter().flatten().last();
+    s.aam.iter().flatten().last();
+    s.aam.iter_mut().flatten().last();
+}
+
+#[test]
+fn empty() {
+    assert!(<[u32; 0]>::iter_paths::<2, String>("")
+        .unwrap()
+        .next()
+        .is_none());
+
+    #[derive(Miniconf, Serialize, Deserialize)]
+    struct S {}
+
+    assert!(miniconf::Array::<S, 0>::iter_paths::<2, String>("")
+        .unwrap()
+        .next()
+        .is_none());
+    assert!(
+        miniconf::Array::<miniconf::Array<S, 0>, 0>::iter_paths::<2, String>("")
+            .unwrap()
+            .next()
+            .is_none()
+    );
+
+    #[derive(Miniconf)]
+    struct Q {
         #[miniconf(defer)]
-        a: [u8; 3],
-    }
-
-    let mut s = S::default();
-
-    // Updating a single field should succeed.
-    s.set("/a/0", "99".as_bytes()).unwrap();
-    assert_eq!(99, s.a[0]);
-
-    // Updating entire array atomically is not supported.
-    assert!(s.set("/a", "[1,2,3]".as_bytes()).is_err());
-
-    // Invalid index should generate an error.
-    assert!(s.set("/a/100", "99".as_bytes()).is_err());
-}
-
-#[test]
-fn nonexistent_field() {
-    #[derive(Miniconf, Default)]
-    struct S {
+        a: miniconf::Array<S, 0>,
         #[miniconf(defer)]
-        a: [u8; 3],
+        b: [S; 0],
     }
-
-    let mut s = S::default();
-
-    assert!(s.set("/a/1/b", "7".as_bytes()).is_err());
-}
-
-#[test]
-fn simple_array_indexing() {
-    #[derive(Miniconf, Default)]
-    struct S {
-        #[miniconf(defer)]
-        a: [u8; 3],
-    }
-
-    let mut s = S::default();
-
-    s.set("/a/1", "7".as_bytes()).unwrap();
-
-    assert_eq!([0, 7, 0], s.a);
-
-    // Ensure that setting an out-of-bounds index generates an error.
-    assert!(matches!(
-        s.set("/a/3", "7".as_bytes()).unwrap_err(),
-        Error::BadIndex
-    ));
-
-    // Test metadata
-    let metadata = S::metadata(1);
-    assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length, "/a/2".len());
-    assert_eq!(metadata.count, 3);
-}
-
-#[test]
-fn array_iter() {
-    #[derive(Miniconf, Default, Clone, Copy, Debug, PartialEq)]
-    struct Inner {
-        b: u8,
-    }
-
-    #[derive(Miniconf, Default)]
-    struct S {
-        #[miniconf(defer)]
-        a: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
-    }
-
-    let mut s = S::default();
-
-    for _i in s.a.into_iter().flatten() {}
-
-    for _i in s.a.iter().flatten() {}
-
-    for _i in s.a.iter_mut().flatten() {}
-}
-
-#[test]
-fn array_of_structs_indexing() {
-    #[derive(Miniconf, Default, Clone, Copy, Debug, PartialEq)]
-    struct Inner {
-        b: u8,
-    }
-
-    #[derive(Miniconf, Default, PartialEq, Debug)]
-    struct S {
-        #[miniconf(defer)]
-        a: miniconf::Array<Inner, 3>,
-    }
-
-    let mut s = S::default();
-
-    s.set("/a/1/b", "7".as_bytes()).unwrap();
-
-    let expected = {
-        let mut e = S::default();
-        e.a[1].b = 7;
-        e
-    };
-
-    assert_eq!(expected, s);
-
-    // Test metadata
-    let metadata = S::metadata(1);
-    assert_eq!(metadata.max_depth, 3);
-    assert_eq!(metadata.max_length, "/a/2/b".len());
-    assert_eq!(metadata.count, 3);
-}
-
-#[test]
-fn array_of_arrays() {
-    #[derive(Miniconf, Default, PartialEq, Debug)]
-    struct S {
-        #[miniconf(defer)]
-        data: miniconf::Array<[u32; 2], 2>,
-    }
-
-    let mut s = S::default();
-
-    s.set("/data/0/0", "7".as_bytes()).unwrap();
-
-    let expected = {
-        let mut e = S::default();
-        e.data[0][0] = 7;
-        e
-    };
-
-    assert_eq!(expected, s);
-}
-
-#[test]
-fn atomic_array() {
-    #[derive(Miniconf, Default, PartialEq, Debug)]
-    struct S {
-        data: [u32; 2],
-    }
-
-    let mut s = S::default();
-
-    s.set("/data", "[1, 2]".as_bytes()).unwrap();
-
-    let expected = {
-        let mut e = S::default();
-        e.data[0] = 1;
-        e.data[1] = 2;
-        e
-    };
-
-    assert_eq!(expected, s);
-}
-
-#[test]
-fn short_array() {
-    #[derive(Miniconf, Default, PartialEq, Debug)]
-    struct S {
-        #[miniconf(defer)]
-        data: [u32; 1],
-    }
-
-    // Test metadata
-    let meta = S::metadata(1);
-    assert_eq!(meta.max_depth, 2);
-    assert_eq!(meta.max_length, "/data/0".len());
-    assert_eq!(meta.count, 1);
-}
-
-#[test]
-fn null_array() {
-    #[derive(Miniconf, Default, PartialEq, Debug)]
-    struct S {
-        #[miniconf(defer)]
-        data: [u32; 0],
-    }
-    assert!(S::iter_paths::<2, String>().unwrap().next().is_none());
-}
-
-#[test]
-fn null_miniconf_array() {
-    #[derive(Miniconf, Default, Debug, PartialEq, Copy, Clone)]
-    struct I {
-        a: i32,
-    }
-    #[derive(Miniconf, Default, PartialEq, Debug)]
-    struct S {
-        #[miniconf(defer)]
-        data: Array<I, 0>,
-    }
-    assert!(S::iter_paths::<3, String>().unwrap().next().is_none());
+    assert!(Q::iter_paths::<3, String>("").unwrap().next().is_none());
 }

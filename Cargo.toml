@@ -5,7 +5,7 @@ version = "0.7.1"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
-description = "Inspect serde namespaces by path"
+description = "Serialize/deserialize/access  Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
@@ -17,9 +17,7 @@ serde = { version = "1.0.120", features = ["derive"], default-features = false }
 miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
 itoa = "1.0.4"
 
-serde-json-core = { git = "https://github.com/rust-embedded-community/serde-json-core.git" , optional = true }
-serde_json = { version = "1.0", optional = true }
-tinyvec = { version = "1.6", optional = true }
+serde-json-core = { version = "0.5.1" , optional = true }
 log = {version = "0.4", optional = true }
 heapless = { version = "0.7", optional=true }
 minimq = { version = "0.7", optional = true }
@@ -28,9 +26,8 @@ smlang = { version = "0.6", optional = true }
 [features]
 default = ["mqtt-client"]
 json-core = ["dep:serde-json-core"]
-json = ["dep:serde_json", "dep:tinyvec", "std"]
-std = []
 mqtt-client = ["json-core", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
+std = []
 
 [dev-dependencies]
 machine = "0.3"

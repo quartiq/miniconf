@@ -15,7 +15,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::metadata(1);
+    let meta = Settings::metadata().separator("/");
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length, "/c/inner".len());
     assert_eq!(meta.count, 3);
@@ -24,9 +24,9 @@ fn meta() {
 #[test]
 fn next_path() {
     let mut s = String::new();
-    Settings::next_path(&[1, 0, 0], 0, &mut s, '/').unwrap();
+    Settings::path(&mut [1, 0, 0].iter().copied(), &mut s, "/").unwrap();
     assert_eq!(s, "/b");
     s.clear();
-    Settings::next_path(&[2, 0, 0], 0, &mut s, '/').unwrap();
+    Settings::path(&mut [2, 0, 0].iter().copied(), &mut s, "/").unwrap();
     assert_eq!(s, "/c/inner");
 }

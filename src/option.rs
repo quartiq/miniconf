@@ -1,8 +1,5 @@
-use crate::{Error, IterError, Metadata, Miniconf};
-use core::{
-    fmt::Write,
-    ops::{Deref, DerefMut},
-};
+use crate::{Error, Key, Metadata, Miniconf, Ok, Result};
+use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
 ///
@@ -12,8 +9,8 @@ use core::{
 ///
 /// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
 /// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
-/// at run-time. It will still be iterated over by [`crate::SerDe::iter_paths()`] but cannot be
-/// `get()` or `set()` using the [`Miniconf`] API.
+/// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but attempts to
+/// `get_by_key()` or `set_by_key()` them using the [`Miniconf`] API return in [`Error::Absent`].
 ///
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
@@ -87,100 +84,101 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
+    fn name_to_index(_value: &str) -> core::option::Option<usize> {
+        None
+    }
+
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>,
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>,
     {
         if let Some(inner) = self.0.as_mut() {
-            inner.set_path(path_parts, de)
+            inner.set_by_key(keys, de)
         } else {
-            Err(Error::PathAbsent)
+            Err(Error::Absent(0))
         }
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Error>
     where
-        P: Iterator<Item = &'a str>,
+        K: Iterator,
+        K::Item: Key,
         S: serde::Serializer,
     {
         if let Some(inner) = self.0.as_ref() {
-            inner.get_path(path_parts, ser)
+            inner.get_by_key(keys, ser)
         } else {
-            Err(Error::PathAbsent)
+            Err(Error::Absent(0))
         }
     }
 
-    fn metadata(separator_length: usize) -> Metadata {
-        T::metadata(separator_length)
+    fn metadata() -> Metadata {
+        T::metadata()
     }
 
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        path: impl Write,
-        separator: char,
-    ) -> Result<usize, IterError> {
-        T::next_path(state, depth, path, separator)
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
+    where
+        K: Iterator,
+        K::Item: Key,
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
     }
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn set_path<'a, 'b: 'a, P, D>(
-        &mut self,
-        path_parts: &mut P,
-        de: D,
-    ) -> Result<(), Error<D::Error>>
-    where
-        P: Iterator<Item = &'a str>,
-        D: serde::Deserializer<'b>,
-    {
-        if path_parts.next().is_some() {
-            return Err(Error::PathTooLong);
-        }
-
-        if self.is_none() {
-            return Err(Error::PathAbsent);
-        }
-
-        *self = Some(serde::Deserialize::deserialize(de)?);
-        Ok(())
+    fn name_to_index(_value: &str) -> core::option::Option<usize> {
+        None
     }
 
-    fn get_path<'a, P, S>(&self, path_parts: &mut P, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator<Item = &'a str>,
+        K: Iterator,
+        D: serde::Deserializer<'a>,
+    {
+        if keys.next().is_some() {
+            return Err(Error::TooLong(0));
+        }
+
+        if let Some(inner) = self.as_mut() {
+            *inner = serde::Deserialize::deserialize(de)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
+    where
+        K: Iterator,
         S: serde::Serializer,
     {
-        if path_parts.next().is_some() {
-            return Err(Error::PathTooLong);
+        if keys.next().is_some() {
+            return Err(Error::TooLong(0));
         }
 
-        let data = self.as_ref().ok_or(Error::PathAbsent)?;
-        Ok(serde::Serialize::serialize(data, ser)?)
+        if let Some(inner) = self.as_ref() {
+            serde::Serialize::serialize(inner, ser)?;
+            Ok(Ok::Leaf(0))
+        } else {
+            Err(Error::Absent(0))
+        }
     }
 
-    fn metadata(_separator_length: usize) -> Metadata {
+    fn metadata() -> Metadata {
         Metadata {
             count: 1,
             ..Default::default()
         }
     }
 
-    fn next_path(
-        state: &[usize],
-        depth: usize,
-        _path: impl Write,
-        _separator: char,
-    ) -> Result<usize, IterError> {
-        match state.get(depth) {
-            Some(0) => Ok(depth),
-            Some(_) => Err(IterError::Next(depth)),
-            None => Err(IterError::Depth),
-        }
+    fn traverse_by_key<K, F, E>(_keys: K, mut func: F) -> Result<E>
+    where
+        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+    {
+        func(Ok::Leaf(0), 0, "")?;
+        Ok(Ok::Leaf(0))
     }
 }
