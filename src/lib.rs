@@ -58,7 +58,7 @@ pub enum Error<E> {
     TooLong(usize),
 
     /// The names/indices are valid, but end early and do not reach a leaf.
-    Internal(usize),
+    TooShort(usize),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.
@@ -108,7 +108,7 @@ impl<E> Increment for Result<E> {
             Ok(Ok::Internal(i)) => Ok(Ok::Internal(i + 1)),
             Ok(Ok::Leaf(i)) => Ok(Ok::Leaf(i + 1)),
             Err(Error::NotFound(i)) => Err(Error::NotFound(i + 1)),
-            Err(Error::Internal(i)) => Err(Error::Internal(i + 1)),
+            Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
             Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
             Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
             e => e,

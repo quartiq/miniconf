@@ -106,7 +106,7 @@ impl From<Error<ser::Error>> for Error<de::Error> {
             Error::NotFound(i) => Self::NotFound(i),
             Error::TooLong(i) => Self::TooLong(i),
             Error::Absent(i) => Self::Absent(i),
-            Error::Internal(i) => Self::Internal(i),
+            Error::TooShort(i) => Self::TooShort(i),
             Error::PostDeserialization(_) => Error::PostDeserialization(de::Error::CustomError),
             Error::Inner(_) => Self::Inner(de::Error::CustomError),
         }

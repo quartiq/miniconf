@@ -188,7 +188,7 @@ fn derive_struct(
                 K::Item: miniconf::Key,
                 D: miniconf::serde::Deserializer<'a>,
             {
-                let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
+                let key = keys.next().ok_or(miniconf::Error::TooShort(0))?;
                 let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
                 match index {
                     #(#set_by_key_arms ,)*
@@ -202,7 +202,7 @@ fn derive_struct(
                 K::Item: miniconf::Key,
                 S: miniconf::serde::Serializer,
             {
-                let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
+                let key = keys.next().ok_or(miniconf::Error::TooShort(0))?;
                 let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
                 match index {
                     #(#get_by_key_arms ,)*

@@ -117,7 +117,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         K::Item: Key,
         D: serde::Deserializer<'a>,
     {
-        let key = keys.next().ok_or(Error::Internal(0))?;
+        let key = keys.next().ok_or(Error::TooShort(0))?;
         let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
         item.set_by_key(keys, de).increment()
@@ -129,7 +129,7 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         K::Item: Key,
         S: serde::Serializer,
     {
-        let key = keys.next().ok_or(Error::Internal(0))?;
+        let key = keys.next().ok_or(Error::TooShort(0))?;
         let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.0.get(index).ok_or(Error::NotFound(1))?;
         item.get_by_key(keys, ser).increment()
@@ -177,7 +177,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         K::Item: Key,
         D: serde::Deserializer<'a>,
     {
-        let key = keys.next().ok_or(Error::Internal(0))?;
+        let key = keys.next().ok_or(Error::TooShort(0))?;
         if keys.next().is_some() {
             return Err(Error::TooLong(1));
         }
@@ -193,7 +193,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         K::Item: Key,
         S: serde::Serializer,
     {
-        let key = keys.next().ok_or(Error::Internal(0))?;
+        let key = keys.next().ok_or(Error::TooShort(0))?;
         if keys.next().is_some() {
             return Err(Error::TooLong(1));
         }

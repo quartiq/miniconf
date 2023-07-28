@@ -143,7 +143,7 @@ fn option_absent() {
     // Check precedence
     assert_eq!(s.set_json("/d", b""), Err(Error::Absent(1)));
     assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert_eq!(s.set_json("", b"7"), Err(Error::Internal(0)));
+    assert_eq!(s.set_json("", b"7"), Err(Error::TooShort(0)));
     s.d = Some(3);
     assert_eq!(s.set_json("/d", b"7"), Ok(1));
     assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
