@@ -47,6 +47,8 @@ fn defer_miniconf() {
 #[test]
 fn too_short() {
     let mut s = Settings::default();
+    assert_eq!(s.set_json("/d", b"[1,2]"), Err(Error::TooShort(1)));
+    // Check precedence over `Inner`.
     assert_eq!(s.set_json("/d", b"[1,2,3]"), Err(Error::TooShort(1)));
 }
 
