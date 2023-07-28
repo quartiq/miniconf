@@ -121,7 +121,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     if struct_field.defer {
         quote! {
             #i => {
-                func(miniconf::Ok::Internal(1), #i, Self::NAMES[#i]).map_err(|e| miniconf::Error::Inner(e))?;
+                func(miniconf::Ok::Internal(1), #i, Self::NAMES[#i])?;
                 let r = <#field_type>::traverse_by_key(keys, func);
                 miniconf::Increment::increment(r)
             }
@@ -129,7 +129,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     } else {
         quote! {
             #i => {
-                func(miniconf::Ok::Leaf(1), #i, Self::NAMES[#i]).map_err(|e| miniconf::Error::Inner(e))?;
+                func(miniconf::Ok::Leaf(1), #i, Self::NAMES[#i])?;
                 Ok(miniconf::Ok::Leaf(1))
             }
         }
