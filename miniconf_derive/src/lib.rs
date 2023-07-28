@@ -43,7 +43,7 @@ pub fn derive(input: TokenStream) -> TokenStream {
 }
 
 fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `get_by_index()` args available.
+    // Quote context is a match of the field name with `get_by_key()` args available.
     let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
@@ -67,7 +67,7 @@ fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
 }
 
 fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `set_by_index()` args available.
+    // Quote context is a match of the field name with `set_by_key()` args available.
     let field_name = &struct_field.field.ident;
     if struct_field.defer {
         quote! {
@@ -117,7 +117,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
 }
 
 fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `traverse_by_index()` args available.
+    // Quote context is a match of the field index with `traverse_by_key()` args available.
     let field_type = &struct_field.field.ty;
     let field_name = &struct_field.field.ident;
     if struct_field.defer {
