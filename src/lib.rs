@@ -60,7 +60,7 @@ pub enum Error<E> {
     /// The names/indices are valid, but end early and do not reach a leaf.
     Internal(usize),
 
-    /// The value provided could not be serialized or deserialized or
+    /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.
     Inner(E),
 
