@@ -92,8 +92,8 @@ where
                     Some(path)
                 }
                 // If we end at a leaf node, the state array is too small.
-                Ok(Ok::Internal(_depth)) => panic!("State too small"),
-                Err(e) => panic!("{e:?}"),
+                Ok(Ok::Internal(_depth)) => panic!("Path iteration state too small"),
+                Err(e) => panic!("Path iteration: {e:?}"),
             };
         }
     }
