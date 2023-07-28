@@ -1,5 +1,10 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
 #![cfg_attr(feature = "json-core", doc = include_str!("../README.md"))]
+#![deny(rust_2018_compatibility)]
+#![deny(rust_2018_idioms)]
+#![deny(missing_docs)]
+#![deny(warnings)]
+#![deny(unsafe_code)]
 
 pub use miniconf_derive::Miniconf;
 mod array;
@@ -90,9 +95,9 @@ pub type Result<E> = core::result::Result<Ok, Error<E>>;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SliceShort;
 
+/// Pass the [`Result`] up one hierarchy level.
 pub trait Increment {
-    /// Pass the `Result` up one hierarchy level.
-    /// This increments the `depth` member.
+    /// Increment the `depth` member by one.
     fn increment(self) -> Self;
 }
 
@@ -138,6 +143,7 @@ impl Metadata {
 
 /// Capability to convert a key into an element index.
 pub trait Key {
+    /// Convert the key `self` to a `usize` index.
     fn find<M: Miniconf>(self) -> core::option::Option<usize>;
 }
 
@@ -155,6 +161,7 @@ impl Key for &str {
 
 /// Trait exposing serialization/deserialization of elements by path and traversal by path/indices.
 pub trait Miniconf {
+    /// Convert a name key to an index.
     fn name_to_index(value: &str) -> core::option::Option<usize>;
 
     /// Deserialize an element by path.
