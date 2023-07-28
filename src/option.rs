@@ -88,7 +88,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         None
     }
 
-    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, P, D>(&mut self, keys: P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
@@ -101,7 +101,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<P, S>(&self, keys: P, ser: S) -> Result<S::Error>
     where
         P: Iterator,
         S: serde::Serializer,
@@ -118,7 +118,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn traverse_by_key<P, F, E>(indices: &mut P, func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(indices: P, func: F) -> Result<E>
     where
         P: Iterator,
         P::Item: Key,
@@ -133,7 +133,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         None
     }
 
-    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, P, D>(&mut self, mut keys: P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
@@ -151,7 +151,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<P, S>(&self, mut keys: P, ser: S) -> Result<S::Error>
     where
         P: Iterator,
         S: serde::Serializer,
@@ -176,7 +176,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn traverse_by_key<P, F, E>(_keys: &mut P, mut func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(_keys: P, mut func: F) -> Result<E>
     where
         P: Iterator,
         P::Item: Key,

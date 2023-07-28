@@ -182,7 +182,7 @@ fn derive_struct(
                 <#ident #ty_generics_orig>::NAMES.iter().position(|&n| n == value)
             }
 
-            fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> miniconf::Result<D::Error>
+            fn set_by_key<'a, P, D>(&mut self, mut keys: P, de: D) -> miniconf::Result<D::Error>
             where
                 P: Iterator,
                 D: miniconf::serde::Deserializer<'a>,
@@ -196,7 +196,7 @@ fn derive_struct(
                 }
             }
 
-            fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> miniconf::Result<S::Error>
+            fn get_by_key<P, S>(&self, mut keys: P, ser: S) -> miniconf::Result<S::Error>
             where
                 P: Iterator,
                 S: miniconf::serde::Serializer,
@@ -232,7 +232,7 @@ fn derive_struct(
             }
 
             fn traverse_by_key<P, F, E>(
-                keys: &mut P,
+                mut keys: P,
                 mut func: F,
             ) -> miniconf::Result<E>
             where

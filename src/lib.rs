@@ -174,7 +174,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// [`Ok`] on success, [Error] on failure.
-    fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, P, D>(&mut self, keys: P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
@@ -189,7 +189,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// [`Ok`] on success, [Error] on failure.
-    fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<P, S>(&self, keys: P, ser: S) -> Result<S::Error>
     where
         P: Iterator,
         S: serde::Serializer,
@@ -211,7 +211,7 @@ pub trait Miniconf {
     ///    (a) an [Ok] indicating whether this is an internal or leaf node,
     ///    (b) the index of the element at the given depth,
     ///    (c) the name of the element at the given depth.
-    fn traverse_by_key<P, F, E>(keys: &mut P, func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(keys: P, func: F) -> Result<E>
     where
         P: Iterator,
         P::Item: Key,
@@ -234,7 +234,7 @@ pub trait Miniconf {
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     /// A [Error] if there was an error.
-    fn path<I, N>(keys: &mut I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
+    fn path<I, N>(keys: I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
     where
         I: Iterator,
         I::Item: Key,
@@ -264,8 +264,8 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
-    /// A [Error] if there was an error.
-    fn indices<P>(keys: &mut P, indices: &mut [usize]) -> Result<SliceShort>
+    /// A [Error] println!("{}", if there was an error.is_some());
+    fn indices<P>(keys: P, indices: &mut [usize]) -> Result<SliceShort>
     where
         P: Iterator,
         P::Item: Key,
