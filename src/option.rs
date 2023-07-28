@@ -88,11 +88,11 @@ impl<T: Miniconf> Miniconf for Option<T> {
         None
     }
 
-    fn set_by_key<'a, P, D>(&mut self, keys: P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator,
+        K: Iterator,
+        K::Item: Key,
         D: serde::Deserializer<'a>,
-        P::Item: Key,
     {
         if let Some(inner) = self.0.as_mut() {
             inner.set_by_key(keys, de)
@@ -101,11 +101,11 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_by_key<P, S>(&self, keys: P, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Error>
     where
-        P: Iterator,
+        K: Iterator,
+        K::Item: Key,
         S: serde::Serializer,
-        P::Item: Key,
     {
         if let Some(inner) = self.0.as_ref() {
             inner.get_by_key(keys, ser)
@@ -118,13 +118,13 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn traverse_by_key<P, F, E>(indices: P, func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
     where
-        P: Iterator,
-        P::Item: Key,
+        K: Iterator,
+        K::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
-        T::traverse_by_key(indices, func)
+        T::traverse_by_key(keys, func)
     }
 }
 
@@ -133,11 +133,10 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         None
     }
 
-    fn set_by_key<'a, P, D>(&mut self, mut keys: P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator,
+        K: Iterator,
         D: serde::Deserializer<'a>,
-        P::Item: Key,
     {
         if keys.next().is_some() {
             return Err(Error::TooLong(0));
@@ -151,11 +150,10 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn get_by_key<P, S>(&self, mut keys: P, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
     where
-        P: Iterator,
+        K: Iterator,
         S: serde::Serializer,
-        P::Item: Key,
     {
         if keys.next().is_some() {
             return Err(Error::TooLong(0));
@@ -176,10 +174,8 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn traverse_by_key<P, F, E>(_keys: P, mut func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(_keys: K, mut func: F) -> Result<E>
     where
-        P: Iterator,
-        P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         func(Ok::Leaf(0), 0, "")?;

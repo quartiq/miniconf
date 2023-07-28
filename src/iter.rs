@@ -59,7 +59,7 @@ where
         let mut path = Self::Item::default();
 
         loop {
-            return match M::path(&mut self.state.iter().copied(), &mut path, self.separator) {
+            return match M::path(self.state.iter().copied(), &mut path, self.separator) {
                 // Not having consumed any name/index, the only possible case here is a bare option.
                 // And that can not return `NotFound`.
                 Err(Error::NotFound(0)) => unreachable!(),

@@ -149,7 +149,7 @@ pub trait Key {
 }
 
 impl Key for usize {
-    fn find<M: Miniconf>(self) -> core::option::Option<usize> {
+    fn find<M>(self) -> core::option::Option<usize> {
         Some(self)
     }
 }
@@ -174,11 +174,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// [`Ok`] on success, [Error] on failure.
-    fn set_by_key<'a, P, D>(&mut self, keys: P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator,
-        D: serde::Deserializer<'a>,
-        P::Item: Key;
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>;
 
     /// Serialize an element by key.
     ///
@@ -189,11 +189,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// [`Ok`] on success, [Error] on failure.
-    fn get_by_key<P, S>(&self, keys: P, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Error>
     where
-        P: Iterator,
-        S: serde::Serializer,
-        P::Item: Key;
+        K: Iterator,
+        K::Item: Key,
+        S: serde::Serializer;
 
     /// Call `func` for each element on the path described by a key.
     ///
@@ -211,16 +211,18 @@ pub trait Miniconf {
     ///    (a) an [Ok] indicating whether this is an internal or leaf node,
     ///    (b) the index of the element at the given depth,
     ///    (c) the name of the element at the given depth.
-    fn traverse_by_key<P, F, E>(keys: P, func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
     where
-        P: Iterator,
-        P::Item: Key,
+        K: Iterator,
+        K::Item: Key,
+        // Writing this to return an iterator instead would have worse performance (O(n^2))
+        // than the callback (O(n))
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
 
-    /// Convert indices to path.
+    /// Convert keys to path.
     ///
     /// This is usually not called directly but through a [PathIter] returned by [Miniconf::iter_paths].
     ///
@@ -234,11 +236,11 @@ pub trait Miniconf {
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     /// A [Error] if there was an error.
-    fn path<I, N>(keys: I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
+    fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<core::fmt::Error>
     where
-        I: Iterator,
-        I::Item: Key,
-        N: core::fmt::Write,
+        K: Iterator,
+        K::Item: Key,
+        P: core::fmt::Write,
     {
         Self::traverse_by_key(keys, |ok, _index, name| {
             if ok == Ok::Leaf(0) {
@@ -249,26 +251,26 @@ pub trait Miniconf {
         })
     }
 
-    /// Convert `path` to `indices`.
+    /// Convert keys to `indices`.
     ///
-    /// This determines the `indices` of the item specified by `path`.
+    /// This determines the `indices` of the item specified by `keys`.
     ///
     /// See also [`Miniconf::path()`] for the analogous function.
     ///
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     ///
     /// # Args
-    /// * `keys`: An key iterator of path elements.
+    /// * `keys`: An key iterator of keys.
     /// * `indices`: A slice to write the element indices into.
     ///   The slice needs to be at least as long as the maximum path depth ([Metadata]).
     ///
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     /// A [Error] println!("{}", if there was an error.is_some());
-    fn indices<P>(keys: P, indices: &mut [usize]) -> Result<SliceShort>
+    fn indices<K>(keys: K, indices: &mut [usize]) -> Result<SliceShort>
     where
-        P: Iterator,
-        P::Item: Key,
+        K: Iterator,
+        K::Item: Key,
     {
         let mut depth = 0;
         Self::traverse_by_key(keys, |ok, index, _name| {

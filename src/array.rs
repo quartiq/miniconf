@@ -111,11 +111,11 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         value.parse().ok()
     }
 
-    fn set_by_key<'a, P, D>(&mut self, mut keys: P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator,
+        K: Iterator,
+        K::Item: Key,
         D: serde::Deserializer<'a>,
-        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
         let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
@@ -123,11 +123,11 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         item.set_by_key(keys, de).increment()
     }
 
-    fn get_by_key<P, S>(&self, mut keys: P, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
     where
-        P: Iterator,
+        K: Iterator,
+        K::Item: Key,
         S: serde::Serializer,
-        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
         let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
@@ -145,10 +145,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         meta
     }
 
-    fn traverse_by_key<P, F, E>(mut keys: P, mut func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<E>
     where
-        P: Iterator,
-        P::Item: Key,
+        K: Iterator,
+        K::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match keys.next() {
@@ -171,11 +171,11 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         value.parse().ok()
     }
 
-    fn set_by_key<'a, P, D>(&mut self, mut keys: P, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
     where
-        P: Iterator,
+        K: Iterator,
+        K::Item: Key,
         D: serde::Deserializer<'a>,
-        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
         if keys.next().is_some() {
@@ -187,11 +187,11 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         Ok(Ok::Leaf(1))
     }
 
-    fn get_by_key<P, S>(&self, mut keys: P, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
     where
-        P: Iterator,
+        K: Iterator,
+        K::Item: Key,
         S: serde::Serializer,
-        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
         if keys.next().is_some() {
@@ -203,10 +203,10 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         Ok(Ok::Leaf(1))
     }
 
-    fn traverse_by_key<P, F, E>(mut keys: P, mut func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<E>
     where
-        P: Iterator,
-        P::Item: Key,
+        K: Iterator,
+        K::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match keys.next() {

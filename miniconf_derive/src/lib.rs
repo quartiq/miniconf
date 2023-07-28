@@ -182,11 +182,11 @@ fn derive_struct(
                 <#ident #ty_generics_orig>::NAMES.iter().position(|&n| n == value)
             }
 
-            fn set_by_key<'a, P, D>(&mut self, mut keys: P, de: D) -> miniconf::Result<D::Error>
+            fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> miniconf::Result<D::Error>
             where
-                P: Iterator,
+                K: Iterator,
+                K::Item: miniconf::Key,
                 D: miniconf::serde::Deserializer<'a>,
-                P::Item: miniconf::Key,
             {
                 let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
                 let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
@@ -196,11 +196,11 @@ fn derive_struct(
                 }
             }
 
-            fn get_by_key<P, S>(&self, mut keys: P, ser: S) -> miniconf::Result<S::Error>
+            fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> miniconf::Result<S::Error>
             where
-                P: Iterator,
+                K: Iterator,
+                K::Item: miniconf::Key,
                 S: miniconf::serde::Serializer,
-                P::Item: miniconf::Key,
             {
                 let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
                 let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
@@ -231,13 +231,13 @@ fn derive_struct(
                 meta
             }
 
-            fn traverse_by_key<P, F, E>(
-                mut keys: P,
+            fn traverse_by_key<K, F, E>(
+                mut keys: K,
                 mut func: F,
             ) -> miniconf::Result<E>
             where
-                P: Iterator,
-                P::Item: miniconf::Key,
+                K: Iterator,
+                K::Item: miniconf::Key,
                 F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
             {
                 match keys.next() {
