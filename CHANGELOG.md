@@ -8,16 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* Traversal by names or indices has been added through `Miniconf::traverse_by_{index,path}()`.
-* `Miniconf::{set,get}_by_index()` have been added to support deserialization/serialization
-  of individual elements by their graph indices.
+* Traversal by names or indices has been added through `Miniconf::traverse_by_key()`.
 
 ### Changed
 
 * [breaking] The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
   doesn't enforce `serde-json-core` or `u8` buffers or `/` as the path hierarchy
   separator anymore.
-* [breaking] `Iter` and `Miniconf::iter_paths()` take the path hierarchy separator and passes
+* [breaking] `Miniconf::iter_paths()` takes the path hierarchy separator and passes
   it on to `Miniconf::path()` and `Metadata::separator()`.
 * [breaking] The `Miniconf` trait has been stripped of the provided functions that depended
   on the `serde`-backend and path hierarchy separator. Those have been
@@ -33,13 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `set()` and `get()` have been renamed to `set_json()` and `get_json()` respectively to
   avoid overlap.
 * The path iterator does not need to be `Peekable` anymore.
-* [breaking] `iter_paths`/`Iter` is now generic over the type
+* [breaking] `iter_paths`/`PathIter` is now generic over the type
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
-  `iter_paths::<L, heapless::String<TS>>()`.
+  e.g. `iter_paths::<L, heapless::String<TS>>()`.
 * [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they are
   not needed to work with the public API.
 * [breaking] Metadata is now computed by default without taking account path separators.
-  These can be included using [Metadata::separator()].
+  These can be included using `Metadata::separator()`.
+* The main serialization/deserialization methods are now `Miniconf::{set,get}_by_key()`
+  They are generic over the key iterator `Iterator<Item: miniconf::Key>`.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 

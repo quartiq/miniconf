@@ -1,4 +1,4 @@
-use crate::{Error, Increment, Metadata, Miniconf, Ok, Result, ToIndex};
+use crate::{Error, Increment, Key, Metadata, Miniconf, Ok, Result};
 use core::ops::{Deref, DerefMut};
 
 /// An array that exposes each element through their [`Miniconf`] implementation.
@@ -107,16 +107,18 @@ const fn digits(x: usize) -> usize {
 }
 
 impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
-    const NAMES: &'static [&'static str] = &[];
+    fn name_to_index(value: &str) -> core::option::Option<usize> {
+        value.parse().ok()
+    }
 
     fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
-        let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
         item.set_by_key(keys, de).increment()
     }
@@ -125,10 +127,10 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     where
         P: Iterator,
         S: serde::Serializer,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
-        let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.0.get(index).ok_or(Error::NotFound(1))?;
         item.get_by_key(keys, ser).increment()
     }
@@ -146,13 +148,13 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     fn traverse_by_key<P, F, E>(keys: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator,
-        P::Item: ToIndex,
+        P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match keys.next() {
             None => Ok(Ok::Internal(0)),
             Some(key) => {
-                let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+                let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
                 if index < N {
                     func(Ok::Internal(1), index, itoa::Buffer::new().format(index))?;
                     T::traverse_by_key(keys, func).increment()
@@ -165,19 +167,21 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
-    const NAMES: &'static [&'static str] = &[];
+    fn name_to_index(value: &str) -> core::option::Option<usize> {
+        value.parse().ok()
+    }
 
     fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
         if keys.next().is_some() {
             return Err(Error::TooLong(1));
         }
-        let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+        let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         *item = serde::Deserialize::deserialize(de)?;
         Ok(Ok::Leaf(1))
@@ -187,13 +191,13 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
     where
         P: Iterator,
         S: serde::Serializer,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         let key = keys.next().ok_or(Error::Internal(0))?;
         if keys.next().is_some() {
             return Err(Error::TooLong(1));
         }
-        let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         serde::Serialize::serialize(item, ser)?;
         Ok(Ok::Leaf(1))
@@ -202,13 +206,13 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
     fn traverse_by_key<P, F, E>(keys: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator,
-        P::Item: ToIndex,
+        P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         match keys.next() {
             None => Ok(Ok::Internal(0)),
             Some(key) => {
-                let index: usize = key.parse().ok_or(Error::NotFound(1))?;
+                let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
                 if index < N {
                     func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))
                         .map_err(|e| Error::Inner(e))?;

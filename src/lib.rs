@@ -136,35 +136,26 @@ impl Metadata {
     }
 }
 
-pub trait ToIndex {
+/// Capability to convert a key into an element index.
+pub trait Key {
     fn find<M: Miniconf>(self) -> core::option::Option<usize>;
-    fn parse(self) -> core::option::Option<usize>;
 }
 
-impl ToIndex for usize {
+impl Key for usize {
     fn find<M: Miniconf>(self) -> core::option::Option<usize> {
         Some(self)
     }
-    fn parse(self) -> core::option::Option<usize> {
-        Some(self)
-    }
 }
 
-impl ToIndex for &str {
+impl Key for &str {
     fn find<M: Miniconf>(self) -> core::option::Option<usize> {
         M::name_to_index(self)
-    }
-    fn parse(self) -> core::option::Option<usize> {
-        self.parse::<usize>().ok()
     }
 }
 
 /// Trait exposing serialization/deserialization of elements by path and traversal by path/indices.
 pub trait Miniconf {
-    const NAMES: &'static [&'static str];
-    fn name_to_index(value: &str) -> core::option::Option<usize> {
-        Self::NAMES.iter().position(|&n| n == value)
-    }
+    fn name_to_index(value: &str) -> core::option::Option<usize>;
 
     /// Deserialize an element by path.
     ///
@@ -178,7 +169,7 @@ pub trait Miniconf {
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
-        P::Item: ToIndex;
+        P::Item: Key;
 
     /// Serialize an element by path.
     ///
@@ -188,11 +179,11 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// May return an [Error].
-    fn get_by_key<'a, P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
+    fn get_by_key<P, S>(&self, keys: &mut P, ser: S) -> Result<S::Error>
     where
         P: Iterator,
         S: serde::Serializer,
-        P::Item: ToIndex;
+        P::Item: Key;
 
     /// Call `func` for each element on a path.
     ///
@@ -204,10 +195,10 @@ pub trait Miniconf {
     ///    (a) an [Ok] indicating whether this is an internal or leaf node,
     ///    (b) the index of the element at the given depth,
     ///    (c) the name of the element at the given depth.
-    fn traverse_by_key<'a, P, F, E>(keys: &mut P, func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(keys: &mut P, func: F) -> Result<E>
     where
         P: Iterator,
-        P::Item: ToIndex,
+        P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
 
     /// Get metadata about the paths in the namespace.

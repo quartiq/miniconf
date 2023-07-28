@@ -1,4 +1,4 @@
-use crate::{Error, Metadata, Miniconf, Ok, Result, ToIndex};
+use crate::{Error, Key, Metadata, Miniconf, Ok, Result};
 use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
@@ -84,13 +84,15 @@ impl<T> From<Option<T>> for core::option::Option<T> {
 }
 
 impl<T: Miniconf> Miniconf for Option<T> {
-    const NAMES: &'static [&'static str] = &[];
+    fn name_to_index(_value: &str) -> core::option::Option<usize> {
+        None
+    }
 
     fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         if let Some(inner) = self.0.as_mut() {
             inner.set_by_key(keys, de)
@@ -103,7 +105,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     where
         P: Iterator,
         S: serde::Serializer,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         if let Some(inner) = self.0.as_ref() {
             inner.get_by_key(keys, ser)
@@ -119,7 +121,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     fn traverse_by_key<P, F, E>(indices: &mut P, func: F) -> Result<E>
     where
         P: Iterator,
-        P::Item: ToIndex,
+        P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         T::traverse_by_key(indices, func)
@@ -127,13 +129,15 @@ impl<T: Miniconf> Miniconf for Option<T> {
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
-    const NAMES: &'static [&'static str] = &[];
+    fn name_to_index(_value: &str) -> core::option::Option<usize> {
+        None
+    }
 
     fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> Result<D::Error>
     where
         P: Iterator,
         D: serde::Deserializer<'a>,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         if keys.next().is_some() {
             return Err(Error::TooLong(0));
@@ -151,7 +155,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
     where
         P: Iterator,
         S: serde::Serializer,
-        P::Item: ToIndex,
+        P::Item: Key,
     {
         if keys.next().is_some() {
             return Err(Error::TooLong(0));
@@ -175,7 +179,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
     fn traverse_by_key<P, F, E>(_keys: &mut P, _func: F) -> Result<E>
     where
         P: Iterator,
-        P::Item: ToIndex,
+        P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
         Ok(Ok::Leaf(0))

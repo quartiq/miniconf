@@ -180,16 +180,18 @@ fn derive_struct(
         }
 
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
-            const NAMES: &'static [&'static str] = &<#ident #ty_generics_orig>::NAMES;
+            fn name_to_index(value: &str) -> Option<usize> {
+                <#ident #ty_generics_orig>::NAMES.iter().position(|&n| n == value)
+            }
 
             fn set_by_key<'a, P, D>(&mut self, keys: &mut P, de: D) -> miniconf::Result<D::Error>
             where
                 P: Iterator,
                 D: miniconf::serde::Deserializer<'a>,
-                P::Item: miniconf::ToIndex,
+                P::Item: miniconf::Key,
             {
                 let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
-                let index = miniconf::ToIndex::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
                 match index {
                     #(#set_by_key_arms ,)*
                     _ => Err(miniconf::Error::NotFound(1)),
@@ -200,10 +202,10 @@ fn derive_struct(
             where
                 P: Iterator,
                 S: miniconf::serde::Serializer,
-                P::Item: miniconf::ToIndex,
+                P::Item: miniconf::Key,
             {
                 let key = keys.next().ok_or(miniconf::Error::Internal(0))?;
-                let index = miniconf::ToIndex::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
                 match index {
                     #(#get_by_key_arms ,)*
                     _ => Err(miniconf::Error::NotFound(1))
@@ -237,13 +239,13 @@ fn derive_struct(
             ) -> miniconf::Result<E>
             where
                 P: Iterator,
-                P::Item: miniconf::ToIndex,
+                P::Item: miniconf::Key,
                 F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
             {
                 match keys.next() {
                     None => Ok(miniconf::Ok::Internal(0)),
                     Some(key) => {
-                        let index = miniconf::ToIndex::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                        let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
                         match index {
                             #(#traverse_by_key_arms ,)*
                             _ => Err(miniconf::Error::NotFound(1)),
