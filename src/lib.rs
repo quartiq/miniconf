@@ -225,21 +225,22 @@ pub trait Miniconf {
     /// This is usually not called directly but through a [PathIter] returned by [Miniconf::iter_paths].
     ///
     /// # Args
-    /// * `indices`: A state slice indicating the path to be retrieved.
-    ///   An empty vector indicates the root.
-    ///   A zeroed vector indicates the first path.
+    /// * `keys`: A key iterator indicating the path to be retrieved.
+    ///   An empty iterator indicates the root.
+    ///   An iterator yielding zeros indicates the first path.
     /// * `path`: A string to write the path into.
     /// * `sep`: The path hierarchy separator. It is inserted before each name.
     ///
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     /// A [Error] if there was an error.
-    fn path<I, N>(indices: &mut I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
+    fn path<I, N>(keys: &mut I, path: &mut N, sep: &str) -> Result<core::fmt::Error>
     where
-        I: Iterator<Item = usize>,
+        I: Iterator,
+        I::Item: Key,
         N: core::fmt::Write,
     {
-        Self::traverse_by_key(indices, |ok, _index, name| {
+        Self::traverse_by_key(keys, |ok, _index, name| {
             if ok == Ok::Leaf(0) {
                 Ok(())
             } else {
@@ -257,19 +258,20 @@ pub trait Miniconf {
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     ///
     /// # Args
-    /// * `names`: An iterator of path elements.
+    /// * `keys`: An key iterator of path elements.
     /// * `indices`: A slice to write the element indices into.
     ///   The slice needs to be at least as long as the maximum path depth ([Metadata]).
     ///
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final depth of the valid path.
     /// A [Error] if there was an error.
-    fn indices<'a, P>(names: &mut P, indices: &mut [usize]) -> Result<SliceShort>
+    fn indices<P>(keys: &mut P, indices: &mut [usize]) -> Result<SliceShort>
     where
-        P: Iterator<Item = &'a str>,
+        P: Iterator,
+        P::Item: Key,
     {
         let mut depth = 0;
-        Self::traverse_by_key(names, |ok, index, _name| {
+        Self::traverse_by_key(keys, |ok, index, _name| {
             if ok == Ok::Leaf(0) {
                 Ok(())
             } else if indices.len() < depth {
