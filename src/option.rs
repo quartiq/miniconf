@@ -176,12 +176,13 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn traverse_by_key<P, F, E>(_keys: &mut P, _func: F) -> Result<E>
+    fn traverse_by_key<P, F, E>(_keys: &mut P, mut func: F) -> Result<E>
     where
         P: Iterator,
         P::Item: Key,
         F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
     {
+        func(Ok::Leaf(0), 0, "")?;
         Ok(Ok::Leaf(0))
     }
 }
