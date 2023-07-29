@@ -14,11 +14,7 @@ pub trait JsonCoreSlash: Miniconf {
     ///
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
-    fn set_json(
-        &mut self,
-        path: &str,
-        data: &[u8],
-    ) -> core::result::Result<usize, Error<de::Error>>;
+    fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>>;
 
     /// Retrieve a serialized value by path.
     ///
@@ -28,11 +24,7 @@ pub trait JsonCoreSlash: Miniconf {
     ///
     /// # Returns
     /// The number of bytes used in the `data` buffer or an [Error].
-    fn get_json(
-        &self,
-        path: &str,
-        data: &mut [u8],
-    ) -> core::result::Result<usize, Error<ser::Error>>;
+    fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>>;
 
     /// Update an element by indices.
     ///
@@ -46,7 +38,7 @@ pub trait JsonCoreSlash: Miniconf {
         &mut self,
         indices: &[usize],
         data: &[u8],
-    ) -> core::result::Result<usize, Error<de::Error>>;
+    ) -> Result<usize, Error<de::Error>>;
 
     /// Retrieve a serialized value by indices.
     ///
@@ -60,7 +52,7 @@ pub trait JsonCoreSlash: Miniconf {
         &self,
         indices: &[usize],
         data: &mut [u8],
-    ) -> core::result::Result<usize, Error<ser::Error>>;
+    ) -> Result<usize, Error<ser::Error>>;
 }
 
 impl<T: Miniconf> JsonCoreSlash for T {

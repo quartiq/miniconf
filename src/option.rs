@@ -1,4 +1,4 @@
-use crate::{Error, Key, Metadata, Miniconf, Ok, Result};
+use crate::{Error, Key, Metadata, Miniconf};
 use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
@@ -83,12 +83,13 @@ impl<T> From<Option<T>> for core::option::Option<T> {
     }
 }
 
+// This overrides the impl on core::option::Option through Deref
 impl<T: Miniconf> Miniconf for Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }
 
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,
@@ -101,7 +102,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         K::Item: Key,
@@ -118,11 +119,11 @@ impl<T: Miniconf> Miniconf for Option<T> {
         T::metadata()
     }
 
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(bool, usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(bool, usize, &str) -> Result<(), E>,
     {
         T::traverse_by_key(keys, func)
     }
@@ -133,7 +134,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         None
     }
 
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         D: serde::Deserializer<'a>,
@@ -144,13 +145,13 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
 
         if let Some(inner) = self.as_mut() {
             *inner = serde::Deserialize::deserialize(de)?;
-            Ok(Ok::Leaf(0))
+            Ok(0)
         } else {
             Err(Error::Absent(0))
         }
     }
 
-    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         S: serde::Serializer,
@@ -161,7 +162,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
 
         if let Some(inner) = self.as_ref() {
             serde::Serialize::serialize(inner, ser)?;
-            Ok(Ok::Leaf(0))
+            Ok(0)
         } else {
             Err(Error::Absent(0))
         }
@@ -174,10 +175,10 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<E>
+    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
     where
-        F: FnMut(bool, usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(bool, usize, &str) -> Result<(), E>,
     {
-        Ok(Ok::Leaf(0))
+        Ok(0)
     }
 }

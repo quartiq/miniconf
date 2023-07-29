@@ -25,7 +25,7 @@ fn slice_short() {
     // Ensure that we can't iterate if we make a state vector that is too small.
     assert_eq!(
         Settings::iter_paths::<1, String>(""),
-        Err(miniconf::Error::Inner(miniconf::SliceShort))
+        Err(miniconf::SliceShort)
     );
 }
 
