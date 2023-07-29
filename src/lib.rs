@@ -252,9 +252,8 @@ pub trait Miniconf {
         K::Item: Key,
         P: core::fmt::Write,
     {
-        Self::traverse_by_key(keys, |ok, _index, name| match ok {
-            Ok::Leaf(1) | Ok::Internal(1) => path.write_str(sep).and_then(|_| path.write_str(name)),
-            _ => unreachable!(),
+        Self::traverse_by_key(keys, |_ok, _index, name| {
+            path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
 
@@ -280,17 +279,14 @@ pub trait Miniconf {
         K::Item: Key,
     {
         let mut depth = 0;
-        Self::traverse_by_key(keys, |ok, index, _name| match ok {
-            Ok::Leaf(1) | Ok::Internal(1) => {
-                if indices.len() < depth {
-                    Err(SliceShort)
-                } else {
-                    indices[depth] = index;
-                    depth += 1;
-                    Ok(())
-                }
+        Self::traverse_by_key(keys, |_ok, index, _name| {
+            if indices.len() < depth {
+                Err(SliceShort)
+            } else {
+                indices[depth] = index;
+                depth += 1;
+                Ok(())
             }
-            _ => unreachable!(),
         })
     }
 

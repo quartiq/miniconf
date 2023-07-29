@@ -35,10 +35,10 @@ fn next_path() {
 fn traverse_empty() {
     #[derive(Miniconf, Default)]
     struct S {}
-    let f = |_, _, _: &_| Ok::<(), ()>(());
+    let f = |_, _, _: &_| unreachable!();
     assert_eq!(
         S::traverse_by_key([0].iter().copied(), f),
-        Err(miniconf::Error::NotFound(1))
+        Err(miniconf::Error::<()>::NotFound(1))
     );
     assert_eq!(
         S::traverse_by_key([].iter().copied::<usize>(), f),
