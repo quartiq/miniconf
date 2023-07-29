@@ -97,7 +97,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = <#field_type>::metadata();
-                meta.max_length += Self::FIELD_NAMES[#i].len();
+                meta.max_length += Self::__MINICONF_FIELD_NAMES[#i].len();
                 meta.max_depth += 1;
                 meta
             }
@@ -106,7 +106,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
         quote! {
             #i => {
                 let mut meta = miniconf::Metadata::default();
-                meta.max_length = Self::FIELD_NAMES[#i].len();
+                meta.max_length = Self::__MINICONF_FIELD_NAMES[#i].len();
                 meta.max_depth = 1;
                 meta.count = 1;
                 meta
@@ -121,7 +121,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     if struct_field.defer {
         quote! {
             #i => {
-                func(miniconf::Ok::Internal(1), #i, Self::FIELD_NAMES[#i])?;
+                func(miniconf::Ok::Internal(1), #i, Self::__MINICONF_FIELD_NAMES[#i])?;
                 let r = <#field_type>::traverse_by_key(keys, func);
                 miniconf::Increment::increment(r)
             }
@@ -129,7 +129,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     } else {
         quote! {
             #i => {
-                func(miniconf::Ok::Leaf(1), #i, Self::FIELD_NAMES[#i])?;
+                func(miniconf::Ok::Leaf(1), #i, Self::__MINICONF_FIELD_NAMES[#i])?;
                 Ok(miniconf::Ok::Leaf(1))
             }
         }
@@ -170,16 +170,16 @@ fn derive_struct(
     let n = fields.len();
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let (impl_generics_orig, ty_generics_orig, where_clause_orig) = orig_generics.split_for_impl();
+    let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
 
     quote! {
-        impl #impl_generics_orig #ident #ty_generics_orig #where_clause_orig {
-            const FIELD_NAMES: [&str; #n] = [#(#names ,)*];
+        impl #impl_generics_orig #ident #ty_generics_orig {
+            const __MINICONF_FIELD_NAMES: [&str; #n] = [#(#names ,)*];
         }
 
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
-                <#ident #ty_generics_orig>::FIELD_NAMES.iter().position(|&n| n == value)
+                <#ident #ty_generics_orig>::__MINICONF_FIELD_NAMES.iter().position(|&n| n == value)
             }
 
             fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> miniconf::Result<D::Error>
