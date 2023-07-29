@@ -248,11 +248,11 @@ pub trait Miniconf {
     /// A [Error] if there was an error.
     fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<core::fmt::Error>
     where
-        K: Iterator,
+        K: IntoIterator,
         K::Item: Key,
         P: core::fmt::Write,
     {
-        Self::traverse_by_key(keys, |_ok, _index, name| {
+        Self::traverse_by_key(keys.into_iter(), |_ok, _index, name| {
             path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
@@ -273,13 +273,14 @@ pub trait Miniconf {
     /// # Returns
     /// A [Ok] where the `usize` member indicates the final deph of indices written.
     /// A [Error] if there was an error
-    fn indices<'a, K, I>(keys: K, mut indices: I) -> Result<SliceShort>
+    fn indices<'a, K, I>(keys: K, indices: I) -> Result<SliceShort>
     where
-        K: Iterator,
+        K: IntoIterator,
         K::Item: Key,
-        I: Iterator<Item = &'a mut usize>,
+        I: IntoIterator<Item = &'a mut usize>,
     {
-        Self::traverse_by_key(keys, |_ok, index, _name| {
+        let mut indices = indices.into_iter();
+        Self::traverse_by_key(keys.into_iter(), |_ok, index, _name| {
             let idx = indices.next().ok_or(SliceShort)?;
             *idx = index;
             Ok(())
