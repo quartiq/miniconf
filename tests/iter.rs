@@ -36,7 +36,7 @@ fn struct_iter() {
         .unwrap()
         .zip(&mut paths)
     {
-        assert_eq!(have, expect);
+        assert_eq!(have.unwrap(), expect);
     }
     // Ensure that all fields were iterated.
     assert_eq!(paths.next(), None);
@@ -60,6 +60,7 @@ fn array_iter() {
     let mut s = Settings::default();
 
     for field in Settings::iter_paths::<4, String>("/").unwrap() {
+        let field = field.unwrap();
         s.set_json(&field, b"true").unwrap();
         let mut buf = [0; 32];
         let len = s.get_json(&field, &mut buf).unwrap();

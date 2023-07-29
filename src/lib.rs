@@ -301,19 +301,14 @@ pub trait Miniconf {
     ///
     /// See also [Miniconf::iter_paths].
     ///
-    /// # Panic
-    /// `L` must be sufficiently large to hold the iterator state.
-    /// While this function will not panic itself, calling `Iterator::next()` on its
-    /// return value may.
-    ///
     /// # Generics
-    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `P`  - The type to hold the path.
+    /// * `L`  - The maximum depth of the path, i.e. the number of separators.
+    /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write`.
     ///
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn unchecked_iter_paths<const L: usize, P>(separator: &str) -> PathIter<'_, Self, L, P> {
+    fn iter_paths_unchecked<const L: usize, P>(separator: &str) -> PathIter<'_, Self, L, P> {
         PathIter::new_unchecked(separator)
     }
 }

@@ -27,7 +27,7 @@ pub struct PathIter<'a, M: ?Sized, const L: usize, P> {
 }
 
 impl<'a, M: Miniconf + ?Sized, const L: usize, P> PathIter<'a, M, L, P> {
-    pub(crate) fn new(separator: &'a str) -> core::result::Result<Self, SliceShort> {
+    pub(crate) fn new(separator: &'a str) -> Result<Self, SliceShort> {
         let meta = M::metadata();
         if L < meta.max_depth {
             return Err(SliceShort);
@@ -53,10 +53,10 @@ where
     M: Miniconf + ?Sized,
     P: Write + Default,
 {
-    type Item = P;
+    type Item = Result<P, Error<core::fmt::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut path = Self::Item::default();
+        let mut path = P::default();
 
         loop {
             return match M::path(self.state, &mut path, self.separator) {
@@ -71,7 +71,7 @@ where
                 // Node not found at depth: reset current index, increment parent index,
                 // then retry path()
                 Err(Error::NotFound(depth)) => {
-                    path = Self::Item::default();
+                    path = P::default();
                     self.state[depth - 1] = 0;
                     self.state[depth - 2] += 1;
                     continue;
@@ -85,18 +85,17 @@ where
                     } else {
                         debug_assert_eq!(self.count.unwrap_or(1), 1);
                         self.count = Some(0);
-                        Some(path)
+                        Some(Ok(path))
                     }
                 }
                 // Non-root leaf: advance index at current depth
                 Ok(depth) => {
                     self.count = self.count.map(|c| c - 1);
                     self.state[depth - 1] += 1;
-                    Some(path)
+                    Some(Ok(path))
                 }
                 // If we end at a leaf node, the state array is too small.
-                Err(Error::TooShort(_depth)) => panic!("Path iteration state too small"),
-                Err(Error::Inner(e @ core::fmt::Error)) => panic!("Path write error: {e:?}"),
+                Err(e @ (Error::TooShort(_) | Error::Inner(_))) => Some(Err(e)),
                 _ => unreachable!(),
             };
         }
