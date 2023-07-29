@@ -1,4 +1,4 @@
-#![cfg(features = "mqtt-client")]
+#![cfg(feature = "mqtt-client")]
 
 use machine::*;
 use miniconf::{
