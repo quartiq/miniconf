@@ -148,13 +148,23 @@ pub trait Key {
     fn find<M: Miniconf>(self) -> core::option::Option<usize>;
 }
 
-impl Key for usize {
-    fn find<M>(self) -> core::option::Option<usize> {
-        Some(self)
+macro_rules! key_integer {
+    ($($ty:ident)+) => {
+        $(
+            impl Key for $ty {
+                #[inline]
+                fn find<M>(self) -> core::option::Option<usize> {
+                    Some(self as _)
+                }
+            }
+        )+
     }
 }
 
+key_integer!(usize u8 u16 u32 u64 isize i8 i16 i32 i64);
+
 impl Key for &str {
+    #[inline]
     fn find<M: Miniconf>(self) -> core::option::Option<usize> {
         M::name_to_index(self)
     }
@@ -242,12 +252,9 @@ pub trait Miniconf {
         K::Item: Key,
         P: core::fmt::Write,
     {
-        Self::traverse_by_key(keys, |ok, _index, name| {
-            if ok == Ok::Leaf(0) {
-                Ok(())
-            } else {
-                path.write_str(sep).and_then(|_| path.write_str(name))
-            }
+        Self::traverse_by_key(keys, |ok, _index, name| match ok {
+            Ok::Leaf(1) | Ok::Internal(1) => path.write_str(sep).and_then(|_| path.write_str(name)),
+            _ => unreachable!(),
         })
     }
 
@@ -273,16 +280,17 @@ pub trait Miniconf {
         K::Item: Key,
     {
         let mut depth = 0;
-        Self::traverse_by_key(keys, |ok, index, _name| {
-            if ok == Ok::Leaf(0) {
-                Ok(())
-            } else if indices.len() < depth {
-                Err(SliceShort)
-            } else {
-                indices[depth] = index;
-                depth += 1;
-                Ok(())
+        Self::traverse_by_key(keys, |ok, index, _name| match ok {
+            Ok::Leaf(1) | Ok::Internal(1) => {
+                if indices.len() < depth {
+                    Err(SliceShort)
+                } else {
+                    indices[depth] = index;
+                    depth += 1;
+                    Ok(())
+                }
             }
+            _ => unreachable!(),
         })
     }
 

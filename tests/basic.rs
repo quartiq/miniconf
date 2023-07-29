@@ -30,3 +30,30 @@ fn next_path() {
     Settings::path(&mut [2, 0, 0].iter().copied(), &mut s, "/").unwrap();
     assert_eq!(s, "/c/inner");
 }
+
+#[test]
+fn traverse_empty() {
+    #[derive(Miniconf, Default)]
+    struct S {}
+    let f = |_, _, _: &_| Ok::<(), ()>(());
+    assert_eq!(
+        S::traverse_by_key([0].iter().copied(), f),
+        Err(miniconf::Error::NotFound(1))
+    );
+    assert_eq!(
+        S::traverse_by_key([].iter().copied::<usize>(), f),
+        Ok(miniconf::Ok::Internal(0))
+    );
+    assert_eq!(
+        Option::<i32>::traverse_by_key([0].iter().copied(), f),
+        Ok(miniconf::Ok::Leaf(0))
+    );
+    assert_eq!(
+        miniconf::Option::<S>::traverse_by_key([0].iter().copied(), f),
+        Err(miniconf::Error::NotFound(1))
+    );
+    assert_eq!(
+        miniconf::Option::<S>::traverse_by_key([].iter().copied::<usize>(), f),
+        Ok(miniconf::Ok::Internal(0))
+    );
+}

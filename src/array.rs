@@ -214,8 +214,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
             Some(key) => {
                 let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
                 if index < N {
-                    func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))
-                        .map_err(|e| Error::Inner(e))?;
+                    func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))?;
                     Ok(Ok::Leaf(1))
                 } else {
                     Err(Error::NotFound(1))
