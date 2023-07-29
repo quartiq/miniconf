@@ -22,13 +22,28 @@ fn meta() {
 }
 
 #[test]
-fn next_path() {
+fn path() {
     let mut s = String::new();
-    Settings::path(&mut [1, 0, 0].iter().copied(), &mut s, "/").unwrap();
+    Settings::path([1, 0, 0].into_iter(), &mut s, "/").unwrap();
     assert_eq!(s, "/b");
     s.clear();
-    Settings::path(&mut [2, 0, 0].iter().copied(), &mut s, "/").unwrap();
+    Settings::path([2, 0, 0].into_iter(), &mut s, "/").unwrap();
     assert_eq!(s, "/c/inner");
+}
+
+#[test]
+fn indices() {
+    let mut s = [0usize; 2];
+    assert_eq!(
+        Settings::indices(["b"].into_iter(), s.iter_mut()),
+        Ok(miniconf::Ok::Leaf(1))
+    );
+    assert_eq!(s, [1, 0]);
+    assert_eq!(
+        Settings::indices(["c", "inner"].into_iter(), s.iter_mut()),
+        Ok(miniconf::Ok::Leaf(2))
+    );
+    assert_eq!(s, [2, 0]);
 }
 
 #[test]
@@ -37,23 +52,23 @@ fn traverse_empty() {
     struct S {}
     let f = |_, _, _: &_| unreachable!();
     assert_eq!(
-        S::traverse_by_key([0].iter().copied(), f),
+        S::traverse_by_key([0].into_iter(), f),
         Err(miniconf::Error::<()>::NotFound(1))
     );
     assert_eq!(
-        S::traverse_by_key([].iter().copied::<usize>(), f),
+        S::traverse_by_key([0u8; 0].into_iter(), f),
         Ok(miniconf::Ok::Internal(0))
     );
     assert_eq!(
-        Option::<i32>::traverse_by_key([0].iter().copied(), f),
+        Option::<i32>::traverse_by_key([0].into_iter(), f),
         Ok(miniconf::Ok::Leaf(0))
     );
     assert_eq!(
-        miniconf::Option::<S>::traverse_by_key([0].iter().copied(), f),
+        miniconf::Option::<S>::traverse_by_key([0].into_iter(), f),
         Err(miniconf::Error::NotFound(1))
     );
     assert_eq!(
-        miniconf::Option::<S>::traverse_by_key([].iter().copied::<usize>(), f),
+        miniconf::Option::<S>::traverse_by_key([0u8; 0].into_iter(), f),
         Ok(miniconf::Ok::Internal(0))
     );
 }

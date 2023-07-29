@@ -267,26 +267,22 @@ pub trait Miniconf {
     ///
     /// # Args
     /// * `keys`: An key iterator of keys.
-    /// * `indices`: A slice to write the element indices into.
-    ///   The slice needs to be at least as long as the maximum path depth ([Metadata]).
+    /// * `indices`: An iterator of mutable usize reference to write the element indices into.
+    ///   The iterator needs to be at least as long as the maximum path depth ([Metadata]).
     ///
     /// # Returns
-    /// A [Ok] where the `usize` member indicates the final depth of the valid path.
-    /// A [Error] println!("{}", if there was an error.is_some());
-    fn indices<K>(keys: K, indices: &mut [usize]) -> Result<SliceShort>
+    /// A [Ok] where the `usize` member indicates the final deph of indices written.
+    /// A [Error] if there was an error
+    fn indices<'a, K, I>(keys: K, mut indices: I) -> Result<SliceShort>
     where
         K: Iterator,
         K::Item: Key,
+        I: Iterator<Item = &'a mut usize>,
     {
-        let mut depth = 0;
         Self::traverse_by_key(keys, |_ok, index, _name| {
-            if indices.len() < depth {
-                Err(SliceShort)
-            } else {
-                indices[depth] = index;
-                depth += 1;
-                Ok(())
-            }
+            let idx = indices.next().ok_or(SliceShort)?;
+            *idx = index;
+            Ok(())
         })
     }
 
@@ -304,6 +300,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// An iterator of paths or an [Error] if `L` is insufficient.
+    #[inline]
     fn iter_paths<const L: usize, P>(
         separator: &str,
     ) -> core::result::Result<PathIter<'_, Self, L, P>, Error<SliceShort>> {
@@ -325,6 +322,7 @@ pub trait Miniconf {
     ///
     /// # Returns
     /// A iterator of paths.
+    #[inline]
     fn unchecked_iter_paths<const L: usize, P>(separator: &str) -> PathIter<'_, Self, L, P> {
         PathIter::new_unchecked(separator)
     }
