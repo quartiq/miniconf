@@ -123,7 +123,7 @@ impl<T: Miniconf> Miniconf for Option<T> {
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(bool, usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> Result<(), E>,
     {
         T::traverse_by_key(keys, func)
     }
@@ -177,7 +177,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
 
     fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
     where
-        F: FnMut(bool, usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> Result<(), E>,
     {
         Ok(0)
     }

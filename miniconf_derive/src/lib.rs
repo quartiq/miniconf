@@ -148,7 +148,6 @@ fn derive_struct(
         quote! { stringify!(#name) }
     });
     let names_len = fields.len();
-    let defers = fields.iter().map(|field| field.defer);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
@@ -156,7 +155,6 @@ fn derive_struct(
     quote! {
         impl #impl_generics_orig #ident #ty_generics_orig {
             const __MINICONF_NAMES: [&str; #names_len] = [#(#names ,)*];
-            const __MINICONF_DEFER: [bool; #names_len] = [#(#defers ,)*];
         }
 
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
@@ -222,7 +220,7 @@ fn derive_struct(
             where
                 K: Iterator,
                 K::Item: miniconf::Key,
-                F: FnMut(bool, usize, &str) -> Result<(), E>,
+                F: FnMut(usize, &str) -> Result<(), E>,
             {
                 let key = keys.next().ok_or(miniconf::Error::TooShort(0))?;
                 let index = match miniconf::Key::find::<Self>(key) {
@@ -231,7 +229,7 @@ fn derive_struct(
                 };
                 #[allow(unreachable_code)]
                 {
-                    func(Self::__MINICONF_DEFER[index], index, Self::__MINICONF_NAMES[index])?;
+                    func(index, Self::__MINICONF_NAMES[index])?;
                     miniconf::Increment::increment(match index {
                         #(#traverse_by_key_arms ,)*
                         _ => Ok(0),

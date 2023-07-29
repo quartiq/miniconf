@@ -150,14 +150,14 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(bool, usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> Result<(), E>,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
         let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         if index >= N {
             return Err(Error::NotFound(1));
         }
-        func(false, index, itoa::Buffer::new().format(index))?;
+        func(index, itoa::Buffer::new().format(index))?;
         T::traverse_by_key(keys, func).increment()
     }
 }
@@ -203,14 +203,14 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(bool, usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str) -> Result<(), E>,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
         let index = match key.find::<Self>() {
             Some(i) if i < N => i,
             _ => return Err(Error::NotFound(1)),
         };
-        func(true, index, itoa::Buffer::new().format(index))?;
+        func(index, itoa::Buffer::new().format(index))?;
         Ok(1)
     }
 
