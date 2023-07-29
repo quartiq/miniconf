@@ -95,21 +95,14 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenS
     let field_type = &struct_field.field.ty;
     if struct_field.defer {
         quote! {
-            #i => {
-                let mut meta = <#field_type>::metadata();
-                meta.max_length += Self::__MINICONF_FIELD_NAMES[#i].len();
-                meta.max_depth += 1;
-                meta
-            }
+            #i => <#field_type>::metadata()
         }
     } else {
         quote! {
             #i => {
-                let mut meta = miniconf::Metadata::default();
-                meta.max_length = Self::__MINICONF_FIELD_NAMES[#i].len();
-                meta.max_depth = 1;
-                meta.count = 1;
-                meta
+                let mut m = miniconf::Metadata::default();
+                m.count = 1;
+                m
             }
         }
     }
@@ -167,19 +160,19 @@ fn derive_struct(
         let name = &field.field.ident;
         quote! { stringify!(#name) }
     });
-    let n = fields.len();
+    let names_len = fields.len();
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
 
     quote! {
         impl #impl_generics_orig #ident #ty_generics_orig {
-            const __MINICONF_FIELD_NAMES: [&str; #n] = [#(#names ,)*];
+            const __MINICONF_FIELD_NAMES: [&str; #names_len] = [#(#names ,)*];
         }
 
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
-                <#ident #ty_generics_orig>::__MINICONF_FIELD_NAMES.iter().position(|&n| n == value)
+                Self::__MINICONF_FIELD_NAMES.iter().position(|&n| n == value)
             }
 
             fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> miniconf::Result<D::Error>
@@ -213,17 +206,19 @@ fn derive_struct(
             fn metadata() -> miniconf::Metadata {
                 let mut meta = miniconf::Metadata::default();
 
-                for index in 0.. {
+                for index in 0..#names_len {
                     let item_meta: miniconf::Metadata = match index {
                         #(#metadata_arms ,)*
-                        _ => break,
+                        _ => break
                     };
 
                     // Note(unreachable) Empty structs break immediatly
                     #[allow(unreachable_code)]
                     {
-                        meta.max_length = meta.max_length.max(item_meta.max_length);
-                        meta.max_depth = meta.max_depth.max(item_meta.max_depth);
+                        meta.max_length = meta.max_length.max(
+                            Self::__MINICONF_FIELD_NAMES[index].len() + item_meta.max_length
+                        );
+                        meta.max_depth = meta.max_depth.max(1 + item_meta.max_depth);
                         meta.count += item_meta.count;
                     }
                 }
