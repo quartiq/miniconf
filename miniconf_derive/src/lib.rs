@@ -114,7 +114,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     if struct_field.defer {
         quote! {
             #i => {
-                func(miniconf::Ok::Internal(1), #i, Self::__MINICONF_FIELD_NAMES[#i])?;
+                func(false, #i, Self::__MINICONF_FIELD_NAMES[#i])?;
                 let r = <#field_type>::traverse_by_key(keys, func);
                 miniconf::Increment::increment(r)
             }
@@ -122,7 +122,7 @@ fn traverse_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2:
     } else {
         quote! {
             #i => {
-                func(miniconf::Ok::Leaf(1), #i, Self::__MINICONF_FIELD_NAMES[#i])?;
+                func(true, #i, Self::__MINICONF_FIELD_NAMES[#i])?;
                 Ok(miniconf::Ok::Leaf(1))
             }
         }
@@ -233,7 +233,7 @@ fn derive_struct(
             where
                 K: Iterator,
                 K::Item: miniconf::Key,
-                F: FnMut(miniconf::Ok, usize, &str) -> Result<(), E>,
+                F: FnMut(bool, usize, &str) -> Result<(), E>,
             {
                 match keys.next() {
                     None => Ok(miniconf::Ok::Internal(0)),

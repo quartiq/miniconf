@@ -218,7 +218,7 @@ pub trait Miniconf {
     /// # Args
     /// * `keys`: An iterator identifying the element.
     /// * `func`: A `FnMut` to be called for each element on the path. Its arguments are
-    ///    (a) an [Ok] indicating whether this is an internal or leaf node,
+    ///    (a) an bool indicating whether this is an internal or leaf node,
     ///    (b) the index of the element at the given depth,
     ///    (c) the name of the element at the given depth.
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
@@ -227,7 +227,7 @@ pub trait Miniconf {
         K::Item: Key,
         // Writing this to return an iterator instead would have worse performance (O(n^2))
         // than the callback (O(n))
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
+        F: FnMut(bool, usize, &str) -> core::result::Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
@@ -252,7 +252,7 @@ pub trait Miniconf {
         K::Item: Key,
         P: core::fmt::Write,
     {
-        Self::traverse_by_key(keys.into_iter(), |_ok, _index, name| {
+        Self::traverse_by_key(keys.into_iter(), |_leaf, _index, name| {
             path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
@@ -280,7 +280,7 @@ pub trait Miniconf {
         I: IntoIterator<Item = &'a mut usize>,
     {
         let mut indices = indices.into_iter();
-        Self::traverse_by_key(keys.into_iter(), |_ok, index, _name| {
+        Self::traverse_by_key(keys.into_iter(), |_leaf, index, _name| {
             let idx = indices.next().ok_or(SliceShort)?;
             *idx = index;
             Ok(())

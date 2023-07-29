@@ -149,14 +149,14 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(bool, usize, &str) -> core::result::Result<(), E>,
     {
         match keys.next() {
             None => Ok(Ok::Internal(0)),
             Some(key) => {
                 let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
                 if index < N {
-                    func(Ok::Internal(1), index, itoa::Buffer::new().format(index))?;
+                    func(false, index, itoa::Buffer::new().format(index))?;
                     T::traverse_by_key(keys, func).increment()
                 } else {
                     Err(Error::NotFound(1))
@@ -207,14 +207,14 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+        F: FnMut(bool, usize, &str) -> core::result::Result<(), E>,
     {
         match keys.next() {
             None => Ok(Ok::Internal(0)),
             Some(key) => {
                 let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
                 if index < N {
-                    func(Ok::Leaf(1), index, itoa::Buffer::new().format(index))?;
+                    func(true, index, itoa::Buffer::new().format(index))?;
                     Ok(Ok::Leaf(1))
                 } else {
                     Err(Error::NotFound(1))
