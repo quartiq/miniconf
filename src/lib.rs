@@ -3,9 +3,9 @@
 #![cfg_attr(not(feature = "json-core"), doc = "Miniconf")]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
+#![deny(missing_docs)]
+#![deny(warnings)]
 #![deny(unsafe_code)]
-//#![deny(warnings)]
-//#![deny(missing_docs)]
 
 pub use miniconf_derive::Miniconf;
 mod array;
@@ -14,8 +14,6 @@ mod iter;
 pub use iter::*;
 mod option;
 pub use option::*;
-mod visit;
-pub use visit::*;
 
 #[cfg(feature = "json-core")]
 mod json_core;
