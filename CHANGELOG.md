@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * Traversal by names or indices has been added through `Miniconf::traverse_by_key()`.
+* The `Miniconf` derive macro supports (unnamed) tuple structs.
 
 ### Changed
 

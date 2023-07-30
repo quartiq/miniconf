@@ -42,17 +42,27 @@ pub fn derive(input: TokenStream) -> TokenStream {
     }
 }
 
+fn name(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
+    match ident {
+        None => {
+            let index = syn::Index::from(i);
+            quote! { #index }
+        }
+        Some(name) => quote! { #name },
+    }
+}
+
 fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `get_by_key()` args available.
-    let field_name = &struct_field.field.ident;
+    let ident = name(i, &struct_field.field.ident);
     if struct_field.defer {
         quote! {
-            #i => self.#field_name.get_by_key(keys, ser)
+            #i => self.#ident.get_by_key(keys, ser)
         }
     } else {
         quote! {
             #i => {
-                miniconf::serde::Serialize::serialize(&self.#field_name, ser)?;
+                miniconf::serde::Serialize::serialize(&self.#ident, ser)?;
                 Ok(0)
            }
         }
@@ -61,15 +71,15 @@ fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
 
 fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `set_by_key()` args available.
-    let field_name = &struct_field.field.ident;
+    let ident = name(i, &struct_field.field.ident);
     if struct_field.defer {
         quote! {
-            #i => self.#field_name.set_by_key(keys, de)
+            #i => self.#ident.set_by_key(keys, de)
         }
     } else {
         quote! {
             #i => {
-                self.#field_name = miniconf::serde::Deserialize::deserialize(de)?;
+                self.#ident = miniconf::serde::Deserialize::deserialize(de)?;
                 Ok(0)
             }
         }
@@ -120,10 +130,10 @@ fn derive_struct(
         syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
             named.iter().cloned().map(StructField::new).collect()
         }
-        other => unimplemented!(
-            "Only named fields are supported in structs, not {:?}",
-            other
-        ),
+        syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => {
+            unnamed.iter().cloned().map(StructField::new).collect()
+        }
+        syn::Fields::Unit => unimplemented!("Unit struct not supported"),
     };
     let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
@@ -132,11 +142,12 @@ fn derive_struct(
     let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
     let traverse_by_key_arms = fields.iter().enumerate().filter_map(traverse_by_key_arm);
     let metadata_arms = fields.iter().enumerate().filter_map(metadata_arm);
-    let names = fields.iter().map(|field| {
-        let name = &field.field.ident;
+    let names = fields.iter().enumerate().map(|(i, field)| {
+        let name = name(i, &field.field.ident);
         quote! { stringify!(#name) }
     });
-    let names_len = fields.len();
+    let fields_len = fields.len();
+
     let defers = fields.iter().map(|field| field.defer);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
@@ -144,8 +155,8 @@ fn derive_struct(
 
     quote! {
         impl #impl_generics_orig #ident #ty_generics_orig {
-            const __MINICONF_NAMES: [&str; #names_len] = [#(#names ,)*];
-            const __MINICONF_DEFER: [bool; #names_len] = [#(#defers ,)*];
+            const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
+            const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
@@ -163,7 +174,7 @@ fn derive_struct(
                     .ok_or(miniconf::Error::TooShort(0))?;
                 let index = miniconf::Key::find::<Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
-                let defer = Self::__MINICONF_DEFER.get(index)
+                let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 if !defer && keys.next().is_some() {
                     return Err(miniconf::Error::TooLong(1))
@@ -186,7 +197,7 @@ fn derive_struct(
                     .ok_or(miniconf::Error::TooShort(0))?;
                 let index = miniconf::Key::find::<Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
-                let defer = Self::__MINICONF_DEFER.get(index)
+                let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 if !defer && keys.next().is_some() {
                     return Err(miniconf::Error::TooLong(1))
@@ -223,7 +234,7 @@ fn derive_struct(
 
             fn metadata() -> miniconf::Metadata {
                 let mut meta = miniconf::Metadata::default();
-                for index in 0..#names_len {
+                for index in 0..#fields_len {
                     let item_meta: miniconf::Metadata = match index {
                         #(#metadata_arms ,)*
                         _ => {
