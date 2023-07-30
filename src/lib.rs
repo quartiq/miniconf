@@ -40,25 +40,25 @@ pub use serde::{de::DeserializeOwned, Serialize};
 /// The precedence in the case where multiple errors are applicable
 /// simultaneously is from high to low:
 ///
-/// `Internal > Absent > TooLong > NotFound > Inner > PostDeserialization`
+/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error<E> {
-    /// A key was not found, is too large or invalid.
-    NotFound(usize),
-
     /// The key is valid, but does not exist at runtime.
     ///
     /// This is the case if a deferred [core::option::Option] or [Option]
     /// is `None` at runtime.
     Absent(usize),
 
-    /// The key is too long and goes beyond a leaf node.
-    TooLong(usize),
-
     /// The key ends early and does not reach a leaf node.
     TooShort(usize),
+
+    /// A key was not found, is too large or invalid.
+    NotFound(usize),
+
+    /// The key is too long and goes beyond a leaf node.
+    TooLong(usize),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.

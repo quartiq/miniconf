@@ -174,11 +174,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         S: serde::Serializer,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        // Precedence
         if keys.next().is_some() {
             return Err(Error::TooLong(1));
         }
-        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
-        let item = self.get(index).ok_or(Error::NotFound(1))?;
         serde::Serialize::serialize(item, ser)?;
         Ok(1)
     }
@@ -190,11 +191,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         D: serde::Deserializer<'a>,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        // Precedence
         if keys.next().is_some() {
             return Err(Error::TooLong(1));
         }
-        let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         *item = serde::Deserialize::deserialize(de)?;
         Ok(1)
     }
