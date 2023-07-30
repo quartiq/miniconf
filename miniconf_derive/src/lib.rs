@@ -120,7 +120,10 @@ fn derive_struct(
         syn::Fields::Named(syn::FieldsNamed { named, .. }) => {
             named.iter().cloned().map(StructField::new).collect()
         }
-        _ => unimplemented!("Only named fields are supported in structs."),
+        other => unimplemented!(
+            "Only named fields are supported in structs, not {:?}",
+            other
+        ),
     };
     let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
@@ -158,7 +161,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(key)
+                let index = miniconf::Key::find::<Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFER.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -181,7 +184,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(key)
+                let index = miniconf::Key::find::<Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFER.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -207,7 +210,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(key)
+                let index = miniconf::Key::find::<Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;

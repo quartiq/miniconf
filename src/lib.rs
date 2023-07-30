@@ -130,7 +130,7 @@ impl Metadata {
 /// Capability to convert a key into an node index.
 pub trait Key {
     /// Convert the key `self` to a `usize` index.
-    fn find<M: Miniconf>(self) -> core::option::Option<usize>;
+    fn find<M: Miniconf>(&self) -> core::option::Option<usize>;
 }
 
 macro_rules! key_integer {
@@ -138,19 +138,37 @@ macro_rules! key_integer {
         $(
             impl Key for $ty {
                 #[inline]
-                fn find<M>(self) -> core::option::Option<usize> {
-                    Some(self as _)
+                fn find<M>(&self) -> core::option::Option<usize> {
+                    Some(*self as _)
                 }
             }
         )+
     }
 }
 
-key_integer!(usize u8 u16 u32 u64 isize i8 i16 i32 i64);
+key_integer!(usize);
+
+impl<T> Key for &T
+where
+    T: Key,
+{
+    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
+        Key::find::<M>(*self)
+    }
+}
+
+impl<T> Key for &mut T
+where
+    T: Key,
+{
+    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
+        Key::find::<M>(*self)
+    }
+}
 
 impl Key for &str {
     #[inline]
-    fn find<M: Miniconf>(self) -> core::option::Option<usize> {
+    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
         M::name_to_index(self)
     }
 }
