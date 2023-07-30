@@ -38,23 +38,6 @@ fn path() {
 }
 
 #[test]
-fn key() {
-    let mut s = String::new();
-    assert_eq!(Settings::path(&[1, 0, 0], &mut s, "/"), Ok(1));
-    assert_eq!(Settings::path(&[1, 0, 0][..], &mut s, "/"), Ok(1));
-    assert_eq!(Settings::path([1, 0, 0].iter(), &mut s, "/"), Ok(1));
-    assert_eq!(Settings::path([1, 0, 0].into_iter(), &mut s, "/"), Ok(1));
-    assert_eq!(
-        Settings::path((&[1, 0, 0][..]).into_iter(), &mut s, "/"),
-        Ok(1)
-    );
-    assert_eq!(
-        Settings::path((&mut [1, 0, 0][..]).iter_mut(), &mut s, "/"),
-        Ok(1)
-    );
-}
-
-#[test]
 fn indices() {
     let mut s = [0usize; 2];
     assert_eq!(Settings::indices(["b", "foo"], s.iter_mut()), Ok(1));

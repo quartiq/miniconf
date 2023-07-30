@@ -148,24 +148,6 @@ macro_rules! key_integer {
 
 key_integer!(usize);
 
-impl<T> Key for &T
-where
-    T: Key,
-{
-    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
-        Key::find::<M>(*self)
-    }
-}
-
-impl<T> Key for &mut T
-where
-    T: Key,
-{
-    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
-        Key::find::<M>(*self)
-    }
-}
-
 impl Key for &str {
     #[inline]
     fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
