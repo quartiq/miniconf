@@ -1,5 +1,5 @@
 use crate::{Error, Miniconf, SliceShort};
-use core::{fmt::Write, marker::PhantomData};
+use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,7 +26,10 @@ pub struct PathIter<'a, M: ?Sized, const L: usize, P> {
     separator: &'a str,
 }
 
-impl<'a, M: Miniconf + ?Sized, const L: usize, P> PathIter<'a, M, L, P> {
+impl<'a, M, const L: usize, P> PathIter<'a, M, L, P>
+where
+    M: Miniconf + ?Sized,
+{
     pub(crate) fn new(separator: &'a str) -> Result<Self, SliceShort> {
         let meta = M::metadata();
         if L < meta.max_depth {
@@ -60,9 +63,6 @@ where
 
         loop {
             return match M::path(self.state, &mut path, self.separator) {
-                // Not having consumed any name/index, the only possible case here is a bare option.
-                // And that can not return `NotFound`.
-                Err(Error::NotFound(0)) => unreachable!(),
                 // Out of valid indices at the root: iteration done
                 Err(Error::NotFound(1)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
@@ -70,7 +70,7 @@ where
                 }
                 // Node not found at depth: reset current index, increment parent index,
                 // then retry path()
-                Err(Error::NotFound(depth)) => {
+                Err(Error::NotFound(depth @ 2..)) => {
                     path = P::default();
                     self.state[depth - 1] = 0;
                     self.state[depth - 2] += 1;
@@ -96,6 +96,10 @@ where
                 }
                 // If we end at a leaf node, the state array is too small.
                 Err(e @ (Error::TooShort(_) | Error::Inner(_))) => Some(Err(e)),
+                // Not having consumed any name/index, the only possible case here is a bare option.
+                // And that can not return `NotFound`.
+                // Err(Error::NotFound(0)) => unreachable!(),
+                // No other errors can be returned by traverse_by_key()
                 _ => unreachable!(),
             };
         }
@@ -104,4 +108,11 @@ where
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.count.unwrap_or_default(), self.count)
     }
+}
+
+impl<'a, M, const L: usize, P> FusedIterator for PathIter<'a, M, L, P>
+where
+    M: Miniconf,
+    P: core::fmt::Write + Default,
+{
 }
