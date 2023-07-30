@@ -89,19 +89,6 @@ impl<T: Miniconf> Miniconf for Option<T> {
         None
     }
 
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        if let Some(inner) = self.0.as_mut() {
-            inner.set_by_key(keys, de)
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
     fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
@@ -115,8 +102,17 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn metadata() -> Metadata {
-        T::metadata()
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>,
+    {
+        if let Some(inner) = self.0.as_mut() {
+            inner.set_by_key(keys, de)
+        } else {
+            Err(Error::Absent(0))
+        }
     }
 
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
@@ -127,28 +123,15 @@ impl<T: Miniconf> Miniconf for Option<T> {
     {
         T::traverse_by_key(keys, func)
     }
+
+    fn metadata() -> Metadata {
+        T::metadata()
+    }
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
-    }
-
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        D: serde::Deserializer<'a>,
-    {
-        if keys.next().is_some() {
-            return Err(Error::TooLong(0));
-        }
-
-        if let Some(inner) = self.as_mut() {
-            *inner = serde::Deserialize::deserialize(de)?;
-            Ok(0)
-        } else {
-            Err(Error::Absent(0))
-        }
     }
 
     fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
@@ -168,10 +151,20 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         }
     }
 
-    fn metadata() -> Metadata {
-        Metadata {
-            count: 1,
-            ..Default::default()
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        D: serde::Deserializer<'a>,
+    {
+        if keys.next().is_some() {
+            return Err(Error::TooLong(0));
+        }
+
+        if let Some(inner) = self.as_mut() {
+            *inner = serde::Deserialize::deserialize(de)?;
+            Ok(0)
+        } else {
+            Err(Error::Absent(0))
         }
     }
 
@@ -180,5 +173,12 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         F: FnMut(usize, &str) -> Result<(), E>,
     {
         Ok(0)
+    }
+
+    fn metadata() -> Metadata {
+        Metadata {
+            count: 1,
+            ..Default::default()
+        }
     }
 }

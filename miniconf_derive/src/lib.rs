@@ -52,13 +52,9 @@ fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
     } else {
         quote! {
             #i => {
-                if keys.next().is_some() {
-                    Err(miniconf::Error::TooLong(0))
-                } else {
-                    miniconf::serde::ser::Serialize::serialize(&self.#field_name, ser)?;
-                    Ok(0)
-                }
-            }
+                miniconf::serde::Serialize::serialize(&self.#field_name, ser)?;
+                Ok(0)
+           }
         }
     }
 }
@@ -73,30 +69,8 @@ fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
     } else {
         quote! {
             #i => {
-                if keys.next().is_some() {
-                    Err(miniconf::Error::TooLong(0))
-                } else {
-                    self.#field_name = miniconf::serde::de::Deserialize::deserialize(de)?;
-                    Ok(0)
-                }
-            }
-        }
-    }
-}
-
-fn metadata_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field index with `metadata()` args available.
-    let field_type = &struct_field.field.ty;
-    if struct_field.defer {
-        quote! {
-            #i => <#field_type>::metadata()
-        }
-    } else {
-        quote! {
-            #i => {
-                let mut m = miniconf::Metadata::default();
-                m.count = 1;
-                m
+                self.#field_name = miniconf::serde::Deserialize::deserialize(de)?;
+                Ok(0)
             }
         }
     }
@@ -106,10 +80,22 @@ fn traverse_by_key_arm(
     (i, struct_field): (usize, &StructField),
 ) -> Option<proc_macro2::TokenStream> {
     // Quote context is a match of the field index with `traverse_by_key()` args available.
-    let field_type = &struct_field.field.ty;
     if struct_field.defer {
+        let field_type = &struct_field.field.ty;
         Some(quote! {
             #i => <#field_type>::traverse_by_key(keys, func)
+        })
+    } else {
+        None
+    }
+}
+
+fn metadata_arm((i, struct_field): (usize, &StructField)) -> Option<proc_macro2::TokenStream> {
+    // Quote context is a match of the field index with `metadata()` args available.
+    if struct_field.defer {
+        let field_type = &struct_field.field.ty;
+        Some(quote! {
+            #i => <#field_type>::metadata()
         })
     } else {
         None
@@ -139,15 +125,16 @@ fn derive_struct(
     let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
 
-    let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
     let get_by_key_arms = fields.iter().enumerate().map(get_by_key_arm);
-    let metadata_arms = fields.iter().enumerate().map(metadata_arm);
+    let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
     let traverse_by_key_arms = fields.iter().enumerate().filter_map(traverse_by_key_arm);
+    let metadata_arms = fields.iter().enumerate().filter_map(metadata_arm);
     let names = fields.iter().map(|field| {
         let name = &field.field.ident;
         quote! { stringify!(#name) }
     });
     let names_len = fields.len();
+    let defers = fields.iter().map(|field| field.defer);
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
@@ -155,25 +142,12 @@ fn derive_struct(
     quote! {
         impl #impl_generics_orig #ident #ty_generics_orig {
             const __MINICONF_NAMES: [&str; #names_len] = [#(#names ,)*];
+            const __MINICONF_DEFER: [bool; #names_len] = [#(#defers ,)*];
         }
 
         impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
-            }
-
-            fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, miniconf::Error<D::Error>>
-            where
-                K: Iterator,
-                K::Item: miniconf::Key,
-                D: miniconf::serde::Deserializer<'a>,
-            {
-                let key = keys.next().ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
-                miniconf::Increment::increment(match index {
-                    #(#set_by_key_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(0)),
-                })
             }
 
             fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, miniconf::Error<S::Error>>
@@ -182,35 +156,44 @@ fn derive_struct(
                 K::Item: miniconf::Key,
                 S: miniconf::serde::Serializer,
             {
-                let key = keys.next().ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(key).ok_or(miniconf::Error::NotFound(1))?;
+                let key = keys.next()
+                    .ok_or(miniconf::Error::TooShort(0))?;
+                let index = miniconf::Key::find::<Self>(key)
+                    .ok_or(miniconf::Error::NotFound(1))?;
+                let defer = Self::__MINICONF_DEFER.get(index)
+                    .ok_or(miniconf::Error::NotFound(1))?;
+                if !defer && keys.next().is_some() {
+                    return Err(miniconf::Error::TooLong(1))
+                }
+                // Note(unreachable) empty structs have diverged by now
+                #[allow(unreachable_code)]
                 miniconf::Increment::increment(match index {
                     #(#get_by_key_arms ,)*
-                    _ => Err(miniconf::Error::NotFound(0)),
+                    _ => unreachable!()
                 })
             }
 
-            fn metadata() -> miniconf::Metadata {
-                let mut meta = miniconf::Metadata::default();
-
-                for index in 0..#names_len {
-                    let item_meta: miniconf::Metadata = match index {
-                        #(#metadata_arms ,)*
-                        _ => break
-                    };
-
-                    // Note(unreachable) Empty structs break immediatly
-                    #[allow(unreachable_code)]
-                    {
-                        meta.max_length = meta.max_length.max(
-                            Self::__MINICONF_NAMES[index].len() + item_meta.max_length
-                        );
-                        meta.max_depth = meta.max_depth.max(1 + item_meta.max_depth);
-                        meta.count += item_meta.count;
-                    }
+            fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, miniconf::Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: miniconf::Key,
+                D: miniconf::serde::Deserializer<'a>,
+            {
+                let key = keys.next()
+                    .ok_or(miniconf::Error::TooShort(0))?;
+                let index = miniconf::Key::find::<Self>(key)
+                    .ok_or(miniconf::Error::NotFound(1))?;
+                let defer = Self::__MINICONF_DEFER.get(index)
+                    .ok_or(miniconf::Error::NotFound(1))?;
+                if !defer && keys.next().is_some() {
+                    return Err(miniconf::Error::TooLong(1))
                 }
-
-                meta
+                // Note(unreachable) empty structs have diverged by now
+                #[allow(unreachable_code)]
+                miniconf::Increment::increment(match index {
+                    #(#set_by_key_arms ,)*
+                    _ => unreachable!()
+                })
             }
 
             fn traverse_by_key<K, F, E>(
@@ -222,19 +205,41 @@ fn derive_struct(
                 K::Item: miniconf::Key,
                 F: FnMut(usize, &str) -> Result<(), E>,
             {
-                let key = keys.next().ok_or(miniconf::Error::TooShort(0))?;
-                let index = match miniconf::Key::find::<Self>(key) {
-                    Some(i) if i < #names_len => i,
-                    _ => return Err(miniconf::Error::NotFound(1))
-                };
-                #[allow(unreachable_code)]
-                {
-                    func(index, Self::__MINICONF_NAMES[index])?;
-                    miniconf::Increment::increment(match index {
-                        #(#traverse_by_key_arms ,)*
-                        _ => Ok(0),
-                    })
+                let key = keys.next()
+                    .ok_or(miniconf::Error::TooShort(0))?;
+                let index = miniconf::Key::find::<Self>(key)
+                    .ok_or(miniconf::Error::NotFound(1))?;
+                let name = Self::__MINICONF_NAMES.get(index)
+                    .ok_or(miniconf::Error::NotFound(1))?;
+                func(index, name)?;
+                miniconf::Increment::increment(match index {
+                    #(#traverse_by_key_arms ,)*
+                    _ => Ok(0),
+                })
+            }
+
+            fn metadata() -> miniconf::Metadata {
+                let mut meta = miniconf::Metadata::default();
+                for index in 0..#names_len {
+                    let item_meta: miniconf::Metadata = match index {
+                        #(#metadata_arms ,)*
+                        _ => {
+                            let mut m = miniconf::Metadata::default();
+                            m.count = 1;
+                            m
+                        }
+                    };
+                    meta.max_length = meta.max_length.max(
+                        Self::__MINICONF_NAMES[index].len() +
+                        item_meta.max_length
+                    );
+                    meta.max_depth = meta.max_depth.max(
+                        1 +
+                        item_meta.max_depth
+                    );
+                    meta.count += item_meta.count;
                 }
+                meta
             }
         }
     }

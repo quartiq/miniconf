@@ -112,18 +112,6 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         value.parse().ok()
     }
 
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        let key = keys.next().ok_or(Error::TooShort(0))?;
-        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
-        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
-        item.set_by_key(keys, de).increment()
-    }
-
     fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
@@ -136,14 +124,16 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         item.get_by_key(keys, ser).increment()
     }
 
-    fn metadata() -> Metadata {
-        let mut meta = T::metadata();
-
-        meta.max_length += digits(N);
-        meta.max_depth += 1;
-        meta.count *= N;
-
-        meta
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>,
+    {
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.0.get_mut(index).ok_or(Error::NotFound(1))?;
+        item.set_by_key(keys, de).increment()
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -160,27 +150,21 @@ impl<T: Miniconf, const N: usize> Miniconf for Array<T, N> {
         func(index, itoa::Buffer::new().format(index))?;
         T::traverse_by_key(keys, func).increment()
     }
+
+    fn metadata() -> Metadata {
+        let mut meta = T::metadata();
+
+        meta.max_length += digits(N);
+        meta.max_depth += 1;
+        meta.count *= N;
+
+        meta
+    }
 }
 
 impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn name_to_index(value: &str) -> core::option::Option<usize> {
         value.parse().ok()
-    }
-
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        let key = keys.next().ok_or(Error::TooShort(0))?;
-        if keys.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
-        let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-        *item = serde::Deserialize::deserialize(de)?;
-        Ok(1)
     }
 
     fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
@@ -196,6 +180,22 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         let index = key.find::<Self>().ok_or(Error::NotFound(1))?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         serde::Serialize::serialize(item, ser)?;
+        Ok(1)
+    }
+
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>,
+    {
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        if keys.next().is_some() {
+            return Err(Error::TooLong(1));
+        }
+        let index: usize = key.find::<Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        *item = serde::Deserialize::deserialize(de)?;
         Ok(1)
     }
 

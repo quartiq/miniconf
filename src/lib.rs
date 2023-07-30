@@ -160,20 +160,6 @@ pub trait Miniconf {
     /// Convert a node name to a node index.
     fn name_to_index(name: &str) -> core::option::Option<usize>;
 
-    /// Deserialize an node by keys.
-    ///
-    /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `de`: A `Deserializer` to deserialize the value.
-    ///
-    /// # Returns
-    /// Node depth on success
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>;
-
     /// Serialize a node by keys.
     ///
     /// # Args
@@ -188,7 +174,21 @@ pub trait Miniconf {
         K::Item: Key,
         S: serde::Serializer;
 
-    /// Call a function for node on the path described by keys.
+    /// Deserialize an node by keys.
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `de`: A `Deserializer` to deserialize the value.
+    ///
+    /// # Returns
+    /// Node depth on success
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>;
+
+    /// Call a function for each node on the path described by keys.
     ///
     /// Traversal is aborted once `func` returns an `Err(E)`.
     ///
