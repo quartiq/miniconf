@@ -5,7 +5,7 @@ use serde_json_core::{de, ser};
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
-pub trait JsonCoreSlash<const D: usize>: Miniconf<D> {
+pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
     /// Update an element by path.
     ///
     /// # Args

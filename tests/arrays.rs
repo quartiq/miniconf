@@ -117,11 +117,11 @@ fn empty() {
     #[derive(Miniconf, Serialize, Deserialize)]
     struct S {}
 
-    assert!(<[S; 0] as Miniconf<1>>::iter_paths::<2, String>("")
+    assert!(<[S; 0] as Miniconf>::iter_paths::<2, String>("")
         .unwrap()
         .next()
         .is_none());
-    assert!(<[[S; 0]; 0] as Miniconf<1>>::iter_paths::<2, String>("")
+    assert!(<[[S; 0]; 0] as Miniconf>::iter_paths::<2, String>("")
         .unwrap()
         .next()
         .is_none());

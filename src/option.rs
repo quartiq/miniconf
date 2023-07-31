@@ -70,7 +70,7 @@ macro_rules! depth {
 
 depth!(2 3 4 5 6 7 8);
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<1> for core::option::Option<T> {
+impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }

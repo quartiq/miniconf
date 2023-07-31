@@ -7,7 +7,7 @@ use crate::{Error, Increment, Key, Metadata, Miniconf};
 /// With `#[miniconf(defer(D))]` and a depth `D > 1` for an
 /// [`[T; N]`](array), each item of the array is accessed as a [`Miniconf`] tree.
 /// For a depth `D = 0`, the entire array is accessed as one atomic
-/// value. By For `D = 1` each index of the array is is instead accessed as
+/// value. For `D = 1` each index of the array is is instead accessed as
 /// one atomic value.
 ///
 /// The type to use depends on what data is contained in your array. If your array contains
@@ -88,7 +88,7 @@ macro_rules! depth {
 
 depth!(2 3 4 5 6 7 8);
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf<1> for [T; N] {
+impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
     fn name_to_index(value: &str) -> core::option::Option<usize> {
         value.parse().ok()
     }

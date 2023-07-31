@@ -159,7 +159,7 @@ fn derive_struct(
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
-        impl #impl_generics miniconf::Miniconf<1> for #ident #ty_generics #where_clause {
+        impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
             }
@@ -258,6 +258,6 @@ fn derive_struct(
         }
     }
     .into();
-    // eprintln!("{}", tokens);
+
     tokens
 }

@@ -158,7 +158,7 @@ impl Key for &str {
 ///   but may perform arbitrarily recursion and also have arbitrarily long keys.
 ///   `1` is then the minimum recursion depth for a (non-newtype) struct. No other
 ///   value is needed or valid.
-pub trait Miniconf<const Y: usize> {
+pub trait Miniconf<const Y: usize = 1> {
     /// Convert a node name to a node index.
     fn name_to_index(name: &str) -> core::option::Option<usize>;
 
