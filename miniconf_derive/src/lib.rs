@@ -148,13 +148,7 @@ fn derive_struct(
     });
     let fields_len = fields.len();
 
-    let defers = fields.iter().map(|field| {
-        if let Some(depth) = field.defer {
-            quote! {Some(#depth)}
-        } else {
-            quote! {None}
-        }
-    });
+    let defers = fields.iter().map(|field| field.defer.is_some());
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
@@ -162,7 +156,7 @@ fn derive_struct(
     let tokens = quote! {
         impl #impl_generics_orig #ident #ty_generics_orig {
             const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
-            const __MINICONF_DEFERS: [Option<usize>; #fields_len] = [#(#defers ,)*];
+            const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
         impl #impl_generics miniconf::Miniconf<1> for #ident #ty_generics #where_clause {
@@ -182,7 +176,7 @@ fn derive_struct(
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
-                if !defer.is_some() && keys.next().is_some() {
+                if !defer && keys.next().is_some() {
                     return Err(miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
@@ -205,7 +199,7 @@ fn derive_struct(
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
-                if !defer.is_some() && keys.next().is_some() {
+                if !defer && keys.next().is_some() {
                     return Err(miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
