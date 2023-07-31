@@ -133,20 +133,12 @@ pub trait Key {
     fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize>;
 }
 
-macro_rules! key_integer {
-    ($($ty:ident)+) => {
-        $(
-            impl Key for $ty {
-                #[inline]
-                fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize> {
-                    Some(*self as _)
-                }
-            }
-        )+
+impl Key for usize {
+    #[inline]
+    fn find<const D: usize, M>(&self) -> core::option::Option<usize> {
+        Some(*self)
     }
 }
-
-key_integer!(usize);
 
 impl Key for &str {
     #[inline]
