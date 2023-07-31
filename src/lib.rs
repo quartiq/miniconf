@@ -15,6 +15,11 @@ pub use iter::*;
 mod option;
 pub use option::*;
 
+#[cfg(feature = "alloc")]
+mod serde_any;
+#[cfg(feature = "alloc")]
+pub use serde_any::*;
+
 #[cfg(feature = "json-core")]
 mod json_core;
 #[cfg(feature = "json-core")]

@@ -16,6 +16,7 @@ resolver = "2"
 serde = { version = "1.0.120", features = ["derive"], default-features = false }
 miniconf_derive = { path = "miniconf_derive" , version = "0.6" }
 itoa = "1.0.4"
+paste = { version = "1.0", optional = true }
 
 serde-json-core = { version = "0.5.1" , optional = true }
 log = {version = "0.4", optional = true }
@@ -27,7 +28,8 @@ smlang = { version = "0.6", optional = true }
 default = ["mqtt-client"]
 json-core = ["dep:serde-json-core"]
 mqtt-client = ["json-core", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
-std = []
+std = ["alloc"]
+alloc = ["dep:paste"]
 
 [dev-dependencies]
 machine = "0.3"
