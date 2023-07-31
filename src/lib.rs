@@ -54,7 +54,7 @@ pub enum Error<E> {
     /// The key ends early and does not reach a leaf node.
     TooShort(usize),
 
-    /// A key was not found, is too large or invalid.
+    /// A key was not found (index unparsable or too large, name not fod or invalid).
     NotFound(usize),
 
     /// The key is too long and goes beyond a leaf node.
