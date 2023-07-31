@@ -5,14 +5,14 @@
 [![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
 Miniconf enables lightweight (`no_std`) partial serialization (retrieval) and deserialization
-(updates, modification) within a hierarchical namespace by path. The namespace is backed by
-structs and arrays of serializable types.
+(updates, modification) within a tree by key. The tree is backed by
+structs/arrays/Options of serializable types.
 
 Miniconf can be used as a very simple and flexible backend for run-time settings management in embedded devices
 over any transport. It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
 payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a comlete [MQTT settings management
 client](MqttClient) and a Python reference implementation to ineract with it.
-`Miniconf` is generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
+`Miniconf` is completely generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
 
 ## Example
 ```rust
@@ -129,24 +129,29 @@ python -m miniconf -d quartiq/application/+ foo=true
 
 ## Design
 For structs Miniconf offers a [derive macro](derive.Miniconf.html) to automatically
-assign a unique path to each item in the namespace of the struct.
+assign a unique path to each item in the tree.
 The macro implements the [Miniconf] trait that exposes access to serialized field values through their path.
-All types supported by [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) can be used as fields.
+All types supported by [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) or `Miniconf`
+can be used as fields.
 
-Elements of homogeneous [core::array]s are similarly accessed through their numeric indices.
-Structs, arrays, and Options can then be cascaded to construct a multi-level namespace.
-Namespace depth and access to individual elements instead of the atomic updates
-is configured at compile (derive) time using the `#[miniconf(defer)]` attribute.
-`Option` is used with `#[miniconf(defer)]` to support paths that may be absent (masked) at
-runtime.
+Elements of homogeneous [core::array]s can be made accessible either
+1. as a single leaf in the tree like other serde-capable items, or
+2. atomically through their numeric indices (with the attribute `#[miniconf(defer)]` or `#[miniconf(defer(1))]`), or
+3. through their sub-trees with `#[miniconf(defer(D))]` and `D >= 2`.
 
-The [Miniconf] implementations for [core::array] and [core::option::Option] provide
-atomic access to their respective inner element(s) or expose deep access
-into the inner element(s) through their respective inner [Miniconf] implementations.
+`Option` is used 
+1. like a standard `serde` Option, or
+2. with `#[miniconf(defer)]` to support paths that may be absent (masked) at runtime.
+3. with `#[miniconf(defer(D))]` and `D >= 2` to support masking entire sub-trees at runtime.
+
+Structs, arrays, and Options can then be cascaded to construct more complex trees.
+
+Lookup into the tree is done using an iterator over [Key] items. `usize` indices or `&str` names are supported.
+
+Path iteration is supported with arbitrary separator between names.
 
 ## Formats
-Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator
-(as long as the path can be split by it unambiguously).
+Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator.
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
 through the [JsonCoreSlash] style.
@@ -156,8 +161,8 @@ Miniconf is designed to be protocol-agnostic. Any means that can receive key-val
 some external source can be used to modify values by path.
 
 ## Limitations
-Deferred (non-atomic) access to inner elements of some types is not yet supported, e.g. enums
-other than [core::option::Option].
+Deferred/deep/non-atomic access to inner elements of some types is not yet supported, e.g. enums
+other than [core::option::Option]. These are still however usable in their atomic `serde` form as leaves.
 
 ## Features
 * `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].
