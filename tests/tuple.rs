@@ -15,4 +15,6 @@ fn tuple_struct() {
 
     s.set_json("/1", b"3.0").unwrap();
     assert_eq!(s.1, 3.0);
+    s.set_json("/2", b"3.0").unwrap_err();
+    s.set_json("/foo", b"3.0").unwrap_err();
 }

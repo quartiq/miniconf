@@ -96,9 +96,9 @@ where
                 }
                 // If we end at a leaf node, the state array is too small.
                 Err(e @ (Error::TooShort(_) | Error::Inner(_))) => Some(Err(e)),
-                // Not having consumed any name/index, the only possible case here is a bare option.
-                // And that can not return `NotFound`.
-                // Err(Error::NotFound(0)) => unreachable!(),
+                // Note(`NotFound(0)`) Not having consumed any name/index, the only possible case
+                // is a bare `Miniconf` thing that does not add any hierarchy, e.g. `Option`.
+                // That however can not return `NotFound` at all.
                 // No other errors can be returned by traverse_by_key()
                 _ => unreachable!(),
             };
