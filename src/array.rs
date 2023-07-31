@@ -14,6 +14,8 @@ use crate::{Error, Increment, Key, Metadata, Miniconf};
 /// `Miniconf` items, you can (and often want to) use `D >= 2`.
 /// However, if each element in your list is individually configurable as a single value (e.g. a list
 /// of `u32`), then you must use `D = 1` or `D = 0` if all items are to be accessed simultaneously.
+/// For e.g. `[[T; 2]; 3] where T: Miniconf<3>` you may want to use `D = 5` (note that `D <= 2`
+/// will also work if `T: Serialize + DeserializeOwned`).
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {

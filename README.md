@@ -141,8 +141,8 @@ Homogeneous [core::array]s can be made accessible either
 
 `Option` is used
 1. like a standard `serde` Option, or
-2. with `#[miniconf(defer)]` to support paths that may be absent (masked) at runtime.
-3. with `#[miniconf(defer(D))]` and `D >= 2` to support masking entire sub-trees at runtime.
+2. with `#[miniconf(defer(0))]` to support a value that may be absent (masked) at runtime.
+3. with `#[miniconf(defer(D))]` and `D >= 1` to support mask sub-trees at runtime.
 
 Structs, arrays, and Options can then be cascaded to construct more complex trees.
 

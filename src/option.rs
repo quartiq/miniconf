@@ -13,9 +13,10 @@ use crate::{Error, Key, Metadata, Miniconf};
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
-/// If the depth specified by the `miniconf(defer(D))` attribute exceeds 1,
+/// If the depth specified by the `miniconf(defer(D))` attribute exceeds 0,
 /// the `Option` can be used to access content within the inner type.
-/// If `None` at runtime, the entire sub-tree is inaccessible through `Miniconf::{get,set}_by_key`.
+/// If marked with `#[miniconf(---)]`, and `None` at runtime, the value or the entire sub-tree
+/// is inaccessible through `Miniconf::{get,set}_by_key`.
 /// If there is no `miniconf` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to`None` as usual.
 
