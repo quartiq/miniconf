@@ -14,9 +14,6 @@ const MAX_TOPIC_LENGTH: usize = 128;
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
 
-// The maximum recursive depth of a settings structure.
-const MAX_RECURSION_DEPTH: usize = 8;
-
 // The delay after not receiving messages after initial connection that settings will be
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
@@ -129,7 +126,7 @@ impl<'a> Command<'a> {
 /// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
 /// connect to it when errors occur.
 ///
-/// The client only supports paths up to 128 byte length and maximum depth of 8.
+/// The client only supports paths up to 128 byte length.
 /// Keepalive interval and re-publication timeout are fixed to 60 and 2 seconds respectively.
 ///
 /// # Example
@@ -219,7 +216,6 @@ where
         )?;
 
         let meta = Settings::metadata().separator("/");
-        assert!(meta.max_depth <= MAX_RECURSION_DEPTH);
         assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
