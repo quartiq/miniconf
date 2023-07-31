@@ -1,29 +1,19 @@
 use crate::{Error, Increment, Key, Metadata, Miniconf};
 
-/// An array that exposes each element through their [`Miniconf`] implementation.
+/// An array that exposes each element through [`Miniconf`].
 ///
 /// # Design
 ///
-/// Miniconf supports homogeneous arrays of items contained in structures using two forms. For the
-/// [`miniconf::Array`](Array), each item of the array is accessed as a [`Miniconf`] tree.
+/// With `#[miniconf(defer(D))]` and a depth `D > 1` for an
+/// [`[T; N]`](array), each item of the array is accessed as a [`Miniconf`] tree.
+/// For a depth `D = 0`, the entire array is accessed as one atomic
+/// value. By For `D = 1` each index of the array is is instead accessed as
+/// one atomic value.
 ///
-/// For standard arrays of [`[T; N]`](array) form, by default the entire array is accessed as one atomic
-/// value. By adding the `#[miniconf(defer)]` attribute, each index of the array is is instead accessed as
-/// one atomic value (i.e. a single Miniconf item).
-///
-/// The type you should use depends on what data is contained in your array. If your array contains
-/// `Miniconf` items, you can (and often want to) use [`Array`] and the `#[miniconf(defer)]` attribute.
+/// The type to use depends on what data is contained in your array. If your array contains
+/// `Miniconf` items, you can (and often want to) use `D >= 2`.
 /// However, if each element in your list is individually configurable as a single value (e.g. a list
-/// of `u32`), then you must use a standard [`[T; N]`](array) array but you may optionally
-/// `#[miniconf(defer)]` access to individual indices.
-///
-/// # Construction
-///
-/// An `Array` can be constructed using [`From<[T; N]>`](From)/[`Into<miniconf::Array>`]
-/// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
-
-/// FIXME: local alias to minimize rename noise
-pub type Array<T, const N: usize> = [T; N];
+/// of `u32`), then you must use `D = 1` or `D = 0` if all items are to be accessed simultaneously.
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
@@ -39,7 +29,7 @@ const fn digits(x: usize) -> usize {
 
 macro_rules! depth {
     ($($d:literal)+) => {$(
-        impl<T: Miniconf<{$d - 1}>, const N: usize> Miniconf<$d> for Array<T, N> {
+        impl<T: Miniconf<{$d - 1}>, const N: usize> Miniconf<$d> for [T; N] {
             fn name_to_index(value: &str) -> core::option::Option<usize> {
                 value.parse().ok()
             }

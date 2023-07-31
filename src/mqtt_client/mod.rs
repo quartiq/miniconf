@@ -289,7 +289,7 @@ where
 
             let topic = topic.unwrap();
 
-            // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
+            // Note: The topic may be absent at runtime (deferred `Option`).
             let len = match self.settings.get_json(&topic, &mut data) {
                 Err(Error::Absent(_)) => continue,
                 Ok(len) => len,

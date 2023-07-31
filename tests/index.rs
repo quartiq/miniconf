@@ -16,9 +16,9 @@ struct Settings {
     #[miniconf(defer)]
     dm: [Inner; 2],
     #[miniconf(defer(2))]
-    am: miniconf::Array<Inner, 2>,
+    am: [Inner; 2],
     #[miniconf(defer(3))]
-    aam: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
+    aam: [[Inner; 2]; 2],
 }
 
 #[test]

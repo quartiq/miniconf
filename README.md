@@ -140,13 +140,11 @@ is configured at compile (derive) time using the `#[miniconf(defer)]` attribute.
 `Option` is used with `#[miniconf(defer)]` to support paths that may be absent (masked) at
 runtime.
 
-While the [Miniconf] implementations for [core::array] and [core::option::Option] by provide
-atomic access to their respective inner element(s), [Array] and
-[Option] have alternative [Miniconf] implementations that expose deep access
+The [Miniconf] implementations for [core::array] and [core::option::Option] provide
+atomic access to their respective inner element(s) or expose deep access
 into the inner element(s) through their respective inner [Miniconf] implementations.
 
 ## Formats
-
 Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator
 (as long as the path can be split by it unambiguously).
 
@@ -158,8 +156,8 @@ Miniconf is designed to be protocol-agnostic. Any means that can receive key-val
 some external source can be used to modify values by path.
 
 ## Limitations
-Deferred (non-atomic) access to inner elements of some types is not yet supported. This means that
-`Miniconf` for enums (other than [core::option::Option]) is not yet supported.
+Deferred (non-atomic) access to inner elements of some types is not yet supported, e.g. enums
+other than [core::option::Option].
 
 ## Features
 * `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].

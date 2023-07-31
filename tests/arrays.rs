@@ -129,7 +129,7 @@ fn empty() {
     #[derive(Miniconf)]
     struct Q {
         #[miniconf(defer)]
-        a: miniconf::Array<S, 0>,
+        a: [S; 0],
         #[miniconf(defer)]
         b: [S; 0],
     }

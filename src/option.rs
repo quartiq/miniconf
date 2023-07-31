@@ -1,12 +1,10 @@
 use crate::{Error, Key, Metadata, Miniconf};
 
-/// An `Option` that exposes its value through their [`Miniconf`] implementation.
+/// `Miniconf<D>` for `Option`.
 ///
 /// # Design
 ///
-/// Miniconf supports optional values in two forms.
-///
-/// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
+/// An `Option` may be marked with `#[miniconf(defer(D))]`
 /// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
 /// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but attempts to
 /// `get_by_key()` or `set_by_key()` them using the [`Miniconf`] API return in [`Error::Absent`].
@@ -15,22 +13,11 @@ use crate::{Error, Key, Metadata, Miniconf};
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
-/// The first form is the [`miniconf::Option`](Option) type which optionally exposes its
-/// interior `Miniconf` value as a sub-tree. An [`miniconf::Option`](Option) should usually be
-/// `#[miniconf(defer)]`.
-///
-/// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
-/// the `Option` can be used to atomically access the content within. If marked with `#[miniconf(defer)]`
-/// and `None` at runtime, it is inaccessible through `Miniconf`. Otherwise, JSON `null` corresponds to
-/// `None` as usual.
-///
-/// # Construction
-///
-/// An `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
-/// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
-
-// FIXME: type alias to minimize rename noise
-pub type Option<T> = core::option::Option<T>;
+/// If the depth specified by the `miniconf(defer(D))` attribute exceeds 1,
+/// the `Option` can be used to access content within the inner type.
+/// If `None` at runtime, the entire sub-tree is inaccessible through `Miniconf::{get,set}_by_key`.
+/// If there is no `miniconf` attribute on an `Option` field in a `struct or in an array,
+/// JSON `null` corresponds to`None` as usual.
 
 macro_rules! depth {
     ($($d:literal)+) => {$(

@@ -69,11 +69,11 @@ fn traverse_empty() {
     );
     assert_eq!(Option::<i32>::traverse_by_key([0].into_iter(), f), Ok(0));
     assert_eq!(
-        miniconf::Option::<S>::traverse_by_key([0].into_iter(), f),
+        Option::<S>::traverse_by_key([0].into_iter(), f),
         Err(Error::NotFound(1))
     );
     assert_eq!(
-        miniconf::Option::<S>::traverse_by_key([0; 0].into_iter(), f),
+        Option::<S>::traverse_by_key([0; 0].into_iter(), f),
         Err(Error::TooShort(0))
     );
 }
