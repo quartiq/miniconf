@@ -32,7 +32,7 @@ macro_rules! depth {
                 K::Item: Key,
                 S: serde::Serializer,
             {
-                if let Some(inner) = self.as_ref() {
+                if let Some(inner) = self {
                     inner.get_by_key(keys, ser)
                 } else {
                     Err(Error::Absent(0))
@@ -45,7 +45,7 @@ macro_rules! depth {
                 K::Item: Key,
                 D: serde::Deserializer<'a>,
             {
-                if let Some(inner) = self.as_mut() {
+                if let Some(inner) = self {
                     inner.set_by_key(keys, de)
                 } else {
                     Err(Error::Absent(0))
@@ -84,7 +84,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<1> for core::op
             return Err(Error::TooLong(0));
         }
 
-        if let Some(inner) = self.as_ref() {
+        if let Some(inner) = self {
             serde::Serialize::serialize(inner, ser)?;
             Ok(0)
         } else {
@@ -101,7 +101,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<1> for core::op
             return Err(Error::TooLong(0));
         }
 
-        if let Some(inner) = self.as_mut() {
+        if let Some(inner) = self {
             *inner = serde::Deserialize::deserialize(de)?;
             Ok(0)
         } else {
