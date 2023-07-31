@@ -134,12 +134,12 @@ The macro implements the [Miniconf] trait that exposes access to serialized fiel
 All types supported by [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) or `Miniconf`
 can be used as fields.
 
-Elements of homogeneous [core::array]s can be made accessible either
+Homogeneous [core::array]s can be made accessible either
 1. as a single leaf in the tree like other serde-capable items, or
-2. atomically through their numeric indices (with the attribute `#[miniconf(defer)]` or `#[miniconf(defer(1))]`), or
-3. through their sub-trees with `#[miniconf(defer(D))]` and `D >= 2`.
+2. by item through their numeric indices (with the attribute `#[miniconf(defer)]` or `#[miniconf(defer(1))]`), or
+3. exposing sub-tree with `#[miniconf(defer(D))]` and `D >= 2`.
 
-`Option` is used 
+`Option` is used
 1. like a standard `serde` Option, or
 2. with `#[miniconf(defer)]` to support paths that may be absent (masked) at runtime.
 3. with `#[miniconf(defer(D))]` and `D >= 2` to support masking entire sub-trees at runtime.

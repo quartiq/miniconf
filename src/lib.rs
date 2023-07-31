@@ -148,13 +148,16 @@ impl Key for &str {
 }
 
 /// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
-// Depth `Y` is a lower bound for the Miniconf recursion depth.
-// It deviates from the key tree depth significantly:
-// * `Option` consumes a layer of Miniconf recursion, but doesn't add to key tree height
-// * A struct that has `Miniconf` derived for it will only implement `Miniconf<1>`
-//  but may be arbitrarily deep in terms of recursion and also in terms of keys.
-//  `1` is the minimum recursion depth for a struct.
-//  Deeper recursion it may also may be inhomogeneous.
+///
+/// The parameter `Y` is a lower bound for the recursion depth. It's only non-unity in
+/// `array` and `option` as they need a configurable recursion depth at compile time
+/// and can't be marked up with inner attributes.
+/// The paramter `Y` deviates from the key tree depth significantly:
+/// * `Option` consume a layer of Miniconf recursion, but don't add to key tree height
+/// * A struct that has `Miniconf` derived for it will only implement `Miniconf<1>`
+///   but may perform arbitrarily recursion and also have arbitrarily long keys.
+///   `1` is then the minimum recursion depth for a (non-newtype) struct. No other
+///   value is needed or valid.
 pub trait Miniconf<const Y: usize> {
     /// Convert a node name to a node index.
     fn name_to_index(name: &str) -> core::option::Option<usize>;
