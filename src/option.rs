@@ -1,5 +1,4 @@
 use crate::{Error, Key, Metadata, Miniconf};
-use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
 ///
@@ -29,107 +28,62 @@ use core::ops::{Deref, DerefMut};
 ///
 /// An `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
 /// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    Debug,
-    PartialOrd,
-    Ord,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[repr(transparent)]
-pub struct Option<T>(core::option::Option<T>);
 
-impl<T> Deref for Option<T> {
-    type Target = core::option::Option<T>;
+// FIXME: type alias to minimize rename noise
+pub type Option<T> = core::option::Option<T>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+macro_rules! depth {
+    ($($d:literal)+) => {$(
+        impl<T: Miniconf<{$d - 1}>> Miniconf<$d> for Option<T> {
+            fn name_to_index(_value: &str) -> core::option::Option<usize> {
+                None
+            }
 
-impl<T> DerefMut for Option<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+            fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                S: serde::Serializer,
+            {
+                if let Some(inner) = self.as_ref() {
+                    inner.get_by_key(keys, ser)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
 
-impl<T> AsRef<core::option::Option<T>> for Option<T> {
-    fn as_ref(&self) -> &core::option::Option<T> {
-        self
-    }
-}
+            fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                D: serde::Deserializer<'a>,
+            {
+                if let Some(inner) = self.as_mut() {
+                    inner.set_by_key(keys, de)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
 
-impl<T> AsMut<core::option::Option<T>> for Option<T> {
-    fn as_mut(&mut self) -> &mut core::option::Option<T> {
-        self
-    }
-}
+            fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                F: FnMut(usize, &str) -> Result<(), E>,
+            {
+                T::traverse_by_key(keys, func)
+            }
 
-impl<T> From<core::option::Option<T>> for Option<T> {
-    fn from(x: core::option::Option<T>) -> Self {
-        Self(x)
-    }
-}
-
-impl<T> From<Option<T>> for core::option::Option<T> {
-    fn from(x: Option<T>) -> Self {
-        x.0
-    }
-}
-
-// This overrides the impl on core::option::Option through Deref
-impl<T: Miniconf> Miniconf for Option<T> {
-    fn name_to_index(_value: &str) -> core::option::Option<usize> {
-        None
-    }
-
-    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        S: serde::Serializer,
-    {
-        if let Some(inner) = self.0.as_ref() {
-            inner.get_by_key(keys, ser)
-        } else {
-            Err(Error::Absent(0))
+            fn metadata() -> Metadata {
+                T::metadata()
+            }
         }
-    }
-
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        if let Some(inner) = self.0.as_mut() {
-            inner.set_by_key(keys, de)
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        F: FnMut(usize, &str) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
-    }
-
-    fn metadata() -> Metadata {
-        T::metadata()
-    }
+    )+}
 }
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
+depth!(2 3 4 5 6 7 8);
+
+impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<1> for core::option::Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }

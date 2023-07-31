@@ -53,8 +53,8 @@ fn array_iter() {
     struct Settings {
         #[miniconf(defer)]
         a: [bool; 2],
-        #[miniconf(defer)]
-        b: miniconf::Array<I, 3>,
+        #[miniconf(defer(2))]
+        b: [I; 3],
     }
 
     let mut s = Settings::default();

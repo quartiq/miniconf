@@ -15,10 +15,10 @@ struct Settings {
     d: [u8; 2],
     #[miniconf(defer)]
     dm: [Inner; 2],
-    #[miniconf(defer)]
-    am: miniconf::Array<Inner, 2>,
-    #[miniconf(defer)]
-    aam: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
+    #[miniconf(defer(2))]
+    am: [Inner; 2],
+    #[miniconf(defer(3))]
+    aam: [[Inner; 2]; 2],
 }
 
 #[test]
@@ -117,16 +117,14 @@ fn empty() {
     #[derive(Miniconf, Serialize, Deserialize)]
     struct S {}
 
-    assert!(miniconf::Array::<S, 0>::iter_paths::<2, String>("")
+    assert!(<[S; 0] as Miniconf<1>>::iter_paths::<2, String>("")
         .unwrap()
         .next()
         .is_none());
-    assert!(
-        miniconf::Array::<miniconf::Array<S, 0>, 0>::iter_paths::<2, String>("")
-            .unwrap()
-            .next()
-            .is_none()
-    );
+    assert!(<[[S; 0]; 0] as Miniconf<1>>::iter_paths::<2, String>("")
+        .unwrap()
+        .next()
+        .is_none());
 
     #[derive(Miniconf)]
     struct Q {

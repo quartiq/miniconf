@@ -130,7 +130,7 @@ impl Metadata {
 /// Capability to convert a key into an node index.
 pub trait Key {
     /// Convert the key `self` to a `usize` index.
-    fn find<M: Miniconf>(&self) -> core::option::Option<usize>;
+    fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize>;
 }
 
 macro_rules! key_integer {
@@ -138,7 +138,7 @@ macro_rules! key_integer {
         $(
             impl Key for $ty {
                 #[inline]
-                fn find<M>(&self) -> core::option::Option<usize> {
+                fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize> {
                     Some(*self as _)
                 }
             }
@@ -150,13 +150,20 @@ key_integer!(usize);
 
 impl Key for &str {
     #[inline]
-    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
+    fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize> {
         M::name_to_index(self)
     }
 }
 
 /// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
-pub trait Miniconf {
+// Depth `Y` is a lower bound for the Miniconf recursion depth.
+// It deviates from the key tree depth significantly:
+// * `Option` consumes a layer of Miniconf recursion, but doesn't add to key tree height
+// * A struct that has `Miniconf` derived for it will only implement `Miniconf<1>`
+//  but may be arbitrarily deep in terms of recursion and also in terms of keys.
+//  `1` is the minimum recursion depth for a struct.
+//  Deeper recursion it may also may be inhomogeneous.
+pub trait Miniconf<const Y: usize> {
     /// Convert a node name to a node index.
     fn name_to_index(name: &str) -> core::option::Option<usize>;
 
@@ -292,7 +299,7 @@ pub trait Miniconf {
     #[inline]
     fn iter_paths<const L: usize, P: core::fmt::Write>(
         separator: &str,
-    ) -> Result<PathIter<'_, Self, L, P>, SliceShort> {
+    ) -> Result<PathIter<'_, Self, L, P, Y>, SliceShort> {
         PathIter::new(separator)
     }
 
@@ -309,7 +316,7 @@ pub trait Miniconf {
     #[inline]
     fn iter_paths_unchecked<const L: usize, P: core::fmt::Write>(
         separator: &str,
-    ) -> PathIter<'_, Self, L, P> {
+    ) -> PathIter<'_, Self, L, P, Y> {
         PathIter::new_unchecked(separator)
     }
 }

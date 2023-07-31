@@ -21,7 +21,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M> = crate::PathIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
+type Iter<M> = crate::PathIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>, 1>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -48,13 +48,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf> {
+    pub struct Context<C: embedded_time::Clock, M: super::Miniconf<1>> {
         clock: C,
         timeout: Option<Instant<C>>,
         pub republish_state: super::Iter<M>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::Miniconf<1>> Context<C, M> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -73,7 +73,7 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> StateMachineContext for Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::Miniconf<1>> StateMachineContext for Context<C, M> {
         fn start_republish_timeout(&mut self) {
             self.timeout.replace(
                 self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
@@ -159,7 +159,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
 where
-    Settings: JsonCoreSlash + Clone,
+    Settings: JsonCoreSlash<1> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -175,7 +175,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
 where
-    Settings: JsonCoreSlash + Clone,
+    Settings: JsonCoreSlash<1> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {

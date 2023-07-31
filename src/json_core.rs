@@ -5,7 +5,7 @@ use serde_json_core::{de, ser};
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
-pub trait JsonCoreSlash: Miniconf {
+pub trait JsonCoreSlash<const D: usize>: Miniconf<D> {
     /// Update an element by path.
     ///
     /// # Args
@@ -55,7 +55,7 @@ pub trait JsonCoreSlash: Miniconf {
     ) -> Result<usize, Error<ser::Error>>;
 }
 
-impl<T: Miniconf> JsonCoreSlash for T {
+impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
     fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
         self.set_by_key(path.split('/').skip(1), &mut de)?;

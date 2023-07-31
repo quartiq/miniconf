@@ -42,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are not needed to work with the public API and would be a semver hazard.
 * [breaking] Metadata is now computed by default without taking into account
   path separators. These can be included using `Metadata::separator()`.
+* [breaking] The `Array` and `Option` newtypes have been removed. Instead in structs
+  the desired `Miniconf<N>` recursion depth for a field is indicated by an attribute
+  `#[miniconf(defer(N))]` where `N` is a `usize` literal. The depth is communicated
+  via the trait. For `[T;N]` and `Option` the depth up to `8` has been implemented.
+  For `structs` it is arbitrary.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 

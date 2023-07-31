@@ -9,8 +9,8 @@ struct Inner {
 
 #[derive(Debug, Clone, Default, Miniconf)]
 struct Settings {
-    #[miniconf(defer)]
-    value: miniconf::Option<Inner>,
+    #[miniconf(defer(2))]
+    value: Option<Inner>,
 }
 
 #[test]
@@ -134,8 +134,8 @@ fn option_absent() {
     struct S {
         #[miniconf(defer)]
         d: Option<u32>,
-        #[miniconf(defer)]
-        dm: miniconf::Option<I>,
+        #[miniconf(defer(2))]
+        dm: Option<I>,
     }
 
     let mut s = S::default();

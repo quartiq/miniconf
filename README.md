@@ -49,18 +49,18 @@ struct Settings {
     #[miniconf(defer)]
     array_defer: [i32; 2],
     // ... or deferring to two levels (index and then inner field name)
-    #[miniconf(defer)]
-    array_miniconf: miniconf::Array<Inner, 2>,
+    #[miniconf(defer(2))]
+    array_miniconf: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
     #[miniconf(defer)]
     option_defer: Option<i32>,
     // Hiding a path and deferring to the inner
-    #[miniconf(defer)]
-    option_miniconf: miniconf::Option<Inner>,
+    #[miniconf(defer(2))]
+    option_miniconf: Option<Inner>,
     // Hiding elements of an Array of Miniconf items
-    #[miniconf(defer)]
-    array_option_miniconf: miniconf::Array<miniconf::Option<Inner>, 2>,
+    #[miniconf(defer(3))]
+    array_option_miniconf: [Option<Inner>; 2],
 }
 
 let mut settings = Settings::default();
