@@ -59,7 +59,8 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                republish_state: M::iter_paths("/").unwrap(),
+                // Skip redundant check (done comprehensively in `MqttClient::new()`)
+                republish_state: M::iter_paths_unchecked("/"),
             }
         }
 
@@ -80,7 +81,8 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            self.republish_state = M::iter_paths("/").unwrap();
+            // Skip redundant check (done comprehensively in `MqttClient::new()`)
+            self.republish_state = M::iter_paths_unchecked("/");
         }
     }
 }
@@ -215,6 +217,7 @@ where
         )?;
 
         let meta = Settings::metadata().separator("/");
+        assert!(meta.max_depth <= MAX_RECURSION_DEPTH);
         assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
@@ -244,7 +247,7 @@ where
             // attempting this publish.
             let response: Response<MAX_TOPIC_LENGTH> = iter
                 .next()
-                .map(|path| Response::custom(ResponseCode::Continue, &path))
+                .map(|path| Response::custom(ResponseCode::Continue, &path.unwrap()))
                 .unwrap_or_else(Response::ok);
 
             let props = [minimq::Property::UserProperty(
@@ -283,6 +286,8 @@ where
                 self.state.process_event(sm::Events::Complete).unwrap();
                 break
             };
+
+            let topic = topic.unwrap();
 
             // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
             let len = match self.settings.get_json(&topic, &mut data) {
@@ -480,7 +485,8 @@ where
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
                             self.listing_state
-                                .replace(Settings::iter_paths("/").unwrap());
+                                // Skip redundant check (done comprehensively in `MqttClient::new()`)
+                                .replace(Settings::iter_paths_unchecked("/"));
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }

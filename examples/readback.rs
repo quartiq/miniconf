@@ -27,6 +27,7 @@ fn main() {
 
     // Just get one topic/value from the iterator
     if let Some(topic) = settings_iter.next() {
+        let topic = topic.unwrap();
         let mut value = [0; 256];
         let len = s.get_json(&topic, &mut value).unwrap();
         println!(
@@ -41,6 +42,7 @@ fn main() {
     s.data = 3;
 
     for topic in settings_iter {
+        let topic = topic.unwrap();
         let mut value = [0; 256];
         let len = s.get_json(&topic, &mut value).unwrap();
         println!(

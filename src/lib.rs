@@ -40,25 +40,25 @@ pub use serde::{de::DeserializeOwned, Serialize};
 /// The precedence in the case where multiple errors are applicable
 /// simultaneously is from high to low:
 ///
-/// `Internal > Absent > TooLong > NotFound > Inner > PostDeserialization`
+/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error<E> {
-    /// A name was not found or an index was too large or invalid.
-    NotFound(usize),
-
-    /// The names/indices are valid, but do not exist at runtime.
+    /// The key is valid, but does not exist at runtime.
     ///
     /// This is the case if a deferred [core::option::Option] or [Option]
     /// is `None` at runtime.
     Absent(usize),
 
-    /// The names/indices are valid, but there is trailing data at the end.
-    TooLong(usize),
-
-    /// The names/indices are valid, but end early and do not reach a leaf.
+    /// The key ends early and does not reach a leaf node.
     TooShort(usize),
+
+    /// A key was not found (index unparsable or too large, name not fod or invalid).
+    NotFound(usize),
+
+    /// The key is too long and goes beyond a leaf node.
+    TooLong(usize),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.
@@ -78,20 +78,6 @@ impl<T> From<T> for Error<T> {
     }
 }
 
-/// `Ok` return types for the [Miniconf] API.
-/// A `usize` member indicates the depth where the traversal ended.
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Ok {
-    /// Non-leaf at depth
-    Internal(usize),
-    /// Leaf at depth
-    Leaf(usize),
-}
-
-/// Shorthand type alias.
-pub type Result<E> = core::result::Result<Ok, Error<E>>;
-
 /// Struct to indicate a short indices slice or a too small iterator state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SliceShort;
@@ -102,11 +88,10 @@ pub trait Increment {
     fn increment(self) -> Self;
 }
 
-impl<E> Increment for Result<E> {
+impl<E> Increment for Result<usize, Error<E>> {
     fn increment(self) -> Self {
         match self {
-            Ok(Ok::Internal(i)) => Ok(Ok::Internal(i + 1)),
-            Ok(Ok::Leaf(i)) => Ok(Ok::Leaf(i + 1)),
+            Ok(i) => Ok(i + 1),
             Err(Error::NotFound(i)) => Err(Error::NotFound(i + 1)),
             Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
             Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
@@ -142,112 +127,120 @@ impl Metadata {
     }
 }
 
-/// Capability to convert a key into an element index.
+/// Capability to convert a key into an node index.
 pub trait Key {
     /// Convert the key `self` to a `usize` index.
-    fn find<M: Miniconf>(self) -> core::option::Option<usize>;
+    fn find<M: Miniconf>(&self) -> core::option::Option<usize>;
 }
 
-impl Key for usize {
-    fn find<M>(self) -> core::option::Option<usize> {
-        Some(self)
+macro_rules! key_integer {
+    ($($ty:ident)+) => {
+        $(
+            impl Key for $ty {
+                #[inline]
+                fn find<M>(&self) -> core::option::Option<usize> {
+                    Some(*self as _)
+                }
+            }
+        )+
     }
 }
 
+key_integer!(usize);
+
 impl Key for &str {
-    fn find<M: Miniconf>(self) -> core::option::Option<usize> {
+    #[inline]
+    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
         M::name_to_index(self)
     }
 }
 
-/// Trait exposing serialization/deserialization of elements by path and traversal by path/indices.
+/// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
 pub trait Miniconf {
-    /// Convert a name key to an index.
-    fn name_to_index(value: &str) -> core::option::Option<usize>;
+    /// Convert a node name to a node index.
+    fn name_to_index(name: &str) -> core::option::Option<usize>;
 
-    /// Deserialize an element by key.
+    /// Serialize a node by keys.
     ///
     /// # Args
-    /// * `keys`: An `Iterator` identifying the element. The iterator items
-    ///    must support conversion to graph indices through [`Key`]
-    /// * `de`: A `Deserializer` to deserialize the value.
-    ///
-    /// # Returns
-    /// [`Ok`] on success, [Error] on failure.
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<D::Error>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>;
-
-    /// Serialize an element by key.
-    ///
-    /// # Args
-    /// * `keys`: An `Iterator` identifying the element. The iterator items
-    ///    must support conversion to graph indices through [`Key`]
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `ser`: A `Serializer` to to serialize the value.
     ///
     /// # Returns
-    /// [`Ok`] on success, [Error] on failure.
-    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Error>
+    /// Node depth on success.
+    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         K::Item: Key,
         S: serde::Serializer;
 
-    /// Call `func` for each element on the path described by a key.
-    ///
-    /// Traversal is aborted once `func` returns an `Err(E)`.
-    ///
-    /// May not exhaust the iterator if a leaf is found early. i.e. keys may be too long.
-    /// If `Self` is a leaf, nothing will be consumed from the iterator
-    /// and [`Ok::Leaf(0)`] will be returned.
-    /// If `Self` is non-leaf (internal) and the iterator is exhausted (empty),
-    /// [`Ok::Internal(0)`] will be returned.
+    /// Deserialize an node by keys.
     ///
     /// # Args
-    /// * `keys`: An iterator identifying the element.
-    /// * `func`: A `FnMut` to be called for each element on the path. Its arguments are
-    ///    (a) an [Ok] indicating whether this is an internal or leaf node,
-    ///    (b) the index of the element at the given depth,
-    ///    (c) the name of the element at the given depth.
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `de`: A `Deserializer` to deserialize the value.
+    ///
+    /// # Returns
+    /// Node depth on success
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,
-        // Writing this to return an iterator instead would have worse performance (O(n^2))
-        // than the callback (O(n))
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>;
+        D: serde::Deserializer<'a>;
+
+    /// Call a function for each node on the path described by keys.
+    ///
+    /// Traversal is aborted once `func` returns an `Err(E)`.
+    ///
+    /// May not exhaust `keys` if a leaf is found early. i.e. `keys`
+    /// may be longer than required.
+    /// If `Self` is a leaf, nothing will be consumed from `keys`
+    /// and `Ok(0)` will be returned.
+    /// If `Self` is non-leaf (internal node) and the iterator is
+    /// exhausted (empty),
+    /// `Err(Error::TooShort(0))` will be returned.
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `func`: A `FnMut` to be called for each node on the path. Its arguments are
+    ///   (a) the index of the node at the given depth,
+    ///   (b) the name of the node at the given depth.
+    ///
+    /// # Returns
+    /// Final node depth on success
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        // Writing this to return an iterator instead of using a callback
+        // would have worse performance (O(n^2) instead of O(n))
+        F: FnMut(usize, &str) -> Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
     fn metadata() -> Metadata;
 
     /// Convert keys to path.
     ///
-    /// This is usually not called directly but through a [PathIter] returned by [Miniconf::iter_paths].
+    /// This is typically called through a [PathIter] returned by [Miniconf::iter_paths].
+    ///
+    /// `keys` may be longer than required. Extra items are ignored.
     ///
     /// # Args
-    /// * `keys`: A key iterator indicating the path to be retrieved.
-    ///   An empty iterator indicates the root.
-    ///   An iterator yielding zeros indicates the first path.
-    /// * `path`: A string to write the path into.
-    /// * `sep`: The path hierarchy separator. It is inserted before each name.
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `path`: A string to write the separators and node names into.
+    ///   See also [Miniconf::metadata()] for upper bounds on path length.
+    /// * `sep`: The path hierarchy separator to be inserted before each name.
     ///
     /// # Returns
-    /// A [Ok] where the `usize` member indicates the final depth of the valid path.
-    /// A [Error] if there was an error.
-    fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<core::fmt::Error>
+    /// Final node depth on success
+    fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<usize, Error<core::fmt::Error>>
     where
-        K: Iterator,
+        K: IntoIterator,
         K::Item: Key,
         P: core::fmt::Write,
     {
-        Self::traverse_by_key(keys, |ok, _index, name| {
-            if ok == Ok::Leaf(0) {
-                Ok(())
-            } else {
-                path.write_str(sep).and_then(|_| path.write_str(name))
-            }
+        Self::traverse_by_key(keys.into_iter(), |_index, name| {
+            path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
 
@@ -260,49 +253,46 @@ pub trait Miniconf {
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     ///
     /// # Args
-    /// * `keys`: An key iterator of keys.
-    /// * `indices`: A slice to write the element indices into.
-    ///   The slice needs to be at least as long as the maximum path depth ([Metadata]).
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `indices`: An iterator of `&mut usize` to write the node indices into.
+    ///   If `indices` is shorter than the node depth, `Error<SliceShort>` is returned
+    ///   See also [Miniconf::metadata()] for upper bounds on depth.
     ///
     /// # Returns
-    /// A [Ok] where the `usize` member indicates the final depth of the valid path.
-    /// A [Error] println!("{}", if there was an error.is_some());
-    fn indices<K>(keys: K, indices: &mut [usize]) -> Result<SliceShort>
+    /// Final node depth on success
+    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<SliceShort>>
     where
-        K: Iterator,
+        K: IntoIterator,
         K::Item: Key,
+        I: IntoIterator<Item = &'a mut usize>,
     {
-        let mut depth = 0;
-        Self::traverse_by_key(keys, |ok, index, _name| {
-            if ok == Ok::Leaf(0) {
-                Ok(())
-            } else if indices.len() < depth {
-                Err(SliceShort)
-            } else {
-                indices[depth] = index;
-                depth += 1;
-                Ok(())
-            }
+        let mut indices = indices.into_iter();
+        Self::traverse_by_key(keys.into_iter(), |index, _name| {
+            let idx = indices.next().ok_or(SliceShort)?;
+            *idx = index;
+            Ok(())
         })
     }
 
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
-    /// The iterator will walk all paths, even those that may be absent at run-time (see [Option]).
+    /// The iterator will walk all paths, including those that may be absent at
+    /// run-time (see [Option]).
     /// The iterator has an exact and trusted [Iterator::size_hint].
     ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. the number of separators.
-    /// * `P`  - The type to hold the path.
+    /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write`.
     ///
     /// # Args
     ///
     /// # Returns
-    /// An iterator of paths or an [Error] if `L` is insufficient.
-    fn iter_paths<const L: usize, P>(
+    /// An iterator of paths or an Error if `L` is insufficient.
+    #[inline]
+    fn iter_paths<const L: usize, P: core::fmt::Write>(
         separator: &str,
-    ) -> core::result::Result<PathIter<'_, Self, L, P>, Error<SliceShort>> {
+    ) -> Result<PathIter<'_, Self, L, P>, SliceShort> {
         PathIter::new(separator)
     }
 
@@ -310,18 +300,16 @@ pub trait Miniconf {
     ///
     /// See also [Miniconf::iter_paths].
     ///
-    /// # Panic
-    /// `L` must be sufficiently large to hold the iterator state.
-    /// While this function will not panic itself, calling `Iterator::next()` on its
-    /// return value may.
-    ///
     /// # Generics
-    /// * `L`  - The maximum depth of the path, i.e. number of separators plus 1.
-    /// * `P`  - The type to hold the path.
+    /// * `L`  - The maximum depth of the path, i.e. the number of separators.
+    /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write`.
     ///
     /// # Returns
     /// A iterator of paths.
-    fn unchecked_iter_paths<const L: usize, P>(separator: &str) -> PathIter<'_, Self, L, P> {
+    #[inline]
+    fn iter_paths_unchecked<const L: usize, P: core::fmt::Write>(
+        separator: &str,
+    ) -> PathIter<'_, Self, L, P> {
         PathIter::new_unchecked(separator)
     }
 }

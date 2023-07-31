@@ -98,6 +98,7 @@ assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
 for path in Settings::iter_paths::<3, String>("/").unwrap() {
+    let path = path.unwrap();
     // Serializing each
     match settings.get_json(&path, &mut buf) {
         Ok(len) => {
@@ -127,7 +128,7 @@ python -m miniconf -d quartiq/application/+ foo=true
 ```
 
 ## Design
-For structs with named fields, Miniconf offers a [derive macro](derive.Miniconf.html) to automatically
+For structs Miniconf offers a [derive macro](derive.Miniconf.html) to automatically
 assign a unique path to each item in the namespace of the struct.
 The macro implements the [Miniconf] trait that exposes access to serialized field values through their path.
 All types supported by [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) can be used as fields.
@@ -157,9 +158,8 @@ Miniconf is designed to be protocol-agnostic. Any means that can receive key-val
 some external source can be used to modify values by path.
 
 ## Limitations
-Deferred (non-atomic) access to inner elements of some types is not yet supported. This includes:
-* Complex enums (other than [core::option::Option])
-* Tuple structs (other than [Option], [Array])
+Deferred (non-atomic) access to inner elements of some types is not yet supported. This means that
+`Miniconf` for enums (other than [core::option::Option]) is not yet supported.
 
 ## Features
 * `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].

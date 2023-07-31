@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * Traversal by names or indices has been added through `Miniconf::traverse_by_key()`.
+* The `Miniconf` derive macro supports (unnamed) tuple structs.
 
 ### Changed
 
@@ -21,25 +22,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on the `serde`-backend and path hierarchy separator. Those have been
   moved into the `JsonCoreSlash` trait that has been implemented for all `Miniconf`
   to provide the previously existing functionality.
-* The only required change for most downstream crates to adapt to the above is to
-  make sure the `JsonCoreSlash` trait is in scope (`use miniconf::JsonCoreSlash`).
+* [breaking] `set()` and `get()` have been renamed to `set_json()` and `get_json()`
+  respectively to avoid overlap.
 * [breaking] Paths now start with the path separator (unless they are empty).
   This affects the `Miniconf` derive macro and the `Miniconf` implementation pairs
   for `Option`/`Array`.
   Downstram crates should ensure non-empty paths start with the separator and
   expect `next_path` paths to start with the separator or be empty.
-* `set()` and `get()` have been renamed to `set_json()` and `get_json()` respectively to
-  avoid overlap.
-* The path iterator does not need to be `Peekable` anymore.
+* The main serialization/deserialization methods are now `Miniconf::{set,get}_by_key()`
+  They are generic over the key iterator `Iterator<Item: miniconf::Key>`.
+* The only required change for most direct downstream users the `Miniconf` trait
+  to adapt to the above is to make sure the `JsonCoreSlash` trait is in scope
+  (`use miniconf::JsonCoreSlash`) and to rename `{set,get}() -> {set,get}_json()`.
+  The `MqttClient` has seen no externally visible changes.
 * [breaking] `iter_paths`/`PathIter` is now generic over the type
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
   e.g. `iter_paths::<L, heapless::String<TS>>()`.
-* [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they are
-  not needed to work with the public API.
-* [breaking] Metadata is now computed by default without taking account path separators.
-  These can be included using `Metadata::separator()`.
-* The main serialization/deserialization methods are now `Miniconf::{set,get}_by_key()`
-  They are generic over the key iterator `Iterator<Item: miniconf::Key>`.
+* [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they
+  are not needed to work with the public API and would be a semver hazard.
+* [breaking] Metadata is now computed by default without taking into account
+  path separators. These can be included using `Metadata::separator()`.
 
 ## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 

@@ -16,7 +16,7 @@ struct Settings {
 #[test]
 fn just_option() {
     let mut it = Option::<u32>::iter_paths::<1, String>("/").unwrap();
-    assert_eq!(it.next(), Some("".into()));
+    assert_eq!(it.next(), Some(Ok("".into())));
     assert_eq!(it.next(), None);
 }
 
@@ -63,14 +63,14 @@ fn option_iterate_some_none() {
     // When the value is None, it will still be iterated over as a topic but may not exist at runtime.
     settings.value.take();
     let mut iterator = Settings::iter_paths::<10, String>("/").unwrap();
-    assert_eq!(iterator.next().unwrap(), "/value/data");
+    assert_eq!(iterator.next(), Some(Ok("/value/data".into())));
     assert!(iterator.next().is_none());
 
     // When the value is Some, it should be iterated over.
     settings.value.replace(Inner { data: 5 });
     let mut iterator = Settings::iter_paths::<10, String>("/").unwrap();
-    assert_eq!(iterator.next().unwrap(), "/value/data");
-    assert!(iterator.next().is_none());
+    assert_eq!(iterator.next(), Some(Ok("/value/data".into())));
+    assert_eq!(iterator.next(), None);
 }
 
 #[test]
@@ -84,14 +84,14 @@ fn option_test_normal_option() {
     assert!(s.data.is_none());
 
     let mut iterator = S::iter_paths::<10, String>("/").unwrap();
-    assert_eq!(iterator.next(), Some("/data".into()));
+    assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
     s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
     let mut iterator = S::iter_paths::<10, String>("/").unwrap();
-    assert_eq!(iterator.next(), Some("/data".into()));
+    assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
     s.set_json("/data", b"null").unwrap();
@@ -110,7 +110,7 @@ fn option_test_defer_option() {
     assert!(s.data.is_none());
 
     let mut iterator = S::iter_paths::<10, String>("/").unwrap();
-    assert_eq!(iterator.next(), Some("/data".into()));
+    assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
     assert!(s.set_json("/data", b"7").is_err());
@@ -119,7 +119,7 @@ fn option_test_defer_option() {
     assert_eq!(s.data, Some(7));
 
     let mut iterator = S::iter_paths::<10, String>("/").unwrap();
-    assert_eq!(iterator.next(), Some("/data".into()));
+    assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
     assert!(s.set_json("/data", b"null").is_err());

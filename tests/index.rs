@@ -32,7 +32,7 @@ fn atomic() {
 fn defer() {
     let mut s = Settings::default();
     s.set_json_by_index(&[1, 1], b"99").unwrap();
-    assert_eq!(s.d[1], 99);
+    assert_eq!(s.d, [0, 99]);
 }
 
 #[test]

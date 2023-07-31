@@ -1,5 +1,5 @@
-use crate::{Error, Miniconf, Ok, SliceShort};
-use core::{fmt::Write, marker::PhantomData};
+use crate::{Error, Miniconf, SliceShort};
+use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -26,11 +26,14 @@ pub struct PathIter<'a, M: ?Sized, const L: usize, P> {
     separator: &'a str,
 }
 
-impl<'a, M: Miniconf + ?Sized, const L: usize, P> PathIter<'a, M, L, P> {
-    pub(crate) fn new(separator: &'a str) -> core::result::Result<Self, Error<SliceShort>> {
+impl<'a, M, const L: usize, P> PathIter<'a, M, L, P>
+where
+    M: Miniconf + ?Sized,
+{
+    pub(crate) fn new(separator: &'a str) -> Result<Self, SliceShort> {
         let meta = M::metadata();
         if L < meta.max_depth {
-            return Err(Error::Inner(SliceShort));
+            return Err(SliceShort);
         }
         let mut s = Self::new_unchecked(separator);
         s.count = Some(meta.count);
@@ -53,47 +56,51 @@ where
     M: Miniconf + ?Sized,
     P: Write + Default,
 {
-    type Item = P;
+    type Item = Result<P, Error<core::fmt::Error>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut path = Self::Item::default();
+        let mut path = P::default();
 
         loop {
-            return match M::path(self.state.iter().copied(), &mut path, self.separator) {
-                // Not having consumed any name/index, the only possible case here is a bare option.
-                // And that can not return `NotFound`.
-                Err(Error::NotFound(0)) => unreachable!(),
-                // Iteration done
+            return match M::path(self.state, &mut path, self.separator) {
+                // Out of valid indices at the root: iteration done
                 Err(Error::NotFound(1)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
                     None
                 }
-                // Node not found at depth: reset current index, increment parent index, then retry
-                Err(Error::NotFound(depth)) => {
-                    path = Self::Item::default();
+                // Node not found at depth: reset current index, increment parent index,
+                // then retry path()
+                Err(Error::NotFound(depth @ 2..)) => {
+                    path = P::default();
                     self.state[depth - 1] = 0;
                     self.state[depth - 2] += 1;
                     continue;
                 }
-                // Iteration done for a bare Option
-                Ok(Ok::Leaf(0)) if self.count == Some(0) => None,
-                // Root is `Leaf`: bare Option.
+                // Found a leaf at the root: bare Option
                 // Since there is no way to end iteration by triggering `NotFound` on a bare Option,
-                // we force the count to Some(0) and trigger on that (see above).
-                Ok(Ok::Leaf(0)) => {
-                    debug_assert_eq!(self.count.unwrap_or(1), 1);
-                    self.count = Some(0);
-                    Some(path)
+                // we force the count to Some(0) and trigger on that.
+                Ok(0) => {
+                    if self.count == Some(0) {
+                        None
+                    } else {
+                        debug_assert_eq!(self.count.unwrap_or(1), 1);
+                        self.count = Some(0);
+                        Some(Ok(path))
+                    }
                 }
-                // Non-root leaf: advance at current depth
-                Ok(Ok::Leaf(depth)) => {
+                // Non-root leaf: advance index at current depth
+                Ok(depth) => {
                     self.count = self.count.map(|c| c - 1);
                     self.state[depth - 1] += 1;
-                    Some(path)
+                    Some(Ok(path))
                 }
                 // If we end at a leaf node, the state array is too small.
-                Ok(Ok::Internal(_depth)) => panic!("Path iteration state too small"),
-                Err(e) => panic!("Path iteration: {e:?}"),
+                Err(e @ (Error::TooShort(_) | Error::Inner(_))) => Some(Err(e)),
+                // Note(`NotFound(0)`) Not having consumed any name/index, the only possible case
+                // is a bare `Miniconf` thing that does not add any hierarchy, e.g. `Option`.
+                // That however can not return `NotFound` at all.
+                // No other errors can be returned by traverse_by_key()
+                _ => unreachable!(),
             };
         }
     }
@@ -101,4 +108,11 @@ where
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.count.unwrap_or_default(), self.count)
     }
+}
+
+impl<'a, M, const L: usize, P> FusedIterator for PathIter<'a, M, L, P>
+where
+    M: Miniconf,
+    P: core::fmt::Write + Default,
+{
 }

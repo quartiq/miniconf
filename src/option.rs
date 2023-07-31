@@ -1,4 +1,4 @@
-use crate::{Error, Key, Metadata, Miniconf, Ok, Result};
+use crate::{Error, Key, Metadata, Miniconf};
 use core::ops::{Deref, DerefMut};
 
 /// An `Option` that exposes its value through their [`Miniconf`] implementation.
@@ -83,25 +83,13 @@ impl<T> From<Option<T>> for core::option::Option<T> {
     }
 }
 
+// This overrides the impl on core::option::Option through Deref
 impl<T: Miniconf> Miniconf for Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }
 
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<D::Error>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        if let Some(inner) = self.0.as_mut() {
-            inner.set_by_key(keys, de)
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         K::Item: Key,
@@ -114,17 +102,30 @@ impl<T: Miniconf> Miniconf for Option<T> {
         }
     }
 
-    fn metadata() -> Metadata {
-        T::metadata()
-    }
-
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<E>
+    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
+        D: serde::Deserializer<'a>,
+    {
+        if let Some(inner) = self.0.as_mut() {
+            inner.set_by_key(keys, de)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        F: FnMut(usize, &str) -> Result<(), E>,
     {
         T::traverse_by_key(keys, func)
+    }
+
+    fn metadata() -> Metadata {
+        T::metadata()
     }
 }
 
@@ -133,24 +134,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         None
     }
 
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<D::Error>
-    where
-        K: Iterator,
-        D: serde::Deserializer<'a>,
-    {
-        if keys.next().is_some() {
-            return Err(Error::TooLong(0));
-        }
-
-        if let Some(inner) = self.as_mut() {
-            *inner = serde::Deserialize::deserialize(de)?;
-            Ok(Ok::Leaf(0))
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Error>
+    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         S: serde::Serializer,
@@ -161,10 +145,34 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
 
         if let Some(inner) = self.as_ref() {
             serde::Serialize::serialize(inner, ser)?;
-            Ok(Ok::Leaf(0))
+            Ok(0)
         } else {
             Err(Error::Absent(0))
         }
+    }
+
+    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        D: serde::Deserializer<'a>,
+    {
+        if keys.next().is_some() {
+            return Err(Error::TooLong(0));
+        }
+
+        if let Some(inner) = self.as_mut() {
+            *inner = serde::Deserialize::deserialize(de)?;
+            Ok(0)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
+    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
+    where
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        Ok(0)
     }
 
     fn metadata() -> Metadata {
@@ -172,13 +180,5 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             count: 1,
             ..Default::default()
         }
-    }
-
-    fn traverse_by_key<K, F, E>(_keys: K, mut func: F) -> Result<E>
-    where
-        F: FnMut(Ok, usize, &str) -> core::result::Result<(), E>,
-    {
-        func(Ok::Leaf(0), 0, "")?;
-        Ok(Ok::Leaf(0))
     }
 }
