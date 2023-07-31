@@ -32,7 +32,7 @@ where
 {
     pub(crate) fn new(separator: &'a str) -> Result<Self, SliceShort> {
         let meta = M::metadata();
-        if L < meta.max_depth || L < D {
+        if L < meta.max_depth {
             return Err(SliceShort);
         }
         let mut s = Self::new_unchecked(separator);
