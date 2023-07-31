@@ -1,9 +1,9 @@
-use crate::{Error, Miniconf, SliceShort};
+use crate::{Error, Miniconf};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PathIter<'a, M: ?Sized, const L: usize, P, const D: usize> {
+pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
     /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
     m: PhantomData<M>,
     p: PhantomData<P>,
@@ -12,7 +12,7 @@ pub struct PathIter<'a, M: ?Sized, const L: usize, P, const D: usize> {
     ///
     /// It contains the current field/element index at each path hierarchy level
     /// and needs to be at least as large as the maximum path depth.
-    state: [usize; L],
+    state: [usize; Y],
 
     /// The remaining length of the iterator.
     ///
@@ -26,34 +26,32 @@ pub struct PathIter<'a, M: ?Sized, const L: usize, P, const D: usize> {
     separator: &'a str,
 }
 
-impl<'a, M, const L: usize, P, const D: usize> PathIter<'a, M, L, P, D>
+impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
 where
-    M: Miniconf<D> + ?Sized,
+    M: Miniconf<Y> + ?Sized,
 {
-    pub(crate) fn new(separator: &'a str) -> Result<Self, SliceShort> {
+    pub(crate) fn new(separator: &'a str) -> Self {
         let meta = M::metadata();
-        if L < meta.max_depth {
-            return Err(SliceShort);
-        }
+        assert!(Y == meta.max_depth);
         let mut s = Self::new_unchecked(separator);
         s.count = Some(meta.count);
-        Ok(s)
+        s
     }
 
     pub(crate) fn new_unchecked(separator: &'a str) -> Self {
         Self {
             count: None,
             separator,
-            state: [0; L],
+            state: [0; Y],
             m: PhantomData,
             p: PhantomData,
         }
     }
 }
 
-impl<'a, M, const L: usize, P, const D: usize> Iterator for PathIter<'a, M, L, P, D>
+impl<'a, M, const Y: usize, P> Iterator for PathIter<'a, M, Y, P>
 where
-    M: Miniconf<D> + ?Sized,
+    M: Miniconf<Y> + ?Sized,
     P: Write + Default,
 {
     type Item = Result<P, Error<core::fmt::Error>>;
@@ -110,9 +108,9 @@ where
     }
 }
 
-impl<'a, M, const L: usize, P, const D: usize> FusedIterator for PathIter<'a, M, L, P, D>
+impl<'a, M, const Y: usize, P> FusedIterator for PathIter<'a, M, Y, P>
 where
-    M: Miniconf<D>,
+    M: Miniconf<Y>,
     P: core::fmt::Write + Default,
 {
 }

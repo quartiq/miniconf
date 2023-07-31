@@ -82,7 +82,7 @@ async fn main() {
     tokio::task::spawn(async move { client_task().await });
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
+    let mut interface: miniconf::MqttClient<_, _, _, 256, 1> = miniconf::MqttClient::new(
         Stack::default(),
         "",
         "validation_failure/device",

@@ -16,26 +16,9 @@ struct Settings {
 }
 
 #[test]
-fn slice_short() {
-    let meta = Settings::metadata().separator("/");
-    assert_eq!(meta.max_depth, 2);
-    assert_eq!(meta.max_length, "/c/inner".len());
-    assert_eq!(meta.count, 3);
-
-    // Ensure that we can't iterate if we make a state vector that is too small.
-    assert_eq!(
-        Settings::iter_paths::<1, String>(""),
-        Err(miniconf::SliceShort)
-    );
-}
-
-#[test]
 fn struct_iter() {
     let mut paths = ["/a", "/b", "/c/inner"].into_iter();
-    for (have, expect) in Settings::iter_paths::<32, String>("/")
-        .unwrap()
-        .zip(&mut paths)
-    {
+    for (have, expect) in Settings::iter_paths::<String>("/").zip(&mut paths) {
         assert_eq!(have.unwrap(), expect);
     }
     // Ensure that all fields were iterated.
@@ -59,7 +42,7 @@ fn array_iter() {
 
     let mut s = Settings::default();
 
-    for field in Settings::iter_paths::<4, String>("/").unwrap() {
+    for field in Settings::iter_paths::<String>("/") {
         let field = field.unwrap();
         s.set_json(&field, b"true").unwrap();
         let mut buf = [0; 32];

@@ -149,6 +149,10 @@ fn derive_struct(
     let fields_len = fields.len();
 
     let defers = fields.iter().map(|field| field.defer.is_some());
+    let depth = fields
+        .iter()
+        .fold(0usize, |d, field| d.max(field.defer.unwrap_or_default()))
+        + 1;
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
@@ -159,7 +163,7 @@ fn derive_struct(
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
-        impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
+        impl #impl_generics miniconf::Miniconf<#depth> for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
             }
@@ -172,7 +176,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<1, Self>(&key)
+                let index = miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -195,7 +199,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<1, Self>(&key)
+                let index = miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -221,7 +225,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<1, Self>(&key)
+                let index = miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -248,11 +252,11 @@ fn derive_struct(
                         item_meta.max_length
                     );
                     meta.max_depth = meta.max_depth.max(
-                        1 +
                         item_meta.max_depth
                     );
                     meta.count += item_meta.count;
                 }
+                meta.max_depth += 1;
                 meta
             }
         }
