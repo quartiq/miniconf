@@ -290,7 +290,7 @@ pub trait Miniconf {
     /// # Returns
     /// An iterator of paths or an Error if `L` is insufficient.
     #[inline]
-    fn iter_paths<const L: usize, P>(
+    fn iter_paths<const L: usize, P: core::fmt::Write>(
         separator: &str,
     ) -> Result<PathIter<'_, Self, L, P>, SliceShort> {
         PathIter::new(separator)
@@ -307,7 +307,9 @@ pub trait Miniconf {
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<const L: usize, P>(separator: &str) -> PathIter<'_, Self, L, P> {
+    fn iter_paths_unchecked<const L: usize, P: core::fmt::Write>(
+        separator: &str,
+    ) -> PathIter<'_, Self, L, P> {
         PathIter::new_unchecked(separator)
     }
 }
