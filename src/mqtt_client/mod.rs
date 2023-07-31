@@ -141,7 +141,7 @@ impl<'a> Command<'a> {
 ///     foo: bool,
 /// }
 ///
-/// let mut client: MqttClient<Settings, _, _, 256> = MqttClient::new(
+/// let mut client: MqttClient<Settings, _, _, 256, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "",  // client_id auto-assign
 ///     "quartiq/application/12345",  // prefix

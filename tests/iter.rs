@@ -18,7 +18,7 @@ struct Settings {
 #[test]
 fn struct_iter() {
     let mut paths = ["/a", "/b", "/c/inner"].into_iter();
-    for (have, expect) in Settings::iter_paths::<String>("/").unwrap().zip(&mut paths) {
+    for (have, expect) in Settings::iter_paths::<String>("/").zip(&mut paths) {
         assert_eq!(have.unwrap(), expect);
     }
     // Ensure that all fields were iterated.
@@ -42,7 +42,7 @@ fn array_iter() {
 
     let mut s = Settings::default();
 
-    for field in Settings::iter_paths::<String>("/").unwrap() {
+    for field in Settings::iter_paths::<String>("/") {
         let field = field.unwrap();
         s.set_json(&field, b"true").unwrap();
         let mut buf = [0; 32];

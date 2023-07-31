@@ -282,11 +282,9 @@ pub trait Miniconf<const Y: usize = 1> {
     /// # Args
     ///
     /// # Returns
-    /// An iterator of paths or an Error if `L` is insufficient.
+    /// An iterator of paths with a trusted and exact `size_hint()`.
     #[inline]
-    fn iter_paths<P: core::fmt::Write>(
-        separator: &str,
-    ) -> Result<PathIter<'_, Self, Y, P>, SliceShort> {
+    fn iter_paths<P: core::fmt::Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new(separator)
     }
 

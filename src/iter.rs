@@ -1,4 +1,4 @@
-use crate::{Error, Miniconf, SliceShort};
+use crate::{Error, Miniconf};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
@@ -30,12 +30,12 @@ impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
 where
     M: Miniconf<Y> + ?Sized,
 {
-    pub(crate) fn new(separator: &'a str) -> Result<Self, SliceShort> {
+    pub(crate) fn new(separator: &'a str) -> Self {
         let meta = M::metadata();
         assert!(Y == meta.max_depth);
         let mut s = Self::new_unchecked(separator);
         s.count = Some(meta.count);
-        Ok(s)
+        s
     }
 
     pub(crate) fn new_unchecked(separator: &'a str) -> Self {

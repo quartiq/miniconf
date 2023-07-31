@@ -23,7 +23,7 @@ fn main() {
     };
 
     // Maintains our state of iteration.
-    let mut settings_iter = Settings::iter_paths::<String>("/").unwrap();
+    let mut settings_iter = Settings::iter_paths::<String>("/");
 
     // Just get one topic/value from the iterator
     if let Some(topic) = settings_iter.next() {
