@@ -53,13 +53,13 @@ struct Settings {
     array_miniconf: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
-    #[miniconf(defer)]
+    #[miniconf(defer(0))]
     option_defer: Option<i32>,
     // Hiding a path and deferring to the inner
-    #[miniconf(defer(2))]
+    #[miniconf(defer(1))]
     option_miniconf: Option<Inner>,
     // Hiding elements of an Array of Miniconf items
-    #[miniconf(defer(3))]
+    #[miniconf(defer(2))]
     array_option_miniconf: [Option<Inner>; 2],
 }
 
@@ -97,7 +97,7 @@ let len = settings.get_json("/struct_", &mut buf)?;
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
-for path in Settings::iter_paths::<3, String>("/").unwrap() {
+for path in Settings::iter_paths::<String>("/").unwrap() {
     let path = path.unwrap();
     // Serializing each
     match settings.get_json(&path, &mut buf) {

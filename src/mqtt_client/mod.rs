@@ -21,7 +21,7 @@ const MAX_RECURSION_DEPTH: usize = 8;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M> = crate::PathIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>, 1>;
+type Iter<M, const Y: usize> = crate::PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -48,13 +48,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf> {
+    pub struct Context<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: super::Iter<M>,
+        pub republish_state: super::Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> Context<C, M, Y> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -73,7 +73,9 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> StateMachineContext for Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> StateMachineContext
+        for Context<C, M, Y>
+    {
         fn start_republish_timeout(&mut self) {
             self.timeout.replace(
                 self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
@@ -157,25 +159,25 @@ impl<'a> Command<'a> {
 ///     Ok(())
 /// }).unwrap();
 /// ```
-pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
+pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
 where
-    Settings: JsonCoreSlash + Clone,
+    Settings: JsonCoreSlash<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     settings: Settings,
-    state: sm::StateMachine<sm::Context<Clock, Settings>>,
+    state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<Iter<Settings>>,
+    listing_state: Option<Iter<Settings, Y>>,
     properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
     pending_response: Option<Response<32>>,
 }
 
-impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
-    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
+impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
+    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, Y>
 where
-    Settings: JsonCoreSlash + Clone,
+    Settings: JsonCoreSlash<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {

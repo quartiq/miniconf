@@ -149,15 +149,7 @@ impl Key for &str {
 
 /// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
 ///
-/// The parameter `Y` is a lower bound for the recursion depth. It's only non-unity in
-/// `array` and `option` as they need a configurable recursion depth at compile time
-/// and can't be marked up with inner attributes.
-/// The paramter `Y` deviates from the key tree depth significantly:
-/// * `Option` consume a layer of Miniconf recursion, but don't add to key tree height
-/// * A struct that has `Miniconf` derived for it will only implement `Miniconf<1>`
-///   but may perform arbitrarily recursion and also have arbitrarily long keys.
-///   `1` is then the minimum recursion depth for a (non-newtype) struct. No other
-///   value is needed or valid.
+/// The depth parameter `Y` is the maximum key length: the depth/height of the tree.
 pub trait Miniconf<const Y: usize = 1> {
     /// Convert a node name to a node index.
     fn name_to_index(name: &str) -> core::option::Option<usize>;
@@ -292,9 +284,9 @@ pub trait Miniconf<const Y: usize = 1> {
     /// # Returns
     /// An iterator of paths or an Error if `L` is insufficient.
     #[inline]
-    fn iter_paths<const L: usize, P: core::fmt::Write>(
+    fn iter_paths<P: core::fmt::Write>(
         separator: &str,
-    ) -> Result<PathIter<'_, Self, L, P, Y>, SliceShort> {
+    ) -> Result<PathIter<'_, Self, Y, P>, SliceShort> {
         PathIter::new(separator)
     }
 
@@ -309,9 +301,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<const L: usize, P: core::fmt::Write>(
-        separator: &str,
-    ) -> PathIter<'_, Self, L, P, Y> {
+    fn iter_paths_unchecked<P: core::fmt::Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new_unchecked(separator)
     }
 }

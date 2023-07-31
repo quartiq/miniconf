@@ -21,7 +21,7 @@ use crate::{Error, Key, Metadata, Miniconf};
 
 macro_rules! depth {
     ($($d:literal)+) => {$(
-        impl<T: Miniconf<{$d - 1}>> Miniconf<$d> for Option<T> {
+        impl<T: Miniconf<$d>> Miniconf<$d> for Option<T> {
             fn name_to_index(_value: &str) -> core::option::Option<usize> {
                 None
             }
@@ -68,9 +68,9 @@ macro_rules! depth {
     )+}
 }
 
-depth!(2 3 4 5 6 7 8);
+depth!(1 2 3 4 5 6 7 8);
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
+impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<0> for core::option::Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }
