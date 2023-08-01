@@ -19,8 +19,8 @@ impl StructField {
                     if meta.path.is_ident("defer") {
                         let content;
                         parenthesized!(content in meta.input);
-                        let lit: LitInt = content.parse().unwrap();
-                        defer = Some(lit.base10_parse().unwrap());
+                        let lit: LitInt = content.parse()?;
+                        defer = Some(lit.base10_parse()?);
                         Ok(())
                     } else {
                         Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
