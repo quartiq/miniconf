@@ -15,10 +15,10 @@ struct Settings {
     d: [u8; 2],
     #[miniconf(defer)]
     dm: [Inner; 2],
-    #[miniconf(defer)]
-    am: miniconf::Array<Inner, 2>,
-    #[miniconf(defer)]
-    aam: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
+    #[miniconf(defer(2))]
+    am: [Inner; 2],
+    #[miniconf(defer(3))]
+    aam: [[Inner; 2]; 2],
 }
 
 #[test]
@@ -109,31 +109,24 @@ fn iter() {
 
 #[test]
 fn empty() {
-    assert!(<[u32; 0]>::iter_paths::<2, String>("")
-        .unwrap()
-        .next()
-        .is_none());
+    assert!(<[u32; 0]>::iter_paths::<String>("").next().is_none());
 
     #[derive(Miniconf, Serialize, Deserialize)]
     struct S {}
 
-    assert!(miniconf::Array::<S, 0>::iter_paths::<2, String>("")
-        .unwrap()
+    assert!(<[S; 0] as Miniconf>::iter_paths::<String>("")
         .next()
         .is_none());
-    assert!(
-        miniconf::Array::<miniconf::Array<S, 0>, 0>::iter_paths::<2, String>("")
-            .unwrap()
-            .next()
-            .is_none()
-    );
+    assert!(<[[S; 0]; 0] as Miniconf>::iter_paths::<String>("")
+        .next()
+        .is_none());
 
     #[derive(Miniconf)]
     struct Q {
-        #[miniconf(defer)]
-        a: miniconf::Array<S, 0>,
+        #[miniconf(defer(2))]
+        a: [S; 0],
         #[miniconf(defer)]
         b: [S; 0],
     }
-    assert!(Q::iter_paths::<3, String>("").unwrap().next().is_none());
+    assert!(Q::iter_paths::<String>("").next().is_none());
 }

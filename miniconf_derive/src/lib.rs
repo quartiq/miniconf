@@ -55,9 +55,9 @@ fn name(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
 fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `get_by_key()` args available.
     let ident = name(i, &struct_field.field.ident);
-    if struct_field.defer {
+    if let Some(depth) = struct_field.defer {
         quote! {
-            #i => self.#ident.get_by_key(keys, ser)
+            #i => miniconf::Miniconf::<#depth>::get_by_key(&self.#ident, keys, ser)
         }
     } else {
         quote! {
@@ -72,9 +72,9 @@ fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
 fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `set_by_key()` args available.
     let ident = name(i, &struct_field.field.ident);
-    if struct_field.defer {
+    if let Some(depth) = struct_field.defer {
         quote! {
-            #i => self.#ident.set_by_key(keys, de)
+            #i => miniconf::Miniconf::<#depth>::set_by_key(&mut self.#ident, keys, de)
         }
     } else {
         quote! {
@@ -90,10 +90,10 @@ fn traverse_by_key_arm(
     (i, struct_field): (usize, &StructField),
 ) -> Option<proc_macro2::TokenStream> {
     // Quote context is a match of the field index with `traverse_by_key()` args available.
-    if struct_field.defer {
+    if let Some(depth) = struct_field.defer {
         let field_type = &struct_field.field.ty;
         Some(quote! {
-            #i => <#field_type>::traverse_by_key(keys, func)
+            #i => <#field_type as miniconf::Miniconf<#depth>>::traverse_by_key(keys, func)
         })
     } else {
         None
@@ -102,10 +102,10 @@ fn traverse_by_key_arm(
 
 fn metadata_arm((i, struct_field): (usize, &StructField)) -> Option<proc_macro2::TokenStream> {
     // Quote context is a match of the field index with `metadata()` args available.
-    if struct_field.defer {
+    if let Some(depth) = struct_field.defer {
         let field_type = &struct_field.field.ty;
         Some(quote! {
-            #i => <#field_type>::metadata()
+            #i => <#field_type as miniconf::Miniconf<#depth>>::metadata()
         })
     } else {
         None
@@ -148,18 +148,22 @@ fn derive_struct(
     });
     let fields_len = fields.len();
 
-    let defers = fields.iter().map(|field| field.defer);
+    let defers = fields.iter().map(|field| field.defer.is_some());
+    let depth = fields
+        .iter()
+        .fold(0usize, |d, field| d.max(field.defer.unwrap_or_default()))
+        + 1;
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
 
-    quote! {
+    let tokens = quote! {
         impl #impl_generics_orig #ident #ty_generics_orig {
             const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
-        impl #impl_generics miniconf::Miniconf for #ident #ty_generics #where_clause {
+        impl #impl_generics miniconf::Miniconf<#depth> for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
             }
@@ -172,7 +176,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(&key)
+                let index = miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -195,7 +199,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(&key)
+                let index = miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -221,7 +225,7 @@ fn derive_struct(
             {
                 let key = keys.next()
                     .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<Self>(&key)
+                let index = miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(miniconf::Error::NotFound(1))?;
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(miniconf::Error::NotFound(1))?;
@@ -248,14 +252,16 @@ fn derive_struct(
                         item_meta.max_length
                     );
                     meta.max_depth = meta.max_depth.max(
-                        1 +
                         item_meta.max_depth
                     );
                     meta.count += item_meta.count;
                 }
+                meta.max_depth += 1;
                 meta
             }
         }
     }
-    .into()
+    .into();
+
+    tokens
 }

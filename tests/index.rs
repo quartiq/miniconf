@@ -15,10 +15,10 @@ struct Settings {
     d: [u8; 2],
     #[miniconf(defer)]
     dm: [Inner; 2],
-    #[miniconf(defer)]
-    am: miniconf::Array<Inner, 2>,
-    #[miniconf(defer)]
-    aam: miniconf::Array<miniconf::Array<Inner, 2>, 2>,
+    #[miniconf(defer(2))]
+    am: [Inner; 2],
+    #[miniconf(defer(3))]
+    aam: [[Inner; 2]; 2],
 }
 
 #[test]
@@ -96,19 +96,16 @@ fn empty() {
     #[derive(Miniconf, Serialize, Deserialize, Copy, Clone, Default)]
     struct S {}
 
-    assert!(<miniconf::Array::<S, 0> as Default>::default()
-        .set_json_by_index(&[], b"")
-        .is_err());
-    assert!(
-        <miniconf::Array::<miniconf::Array<S, 0>, 0> as Default>::default()
-            .set_json_by_index(&[], b"")
-            .is_err()
-    );
+    let mut s = [S::default(); 0];
+    assert!(JsonCoreSlash::<1>::set_json_by_index(&mut s, &[], b"").is_err());
+
+    let mut s = [[S::default(); 0]; 0];
+    assert!(JsonCoreSlash::<1>::set_json_by_index(&mut s, &[], b"").is_err());
 
     #[derive(Miniconf, Default)]
     struct Q {
-        #[miniconf(defer)]
-        a: miniconf::Array<S, 0>,
+        #[miniconf(defer(2))]
+        a: [S; 0],
         #[miniconf(defer)]
         b: [S; 0],
     }

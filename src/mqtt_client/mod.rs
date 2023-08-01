@@ -14,14 +14,11 @@ const MAX_TOPIC_LENGTH: usize = 128;
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
 
-// The maximum recursive depth of a settings structure.
-const MAX_RECURSION_DEPTH: usize = 8;
-
 // The delay after not receiving messages after initial connection that settings will be
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M> = crate::PathIter<'static, M, MAX_RECURSION_DEPTH, String<MAX_TOPIC_LENGTH>>;
+type Iter<M, const Y: usize> = crate::PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use minimq::embedded_time::{self, duration::Extensions, Instant};
@@ -48,13 +45,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf> {
+    pub struct Context<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: super::Iter<M>,
+        pub republish_state: super::Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> Context<C, M, Y> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -73,7 +70,9 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf> StateMachineContext for Context<C, M> {
+    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> StateMachineContext
+        for Context<C, M, Y>
+    {
         fn start_republish_timeout(&mut self) {
             self.timeout.replace(
                 self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
@@ -127,7 +126,7 @@ impl<'a> Command<'a> {
 /// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
 /// connect to it when errors occur.
 ///
-/// The client only supports paths up to 128 byte length and maximum depth of 8.
+/// The client only supports paths up to 128 byte length.
 /// Keepalive interval and re-publication timeout are fixed to 60 and 2 seconds respectively.
 ///
 /// # Example
@@ -139,7 +138,7 @@ impl<'a> Command<'a> {
 ///     foo: bool,
 /// }
 ///
-/// let mut client: MqttClient<Settings, _, _, 256> = MqttClient::new(
+/// let mut client: MqttClient<_, _, _, 256, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "",  // client_id auto-assign
 ///     "quartiq/application/12345",  // prefix
@@ -157,25 +156,25 @@ impl<'a> Command<'a> {
 ///     Ok(())
 /// }).unwrap();
 /// ```
-pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
+pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
 where
-    Settings: JsonCoreSlash + Clone,
+    Settings: JsonCoreSlash<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
     mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
     settings: Settings,
-    state: sm::StateMachine<sm::Context<Clock, Settings>>,
+    state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<Iter<Settings>>,
+    listing_state: Option<Iter<Settings, Y>>,
     properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
     pending_response: Option<Response<32>>,
 }
 
-impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize>
-    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE>
+impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
+    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, Y>
 where
-    Settings: JsonCoreSlash + Clone,
+    Settings: JsonCoreSlash<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {
@@ -217,7 +216,6 @@ where
         )?;
 
         let meta = Settings::metadata().separator("/");
-        assert!(meta.max_depth <= MAX_RECURSION_DEPTH);
         assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
@@ -289,7 +287,7 @@ where
 
             let topic = topic.unwrap();
 
-            // Note: The topic may be absent at runtime (`miniconf::Option` or deferred `Option`).
+            // Note: The topic may be absent at runtime (deferred `Option`).
             let len = match self.settings.get_json(&topic, &mut data) {
                 Err(Error::Absent(_)) => continue,
                 Ok(len) => len,

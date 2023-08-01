@@ -1,13 +1,10 @@
 use crate::{Error, Key, Metadata, Miniconf};
-use core::ops::{Deref, DerefMut};
 
-/// An `Option` that exposes its value through their [`Miniconf`] implementation.
+/// `Miniconf<D>` for `Option`.
 ///
 /// # Design
 ///
-/// Miniconf supports optional values in two forms.
-///
-/// In both forms, the `Option` may be marked with `#[miniconf(defer)]`
+/// An `Option` may be marked with `#[miniconf(defer(D))]`
 /// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
 /// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but attempts to
 /// `get_by_key()` or `set_by_key()` them using the [`Miniconf`] API return in [`Error::Absent`].
@@ -16,120 +13,65 @@ use core::ops::{Deref, DerefMut};
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
-/// The first form is the [`miniconf::Option`](Option) type which optionally exposes its
-/// interior `Miniconf` value as a sub-tree. An [`miniconf::Option`](Option) should usually be
-/// `#[miniconf(defer)]`.
-///
-/// Miniconf also allows for the normal usage of Rust [`core::option::Option`] types. In this case,
-/// the `Option` can be used to atomically access the content within. If marked with `#[miniconf(defer)]`
-/// and `None` at runtime, it is inaccessible through `Miniconf`. Otherwise, JSON `null` corresponds to
-/// `None` as usual.
-///
-/// # Construction
-///
-/// An `miniconf::Option` can be constructed using [`From<core::option::Option>`]/[`Into<miniconf::Option>`]
-/// and the contained value can be accessed through [`Deref`]/[`DerefMut`].
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    PartialEq,
-    Eq,
-    Debug,
-    PartialOrd,
-    Ord,
-    Hash,
-    serde::Serialize,
-    serde::Deserialize,
-)]
-#[repr(transparent)]
-pub struct Option<T>(core::option::Option<T>);
+/// If the depth specified by the `miniconf(defer(D))` attribute exceeds 0,
+/// the `Option` can be used to access content within the inner type.
+/// If marked with `#[miniconf(defer(-))]`, and `None` at runtime, the value or the entire sub-tree
+/// is inaccessible through `Miniconf::{get,set}_by_key`.
+/// If there is no `miniconf` attribute on an `Option` field in a `struct or in an array,
+/// JSON `null` corresponds to`None` as usual.
 
-impl<T> Deref for Option<T> {
-    type Target = core::option::Option<T>;
+macro_rules! depth {
+    ($($d:literal)+) => {$(
+        impl<T: Miniconf<$d>> Miniconf<$d> for Option<T> {
+            fn name_to_index(_value: &str) -> core::option::Option<usize> {
+                None
+            }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+            fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                S: serde::Serializer,
+            {
+                if let Some(inner) = self {
+                    inner.get_by_key(keys, ser)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
 
-impl<T> DerefMut for Option<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
+            fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                D: serde::Deserializer<'a>,
+            {
+                if let Some(inner) = self {
+                    inner.set_by_key(keys, de)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
 
-impl<T> AsRef<core::option::Option<T>> for Option<T> {
-    fn as_ref(&self) -> &core::option::Option<T> {
-        self
-    }
-}
+            fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                F: FnMut(usize, &str) -> Result<(), E>,
+            {
+                T::traverse_by_key(keys, func)
+            }
 
-impl<T> AsMut<core::option::Option<T>> for Option<T> {
-    fn as_mut(&mut self) -> &mut core::option::Option<T> {
-        self
-    }
-}
-
-impl<T> From<core::option::Option<T>> for Option<T> {
-    fn from(x: core::option::Option<T>) -> Self {
-        Self(x)
-    }
-}
-
-impl<T> From<Option<T>> for core::option::Option<T> {
-    fn from(x: Option<T>) -> Self {
-        x.0
-    }
-}
-
-// This overrides the impl on core::option::Option through Deref
-impl<T: Miniconf> Miniconf for Option<T> {
-    fn name_to_index(_value: &str) -> core::option::Option<usize> {
-        None
-    }
-
-    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        S: serde::Serializer,
-    {
-        if let Some(inner) = self.0.as_ref() {
-            inner.get_by_key(keys, ser)
-        } else {
-            Err(Error::Absent(0))
+            fn metadata() -> Metadata {
+                T::metadata()
+            }
         }
-    }
-
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        if let Some(inner) = self.0.as_mut() {
-            inner.set_by_key(keys, de)
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        F: FnMut(usize, &str) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
-    }
-
-    fn metadata() -> Metadata {
-        T::metadata()
-    }
+    )+}
 }
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
+depth!(1 2 3 4 5 6 7 8);
+
+impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<0> for core::option::Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }
@@ -143,7 +85,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             return Err(Error::TooLong(0));
         }
 
-        if let Some(inner) = self.as_ref() {
+        if let Some(inner) = self {
             serde::Serialize::serialize(inner, ser)?;
             Ok(0)
         } else {
@@ -160,7 +102,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             return Err(Error::TooLong(0));
         }
 
-        if let Some(inner) = self.as_mut() {
+        if let Some(inner) = self {
             *inner = serde::Deserialize::deserialize(de)?;
             Ok(0)
         } else {

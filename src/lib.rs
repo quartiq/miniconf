@@ -130,33 +130,27 @@ impl Metadata {
 /// Capability to convert a key into an node index.
 pub trait Key {
     /// Convert the key `self` to a `usize` index.
-    fn find<M: Miniconf>(&self) -> core::option::Option<usize>;
+    fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize>;
 }
 
-macro_rules! key_integer {
-    ($($ty:ident)+) => {
-        $(
-            impl Key for $ty {
-                #[inline]
-                fn find<M>(&self) -> core::option::Option<usize> {
-                    Some(*self as _)
-                }
-            }
-        )+
+impl Key for usize {
+    #[inline]
+    fn find<const D: usize, M>(&self) -> core::option::Option<usize> {
+        Some(*self)
     }
 }
 
-key_integer!(usize);
-
 impl Key for &str {
     #[inline]
-    fn find<M: Miniconf>(&self) -> core::option::Option<usize> {
+    fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize> {
         M::name_to_index(self)
     }
 }
 
 /// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
-pub trait Miniconf {
+///
+/// The depth parameter `Y` is the maximum key length: the depth/height of the tree.
+pub trait Miniconf<const Y: usize = 1> {
     /// Convert a node name to a node index.
     fn name_to_index(name: &str) -> core::option::Option<usize>;
 
@@ -288,11 +282,9 @@ pub trait Miniconf {
     /// # Args
     ///
     /// # Returns
-    /// An iterator of paths or an Error if `L` is insufficient.
+    /// An iterator of paths with a trusted and exact `size_hint()`.
     #[inline]
-    fn iter_paths<const L: usize, P: core::fmt::Write>(
-        separator: &str,
-    ) -> Result<PathIter<'_, Self, L, P>, SliceShort> {
+    fn iter_paths<P: core::fmt::Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new(separator)
     }
 
@@ -307,9 +299,7 @@ pub trait Miniconf {
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<const L: usize, P: core::fmt::Write>(
-        separator: &str,
-    ) -> PathIter<'_, Self, L, P> {
+    fn iter_paths_unchecked<P: core::fmt::Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new_unchecked(separator)
     }
 }

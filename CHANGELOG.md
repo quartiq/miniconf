@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Traversal by names or indices has been added through `Miniconf::traverse_by_key()`.
 * The `Miniconf` derive macro supports (unnamed) tuple structs.
 
+### Removed
+
+* [breaking] The `Array` and `Option` newtypes have been removed. Instead in structs
+  the desired `Miniconf<N>` recursion depth for a field is indicated by an attribute
+  `#[miniconf(defer(N))]` where `N` is a `usize` literal. The depth is communicated
+  via the trait. For `[T;N]` and `Option` the depth up to `8` has been implemented.
+  For `structs` it is arbitrary.
+
 ### Changed
 
 * [breaking] The `Miniconf` trait is now generic over the `Deserializer`/`Serializer`. It
@@ -35,9 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to adapt to the above is to make sure the `JsonCoreSlash` trait is in scope
   (`use miniconf::JsonCoreSlash`) and to rename `{set,get}() -> {set,get}_json()`.
   The `MqttClient` has seen no externally visible changes.
+* [breaking] `iter_paths()` and `iter_paths_unchecked()` now don't need the state
+  size anymore as it's computed exactly at compile time.
 * [breaking] `iter_paths`/`PathIter` is now generic over the type
   to write the path into. Downstream crates should replace `iter_paths::<L, TS>()` with
-  e.g. `iter_paths::<L, heapless::String<TS>>()`.
+  e.g. `iter_paths::<heapless::String<TS>>()`.
 * [breaking] Re-exports of `heapless` and `serde-json-core` have been removed as they
   are not needed to work with the public API and would be a semver hazard.
 * [breaking] Metadata is now computed by default without taking into account

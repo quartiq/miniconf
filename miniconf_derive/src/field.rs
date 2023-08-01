@@ -1,19 +1,26 @@
-use syn::{parse_quote, Generics};
+use syn::{parenthesized, parse_quote, Generics, LitInt};
 
 pub struct StructField {
     pub field: syn::Field,
-    pub defer: bool,
+    pub defer: Option<usize>,
 }
 
 impl StructField {
     pub fn new(field: syn::Field) -> Self {
-        let mut defer = false;
+        let mut defer = None;
 
         for attr in field.attrs.iter() {
             if attr.path().is_ident("miniconf") {
+                defer = Some(1);
                 attr.parse_nested_meta(|meta| {
+                    if meta.input.is_empty() {
+                        return Ok(());
+                    }
                     if meta.path.is_ident("defer") {
-                        defer = true;
+                        let content;
+                        parenthesized!(content in meta.input);
+                        let lit: LitInt = content.parse().unwrap();
+                        defer = Some(lit.base10_parse().unwrap());
                         Ok(())
                     } else {
                         Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
@@ -32,10 +39,11 @@ impl StructField {
                 if type_param.ident == *ident {
                     // Deferred array types are a special case. These types defer directly into a
                     // manual implementation of Miniconf that calls serde functions directly.
-                    if self.defer && !array {
+                    if self.defer.is_some() && !array {
                         // For deferred, non-array data types, we will recursively call into
                         // Miniconf trait functions.
-                        type_param.bounds.push(parse_quote!(miniconf::Miniconf));
+                        let d = self.defer.unwrap();
+                        type_param.bounds.push(parse_quote!(miniconf::Miniconf<#d>));
                     } else {
                         // For other data types, we will call into serde functions directly.
                         type_param.bounds.push(parse_quote!(miniconf::Serialize));
