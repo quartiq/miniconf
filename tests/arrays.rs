@@ -123,7 +123,7 @@ fn empty() {
 
     #[derive(Miniconf)]
     struct Q {
-        #[miniconf(defer)]
+        #[miniconf(defer(2))]
         a: [S; 0],
         #[miniconf(defer)]
         b: [S; 0],
