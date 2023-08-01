@@ -36,7 +36,7 @@ macro_rules! depth {
                 value.parse().ok()
             }
 
-            fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
@@ -45,10 +45,10 @@ macro_rules! depth {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
                 let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
-                item.get_by_key(keys, ser).increment()
+                item.serialize_by_key(keys, ser).increment()
             }
 
-            fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
@@ -57,7 +57,7 @@ macro_rules! depth {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
                 let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-                item.set_by_key(keys, de).increment()
+                item.deserialize_by_key(keys, de).increment()
             }
 
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -95,7 +95,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         value.parse().ok()
     }
 
-    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         K::Item: Key,
@@ -112,7 +112,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         Ok(1)
     }
 
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,

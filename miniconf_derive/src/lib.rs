@@ -52,12 +52,12 @@ fn name(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
     }
 }
 
-fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `get_by_key()` args available.
+fn serialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `serialize_by_key()` args available.
     let ident = name(i, &struct_field.field.ident);
     if let Some(depth) = struct_field.defer {
         quote! {
-            #i => miniconf::Miniconf::<#depth>::get_by_key(&self.#ident, keys, ser)
+            #i => miniconf::Miniconf::<#depth>::serialize_by_key(&self.#ident, keys, ser)
         }
     } else {
         quote! {
@@ -69,12 +69,12 @@ fn get_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::Toke
     }
 }
 
-fn set_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `set_by_key()` args available.
+fn deserialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
+    // Quote context is a match of the field name with `deserialize_by_key()` args available.
     let ident = name(i, &struct_field.field.ident);
     if let Some(depth) = struct_field.defer {
         quote! {
-            #i => miniconf::Miniconf::<#depth>::set_by_key(&mut self.#ident, keys, de)
+            #i => miniconf::Miniconf::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
         }
     } else {
         quote! {
@@ -138,8 +138,8 @@ fn derive_struct(
     let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
 
-    let get_by_key_arms = fields.iter().enumerate().map(get_by_key_arm);
-    let set_by_key_arms = fields.iter().enumerate().map(set_by_key_arm);
+    let serialize_by_key_arms = fields.iter().enumerate().map(serialize_by_key_arm);
+    let deserialize_by_key_arms = fields.iter().enumerate().map(deserialize_by_key_arm);
     let traverse_by_key_arms = fields.iter().enumerate().filter_map(traverse_by_key_arm);
     let metadata_arms = fields.iter().enumerate().filter_map(metadata_arm);
     let names = fields.iter().enumerate().map(|(i, field)| {
@@ -168,7 +168,7 @@ fn derive_struct(
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
             }
 
-            fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, miniconf::Error<S::Error>>
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, miniconf::Error<S::Error>>
             where
                 K: Iterator,
                 K::Item: miniconf::Key,
@@ -186,12 +186,12 @@ fn derive_struct(
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
                 miniconf::Increment::increment(match index {
-                    #(#get_by_key_arms ,)*
+                    #(#serialize_by_key_arms ,)*
                     _ => unreachable!()
                 })
             }
 
-            fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, miniconf::Error<D::Error>>
+            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, miniconf::Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: miniconf::Key,
@@ -209,7 +209,7 @@ fn derive_struct(
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
                 miniconf::Increment::increment(match index {
-                    #(#set_by_key_arms ,)*
+                    #(#deserialize_by_key_arms ,)*
                     _ => unreachable!()
                 })
             }

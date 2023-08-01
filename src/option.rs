@@ -7,7 +7,7 @@ use crate::{Error, Key, Metadata, Miniconf};
 /// An `Option` may be marked with `#[miniconf(defer(D))]`
 /// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
 /// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but attempts to
-/// `get_by_key()` or `set_by_key()` them using the [`Miniconf`] API return in [`Error::Absent`].
+/// `serialize_by_key()` or `deserialize_by_key()` them using the [`Miniconf`] API return in [`Error::Absent`].
 ///
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
@@ -27,27 +27,27 @@ macro_rules! depth {
                 None
             }
 
-            fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
                 S: serde::Serializer,
             {
                 if let Some(inner) = self {
-                    inner.get_by_key(keys, ser)
+                    inner.serialize_by_key(keys, ser)
                 } else {
                     Err(Error::Absent(0))
                 }
             }
 
-            fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
                 D: serde::Deserializer<'a>,
             {
                 if let Some(inner) = self {
-                    inner.set_by_key(keys, de)
+                    inner.deserialize_by_key(keys, de)
                 } else {
                     Err(Error::Absent(0))
                 }
@@ -76,7 +76,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<0> for core::op
         None
     }
 
-    fn get_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         S: serde::Serializer,
@@ -93,7 +93,7 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf<0> for core::op
         }
     }
 
-    fn set_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         D: serde::Deserializer<'a>,
