@@ -15,7 +15,7 @@ use crate::{Error, Key, Metadata, Miniconf};
 ///
 /// If the depth specified by the `miniconf(defer(D))` attribute exceeds 0,
 /// the `Option` can be used to access content within the inner type.
-/// If marked with `#[miniconf(---)]`, and `None` at runtime, the value or the entire sub-tree
+/// If marked with `#[miniconf(defer(-))]`, and `None` at runtime, the value or the entire sub-tree
 /// is inaccessible through `Miniconf::{get,set}_by_key`.
 /// If there is no `miniconf` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to`None` as usual.
