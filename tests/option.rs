@@ -155,3 +155,16 @@ fn option_absent() {
         Err(Error::PostDeserialization(_))
     ));
 }
+
+#[test]
+fn array_option() {
+    #[derive(Copy, Clone, Default, Miniconf)]
+    struct S {
+        #[miniconf(defer(1))]
+        a: Option<u32>,
+        #[miniconf(defer(1))]
+        b: [Option<u32>; 1],
+        #[miniconf(defer(2))]
+        c: [Option<u32>; 1],
+    }
+}
