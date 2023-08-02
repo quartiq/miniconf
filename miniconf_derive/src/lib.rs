@@ -135,7 +135,6 @@ fn derive_struct(
         }
         syn::Fields::Unit => unimplemented!("Unit struct not supported"),
     };
-    // let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
 
     let serialize_by_key_arms = fields.iter().enumerate().map(serialize_by_key_arm);
@@ -155,8 +154,6 @@ fn derive_struct(
         + 1;
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    // let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
-    // eprintln!("new {generics:?}\nimpl_genrs {impl_generics:?}\nwhere {where_clause:?}"); // {_where_clause_orig:?}");
 
     let tokens = quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
