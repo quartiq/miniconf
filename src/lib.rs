@@ -150,14 +150,19 @@ impl Key for &str {
 /// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
 ///
 /// The depth parameter `Y` is the maximum miniconf recursion depth.
-/// An implementor may retrieve at most `Z <= Y` keys from the `keys` iterators and may
-/// call the `func` callback at most `Z <= Y` times. It may use at most `Miniconf<Z>`
-/// on its inner types. `Z` needs to be consistent.
+/// An implementor chooses a `Z <= Y` and may then in the recursive methods (directly
+/// and indirectly) retrieve at most `Z` keys from the `keys` and `indices` iterators
+/// and call the `func` callback at most `Z` times. It may
+/// use at most `Miniconf<Z>` on its inner types. `Z` must be consistent, i.e. if
+/// an implementor retrieves `X` keys before recursing to an inner type, it may at
+/// most use `Miniconf<Y - X>` on its inner types.
 ///
 /// Furthermore the `derive(Miniconf)` macro assumes that any implementor of `Miniconf<Y>`
-/// will require its generic types to be exactly `Miniconf<Y - 1>`. This is only relevant
-/// when deriving `Miniconf` for a struct that forwards its own type parameters as type
-/// parameters to its field types.
+/// will require its generic types to be exactly `Miniconf<Y - 1>`. This condition is upheld
+/// by all implementations in this crate. It is only violated
+/// when deriving `Miniconf` for a struct that (a) forwards its own type parameters as type
+/// parameters to its field types, (b) uses `Miniconf` on those fields, and (c) those field
+/// types use their type parameters at other levels than `Miniconf<Y - 1>`.
 ///
 /// The recursion depth `Y` is an upper bound of the maximum key length
 /// (the depth/height of the tree).
