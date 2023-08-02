@@ -69,12 +69,16 @@ fn generic_struct() {
 fn generic_atomic() {
     #[derive(Miniconf, Default)]
     struct Settings<T> {
-        pub atomic: Inner<T>,
+        atomic: Inner<T>,
+        #[miniconf(defer(2))]
+        opt: [[Option<T>; 0]; 0],
+        #[miniconf(defer(3))]
+        opt1: [[Option<T>; 0]; 0],
     }
 
     #[derive(Deserialize, Serialize, Default)]
     struct Inner<T> {
-        pub inner: [T; 5],
+        inner: [T; 5],
     }
 
     let mut settings = Settings::<f32>::default();
@@ -86,6 +90,6 @@ fn generic_atomic() {
 
     // Test metadata
     let metadata = Settings::<f32>::metadata().separator("/");
-    assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "/atomic".len());
+    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_length, "/opt1/0/0".len());
 }

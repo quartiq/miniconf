@@ -9,7 +9,7 @@ struct Inner {
 
 #[derive(Debug, Clone, Default, Miniconf)]
 struct Settings {
-    #[miniconf(defer(1))]
+    #[miniconf(defer(2))]
     value: Option<Inner>,
 }
 
@@ -102,7 +102,7 @@ fn option_test_normal_option() {
 fn option_test_defer_option() {
     #[derive(Copy, Clone, Default, Miniconf)]
     struct S {
-        #[miniconf(defer(0))]
+        #[miniconf(defer)]
         data: Option<u32>,
     }
 
@@ -132,9 +132,9 @@ fn option_absent() {
 
     #[derive(Copy, Clone, Default, Miniconf)]
     struct S {
-        #[miniconf(defer(0))]
-        d: Option<u32>,
         #[miniconf(defer(1))]
+        d: Option<u32>,
+        #[miniconf(defer(2))]
         dm: Option<I>,
     }
 
