@@ -95,7 +95,15 @@ fn generic_atomic() {
 }
 
 #[test]
-fn test_failure() {
+fn test_derive_macro_bound_failure() {
+    // The derive macro uses a simplistic approach to adding bounds
+    // for generic types.
+    // This is analogous to other standard derive macros.
+    // See also the documentation for the [Miniconf] trait
+    // and the code comments in the derive macro ([StructField::walk_type]
+    // on adding bounds to generics.
+    // This test below shows the issue and tests whether the workaround of
+    // adding the required traits by hand works.
     type A<T> = [[T; 0]; 0];
     #[derive(Miniconf)]
     struct S<T: serde::Serialize + serde::de::DeserializeOwned>(

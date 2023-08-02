@@ -158,6 +158,7 @@ fn option_absent() {
 
 #[test]
 fn array_option() {
+    // This tests that no invalid bounds are inferred for Options and Options in arrays.
     #[derive(Copy, Clone, Default, Miniconf)]
     struct S {
         #[miniconf(defer(1))]

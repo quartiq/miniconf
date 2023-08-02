@@ -8,30 +8,7 @@ use field::StructField;
 
 /// Derive the Miniconf trait for custom types.
 ///
-/// Each field of the struct will be recursively used to construct a unique path for all elements.
-///
-/// All paths are similar to file-system paths with variable names separated by forward
-/// slashes.
-///
-/// For arrays, the array index is treated as a unique identifier. That is, to access the first
-/// element of array `data`, the path would be `data/0`.
-///
-/// # Example
-/// ```rust
-/// #[derive(Miniconf)]
-/// struct Nested {
-///     #[miniconf(defer)]
-///     data: [u32; 2],
-/// }
-/// #[derive(Miniconf)]
-/// struct Settings {
-///     // Accessed with path `nested/data/0` or `nested/data/1`
-///     #[miniconf(defer)]
-///     nested: Nested,
-///
-///     // Accessed with path `external`
-///     external: bool,
-/// }
+/// See the trait for documentation.
 #[proc_macro_derive(Miniconf, attributes(miniconf))]
 pub fn derive(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
