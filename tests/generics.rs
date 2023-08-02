@@ -97,15 +97,13 @@ fn generic_atomic() {
 #[test]
 fn test_failure() {
     #[derive(Miniconf)]
-    struct T<U>(U);
+    struct S<T>(#[miniconf(defer)] [T; 0]);
     #[derive(Miniconf)]
-    struct S<U>(#[miniconf(defer)] T<U>);
-    #[derive(Miniconf)]
-    struct V<U>(
+    struct R<T>(
         // this applies the wrong bound U: Miniconf<1>, it should be U: SerDe
-        #[miniconf(defer(2))] S<U>,
+        #[miniconf(defer(2))] S<T>,
         // adding the missing bound indirectly is a workaround
         // commenting this out breaks it
-        #[miniconf(defer(1))] T<U>,
+        #[miniconf(defer)] [T; 0],
     );
 }
