@@ -93,3 +93,19 @@ fn generic_atomic() {
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length, "/opt1/0/0".len());
 }
+
+#[test]
+fn test_failure() {
+    #[derive(Miniconf)]
+    struct T<U>(U);
+    #[derive(Miniconf)]
+    struct S<U>(#[miniconf(defer)] T<U>);
+    #[derive(Miniconf)]
+    struct V<U>(
+        // this applies the wrong bound U: Miniconf<1>, it should be U: SerDe
+        #[miniconf(defer(2))] S<U>,
+        // adding the missing bound indirectly is a workaround
+        // commenting this out breaks it
+        #[miniconf(defer(1))] T<U>,
+    );
+}
