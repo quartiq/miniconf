@@ -2,24 +2,24 @@ use syn::{parenthesized, parse_quote, Generics, LitInt};
 
 pub struct StructField {
     pub field: syn::Field,
-    pub defer: Option<usize>,
+    pub defer: usize,
 }
 
 impl StructField {
     pub fn new(field: syn::Field) -> Self {
-        let mut defer = None;
+        let mut defer = 0;
 
         for attr in field.attrs.iter() {
             if attr.path().is_ident("miniconf") {
                 attr.parse_nested_meta(|meta| {
                     if meta.input.is_empty() {
-                        defer = Some(1);
+                        defer = 1;
                         Ok(())
                     } else if meta.path.is_ident("defer") {
                         let content;
                         parenthesized!(content in meta.input);
                         let lit: LitInt = content.parse()?;
-                        defer = Some(lit.base10_parse()?);
+                        defer = lit.base10_parse()?;
                         Ok(())
                     } else {
                         Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
@@ -28,7 +28,6 @@ impl StructField {
                 .unwrap();
             }
         }
-        defer.map(|d| assert!(d > 0));
         Self { defer, field }
     }
 
@@ -37,7 +36,7 @@ impl StructField {
         for generic in &mut generics.params {
             if let syn::GenericParam::Type(type_param) = generic {
                 if type_param.ident == *ident {
-                    if self.defer.unwrap_or_default().saturating_sub(depth) > 0 {
+                    if self.defer.saturating_sub(depth) > 0 {
                         type_param
                             .bounds
                             .push(parse_quote!(miniconf::Miniconf<#depth>));
