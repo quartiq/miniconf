@@ -277,6 +277,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// Serialize a node by keys.
     ///
     /// ```
+    /// # #[cfg(feature = "serde-core")] {
     /// # use miniconf::{Miniconf};
     /// #[derive(Miniconf)]
     /// struct S {foo: u32};
@@ -286,6 +287,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// s.serialize_by_key(["foo"].into_iter(), &mut ser).unwrap();
     /// let len = ser.end();
     /// assert_eq!(&buf[..len], b"9");
+    /// # }
     /// ```
     ///
     /// # Args
@@ -303,6 +305,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// Deserialize an node by keys.
     ///
     /// ```
+    /// # #[cfg(feature = "serde-core")] {
     /// # use miniconf::{Miniconf};
     /// #[derive(Miniconf)]
     /// struct S {foo: u32};
@@ -311,6 +314,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// s.deserialize_by_key(["foo"].into_iter(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.foo, 7);
+    /// # }
     /// ```
     ///
     /// # Args
@@ -384,6 +388,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// `keys` may be longer than required. Extra items are ignored.
     ///
     /// ```
+    /// # #[cfg(feature = "mqtt-client")] {
     /// # use miniconf::{Miniconf, Metadata};
     /// # use heapless::String;
     /// #[derive(Miniconf)]
@@ -391,6 +396,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// let mut s = String::<10>::new();
     /// S::path([0], &mut s, "/").unwrap();
     /// assert_eq!(s, "/foo");
+    /// # }
     /// ```
     ///
     /// # Args
@@ -421,6 +427,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     ///
     /// ```
+    /// # #[cfg(feature = "mqtt-client")] {
     /// # use miniconf::{Miniconf, Metadata};
     /// # use heapless::String;
     /// #[derive(Miniconf)]
@@ -428,6 +435,7 @@ pub trait Miniconf<const Y: usize = 1> {
     /// let mut i = [0usize; 2];
     /// let depth = S::indices(["foo"], &mut i).unwrap();
     /// assert_eq!(&i[..depth], &[0]);
+    /// # }
     /// ```
     ///
     /// # Args
@@ -460,13 +468,14 @@ pub trait Miniconf<const Y: usize = 1> {
     /// The iterator has an exact and trusted [Iterator::size_hint].
     ///
     /// ```
+    /// # #[cfg(feature = "mqtt-client")] {
     /// # use miniconf::{Miniconf, Metadata};
     /// # use heapless::String;
     /// #[derive(Miniconf)]
     /// struct S {foo: u32};
-    /// let mut i = [0usize; 2];
-    /// let depth = S::indices(["foo"], &mut i).unwrap();
-    /// assert_eq!(&i[..depth], &[0]);
+    /// let p: heapless::String<10> = S::iter_paths(["foo"], "/").next().unwrap();
+    /// assert_eq!(p, "/foo");
+    /// # }
     /// ```
     ///
     /// # Generics
@@ -487,13 +496,14 @@ pub trait Miniconf<const Y: usize = 1> {
     /// See also [Miniconf::iter_paths].
     ///
     /// ```
+    /// # #[cfg(feature = "mqtt-client")] {
     /// # use miniconf::{Miniconf, Metadata};
     /// # use heapless::String;
     /// #[derive(Miniconf)]
     /// struct S {foo: u32};
-    /// let mut i = [0usize; 3];
-    /// let len = S::indices([0], &mut i).unwrap();
-    /// assert_eq!(i[..len], [0]);
+    /// let p: heapless::String<10> = S::iter_paths_unchecked(["foo"], "/").next().unwrap();
+    /// assert_eq!(p, "/foo");
+    /// # }
     /// ```
     ///
     /// # Generics
