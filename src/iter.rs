@@ -74,8 +74,8 @@ where
                     self.state[depth - 2] += 1;
                     continue;
                 }
-                // Found a leaf at the root: bare Option
-                // Since there is no way to end iteration by triggering `NotFound` on a bare Option,
+                // Found a leaf at the root: bare Option/newtype
+                // Since there is no way to end iteration by hoping for `NotFound` on a bare Option,
                 // we force the count to Some(0) and trigger on that.
                 Ok(0) => {
                     if self.count == Some(0) {
@@ -93,11 +93,12 @@ where
                     Some(Ok(path))
                 }
                 // If we end at a leaf node, the state array is too small.
-                Err(e @ (Error::TooShort(_) | Error::Inner(_))) => Some(Err(e)),
-                // Note(`NotFound(0)`) Not having consumed any name/index, the only possible case
-                // is a bare `Miniconf` thing that does not add any hierarchy, e.g. `Option`.
-                // That however can not return `NotFound` at all.
-                // No other errors can be returned by traverse_by_key()
+                Err(e @ Error::Inner(_)) => Some(Err(e)),
+                // * NotFound(0) Not having consumed any name/index, the only possible case
+                //   is a bare `Miniconf` thing that does not use a key, e.g. `Option`.
+                //   That however can not return `NotFound`.
+                // * TooShort is excluded by construction.
+                // * No other errors can be returned by traverse_by_key()/path()
                 _ => unreachable!(),
             };
         }

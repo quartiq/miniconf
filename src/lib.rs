@@ -162,7 +162,7 @@ pub trait Miniconf<const Y: usize = 1> {
     ///
     /// # Returns
     /// Node depth on success.
-    fn get_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
         K::Item: Key,
@@ -176,7 +176,7 @@ pub trait Miniconf<const Y: usize = 1> {
     ///
     /// # Returns
     /// Node depth on success
-    fn set_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,

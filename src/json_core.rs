@@ -58,13 +58,13 @@ pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
 impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
     fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
-        self.set_by_key(path.split('/').skip(1), &mut de)?;
+        self.deserialize_by_key(path.split('/').skip(1), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
     }
 
     fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>> {
         let mut ser = ser::Serializer::new(data);
-        self.get_by_key(path.split('/').skip(1), &mut ser)?;
+        self.serialize_by_key(path.split('/').skip(1), &mut ser)?;
         Ok(ser.end())
     }
 
@@ -74,7 +74,7 @@ impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
         data: &[u8],
     ) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
-        self.set_by_key(indices.iter().copied(), &mut de)?;
+        self.deserialize_by_key(indices.iter().copied(), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
     }
 
@@ -84,7 +84,7 @@ impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
         data: &mut [u8],
     ) -> Result<usize, Error<ser::Error>> {
         let mut ser = ser::Serializer::new(data);
-        self.get_by_key(indices.iter().copied(), &mut ser)?;
+        self.serialize_by_key(indices.iter().copied(), &mut ser)?;
         Ok(ser.end())
     }
 }
