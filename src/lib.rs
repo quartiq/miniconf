@@ -473,8 +473,9 @@ pub trait Miniconf<const Y: usize = 1> {
     /// # use heapless::String;
     /// #[derive(Miniconf)]
     /// struct S {foo: u32};
-    /// let p: heapless::String<10> = S::iter_paths(["foo"], "/").next().unwrap();
-    /// assert_eq!(p, "/foo");
+    /// for p in S::iter_paths::<String<10>>("/") {
+    ///     assert_eq!(p.unwrap(), "/foo");
+    /// }
     /// # }
     /// ```
     ///
@@ -501,8 +502,9 @@ pub trait Miniconf<const Y: usize = 1> {
     /// # use heapless::String;
     /// #[derive(Miniconf)]
     /// struct S {foo: u32};
-    /// let p: heapless::String<10> = S::iter_paths_unchecked(["foo"], "/").next().unwrap();
-    /// assert_eq!(p, "/foo");
+    /// for p in S::iter_paths::<String<10>>("/") {
+    ///     assert_eq!(p.unwrap(), "/foo");
+    /// }
     /// # }
     /// ```
     ///
