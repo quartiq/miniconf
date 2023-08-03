@@ -32,11 +32,12 @@ impl StructField {
     }
 
     /// Find `ident` in generic parameters and bound it appropriately
-    fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, depth: usize) {
+    fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, level: usize) {
         for generic in &mut generics.params {
             if let syn::GenericParam::Type(type_param) = generic {
                 if type_param.ident == *ident {
-                    if self.defer.saturating_sub(depth) > 0 {
+                    let depth = self.defer.saturating_sub(level);
+                    if depth > 0 {
                         type_param
                             .bounds
                             .push(parse_quote!(miniconf::Miniconf<#depth>));
@@ -60,14 +61,14 @@ impl StructField {
     /// # Args
     /// * `typ` The Type encountered.
     /// * `generics` - The generic type parameters of the structure.
-    /// * `depth` - The type hierarchy recursion depth.
-    fn walk_type(&self, typ: &syn::Type, generics: &mut Generics, depth: usize) {
+    /// * `level` - The type hierarchy level.
+    fn walk_type(&self, typ: &syn::Type, generics: &mut Generics, level: usize) {
         match typ {
             syn::Type::Path(syn::TypePath { path, .. }) => {
                 if let Some(ident) = path.get_ident() {
                     // The type is a single ident (no other path segments):
                     // add bounds if it is a generic type for us
-                    self.bound_type(ident, generics, depth);
+                    self.bound_type(ident, generics, level);
                 } else {
                     // Analyze the type parameters of the type, as they may be generics for us as well
                     // This tries to reproduce the bounds that field types place on
@@ -89,7 +90,7 @@ impl StructField {
                             for arg in args.args.iter() {
                                 if let syn::GenericArgument::Type(typ) = arg {
                                     // Found type argument in field type: bound it if also in our generics.
-                                    self.walk_type(typ, generics, depth + 1);
+                                    self.walk_type(typ, generics, level + 1);
                                 }
                             }
                         }
@@ -99,11 +100,11 @@ impl StructField {
             syn::Type::Array(syn::TypeArray { elem, .. })
             | syn::Type::Slice(syn::TypeSlice { elem, .. }) => {
                 // An array or slice places the element exactly one level deeper: recurse.
-                self.walk_type(elem, generics, depth + 1);
+                self.walk_type(elem, generics, level + 1);
             }
             syn::Type::Reference(syn::TypeReference { elem, .. }) => {
                 // A reference is transparent
-                self.walk_type(elem, generics, depth);
+                self.walk_type(elem, generics, level);
             }
             other => panic!("Unsupported type: {:?}", other),
         };

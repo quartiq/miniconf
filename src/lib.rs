@@ -147,9 +147,9 @@ impl Key for &str {
     }
 }
 
-/// Trait exposing serialization/deserialization of nodes by keys/paths and traversal.
+/// Serialization/deserialization of nodes by keys/paths and traversal.
 ///
-/// The keys used to locate nodes can bei either iterators over `usize` or iterators
+/// The keys used to locate nodes can be either iterators over `usize` or iterators
 /// over `&str` names.
 ///
 /// # Design
@@ -191,23 +191,52 @@ impl Key for &str {
 /// Homogeneous [core::array]s can be made accessible either
 /// 1. as a single leaf in the tree like other serde-capable items, or
 /// 2. by item through their numeric indices (with the attribute `#[miniconf(defer(1))]`), or
-/// 3. exposing a sub-tree per item with `#[miniconf(defer(D))]` and `D >= 2`.
+/// 3. exposing a sub-tree for each item with `#[miniconf(defer(D))]` and `D >= 2`.
 ///
 /// `Option` is used
 /// 1. as a leaf like a standard `serde` Option, or
 /// 2. with `#[miniconf(defer(1))]` to support a leaf value that may be absent (masked) at runtime.
 /// 3. with `#[miniconf(defer(D))]` and `D >= 2` to support masking sub-trees at runtime.
 ///
+/// ```
+/// # use miniconf::Miniconf;
+/// #[derive(Miniconf)]
+/// struct S {
+///     // "/a = 8"
+///     a: u32,
+///     // e.g. "/b/1/2 = 5"
+///     #[miniconf(defer(2))]
+///     b: [[u32; 3]; 3],
+///     // e.g. "/c/0 = [3,4]" with that node optionally absent at runtime
+///     #[miniconf(defer(2))]
+///     c: [Option<[u32; 2]>; 2]
+/// }
+/// ```
+///
 /// ## Bounds on generics
 ///
 /// The macro adds bounds to generic types of the struct it is acting on.
-/// E.g. If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
+/// If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
 /// field type `a: F1<F2<T>>` the type `T` will be considered to reside at depth `X = 2` (as it is
-/// within `F2` which is within `F1`) and the following bounds will applied:
+/// within `F2` which is within `F1`) and the following bounds will be applied:
 ///
 /// * With the `#[miniconf]` attribute not present, `T` will receive bounds `Serialize + DeserializeOwned`.
 /// * With `#[miniconf(defer(Y))]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
 /// * For `Y - X >= 1` it will receive the bound `T: Miniconf<Y - X>`.
+///
+/// E.g. In the following `T` resides at depth `2` and `T: Miniconf<1>` will be inferred:
+///
+/// ```rust
+/// # use miniconf::Miniconf;
+/// #[derive(Miniconf)]
+/// struct S<T>(#[miniconf(defer(3))] [Option<T>; 2]);
+///
+/// // works as array implements Miniconf<1>
+/// S::<[u32; 1]>::metadata();
+///
+/// // does not compile as u32 does not implement Miniconf<1>
+/// // S::<u32>::metadata();
+/// ```
 ///
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
 /// when deriving `Miniconf` for a struct that (a) forwards its own type parameters as type
@@ -217,9 +246,8 @@ impl Key for &str {
 ///
 /// # Example
 ///
-/// ```rust
-/// use miniconf::Miniconf;
-///
+/// ```
+/// # use miniconf::Miniconf;
 /// #[derive(Miniconf)]
 /// struct Nested {
 ///     #[miniconf(defer)]
@@ -227,19 +255,38 @@ impl Key for &str {
 /// }
 /// #[derive(Miniconf)]
 /// struct Settings {
-///     // Accessed with path `nested/data/0` or `nested/data/1`
+///     // Accessed with path `/nested/data/0` or `/nested/data/1`
 ///     #[miniconf(defer(2))]
 ///     nested: Nested,
 ///
-///     // Accessed with path `external`
+///     // Accessed with path `/external`
 ///     external: bool,
 /// }
 /// ```
 pub trait Miniconf<const Y: usize = 1> {
     /// Convert a node name to a node index.
+    ///
+    /// ```
+    /// # use miniconf::Miniconf;
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32}
+    /// assert_eq!(S::name_to_index("foo"), Some(0));
+    /// ```
     fn name_to_index(name: &str) -> core::option::Option<usize>;
 
     /// Serialize a node by keys.
+    ///
+    /// ```
+    /// # use miniconf::{Miniconf};
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut s = S{foo: 9};
+    /// let mut buf = [0u8; 10];
+    /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
+    /// s.serialize_by_key(["foo"].into_iter(), &mut ser).unwrap();
+    /// let len = ser.end();
+    /// assert_eq!(&buf[..len], b"9");
+    /// ```
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
@@ -254,6 +301,17 @@ pub trait Miniconf<const Y: usize = 1> {
         S: serde::Serializer;
 
     /// Deserialize an node by keys.
+    ///
+    /// ```
+    /// # use miniconf::{Miniconf};
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut s = S{foo: 0};
+    /// let mut de = serde_json_core::de::Deserializer::new(b"7");
+    /// s.deserialize_by_key(["foo"].into_iter(), &mut de).unwrap();
+    /// de.end().unwrap();
+    /// assert_eq!(s.foo, 7);
+    /// ```
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
@@ -279,6 +337,17 @@ pub trait Miniconf<const Y: usize = 1> {
     /// exhausted (empty),
     /// `Err(Error::TooShort(0))` will be returned.
     ///
+    /// ```
+    /// # use miniconf::{Miniconf};
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// S::traverse_by_key([0].into_iter(), |index, name| {
+    ///     assert_eq!(index, 0);
+    ///     assert_eq!(name, "foo");
+    ///     Ok::<(), ()>(())
+    /// }).unwrap();
+    /// ```
+    ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `func`: A `FnMut` to be called for each node on the path. Its arguments are
@@ -296,6 +365,16 @@ pub trait Miniconf<const Y: usize = 1> {
         F: FnMut(usize, &str) -> Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
+    ///
+    /// ```
+    /// # use miniconf::{Miniconf, Metadata};
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let m = S::metadata();
+    /// assert_eq!(m.max_depth, 1);
+    /// assert_eq!(m.max_length, 3);
+    /// assert_eq!(m.count, 1);
+    /// ```
     fn metadata() -> Metadata;
 
     /// Convert keys to path.
@@ -303,6 +382,16 @@ pub trait Miniconf<const Y: usize = 1> {
     /// This is typically called through a [PathIter] returned by [Miniconf::iter_paths].
     ///
     /// `keys` may be longer than required. Extra items are ignored.
+    ///
+    /// ```
+    /// # use miniconf::{Miniconf, Metadata};
+    /// # use heapless::String;
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut s = String::<10>::new();
+    /// S::path([0], &mut s, "/").unwrap();
+    /// assert_eq!(s, "/foo");
+    /// ```
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
@@ -330,6 +419,16 @@ pub trait Miniconf<const Y: usize = 1> {
     /// See also [`Miniconf::path()`] for the analogous function.
     ///
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
+    ///
+    /// ```
+    /// # use miniconf::{Miniconf, Metadata};
+    /// # use heapless::String;
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut i = [0usize; 2];
+    /// let depth = S::indices(["foo"], &mut i).unwrap();
+    /// assert_eq!(&i[..depth], &[0]);
+    /// ```
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
@@ -360,6 +459,16 @@ pub trait Miniconf<const Y: usize = 1> {
     /// run-time (see [Option]).
     /// The iterator has an exact and trusted [Iterator::size_hint].
     ///
+    /// ```
+    /// # use miniconf::{Miniconf, Metadata};
+    /// # use heapless::String;
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut i = [0usize; 2];
+    /// let depth = S::indices(["foo"], &mut i).unwrap();
+    /// assert_eq!(&i[..depth], &[0]);
+    /// ```
+    ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. the number of separators.
     /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write`.
@@ -376,6 +485,16 @@ pub trait Miniconf<const Y: usize = 1> {
     /// Create an unchecked iterator of all possible paths.
     ///
     /// See also [Miniconf::iter_paths].
+    ///
+    /// ```
+    /// # use miniconf::{Miniconf, Metadata};
+    /// # use heapless::String;
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut i = [0usize; 3];
+    /// let len = S::indices([0], &mut i).unwrap();
+    /// assert_eq!(i[..len], [0]);
+    /// ```
     ///
     /// # Generics
     /// * `L`  - The maximum depth of the path, i.e. the number of separators.
