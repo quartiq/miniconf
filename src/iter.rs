@@ -32,7 +32,7 @@ where
 {
     pub(crate) fn new(separator: &'a str) -> Self {
         let meta = M::metadata();
-        assert!(Y == meta.max_depth);
+        assert!(Y >= meta.max_depth);
         let mut s = Self::new_unchecked(separator);
         s.count = Some(meta.count);
         s

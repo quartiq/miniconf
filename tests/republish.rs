@@ -1,4 +1,4 @@
-#![cfg(features = "mqtt-client")]
+#![cfg(feature = "mqtt-client")]
 
 use miniconf::{
     minimq::{self, types::TopicFilter},
@@ -84,7 +84,7 @@ async fn main() {
     let task = tokio::task::spawn(async move { verify_settings().await });
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256> = miniconf::MqttClient::new(
+    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 2> = miniconf::MqttClient::new(
         Stack::default(),
         "",
         "republish/device",

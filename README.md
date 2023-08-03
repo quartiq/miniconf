@@ -1,4 +1,5 @@
 # Miniconf
+
 [![crates.io](https://img.shields.io/crates/v/miniconf.svg)](https://crates.io/crates/miniconf)
 [![docs](https://docs.rs/miniconf/badge.svg)](https://docs.rs/miniconf)
 [![QUARTIQ Matrix Chat](https://img.shields.io/matrix/quartiq:matrix.org)](https://matrix.to/#/#quartiq:matrix.org)
@@ -15,6 +16,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 `Miniconf` is completely generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
 
 ## Example
+
 ```rust
 use miniconf::{Error, Miniconf, JsonCoreSlash};
 use serde::{Deserialize, Serialize};
@@ -53,13 +55,13 @@ struct Settings {
     array_miniconf: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
-    #[miniconf(defer(0))]
+    #[miniconf(defer)]
     option_defer: Option<i32>,
     // Hiding a path and deferring to the inner
-    #[miniconf(defer(1))]
+    #[miniconf(defer(2))]
     option_miniconf: Option<Inner>,
     // Hiding elements of an Array of Miniconf items
-    #[miniconf(defer(2))]
+    #[miniconf(defer(3))]
     array_option_miniconf: [Option<Inner>; 2],
 }
 
@@ -117,6 +119,7 @@ for path in Settings::iter_paths::<String>("/") {
 ```
 
 ## MQTT
+
 There is an [MQTT-based client](MqttClient) that implements settings management over the [MQTT
 protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
 interfaces with it.
@@ -127,44 +130,44 @@ interfaces with it.
 python -m miniconf -d quartiq/application/+ foo=true
 ```
 
-## Design
-For structs Miniconf offers a [derive macro](derive.Miniconf.html) to automatically
-assign a unique path to each item in the tree.
+## Derive macro
+
+For structs Miniconf offers a [`macro@Miniconf`] derive macro.
 The macro implements the [Miniconf] trait that exposes access to serialized field values through their path.
-All types supported by [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) or `Miniconf`
+All types supported by either [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) or `Miniconf`
 can be used as fields.
 
-Homogeneous [core::array]s can be made accessible either
-1. as a single leaf in the tree like other serde-capable items, or
-2. by item through their numeric indices (with the attribute `#[miniconf(defer)]` or `#[miniconf(defer(1))]`), or
-3. exposing sub-tree with `#[miniconf(defer(D))]` and `D >= 2`.
-
-`Option` is used
-1. like a standard `serde` Option, or
-2. with `#[miniconf(defer(0))]` to support a value that may be absent (masked) at runtime.
-3. with `#[miniconf(defer(D))]` and `D >= 1` to support mask sub-trees at runtime.
-
 Structs, arrays, and Options can then be cascaded to construct more complex trees.
+When using the derive macro, the behavior and tree recursion depth can be configured for each
+struct field using the `#[miniconf(defer(Y))]` attribute.
+
+See also the [`Miniconf`] trait documentation for details.
+
+## Keys and paths
 
 Lookup into the tree is done using an iterator over [Key] items. `usize` indices or `&str` names are supported.
 
 Path iteration is supported with arbitrary separator between names.
 
 ## Formats
+
 Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator.
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
-through the [JsonCoreSlash] style.
+through the [JsonCoreSlash] super trait.
 
 ## Transport
+
 Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from
 some external source can be used to modify values by path.
 
 ## Limitations
+
 Deferred/deep/non-atomic access to inner elements of some types is not yet supported, e.g. enums
 other than [core::option::Option]. These are still however usable in their atomic `serde` form as leaves.
 
 ## Features
+
 * `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].
 * `json-core` Enable the [JsonCoreSlash] implementation of serializing from and
   into json slices (using `serde_json_core`).

@@ -8,30 +8,7 @@ use field::StructField;
 
 /// Derive the Miniconf trait for custom types.
 ///
-/// Each field of the struct will be recursively used to construct a unique path for all elements.
-///
-/// All paths are similar to file-system paths with variable names separated by forward
-/// slashes.
-///
-/// For arrays, the array index is treated as a unique identifier. That is, to access the first
-/// element of array `data`, the path would be `data/0`.
-///
-/// # Example
-/// ```rust
-/// #[derive(Miniconf)]
-/// struct Nested {
-///     #[miniconf(defer)]
-///     data: [u32; 2],
-/// }
-/// #[derive(Miniconf)]
-/// struct Settings {
-///     // Accessed with path `nested/data/0` or `nested/data/1`
-///     #[miniconf(defer)]
-///     nested: Nested,
-///
-///     // Accessed with path `external`
-///     external: bool,
-/// }
+/// See the trait for documentation.
 #[proc_macro_derive(Miniconf, attributes(miniconf))]
 pub fn derive(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
@@ -55,7 +32,8 @@ fn name(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
 fn serialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `serialize_by_key()` args available.
     let ident = name(i, &struct_field.field.ident);
-    if let Some(depth) = struct_field.defer {
+    let depth = struct_field.defer;
+    if depth > 0 {
         quote! {
             #i => miniconf::Miniconf::<#depth>::serialize_by_key(&self.#ident, keys, ser)
         }
@@ -72,7 +50,8 @@ fn serialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2
 fn deserialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
     // Quote context is a match of the field name with `deserialize_by_key()` args available.
     let ident = name(i, &struct_field.field.ident);
-    if let Some(depth) = struct_field.defer {
+    let depth = struct_field.defer;
+    if depth > 0 {
         quote! {
             #i => miniconf::Miniconf::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
         }
@@ -90,7 +69,8 @@ fn traverse_by_key_arm(
     (i, struct_field): (usize, &StructField),
 ) -> Option<proc_macro2::TokenStream> {
     // Quote context is a match of the field index with `traverse_by_key()` args available.
-    if let Some(depth) = struct_field.defer {
+    let depth = struct_field.defer;
+    if depth > 0 {
         let field_type = &struct_field.field.ty;
         Some(quote! {
             #i => <#field_type as miniconf::Miniconf<#depth>>::traverse_by_key(keys, func)
@@ -102,7 +82,8 @@ fn traverse_by_key_arm(
 
 fn metadata_arm((i, struct_field): (usize, &StructField)) -> Option<proc_macro2::TokenStream> {
     // Quote context is a match of the field index with `metadata()` args available.
-    if let Some(depth) = struct_field.defer {
+    let depth = struct_field.defer;
+    if depth > 0 {
         let field_type = &struct_field.field.ty;
         Some(quote! {
             #i => <#field_type as miniconf::Miniconf<#depth>>::metadata()
@@ -135,7 +116,6 @@ fn derive_struct(
         }
         syn::Fields::Unit => unimplemented!("Unit struct not supported"),
     };
-    let orig_generics = generics.clone();
     fields.iter().for_each(|f| f.bound_generics(generics));
 
     let serialize_by_key_arms = fields.iter().enumerate().map(serialize_by_key_arm);
@@ -148,17 +128,13 @@ fn derive_struct(
     });
     let fields_len = fields.len();
 
-    let defers = fields.iter().map(|field| field.defer.is_some());
-    let depth = fields
-        .iter()
-        .fold(0usize, |d, field| d.max(field.defer.unwrap_or_default()))
-        + 1;
+    let defers = fields.iter().map(|field| field.defer > 0);
+    let depth = fields.iter().fold(0usize, |d, field| d.max(field.defer)) + 1;
 
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-    let (impl_generics_orig, ty_generics_orig, _where_clause_orig) = orig_generics.split_for_impl();
 
     let tokens = quote! {
-        impl #impl_generics_orig #ident #ty_generics_orig {
+        impl #impl_generics #ident #ty_generics #where_clause {
             const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }

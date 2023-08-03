@@ -9,7 +9,7 @@ struct Inner {
 
 #[derive(Debug, Clone, Default, Miniconf)]
 struct Settings {
-    #[miniconf(defer(1))]
+    #[miniconf(defer(2))]
     value: Option<Inner>,
 }
 
@@ -102,7 +102,7 @@ fn option_test_normal_option() {
 fn option_test_defer_option() {
     #[derive(Copy, Clone, Default, Miniconf)]
     struct S {
-        #[miniconf(defer(0))]
+        #[miniconf(defer)]
         data: Option<u32>,
     }
 
@@ -132,9 +132,9 @@ fn option_absent() {
 
     #[derive(Copy, Clone, Default, Miniconf)]
     struct S {
-        #[miniconf(defer(0))]
-        d: Option<u32>,
         #[miniconf(defer(1))]
+        d: Option<u32>,
+        #[miniconf(defer(2))]
         dm: Option<I>,
     }
 
@@ -154,4 +154,18 @@ fn option_absent() {
         s.set_json("/d", b"7i"),
         Err(Error::PostDeserialization(_))
     ));
+}
+
+#[test]
+fn array_option() {
+    // This tests that no invalid bounds are inferred for Options and Options in arrays.
+    #[derive(Copy, Clone, Default, Miniconf)]
+    struct S {
+        #[miniconf(defer(1))]
+        a: Option<u32>,
+        #[miniconf(defer(1))]
+        b: [Option<u32>; 1],
+        #[miniconf(defer(2))]
+        c: [Option<u32>; 1],
+    }
 }

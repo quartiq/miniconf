@@ -69,12 +69,16 @@ fn generic_struct() {
 fn generic_atomic() {
     #[derive(Miniconf, Default)]
     struct Settings<T> {
-        pub atomic: Inner<T>,
+        atomic: Inner<T>,
+        #[miniconf(defer(2))]
+        opt: [[Option<T>; 0]; 0],
+        #[miniconf(defer(3))]
+        opt1: [[Option<T>; 0]; 0],
     }
 
     #[derive(Deserialize, Serialize, Default)]
     struct Inner<T> {
-        pub inner: [T; 5],
+        inner: [T; 5],
     }
 
     let mut settings = Settings::<f32>::default();
@@ -86,6 +90,35 @@ fn generic_atomic() {
 
     // Test metadata
     let metadata = Settings::<f32>::metadata().separator("/");
-    assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "/atomic".len());
+    assert_eq!(metadata.max_depth, 3);
+    assert_eq!(metadata.max_length, "/opt1/0/0".len());
+}
+
+#[test]
+fn test_derive_macro_bound_failure() {
+    // The derive macro uses a simplistic approach to adding bounds
+    // for generic types.
+    // This is analogous to other standard derive macros.
+    // See also the documentation for the [Miniconf] trait
+    // and the code comments in the derive macro ([StructField::walk_type]
+    // on adding bounds to generics.
+    // This test below shows the issue and tests whether the workaround of
+    // adding the required traits by hand works.
+    type A<T> = [[T; 0]; 0];
+    #[derive(Miniconf)]
+    struct S<T: serde::Serialize + serde::de::DeserializeOwned>(
+        // this wrongly infers T: Miniconf<1> instead of T: SerDe
+        // adding the missing bound is a workaround
+        #[miniconf(defer(2))] A<T>,
+    );
+}
+
+#[test]
+fn test_depth() {
+    #[derive(miniconf::Miniconf)]
+    struct S<T>(#[miniconf(defer(3))] Option<Option<T>>);
+    // works as array implements Miniconf<1>
+    S::<[u32; 1]>::metadata();
+    // does not compile as u32 does not implement Miniconf<1>
+    // S::<u32>::metadata();
 }

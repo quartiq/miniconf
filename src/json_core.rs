@@ -9,7 +9,7 @@ pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
     /// Update an element by path.
     ///
     /// # Args
-    /// * `path` - The path to the element.
+    /// * `path` - The path to the element. Everything before the first `'/'` is ignored.
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
@@ -29,7 +29,7 @@ pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
     /// Update an element by indices.
     ///
     /// # Args
-    /// * `indices` - The indices to the element.
+    /// * `indices` - The indices to the element. Everything before the first `'/'` is ignored.
     /// * `data` - The serialized data making up the content.
     ///
     /// # Returns
