@@ -1,11 +1,11 @@
-use crate::{Error, Miniconf};
+use crate::{Error, Tree};
 use serde_json_core::{de, ser};
 
 /// Miniconf with "JSON and `/`".
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
-pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
+pub trait JsonCoreSlash<const D: usize = 1>: Tree<D> {
     /// Update an element by path.
     ///
     /// # Args
@@ -55,7 +55,7 @@ pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
     ) -> Result<usize, Error<ser::Error>>;
 }
 
-impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
+impl<T: Tree<D>, const D: usize> JsonCoreSlash<D> for T {
     fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
         self.deserialize_by_key(path.split('/').skip(1), &mut de)?;

@@ -1,14 +1,14 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, JsonCoreSlash, Miniconf};
+use miniconf::{Error, JsonCoreSlash, Tree};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Clone, Default, Miniconf, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
     c: u8,
 }
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Debug, Default, Tree)]
 struct Settings {
     a: [u8; 2],
     #[miniconf(defer)]
@@ -93,7 +93,7 @@ fn not_found() {
 fn empty() {
     assert!([0u32; 0].set_json_by_index(&[], b"").is_err());
 
-    #[derive(Miniconf, Serialize, Deserialize, Copy, Clone, Default)]
+    #[derive(Tree, Serialize, Deserialize, Copy, Clone, Default)]
     struct S {}
 
     let mut s = [S::default(); 0];
@@ -102,7 +102,7 @@ fn empty() {
     let mut s = [[S::default(); 0]; 0];
     assert!(JsonCoreSlash::<1>::set_json_by_index(&mut s, &[], b"").is_err());
 
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Q {
         #[miniconf(defer(2))]
         a: [S; 0],

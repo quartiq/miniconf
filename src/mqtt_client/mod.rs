@@ -1,4 +1,4 @@
-use crate::{Error, JsonCoreSlash, Miniconf};
+use crate::{Error, JsonCoreSlash, Tree};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
@@ -45,13 +45,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> {
+    pub struct Context<C: embedded_time::Clock, M: super::Tree<Y>, const Y: usize> {
         clock: C,
         timeout: Option<Instant<C>>,
         pub republish_state: super::Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> Context<C, M, Y> {
+    impl<C: embedded_time::Clock, M: super::Tree<Y>, const Y: usize> Context<C, M, Y> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -70,7 +70,7 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> StateMachineContext
+    impl<C: embedded_time::Clock, M: super::Tree<Y>, const Y: usize> StateMachineContext
         for Context<C, M, Y>
     {
         fn start_republish_timeout(&mut self) {

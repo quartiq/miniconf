@@ -1,4 +1,4 @@
-use crate::{Error, Key, Metadata, Miniconf};
+use crate::{Error, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
 
 /// `Miniconf<D>` for `Option`.
 ///
@@ -22,35 +22,9 @@ use crate::{Error, Key, Metadata, Miniconf};
 
 macro_rules! depth {
     ($($d:literal)+) => {$(
-        impl<T: Miniconf<{$d - 1}>> Miniconf<$d> for Option<T> {
+        impl<T: TreeKey<{$d - 1}>> TreeKey<$d> for Option<T> {
             fn name_to_index(_value: &str) -> core::option::Option<usize> {
                 None
-            }
-
-            fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
-            where
-                K: Iterator,
-                K::Item: Key,
-                S: serde::Serializer,
-            {
-                if let Some(inner) = self {
-                    inner.serialize_by_key(keys, ser)
-                } else {
-                    Err(Error::Absent(0))
-                }
-            }
-
-            fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-            where
-                K: Iterator,
-                K::Item: Key,
-                D: serde::Deserializer<'a>,
-            {
-                if let Some(inner) = self {
-                    inner.deserialize_by_key(keys, de)
-                } else {
-                    Err(Error::Absent(0))
-                }
             }
 
             fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
@@ -66,16 +40,62 @@ macro_rules! depth {
                 T::metadata()
             }
         }
+
+        impl<T: TreeSerialize<{$d - 1}>> TreeSerialize<$d> for Option<T> {
+            fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                S: serde::Serializer,
+            {
+                if let Some(inner) = self {
+                    inner.serialize_by_key(keys, ser)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
+        }
+
+        impl<T: TreeDeserialize<{$d - 1}>> TreeDeserialize<$d> for Option<T> {
+            fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                D: serde::Deserializer<'a>,
+            {
+                if let Some(inner) = self {
+                    inner.deserialize_by_key(keys, de)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
+        }
     )+}
 }
 
 depth!(2 3 4 5 6 7 8);
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
+impl<T> TreeKey for core::option::Option<T> {
     fn name_to_index(_value: &str) -> core::option::Option<usize> {
         None
     }
 
+    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
+    where
+        F: FnMut(usize, &str) -> Result<(), E>,
+    {
+        Ok(0)
+    }
+
+    fn metadata() -> Metadata {
+        Metadata {
+            count: 1,
+            ..Default::default()
+        }
+    }
+}
+
+impl<T: serde::Serialize> TreeSerialize for core::option::Option<T> {
     fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Iterator,
@@ -92,7 +112,9 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             Err(Error::Absent(0))
         }
     }
+}
 
+impl<T: serde::de::DeserializeOwned> TreeDeserialize for core::option::Option<T> {
     fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
@@ -107,20 +129,6 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
             Ok(0)
         } else {
             Err(Error::Absent(0))
-        }
-    }
-
-    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
-    where
-        F: FnMut(usize, &str) -> Result<(), E>,
-    {
-        Ok(0)
-    }
-
-    fn metadata() -> Metadata {
-        Metadata {
-            count: 1,
-            ..Default::default()
         }
     }
 }

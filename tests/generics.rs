@@ -1,11 +1,11 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{JsonCoreSlash, Miniconf};
+use miniconf::{JsonCoreSlash, Tree, TreeKey};
 use serde::{Deserialize, Serialize};
 
 #[test]
 fn generic_type() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings<T> {
         pub data: T,
     }
@@ -23,7 +23,7 @@ fn generic_type() {
 
 #[test]
 fn generic_array() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings<T> {
         #[miniconf(defer)]
         pub data: [T; 2],
@@ -43,7 +43,7 @@ fn generic_array() {
 
 #[test]
 fn generic_struct() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings<T> {
         pub inner: T,
     }
@@ -67,7 +67,7 @@ fn generic_struct() {
 
 #[test]
 fn generic_atomic() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings<T> {
         atomic: Inner<T>,
         #[miniconf(defer(2))]
@@ -99,15 +99,15 @@ fn test_derive_macro_bound_failure() {
     // The derive macro uses a simplistic approach to adding bounds
     // for generic types.
     // This is analogous to other standard derive macros.
-    // See also the documentation for the [Miniconf] trait
+    // See also the documentation for the [Tree] trait
     // and the code comments in the derive macro ([StructField::walk_type]
     // on adding bounds to generics.
     // This test below shows the issue and tests whether the workaround of
     // adding the required traits by hand works.
     type A<T> = [[T; 0]; 0];
-    #[derive(Miniconf)]
+    #[derive(Tree)]
     struct S<T: serde::Serialize + serde::de::DeserializeOwned>(
-        // this wrongly infers T: Miniconf<1> instead of T: SerDe
+        // this wrongly infers T: Tree<1> instead of T: SerDe
         // adding the missing bound is a workaround
         #[miniconf(defer(2))] A<T>,
     );
@@ -115,10 +115,10 @@ fn test_derive_macro_bound_failure() {
 
 #[test]
 fn test_depth() {
-    #[derive(miniconf::Miniconf)]
+    #[derive(Tree)]
     struct S<T>(#[miniconf(defer(3))] Option<Option<T>>);
-    // works as array implements Miniconf<1>
+    // works as array implements Tree<1>
     S::<[u32; 1]>::metadata();
-    // does not compile as u32 does not implement Miniconf<1>
+    // does not compile as u32 does not implement Tree<1>
     // S::<u32>::metadata();
 }

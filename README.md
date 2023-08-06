@@ -18,7 +18,7 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 ## Example
 
 ```rust
-use miniconf::{Error, Miniconf, JsonCoreSlash};
+use miniconf::{Error, JsonCoreSlash, Tree, TreeKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
@@ -28,13 +28,13 @@ enum Either {
     Good,
 }
 
-#[derive(Deserialize, Serialize, Copy, Clone, Default, Miniconf)]
+#[derive(Deserialize, Serialize, Copy, Clone, Default, Tree)]
 struct Inner {
     a: i32,
     b: i32,
 }
 
-#[derive(Miniconf, Default)]
+#[derive(Tree, Default)]
 struct Settings {
     // Atomic updtes by field name
     foo: bool,
@@ -60,7 +60,7 @@ struct Settings {
     // Hiding a path and deferring to the inner
     #[miniconf(defer(2))]
     option_miniconf: Option<Inner>,
-    // Hiding elements of an Array of Miniconf items
+    // Hiding elements of an Array of Tree items
     #[miniconf(defer(3))]
     array_option_miniconf: [Option<Inner>; 2],
 }
@@ -89,9 +89,9 @@ settings.option_defer = None;
 assert_eq!(settings.set_json("/option_defer", b"13"), Err(Error::Absent(1)));
 settings.option_defer = Some(0);
 settings.set_json("/option_defer", b"13")?;
-settings.option_miniconf = Some(Inner::default()).into();
+settings.option_miniconf = Some(Inner::default());
 settings.set_json("/option_miniconf/a", b"14")?;
-settings.array_option_miniconf[1] = Some(Inner::default()).into();
+settings.array_option_miniconf[1] = Some(Inner::default());
 settings.set_json("/array_option_miniconf/1/a", b"15")?;
 
 // Serializing elements by path

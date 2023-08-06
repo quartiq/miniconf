@@ -1,13 +1,13 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{JsonCoreSlash, Miniconf};
+use miniconf::{JsonCoreSlash, Tree, TreeKey};
 
-#[derive(Miniconf, Default, PartialEq, Debug)]
+#[derive(Tree, Default, PartialEq, Debug)]
 struct Inner {
     inner: f32,
 }
 
-#[derive(Miniconf, Default, PartialEq, Debug)]
+#[derive(Tree, Default, PartialEq, Debug)]
 struct Settings {
     a: f32,
     b: i32,
@@ -27,12 +27,12 @@ fn struct_iter() {
 
 #[test]
 fn array_iter() {
-    #[derive(Miniconf, Copy, Clone, Default)]
+    #[derive(Tree, Copy, Clone, Default)]
     struct I {
         c: bool,
     }
 
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings {
         #[miniconf(defer)]
         a: [bool; 2],

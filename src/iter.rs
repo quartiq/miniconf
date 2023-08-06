@@ -1,4 +1,4 @@
-use crate::{Error, Miniconf};
+use crate::{Error, TreeKey};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// An iterator over the paths in a Miniconf namespace.
@@ -28,7 +28,7 @@ pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
 
 impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
 where
-    M: Miniconf<Y> + ?Sized,
+    M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new(separator: &'a str) -> Self {
         let meta = M::metadata();
@@ -51,7 +51,7 @@ where
 
 impl<'a, M, const Y: usize, P> Iterator for PathIter<'a, M, Y, P>
 where
-    M: Miniconf<Y> + ?Sized,
+    M: TreeKey<Y> + ?Sized,
     P: Write + Default,
 {
     type Item = Result<P, Error<core::fmt::Error>>;
@@ -111,7 +111,7 @@ where
 
 impl<'a, M, const Y: usize, P> FusedIterator for PathIter<'a, M, Y, P>
 where
-    M: Miniconf<Y>,
+    M: TreeKey<Y>,
     P: core::fmt::Write + Default,
 {
 }

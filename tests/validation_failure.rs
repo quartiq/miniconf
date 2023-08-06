@@ -1,13 +1,13 @@
 #![cfg(feature = "mqtt-client")]
 
-use miniconf::{minimq, Miniconf};
+use miniconf::{minimq, Tree};
 use serde::Deserialize;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
 const RESPONSE_TOPIC: &str = "validation_failure/device/response";
 
-#[derive(Clone, Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Tree)]
 struct Settings {
     error: bool,
 }

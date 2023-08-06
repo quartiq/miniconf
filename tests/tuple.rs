@@ -1,10 +1,10 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{JsonCoreSlash, Miniconf};
+use miniconf::{JsonCoreSlash, Tree};
 
 #[test]
 fn tuple_struct() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings(i32, f32);
 
     let mut s = Settings::default();

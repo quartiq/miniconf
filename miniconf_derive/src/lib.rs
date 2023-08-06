@@ -9,7 +9,7 @@ use field::StructField;
 /// Derive the Miniconf trait for custom types.
 ///
 /// See the trait for documentation.
-#[proc_macro_derive(Miniconf, attributes(miniconf))]
+#[proc_macro_derive(Tree, attributes(miniconf))]
 pub fn derive(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
 
@@ -35,7 +35,7 @@ fn serialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2
     let depth = struct_field.defer;
     if depth > 0 {
         quote! {
-            #i => miniconf::Miniconf::<#depth>::serialize_by_key(&self.#ident, keys, ser)
+            #i => miniconf::TreeSerialize::<#depth>::serialize_by_key(&self.#ident, keys, ser)
         }
     } else {
         quote! {
@@ -53,7 +53,7 @@ fn deserialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macr
     let depth = struct_field.defer;
     if depth > 0 {
         quote! {
-            #i => miniconf::Miniconf::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
+            #i => miniconf::TreeDeserialize::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
         }
     } else {
         quote! {
@@ -73,7 +73,7 @@ fn traverse_by_key_arm(
     if depth > 0 {
         let field_type = &struct_field.field.ty;
         Some(quote! {
-            #i => <#field_type as miniconf::Miniconf<#depth>>::traverse_by_key(keys, func)
+            #i => <#field_type as miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
         })
     } else {
         None
@@ -86,7 +86,7 @@ fn metadata_arm((i, struct_field): (usize, &StructField)) -> Option<proc_macro2:
     if depth > 0 {
         let field_type = &struct_field.field.ty;
         Some(quote! {
-            #i => <#field_type as miniconf::Miniconf<#depth>>::metadata()
+            #i => <#field_type as miniconf::TreeKey<#depth>>::metadata()
         })
     } else {
         None
@@ -139,86 +139,40 @@ fn derive_struct(
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
-        impl #impl_generics miniconf::Miniconf<#depth> for #ident #ty_generics #where_clause {
+        impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
             fn name_to_index(value: &str) -> Option<usize> {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
-            }
-
-            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, miniconf::Error<S::Error>>
-            where
-                K: Iterator,
-                K::Item: miniconf::Key,
-                S: miniconf::serde::Serializer,
-            {
-                let key = keys.next()
-                    .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(miniconf::Error::NotFound(1))?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(miniconf::Error::NotFound(1))?;
-                if !defer && keys.next().is_some() {
-                    return Err(miniconf::Error::TooLong(1))
-                }
-                // Note(unreachable) empty structs have diverged by now
-                #[allow(unreachable_code)]
-                miniconf::Increment::increment(match index {
-                    #(#serialize_by_key_arms ,)*
-                    _ => unreachable!()
-                })
-            }
-
-            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, miniconf::Error<D::Error>>
-            where
-                K: Iterator,
-                K::Item: miniconf::Key,
-                D: miniconf::serde::Deserializer<'a>,
-            {
-                let key = keys.next()
-                    .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(miniconf::Error::NotFound(1))?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(miniconf::Error::NotFound(1))?;
-                if !defer && keys.next().is_some() {
-                    return Err(miniconf::Error::TooLong(1))
-                }
-                // Note(unreachable) empty structs have diverged by now
-                #[allow(unreachable_code)]
-                miniconf::Increment::increment(match index {
-                    #(#deserialize_by_key_arms ,)*
-                    _ => unreachable!()
-                })
             }
 
             fn traverse_by_key<K, F, E>(
                 mut keys: K,
                 mut func: F,
-            ) -> Result<usize, miniconf::Error<E>>
+            ) -> Result<usize, ::miniconf::Error<E>>
             where
                 K: Iterator,
-                K::Item: miniconf::Key,
+                K::Item: ::miniconf::Key,
                 F: FnMut(usize, &str) -> Result<(), E>,
             {
                 let key = keys.next()
-                    .ok_or(miniconf::Error::TooShort(0))?;
-                let index = miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(miniconf::Error::NotFound(1))?;
+                    .ok_or(::miniconf::Error::TooShort(0))?;
+                let index = ::miniconf::Key::find::<#depth, Self>(&key)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
                 let name = Self::__MINICONF_NAMES.get(index)
-                    .ok_or(miniconf::Error::NotFound(1))?;
+                    .ok_or(::miniconf::Error::NotFound(1))?;
                 func(index, name)?;
-                miniconf::Increment::increment(match index {
+                ::miniconf::Increment::increment(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
                 })
             }
 
-            fn metadata() -> miniconf::Metadata {
-                let mut meta = miniconf::Metadata::default();
+            fn metadata() -> ::miniconf::Metadata {
+                let mut meta = ::miniconf::Metadata::default();
                 for index in 0..#fields_len {
-                    let item_meta: miniconf::Metadata = match index {
+                    let item_meta: ::miniconf::Metadata = match index {
                         #(#metadata_arms ,)*
                         _ => {
-                            let mut m = miniconf::Metadata::default();
+                            let mut m = ::miniconf::Metadata::default();
                             m.count = 1;
                             m
                         }
@@ -234,6 +188,56 @@ fn derive_struct(
                 }
                 meta.max_depth += 1;
                 meta
+            }
+        }
+
+        impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
+            where
+                K: Iterator,
+                K::Item: ::miniconf::Key,
+                S: ::miniconf::serde::Serializer,
+            {
+                let key = keys.next()
+                    .ok_or(::miniconf::Error::TooShort(0))?;
+                let index = ::miniconf::Key::find::<#depth, Self>(&key)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let defer = Self::__MINICONF_DEFERS.get(index)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
+                if !defer && keys.next().is_some() {
+                    return Err(::miniconf::Error::TooLong(1))
+                }
+                // Note(unreachable) empty structs have diverged by now
+                #[allow(unreachable_code)]
+                ::miniconf::Increment::increment(match index {
+                    #(#serialize_by_key_arms ,)*
+                    _ => unreachable!()
+                })
+            }
+        }
+
+        impl #impl_generics ::miniconf::TreeDeserialize<#depth> for #ident #ty_generics #where_clause {
+            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: ::miniconf::Key,
+                D: ::miniconf::serde::Deserializer<'a>,
+            {
+                let key = keys.next()
+                    .ok_or(::miniconf::Error::TooShort(0))?;
+                let index = ::miniconf::Key::find::<#depth, Self>(&key)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let defer = Self::__MINICONF_DEFERS.get(index)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
+                if !defer && keys.next().is_some() {
+                    return Err(::miniconf::Error::TooLong(1))
+                }
+                // Note(unreachable) empty structs have diverged by now
+                #[allow(unreachable_code)]
+                ::miniconf::Increment::increment(match index {
+                    #(#deserialize_by_key_arms ,)*
+                    _ => unreachable!()
+                })
             }
         }
     }

@@ -7,7 +7,7 @@
 #![deny(warnings)]
 #![deny(unsafe_code)]
 
-pub use miniconf_derive::Miniconf;
+pub use miniconf_derive::Tree;
 mod array;
 pub use array::*;
 mod iter;
@@ -130,140 +130,25 @@ impl Metadata {
 /// Capability to convert a key into an node index.
 pub trait Key {
     /// Convert the key `self` to a `usize` index.
-    fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize>;
+    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> core::option::Option<usize>;
 }
 
 impl Key for usize {
     #[inline]
-    fn find<const D: usize, M>(&self) -> core::option::Option<usize> {
+    fn find<const Y: usize, M>(&self) -> core::option::Option<usize> {
         Some(*self)
     }
 }
 
 impl Key for &str {
     #[inline]
-    fn find<const D: usize, M: Miniconf<D>>(&self) -> core::option::Option<usize> {
+    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> core::option::Option<usize> {
         M::name_to_index(self)
     }
 }
 
-/// Serialization/deserialization of nodes by keys/paths and traversal.
-///
-/// The keys used to locate nodes can be either iterators over `usize` or iterators
-/// over `&str` names.
-///
-/// # Design
-///
-/// The const parameter `Y` is the miniconf recursion depth. It defaults to `1`.
-///
-/// An implementor of `Miniconf<Y>` may consume at most `Y` items from the
-/// `keys` iterator argument in the recursive methods ([`Miniconf::serialize_by_key()`],
-/// [`Miniconf::deserialize_by_key()`], [`Miniconf::traverse_by_key()`]). This includes
-/// both the items consumed directly before recursing and those consumed indirectly
-/// by recursing into inner types. In the same way it may call `func` in
-/// [`Miniconf::traverse_by_key()`] at most `Y` times, again including those calls due
-/// to recursion into inner `Miniconf` types.
-///
-/// This implies that if an implementor `T` of `Miniconf<Y>` contains and recurses into
-/// an inner type using that type's `Miniconf<Z>` implementation, then `Z <= Y` must
-/// hold and `T` may consume at most `Y - Z` items from the `keys` iterators and call
-/// `func` at most `Y - Z` times.
-///
-/// The recursion depth `Y` is thus an upper bound of the maximum key length
-/// (the depth/height of the tree).
-///
-/// # Derive macro
-///
-/// A derive macro to automatically implement the correct `Miniconf<Y>` on a struct `S` is available at
-/// [`macro@Miniconf`].
-///
-/// Each field in the struct must either implement [`serde::Serialize`] `+` [`serde::de::DeserializeOwned`]
-/// (and be supported by the intended [`serde::Serializer`]/[`serde::Deserializer`] backend)
-/// or implement [Miniconf].
-///
-/// For each field, the Miniconf recursion depth is configured through the `#[miniconf(defer(Y))]` attribute,
-/// with `Y = 1` being the implied default when using `#[miniconf(defer)]` and `Y = 0` invalid.
-/// If the attribute is not present, the field is a leaf and accessed only through its
-/// [`serde::Serialize`]/[`serde::Deserialize`] implementation.
-/// With the attribute present the field is accessed through its [`Miniconf<Y>`] implementation with the given
-/// recursion depth.
-///
-/// Homogeneous [core::array]s can be made accessible either
-/// 1. as a single leaf in the tree like other serde-capable items, or
-/// 2. by item through their numeric indices (with the attribute `#[miniconf(defer(1))]`), or
-/// 3. exposing a sub-tree for each item with `#[miniconf(defer(D))]` and `D >= 2`.
-///
-/// `Option` is used
-/// 1. as a leaf like a standard `serde` Option, or
-/// 2. with `#[miniconf(defer(1))]` to support a leaf value that may be absent (masked) at runtime.
-/// 3. with `#[miniconf(defer(D))]` and `D >= 2` to support masking sub-trees at runtime.
-///
-/// ```
-/// # use miniconf::Miniconf;
-/// #[derive(Miniconf)]
-/// struct S {
-///     // "/a = 8"
-///     a: u32,
-///     // e.g. "/b/1/2 = 5"
-///     #[miniconf(defer(2))]
-///     b: [[u32; 3]; 3],
-///     // e.g. "/c/0 = [3,4]" with that node optionally absent at runtime
-///     #[miniconf(defer(2))]
-///     c: [Option<[u32; 2]>; 2]
-/// }
-/// ```
-///
-/// ## Bounds on generics
-///
-/// The macro adds bounds to generic types of the struct it is acting on.
-/// If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
-/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at depth `X = 2` (as it is
-/// within `F2` which is within `F1`) and the following bounds will be applied:
-///
-/// * With the `#[miniconf]` attribute not present, `T` will receive bounds `Serialize + DeserializeOwned`.
-/// * With `#[miniconf(defer(Y))]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
-/// * For `Y - X >= 1` it will receive the bound `T: Miniconf<Y - X>`.
-///
-/// E.g. In the following `T` resides at depth `2` and `T: Miniconf<1>` will be inferred:
-///
-/// ```rust
-/// # use miniconf::Miniconf;
-/// #[derive(Miniconf)]
-/// struct S<T>(#[miniconf(defer(3))] [Option<T>; 2]);
-///
-/// // works as array implements Miniconf<1>
-/// S::<[u32; 1]>::metadata();
-///
-/// // does not compile as u32 does not implement Miniconf<1>
-/// // S::<u32>::metadata();
-/// ```
-///
-/// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
-/// when deriving `Miniconf` for a struct that (a) forwards its own type parameters as type
-/// parameters to its field types, (b) uses `Miniconf` on those fields, and (c) those field
-/// types use their type parameters at other levels than `Miniconf<Y - 1>`. See the
-/// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
-///
-/// # Example
-///
-/// ```
-/// # use miniconf::Miniconf;
-/// #[derive(Miniconf)]
-/// struct Nested {
-///     #[miniconf(defer)]
-///     data: [u32; 2],
-/// }
-/// #[derive(Miniconf)]
-/// struct Settings {
-///     // Accessed with path `/nested/data/0` or `/nested/data/1`
-///     #[miniconf(defer(2))]
-///     nested: Nested,
-///
-///     // Accessed with path `/external`
-///     external: bool,
-/// }
-/// ```
-pub trait Miniconf<const Y: usize = 1> {
+/// Key
+pub trait TreeKey<const Y: usize = 1> {
     /// Convert a node name to a node index.
     ///
     /// ```
@@ -273,61 +158,6 @@ pub trait Miniconf<const Y: usize = 1> {
     /// assert_eq!(S::name_to_index("foo"), Some(0));
     /// ```
     fn name_to_index(name: &str) -> core::option::Option<usize>;
-
-    /// Serialize a node by keys.
-    ///
-    /// ```
-    /// # #[cfg(feature = "serde-core")] {
-    /// # use miniconf::{Miniconf};
-    /// #[derive(Miniconf)]
-    /// struct S {foo: u32};
-    /// let mut s = S{foo: 9};
-    /// let mut buf = [0u8; 10];
-    /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["foo"].into_iter(), &mut ser).unwrap();
-    /// let len = ser.end();
-    /// assert_eq!(&buf[..len], b"9");
-    /// # }
-    /// ```
-    ///
-    /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `ser`: A `Serializer` to to serialize the value.
-    ///
-    /// # Returns
-    /// Node depth on success.
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        S: serde::Serializer;
-
-    /// Deserialize an node by keys.
-    ///
-    /// ```
-    /// # #[cfg(feature = "serde-core")] {
-    /// # use miniconf::{Miniconf};
-    /// #[derive(Miniconf)]
-    /// struct S {foo: u32};
-    /// let mut s = S{foo: 0};
-    /// let mut de = serde_json_core::de::Deserializer::new(b"7");
-    /// s.deserialize_by_key(["foo"].into_iter(), &mut de).unwrap();
-    /// de.end().unwrap();
-    /// assert_eq!(s.foo, 7);
-    /// # }
-    /// ```
-    ///
-    /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `de`: A `Deserializer` to deserialize the value.
-    ///
-    /// # Returns
-    /// Node depth on success
-    fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>;
 
     /// Call a function for each node on the path described by keys.
     ///
@@ -519,3 +349,183 @@ pub trait Miniconf<const Y: usize = 1> {
         PathIter::new_unchecked(separator)
     }
 }
+
+/// Ser
+pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
+    /// Serialize a node by keys.
+    ///
+    /// ```
+    /// # #[cfg(feature = "serde-core")] {
+    /// # use miniconf::{Miniconf};
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut s = S{foo: 9};
+    /// let mut buf = [0u8; 10];
+    /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
+    /// s.serialize_by_key(["foo"].into_iter(), &mut ser).unwrap();
+    /// let len = ser.end();
+    /// assert_eq!(&buf[..len], b"9");
+    /// # }
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `ser`: A `Serializer` to to serialize the value.
+    ///
+    /// # Returns
+    /// Node depth on success.
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        S: serde::Serializer;
+}
+
+/// De
+pub trait TreeDeserialize<const Y: usize = 1>: TreeKey<Y> {
+    /// Deserialize an node by keys.
+    ///
+    /// ```
+    /// # #[cfg(feature = "serde-core")] {
+    /// # use miniconf::{Miniconf};
+    /// #[derive(Miniconf)]
+    /// struct S {foo: u32};
+    /// let mut s = S{foo: 0};
+    /// let mut de = serde_json_core::de::Deserializer::new(b"7");
+    /// s.deserialize_by_key(["foo"].into_iter(), &mut de).unwrap();
+    /// de.end().unwrap();
+    /// assert_eq!(s.foo, 7);
+    /// # }
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `de`: A `Deserializer` to deserialize the value.
+    ///
+    /// # Returns
+    /// Node depth on success
+    fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        D: serde::Deserializer<'a>;
+}
+
+/// Serialization/deserialization of nodes by keys/paths and traversal.
+///
+/// The keys used to locate nodes can be either iterators over `usize` or iterators
+/// over `&str` names.
+///
+/// # Design
+///
+/// The const parameter `Y` is the miniconf recursion depth. It defaults to `1`.
+///
+/// An implementor of `Miniconf<Y>` may consume at most `Y` items from the
+/// `keys` iterator argument in the recursive methods ([`Miniconf::serialize_by_key()`],
+/// [`Miniconf::deserialize_by_key()`], [`Miniconf::traverse_by_key()`]). This includes
+/// both the items consumed directly before recursing and those consumed indirectly
+/// by recursing into inner types. In the same way it may call `func` in
+/// [`Miniconf::traverse_by_key()`] at most `Y` times, again including those calls due
+/// to recursion into inner `Miniconf` types.
+///
+/// This implies that if an implementor `T` of `Miniconf<Y>` contains and recurses into
+/// an inner type using that type's `Miniconf<Z>` implementation, then `Z <= Y` must
+/// hold and `T` may consume at most `Y - Z` items from the `keys` iterators and call
+/// `func` at most `Y - Z` times.
+///
+/// The recursion depth `Y` is thus an upper bound of the maximum key length
+/// (the depth/height of the tree).
+///
+/// # Derive macro
+///
+/// A derive macro to automatically implement the correct `Miniconf<Y>` on a struct `S` is available at
+/// [`macro@Miniconf`].
+///
+/// Each field in the struct must either implement [`serde::Serialize`] `+` [`serde::de::DeserializeOwned`]
+/// (and be supported by the intended [`serde::Serializer`]/[`serde::Deserializer`] backend)
+/// or implement [Miniconf].
+///
+/// For each field, the Miniconf recursion depth is configured through the `#[miniconf(defer(Y))]` attribute,
+/// with `Y = 1` being the implied default when using `#[miniconf(defer)]` and `Y = 0` invalid.
+/// If the attribute is not present, the field is a leaf and accessed only through its
+/// [`serde::Serialize`]/[`serde::Deserialize`] implementation.
+/// With the attribute present the field is accessed through its [`Miniconf<Y>`] implementation with the given
+/// recursion depth.
+///
+/// Homogeneous [core::array]s can be made accessible either
+/// 1. as a single leaf in the tree like other serde-capable items, or
+/// 2. by item through their numeric indices (with the attribute `#[miniconf(defer(1))]`), or
+/// 3. exposing a sub-tree for each item with `#[miniconf(defer(D))]` and `D >= 2`.
+///
+/// `Option` is used
+/// 1. as a leaf like a standard `serde` Option, or
+/// 2. with `#[miniconf(defer(1))]` to support a leaf value that may be absent (masked) at runtime.
+/// 3. with `#[miniconf(defer(D))]` and `D >= 2` to support masking sub-trees at runtime.
+///
+/// ```
+/// # use miniconf::Miniconf;
+/// #[derive(Miniconf)]
+/// struct S {
+///     // "/a = 8"
+///     a: u32,
+///     // e.g. "/b/1/2 = 5"
+///     #[miniconf(defer(2))]
+///     b: [[u32; 3]; 3],
+///     // e.g. "/c/0 = [3,4]" with that node optionally absent at runtime
+///     #[miniconf(defer(2))]
+///     c: [Option<[u32; 2]>; 2]
+/// }
+/// ```
+///
+/// ## Bounds on generics
+///
+/// The macro adds bounds to generic types of the struct it is acting on.
+/// If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
+/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at depth `X = 2` (as it is
+/// within `F2` which is within `F1`) and the following bounds will be applied:
+///
+/// * With the `#[miniconf]` attribute not present, `T` will receive bounds `Serialize + DeserializeOwned`.
+/// * With `#[miniconf(defer(Y))]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
+/// * For `Y - X >= 1` it will receive the bound `T: Miniconf<Y - X>`.
+///
+/// E.g. In the following `T` resides at depth `2` and `T: Miniconf<1>` will be inferred:
+///
+/// ```rust
+/// # use miniconf::Miniconf;
+/// #[derive(Miniconf)]
+/// struct S<T>(#[miniconf(defer(3))] [Option<T>; 2]);
+///
+/// // works as array implements Miniconf<1>
+/// S::<[u32; 1]>::metadata();
+///
+/// // does not compile as u32 does not implement Miniconf<1>
+/// // S::<u32>::metadata();
+/// ```
+///
+/// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
+/// when deriving `Miniconf` for a struct that (a) forwards its own type parameters as type
+/// parameters to its field types, (b) uses `Miniconf` on those fields, and (c) those field
+/// types use their type parameters at other levels than `Miniconf<Y - 1>`. See the
+/// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
+///
+/// # Example
+///
+/// ```
+/// # use miniconf::Miniconf;
+/// #[derive(Miniconf)]
+/// struct Nested {
+///     #[miniconf(defer)]
+///     data: [u32; 2],
+/// }
+/// #[derive(Miniconf)]
+/// struct Settings {
+///     // Accessed with path `/nested/data/0` or `/nested/data/1`
+///     #[miniconf(defer(2))]
+///     nested: Nested,
+///
+///     // Accessed with path `/external`
+///     external: bool,
+/// }
+/// ```
+pub trait Tree<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<Y> {}
+impl<const Y: usize, T: TreeSerialize<Y> + TreeDeserialize<Y>> Tree<Y> for T {}

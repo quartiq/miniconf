@@ -2,17 +2,17 @@
 
 use miniconf::{
     minimq::{self, types::TopicFilter},
-    Miniconf,
+    Tree,
 };
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
-#[derive(Clone, Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Tree)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Clone, Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Tree)]
 struct Settings {
     data: u32,
     #[miniconf(defer)]

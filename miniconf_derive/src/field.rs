@@ -40,12 +40,12 @@ impl StructField {
                     if depth > 0 {
                         type_param
                             .bounds
-                            .push(parse_quote!(miniconf::Miniconf<#depth>));
+                            .push(parse_quote!(::miniconf::Tree<#depth>));
                     } else {
-                        type_param.bounds.push(parse_quote!(miniconf::Serialize));
+                        type_param.bounds.push(parse_quote!(::miniconf::Serialize));
                         type_param
                             .bounds
-                            .push(parse_quote!(miniconf::DeserializeOwned));
+                            .push(parse_quote!(::miniconf::DeserializeOwned));
                     }
                 }
             }
