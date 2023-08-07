@@ -527,5 +527,7 @@ pub trait TreeDeserialize<const Y: usize = 1>: TreeKey<Y> {
 ///     external: bool,
 /// }
 /// ```
+
+/// FIXME: Alias trait
 pub trait Tree<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<Y> {}
 impl<const Y: usize, T: TreeSerialize<Y> + TreeDeserialize<Y>> Tree<Y> for T {}

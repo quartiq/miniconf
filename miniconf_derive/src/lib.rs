@@ -16,81 +16,20 @@ fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStre
     }
 }
 
-fn walk_type_params<F: FnMut(&mut syn::TypeParam, usize)>(
-    typ: &syn::Type,
-    func: &mut F,
-    depth: usize,
-    generics: &mut syn::Generics,
-) {
-    match typ {
-        syn::Type::Path(syn::TypePath { path, .. }) => {
-            if let Some(ident) = path.get_ident() {
-                // The type is a single ident (no other path segments):
-                // call back if it is a generic type for us
-                for generic in &mut generics.params {
-                    if let syn::GenericParam::Type(type_param) = generic {
-                        if type_param.ident == *ident {
-                            func(type_param, depth);
-                        }
-                    }
-                }
-            } else {
-                // Analyze the type parameters of the type, as they may be generics for us as well
-                // This tries to reproduce the bounds that field types place on
-                // their generic types, directly or indirectly.
-                //
-                // Assume that all types use their generic T at
-                // relative depth 1, i.e.
-                // * if `#[miniconf(defer(Y > 1))] a: S<T>` then `T: Miniconf<Y - 1>`
-                // * else (i.e. if `Y = 1` or `a: S<T>` without `#[miniconf]`) then `T: SerDe`
-                //
-                // Thus the bounds are conservative (might not be required) and
-                // fragile (might apply the wrong bound).
-                // This matches the standard derive behavior and its issues
-                // https://github.com/rust-lang/rust/issues/26925
-                //
-                // To fix this, one would extend the attribute syntax to allow overriding bounds.
-                for seg in path.segments.iter() {
-                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                        for arg in args.args.iter() {
-                            if let syn::GenericArgument::Type(typ) = arg {
-                                // Found type argument in field type: recurse
-                                walk_type_params(typ, func, depth.saturating_sub(1), generics);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        syn::Type::Array(syn::TypeArray { elem, .. })
-        | syn::Type::Slice(syn::TypeSlice { elem, .. }) => {
-            // An array or slice places the element exactly one level deeper: recurse.
-            walk_type_params(elem, func, depth.saturating_sub(1), generics);
-        }
-        syn::Type::Reference(syn::TypeReference { elem, .. }) => {
-            // A reference is transparent
-            walk_type_params(elem, func, depth.saturating_sub(1), generics);
-        }
-        other => panic!("Unsupported type: {:?}", other),
-    };
-}
-
-#[proc_macro_derive(TreeKey, attributes(miniconf))]
+#[proc_macro_derive(TreeKey, attributes(tree))]
 pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
     let syn::Data::Struct(data) = input.data else {unimplemented!()};
     let fields = StructField::extract(&data.fields);
     for f in &fields {
-        walk_type_params(
-            &f.field.ty,
-            &mut |type_param, depth| {
+        f.bound_generics(
+            &mut |depth| {
                 if depth > 0 {
-                    type_param
-                        .bounds
-                        .push(parse_quote!(::miniconf::TreeKey<#depth>));
+                    Some(parse_quote!(::miniconf::TreeKey<#depth>))
+                } else {
+                    None
                 }
             },
-            f.depth,
             &mut input.generics,
         )
     }
@@ -193,24 +132,20 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     .into()
 }
 
-#[proc_macro_derive(TreeSerialize, attributes(miniconf))]
+#[proc_macro_derive(TreeSerialize, attributes(tree))]
 pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
     let syn::Data::Struct(data) = input.data else {unimplemented!()};
     let fields = StructField::extract(&data.fields);
     for f in &fields {
-        walk_type_params(
-            &f.field.ty,
-            &mut |type_param, depth| {
+        f.bound_generics(
+            &mut |depth| {
                 if depth > 0 {
-                    type_param
-                        .bounds
-                        .push(parse_quote!(::miniconf::TreeSerialize<#depth>));
+                    Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
                 } else {
-                    type_param.bounds.push(parse_quote!(::miniconf::Serialize));
+                    Some(parse_quote!(::miniconf::Serialize))
                 }
             },
-            f.depth,
             &mut input.generics,
         )
     }
@@ -266,26 +201,20 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     }.into()
 }
 
-#[proc_macro_derive(TreeDeserialize, attributes(miniconf))]
+#[proc_macro_derive(TreeDeserialize, attributes(tree))]
 pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
     let syn::Data::Struct(data) = input.data else {unimplemented!()};
     let fields = StructField::extract(&data.fields);
     for f in &fields {
-        walk_type_params(
-            &f.field.ty,
-            &mut |type_param, depth| {
+        f.bound_generics(
+            &mut |depth| {
                 if depth > 0 {
-                    type_param
-                        .bounds
-                        .push(parse_quote!(::miniconf::TreeDeserialize<#depth>));
+                    Some(parse_quote!(::miniconf::TreeDeserialize<#depth>))
                 } else {
-                    type_param
-                        .bounds
-                        .push(parse_quote!(::miniconf::DeserializeOwned));
+                    Some(parse_quote!(::miniconf::DeserializeOwned))
                 }
             },
-            f.depth,
             &mut input.generics,
         )
     }
@@ -341,7 +270,8 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     }.into()
 }
 
-#[proc_macro_derive(Tree, attributes(miniconf))]
+/// FIXME: Shorthand alias
+#[proc_macro_derive(Tree, attributes(tree))]
 pub fn derive_tree(input: TokenStream) -> TokenStream {
     let mut t = derive_tree_key(input.clone());
     t.extend(derive_tree_serialize(input.clone()));

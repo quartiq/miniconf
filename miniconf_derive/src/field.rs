@@ -27,12 +27,10 @@ impl StructField {
         let mut depth = 0;
 
         for attr in field.attrs.iter() {
-            if attr.path().is_ident("miniconf") {
+            if attr.path().is_ident("tree") {
+                depth = 1;
                 attr.parse_nested_meta(|meta| {
-                    if meta.input.is_empty() {
-                        depth = 1;
-                        Ok(())
-                    } else if meta.path.is_ident("defer") {
+                    if meta.path.is_ident("depth") {
                         let content;
                         parenthesized!(content in meta.input);
                         let lit: LitInt = content.parse()?;
@@ -46,5 +44,80 @@ impl StructField {
             }
         }
         depth
+    }
+
+    fn walk_type_params<F>(
+        typ: &syn::Type,
+        func: &mut F,
+        depth: usize,
+        generics: &mut syn::Generics,
+    ) where
+        F: FnMut(usize) -> Option<syn::TypeParamBound>,
+    {
+        match typ {
+            syn::Type::Path(syn::TypePath { path, .. }) => {
+                if let Some(ident) = path.get_ident() {
+                    // The type is a single ident (no other path segments):
+                    // call back if it is a generic type for us
+                    for generic in &mut generics.params {
+                        if let syn::GenericParam::Type(type_param) = generic {
+                            if type_param.ident == *ident {
+                                if let Some(bound) = func(depth) {
+                                    type_param.bounds.push(bound);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Analyze the type parameters of the type, as they may be generics for us as well
+                    // This tries to reproduce the bounds that field types place on
+                    // their generic types, directly or indirectly.
+                    //
+                    // Assume that all types use their generic T at
+                    // relative depth 1, i.e.
+                    // * if `#[tree(depth(Y > 1))] a: S<T>` then `T: Tree{Key,Serialize,Deserialize}<Y - 1>`
+                    // * else (i.e. if `Y = 1` or `a: S<T>` without `#[tree]`) then `T: Tree{Serialize,Deserialize}`
+                    //
+                    // Thus the bounds are conservative (might not be required) and
+                    // fragile (might apply the wrong bound).
+                    // This matches the standard derive behavior and its issues
+                    // https://github.com/rust-lang/rust/issues/26925
+                    //
+                    // To fix this, one would extend the attribute syntax to allow overriding bounds.
+                    for seg in path.segments.iter() {
+                        if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                            for arg in args.args.iter() {
+                                if let syn::GenericArgument::Type(typ) = arg {
+                                    // Found type argument in field type: recurse
+                                    Self::walk_type_params(
+                                        typ,
+                                        func,
+                                        depth.saturating_sub(1),
+                                        generics,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            syn::Type::Array(syn::TypeArray { elem, .. })
+            | syn::Type::Slice(syn::TypeSlice { elem, .. }) => {
+                // An array or slice places the element exactly one level deeper: recurse.
+                Self::walk_type_params(elem, func, depth.saturating_sub(1), generics);
+            }
+            syn::Type::Reference(syn::TypeReference { elem, .. }) => {
+                // A reference is transparent
+                Self::walk_type_params(elem, func, depth.saturating_sub(1), generics);
+            }
+            other => panic!("Unsupported type: {:?}", other),
+        };
+    }
+
+    pub(crate) fn bound_generics<F>(&self, func: &mut F, generics: &mut syn::Generics)
+    where
+        F: FnMut(usize) -> Option<syn::TypeParamBound>,
+    {
+        Self::walk_type_params(&self.field.ty, func, self.depth, generics)
     }
 }

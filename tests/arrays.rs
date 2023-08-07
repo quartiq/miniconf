@@ -11,13 +11,13 @@ struct Inner {
 #[derive(Debug, Default, Tree)]
 struct Settings {
     a: [u8; 2],
-    #[miniconf(defer)]
+    #[tree()]
     d: [u8; 2],
-    #[miniconf(defer)]
+    #[tree()]
     dm: [Inner; 2],
-    #[miniconf(defer(2))]
+    #[tree(depth(2))]
     am: [Inner; 2],
-    #[miniconf(defer(3))]
+    #[tree(depth(3))]
     aam: [[Inner; 2]; 2],
 }
 
@@ -123,9 +123,9 @@ fn empty() {
 
     #[derive(Tree)]
     struct Q {
-        #[miniconf(defer(2))]
+        #[tree(depth(2))]
         a: [S; 0],
-        #[miniconf(defer)]
+        #[tree()]
         b: [S; 0],
     }
     assert!(Q::iter_paths::<String>("").next().is_none());
