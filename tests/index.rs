@@ -1,7 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, JsonCoreSlash, Tree};
-use serde::{Deserialize, Serialize};
+use miniconf::{Deserialize, Error, JsonCoreSlash, Serialize, Tree};
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
