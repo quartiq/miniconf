@@ -2,10 +2,22 @@ use syn::{parenthesized, parse_quote, Generics, LitInt};
 
 pub struct StructField {
     pub field: syn::Field,
-    pub defer: usize,
+    pub depth: usize,
 }
 
 impl StructField {
+    pub fn extract(fields: &syn::Fields) -> Vec<Self> {
+        match fields {
+            syn::Fields::Named(syn::FieldsNamed { named, .. }) => named,
+            syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => unnamed,
+            syn::Fields::Unit => unimplemented!("Unit struct not supported"),
+        }
+        .iter()
+        .cloned()
+        .map(Self::new)
+        .collect()
+    }
+
     pub fn new(field: syn::Field) -> Self {
         let mut defer = 0;
 
@@ -28,7 +40,10 @@ impl StructField {
                 .unwrap();
             }
         }
-        Self { defer, field }
+        Self {
+            depth: defer,
+            field,
+        }
     }
 
     /// Find `ident` in generic parameters and bound it appropriately
@@ -36,7 +51,7 @@ impl StructField {
         for generic in &mut generics.params {
             if let syn::GenericParam::Type(type_param) = generic {
                 if type_param.ident == *ident {
-                    let depth = self.defer.saturating_sub(level);
+                    let depth = self.depth.saturating_sub(level);
                     if depth > 0 {
                         type_param
                             .bounds
