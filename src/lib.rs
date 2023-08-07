@@ -7,7 +7,7 @@
 #![deny(warnings)]
 #![deny(unsafe_code)]
 
-pub use miniconf_derive::Tree;
+pub use miniconf_derive::*;
 mod array;
 pub use array::*;
 mod iter;

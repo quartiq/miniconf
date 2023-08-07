@@ -1,49 +1,10 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{parse_macro_input, parse_quote, DeriveInput};
 
 mod field;
 
 use field::StructField;
-
-/// Derive the Miniconf trait for custom types.
-///
-/// See the trait for documentation.
-#[proc_macro_derive(TreeKey, attributes(miniconf))]
-pub fn derive_tree_key(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-
-    match input.data {
-        syn::Data::Struct(data) => {
-            derive_struct_tree_key(&data.fields, &mut input.generics, &input.ident)
-        }
-        _ => unimplemented!(),
-    }
-}
-
-#[proc_macro_derive(TreeSerialize, attributes(miniconf))]
-pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-
-    match input.data {
-        syn::Data::Struct(data) => {
-            derive_struct_tree_serialize(&data.fields, &mut input.generics, &input.ident)
-        }
-        _ => unimplemented!(),
-    }
-}
-
-#[proc_macro_derive(TreeDeserialize, attributes(miniconf))]
-pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-
-    match input.data {
-        syn::Data::Struct(data) => {
-            derive_struct_tree_deserialize(&data.fields, &mut input.generics, &input.ident)
-        }
-        _ => unimplemented!(),
-    }
-}
 
 fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
     match ident {
@@ -55,89 +16,110 @@ fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStre
     }
 }
 
-fn serialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `serialize_by_key()` args available.
-    let ident = name_or_index(i, &struct_field.field.ident);
-    let depth = struct_field.depth;
-    if depth > 0 {
-        quote! {
-            #i => miniconf::TreeSerialize::<#depth>::serialize_by_key(&self.#ident, keys, ser)
-        }
-    } else {
-        quote! {
-            #i => {
-                miniconf::serde::Serialize::serialize(&self.#ident, ser)?;
-                Ok(0)
-           }
-        }
-    }
-}
-
-fn deserialize_by_key_arm((i, struct_field): (usize, &StructField)) -> proc_macro2::TokenStream {
-    // Quote context is a match of the field name with `deserialize_by_key()` args available.
-    let ident = name_or_index(i, &struct_field.field.ident);
-    let depth = struct_field.depth;
-    if depth > 0 {
-        quote! {
-            #i => miniconf::TreeDeserialize::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
-        }
-    } else {
-        quote! {
-            #i => {
-                self.#ident = miniconf::serde::Deserialize::deserialize(de)?;
-                Ok(0)
+fn walk_type_params<F: FnMut(&mut syn::TypeParam, usize)>(
+    typ: &syn::Type,
+    func: &mut F,
+    depth: usize,
+    generics: &mut syn::Generics,
+) {
+    match typ {
+        syn::Type::Path(syn::TypePath { path, .. }) => {
+            if let Some(ident) = path.get_ident() {
+                // The type is a single ident (no other path segments):
+                // call back if it is a generic type for us
+                for generic in &mut generics.params {
+                    if let syn::GenericParam::Type(type_param) = generic {
+                        if type_param.ident == *ident {
+                            func(type_param, depth);
+                        }
+                    }
+                }
+            } else {
+                // Analyze the type parameters of the type, as they may be generics for us as well
+                // This tries to reproduce the bounds that field types place on
+                // their generic types, directly or indirectly.
+                //
+                // Assume that all types use their generic T at
+                // relative depth 1, i.e.
+                // * if `#[miniconf(defer(Y > 1))] a: S<T>` then `T: Miniconf<Y - 1>`
+                // * else (i.e. if `Y = 1` or `a: S<T>` without `#[miniconf]`) then `T: SerDe`
+                //
+                // Thus the bounds are conservative (might not be required) and
+                // fragile (might apply the wrong bound).
+                // This matches the standard derive behavior and its issues
+                // https://github.com/rust-lang/rust/issues/26925
+                //
+                // To fix this, one would extend the attribute syntax to allow overriding bounds.
+                for seg in path.segments.iter() {
+                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                        for arg in args.args.iter() {
+                            if let syn::GenericArgument::Type(typ) = arg {
+                                // Found type argument in field type: recurse
+                                walk_type_params(typ, func, depth.saturating_sub(1), generics);
+                            }
+                        }
+                    }
+                }
             }
         }
-    }
+        syn::Type::Array(syn::TypeArray { elem, .. })
+        | syn::Type::Slice(syn::TypeSlice { elem, .. }) => {
+            // An array or slice places the element exactly one level deeper: recurse.
+            walk_type_params(elem, func, depth.saturating_sub(1), generics);
+        }
+        syn::Type::Reference(syn::TypeReference { elem, .. }) => {
+            // A reference is transparent
+            walk_type_params(elem, func, depth.saturating_sub(1), generics);
+        }
+        other => panic!("Unsupported type: {:?}", other),
+    };
 }
 
-fn traverse_by_key_arm(
-    (i, struct_field): (usize, &StructField),
-) -> Option<proc_macro2::TokenStream> {
-    // Quote context is a match of the field index with `traverse_by_key()` args available.
-    let depth = struct_field.depth;
-    if depth > 0 {
-        let field_type = &struct_field.field.ty;
-        Some(quote! {
-            #i => <#field_type as miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
-        })
-    } else {
-        None
+#[proc_macro_derive(TreeKey, attributes(miniconf))]
+pub fn derive_tree_key(input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as DeriveInput);
+    let syn::Data::Struct(data) = input.data else {unimplemented!()};
+    let fields = StructField::extract(&data.fields);
+    for f in &fields {
+        walk_type_params(
+            &f.field.ty,
+            &mut |type_param, depth| {
+                if depth > 0 {
+                    type_param
+                        .bounds
+                        .push(parse_quote!(::miniconf::TreeKey<#depth>));
+                }
+            },
+            f.depth,
+            &mut input.generics,
+        )
     }
-}
 
-fn metadata_arm((i, struct_field): (usize, &StructField)) -> Option<proc_macro2::TokenStream> {
-    // Quote context is a match of the field index with `metadata()` args available.
-    let depth = struct_field.depth;
-    if depth > 0 {
-        let field_type = &struct_field.field.ty;
-        Some(quote! {
-            #i => <#field_type as miniconf::TreeKey<#depth>>::metadata()
-        })
-    } else {
-        None
-    }
-}
+    let traverse_by_key_arms = fields.iter().enumerate().filter_map(|(i, field)| {
+        // Quote context is a match of the field index with `traverse_by_key()` args available.
+        let depth = field.depth;
+        if depth > 0 {
+            let field_type = &field.field.ty;
+            Some(quote! {
+                #i => <#field_type as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
+            })
+        } else {
+            None
+        }
+    });
+    let metadata_arms = fields.iter().enumerate().filter_map(|(i, field)| {
+        // Quote context is a match of the field index with `metadata()` args available.
+        let depth = field.depth;
+        if depth > 0 {
+            let field_type = &field.field.ty;
+            Some(quote! {
+                #i => <#field_type as ::miniconf::TreeKey<#depth>>::metadata()
+            })
+        } else {
+            None
+        }
+    });
 
-/// Derive the Miniconf trait for structs.
-///
-/// # Args
-/// * `data` - The data associated with the struct definition.
-/// * `generics` - The generics of the definition. Sufficient bounds will be added here.
-/// * `ident` - The identifier to derive the impl for.
-///
-/// # Returns
-/// A token stream of the generated code.
-fn derive_struct_tree_key(
-    fields: &syn::Fields,
-    generics: &mut syn::Generics,
-    ident: &syn::Ident,
-) -> TokenStream {
-    let fields = StructField::extract(&fields);
-    fields.iter().for_each(|f| f.bound_generics(generics));
-
-    let traverse_by_key_arms = fields.iter().enumerate().filter_map(traverse_by_key_arm);
-    let metadata_arms = fields.iter().enumerate().filter_map(metadata_arm);
     let names = fields.iter().enumerate().map(|(i, field)| {
         let name = name_or_index(i, &field.field.ident);
         quote! { stringify!(#name) }
@@ -146,8 +128,9 @@ fn derive_struct_tree_key(
 
     let defers = fields.iter().map(|field| field.depth > 0);
     let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
+    let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
@@ -210,18 +193,50 @@ fn derive_struct_tree_key(
     .into()
 }
 
-fn derive_struct_tree_serialize(
-    fields: &syn::Fields,
-    generics: &mut syn::Generics,
-    ident: &syn::Ident,
-) -> TokenStream {
-    let fields = StructField::extract(&fields);
-    fields.iter().for_each(|f| f.bound_generics(generics));
+#[proc_macro_derive(TreeSerialize, attributes(miniconf))]
+pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as DeriveInput);
+    let syn::Data::Struct(data) = input.data else {unimplemented!()};
+    let fields = StructField::extract(&data.fields);
+    for f in &fields {
+        walk_type_params(
+            &f.field.ty,
+            &mut |type_param, depth| {
+                if depth > 0 {
+                    type_param
+                        .bounds
+                        .push(parse_quote!(::miniconf::TreeSerialize<#depth>));
+                } else {
+                    type_param.bounds.push(parse_quote!(::miniconf::Serialize));
+                }
+            },
+            f.depth,
+            &mut input.generics,
+        )
+    }
 
-    let serialize_by_key_arms = fields.iter().enumerate().map(serialize_by_key_arm);
+    let serialize_by_key_arms = fields.iter().enumerate().map(|(i, field)| {
+        // Quote context is a match of the field name with `serialize_by_key()` args available.
+        let ident = name_or_index(i, &field.field.ident);
+        let depth = field.depth;
+        if depth > 0 {
+            quote! {
+                #i => ::miniconf::TreeSerialize::<#depth>::serialize_by_key(&self.#ident, keys, ser)
+            }
+        } else {
+            quote! {
+                #i => {
+                    ::miniconf::serde::Serialize::serialize(&self.#ident, ser)?;
+                    Ok(0)
+               }
+            }
+        }
+    });
+
     let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
+    let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
         impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
@@ -251,18 +266,52 @@ fn derive_struct_tree_serialize(
     }.into()
 }
 
-fn derive_struct_tree_deserialize(
-    fields: &syn::Fields,
-    generics: &mut syn::Generics,
-    ident: &syn::Ident,
-) -> TokenStream {
-    let fields = StructField::extract(&fields);
-    fields.iter().for_each(|f| f.bound_generics(generics));
+#[proc_macro_derive(TreeDeserialize, attributes(miniconf))]
+pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as DeriveInput);
+    let syn::Data::Struct(data) = input.data else {unimplemented!()};
+    let fields = StructField::extract(&data.fields);
+    for f in &fields {
+        walk_type_params(
+            &f.field.ty,
+            &mut |type_param, depth| {
+                if depth > 0 {
+                    type_param
+                        .bounds
+                        .push(parse_quote!(::miniconf::TreeDeserialize<#depth>));
+                } else {
+                    type_param
+                        .bounds
+                        .push(parse_quote!(::miniconf::DeserializeOwned));
+                }
+            },
+            f.depth,
+            &mut input.generics,
+        )
+    }
 
-    let deserialize_by_key_arms = fields.iter().enumerate().map(deserialize_by_key_arm);
+    let deserialize_by_key_arms = fields.iter().enumerate().map(|(i, field)| {
+        // Quote context is a match of the field name with `deserialize_by_key()` args available.
+        let ident = name_or_index(i, &field.field.ident);
+        let depth = field.depth;
+        if depth > 0 {
+            quote! {
+                #i => ::miniconf::TreeDeserialize::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
+            }
+        } else {
+            quote! {
+                #i => {
+                    self.#ident = ::miniconf::serde::Deserialize::deserialize(de)?;
+                    Ok(0)
+                }
+            }
+        }
+    });
+
     let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
+    let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
         impl #impl_generics ::miniconf::TreeDeserialize<#depth> for #ident #ty_generics #where_clause {
@@ -290,4 +339,12 @@ fn derive_struct_tree_deserialize(
             }
         }
     }.into()
+}
+
+#[proc_macro_derive(Tree, attributes(miniconf))]
+pub fn derive_tree(input: TokenStream) -> TokenStream {
+    let mut t = derive_tree_key(input.clone());
+    t.extend(derive_tree_serialize(input.clone()));
+    t.extend(derive_tree_deserialize(input.clone()));
+    t
 }
