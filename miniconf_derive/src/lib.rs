@@ -246,11 +246,11 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics ::miniconf::TreeDeserialize<#depth> for #ident #ty_generics #where_clause {
-            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+            fn deserialize_by_key<'de, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: ::miniconf::Key,
-                D: ::miniconf::Deserializer<'a>,
+                D: ::miniconf::Deserializer<'de>,
             {
                 let key = keys.next()
                     .ok_or(::miniconf::Error::TooShort(0))?;

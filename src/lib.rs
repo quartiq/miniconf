@@ -518,9 +518,9 @@ pub trait TreeDeserialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// # Returns
     /// Node depth on success
-    fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<'de, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,
-        D: Deserializer<'a>;
+        D: Deserializer<'de>;
 }

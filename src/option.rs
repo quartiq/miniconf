@@ -60,11 +60,11 @@ macro_rules! depth {
         }
 
         impl<T: TreeDeserialize<{$d - 1}>> TreeDeserialize<$d> for Option<T> {
-            fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            fn deserialize_by_key<'de, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
-                D: Deserializer<'a>,
+                D: Deserializer<'de>,
             {
                 if let Some(inner) = self {
                     inner.deserialize_by_key(keys, de)
@@ -118,10 +118,14 @@ impl<T: Serialize> TreeSerialize for core::option::Option<T> {
 }
 
 impl<T: DeserializeOwned> TreeDeserialize for core::option::Option<T> {
-    fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<'de, K, D>(
+        &mut self,
+        mut keys: K,
+        de: D,
+    ) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
-        D: Deserializer<'a>,
+        D: Deserializer<'de>,
     {
         if keys.next().is_some() {
             return Err(Error::TooLong(0));

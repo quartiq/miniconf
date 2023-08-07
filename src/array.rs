@@ -79,11 +79,11 @@ macro_rules! depth {
         }
 
         impl<T: TreeDeserialize<{$d - 1}>, const N: usize> TreeDeserialize<$d> for [T; N] {
-            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+            fn deserialize_by_key<'de, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
-                D: Deserializer<'a>,
+                D: Deserializer<'de>,
             {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
                 let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
