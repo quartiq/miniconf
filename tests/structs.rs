@@ -53,7 +53,7 @@ fn recursive_struct() {
     struct Settings {
         a: f32,
         b: bool,
-        #[miniconf(defer)]
+        #[tree()]
         c: Inner,
     }
 

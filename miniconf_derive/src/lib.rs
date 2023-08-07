@@ -73,6 +73,8 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
+            // TODO: how can these be hidden and disambiguated w.r.t. collision?
+            // TODO: for unnamed structs, simplify to `parse::<usize>()`
             const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
@@ -161,7 +163,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         } else {
             quote! {
                 #i => {
-                    ::miniconf::serde::Serialize::serialize(&self.#ident, ser)?;
+                    ::miniconf::Serialize::serialize(&self.#ident, ser)?;
                     Ok(0)
                }
             }
@@ -179,7 +181,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
             where
                 K: Iterator,
                 K::Item: ::miniconf::Key,
-                S: ::miniconf::serde::Serializer,
+                S: ::miniconf::Serializer,
             {
                 let key = keys.next()
                     .ok_or(::miniconf::Error::TooShort(0))?;
@@ -230,7 +232,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         } else {
             quote! {
                 #i => {
-                    self.#ident = ::miniconf::serde::Deserialize::deserialize(de)?;
+                    self.#ident = ::miniconf::Deserialize::deserialize(de)?;
                     Ok(0)
                 }
             }
@@ -248,7 +250,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
             where
                 K: Iterator,
                 K::Item: ::miniconf::Key,
-                D: ::miniconf::serde::Deserializer<'a>,
+                D: ::miniconf::Deserializer<'a>,
             {
                 let key = keys.next()
                     .ok_or(::miniconf::Error::TooShort(0))?;

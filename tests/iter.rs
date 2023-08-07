@@ -11,7 +11,7 @@ struct Inner {
 struct Settings {
     a: f32,
     b: i32,
-    #[miniconf(defer)]
+    #[tree()]
     c: Inner,
 }
 
@@ -34,9 +34,9 @@ fn array_iter() {
 
     #[derive(Tree, Default)]
     struct Settings {
-        #[miniconf(defer)]
+        #[tree()]
         a: [bool; 2],
-        #[miniconf(defer(2))]
+        #[tree(depth(2))]
         b: [I; 3],
     }
 

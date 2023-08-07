@@ -11,10 +11,10 @@ struct NestedSettings {
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Settings {
-    #[miniconf(defer)]
+    #[tree()]
     inner: NestedSettings,
 
-    #[miniconf(defer)]
+    #[tree()]
     amplitude: [f32; 2],
 
     exit: bool,

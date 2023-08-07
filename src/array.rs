@@ -4,7 +4,7 @@ use crate::{Error, Increment, Key, Metadata, TreeDeserialize, TreeKey, TreeSeria
 ///
 /// # Design
 ///
-/// With `#[miniconf(defer(D))]` and a depth `D > 1` for an
+/// With `#[tree(depth(D))]` and a depth `D > 1` for an
 /// [`[T; N]`](array), each item of the array is accessed as a [`Miniconf`] tree.
 /// For a depth `D = 0`, the entire array is accessed as one atomic
 /// value. For `D = 1` each index of the array is is instead accessed as

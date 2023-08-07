@@ -8,7 +8,7 @@ struct AdditionalSettings {
 
 #[derive(Debug, Default, Tree)]
 struct Settings {
-    #[miniconf(defer)]
+    #[tree()]
     more: AdditionalSettings,
     data: u32,
 }

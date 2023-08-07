@@ -1,4 +1,4 @@
-use crate::{Error, JsonCoreSlash, Tree};
+use crate::{Error, JsonCoreSlash, TreeKey};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
@@ -45,13 +45,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Tree<Y>, const Y: usize> {
+    pub struct Context<C: embedded_time::Clock, M: super::TreeKey<Y>, const Y: usize> {
         clock: C,
         timeout: Option<Instant<C>>,
         pub republish_state: super::Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Tree<Y>, const Y: usize> Context<C, M, Y> {
+    impl<C: embedded_time::Clock, M: super::TreeKey<Y>, const Y: usize> Context<C, M, Y> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -70,7 +70,7 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Tree<Y>, const Y: usize> StateMachineContext
+    impl<C: embedded_time::Clock, M: super::TreeKey<Y>, const Y: usize> StateMachineContext
         for Context<C, M, Y>
     {
         fn start_republish_timeout(&mut self) {
@@ -116,7 +116,7 @@ impl<'a> Command<'a> {
 /// MQTT settings interface.
 ///
 /// # Design
-/// The MQTT client places the [Miniconf] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
+/// The MQTT client places the [TreeKey] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
 /// where `<prefix>` is provided in the client constructor.
 ///
 /// It publishes its alive-ness as a `1` to `<prefix>/alive` and sets a will to publish `0` there when
@@ -131,9 +131,9 @@ impl<'a> Command<'a> {
 ///
 /// # Example
 /// ```
-/// use miniconf::{MqttClient, Miniconf};
+/// use miniconf::{MqttClient, Tree};
 ///
-/// #[derive(Miniconf, Clone, Default)]
+/// #[derive(Tree, Clone, Default)]
 /// struct Settings {
 ///     foo: bool,
 /// }

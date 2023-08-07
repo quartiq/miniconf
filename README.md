@@ -45,23 +45,23 @@ struct Settings {
 
     // Exposing elements of containers
     // ... by field name
-    #[miniconf(defer)]
+    #[tree()]
     struct_defer: Inner,
     // ... or by index
-    #[miniconf(defer)]
+    #[tree()]
     array_defer: [i32; 2],
     // ... or deferring to two levels (index and then inner field name)
-    #[miniconf(defer(2))]
+    #[tree(depth(2))]
     array_miniconf: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
-    #[miniconf(defer)]
+    #[tree()]
     option_defer: Option<i32>,
     // Hiding a path and deferring to the inner
-    #[miniconf(defer(2))]
+    #[tree(depth(2))]
     option_miniconf: Option<Inner>,
     // Hiding elements of an Array of Tree items
-    #[miniconf(defer(3))]
+    #[tree(depth(3))]
     array_option_miniconf: [Option<Inner>; 2],
 }
 
@@ -132,16 +132,16 @@ python -m miniconf -d quartiq/application/+ foo=true
 
 ## Derive macro
 
-For structs Miniconf offers a [`macro@Miniconf`] derive macro.
-The macro implements the [Miniconf] trait that exposes access to serialized field values through their path.
-All types supported by either [serde] (and the `serde::Serializer`/`serde::Deserializer` backend) or `Miniconf`
-can be used as fields.
+For structs Miniconf offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], and [`macro@TreeDeserialize`].
+The macros implements the [`TreeKey`], [`TreeSerialize`], and [`TreeDeserialize`] traits that exposes access to serialized field values through their path.
+Fields that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize}` trait. Fields that are
+leafs need to support the respective [serde] trait (and the `serde::Serializer`/`serde::Deserializer` backend).
 
 Structs, arrays, and Options can then be cascaded to construct more complex trees.
 When using the derive macro, the behavior and tree recursion depth can be configured for each
-struct field using the `#[miniconf(defer(Y))]` attribute.
+struct field using the `#[tree(depth(Y))]` attribute.
 
-See also the [`Miniconf`] trait documentation for details.
+See also the [`Tree`] trait documentation for details.
 
 ## Keys and paths
 

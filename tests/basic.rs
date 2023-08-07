@@ -9,7 +9,7 @@ struct Inner {
 struct Settings {
     a: f32,
     b: i32,
-    #[miniconf(defer)]
+    #[tree()]
     c: Inner,
 }
 
