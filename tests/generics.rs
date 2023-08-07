@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
+use miniconf::{Deserialize, DeserializeOwned, JsonCoreSlash, Serialize, Tree, TreeKey};
 
 #[test]
 fn generic_type() {
