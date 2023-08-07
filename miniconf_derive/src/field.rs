@@ -108,7 +108,7 @@ impl StructField {
             }
             syn::Type::Reference(syn::TypeReference { elem, .. }) => {
                 // A reference is transparent
-                Self::walk_type_params(elem, func, depth.saturating_sub(1), generics);
+                Self::walk_type_params(elem, func, depth, generics);
             }
             other => panic!("Unsupported type: {:?}", other),
         };

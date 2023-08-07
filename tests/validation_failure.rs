@@ -1,7 +1,6 @@
 #![cfg(feature = "mqtt-client")]
 
-use miniconf::{minimq, Tree};
-use serde::Deserialize;
+use miniconf::{minimq, Deserialize, Tree};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 

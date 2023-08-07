@@ -105,7 +105,7 @@ fn test_derive_macro_bound_failure() {
     // adding the required traits by hand works.
     type A<T> = [[T; 0]; 0];
     #[derive(Tree)]
-    struct S<T: serde::Serialize + serde::de::DeserializeOwned>(
+    struct S<T: Serialize + DeserializeOwned>(
         // this wrongly infers T: Tree<1> instead of T: SerDe
         // adding the missing bound is a workaround
         #[tree(depth(2))] A<T>,
