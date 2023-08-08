@@ -108,15 +108,15 @@ fn iter() {
 
 #[test]
 fn empty() {
-    assert!(<[u32; 0]>::iter_paths::<String>("").next().is_none());
+    assert!(<[u32; 0]>::iter_paths("".to_owned(), "").next().is_none());
 
     #[derive(Tree, Serialize, Deserialize)]
     struct S {}
 
-    assert!(<[S; 0] as TreeKey>::iter_paths::<String>("")
+    assert!(<[S; 0] as TreeKey>::iter_paths("".to_owned(), "")
         .next()
         .is_none());
-    assert!(<[[S; 0]; 0] as TreeKey>::iter_paths::<String>("")
+    assert!(<[[S; 0]; 0] as TreeKey>::iter_paths("".to_owned(), "")
         .next()
         .is_none());
 
@@ -127,5 +127,5 @@ fn empty() {
         #[tree()]
         b: [S; 0],
     }
-    assert!(Q::iter_paths::<String>("").next().is_none());
+    assert!(Q::iter_paths("".to_owned(), "").next().is_none());
 }

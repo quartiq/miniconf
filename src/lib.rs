@@ -370,12 +370,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// `keys` may be longer than required. Extra items are ignored.
     ///
     /// ```
-    /// # #[cfg(feature = "mqtt-client")] {
+    /// # #[cfg(feature = "std")] {
     /// # use miniconf::TreeKey;
-    /// # use heapless::String;
     /// #[derive(TreeKey)]
     /// struct S {foo: u32};
-    /// let mut s = String::<10>::new();
+    /// let mut s = String::new();
     /// S::path([0], &mut s, "/").unwrap();
     /// assert_eq!(s, "/foo");
     /// # }
@@ -409,14 +408,12 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Entries in `indices` at and beyond the `depth` returned are unaffected.
     ///
     /// ```
-    /// # #[cfg(feature = "mqtt-client")] {
     /// # use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {foo: u32};
     /// let mut i = [0usize; 2];
     /// let depth = S::indices(["foo"], &mut i).unwrap();
     /// assert_eq!(&i[..depth], &[0]);
-    /// # }
     /// ```
     ///
     /// # Args
@@ -449,12 +446,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// The iterator has an exact and trusted [Iterator::size_hint].
     ///
     /// ```
-    /// # #[cfg(feature = "mqtt-client")] {
+    /// # #[cfg(feature = "std")] {
     /// # use miniconf::TreeKey;
-    /// # use heapless::String;
     /// #[derive(TreeKey)]
     /// struct S {foo: u32};
-    /// for p in S::iter_paths::<String<10>>("/") {
+    /// for p in S::iter_paths("".to_owned(), "/") {
     ///     assert_eq!(p.unwrap(), "/foo");
     /// }
     /// # }
@@ -469,8 +465,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
-    fn iter_paths<P: core::fmt::Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new(separator)
+    fn iter_paths<P: core::fmt::Write>(path: P, separator: &str) -> PathIter<'_, Self, Y, P> {
+        PathIter::new(path, separator)
     }
 
     /// Create an unchecked iterator of all possible paths.
@@ -478,12 +474,12 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [TreeKey::iter_paths].
     ///
     /// ```
-    /// # #[cfg(feature = "mqtt-client")] {
+    /// # #[cfg(feature = "std")] {
     /// # use miniconf::TreeKey;
     /// # use heapless::String;
     /// #[derive(TreeKey)]
     /// struct S {foo: u32};
-    /// for p in S::iter_paths::<String<10>>("/") {
+    /// for p in S::iter_paths("".to_owned(), "/") {
     ///     assert_eq!(p.unwrap(), "/foo");
     /// }
     /// # }
@@ -496,8 +492,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<P: core::fmt::Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new_unchecked(separator)
+    fn iter_paths_unchecked<P: core::fmt::Write>(path: P, separator: &str) -> PathIter<'_, Self, Y, P> {
+        PathIter::new_unchecked(path, separator)
     }
 }
 
@@ -513,9 +509,8 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// let mut s = S{foo: 9};
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["foo"].into_iter(), &mut ser).unwrap();
-    /// let len = ser.end();
-    /// assert_eq!(&buf[..len], b"9");
+    /// s.serialize_by_key(["foo"].into(), &mut ser).unwrap();
+    /// assert_eq!(&buf[..ser.end()], b"9");
     /// # }
     /// ```
     ///
@@ -543,7 +538,7 @@ pub trait TreeDeserialize<const Y: usize = 1>: TreeKey<Y> {
     /// struct S {foo: u32};
     /// let mut s = S{foo: 0};
     /// let mut de = serde_json_core::de::Deserializer::new(b"7");
-    /// s.deserialize_by_key(["foo"].into_iter(), &mut de).unwrap();
+    /// s.deserialize_by_key(["foo"].into(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.foo, 7);
     /// # }

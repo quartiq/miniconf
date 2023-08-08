@@ -4,9 +4,11 @@ use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 /// An iterator over the paths in a Miniconf namespace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
-    /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
+    /// Zero-size markers to allow being generic over M (by constraining the type parameters).
     m: PhantomData<M>,
-    p: PhantomData<P>,
+
+    /// Path prefix and type
+    path: P,
 
     /// The iteration state.
     ///
@@ -30,21 +32,21 @@ impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    pub(crate) fn new(separator: &'a str) -> Self {
+    pub(crate) fn new(path: P, separator: &'a str) -> Self {
         let meta = M::metadata();
         assert!(Y >= meta.max_depth);
-        let mut s = Self::new_unchecked(separator);
+        let mut s = Self::new_unchecked(path, separator);
         s.count = Some(meta.count);
         s
     }
 
-    pub(crate) fn new_unchecked(separator: &'a str) -> Self {
+    pub(crate) fn new_unchecked(path: P, separator: &'a str) -> Self {
         Self {
             count: None,
             separator,
             state: [0; Y],
             m: PhantomData,
-            p: PhantomData,
+            path,
         }
     }
 }
@@ -52,12 +54,12 @@ where
 impl<'a, M, const Y: usize, P> Iterator for PathIter<'a, M, Y, P>
 where
     M: TreeKey<Y> + ?Sized,
-    P: Write + Default,
+    P: Write + Clone,
 {
     type Item = Result<P, core::fmt::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut path = P::default();
+        let mut path = self.path.clone();
 
         loop {
             return match M::path(self.state, &mut path, self.separator) {
@@ -69,7 +71,7 @@ where
                 // Node not found at depth: reset current index, increment parent index,
                 // then retry path()
                 Err(Error::NotFound(depth @ 2..)) => {
-                    path = P::default();
+                    path = self.path.clone();
                     self.state[depth - 1] = 0;
                     self.state[depth - 2] += 1;
                     continue;
@@ -112,6 +114,6 @@ where
 impl<'a, M, const Y: usize, P> FusedIterator for PathIter<'a, M, Y, P>
 where
     M: TreeKey<Y>,
-    P: Write + Default,
+    P: Write + Clone,
 {
 }

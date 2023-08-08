@@ -99,7 +99,7 @@ let len = settings.get_json("/struct_", &mut buf)?;
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
-for path in Settings::iter_paths::<String>("/") {
+for path in Settings::iter_paths("".to_owned(), "/") {
     let path = path.unwrap();
     // Serializing each
     match settings.get_json(&path, &mut buf) {
