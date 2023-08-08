@@ -1,9 +1,7 @@
 #![cfg(feature = "mqtt-client")]
 
-use miniconf::{
-    minimq::{self, types::TopicFilter},
-    Tree,
-};
+use miniconf::Tree;
+use minimq::{self, types::TopicFilter};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
@@ -21,7 +19,7 @@ struct Settings {
 
 async fn verify_settings() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, _, 256, 1> = miniconf::minimq::Minimq::new(
+    let mut mqtt: minimq::Minimq<_, _, 256, 1> = minimq::Minimq::new(
         "127.0.0.1".parse().unwrap(),
         "tester",
         Stack::default(),

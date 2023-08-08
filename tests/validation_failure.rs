@@ -1,6 +1,6 @@
 #![cfg(feature = "mqtt-client")]
 
-use miniconf::{minimq, Deserialize, Tree};
+use miniconf::{Deserialize, Tree};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
@@ -19,7 +19,7 @@ struct Response {
 
 async fn client_task() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, _, 256, 1> = miniconf::minimq::Minimq::new(
+    let mut mqtt: minimq::Minimq<_, _, 256, 1> = minimq::Minimq::new(
         "127.0.0.1".parse().unwrap(),
         "tester",
         Stack::default(),

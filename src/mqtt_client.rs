@@ -126,8 +126,9 @@ impl<'a> Command<'a> {
 /// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
 /// connect to it when errors occur.
 ///
-/// The client only supports paths up to 128 byte length.
-/// Keepalive interval and re-publication timeout are fixed to 60 and 2 seconds respectively.
+/// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
+/// Keepalive interval and re-publication timeout are fixed to `KEEPALIVE_INTERVAL_SECONDS = 60` and
+/// `REPUBLISH_TIMEOUT_SECONDS = 2` seconds respectively.
 ///
 /// # Example
 /// ```

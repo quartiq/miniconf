@@ -88,19 +88,3 @@ impl<T: TreeSerialize<D> + TreeDeserialize<D>, const D: usize> JsonCoreSlash<D> 
         Ok(ser.end())
     }
 }
-
-// These allow unifying serde error information to make writing examples
-// and tests easier. Doing this conversion is optional.
-// #[cfg(any(test, doctest))]
-impl From<Error<ser::Error>> for Error<de::Error> {
-    fn from(value: Error<ser::Error>) -> Self {
-        match value {
-            Error::NotFound(i) => Self::NotFound(i),
-            Error::TooLong(i) => Self::TooLong(i),
-            Error::Absent(i) => Self::Absent(i),
-            Error::TooShort(i) => Self::TooShort(i),
-            Error::PostDeserialization(_) => Error::PostDeserialization(de::Error::CustomError),
-            Error::Inner(_) => Self::Inner(de::Error::CustomError),
-        }
-    }
-}

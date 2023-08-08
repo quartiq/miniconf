@@ -1,7 +1,5 @@
-use crate::{
-    Deserialize, DeserializeOwned, Deserializer, Error, Key, Metadata, Serialize, Serializer,
-    TreeDeserialize, TreeKey, TreeSerialize,
-};
+use crate::{Error, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 
 macro_rules! depth {
     ($($d:literal)+) => {$(

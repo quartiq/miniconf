@@ -11,9 +11,9 @@ structs/arrays/Options of serializable types.
 
 Miniconf can be used as a very simple and flexible backend for run-time settings management in embedded devices
 over any transport. It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
-payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a comlete [MQTT settings management
+payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a [MQTT settings management
 client](MqttClient) and a Python reference implementation to ineract with it.
-`Miniconf` is completely generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
+`Miniconf` is generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
 
 ## Example
 
@@ -46,23 +46,23 @@ struct Settings {
     // Exposing elements of containers
     // ... by field name
     #[tree()]
-    struct_defer: Inner,
+    struct_tree: Inner,
     // ... or by index
     #[tree()]
-    array_defer: [i32; 2],
+    array_tree: [i32; 2],
     // ... or deferring to two levels (index and then inner field name)
     #[tree(depth(2))]
-    array_miniconf: [Inner; 2],
+    array_tree2: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
     #[tree()]
-    option_defer: Option<i32>,
+    option_tree: Option<i32>,
     // Hiding a path and deferring to the inner
     #[tree(depth(2))]
-    option_miniconf: Option<Inner>,
+    option_tree2: Option<Inner>,
     // Hiding elements of an Array of Tree items
     #[tree(depth(3))]
-    array_option_miniconf: [Option<Inner>; 2],
+    array_option_tree: [Option<Inner>; 2],
 }
 
 let mut settings = Settings::default();
@@ -78,24 +78,24 @@ settings.set_json("/option", b"12")?;
 settings.set_json("/option", b"null")?;
 
 // Deep access by field name in a struct
-settings.set_json("/struct_defer/a", b"4")?;
+settings.set_json("/struct_tree/a", b"4")?;
 // ... or by index in an array
-settings.set_json("/array_defer/0", b"7")?;
+settings.set_json("/array_tree/0", b"7")?;
 // ... or by index and then struct field name
-settings.set_json("/array_miniconf/1/b", b"11")?;
+settings.set_json("/array_tree2/1/b", b"11")?;
 
 // If a deferred Option is `None` it is hidden at runtime and can't be accessed
-settings.option_defer = None;
-assert_eq!(settings.set_json("/option_defer", b"13"), Err(Error::Absent(1)));
-settings.option_defer = Some(0);
-settings.set_json("/option_defer", b"13")?;
-settings.option_miniconf = Some(Inner::default());
-settings.set_json("/option_miniconf/a", b"14")?;
-settings.array_option_miniconf[1] = Some(Inner::default());
-settings.set_json("/array_option_miniconf/1/a", b"15")?;
+settings.option_tree = None;
+assert_eq!(settings.set_json("/option_tree", b"13"), Err(Error::Absent(1)));
+settings.option_tree = Some(0);
+settings.set_json("/option_tree", b"13")?;
+settings.option_tree2 = Some(Inner::default());
+settings.set_json("/option_tree2/a", b"14")?;
+settings.array_option_tree[1] = Some(Inner::default());
+settings.set_json("/array_option_tree/1/a", b"15")?;
 
 // Serializing elements by path
-let len = settings.get_json("/struct_", &mut buf)?;
+let len = settings.get_json("/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
@@ -103,19 +103,15 @@ for path in Settings::iter_paths::<String>("/") {
     let path = path.unwrap();
     // Serializing each
     match settings.get_json(&path, &mut buf) {
-        Ok(len) => {
-            // Deserialize again
-            settings.set_json(&path, &buf[..len])?;
-        }
+        // Full round-trip: deserialize and set again
+        Ok(len) => { settings.set_json(&path, &buf[..len])?; }
         // Some settings are still `None` and thus their paths are expected to be absent
         Err(Error::Absent(_)) => {}
-        e => {
-            e?;
-        }
+        e => { e.unwrap(); }
     }
 }
 
-# Ok::<(), miniconf::Error<serde_json_core::de::Error>>(())
+# Ok::<(), Error<serde_json_core::de::Error>>(())
 ```
 
 ## MQTT

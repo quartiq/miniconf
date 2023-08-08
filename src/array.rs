@@ -1,7 +1,5 @@
-use crate::{
-    Deserialize, DeserializeOwned, Deserializer, Error, Increment, Key, Metadata, Serialize,
-    Serializer, TreeDeserialize, TreeKey, TreeSerialize,
-};
+use crate::{Error, Increment, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
