@@ -57,7 +57,7 @@ mod sm {
                 clock,
                 timeout: None,
                 // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                republish_state: M::iter_paths_unchecked(heapless::String::new(), "/"),
+                republish_state: M::iter_paths_unchecked("/"),
             }
         }
 
@@ -81,7 +81,7 @@ mod sm {
 
         fn start_republish(&mut self) {
             // Skip redundant check (done comprehensively in `MqttClient::new()`)
-            self.republish_state = M::iter_paths_unchecked(heapless::String::new(), "/");
+            self.republish_state = M::iter_paths_unchecked("/");
         }
     }
 }
@@ -484,7 +484,7 @@ where
                                 .replace(Vec::from_slice(binary_props).unwrap());
                             self.listing_state
                                 // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                                .replace(Settings::iter_paths_unchecked(String::new(), "/"));
+                                .replace(Settings::iter_paths_unchecked("/"));
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
                         }
