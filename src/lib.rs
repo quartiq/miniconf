@@ -263,6 +263,43 @@ impl Key for &str {
 ///     external: bool,
 /// }
 /// ```
+///
+/// # Array
+///
+/// An array that exposes each element through [`TreeKey`] etc.
+///
+/// With `#[tree(depth(D))]` and a depth `D > 1` for an
+/// [`[T; N]`](core::array), each item of the array is accessed as a [`TreeKey`] tree.
+/// For a depth `D = 0`, the entire array is accessed as one atomic
+/// value. For `D = 1` each index of the array is is instead accessed as
+/// one atomic value.
+///
+/// The type to use depends on what data is contained in your array. If your array contains
+/// `Miniconf` items, you can (and often want to) use `D >= 2`.
+/// However, if each element in your list is individually configurable as a single value (e.g. a list
+/// of `u32`), then you must use `D = 1` or `D = 0` if all items are to be accessed simultaneously.
+/// For e.g. `[[T; 2]; 3] where T: Miniconf<3>` you may want to use `D = 5` (note that `D <= 2`
+/// will also work if `T: Serialize + DeserializeOwned`).
+///
+/// # Option
+///
+/// `TreeKey<D>` for `Option`.
+///
+/// An `Option` may be marked with `#[tree(depth(D))]`
+/// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
+/// at run-time. It will still be iterated over by [`TreeKey::iter_paths()`] but attempts to
+/// `serialize_by_key()` or `deserialize_by_key()` them using the [`TreeKey`] API return in [`Error::Absent`].
+///
+/// This is intended as a mechanism to provide run-time construction of the namespace. In some
+/// cases, run-time detection may indicate that some component is not present. In this case,
+/// namespaces will not be exposed for it.
+///
+/// If the depth specified by the `#[tree(depth(D))]` attribute exceeds 1,
+/// the `Option` can be used to access content within the inner type.
+/// If marked with `#[tree(depth(-))]`, and `None` at runtime, the value or the entire sub-tree
+/// is inaccessible through [`TreeSerialize::serialize_by_key`] etc.
+/// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
+/// JSON `null` corresponds to`None` as usual.
 pub trait TreeKey<const Y: usize = 1> {
     /// Convert a node name to a node index.
     ///

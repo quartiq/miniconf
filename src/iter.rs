@@ -54,7 +54,7 @@ where
     M: TreeKey<Y> + ?Sized,
     P: Write + Default,
 {
-    type Item = Result<P, Error<core::fmt::Error>>;
+    type Item = Result<P, core::fmt::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = P::default();
@@ -92,13 +92,13 @@ where
                     self.state[depth - 1] += 1;
                     Some(Ok(path))
                 }
-                // If we end at a leaf node, the state array is too small.
-                Err(e @ Error::Inner(_)) => Some(Err(e)),
+                // Format error (e.g. heapless::String capacity limit).
+                Err(Error::Inner(e @ core::fmt::Error)) => Some(Err(e)),
                 // * NotFound(0) Not having consumed any name/index, the only possible case
-                //   is a bare `Miniconf` thing that does not use a key, e.g. `Option`.
+                //   is a bare `Miniconf` thing that does not use a key, e.g. `Option` or newtype.
                 //   That however can not return `NotFound`.
                 // * TooShort is excluded by construction.
-                // * No other errors can be returned by traverse_by_key()/path()
+                // * No other errors are returned by traverse_by_key()/path()
                 _ => unreachable!(),
             };
         }
@@ -112,6 +112,6 @@ where
 impl<'a, M, const Y: usize, P> FusedIterator for PathIter<'a, M, Y, P>
 where
     M: TreeKey<Y>,
-    P: core::fmt::Write + Default,
+    P: Write + Default,
 {
 }

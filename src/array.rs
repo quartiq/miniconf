@@ -3,23 +3,6 @@ use crate::{
     Serializer, TreeDeserialize, TreeKey, TreeSerialize,
 };
 
-/// An array that exposes each element through [`Miniconf`].
-///
-/// # Design
-///
-/// With `#[tree(depth(D))]` and a depth `D > 1` for an
-/// [`[T; N]`](array), each item of the array is accessed as a [`Miniconf`] tree.
-/// For a depth `D = 0`, the entire array is accessed as one atomic
-/// value. For `D = 1` each index of the array is is instead accessed as
-/// one atomic value.
-///
-/// The type to use depends on what data is contained in your array. If your array contains
-/// `Miniconf` items, you can (and often want to) use `D >= 2`.
-/// However, if each element in your list is individually configurable as a single value (e.g. a list
-/// of `u32`), then you must use `D = 1` or `D = 0` if all items are to be accessed simultaneously.
-/// For e.g. `[[T; 2]; 3] where T: Miniconf<3>` you may want to use `D = 5` (note that `D <= 2`
-/// will also work if `T: Serialize + DeserializeOwned`).
-
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
     let mut n = 10;
@@ -108,12 +91,13 @@ impl<T, const N: usize> TreeKey for [T; N] {
         F: FnMut(usize, &str) -> Result<(), E>,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
-        let index = match key.find::<1, Self>() {
-            Some(i) if i < N => i,
-            _ => return Err(Error::NotFound(1)),
-        };
-        func(index, itoa::Buffer::new().format(index))?;
-        Ok(1)
+        match key.find::<1, Self>() {
+            Some(index) if index < N => {
+                func(index, itoa::Buffer::new().format(index))?;
+                Ok(1)
+            }
+            _ => Err(Error::NotFound(1)),
+        }
     }
 
     fn metadata() -> Metadata {
@@ -137,10 +121,11 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if keys.next().is_some() {
-            return Err(Error::TooLong(1));
+            Err(Error::TooLong(1))
+        } else {
+            Serialize::serialize(item, ser)?;
+            Ok(1)
         }
-        Serialize::serialize(item, ser)?;
-        Ok(1)
     }
 }
 
@@ -160,9 +145,10 @@ impl<T: DeserializeOwned, const N: usize> TreeDeserialize for [T; N] {
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if keys.next().is_some() {
-            return Err(Error::TooLong(1));
+            Err(Error::TooLong(1))
+        } else {
+            *item = Deserialize::deserialize(de)?;
+            Ok(1)
         }
-        *item = Deserialize::deserialize(de)?;
-        Ok(1)
     }
 }
