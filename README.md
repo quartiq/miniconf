@@ -5,15 +5,9 @@
 [![QUARTIQ Matrix Chat](https://img.shields.io/matrix/quartiq:matrix.org)](https://matrix.to/#/#quartiq:matrix.org)
 [![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
-Miniconf enables lightweight (`no_std`) partial serialization (retrieval) and deserialization
+`Miniconf` enables lightweight (`no_std`) partial serialization (retrieval) and deserialization
 (updates, modification) within a tree by key. The tree is backed by
 structs/arrays/Options of serializable types.
-
-Miniconf can be used as a very simple and flexible backend for run-time settings management in embedded devices
-over any transport. It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
-payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a [MQTT settings management
-client](MqttClient) and a Python reference implementation to ineract with it.
-`Miniconf` is generic over the `serde::Serializer`/`serde::Deserializer` backend and the path hierarchy separator.
 
 ## Example
 
@@ -50,17 +44,17 @@ struct Settings {
     // ... or by index
     #[tree()]
     array_tree: [i32; 2],
-    // ... or deferring to two levels (index and then inner field name)
+    // ... or exposing two levels (array index and then inner field name)
     #[tree(depth(2))]
     array_tree2: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
     #[tree()]
     option_tree: Option<i32>,
-    // Hiding a path and deferring to the inner
+    // Hiding a path and descending into the inner `Tree`
     #[tree(depth(2))]
     option_tree2: Option<Inner>,
-    // Hiding elements of an Array of Tree items
+    // Hiding elements of an array of `Tree`s
     #[tree(depth(3))]
     array_option_tree: [Option<Inner>; 2],
 }
@@ -84,7 +78,7 @@ settings.set_json("/array_tree/0", b"7")?;
 // ... or by index and then struct field name
 settings.set_json("/array_tree2/1/b", b"11")?;
 
-// If a deferred Option is `None` it is hidden at runtime and can't be accessed
+// If a `Tree`-Option is `None` it is hidden at runtime and can't be serialized/deserialized.
 settings.option_tree = None;
 assert_eq!(settings.set_json("/option_tree", b"13"), Err(Error::Absent(1)));
 settings.option_tree = Some(0);
@@ -114,48 +108,54 @@ for path in Settings::iter_paths::<String>("/") {
 # Ok::<(), Error<serde_json_core::de::Error>>(())
 ```
 
-## MQTT
+## Settings management
 
-There is an [MQTT-based client](MqttClient) that implements settings management over the [MQTT
-protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
-interfaces with it.
-
-```sh
-# Discover the complete unique prefix of an application listening to messages
-# under the topic `quartiq/application/12345` and set its `foo` setting to `true`.
-python -m miniconf -d quartiq/application/+ foo=true
-```
-
-## Derive macro
-
-For structs Miniconf offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], and [`macro@TreeDeserialize`].
-The macros implements the [`TreeKey`], [`TreeSerialize`], and [`TreeDeserialize`] traits that exposes access to serialized field values through their path.
-Fields that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize}` trait. Fields that are
-leafs need to support the respective [serde] trait (and the `serde::Serializer`/`serde::Deserializer` backend).
-
-Structs, arrays, and Options can then be cascaded to construct more complex trees.
-When using the derive macro, the behavior and tree recursion depth can be configured for each
-struct field using the `#[tree(depth(Y))]` attribute.
-
-See also the [`Tree`] trait documentation for details.
-
-## Keys and paths
-
-Lookup into the tree is done using an iterator over [Key] items. `usize` indices or `&str` names are supported.
-
-Path iteration is supported with arbitrary separator between names.
+One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
+It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
+payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a [MQTT settings management
+client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Formats
 
-Miniconf is generic over the `serde` backend/payload format and the path hierarchy separator.
+`Miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, the path
+hierarchy separator, and key lookup algorithm.
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
 through the [JsonCoreSlash] super trait.
 
 ## Transport
 
-Miniconf is designed to be protocol-agnostic. Any means that can receive key-value input from
-some external source can be used to modify values by path.
+Miniconf is also protocol-agnostic. Any means that can receive key-value input from
+some external source can be used to access nodes by path.
+
+The [MQTT-based client](MqttClient) implements settings management over the [MQTT
+protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
+interfaces with it. This example discovers the unique prefix of an application listening to messages
+under the topic `quartiq/application/12345` and set its `foo` setting to `true`.
+
+```sh
+python -m miniconf -d quartiq/application/+ foo=true
+```
+
+## Derive macros
+
+For structs Miniconf offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], and [`macro@TreeDeserialize`].
+The macros implements the [`TreeKey`], [`TreeSerialize`], and [`TreeDeserialize`] traits.
+Fields/items that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize}` trait.
+Leaf fields/items need to support the respective [serde] trait (and the desired `serde::Serializer`/`serde::Deserializer`
+backend).
+
+Structs, arrays, and Options can then be cascaded to construct more complex trees.
+When using the derive macro, the behavior and tree recursion depth can be configured for each
+struct field using the `#[tree(depth(Y))]` attribute.
+
+See also the [`TreeKey`] trait documentation for details.
+
+## Keys and paths
+
+Lookup into the tree is done using an iterator over [Key] items. `usize` indices or `&str` names are supported.
+
+Path iteration is supported with arbitrary separator between names.
 
 ## Limitations
 

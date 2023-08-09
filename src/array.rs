@@ -1,21 +1,22 @@
 use crate::{Error, Increment, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
-use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{de::DeserializeOwned, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
-    let mut n = 10;
-    let mut num_digits = 1;
+    let mut max = 10;
+    let mut digits = 1;
 
-    while x > n {
-        n *= 10;
-        num_digits += 1;
+    while x > max {
+        max *= 10;
+        digits += 1;
     }
-    num_digits
+    digits
 }
 
+// Y >= 2
 macro_rules! depth {
-    ($($d:literal)+) => {$(
-        impl<T: TreeKey<{$d - 1}>, const N: usize> TreeKey<$d> for [T; N] {
+    ($($y:literal)+) => {$(
+        impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
             fn name_to_index(value: &str) -> core::option::Option<usize> {
                 value.parse().ok()
             }
@@ -26,7 +27,7 @@ macro_rules! depth {
                 F: FnMut(usize, &str) -> Result<(), E>,
             {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
-                let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
+                let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 if index >= N {
                     return Err(Error::NotFound(1));
                 }
@@ -45,7 +46,7 @@ macro_rules! depth {
             }
         }
 
-        impl<T: TreeSerialize<{$d - 1}>, const N: usize> TreeSerialize<$d> for [T; N] {
+        impl<T: TreeSerialize<{$y - 1}>, const N: usize> TreeSerialize<$y> for [T; N] {
             fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
             where
                 K: Iterator,
@@ -53,13 +54,13 @@ macro_rules! depth {
                 S: Serializer,
             {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
-                let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
+                let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
                 item.serialize_by_key(keys, ser).increment()
             }
         }
 
-        impl<T: TreeDeserialize<{$d - 1}>, const N: usize> TreeDeserialize<$d> for [T; N] {
+        impl<T: TreeDeserialize<{$y - 1}>, const N: usize> TreeDeserialize<$y> for [T; N] {
             fn deserialize_by_key<'de, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
@@ -67,16 +68,16 @@ macro_rules! depth {
                 D: Deserializer<'de>,
             {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
-                let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
+                let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
                 item.deserialize_by_key(keys, de).increment()
             }
         }
     )+}
 }
-
 depth!(2 3 4 5 6 7 8);
 
+// Y == 1
 impl<T, const N: usize> TreeKey for [T; N] {
     fn name_to_index(value: &str) -> core::option::Option<usize> {
         value.parse().ok()
@@ -121,7 +122,7 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         if keys.next().is_some() {
             Err(Error::TooLong(1))
         } else {
-            Serialize::serialize(item, ser)?;
+            item.serialize(ser)?;
             Ok(1)
         }
     }
@@ -139,13 +140,13 @@ impl<T: DeserializeOwned, const N: usize> TreeDeserialize for [T; N] {
         D: Deserializer<'de>,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
-        let index: usize = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
+        let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if keys.next().is_some() {
             Err(Error::TooLong(1))
         } else {
-            *item = Deserialize::deserialize(de)?;
+            *item = T::deserialize(de)?;
             Ok(1)
         }
     }

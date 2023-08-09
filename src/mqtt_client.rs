@@ -141,21 +141,23 @@ impl<'a> Command<'a> {
 ///
 /// let mut client: MqttClient<_, _, _, 256, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
-///     "",  // client_id auto-assign
-///     "quartiq/application/12345",  // prefix
+///     "",                          // client_id auto-assign
+///     "quartiq/application/12345", // prefix
 ///     "127.0.0.1".parse().unwrap(),
 ///     std_embedded_time::StandardClock::default(),
 ///     Settings::default(),
 /// )
 /// .unwrap();
 ///
-/// client.handled_update(|path, old_settings, new_settings| {
-///     if new_settings.foo {
-///         return Err("Foo!");
-///     }
-///     *old_settings = new_settings.clone();
-///     Ok(())
-/// }).unwrap();
+/// client
+///     .handled_update(|path, old_settings, new_settings| {
+///         if new_settings.foo {
+///             return Err("Foo!");
+///         }
+///         *old_settings = new_settings.clone();
+///         Ok(())
+///     })
+///     .unwrap();
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
 where
@@ -236,7 +238,7 @@ where
         };
 
         let Some(props) = &self.properties_cache else {
-            return
+            return;
         };
 
         let reply_props = minimq::types::Properties::DataBlock(props);
@@ -283,7 +285,7 @@ where
             let Some(topic) = self.state.context_mut().republish_state.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
                 self.state.process_event(sm::Events::Complete).unwrap();
-                break
+                break;
             };
 
             let topic = topic.unwrap();
@@ -427,10 +429,11 @@ where
         )];
 
         let Ok(response) = minimq::Publication::new(response.msg.as_bytes())
-                        .reply(&reply_props)
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce)
-                        .finish() else {
+            .reply(&reply_props)
+            .properties(&props)
+            .qos(QoS::AtLeastOnce)
+            .finish()
+        else {
             return Ok(());
         };
 
@@ -547,10 +550,11 @@ where
                 )];
 
                 let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
-                            .reply(properties)
-                            .properties(&props)
-                            .qos(QoS::AtLeastOnce)
-                            .finish() else {
+                    .reply(properties)
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce)
+                    .finish()
+                else {
                     log::warn!("Failed to build response `Pub`");
                     return;
                 };

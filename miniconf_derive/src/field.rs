@@ -57,7 +57,7 @@ impl StructField {
         match typ {
             syn::Type::Path(syn::TypePath { path, .. }) => {
                 if let Some(ident) = path.get_ident() {
-                    // The type is a single ident (no other path segments):
+                    // The type is a single ident (no other path segments, has no generics):
                     // call back if it is a generic type for us
                     for generic in &mut generics.params {
                         if let syn::GenericParam::Type(type_param) = generic {
@@ -71,14 +71,19 @@ impl StructField {
                 } else {
                     // Analyze the type parameters of the type, as they may be generics for us as well
                     // This tries to reproduce the bounds that field types place on
-                    // their generic types, directly or indirectly.
+                    // their generic types, directly or indirectly. For this the API depth (the const generic
+                    // param to `TreeKey<Y>` etc) is determined as follows:
                     //
                     // Assume that all types use their generic T at
                     // relative depth 1, i.e.
                     // * if `#[tree(depth(Y > 1))] a: S<T>` then `T: Tree{Key,Serialize,Deserialize}<Y - 1>`
-                    // * else (i.e. if `Y = 1` or `a: S<T>` without `#[tree]`) then `T: Tree{Serialize,Deserialize}`
+                    // * else (that is if `Y = 1` or `a: S<T>` without `#[tree]`) then
+                    //   `T: serde::{Serialize,Deserialize}`
                     //
-                    // Thus the bounds are conservative (might not be required) and
+                    // And analogously for nested types `S<T<U>>` and `[[T; ..]; ..]` etc.
+                    // This is correct for all types in this library (Option, array, structs with the derive macro).
+                    //
+                    // The bounds are conservative (might not be required) and
                     // fragile (might apply the wrong bound).
                     // This matches the standard derive behavior and its issues
                     // https://github.com/rust-lang/rust/issues/26925

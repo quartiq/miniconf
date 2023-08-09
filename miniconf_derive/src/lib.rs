@@ -16,10 +16,13 @@ fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStre
     }
 }
 
+/// Derive the `TreeKey` trait for a struct.
 #[proc_macro_derive(TreeKey, attributes(tree))]
 pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
-    let syn::Data::Struct(data) = input.data else {unimplemented!()};
+    let syn::Data::Struct(data) = input.data else {
+        unimplemented!()
+    };
     let fields = StructField::extract(&data.fields);
     for f in &fields {
         f.bound_generics(
@@ -73,8 +76,9 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
-            // TODO: how can these be hidden and disambiguated w.r.t. collision?
-            // TODO: for unnamed structs, simplify to `parse::<usize>()`
+            // TODO: can these be hidden and disambiguated w.r.t. collision?
+            // TODO: for unnamed structs, simplify `["0", "1", "2"].position(|&n| n == value)`
+            //       to `parse::<usize>(value)`
             const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
@@ -134,10 +138,13 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     .into()
 }
 
+/// Derive the `TreeSerialize` trait for a struct.
 #[proc_macro_derive(TreeSerialize, attributes(tree))]
 pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
-    let syn::Data::Struct(data) = input.data else {unimplemented!()};
+    let syn::Data::Struct(data) = input.data else {
+        unimplemented!()
+    };
     let fields = StructField::extract(&data.fields);
     for f in &fields {
         f.bound_generics(
@@ -203,10 +210,13 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     }.into()
 }
 
+/// Derive the `TreeDeserialize` trait for a struct.
 #[proc_macro_derive(TreeDeserialize, attributes(tree))]
 pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
-    let syn::Data::Struct(data) = input.data else {unimplemented!()};
+    let syn::Data::Struct(data) = input.data else {
+        unimplemented!()
+    };
     let fields = StructField::extract(&data.fields);
     for f in &fields {
         f.bound_generics(
@@ -272,7 +282,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     }.into()
 }
 
-/// FIXME: Shorthand alias
+/// Shorthand to derive the `TreeKey`, `TreeSerialize`, and `TreeDeserialize` traits for a struct.
 #[proc_macro_derive(Tree, attributes(tree))]
 pub fn derive_tree(input: TokenStream) -> TokenStream {
     let mut t = derive_tree_key(input.clone());
