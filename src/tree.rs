@@ -258,7 +258,7 @@ impl Key for &str {
 ///
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
 ///
-/// ```rust
+/// ```
 /// # use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S<T> {

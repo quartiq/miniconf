@@ -114,8 +114,8 @@ for path in Settings::iter_paths::<String>("/") {
 ## Settings management
 
 One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
-It was originally designed to work with JSON ([`serde_json_core``](https://docs.rs/serde-json-core))
-payloads over MQTT ([`minimq``](https://docs.rs/minimq)) and provides a [MQTT settings management
+It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
+payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a [MQTT settings management
 client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Formats
