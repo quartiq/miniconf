@@ -11,6 +11,9 @@ structs/arrays/Options of serializable types.
 
 ## Example
 
+See below for a comprehensive example showing the features of the `Tree` traits.
+See also the documentation of the [`TreeKey`] trait for a detailed description.
+
 ```rust
 use miniconf::{Error, JsonCoreSlash, Tree, TreeKey};
 use serde::{Deserialize, Serialize};
@@ -111,8 +114,8 @@ for path in Settings::iter_paths::<String>("/") {
 ## Settings management
 
 One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
-It was originally designed to work with JSON ([serde_json_core](https://docs.rs/serde-json-core))
-payloads over MQTT ([minimq](https://docs.rs/minimq)) and provides a [MQTT settings management
+It was originally designed to work with JSON ([`serde_json_core``](https://docs.rs/serde-json-core))
+payloads over MQTT ([`minimq``](https://docs.rs/minimq)) and provides a [MQTT settings management
 client](MqttClient) and a Python reference implementation to ineract with it.
 
 ## Formats
@@ -121,14 +124,14 @@ client](MqttClient) and a Python reference implementation to ineract with it.
 hierarchy separator, and key lookup algorithm.
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
-through the [JsonCoreSlash] super trait.
+through the [`JsonCoreSlash`] super trait.
 
 ## Transport
 
 Miniconf is also protocol-agnostic. Any means that can receive key-value input from
 some external source can be used to access nodes by path.
 
-The [MQTT-based client](MqttClient) implements settings management over the [MQTT
+The [`MqttClient`] implements settings management over the [MQTT
 protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
 interfaces with it. This example discovers the unique prefix of an application listening to messages
 under the topic `quartiq/application/12345` and set its `foo` setting to `true`.
@@ -142,7 +145,7 @@ python -m miniconf -d quartiq/application/+ foo=true
 For structs Miniconf offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], and [`macro@TreeDeserialize`].
 The macros implements the [`TreeKey`], [`TreeSerialize`], and [`TreeDeserialize`] traits.
 Fields/items that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize}` trait.
-Leaf fields/items need to support the respective [serde] trait (and the desired `serde::Serializer`/`serde::Deserializer`
+Leaf fields/items need to support the respective [`serde`] trait (and the desired `serde::Serializer`/`serde::Deserializer`
 backend).
 
 Structs, arrays, and Options can then be cascaded to construct more complex trees.
@@ -153,19 +156,19 @@ See also the [`TreeKey`] trait documentation for details.
 
 ## Keys and paths
 
-Lookup into the tree is done using an iterator over [Key] items. `usize` indices or `&str` names are supported.
+Lookup into the tree is done using an iterator over [`Key`] items. `usize` indices or `&str` names are supported.
 
 Path iteration is supported with arbitrary separator between names.
 
 ## Limitations
 
 Deferred/deep/non-atomic access to inner elements of some types is not yet supported, e.g. enums
-other than [core::option::Option]. These are still however usable in their atomic `serde` form as leaves.
+other than [`Option`]. These are still however usable in their atomic `serde` form as leaves.
 
 ## Features
 
-* `mqtt-client` Enable the MQTT client feature. See the example in [MqttClient].
-* `json-core` Enable the [JsonCoreSlash] implementation of serializing from and
+* `mqtt-client` Enable the MQTT client feature. See the example in [`MqttClient`].
+* `json-core` Enable the [`JsonCoreSlash`] implementation of serializing from and
   into json slices (using `serde_json_core`).
 
 The `mqtt-client` and `json-core` features are enabled by default.

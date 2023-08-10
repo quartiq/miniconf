@@ -1,7 +1,7 @@
 use crate::PathIter;
 use serde::{Deserializer, Serializer};
 
-/// Errors that can occur when using the Tree API.
+/// Errors that can occur when using the Tree traits.
 ///
 /// A `usize` member indicates the key depth where the error occurred.
 /// The depth here is the number of names or indices consumed.
@@ -18,8 +18,8 @@ use serde::{Deserializer, Serializer};
 pub enum Error<E> {
     /// The key is valid, but does not exist at runtime.
     ///
-    /// This is the case if an [Option] using the `Tree*` traits
-    /// is `None` at runtime.
+    /// This is the case if an [`Option`] using the `Tree*` traits
+    /// is `None` at runtime. See also [`TreeKey#option`].
     Absent(usize),
 
     /// The key ends early and does not reach a leaf node.
@@ -37,9 +37,10 @@ pub enum Error<E> {
 
     /// There was an error after deserializing a value.
     ///
-    /// If the `Deserializer` encounters an error only after successfully
-    /// deserializing a value (as is the case if there is additional unexpected data),
-    /// the update takes place but this error will still be returned.
+    /// The `Deserializer` has encountered an error only after successfully
+    /// deserializing a value. This is the case if there is additional unexpected data.
+    /// The [`TreeDeserialize::deserialize_by_key()`] update takes place but this
+    /// error will be returned.
     PostDeserialization(E),
 }
 
@@ -80,19 +81,19 @@ pub struct Metadata {
     ///
     /// This is the concatenation of all names in a path
     /// and does not include separators.
-    /// It includes paths that may be `Error::Absent` at runtime.
+    /// It includes paths that may be [`Error::Absent`] at runtime.
     pub max_length: usize,
 
     /// The maximum path depth.
     ///
     /// This is equal to the maximum number of path hierarchy separators.
-    /// It may be smaller than the Tree API depth const generic paramerter `Y`.
-    /// It includes paths that may be `Error::Absent` at runtime.
+    /// It may be smaller than the [Tree recursion depth const generic paramerter `Y`](TreeKey#recursion).
+    /// It includes paths that may be [`Error::Absent`] at runtime.
     pub max_depth: usize,
 
     /// The total number of paths.
     ///
-    /// This includes paths that may be `Error::Absent` at runtime.
+    /// This includes paths that may be [`Error::Absent`] at runtime.
     pub count: usize,
 }
 
@@ -131,19 +132,25 @@ impl Key for &str {
     }
 }
 
-/// Traversal and iteration of leaves in a tree.
+/// Traversal, iteration, and serialization/deserialization of nodes in a tree.
 ///
-/// The keys used to locate nodes can be either iterators over `usize` or iterators
-/// over `&str` names.
+/// The following documentation sections on `TreeKey<Y>` apply analogously to `TreeSerialize<Y>`
+/// and `TreeDeserialize<Y>`.
 ///
-/// `usize` keys are somewhat like ASN.1 Object Identifiers.
-/// `&str` keys are sequences of names, like path names.
+/// # Recursion
 ///
-/// # Design
+/// The `TreeKey` trait (and the `TreeSerialize`/`TreeDeserialize` traits as well)
+/// are meant to be implemented
+/// recursively on nested data structures. Recursion here means that a container
+/// that implements `TreeKey`, may call on the `TreeKey` implementations of
+/// inner types.
 ///
-/// The const parameter `Y` is the miniconf recursion depth. It defaults to `1`.
+/// The const parameter `Y` in the traits here is the recursion depth and determines the
+/// maximum nesting of `TreeKey` layers. It's at least `1` and defaults to `1`.
 ///
-/// An implementor of `Miniconf<Y>` may consume at most `Y` items from the
+/// The recursion depth `Y` doubles as an upper bound to the key length
+/// (the depth/height of the tree):
+/// An implementor of `TreeKey<Y>` may consume at most `Y` items from the
 /// `keys` iterator argument in the recursive methods ([`TreeSerialize::serialize_by_key()`],
 /// [`TreeDeserialize::deserialize_by_key()`], [`TreeKey::traverse_by_key()`]). This includes
 /// both the items consumed directly before recursing and those consumed indirectly
@@ -151,98 +158,101 @@ impl Key for &str {
 /// [`TreeKey::traverse_by_key()`] at most `Y` times, again including those calls due
 /// to recursion into inner `Miniconf` types.
 ///
-/// This implies that if an implementor `T` of `TreeKey<Y>` contains and recurses into
-/// an inner type using that type's `TreeKey<Z>` implementation, then `Z <= Y` must
+/// This implies that if an implementor `T` of `TreeKey<Y>` (with `Y >= 1`) contains and recurses into
+/// an inner type using that type's `TreeKey<Z>` implementation, then `1 <= Z <= Y` must
 /// hold and `T` may consume at most `Y - Z` items from the `keys` iterators and call
 /// `func` at most `Y - Z` times.
 ///
-/// The recursion depth `Y` is thus an upper bound of the maximum key length
-/// (the depth/height of the tree).
+/// # Keys
 ///
-/// # Derive macro
+/// The keys used to locate nodes can be either iterators over `usize` or iterators
+/// over `&str` names.
 ///
-/// A derive macro to automatically implement the correct `TreeKey<Y>` on a struct `S` is available at
-/// [`macro@crate::TreeKey`].
+/// `usize` may appear like ASN.1 Object Identifiers.
+/// `&str` keys are sequences of names, like path names. When concatenated, they are separated by
+/// path hierarchy separators, e.g. `'/'`.
 ///
-/// Each field in the struct must either implement [`serde::Serialize`] `+` [`serde::de::DeserializeOwned`]
-/// (and be supported by the intended [`serde::Serializer`]/[`serde::Deserializer`] backend)
-/// or implement the respective `Tree...` trait themselves.
+/// # Derive macros
 ///
-/// For each field, the recursion depth is configured through the `#[tree(depth(Y))]` attribute,
-/// with `Y = 1` being the implied default when using `#[tree()]` and `Y = 0` invalid.
+/// Derive macros to automatically implement the correct `TreeKey<Y>` traits on a struct `S` are available through
+/// [`macro@crate::TreeKey`], [`macro@crate::TreeSerialize`], and [`macro@crate::TreeDeserialize`].
+/// A shorthand derive macro that derives all three trait implementations is also available at [`macro@crate::Tree`].
+///
+/// To derive `TreeSerialize`/`TreeDeserialize`, each field in the struct must either implement
+/// [`serde::Serialize`]/[`serde::de::DeserializeOwned`]
+/// (and ultimately also be supported by the intended [`serde::Serializer`]/[`serde::Deserializer`] backend)
+/// or implement the respective `TreeSerialize`/`TreeDeserialize` trait themselves for the required remaining
+/// recursion depth.
+///
+/// For each field, the remaining recursion depth is configured through the `#[tree(depth(Y))]`
+/// attribute, with `Y = 1` being the implied default when using `#[tree()]` and `Y = 0` invalid.
 /// If the attribute is not present, the field is a leaf and accessed only through its
 /// [`serde::Serialize`]/[`serde::Deserialize`] implementation.
-/// With the attribute present the field is accessed through its `Tree...<Y>` implementation with the given
-/// recursion depth.
+/// With the attribute present the field is accessed through its `TreeKey<Y>` implementation with the given
+/// remaining recursion depth.
 ///
 /// # Array
 ///
-/// An array that exposes each element through [`TreeKey`] etc.
+/// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
+/// up to recursion depth `Y = 8`.
 ///
-/// With `#[tree(depth(D))]` and a depth `D > 1` for an
-/// [`[T; N]`](core::array), each item of the array is accessed as a [`TreeKey`] tree.
-/// For a depth `D = 0`, the entire array is accessed as one atomic
-/// value. For `D = 1` each index of the array is is instead accessed as
+/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth(Y))]` in a struct)
+/// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
+/// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic
+/// value. For `Y = 1` each index of the array is is instead accessed as
 /// one atomic value.
 ///
-/// The type to use depends on what data is contained in your array. If your array contains
-/// `Miniconf` items, you can (and often want to) use `D >= 2`.
-/// However, if each element in your list is individually configurable as a single value (e.g. a list
-/// of `u32`), then you must use `D = 1` or `D = 0` if all items are to be accessed simultaneously.
-/// For e.g. `[[T; 2]; 3] where T: Miniconf<3>` you may want to use `D = 5` (note that `D <= 2`
-/// will also work if `T: Serialize + DeserializeOwned`).
-///
-/// Homogeneous [`core::array`]s can be made accessible either
-/// 1. as a single leaf in the tree like other serde-capable items, or
-/// 2. by item through their numeric indices (with the attribute `#[tree(depth(1))]`), or
-/// 3. exposing a sub-tree for each item with `#[tree(depth(D))]` and `D >= 2`.
+/// The type to use depends on the desired semantics of the data contained in the array. If the array
+/// contains `TreeKey` items, one can (and often wants to) use `Y >= 2`.
+/// However, if each element in the array should be individually configurable as a single value (e.g. a list
+/// of `u32`), then `Y = 1` can be used. With `Y = 0` all items are to be accessed simultaneously and atomically.
+/// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 5`. It automatically implements
+/// `TreeKey<5>`.
+/// For `[[T; 2]; 3] where T: Serialize + DeserializeOwned`, any `Y <= 2` is available.
 ///
 /// # Option
 ///
-/// An [`Option`] may be marked with `#[tree(depth(D))]`
-/// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
-/// at run-time. It will still be iterated over by [`TreeKey::iter_paths()`] but attempts to
-/// `serialize_by_key()` or `deserialize_by_key()` them using the [`TreeKey`] API return in [`Error::Absent`].
+/// Blanket implementations of the `TreeKey` traits are provided for [`Option<T>`]
+/// up to recursion depth `Y = 8`.
 ///
+/// These implementation do not alter the path hierarchy and do not consume any items from the `keys`
+/// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
+/// of the tree inaccessible at run-time. It will still be iterated over by [`TreeKey::iter_paths()`] but attempts
+/// to [`TreeSerialize::serialize_by_key()`] or [`TreeDeserialize::deserialize_by_key()`] them
+/// return [`Error::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
-/// If the depth specified by the `#[tree(depth(D))]` attribute exceeds 1,
-/// the `Option` can be used to access content within the inner type.
-/// If marked with `#[tree(depth(-))]`, and `None` at runtime, the value or the entire sub-tree
-/// is inaccessible through [`TreeSerialize::serialize_by_key`] etc.
+/// If the depth specified by the `#[tree(depth(Y))]` attribute exceeds 1,
+/// the `Option` can be used to access within the inner type using its `TreeKey` trait.
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
-/// JSON `null` corresponds to`None` as usual.
+/// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
 ///
-/// `Option` is used
-/// 1. as a leaf like a standard `serde` Option, or
-/// 2. with `#[tree(depth(1))]` to support a leaf value that may be absent (masked) at runtime.
-/// 3. with `#[tree(depth(D))]` and `D >= 2` to support masking sub-trees at runtime.
+/// The following example shows potential usage of arrays and `Option`:
 ///
 /// ```
 /// # use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S {
-///     // "/a = 8"
-///     a: u32,
-///     // e.g. "/b/1/2 = 5"
+///     // "/b/1/2" = 5
 ///     #[tree(depth(2))]
 ///     b: [[u32; 3]; 3],
-///     // e.g. "/c/0 = [3,4]" with that node optionally absent at runtime
+///     // "/c/0" = [3,4], optionally absent at runtime
 ///     #[tree(depth(2))]
 ///     c: [Option<[u32; 2]>; 2],
 /// }
 /// ```
 ///
-/// ## Bounds on generics
+/// ## Generics
 ///
-/// The macro adds bounds to generic types of the struct it is acting on.
+/// The macros add bounds to generic types of the struct they are acting on.
 /// If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
-/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at depth `X = 2` (as it is
+/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at type depth `X = 2` (as it is
 /// within `F2` which is within `F1`) and the following bounds will be applied:
 ///
-/// * With the `#[tree()]` attribute not present, `T` will receive bounds `Serialize + DeserializeOwned`.
+/// * With the `#[tree()]` attribute not present on `a`, `T` will receive bounds `Serialize`/`DeserializeOwned` when
+///   `TreeSerialize`/`TreeDeserialize` is derived.
 /// * With `#[tree(depth(Y))]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
 /// * For `Y - X >= 1` it will receive the bound `T: TreeKey<Y - X>`.
 ///
@@ -251,9 +261,12 @@ impl Key for &str {
 /// ```rust
 /// # use miniconf::TreeKey;
 /// #[derive(TreeKey)]
-/// struct S<T>(#[tree(depth(3))] [Option<T>; 2]);
+/// struct S<T> {
+///     #[tree(depth(3))]
+///     a: [Option<T>; 2],
+/// };
 /// // This works as [u32; N] implements TreeKey<1>:
-/// S::<[u32; 1]>::metadata();
+/// S::<[u32; 5]>::metadata();
 /// // This does not compile as u32 does not implement TreeKey<1>:
 /// // S::<u32>::metadata();
 /// ```
@@ -266,22 +279,7 @@ impl Key for &str {
 ///
 /// # Example
 ///
-/// ```
-/// # use miniconf::TreeKey;
-/// #[derive(TreeKey)]
-/// struct Nested {
-///     #[tree()]
-///     a: [u32; 2],
-/// }
-/// #[derive(TreeKey)]
-/// struct Settings {
-///     // Accessed with path `/nested/a/0` or `/nested/a/1`
-///     #[tree(depth(2))]
-///     nested: Nested,
-///     // Accessed with path `/b`
-///     b: bool,
-/// }
-/// ```
+/// See the [`crate`] documentation for an example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {
     /// Convert a node name to a node index.
     ///
