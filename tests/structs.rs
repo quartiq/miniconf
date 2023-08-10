@@ -52,7 +52,7 @@ fn recursive_struct() {
     struct Settings {
         a: f32,
         b: bool,
-        #[tree()]
+        #[tree]
         c: Inner,
     }
 

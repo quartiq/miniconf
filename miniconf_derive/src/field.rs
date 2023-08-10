@@ -29,6 +29,9 @@ impl StructField {
         for attr in field.attrs.iter() {
             if attr.path().is_ident("tree") {
                 depth = 1;
+                if matches!(attr.meta, syn::Meta::Path(_)) {
+                    continue;
+                }
                 attr.parse_nested_meta(|meta| {
                     if meta.path.is_ident("depth") {
                         let content;
