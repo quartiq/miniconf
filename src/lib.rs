@@ -3,8 +3,8 @@
 #![cfg_attr(not(feature = "json-core"), doc = "Miniconf")]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
 
 pub use miniconf_derive::*;
 mod tree;
