@@ -4,7 +4,6 @@
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
 #![deny(missing_docs)]
-#![deny(warnings)]
 #![deny(unsafe_code)]
 
 pub use miniconf_derive::*;
