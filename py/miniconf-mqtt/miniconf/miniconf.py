@@ -179,6 +179,8 @@ class Miniconf:
 
     async def get(self, path):
         """ Get the specific value of a given path. """
+        assert path.startswith("/")
+
         fut = asyncio.get_running_loop().create_future()
 
         # Assign unique correlation data for response dispatch
@@ -187,7 +189,7 @@ class Miniconf:
         self.inflight[request_id] = ([], fut)
 
         self.client.publish(
-            f'{self.prefix}/settings/{path}', payload='', qos=0,
+            f'{self.prefix}/settings{path}', payload='', qos=0,
             response_topic=self.response_topic,
             correlation_data=request_id)
 
