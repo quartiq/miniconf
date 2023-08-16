@@ -1,7 +1,7 @@
 use crate::{Error, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
 use serde::{de::DeserializeOwned, Deserializer, Serialize, Serializer};
 
-// `Option` does not add to the path hierarchy (does not consume from `kyes` or call `func`).
+// `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
 // But it does add one Tree API layer between its `Tree<Y>` level
 // and its inner type `Tree<Y'>` level: `Y' = Y - 1`.
 

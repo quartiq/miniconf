@@ -45,14 +45,14 @@ struct Settings {
     #[tree]
     struct_tree: Inner,
     // ... or by index
-    #[tree()]
+    #[tree]
     array_tree: [i32; 2],
     // ... or exposing two levels (array index and then inner field name)
     #[tree(depth(2))]
     array_tree2: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
-    #[tree()]
+    #[tree]
     option_tree: Option<i32>,
     // Hiding a path and descending into the inner `Tree`
     #[tree(depth(2))]
@@ -116,11 +116,11 @@ for path in Settings::iter_paths::<String>("/") {
 One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
 It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
 payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a [MQTT settings management
-client](MqttClient) and a Python reference implementation to ineract with it.
+client](MqttClient) and a Python reference implementation to interact with it.
 
 ## Formats
 
-`Miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, the path
+`Miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, path
 hierarchy separator, and key lookup algorithm.
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
