@@ -21,6 +21,7 @@ const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 type Iter<M, const Y: usize> = crate::PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
+    use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -45,13 +46,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::TreeKey<Y>, const Y: usize> {
+    pub struct Context<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: super::Iter<M, Y>,
+        pub republish_state: Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: super::TreeKey<Y>, const Y: usize> Context<C, M, Y> {
+    impl<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> Context<C, M, Y> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -70,13 +71,12 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::TreeKey<Y>, const Y: usize> StateMachineContext
+    impl<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> StateMachineContext
         for Context<C, M, Y>
     {
         fn start_republish_timeout(&mut self) {
-            self.timeout.replace(
-                self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
-            );
+            self.timeout
+                .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
         }
 
         fn start_republish(&mut self) {
