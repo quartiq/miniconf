@@ -1,15 +1,15 @@
-use miniconf::{Error, Miniconf};
+use miniconf::{Error, Tree, TreeKey};
 
-#[derive(Miniconf, Default)]
+#[derive(Tree, Default)]
 struct Inner {
     inner: f32,
 }
 
-#[derive(Miniconf, Default)]
+#[derive(Tree, Default)]
 struct Settings {
     a: f32,
     b: i32,
-    #[miniconf(defer)]
+    #[tree()]
     c: Inner,
 }
 
@@ -56,7 +56,7 @@ fn indices() {
 
 #[test]
 fn traverse_empty() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct S {}
     let f = |_, _: &_| unreachable!();
     assert_eq!(
@@ -69,11 +69,11 @@ fn traverse_empty() {
     );
     assert_eq!(Option::<i32>::traverse_by_key([0].into_iter(), f), Ok(0));
     assert_eq!(
-        Option::<S>::traverse_by_key([0].into_iter(), f),
+        <Option::<S> as TreeKey<2>>::traverse_by_key([0].into_iter(), f),
         Err(Error::NotFound(1))
     );
     assert_eq!(
-        Option::<S>::traverse_by_key([0; 0].into_iter(), f),
+        <Option::<S> as TreeKey<2>>::traverse_by_key([0; 0].into_iter(), f),
         Err(Error::TooShort(0))
     );
 }

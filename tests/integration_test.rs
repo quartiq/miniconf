@@ -1,25 +1,23 @@
 #![cfg(feature = "mqtt-client")]
 
 use machine::*;
-use miniconf::{
-    minimq::{types::TopicFilter, Publication},
-    Miniconf,
-};
+use miniconf::Tree;
+use minimq::{types::TopicFilter, Publication};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
 #[macro_use]
 extern crate log;
 
-#[derive(Clone, Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Tree)]
 struct AdditionalSettings {
     inner: u8,
 }
 
-#[derive(Clone, Debug, Default, Miniconf)]
+#[derive(Clone, Debug, Default, Tree)]
 struct Settings {
     data: u32,
-    #[miniconf(defer)]
+    #[tree()]
     more: AdditionalSettings,
 }
 
@@ -93,7 +91,7 @@ fn main() -> std::io::Result<()> {
     let localhost = "127.0.0.1".parse().unwrap();
 
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt = miniconf::minimq::Minimq::<_, _, 256, 1>::new(
+    let mut mqtt = minimq::Minimq::<_, _, 256, 1>::new(
         localhost,
         "tester",
         Stack::default(),

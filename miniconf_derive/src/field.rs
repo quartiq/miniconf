@@ -1,25 +1,43 @@
-use syn::{parenthesized, parse_quote, Generics, LitInt};
+use syn::{parenthesized, LitInt};
 
 pub struct StructField {
     pub field: syn::Field,
-    pub defer: usize,
+    pub depth: usize,
 }
 
 impl StructField {
+    pub fn extract(fields: &syn::Fields) -> Vec<Self> {
+        match fields {
+            syn::Fields::Named(syn::FieldsNamed { named, .. }) => named,
+            syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => unnamed,
+            syn::Fields::Unit => unimplemented!("Unit struct not supported"),
+        }
+        .iter()
+        .cloned()
+        .map(Self::new)
+        .collect()
+    }
+
     pub fn new(field: syn::Field) -> Self {
-        let mut defer = 0;
+        let depth = Self::parse_depth(&field);
+        Self { field, depth }
+    }
+
+    fn parse_depth(field: &syn::Field) -> usize {
+        let mut depth = 0;
 
         for attr in field.attrs.iter() {
-            if attr.path().is_ident("miniconf") {
+            if attr.path().is_ident("tree") {
+                depth = 1;
+                if matches!(attr.meta, syn::Meta::Path(_)) {
+                    continue;
+                }
                 attr.parse_nested_meta(|meta| {
-                    if meta.input.is_empty() {
-                        defer = 1;
-                        Ok(())
-                    } else if meta.path.is_ident("defer") {
+                    if meta.path.is_ident("depth") {
                         let content;
                         parenthesized!(content in meta.input);
                         let lit: LitInt = content.parse()?;
-                        defer = lit.base10_parse()?;
+                        depth = lit.base10_parse()?;
                         Ok(())
                     } else {
                         Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
@@ -28,58 +46,47 @@ impl StructField {
                 .unwrap();
             }
         }
-        Self { defer, field }
+        depth
     }
 
-    /// Find `ident` in generic parameters and bound it appropriately
-    fn bound_type(&self, ident: &syn::Ident, generics: &mut Generics, level: usize) {
-        for generic in &mut generics.params {
-            if let syn::GenericParam::Type(type_param) = generic {
-                if type_param.ident == *ident {
-                    let depth = self.defer.saturating_sub(level);
-                    if depth > 0 {
-                        type_param
-                            .bounds
-                            .push(parse_quote!(miniconf::Miniconf<#depth>));
-                    } else {
-                        type_param.bounds.push(parse_quote!(miniconf::Serialize));
-                        type_param
-                            .bounds
-                            .push(parse_quote!(miniconf::DeserializeOwned));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Handle an individual type encountered in a type definition.
-    ///
-    /// # Note
-    /// This function will recursively travel through arrays/slices,
-    /// references, and generics.
-    ///
-    /// # Args
-    /// * `typ` The Type encountered.
-    /// * `generics` - The generic type parameters of the structure.
-    /// * `level` - The type hierarchy level.
-    fn walk_type(&self, typ: &syn::Type, generics: &mut Generics, level: usize) {
+    fn walk_type_params<F>(
+        typ: &syn::Type,
+        func: &mut F,
+        depth: usize,
+        generics: &mut syn::Generics,
+    ) where
+        F: FnMut(usize) -> Option<syn::TypeParamBound>,
+    {
         match typ {
             syn::Type::Path(syn::TypePath { path, .. }) => {
                 if let Some(ident) = path.get_ident() {
-                    // The type is a single ident (no other path segments):
-                    // add bounds if it is a generic type for us
-                    self.bound_type(ident, generics, level);
+                    // The type is a single ident (no other path segments, has no generics):
+                    // call back if it is a generic type for us
+                    for generic in &mut generics.params {
+                        if let syn::GenericParam::Type(type_param) = generic {
+                            if type_param.ident == *ident {
+                                if let Some(bound) = func(depth) {
+                                    type_param.bounds.push(bound);
+                                }
+                            }
+                        }
+                    }
                 } else {
                     // Analyze the type parameters of the type, as they may be generics for us as well
                     // This tries to reproduce the bounds that field types place on
-                    // their generic types, directly or indirectly.
+                    // their generic types, directly or indirectly. For this the API depth (the const generic
+                    // param to `TreeKey<Y>` etc) is determined as follows:
                     //
                     // Assume that all types use their generic T at
                     // relative depth 1, i.e.
-                    // * if `#[miniconf(defer(Y > 1))] a: S<T>` then `T: Miniconf<Y - 1>`
-                    // * else (i.e. if `Y = 1` or `a: S<T>` without `#[miniconf]`) then `T: SerDe`
+                    // * if `#[tree(depth(Y > 1))] a: S<T>` then `T: Tree{Key,Serialize,Deserialize}<Y - 1>`
+                    // * else (that is if `Y = 1` or `a: S<T>` without `#[tree]`) then
+                    //   `T: serde::{Serialize,Deserialize}`
                     //
-                    // Thus the bounds are conservative (might not be required) and
+                    // And analogously for nested types `S<T<U>>` and `[[T; ..]; ..]` etc.
+                    // This is correct for all types in this library (Option, array, structs with the derive macro).
+                    //
+                    // The bounds are conservative (might not be required) and
                     // fragile (might apply the wrong bound).
                     // This matches the standard derive behavior and its issues
                     // https://github.com/rust-lang/rust/issues/26925
@@ -89,8 +96,13 @@ impl StructField {
                         if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
                             for arg in args.args.iter() {
                                 if let syn::GenericArgument::Type(typ) = arg {
-                                    // Found type argument in field type: bound it if also in our generics.
-                                    self.walk_type(typ, generics, level + 1);
+                                    // Found type argument in field type: recurse
+                                    Self::walk_type_params(
+                                        typ,
+                                        func,
+                                        depth.saturating_sub(1),
+                                        generics,
+                                    );
                                 }
                             }
                         }
@@ -100,21 +112,20 @@ impl StructField {
             syn::Type::Array(syn::TypeArray { elem, .. })
             | syn::Type::Slice(syn::TypeSlice { elem, .. }) => {
                 // An array or slice places the element exactly one level deeper: recurse.
-                self.walk_type(elem, generics, level + 1);
+                Self::walk_type_params(elem, func, depth.saturating_sub(1), generics);
             }
             syn::Type::Reference(syn::TypeReference { elem, .. }) => {
                 // A reference is transparent
-                self.walk_type(elem, generics, level);
+                Self::walk_type_params(elem, func, depth, generics);
             }
             other => panic!("Unsupported type: {:?}", other),
         };
     }
 
-    /// Bound the generic parameters of the field.
-    ///
-    /// # Args
-    /// * `generics` The generics for the structure.
-    pub(crate) fn bound_generics(&self, generics: &mut Generics) {
-        self.walk_type(&self.field.ty, generics, 0)
+    pub(crate) fn bound_generics<F>(&self, func: &mut F, generics: &mut syn::Generics)
+    where
+        F: FnMut(usize) -> Option<syn::TypeParamBound>,
+    {
+        Self::walk_type_params(&self.field.ty, func, self.depth, generics)
     }
 }

@@ -1,65 +1,25 @@
-use crate::{Error, Increment, Key, Metadata, Miniconf};
-
-/// An array that exposes each element through [`Miniconf`].
-///
-/// # Design
-///
-/// With `#[miniconf(defer(D))]` and a depth `D > 1` for an
-/// [`[T; N]`](array), each item of the array is accessed as a [`Miniconf`] tree.
-/// For a depth `D = 0`, the entire array is accessed as one atomic
-/// value. For `D = 1` each index of the array is is instead accessed as
-/// one atomic value.
-///
-/// The type to use depends on what data is contained in your array. If your array contains
-/// `Miniconf` items, you can (and often want to) use `D >= 2`.
-/// However, if each element in your list is individually configurable as a single value (e.g. a list
-/// of `u32`), then you must use `D = 1` or `D = 0` if all items are to be accessed simultaneously.
-/// For e.g. `[[T; 2]; 3] where T: Miniconf<3>` you may want to use `D = 5` (note that `D <= 2`
-/// will also work if `T: Serialize + DeserializeOwned`).
+use crate::{Error, Increment, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use serde::{de::DeserializeOwned, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
-    let mut n = 10;
-    let mut num_digits = 1;
+    let mut max = 10;
+    let mut digits = 1;
 
-    while x > n {
-        n *= 10;
-        num_digits += 1;
+    while x > max {
+        max *= 10;
+        digits += 1;
     }
-    num_digits
+    digits
 }
 
+// Y >= 2
 macro_rules! depth {
-    ($($d:literal)+) => {$(
-        impl<T: Miniconf<{$d - 1}>, const N: usize> Miniconf<$d> for [T; N] {
+    ($($y:literal)+) => {$(
+        impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
             fn name_to_index(value: &str) -> core::option::Option<usize> {
                 value.parse().ok()
             }
-
-            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
-            where
-                K: Iterator,
-                K::Item: Key,
-                S: serde::Serializer,
-            {
-                let key = keys.next().ok_or(Error::TooShort(0))?;
-                let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
-                let item = self.get(index).ok_or(Error::NotFound(1))?;
-                item.serialize_by_key(keys, ser).increment()
-            }
-
-            fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
-            where
-                K: Iterator,
-                K::Item: Key,
-                D: serde::Deserializer<'a>,
-            {
-                let key = keys.next().ok_or(Error::TooShort(0))?;
-                let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
-                let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-                item.deserialize_by_key(keys, de).increment()
-            }
-
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
             where
                 K: Iterator,
@@ -67,7 +27,7 @@ macro_rules! depth {
                 F: FnMut(usize, &str) -> Result<(), E>,
             {
                 let key = keys.next().ok_or(Error::TooShort(0))?;
-                let index = key.find::<$d, Self>().ok_or(Error::NotFound(1))?;
+                let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 if index >= N {
                     return Err(Error::NotFound(1));
                 }
@@ -85,48 +45,42 @@ macro_rules! depth {
                 meta
             }
         }
+
+        impl<T: TreeSerialize<{$y - 1}>, const N: usize> TreeSerialize<$y> for [T; N] {
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                S: Serializer,
+            {
+                let key = keys.next().ok_or(Error::TooShort(0))?;
+                let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
+                let item = self.get(index).ok_or(Error::NotFound(1))?;
+                item.serialize_by_key(keys, ser).increment()
+            }
+        }
+
+        impl<T: TreeDeserialize<{$y - 1}>, const N: usize> TreeDeserialize<$y> for [T; N] {
+            fn deserialize_by_key<'de, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                D: Deserializer<'de>,
+            {
+                let key = keys.next().ok_or(Error::TooShort(0))?;
+                let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
+                let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+                item.deserialize_by_key(keys, de).increment()
+            }
+        }
     )+}
 }
-
 depth!(2 3 4 5 6 7 8);
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf for [T; N] {
+// Y == 1
+impl<T, const N: usize> TreeKey for [T; N] {
     fn name_to_index(value: &str) -> core::option::Option<usize> {
         value.parse().ok()
-    }
-
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        S: serde::Serializer,
-    {
-        let key = keys.next().ok_or(Error::TooShort(0))?;
-        let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
-        let item = self.get(index).ok_or(Error::NotFound(1))?;
-        // Precedence
-        if keys.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
-        serde::Serialize::serialize(item, ser)?;
-        Ok(1)
-    }
-
-    fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        K::Item: Key,
-        D: serde::Deserializer<'a>,
-    {
-        let key = keys.next().ok_or(Error::TooShort(0))?;
-        let index: usize = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-        // Precedence
-        if keys.next().is_some() {
-            return Err(Error::TooLong(1));
-        }
-        *item = serde::Deserialize::deserialize(de)?;
-        Ok(1)
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -136,12 +90,13 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
         F: FnMut(usize, &str) -> Result<(), E>,
     {
         let key = keys.next().ok_or(Error::TooShort(0))?;
-        let index = match key.find::<1, Self>() {
-            Some(i) if i < N => i,
-            _ => return Err(Error::NotFound(1)),
-        };
-        func(index, itoa::Buffer::new().format(index))?;
-        Ok(1)
+        match key.find::<1, Self>() {
+            Some(index) if index < N => {
+                func(index, itoa::Buffer::new().format(index))?;
+                Ok(1)
+            }
+            _ => Err(Error::NotFound(1)),
+        }
     }
 
     fn metadata() -> Metadata {
@@ -149,6 +104,50 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned, const N: usize> Miniconf
             max_length: digits(N),
             max_depth: 1,
             count: N,
+        }
+    }
+}
+
+impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        S: Serializer,
+    {
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        // Precedence
+        if keys.next().is_some() {
+            Err(Error::TooLong(1))
+        } else {
+            item.serialize(ser)?;
+            Ok(1)
+        }
+    }
+}
+
+impl<T: DeserializeOwned, const N: usize> TreeDeserialize for [T; N] {
+    fn deserialize_by_key<'de, K, D>(
+        &mut self,
+        mut keys: K,
+        de: D,
+    ) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        K::Item: Key,
+        D: Deserializer<'de>,
+    {
+        let key = keys.next().ok_or(Error::TooShort(0))?;
+        let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        // Precedence
+        if keys.next().is_some() {
+            Err(Error::TooLong(1))
+        } else {
+            *item = T::deserialize(de)?;
+            Ok(1)
         }
     }
 }

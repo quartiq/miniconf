@@ -1,56 +1,16 @@
-use crate::{Error, Key, Metadata, Miniconf};
+use crate::{Error, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use serde::{de::DeserializeOwned, Deserializer, Serialize, Serializer};
 
-/// `Miniconf<D>` for `Option`.
-///
-/// # Design
-///
-/// An `Option` may be marked with `#[miniconf(defer(D))]`
-/// and be `None` at run-time. This makes the corresponding part of the namespace inaccessible
-/// at run-time. It will still be iterated over by [`Miniconf::iter_paths()`] but attempts to
-/// `serialize_by_key()` or `deserialize_by_key()` them using the [`Miniconf`] API return in [`Error::Absent`].
-///
-/// This is intended as a mechanism to provide run-time construction of the namespace. In some
-/// cases, run-time detection may indicate that some component is not present. In this case,
-/// namespaces will not be exposed for it.
-///
-/// If the depth specified by the `miniconf(defer(D))` attribute exceeds 1,
-/// the `Option` can be used to access content within the inner type.
-/// If marked with `#[miniconf(defer(-))]`, and `None` at runtime, the value or the entire sub-tree
-/// is inaccessible through `Miniconf::{get,set}_by_key`.
-/// If there is no `miniconf` attribute on an `Option` field in a `struct or in an array,
-/// JSON `null` corresponds to`None` as usual.
+// `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
+// But it does add one Tree API layer between its `Tree<Y>` level
+// and its inner type `Tree<Y'>` level: `Y' = Y - 1`.
 
+// the Y >= 2 cases:
 macro_rules! depth {
-    ($($d:literal)+) => {$(
-        impl<T: Miniconf<{$d - 1}>> Miniconf<$d> for Option<T> {
-            fn name_to_index(_value: &str) -> core::option::Option<usize> {
+    ($($y:literal)+) => {$(
+        impl<T: TreeKey<{$y - 1}>> TreeKey<$y> for Option<T> {
+            fn name_to_index(_value: &str) -> Option<usize> {
                 None
-            }
-
-            fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
-            where
-                K: Iterator,
-                K::Item: Key,
-                S: serde::Serializer,
-            {
-                if let Some(inner) = self {
-                    inner.serialize_by_key(keys, ser)
-                } else {
-                    Err(Error::Absent(0))
-                }
-            }
-
-            fn deserialize_by_key<'a, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-            where
-                K: Iterator,
-                K::Item: Key,
-                D: serde::Deserializer<'a>,
-            {
-                if let Some(inner) = self {
-                    inner.deserialize_by_key(keys, de)
-                } else {
-                    Err(Error::Absent(0))
-                }
             }
 
             fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
@@ -66,48 +26,44 @@ macro_rules! depth {
                 T::metadata()
             }
         }
+
+        impl<T: TreeSerialize<{$y - 1}>> TreeSerialize<$y> for Option<T> {
+            fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                S: Serializer,
+            {
+                if let Some(inner) = self {
+                    inner.serialize_by_key(keys, ser)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
+        }
+
+        impl<T: TreeDeserialize<{$y - 1}>> TreeDeserialize<$y> for Option<T> {
+            fn deserialize_by_key<'de, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            where
+                K: Iterator,
+                K::Item: Key,
+                D: Deserializer<'de>,
+            {
+                if let Some(inner) = self {
+                    inner.deserialize_by_key(keys, de)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
+        }
     )+}
 }
-
 depth!(2 3 4 5 6 7 8);
 
-impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::option::Option<T> {
-    fn name_to_index(_value: &str) -> core::option::Option<usize> {
+// Y == 1
+impl<T> TreeKey for Option<T> {
+    fn name_to_index(_value: &str) -> Option<usize> {
         None
-    }
-
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
-    where
-        K: Iterator,
-        S: serde::Serializer,
-    {
-        if keys.next().is_some() {
-            return Err(Error::TooLong(0));
-        }
-
-        if let Some(inner) = self {
-            serde::Serialize::serialize(inner, ser)?;
-            Ok(0)
-        } else {
-            Err(Error::Absent(0))
-        }
-    }
-
-    fn deserialize_by_key<'a, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Iterator,
-        D: serde::Deserializer<'a>,
-    {
-        if keys.next().is_some() {
-            return Err(Error::TooLong(0));
-        }
-
-        if let Some(inner) = self {
-            *inner = serde::Deserialize::deserialize(de)?;
-            Ok(0)
-        } else {
-            Err(Error::Absent(0))
-        }
     }
 
     fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
@@ -121,6 +77,44 @@ impl<T: serde::Serialize + serde::de::DeserializeOwned> Miniconf for core::optio
         Metadata {
             count: 1,
             ..Default::default()
+        }
+    }
+}
+
+impl<T: Serialize> TreeSerialize for Option<T> {
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Iterator,
+        S: Serializer,
+    {
+        if keys.next().is_some() {
+            Err(Error::TooLong(0))
+        } else if let Some(inner) = self {
+            inner.serialize(ser)?;
+            Ok(0)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+}
+
+impl<T: DeserializeOwned> TreeDeserialize for Option<T> {
+    fn deserialize_by_key<'de, K, D>(
+        &mut self,
+        mut keys: K,
+        de: D,
+    ) -> Result<usize, Error<D::Error>>
+    where
+        K: Iterator,
+        D: Deserializer<'de>,
+    {
+        if keys.next().is_some() {
+            Err(Error::TooLong(0))
+        } else if let Some(inner) = self {
+            *inner = T::deserialize(de)?;
+            Ok(0)
+        } else {
+            Err(Error::Absent(0))
         }
     }
 }

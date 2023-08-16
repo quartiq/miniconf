@@ -1,14 +1,14 @@
-use miniconf::{JsonCoreSlash, Miniconf};
+use miniconf::{JsonCoreSlash, Tree, TreeKey};
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Debug, Default, Tree)]
 struct AdditionalSettings {
     inner: u8,
     inner2: u32,
 }
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Debug, Default, Tree)]
 struct Settings {
-    #[miniconf(defer)]
+    #[tree]
     more: AdditionalSettings,
     data: u32,
 }

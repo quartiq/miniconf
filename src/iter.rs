@@ -1,7 +1,7 @@
-use crate::{Error, Miniconf};
-use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
+use crate::{Error, TreeKey};
+use core::{fmt::Write, marker::PhantomData};
 
-/// An iterator over the paths in a Miniconf namespace.
+/// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
     /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
@@ -16,8 +16,7 @@ pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
 
     /// The remaining length of the iterator.
     ///
-    /// It is used to provide an exact and trusted [Iterator::size_hint].
-    /// C.f. [core::iter::TrustedLen].
+    /// It is used to provide an exact and trusted [Iterator::size_hint] ([core::iter::TrustedLen]).
     ///
     /// It may be None to indicate unknown length.
     count: Option<usize>,
@@ -28,7 +27,7 @@ pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
 
 impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
 where
-    M: Miniconf<Y> + ?Sized,
+    M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new(separator: &'a str) -> Self {
         let meta = M::metadata();
@@ -51,10 +50,10 @@ where
 
 impl<'a, M, const Y: usize, P> Iterator for PathIter<'a, M, Y, P>
 where
-    M: Miniconf<Y> + ?Sized,
+    M: TreeKey<Y> + ?Sized,
     P: Write + Default,
 {
-    type Item = Result<P, Error<core::fmt::Error>>;
+    type Item = Result<P, core::fmt::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut path = P::default();
@@ -74,8 +73,8 @@ where
                     self.state[depth - 2] += 1;
                     continue;
                 }
-                // Found a leaf at the root: bare Option/newtype
-                // Since there is no way to end iteration by hoping for `NotFound` on a bare Option,
+                // Found a leaf at the root: leaf Option/newtype
+                // Since there is no way to end iteration by hoping for `NotFound` on a leaf Option,
                 // we force the count to Some(0) and trigger on that.
                 Ok(0) => {
                     if self.count == Some(0) {
@@ -92,13 +91,12 @@ where
                     self.state[depth - 1] += 1;
                     Some(Ok(path))
                 }
-                // If we end at a leaf node, the state array is too small.
-                Err(e @ Error::Inner(_)) => Some(Err(e)),
+                // `core::fmt::Write` error (e.g. heapless::String capacity limit).
+                Err(Error::Inner(e @ core::fmt::Error)) => Some(Err(e)),
                 // * NotFound(0) Not having consumed any name/index, the only possible case
-                //   is a bare `Miniconf` thing that does not use a key, e.g. `Option`.
-                //   That however can not return `NotFound`.
+                //   is a leaf (e.g. `Option` or newtype), those however can not return `NotFound`.
                 // * TooShort is excluded by construction.
-                // * No other errors can be returned by traverse_by_key()/path()
+                // * No other errors are returned by traverse_by_key()/path()
                 _ => unreachable!(),
             };
         }
@@ -109,9 +107,9 @@ where
     }
 }
 
-impl<'a, M, const Y: usize, P> FusedIterator for PathIter<'a, M, Y, P>
+impl<'a, M, const Y: usize, P> core::iter::FusedIterator for PathIter<'a, M, Y, P>
 where
-    M: Miniconf<Y>,
-    P: core::fmt::Write + Default,
+    M: TreeKey<Y>,
+    P: Write + Default,
 {
 }

@@ -1,23 +1,22 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, JsonCoreSlash, Miniconf};
-use serde::{Deserialize, Serialize};
+use miniconf::{Deserialize, Error, JsonCoreSlash, Serialize, Tree, TreeKey};
 
-#[derive(Debug, Copy, Clone, Default, Miniconf, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
     c: u8,
 }
 
-#[derive(Debug, Default, Miniconf)]
+#[derive(Debug, Default, Tree)]
 struct Settings {
     a: [u8; 2],
-    #[miniconf(defer)]
+    #[tree()]
     d: [u8; 2],
-    #[miniconf(defer)]
+    #[tree()]
     dm: [Inner; 2],
-    #[miniconf(defer(2))]
+    #[tree(depth(2))]
     am: [Inner; 2],
-    #[miniconf(defer(3))]
+    #[tree(depth(3))]
     aam: [[Inner; 2]; 2],
 }
 
@@ -111,21 +110,21 @@ fn iter() {
 fn empty() {
     assert!(<[u32; 0]>::iter_paths::<String>("").next().is_none());
 
-    #[derive(Miniconf, Serialize, Deserialize)]
+    #[derive(Tree, Serialize, Deserialize)]
     struct S {}
 
-    assert!(<[S; 0] as Miniconf>::iter_paths::<String>("")
+    assert!(<[S; 0] as TreeKey>::iter_paths::<String>("")
         .next()
         .is_none());
-    assert!(<[[S; 0]; 0] as Miniconf>::iter_paths::<String>("")
+    assert!(<[[S; 0]; 0] as TreeKey>::iter_paths::<String>("")
         .next()
         .is_none());
 
-    #[derive(Miniconf)]
+    #[derive(Tree)]
     struct Q {
-        #[miniconf(defer(2))]
+        #[tree(depth(2))]
         a: [S; 0],
-        #[miniconf(defer)]
+        #[tree()]
         b: [S; 0],
     }
     assert!(Q::iter_paths::<String>("").next().is_none());

@@ -1,7 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{JsonCoreSlash, Miniconf};
-use serde::{Deserialize, Serialize};
+use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
 
 #[test]
 fn atomic_struct() {
@@ -11,7 +10,7 @@ fn atomic_struct() {
         b: u32,
     }
 
-    #[derive(Miniconf, Default, PartialEq, Debug)]
+    #[derive(Tree, Default, PartialEq, Debug)]
     struct Settings {
         a: f32,
         b: bool,
@@ -44,16 +43,16 @@ fn atomic_struct() {
 
 #[test]
 fn recursive_struct() {
-    #[derive(Miniconf, Default, PartialEq, Debug)]
+    #[derive(Tree, Default, PartialEq, Debug)]
     struct Inner {
         a: u32,
     }
 
-    #[derive(Miniconf, Default, PartialEq, Debug)]
+    #[derive(Tree, Default, PartialEq, Debug)]
     struct Settings {
         a: f32,
         b: bool,
-        #[miniconf(defer)]
+        #[tree]
         c: Inner,
     }
 
@@ -80,7 +79,7 @@ fn recursive_struct() {
 
 #[test]
 fn empty_struct() {
-    #[derive(Miniconf, Default)]
+    #[derive(Tree, Default)]
     struct Settings {}
     assert!(Settings::iter_paths::<String>("/").next().is_none());
 }

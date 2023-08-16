@@ -1,20 +1,20 @@
-use miniconf::{Miniconf, MqttClient};
+use miniconf::{MqttClient, Tree};
 use minimq::{Minimq, Publication};
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
-#[derive(Clone, Default, Miniconf, Debug)]
+#[derive(Clone, Default, Tree, Debug)]
 struct NestedSettings {
     frame_rate: u32,
 }
 
-#[derive(Clone, Default, Miniconf, Debug)]
+#[derive(Clone, Default, Tree, Debug)]
 struct Settings {
-    #[miniconf(defer)]
+    #[tree()]
     inner: NestedSettings,
 
-    #[miniconf(defer)]
+    #[tree()]
     amplitude: [f32; 2],
 
     exit: bool,

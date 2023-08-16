@@ -1,4 +1,4 @@
-use crate::{Error, JsonCoreSlash, Miniconf};
+use crate::{Error, JsonCoreSlash, TreeKey};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
@@ -21,6 +21,7 @@ const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 type Iter<M, const Y: usize> = crate::PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
+    use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -45,13 +46,13 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> {
+    pub struct Context<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: super::Iter<M, Y>,
+        pub republish_state: Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> Context<C, M, Y> {
+    impl<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> Context<C, M, Y> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
@@ -70,13 +71,12 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: super::Miniconf<Y>, const Y: usize> StateMachineContext
+    impl<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> StateMachineContext
         for Context<C, M, Y>
     {
         fn start_republish_timeout(&mut self) {
-            self.timeout.replace(
-                self.clock.try_now().unwrap() + super::REPUBLISH_TIMEOUT_SECONDS.seconds(),
-            );
+            self.timeout
+                .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
         }
 
         fn start_republish(&mut self) {
@@ -116,7 +116,7 @@ impl<'a> Command<'a> {
 /// MQTT settings interface.
 ///
 /// # Design
-/// The MQTT client places the [Miniconf] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
+/// The MQTT client places the [TreeKey] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
 /// where `<prefix>` is provided in the client constructor.
 ///
 /// It publishes its alive-ness as a `1` to `<prefix>/alive` and sets a will to publish `0` there when
@@ -126,35 +126,38 @@ impl<'a> Command<'a> {
 /// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
 /// connect to it when errors occur.
 ///
-/// The client only supports paths up to 128 byte length.
-/// Keepalive interval and re-publication timeout are fixed to 60 and 2 seconds respectively.
+/// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
+/// Keepalive interval and re-publication timeout are fixed to `KEEPALIVE_INTERVAL_SECONDS = 60` and
+/// `REPUBLISH_TIMEOUT_SECONDS = 2` seconds respectively.
 ///
 /// # Example
 /// ```
-/// use miniconf::{MqttClient, Miniconf};
+/// use miniconf::{MqttClient, Tree};
 ///
-/// #[derive(Miniconf, Clone, Default)]
+/// #[derive(Tree, Clone, Default)]
 /// struct Settings {
 ///     foo: bool,
 /// }
 ///
 /// let mut client: MqttClient<_, _, _, 256, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
-///     "",  // client_id auto-assign
-///     "quartiq/application/12345",  // prefix
+///     "",                          // client_id auto-assign
+///     "quartiq/application/12345", // prefix
 ///     "127.0.0.1".parse().unwrap(),
 ///     std_embedded_time::StandardClock::default(),
 ///     Settings::default(),
 /// )
 /// .unwrap();
 ///
-/// client.handled_update(|path, old_settings, new_settings| {
-///     if new_settings.foo {
-///         return Err("Foo!");
-///     }
-///     *old_settings = new_settings.clone();
-///     Ok(())
-/// }).unwrap();
+/// client
+///     .handled_update(|path, old_settings, new_settings| {
+///         if new_settings.foo {
+///             return Err("Foo!");
+///         }
+///         *old_settings = new_settings.clone();
+///         Ok(())
+///     })
+///     .unwrap();
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
 where
@@ -235,7 +238,7 @@ where
         };
 
         let Some(props) = &self.properties_cache else {
-            return
+            return;
         };
 
         let reply_props = minimq::types::Properties::DataBlock(props);
@@ -282,7 +285,7 @@ where
             let Some(topic) = self.state.context_mut().republish_state.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
                 self.state.process_event(sm::Events::Complete).unwrap();
-                break
+                break;
             };
 
             let topic = topic.unwrap();
@@ -426,10 +429,11 @@ where
         )];
 
         let Ok(response) = minimq::Publication::new(response.msg.as_bytes())
-                        .reply(&reply_props)
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce)
-                        .finish() else {
+            .reply(&reply_props)
+            .properties(&props)
+            .qos(QoS::AtLeastOnce)
+            .finish()
+        else {
             return Ok(());
         };
 
@@ -546,10 +550,11 @@ where
                 )];
 
                 let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
-                            .reply(properties)
-                            .properties(&props)
-                            .qos(QoS::AtLeastOnce)
-                            .finish() else {
+                    .reply(properties)
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce)
+                    .finish()
+                else {
                     log::warn!("Failed to build response `Pub`");
                     return;
                 };

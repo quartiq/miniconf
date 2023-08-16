@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+* The `Miniconf` trait has been split into `TreeKey` for the keys/path/indices and traversal,
+  the `TreeSerialize` for serialization, and `TreeDeserialize` for deserialization.
+  The derive macros have been split accordingly. A shorthand `#[derive(Tree)]` macro has been
+  added to derive all three traits.
+
 ## [0.8.0](https://github.com/quartiq/miniconf/compare/v0.7.1...v0.8.0) - 2023-08-03
 
 ### Added

@@ -1,11 +1,11 @@
-use crate::{Error, Miniconf};
+use crate::{Error, TreeDeserialize, TreeSerialize};
 use serde_json_core::{de, ser};
 
 /// Miniconf with "JSON and `/`".
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
-pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
+pub trait JsonCoreSlash<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<Y> {
     /// Update an element by path.
     ///
     /// # Args
@@ -55,7 +55,7 @@ pub trait JsonCoreSlash<const D: usize = 1>: Miniconf<D> {
     ) -> Result<usize, Error<ser::Error>>;
 }
 
-impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
+impl<T: TreeSerialize<Y> + TreeDeserialize<Y>, const Y: usize> JsonCoreSlash<Y> for T {
     fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
         self.deserialize_by_key(path.split('/').skip(1), &mut de)?;
@@ -86,21 +86,5 @@ impl<T: Miniconf<D>, const D: usize> JsonCoreSlash<D> for T {
         let mut ser = ser::Serializer::new(data);
         self.serialize_by_key(indices.iter().copied(), &mut ser)?;
         Ok(ser.end())
-    }
-}
-
-// These allow unifying serde error information to make writing examples
-// and tests easier. Doing this conversion is optional.
-// #[cfg(any(test, doctest))]
-impl From<Error<ser::Error>> for Error<de::Error> {
-    fn from(value: Error<ser::Error>) -> Self {
-        match value {
-            Error::NotFound(i) => Self::NotFound(i),
-            Error::TooLong(i) => Self::TooLong(i),
-            Error::Absent(i) => Self::Absent(i),
-            Error::TooShort(i) => Self::TooShort(i),
-            Error::PostDeserialization(_) => Error::PostDeserialization(de::Error::CustomError),
-            Error::Inner(_) => Self::Inner(de::Error::CustomError),
-        }
     }
 }
