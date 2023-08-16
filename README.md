@@ -42,7 +42,7 @@ struct Settings {
 
     // Exposing elements of containers
     // ... by field name
-    #[tree()]
+    #[tree]
     struct_tree: Inner,
     // ... or by index
     #[tree()]
