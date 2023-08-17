@@ -143,7 +143,8 @@ class Miniconf:
             retain: Retain the MQTT message changing the setting
                 by the broker.
         """
-        topic = f'{self.prefix}/settings/{path}'
+        assert path.startswith("/")
+        topic = f'{self.prefix}/settings{path}'
 
         fut = asyncio.get_running_loop().create_future()
 
