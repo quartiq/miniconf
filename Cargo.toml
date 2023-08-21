@@ -27,7 +27,7 @@ smlang = { version = "0.6", optional = true }
 default = ["mqtt-client"]
 json-core = ["dep:serde-json-core"]
 mqtt-client = ["json-core", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
-std = ["serde/std"]
+std = []
 
 [dev-dependencies]
 machine = "0.3"
