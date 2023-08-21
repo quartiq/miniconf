@@ -11,7 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * The `Miniconf` trait has been split into `TreeKey` for the keys/path/indices and traversal,
   the `TreeSerialize` for serialization, and `TreeDeserialize` for deserialization.
   The derive macros have been split accordingly. A shorthand `#[derive(Tree)]` macro has been
-  added to derive all three traits.
+  added to derive all three traits. The struct field attribute controlling
+  recursion depth has been renamed to `#[tree(depth(Y))]`.
+
+### Added
+
+* Deserializing with borrowed data is now supported.
 
 ## [0.8.0](https://github.com/quartiq/miniconf/compare/v0.7.1...v0.8.0) - 2023-08-03
 
