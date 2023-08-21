@@ -258,7 +258,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     input.generics.params.push(parse_quote!('de));
     if let Some(syn::GenericParam::Lifetime(de)) = input.generics.params.last_mut() {
         for l in lts {
-            de.bounds.push(l.lifetime.clone());
+            de.bounds.push(l.lifetime);
         }
     }
     let (impl_generics, _, _) = input.generics.split_for_impl();
