@@ -539,7 +539,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 /// Deserialize a leaf node by its keys.
 ///
 /// See also [`crate::JsonCoreSlash`] for a convenient blanket implementation using this trait.
-pub trait TreeDeserialize<const Y: usize = 1>: TreeKey<Y> {
+pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// Deserialize an node by keys.
     ///
     /// ```
@@ -564,7 +564,7 @@ pub trait TreeDeserialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// # Returns
     /// Node depth on success
-    fn deserialize_by_key<'de, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,

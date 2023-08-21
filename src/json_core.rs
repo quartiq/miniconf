@@ -5,7 +5,9 @@ use serde_json_core::{de, ser};
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
-pub trait JsonCoreSlash<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<Y> {
+pub trait JsonCoreSlash<'de, const Y: usize = 1>:
+    TreeSerialize<Y> + TreeDeserialize<'de, Y>
+{
     /// Update an element by path.
     ///
     /// # Args
@@ -14,7 +16,7 @@ pub trait JsonCoreSlash<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     ///
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
-    fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>>;
+    fn set_json(&mut self, path: &str, data: &'de [u8]) -> Result<usize, Error<de::Error>>;
 
     /// Retrieve a serialized value by path.
     ///
@@ -37,7 +39,7 @@ pub trait JsonCoreSlash<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     fn set_json_by_index(
         &mut self,
         indices: &[usize],
-        data: &[u8],
+        data: &'de [u8],
     ) -> Result<usize, Error<de::Error>>;
 
     /// Retrieve a serialized value by indices.
@@ -55,8 +57,10 @@ pub trait JsonCoreSlash<const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     ) -> Result<usize, Error<ser::Error>>;
 }
 
-impl<T: TreeSerialize<Y> + TreeDeserialize<Y>, const Y: usize> JsonCoreSlash<Y> for T {
-    fn set_json(&mut self, path: &str, data: &[u8]) -> Result<usize, Error<de::Error>> {
+impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCoreSlash<'de, Y>
+    for T
+{
+    fn set_json(&mut self, path: &str, data: &'de [u8]) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
         self.deserialize_by_key(path.split('/').skip(1), &mut de)?;
         de.end().map_err(Error::PostDeserialization)
@@ -71,7 +75,7 @@ impl<T: TreeSerialize<Y> + TreeDeserialize<Y>, const Y: usize> JsonCoreSlash<Y> 
     fn set_json_by_index(
         &mut self,
         indices: &[usize],
-        data: &[u8],
+        data: &'de [u8],
     ) -> Result<usize, Error<de::Error>> {
         let mut de = de::Deserializer::new(data);
         self.deserialize_by_key(indices.iter().copied(), &mut de)?;

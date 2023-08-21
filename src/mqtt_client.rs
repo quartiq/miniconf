@@ -161,7 +161,7 @@ impl<'a> Command<'a> {
 /// ```
 pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
 where
-    Settings: JsonCoreSlash<Y> + Clone,
+    Settings: TreeKey<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
 {
@@ -177,7 +177,7 @@ where
 impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
     MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, Y>
 where
-    Settings: JsonCoreSlash<Y> + Clone,
+    for<'de> Settings: JsonCoreSlash<'de, Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
 {

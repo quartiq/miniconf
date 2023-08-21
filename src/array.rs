@@ -1,5 +1,5 @@
 use crate::{Error, Increment, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
-use serde::{de::DeserializeOwned, Deserializer, Serialize, Serializer};
+use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
 const fn digits(x: usize) -> usize {
@@ -60,8 +60,8 @@ macro_rules! depth {
             }
         }
 
-        impl<T: TreeDeserialize<{$y - 1}>, const N: usize> TreeDeserialize<$y> for [T; N] {
-            fn deserialize_by_key<'de, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+        impl<'de, T: TreeDeserialize<'de, {$y - 1}>, const N: usize> TreeDeserialize<'de, $y> for [T; N] {
+            fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
@@ -128,12 +128,8 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
     }
 }
 
-impl<T: DeserializeOwned, const N: usize> TreeDeserialize for [T; N] {
-    fn deserialize_by_key<'de, K, D>(
-        &mut self,
-        mut keys: K,
-        de: D,
-    ) -> Result<usize, Error<D::Error>>
+impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         K::Item: Key,

@@ -1,5 +1,5 @@
 use crate::{Error, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
-use serde::{de::DeserializeOwned, Deserializer, Serialize, Serializer};
+use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
 // But it does add one Tree API layer between its `Tree<Y>` level
@@ -42,8 +42,8 @@ macro_rules! depth {
             }
         }
 
-        impl<T: TreeDeserialize<{$y - 1}>> TreeDeserialize<$y> for Option<T> {
-            fn deserialize_by_key<'de, K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        impl<'de, T: TreeDeserialize<'de, {$y - 1}>> TreeDeserialize<'de, $y> for Option<T> {
+            fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: Key,
@@ -98,12 +98,8 @@ impl<T: Serialize> TreeSerialize for Option<T> {
     }
 }
 
-impl<T: DeserializeOwned> TreeDeserialize for Option<T> {
-    fn deserialize_by_key<'de, K, D>(
-        &mut self,
-        mut keys: K,
-        de: D,
-    ) -> Result<usize, Error<D::Error>>
+impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Iterator,
         D: Deserializer<'de>,

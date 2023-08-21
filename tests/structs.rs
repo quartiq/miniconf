@@ -83,3 +83,15 @@ fn empty_struct() {
     struct Settings {}
     assert!(Settings::iter_paths::<String>("/").next().is_none());
 }
+
+#[test]
+fn borrowed() {
+    #[derive(Tree)]
+    struct S<'a> {
+        a: &'a str,
+    }
+    let a = "bar".to_owned();
+    let mut s = S { a: &a };
+    s.set_json("/a", b"\"foo\"").unwrap();
+    assert_eq!(s.a, "foo");
+}
