@@ -257,7 +257,9 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     let lts: Vec<_> = input.generics.lifetimes().cloned().collect();
     input.generics.params.push(parse_quote!('de));
     if let Some(syn::GenericParam::Lifetime(de)) = input.generics.params.last_mut() {
+        assert_eq!(de.lifetime.ident, "de");
         for l in lts {
+            assert!(l.lifetime.ident != "de");
             de.bounds.push(l.lifetime);
         }
     }
