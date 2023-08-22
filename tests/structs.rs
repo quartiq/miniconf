@@ -90,8 +90,7 @@ fn borrowed() {
     struct S<'a> {
         a: &'a str,
     }
-    let a = "bar".to_owned();
-    let mut s = S { a: &a };
-    s.set_json("/a", b"\"foo\"").unwrap();
-    assert_eq!(s.a, "foo");
+    let mut s = S { a: "foo" };
+    s.set_json("/a", br#""bar""#).unwrap();
+    assert_eq!(s.a, "bar");
 }
