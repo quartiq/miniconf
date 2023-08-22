@@ -222,7 +222,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         f.bound_generics(
             &mut |depth| {
                 if depth > 0 {
-                    Some(parse_quote!(::miniconf::TreeDeserialize<#depth>))
+                    Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
                 } else {
                     Some(parse_quote!(::miniconf::DeserializeOwned))
                 }
@@ -237,7 +237,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         let depth = field.depth;
         if depth > 0 {
             quote! {
-                #i => ::miniconf::TreeDeserialize::<#depth>::deserialize_by_key(&mut self.#ident, keys, de)
+                #i => ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(&mut self.#ident, keys, de)
             }
         } else {
             quote! {
@@ -252,11 +252,22 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
     let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let orig_generics = input.generics.clone();
+    let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
+    let lts: Vec<_> = input.generics.lifetimes().cloned().collect();
+    input.generics.params.push(parse_quote!('de));
+    if let Some(syn::GenericParam::Lifetime(de)) = input.generics.params.last_mut() {
+        assert_eq!(de.lifetime.ident, "de");
+        for l in lts {
+            assert!(l.lifetime.ident != "de");
+            de.bounds.push(l.lifetime);
+        }
+    }
+    let (impl_generics, _, _) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics ::miniconf::TreeDeserialize<#depth> for #ident #ty_generics #where_clause {
-            fn deserialize_by_key<'de, K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+        impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
+            fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
             where
                 K: Iterator,
                 K::Item: ::miniconf::Key,
