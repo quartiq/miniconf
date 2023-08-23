@@ -2,7 +2,7 @@ use crate::{Error, JsonCoreSlash, TreeKey};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
-    embedded_nal::{IpAddr, TcpClientStack},
+    embedded_nal::TcpClientStack,
     embedded_time,
     types::{SubscriptionOptions, TopicFilter},
     Publication, QoS, Retain,
@@ -159,13 +159,14 @@ impl<'a> Command<'a> {
 ///     })
 ///     .unwrap();
 /// ```
-pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
+pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
 where
     Settings: TreeKey<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
+    Broker: minimq::Broker,
 {
-    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
+    mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
     prefix: String<MAX_TOPIC_LENGTH>,
@@ -174,49 +175,41 @@ where
     pending_response: Option<Response<32>>,
 }
 
-impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
-    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, Y>
+impl<'buf, Settings, Stack, Clock, Broker, const Y: usize>
+    MqttClient<'buf, Settings, Stack, Clock, Broker, Y>
 where
     for<'de> Settings: JsonCoreSlash<'de, Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
+    Broker: minimq::Broker,
 {
     /// Construct a new MQTT settings interface.
     ///
     /// # Args
     /// * `stack` - The network stack to use for communication.
-    /// * `client_id` - The ID of the MQTT client. May be an empty string for auto-assigning.
     /// * `prefix` - The MQTT device prefix to use for this device.
-    /// * `broker` - The IP address of the MQTT broker to use.
     /// * `clock` - The clock for managing the MQTT connection.
     /// * `settings` - The initial settings values.
+    /// * `config` - The configuration of the MQTT client.
     pub fn new(
         stack: Stack,
-        client_id: &str,
         prefix: &str,
-        broker: IpAddr,
         clock: Clock,
         settings: Settings,
+        mut config: minimq::Config<'buf, Broker>,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
-        let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
-
-        // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
-        // now, since we're not yet connected to the broker.
-        mqtt.client()
-            .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)?;
-
-        let prefix = String::from(prefix);
 
         // Configure a will so that we can indicate whether or not we are connected.
+        let prefix = String::from(prefix);
         let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
-        mqtt.client().set_will(
-            &connection_topic,
-            b"0",
-            QoS::AtMostOnce,
-            Retain::Retained,
-            &[],
-        )?;
+        let mut will = minimq::Will::new(&connection_topic, b"0", &[]);
+        will.retained(Retain::Retained);
+        will.qos(QoS::AtMostOnce);
+
+        let config = config.keepalive_interval(KEEPALIVE_INTERVAL_SECONDS).autodowngrade_qos().set_will(will);
+
+        let mqtt = minimq::Minimq::new(stack, clock.clone(), config)?;
 
         let meta = Settings::metadata().separator("/");
         assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
@@ -279,8 +272,6 @@ where
     }
 
     fn handle_republish(&mut self) {
-        let mut data = [0; MESSAGE_SIZE];
-
         while self.mqtt.client().can_publish(QoS::AtMostOnce) {
             let Some(topic) = self.state.context_mut().republish_state.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
@@ -290,12 +281,10 @@ where
 
             let topic = topic.unwrap();
 
-            // Note: The topic may be absent at runtime (deferred `Option`).
-            let len = match self.settings.get_json(&topic, &mut data) {
-                Err(Error::Absent(_)) => continue,
-                Ok(len) => len,
-                e => e.unwrap(),
-            };
+            let payload = minimq::publication::DeferedPayload::new(|buf| {
+                // TODO: Figure out how to handle absent topics.
+                Ok(self.settings.get_json(&topic, buf).unwrap())
+            });
 
             let mut prefixed_topic = self.prefix.clone();
             prefixed_topic
@@ -308,7 +297,7 @@ where
             self.mqtt
                 .client()
                 .publish(
-                    Publication::new(&data[..len])
+                    Publication::new(payload)
                         .topic(&prefixed_topic)
                         .finish()
                         .unwrap(),
@@ -484,6 +473,7 @@ where
                             // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
                             // message size, so the properties (which are a portion of the message) will
                             // always fit into it.
+                            // TODO: Figure out how to handle cached properties for listing?
                             self.properties_cache
                                 .replace(Vec::from_slice(binary_props).unwrap());
                             self.listing_state
@@ -500,35 +490,38 @@ where
                 }
 
                 Command::Get { path } => {
-                    let mut data = [0u8; MESSAGE_SIZE];
-                    match self.settings.get_json(path, &mut data) {
-                        Err(err) => err.into(),
-                        Ok(len) => {
-                            let mut topic = self.prefix.clone();
-
-                            // Note(unwrap): We check that the string will fit during
-                            // construction.
-                            topic
-                                .push_str("/settings")
-                                .and_then(|_| topic.push_str(path))
-                                .unwrap();
-
-                            // Note(unwrap): This construction cannot fail because there's always a
-                            // valid topic.
-                            let message = minimq::Publication::new(&data[..len])
-                                .reply(properties)
-                                // Override the response topic with the path.
-                                .topic(&topic)
-                                .qos(QoS::AtLeastOnce)
-                                .finish()
-                                .unwrap();
-
-                            if client.publish(message).is_err() {
-                                Response::error("Can't publish `Get` response")
-                            } else {
-                                Response::ok()
+                    let payload = minimq::publication::DeferedPayload::new(|buf| {
+                        match self.settings.get_json(path, buf) {
+                            Ok(len) => len,
+                            Err(err) => {
+                                // TODO: Lookup failure. Serialize the error as a response.
                             }
                         }
+                    });
+
+                    let mut topic = self.prefix.clone();
+
+                    // Note(unwrap): We check that the string will fit during
+                    // construction.
+                    topic
+                        .push_str("/settings")
+                        .and_then(|_| topic.push_str(path))
+                        .unwrap();
+
+                    // Note(unwrap): This construction cannot fail because there's always a
+                    // valid topic.
+                    let message = minimq::Publication::new(payload)
+                        .reply(properties)
+                        // Override the response topic with the path.
+                        .topic(&topic)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
+                        .unwrap();
+
+                    if client.publish(message).is_err() {
+                        Response::error("Can't publish `Get` response")
+                    } else {
+                        Response::ok()
                     }
                 }
                 Command::Set { path, value } => {
@@ -544,6 +537,7 @@ where
             };
 
             if have_response_topic {
+
                 let props = [minimq::Property::UserProperty(
                     minimq::types::Utf8String("code"),
                     minimq::types::Utf8String(response.code.as_ref()),
@@ -567,6 +561,7 @@ where
                     // always fit into it.
                     self.properties_cache
                         .replace(Vec::from_slice(binary_props).unwrap());
+                    // TODO: Figure out how to handle cached responses
                     self.pending_response.replace(response);
                 }
             }
