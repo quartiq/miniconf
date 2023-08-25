@@ -116,7 +116,7 @@ async fn main() {
                     return Err("Exiting now");
                 }
 
-                return Ok(());
+                Ok(())
             })
             .unwrap();
 

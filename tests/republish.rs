@@ -62,9 +62,7 @@ async fn verify_settings() {
         })
         .unwrap();
 
-        if received_settings
-            .iter()
-            .map(|(_, value)| value)
+        if received_settings.values()
             .all(|&x| x >= 1)
         {
             break;
@@ -74,9 +72,7 @@ async fn verify_settings() {
     }
 
     // Ensure that all fields were iterated exactly once.
-    assert!(received_settings
-        .iter()
-        .map(|(_, value)| value)
+    assert!(received_settings.values()
         .all(|&x| x == 1));
 }
 

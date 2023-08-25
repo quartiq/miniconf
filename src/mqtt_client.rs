@@ -453,7 +453,8 @@ where
                         .properties(&props)
                         // Override the response topic with the path.
                         .qos(QoS::AtLeastOnce)
-                        .finish() else {
+                        .finish()
+                    else {
                         return;
                     };
 
