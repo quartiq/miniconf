@@ -1,4 +1,4 @@
-use miniconf::{MqttClient, Tree};
+use miniconf::Tree;
 use minimq::Publication;
 use std::time::Duration;
 use std_embedded_nal::Stack;

@@ -100,8 +100,6 @@ async fn main() {
             StandardClock::default(),
             Settings::default(),
             minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
-                .client_id("tester")
-                .unwrap()
                 .session_state(&mut session)
                 .keepalive_interval(60),
         )

@@ -87,9 +87,9 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     let task = tokio::task::spawn(async move { verify_settings().await });
 
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_buffer = [0u8; 256];
-    let mut session = [0u8; 256];
+    let mut rx_buffer = [0u8; 512];
+    let mut tx_buffer = [0u8; 512];
+    let mut session = [0u8; 512];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 
     // Construct a settings configuration interface.
@@ -100,8 +100,6 @@ async fn main() {
             StandardClock::default(),
             Settings::default(),
             minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
-                .client_id("tester")
-                .unwrap()
                 .session_state(&mut session)
                 .keepalive_interval(60),
         )

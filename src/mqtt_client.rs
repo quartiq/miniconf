@@ -139,13 +139,20 @@ impl<'a> Command<'a> {
 ///     foo: bool,
 /// }
 ///
-/// let mut client: MqttClient<_, _, _, 256, 1> = MqttClient::new(
+/// let mut rx_buffer = [0u8; 512];
+/// let mut tx_buffer = [0u8; 512];
+/// let mut session = [0u8; 512];
+/// let mut will = [0; 64];
+/// let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+/// let mut client: MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
-///     "",                          // client_id auto-assign
 ///     "quartiq/application/12345", // prefix
-///     "127.0.0.1".parse().unwrap(),
 ///     std_embedded_time::StandardClock::default(),
 ///     Settings::default(),
+///     minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+///         .session_state(&mut session)
+///         .will_buffer(&mut will)
+///         .keepalive_interval(60),
 /// )
 /// .unwrap();
 ///
