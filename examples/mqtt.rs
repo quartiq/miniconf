@@ -1,5 +1,5 @@
 use miniconf::{MqttClient, Tree};
-use minimq::{Minimq, Publication};
+use minimq::Publication;
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -22,13 +22,19 @@ struct Settings {
 
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: Minimq<_, _, 256, 1> = Minimq::new(
-        "127.0.0.1".parse().unwrap(),
-        "tester",
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_buffer = [0u8; 256];
+    let mut session = [0u8; 256];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack::default(),
         StandardClock::default(),
-    )
-    .unwrap();
+        minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+            .client_id("tester")
+            .unwrap()
+            .session_state(&mut session)
+            .keepalive_interval(60),
+    );
 
     // Wait for the broker connection
     while !mqtt.client().is_connected() {
@@ -78,15 +84,25 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut client: MqttClient<_, _, _, 256, 2> = MqttClient::new(
-        Stack::default(),
-        "",
-        "sample/prefix",
-        "127.0.0.1".parse().unwrap(),
-        StandardClock::default(),
-        Settings::default(),
-    )
-    .unwrap();
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_buffer = [0u8; 256];
+    let mut session = [0u8; 256];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+
+    // Construct a settings configuration interface.
+    let mut client: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
+        miniconf::MqttClient::new(
+            Stack::default(),
+            "republish/device",
+            StandardClock::default(),
+            Settings::default(),
+            minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+                .client_id("tester")
+                .unwrap()
+                .session_state(&mut session)
+                .keepalive_interval(60),
+        )
+        .unwrap();
 
     loop {
         if client.update().unwrap() {

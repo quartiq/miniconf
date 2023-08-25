@@ -19,13 +19,19 @@ struct Response {
 
 async fn client_task() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, _, 256, 1> = minimq::Minimq::new(
-        "127.0.0.1".parse().unwrap(),
-        "tester",
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_buffer = [0u8; 256];
+    let mut session = [0u8; 256];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack::default(),
         StandardClock::default(),
-    )
-    .unwrap();
+        minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+            .client_id("tester")
+            .unwrap()
+            .session_state(&mut session)
+            .keepalive_interval(60),
+    );
 
     // Wait for the broker connection
     while !mqtt.client().is_connected() {
@@ -81,15 +87,25 @@ async fn main() {
     tokio::task::spawn(async move { client_task().await });
 
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<_, _, _, 256, 1> = miniconf::MqttClient::new(
-        Stack::default(),
-        "",
-        "validation_failure/device",
-        "127.0.0.1".parse().unwrap(),
-        StandardClock::default(),
-        Settings::default(),
-    )
-    .unwrap();
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_buffer = [0u8; 256];
+    let mut session = [0u8; 256];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+
+    // Construct a settings configuration interface.
+    let mut interface: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> =
+        miniconf::MqttClient::new(
+            Stack::default(),
+            "validation_failure/device",
+            StandardClock::default(),
+            Settings::default(),
+            minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+                .client_id("tester")
+                .unwrap()
+                .session_state(&mut session)
+                .keepalive_interval(60),
+        )
+        .unwrap();
 
     // Update the client until the exit
     let mut should_exit = false;

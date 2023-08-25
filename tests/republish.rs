@@ -19,13 +19,19 @@ struct Settings {
 
 async fn verify_settings() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, _, 256, 1> = minimq::Minimq::new(
-        "127.0.0.1".parse().unwrap(),
-        "tester",
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_buffer = [0u8; 256];
+    let mut session = [0u8; 256];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack::default(),
         StandardClock::default(),
-    )
-    .unwrap();
+        minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+            .client_id("tester")
+            .unwrap()
+            .session_state(&mut session)
+            .keepalive_interval(60),
+    );
 
     // Wait for the broker connection
     while !mqtt.client().is_connected() {
@@ -81,16 +87,25 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     let task = tokio::task::spawn(async move { verify_settings().await });
 
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_buffer = [0u8; 256];
+    let mut session = [0u8; 256];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 2> = miniconf::MqttClient::new(
-        Stack::default(),
-        "",
-        "republish/device",
-        "127.0.0.1".parse().unwrap(),
-        StandardClock::default(),
-        Settings::default(),
-    )
-    .unwrap();
+    let mut interface: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
+        miniconf::MqttClient::new(
+            Stack::default(),
+            "republish/device",
+            StandardClock::default(),
+            Settings::default(),
+            minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+                .client_id("tester")
+                .unwrap()
+                .session_state(&mut session)
+                .keepalive_interval(60),
+        )
+        .unwrap();
 
     // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
     // all settings values.
