@@ -1,6 +1,6 @@
 use crate::{Error, JsonCoreSlash, TreeKey};
 use core::fmt::Write;
-use heapless::{String, Vec};
+use heapless::String;
 use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
@@ -194,7 +194,7 @@ where
         prefix: &str,
         clock: Clock,
         settings: Settings,
-        mut config: minimq::Config<'buf, Broker>,
+        config: minimq::Config<'buf, Broker>,
     ) -> Result<Self, minimq::Error<Stack::Error>> {
         // Configure a will so that we can indicate whether or not we are connected.
         let prefix = String::from(prefix);
@@ -204,10 +204,11 @@ where
         will.retained(Retain::Retained);
         will.qos(QoS::AtMostOnce);
 
-        let config = config
+        let mut config = config
             .keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
-            .autodowngrade_qos()
-            .will(will);
+            .autodowngrade_qos();
+
+        config.will(will).ok();
 
         let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
