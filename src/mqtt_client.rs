@@ -5,7 +5,7 @@ use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{SubscriptionOptions, TopicFilter},
-    Publication, QoS, Retain,
+    DeferredPublication, Publication, QoS, Retain,
 };
 
 // The maximum topic length of any settings path.
@@ -211,11 +211,11 @@ where
         will.retained(Retain::Retained);
         will.qos(QoS::AtMostOnce);
 
-        let mut config = config
+        let config = config
             .keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
             .autodowngrade_qos();
 
-        config.will(will).ok();
+        let config = config.will(will).unwrap();
 
         let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
@@ -281,13 +281,6 @@ where
 
             let topic = topic.unwrap();
 
-            let payload = minimq::publication::DeferedPayload::new(|buf| {
-                // If the topic is not present, we'll fail to serialize the setting into the
-                // payload and will never publish. The iterator has already incremented, so this is
-                // acceptable.
-                self.settings.get_json(&topic, buf)
-            });
-
             let mut prefixed_topic = self.prefix.clone();
             prefixed_topic
                 .push_str("/settings")
@@ -296,15 +289,20 @@ where
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
-            self.mqtt
+            match self.mqtt
                 .client()
                 .publish(
-                    Publication::new(payload)
+                    // If the topic is not present, we'll fail to serialize the setting into the
+                    // payload and will never publish. The iterator has already incremented, so this is
+                    // acceptable.
+                    DeferredPublication::new(|buf| self.settings.get_json(&topic, buf))
                         .topic(&prefixed_topic)
                         .finish()
                         .unwrap(),
-                )
-                .ok();
+                ) {
+                Err(minimq::PubError::Serialization(Error::Absent(_))) => {},
+                other => other.unwrap(),
+            }
         }
     }
 
@@ -439,16 +437,12 @@ where
                 }
 
                 Command::Get { path } => {
-                    let payload = minimq::publication::DeferedPayload::new(|buf| {
-                        self.settings.get_json(path, buf)
-                    });
-
                     let props = [minimq::Property::UserProperty(
                         minimq::types::Utf8String("code"),
                         minimq::types::Utf8String(ResponseCode::Ok.as_ref()),
                     )];
 
-                    let Ok(message) = minimq::Publication::new(payload)
+                    let Ok(message) = DeferredPublication::new(|buf| self.settings.get_json(path, buf))
                         .reply(properties)
                         .properties(&props)
                         // Override the response topic with the path.
@@ -459,7 +453,7 @@ where
                     };
 
                     match client.publish(message) {
-                        Err(minimq::PubError::Custom(error)) => error.into(),
+                        Err(minimq::PubError::Serialization(error)) => error.into(),
 
                         // Otherwise, we should consider the response sent.
                         _ => return,
