@@ -1,6 +1,6 @@
 use crate::{Error, JsonCoreSlash, TreeKey};
 use core::fmt::Write;
-use heapless::String;
+use heapless::{String, Vec};
 use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
@@ -10,6 +10,9 @@ use minimq::{
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
+
+// The maximum amount of correlation data that will be cached for listing.
+const MAX_CD_LENGTH: usize = 16;
 
 // The keepalive interval to use for MQTT in seconds.
 const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
@@ -113,6 +116,11 @@ impl<'a> Command<'a> {
     }
 }
 
+struct ListCache {
+    topic: String<MAX_TOPIC_LENGTH>,
+    correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
+}
+
 /// MQTT settings interface.
 ///
 /// # Design
@@ -171,7 +179,7 @@ where
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<(String<MAX_TOPIC_LENGTH>, Iter<Settings, Y>)>,
+    listing_state: Option<(ListCache, Iter<Settings, Y>)>,
 }
 
 impl<'buf, Settings, Stack, Clock, Broker, const Y: usize>
@@ -226,7 +234,7 @@ where
     }
 
     fn handle_listing(&mut self) {
-        let Some((topic, iter)) = &mut self.listing_state else {
+        let Some((cache, iter)) = &mut self.listing_state else {
             return;
         };
 
@@ -243,19 +251,29 @@ where
                 minimq::types::Utf8String(response.code.as_ref()),
             )];
 
-            self.mqtt
-                .client()
-                .publish(
-                    // Note(unwrap): We already guaranteed that the reply properties have a response
-                    // topic.
-                    Publication::new(response.msg.as_bytes())
-                        .topic(topic)
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        .unwrap(),
-                )
-                .unwrap();
+            let outgoing = Publication::new(response.msg.as_bytes())
+                .topic(&cache.topic)
+                .properties(&props)
+                .qos(QoS::AtLeastOnce);
+
+            let outgoing = if let Some(cd) = &cache.correlation_data {
+                outgoing.correlate(cd)
+            } else {
+                outgoing
+            };
+
+            let publication = match outgoing.finish() {
+                Ok(response) => response,
+                Err(e) => {
+                    // Something went wrong. Abort the listing.
+                    log::error!("Listing failed to build response: {e:?}");
+                    self.listing_state.take();
+                    return;
+                }
+            };
+
+            // Note(unwrap) We already checked that we can publish earlier.
+            self.mqtt.client().publish(publication).unwrap();
 
             // If we're done with listing, bail out of the loop.
             if response.code != ResponseCode::Continue {
@@ -413,15 +431,13 @@ where
             let response: Response<32> = match command {
                 Command::List => {
                     if self.listing_state.is_none() {
-                        let response_topic = properties.into_iter().response_topic().unwrap();
-
-                        if let Ok(topic) = String::try_from(response_topic) {
-                            self.listing_state
-                                // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                                .replace((topic, Settings::iter_paths_unchecked("/")));
-                            Response::ok()
-                        } else {
-                            Response::error("Response topic too long")
+                        match handle_listing_request(properties) {
+                            Err(msg) => Response::error(msg),
+                            Ok(cache) => {
+                                self.listing_state
+                                    .replace((cache, Settings::iter_paths_unchecked("/")));
+                                Response::ok()
+                            }
                         }
                     } else {
                         Response::error("`List` already in progress")
@@ -606,4 +622,29 @@ impl<const N: usize, T: core::fmt::Debug> From<Error<T>> for Response<N> {
             msg,
         }
     }
+}
+
+fn handle_listing_request(
+    properties: &minimq::types::Properties<'_>,
+) -> Result<ListCache, &'static str> {
+    // If the response topic is too long, send an error
+    let response_topic = properties.into_iter().response_topic().unwrap();
+
+    // If there is a CD and it's too long, send an error response.
+    let correlation_data = if let Some(cd) = properties.into_iter().find_map(|prop| {
+        if let Ok(minimq::Property::CorrelationData(cd)) = prop {
+            Some(cd.0)
+        } else {
+            None
+        }
+    }) {
+        Some(Vec::try_from(cd).map_err(|_| "Correlation data too long")?)
+    } else {
+        None
+    };
+
+    Ok(ListCache {
+        topic: String::try_from(response_topic).map_err(|_| "Response topic too long")?,
+        correlation_data,
+    })
 }
