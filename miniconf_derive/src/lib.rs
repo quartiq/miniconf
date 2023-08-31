@@ -79,7 +79,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
             // TODO: for unnamed structs, simplify `["0", "1", "2"].position(|&n| n == value)`
             //       to `parse::<usize>(value)`
-            const __MINICONF_NAMES: [&str; #fields_len] = [#(#names ,)*];
+            const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
