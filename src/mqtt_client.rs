@@ -430,7 +430,12 @@ where
                                 Ok(cache) => {
                                     self.listing_state
                                         .replace((cache, Settings::iter_paths_unchecked("/")));
-                                    Response::ok()
+
+                                    // There is no positive response sent during list commands,
+                                    // instead, the response is sent as a property of the listed
+                                    // elements. As such, we are now finished processing a list
+                                    // command.
+                                    return;
                                 }
                             }
                         } else {
