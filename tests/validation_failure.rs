@@ -19,18 +19,12 @@ struct Response {
 
 async fn client_task() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_buffer = [0u8; 256];
-    let mut session = [0u8; 256];
+    let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
     let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
-        Stack::default(),
+        Stack,
         StandardClock::default(),
-        minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
-            .client_id("tester")
-            .unwrap()
-            .session_state(&mut session)
-            .keepalive_interval(60),
+        minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
     );
 
     // Wait for the broker connection
@@ -87,21 +81,15 @@ async fn main() {
     tokio::task::spawn(async move { client_task().await });
 
     // Construct a settings configuration interface.
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_buffer = [0u8; 256];
-    let mut session = [0u8; 256];
+    let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
-
-    // Construct a settings configuration interface.
     let mut interface: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> =
         miniconf::MqttClient::new(
-            Stack::default(),
+            Stack,
             "validation_failure/device",
             StandardClock::default(),
             Settings::default(),
-            minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
-                .session_state(&mut session)
-                .keepalive_interval(60),
+            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
         )
         .unwrap();
 

@@ -431,13 +431,18 @@ where
             let response: Response<32> = match command {
                 Command::List => {
                     if self.listing_state.is_none() {
-                        match handle_listing_request(properties) {
-                            Err(msg) => Response::error(msg),
-                            Ok(cache) => {
-                                self.listing_state
-                                    .replace((cache, Settings::iter_paths_unchecked("/")));
-                                Response::ok()
+                        if have_response_topic {
+                            match handle_listing_request(properties) {
+                                Err(msg) => Response::error(msg),
+                                Ok(cache) => {
+                                    self.listing_state
+                                        .replace((cache, Settings::iter_paths_unchecked("/")));
+                                    Response::ok()
+                                }
                             }
+                        } else {
+                            log::info!("Discarding `List` without `ResponseTopic`");
+                            return;
                         }
                     } else {
                         Response::error("`List` already in progress")
