@@ -119,6 +119,8 @@ class Miniconf:
             return
 
         if code == 'Ok':
+            if response:
+                handler[0].append(response)
             handler[1].set_result(handler[0])
         else:
             handler[1].set_exception(MiniconfException(

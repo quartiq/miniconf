@@ -573,7 +573,7 @@ struct Response<const N: usize> {
 impl<const N: usize> Response<N> {
     pub fn ok() -> Self {
         Self {
-            msg: String::from("OK"),
+            msg: String::new(),
             code: ResponseCode::Ok,
         }
     }
