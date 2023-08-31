@@ -20,7 +20,7 @@ itoa = "1.0.4"
 serde-json-core = { version = "0.5.1" , optional = true }
 log = {version = "0.4", optional = true }
 heapless = { version = "0.7", optional=true }
-minimq = { git = "https://github.com/quartiq/minimq", optional = true, branch = "feature/error-fix"}
+minimq = { git = "https://github.com/quartiq/minimq", optional = true}
 smlang = { version = "0.6", optional = true }
 
 [features]
