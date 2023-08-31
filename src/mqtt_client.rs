@@ -14,9 +14,6 @@ const MAX_TOPIC_LENGTH: usize = 128;
 // The maximum amount of correlation data that will be cached for listing.
 const MAX_CD_LENGTH: usize = 16;
 
-// The keepalive interval to use for MQTT in seconds.
-const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
-
 // The delay after not receiving messages after initial connection that settings will be
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
@@ -135,8 +132,7 @@ struct ListCache {
 /// connect to it when errors occur.
 ///
 /// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
-/// Keepalive interval and re-publication timeout are fixed to `KEEPALIVE_INTERVAL_SECONDS = 60` and
-/// `REPUBLISH_TIMEOUT_SECONDS = 2` seconds respectively.
+/// Re-publication timeout is fixed to `REPUBLISH_TIMEOUT_SECONDS = 2` seconds.
 ///
 /// # Example
 /// ```
@@ -213,11 +209,7 @@ where
         will.retained(Retain::Retained);
         will.qos(QoS::AtMostOnce);
 
-        let config = config
-            .keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
-            .autodowngrade_qos();
-
-        let config = config.will(will)?;
+        let config = config.autodowngrade_qos().will(will)?;
 
         let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
@@ -463,13 +455,18 @@ where
                             .qos(QoS::AtLeastOnce)
                             .finish()
                     else {
+                        // If we can't create the publication, it's because there's no way to reply
+                        // to the message. Since we don't know where to send things, abort now and
+                        // complete handling of the `Get` request.
                         return;
                     };
 
                     match client.publish(message) {
                         Err(minimq::PubError::Serialization(error)) => error.into(),
 
-                        // Otherwise, we should consider the response sent.
+                        // Otherwise, we should consider the response sent. Handling of this
+                        // `Get` command is now complete and we have responded appropriately (or
+                        // within our current capacity).
                         _ => return,
                     }
                 }
@@ -497,6 +494,8 @@ where
                     .qos(QoS::AtLeastOnce)
                     .finish()
                 else {
+                    // If we couldn't build the response for some reason, complete handling of the
+                    // request immediately. There's nothing more we can do.
                     log::warn!("Failed to build response `Pub`");
                     return;
                 };

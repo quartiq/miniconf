@@ -23,15 +23,18 @@ struct Settings {
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
     let mut buffer = [0u8; 1024];
-    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
-    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
-        Stack::default(),
-        StandardClock::default(),
-        minimq::ConfigBuilder::new(localhost.into(), &mut buffer)
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::NamedBroker<Stack>> =
+        minimq::Minimq::new(
+            Stack::default(),
+            StandardClock::default(),
+            minimq::ConfigBuilder::new(
+                minimq::broker::NamedBroker::new("localhost", Stack).unwrap(),
+                &mut buffer,
+            )
             .client_id("tester")
             .unwrap()
             .keepalive_interval(60),
-    );
+        );
 
     // Wait for the broker connection
     while !mqtt.client().is_connected() {
@@ -39,6 +42,8 @@ async fn mqtt_client() {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+
+    log::info!("Test client connected");
 
     // Wait momentarily for the other client to connect.
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -88,7 +93,7 @@ async fn main() {
     let mut client: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
         miniconf::MqttClient::new(
             Stack::default(),
-            "republish/device",
+            "sample/prefix",
             StandardClock::default(),
             Settings::default(),
             minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
