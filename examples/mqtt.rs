@@ -22,17 +22,14 @@ struct Settings {
 
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_buffer = [0u8; 256];
-    let mut session = [0u8; 256];
+    let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
     let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack::default(),
         StandardClock::default(),
-        minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
+        minimq::ConfigBuilder::new(localhost.into(), &mut buffer)
             .client_id("tester")
             .unwrap()
-            .session_state(&mut session)
             .keepalive_interval(60),
     );
 
@@ -84,9 +81,7 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_buffer = [0u8; 256];
-    let mut session = [0u8; 256];
+    let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 
     // Construct a settings configuration interface.
@@ -96,11 +91,7 @@ async fn main() {
             "republish/device",
             StandardClock::default(),
             Settings::default(),
-            minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
-                .client_id("tester")
-                .unwrap()
-                .session_state(&mut session)
-                .keepalive_interval(60),
+            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
         )
         .unwrap();
 
