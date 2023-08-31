@@ -5,7 +5,7 @@ use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{SubscriptionOptions, TopicFilter},
-    DeferredPublication, Publication, QoS, Retain,
+    DeferredPublication, Publication, QoS,
 };
 
 // The maximum topic length of any settings path.
@@ -206,9 +206,9 @@ where
         let prefix = String::from(prefix);
         let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
-        let mut will = minimq::Will::new(&connection_topic, b"0", &[])?;
-        will.retained(Retain::Retained);
-        will.qos(QoS::AtMostOnce);
+        let will = minimq::Will::new(&connection_topic, b"0", &[])?
+            .retained()
+            .qos(QoS::AtMostOnce);
 
         let config = config.autodowngrade_qos().will(will)?;
 
