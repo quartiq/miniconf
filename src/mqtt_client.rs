@@ -139,20 +139,14 @@ impl<'a> Command<'a> {
 ///     foo: bool,
 /// }
 ///
-/// let mut rx_buffer = [0u8; 512];
-/// let mut tx_buffer = [0u8; 512];
-/// let mut session = [0u8; 512];
-/// let mut will = [0; 64];
+/// let mut buffer = [0u8; 1024];
 /// let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 /// let mut client: MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),
 ///     Settings::default(),
-///     minimq::Config::new(localhost.into(), &mut rx_buffer, &mut tx_buffer)
-///         .session_state(&mut session)
-///         .will_buffer(&mut will)
-///         .keepalive_interval(60),
+///     minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
 /// )
 /// .unwrap();
 ///
@@ -201,13 +195,13 @@ where
         prefix: &str,
         clock: Clock,
         settings: Settings,
-        config: minimq::Config<'buf, Broker>,
-    ) -> Result<Self, minimq::Error<Stack::Error>> {
+        config: minimq::ConfigBuilder<'buf, Broker>,
+    ) -> Result<Self, minimq::ProtocolError> {
         // Configure a will so that we can indicate whether or not we are connected.
         let prefix = String::from(prefix);
         let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
-        let mut will = minimq::Will::new(&connection_topic, b"0", &[]).unwrap();
+        let mut will = minimq::Will::new(&connection_topic, b"0", &[])?;
         will.retained(Retain::Retained);
         will.qos(QoS::AtMostOnce);
 
@@ -215,7 +209,7 @@ where
             .keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)
             .autodowngrade_qos();
 
-        let config = config.will(will).unwrap();
+        let config = config.will(will)?;
 
         let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
@@ -289,18 +283,16 @@ where
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
-            match self.mqtt
-                .client()
-                .publish(
-                    // If the topic is not present, we'll fail to serialize the setting into the
-                    // payload and will never publish. The iterator has already incremented, so this is
-                    // acceptable.
-                    DeferredPublication::new(|buf| self.settings.get_json(&topic, buf))
-                        .topic(&prefixed_topic)
-                        .finish()
-                        .unwrap(),
-                ) {
-                Err(minimq::PubError::Serialization(Error::Absent(_))) => {},
+            match self.mqtt.client().publish(
+                // If the topic is not present, we'll fail to serialize the setting into the
+                // payload and will never publish. The iterator has already incremented, so this is
+                // acceptable.
+                DeferredPublication::new(|buf| self.settings.get_json(&topic, buf))
+                    .topic(&prefixed_topic)
+                    .finish()
+                    .unwrap(),
+            ) {
+                Err(minimq::PubError::Serialization(Error::Absent(_))) => {}
                 other => other.unwrap(),
             }
         }
@@ -442,12 +434,13 @@ where
                         minimq::types::Utf8String(ResponseCode::Ok.as_ref()),
                     )];
 
-                    let Ok(message) = DeferredPublication::new(|buf| self.settings.get_json(path, buf))
-                        .reply(properties)
-                        .properties(&props)
-                        // Override the response topic with the path.
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
+                    let Ok(message) =
+                        DeferredPublication::new(|buf| self.settings.get_json(path, buf))
+                            .reply(properties)
+                            .properties(&props)
+                            // Override the response topic with the path.
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
                     else {
                         return;
                     };
