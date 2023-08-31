@@ -11,8 +11,9 @@ use minimq::{
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
 
-// The maximum amount of correlation data that will be cached for listing.
-const MAX_CD_LENGTH: usize = 16;
+// The maximum amount of correlation data that will be cached for listing. This is set to function
+// with the Miniconf python client (i.e. 32 bytes can encode a UUID).
+const MAX_CD_LENGTH: usize = 32;
 
 // The delay after not receiving messages after initial connection that settings will be
 // republished.
