@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The derive macros have been split accordingly. A shorthand `#[derive(Tree)]` macro has been
   added to derive all three traits. The struct field attribute controlling
   recursion depth has been renamed to `#[tree(depth(Y))]`.
+* [mqtt] The `List` command of the `MqttClient` now has a maximum correlation data length of 32 bytes
+* [mqtt] The `MqttClient` API has changed to support new Minimq versions
+* [mqtt] The `Get` command now only generates a single message in response to the provided
+  ResponseTopic instead of a response type (with success) and a message on the original topic.
 
 ### Added
 
