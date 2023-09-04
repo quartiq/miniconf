@@ -304,6 +304,28 @@ where
                     .unwrap(),
             ) {
                 Err(minimq::PubError::Serialization(Error::Absent(_))) => {}
+
+                // If the value is too large to serialize, print an error to the topic instead
+                Err(minimq::PubError::Error(minimq::Error::Minimq(
+                    minimq::MinimqError::Protocol(minimq::ProtocolError::Serialization(
+                        minimq::SerError::InsufficientMemory,
+                    )),
+                ))) => {
+                    let props = [minimq::Property::UserProperty(
+                        minimq::types::Utf8String("code"),
+                        minimq::types::Utf8String(ResponseCode::Error.as_ref()),
+                    )];
+                    self.mqtt
+                        .client()
+                        .publish(
+                            Publication::new(b"<error: serialization too large>")
+                                .topic(&prefixed_topic)
+                                .properties(&props)
+                                .finish()
+                                .unwrap(),
+                        )
+                        .unwrap();
+                }
                 other => other.unwrap(),
             }
         }
