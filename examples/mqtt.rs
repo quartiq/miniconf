@@ -1,5 +1,5 @@
-use miniconf::{MqttClient, Tree};
-use minimq::{Minimq, Publication};
+use miniconf::Tree;
+use minimq::Publication;
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -22,13 +22,19 @@ struct Settings {
 
 async fn mqtt_client() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: Minimq<_, _, 256, 1> = Minimq::new(
-        "127.0.0.1".parse().unwrap(),
-        "tester",
-        Stack::default(),
-        StandardClock::default(),
-    )
-    .unwrap();
+    let mut buffer = [0u8; 1024];
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::NamedBroker<Stack>> =
+        minimq::Minimq::new(
+            Stack::default(),
+            StandardClock::default(),
+            minimq::ConfigBuilder::new(
+                minimq::broker::NamedBroker::new("localhost", Stack).unwrap(),
+                &mut buffer,
+            )
+            .client_id("tester")
+            .unwrap()
+            .keepalive_interval(60),
+        );
 
     // Wait for the broker connection
     while !mqtt.client().is_connected() {
@@ -36,6 +42,8 @@ async fn mqtt_client() {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+
+    log::info!("Test client connected");
 
     // Wait momentarily for the other client to connect.
     tokio::time::sleep(Duration::from_secs(1)).await;
@@ -78,15 +86,19 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     tokio::task::spawn(async move { mqtt_client().await });
 
-    let mut client: MqttClient<_, _, _, 256, 2> = MqttClient::new(
-        Stack::default(),
-        "",
-        "sample/prefix",
-        "127.0.0.1".parse().unwrap(),
-        StandardClock::default(),
-        Settings::default(),
-    )
-    .unwrap();
+    let mut buffer = [0u8; 1024];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+
+    // Construct a settings configuration interface.
+    let mut client: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
+        miniconf::MqttClient::new(
+            Stack::default(),
+            "sample/prefix",
+            StandardClock::default(),
+            Settings::default(),
+            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+        )
+        .unwrap();
 
     loop {
         if client.update().unwrap() {

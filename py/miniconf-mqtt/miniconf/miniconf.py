@@ -119,6 +119,8 @@ class Miniconf:
             return
 
         if code == 'Ok':
+            if response:
+                handler[0].append(response)
             handler[1].set_result(handler[0])
         else:
             handler[1].set_exception(MiniconfException(
@@ -171,6 +173,7 @@ class Miniconf:
         request_id = uuid.uuid1().hex.encode()
         assert request_id not in self.inflight
         self.inflight[request_id] = ([], fut)
+        LOGGER.info('Listing with CD: %s (%d bytes)', request_id, len(request_id))
 
         self.client.publish(f'{self.prefix}/list', payload='',
                             correlation_data=request_id,

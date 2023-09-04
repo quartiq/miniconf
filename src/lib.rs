@@ -26,6 +26,9 @@ mod mqtt_client;
 #[cfg(feature = "mqtt-client")]
 pub use mqtt_client::*;
 
+#[cfg(feature = "mqtt-client")]
+pub use minimq;
+
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};

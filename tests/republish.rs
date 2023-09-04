@@ -19,13 +19,16 @@ struct Settings {
 
 async fn verify_settings() {
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt: minimq::Minimq<_, _, 256, 1> = minimq::Minimq::new(
-        "127.0.0.1".parse().unwrap(),
-        "tester",
+    let mut buffer = [0u8; 1024];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack::default(),
         StandardClock::default(),
-    )
-    .unwrap();
+        minimq::ConfigBuilder::new(localhost.into(), &mut buffer)
+            .client_id("tester")
+            .unwrap()
+            .keepalive_interval(60),
+    );
 
     // Wait for the broker connection
     while !mqtt.client().is_connected() {
@@ -56,11 +59,7 @@ async fn verify_settings() {
         })
         .unwrap();
 
-        if received_settings
-            .iter()
-            .map(|(_, value)| value)
-            .all(|&x| x >= 1)
-        {
+        if received_settings.values().all(|&x| x >= 1) {
             break;
         }
 
@@ -68,10 +67,7 @@ async fn verify_settings() {
     }
 
     // Ensure that all fields were iterated exactly once.
-    assert!(received_settings
-        .iter()
-        .map(|(_, value)| value)
-        .all(|&x| x == 1));
+    assert!(received_settings.values().all(|&x| x == 1));
 }
 
 #[tokio::test]
@@ -81,16 +77,19 @@ async fn main() {
     // Spawn a task to send MQTT messages.
     let task = tokio::task::spawn(async move { verify_settings().await });
 
+    let mut buffer = [0u8; 1024];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+
     // Construct a settings configuration interface.
-    let mut interface: miniconf::MqttClient<Settings, _, _, 256, 2> = miniconf::MqttClient::new(
-        Stack::default(),
-        "",
-        "republish/device",
-        "127.0.0.1".parse().unwrap(),
-        StandardClock::default(),
-        Settings::default(),
-    )
-    .unwrap();
+    let mut interface: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
+        miniconf::MqttClient::new(
+            Stack,
+            "republish/device",
+            StandardClock::default(),
+            Settings::default(),
+            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+        )
+        .unwrap();
 
     // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
     // all settings values.

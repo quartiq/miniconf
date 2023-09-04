@@ -88,27 +88,29 @@ impl Timer {
 fn main() -> std::io::Result<()> {
     env_logger::init();
 
-    let localhost = "127.0.0.1".parse().unwrap();
-
     // Construct a Minimq client to the broker for publishing requests.
-    let mut mqtt = minimq::Minimq::<_, _, 256, 1>::new(
-        localhost,
-        "tester",
-        Stack::default(),
+    let mut buffer = [0u8; 1024];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
+        Stack,
         StandardClock::default(),
-    )
-    .unwrap();
+        minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+    );
 
     // Construct a settings configuration interface.
-    let mut interface = miniconf::MqttClient::<_, _, _, 256, 2>::new(
-        Stack::default(),
-        "",
-        "device",
-        localhost,
-        StandardClock::default(),
-        Settings::default(),
-    )
-    .unwrap();
+    let mut buffer = [0u8; 1024];
+    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+
+    // Construct a settings configuration interface.
+    let mut interface: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
+        miniconf::MqttClient::new(
+            Stack,
+            "device",
+            StandardClock::default(),
+            Settings::default(),
+            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+        )
+        .unwrap();
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();

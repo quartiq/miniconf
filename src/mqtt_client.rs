@@ -2,17 +2,18 @@ use crate::{Error, JsonCoreSlash, TreeKey};
 use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
-    embedded_nal::{IpAddr, TcpClientStack},
+    embedded_nal::TcpClientStack,
     embedded_time,
     types::{SubscriptionOptions, TopicFilter},
-    Publication, QoS, Retain,
+    DeferredPublication, Publication, QoS,
 };
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
 
-// The keepalive interval to use for MQTT in seconds.
-const KEEPALIVE_INTERVAL_SECONDS: u16 = 60;
+// The maximum amount of correlation data that will be cached for listing. This is set to function
+// with the Miniconf python client (i.e. 32 bytes can encode a UUID).
+const MAX_CD_LENGTH: usize = 32;
 
 // The delay after not receiving messages after initial connection that settings will be
 // republished.
@@ -113,6 +114,11 @@ impl<'a> Command<'a> {
     }
 }
 
+struct ListCache {
+    topic: String<MAX_TOPIC_LENGTH>,
+    correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
+}
+
 /// MQTT settings interface.
 ///
 /// # Design
@@ -127,8 +133,7 @@ impl<'a> Command<'a> {
 /// connect to it when errors occur.
 ///
 /// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
-/// Keepalive interval and re-publication timeout are fixed to `KEEPALIVE_INTERVAL_SECONDS = 60` and
-/// `REPUBLISH_TIMEOUT_SECONDS = 2` seconds respectively.
+/// Re-publication timeout is fixed to `REPUBLISH_TIMEOUT_SECONDS = 2` seconds.
 ///
 /// # Example
 /// ```
@@ -139,13 +144,14 @@ impl<'a> Command<'a> {
 ///     foo: bool,
 /// }
 ///
-/// let mut client: MqttClient<_, _, _, 256, 1> = MqttClient::new(
+/// let mut buffer = [0u8; 1024];
+/// let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+/// let mut client: MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> = MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
-///     "",                          // client_id auto-assign
 ///     "quartiq/application/12345", // prefix
-///     "127.0.0.1".parse().unwrap(),
 ///     std_embedded_time::StandardClock::default(),
 ///     Settings::default(),
+///     minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
 /// )
 /// .unwrap();
 ///
@@ -159,64 +165,54 @@ impl<'a> Command<'a> {
 ///     })
 ///     .unwrap();
 /// ```
-pub struct MqttClient<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
+pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
 where
     Settings: TreeKey<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
+    Broker: minimq::Broker,
 {
-    mqtt: minimq::Minimq<Stack, Clock, MESSAGE_SIZE, 1>,
+    mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
     settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<Iter<Settings, Y>>,
-    properties_cache: Option<Vec<u8, MESSAGE_SIZE>>,
-    pending_response: Option<Response<32>>,
+    listing_state: Option<(ListCache, Iter<Settings, Y>)>,
 }
 
-impl<Settings, Stack, Clock, const MESSAGE_SIZE: usize, const Y: usize>
-    MqttClient<Settings, Stack, Clock, MESSAGE_SIZE, Y>
+impl<'buf, Settings, Stack, Clock, Broker, const Y: usize>
+    MqttClient<'buf, Settings, Stack, Clock, Broker, Y>
 where
     for<'de> Settings: JsonCoreSlash<'de, Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
+    Broker: minimq::Broker,
 {
     /// Construct a new MQTT settings interface.
     ///
     /// # Args
     /// * `stack` - The network stack to use for communication.
-    /// * `client_id` - The ID of the MQTT client. May be an empty string for auto-assigning.
     /// * `prefix` - The MQTT device prefix to use for this device.
-    /// * `broker` - The IP address of the MQTT broker to use.
     /// * `clock` - The clock for managing the MQTT connection.
     /// * `settings` - The initial settings values.
+    /// * `config` - The configuration of the MQTT client.
     pub fn new(
         stack: Stack,
-        client_id: &str,
         prefix: &str,
-        broker: IpAddr,
         clock: Clock,
         settings: Settings,
-    ) -> Result<Self, minimq::Error<Stack::Error>> {
-        let mut mqtt = minimq::Minimq::new(broker, client_id, stack, clock.clone())?;
-
-        // Note(unwrap): The client was just created, so it's valid to set a keepalive interval
-        // now, since we're not yet connected to the broker.
-        mqtt.client()
-            .set_keepalive_interval(KEEPALIVE_INTERVAL_SECONDS)?;
-
-        let prefix = String::from(prefix);
-
+        config: minimq::ConfigBuilder<'buf, Broker>,
+    ) -> Result<Self, minimq::ProtocolError> {
         // Configure a will so that we can indicate whether or not we are connected.
+        let prefix = String::from(prefix);
         let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
-        mqtt.client().set_will(
-            &connection_topic,
-            b"0",
-            QoS::AtMostOnce,
-            Retain::Retained,
-            &[],
-        )?;
+        let will = minimq::Will::new(&connection_topic, b"0", &[])?
+            .retained()
+            .qos(QoS::AtMostOnce);
+
+        let config = config.autodowngrade_qos().will(will)?;
+
+        let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
         let meta = Settings::metadata().separator("/");
         assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
@@ -227,21 +223,13 @@ where
             settings,
             prefix,
             listing_state: None,
-            properties_cache: None,
-            pending_response: None,
         })
     }
 
     fn handle_listing(&mut self) {
-        let Some(iter) = &mut self.listing_state else {
+        let Some((cache, iter)) = &mut self.listing_state else {
             return;
         };
-
-        let Some(props) = &self.properties_cache else {
-            return;
-        };
-
-        let reply_props = minimq::types::Properties::DataBlock(props);
 
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
@@ -256,19 +244,29 @@ where
                 minimq::types::Utf8String(response.code.as_ref()),
             )];
 
-            self.mqtt
-                .client()
-                .publish(
-                    // Note(unwrap): We already guaranteed that the reply properties have a response
-                    // topic.
-                    Publication::new(response.msg.as_bytes())
-                        .reply(&reply_props)
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        .unwrap(),
-                )
-                .unwrap();
+            let outgoing = Publication::new(response.msg.as_bytes())
+                .topic(&cache.topic)
+                .properties(&props)
+                .qos(QoS::AtLeastOnce);
+
+            let outgoing = if let Some(cd) = &cache.correlation_data {
+                outgoing.correlate(cd)
+            } else {
+                outgoing
+            };
+
+            let publication = match outgoing.finish() {
+                Ok(response) => response,
+                Err(e) => {
+                    // Something went wrong. Abort the listing.
+                    log::error!("Listing failed to build response: {e:?}");
+                    self.listing_state.take();
+                    return;
+                }
+            };
+
+            // Note(unwrap) We already checked that we can publish earlier.
+            self.mqtt.client().publish(publication).unwrap();
 
             // If we're done with listing, bail out of the loop.
             if response.code != ResponseCode::Continue {
@@ -279,8 +277,6 @@ where
     }
 
     fn handle_republish(&mut self) {
-        let mut data = [0; MESSAGE_SIZE];
-
         while self.mqtt.client().can_publish(QoS::AtMostOnce) {
             let Some(topic) = self.state.context_mut().republish_state.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
@@ -290,13 +286,6 @@ where
 
             let topic = topic.unwrap();
 
-            // Note: The topic may be absent at runtime (deferred `Option`).
-            let len = match self.settings.get_json(&topic, &mut data) {
-                Err(Error::Absent(_)) => continue,
-                Ok(len) => len,
-                e => e.unwrap(),
-            };
-
             let mut prefixed_topic = self.prefix.clone();
             prefixed_topic
                 .push_str("/settings")
@@ -305,15 +294,40 @@ where
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
-            self.mqtt
-                .client()
-                .publish(
-                    Publication::new(&data[..len])
-                        .topic(&prefixed_topic)
-                        .finish()
-                        .unwrap(),
-                )
-                .unwrap();
+            match self.mqtt.client().publish(
+                // If the topic is not present, we'll fail to serialize the setting into the
+                // payload and will never publish. The iterator has already incremented, so this is
+                // acceptable.
+                DeferredPublication::new(|buf| self.settings.get_json(&topic, buf))
+                    .topic(&prefixed_topic)
+                    .finish()
+                    .unwrap(),
+            ) {
+                Err(minimq::PubError::Serialization(Error::Absent(_))) => {}
+
+                // If the value is too large to serialize, print an error to the topic instead
+                Err(minimq::PubError::Error(minimq::Error::Minimq(
+                    minimq::MinimqError::Protocol(minimq::ProtocolError::Serialization(
+                        minimq::SerError::InsufficientMemory,
+                    )),
+                ))) => {
+                    let props = [minimq::Property::UserProperty(
+                        minimq::types::Utf8String("code"),
+                        minimq::types::Utf8String(ResponseCode::Error.as_ref()),
+                    )];
+                    self.mqtt
+                        .client()
+                        .publish(
+                            Publication::new(b"<error: serialization too large>")
+                                .topic(&prefixed_topic)
+                                .properties(&props)
+                                .finish()
+                                .unwrap(),
+                        )
+                        .unwrap();
+                }
+                other => other.unwrap(),
+            }
         }
     }
 
@@ -401,45 +415,8 @@ where
 
         self.handle_listing();
 
-        self.handle_pending_response()?;
-
         // All states must handle MQTT traffic.
         self.handle_mqtt_traffic(handler)
-    }
-
-    fn handle_pending_response(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
-        // Try to publish any pending response.
-        if !self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            return Ok(());
-        }
-
-        let Some(response) = self.pending_response.take() else {
-            return Ok(());
-        };
-
-        let Some(props) = self.properties_cache.as_ref() else {
-            return Ok(());
-        };
-
-        let reply_props = minimq::types::Properties::DataBlock(props);
-
-        let props = [minimq::Property::UserProperty(
-            minimq::types::Utf8String("code"),
-            minimq::types::Utf8String(response.code.as_ref()),
-        )];
-
-        let Ok(response) = minimq::Publication::new(response.msg.as_bytes())
-            .reply(&reply_props)
-            .properties(&props)
-            .qos(QoS::AtLeastOnce)
-            .finish()
-        else {
-            return Ok(());
-        };
-
-        self.mqtt.client().publish(response)?;
-
-        Ok(())
     }
 
     fn handle_mqtt_traffic<F, E>(
@@ -462,16 +439,6 @@ where
                 return;
             };
 
-            if self.pending_response.is_some() {
-                log::warn!("Discarding command due to pending response");
-                return;
-            }
-
-            let minimq::types::Properties::DataBlock(binary_props) = properties else {
-                // Received properties are always serialized.
-                unreachable!();
-            };
-
             let have_response_topic = properties
                 .into_iter()
                 .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))));
@@ -480,55 +447,55 @@ where
                 Command::List => {
                     if self.listing_state.is_none() {
                         if have_response_topic {
-                            // We only reply if there is a response topic to publish the list to.
-                            // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
-                            // message size, so the properties (which are a portion of the message) will
-                            // always fit into it.
-                            self.properties_cache
-                                .replace(Vec::from_slice(binary_props).unwrap());
-                            self.listing_state
-                                // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                                .replace(Settings::iter_paths_unchecked("/"));
+                            match handle_listing_request(properties) {
+                                Err(msg) => Response::error(msg),
+                                Ok(cache) => {
+                                    self.listing_state
+                                        .replace((cache, Settings::iter_paths_unchecked("/")));
+
+                                    // There is no positive response sent during list commands,
+                                    // instead, the response is sent as a property of the listed
+                                    // elements. As such, we are now finished processing a list
+                                    // command.
+                                    return;
+                                }
+                            }
                         } else {
                             log::info!("Discarding `List` without `ResponseTopic`");
+                            return;
                         }
-                        // Response sent with listing.
-                        return;
                     } else {
                         Response::error("`List` already in progress")
                     }
                 }
 
                 Command::Get { path } => {
-                    let mut data = [0u8; MESSAGE_SIZE];
-                    match self.settings.get_json(path, &mut data) {
-                        Err(err) => err.into(),
-                        Ok(len) => {
-                            let mut topic = self.prefix.clone();
+                    let props = [minimq::Property::UserProperty(
+                        minimq::types::Utf8String("code"),
+                        minimq::types::Utf8String(ResponseCode::Ok.as_ref()),
+                    )];
 
-                            // Note(unwrap): We check that the string will fit during
-                            // construction.
-                            topic
-                                .push_str("/settings")
-                                .and_then(|_| topic.push_str(path))
-                                .unwrap();
+                    let Ok(message) =
+                        DeferredPublication::new(|buf| self.settings.get_json(path, buf))
+                            .reply(properties)
+                            .properties(&props)
+                            // Override the response topic with the path.
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
+                    else {
+                        // If we can't create the publication, it's because there's no way to reply
+                        // to the message. Since we don't know where to send things, abort now and
+                        // complete handling of the `Get` request.
+                        return;
+                    };
 
-                            // Note(unwrap): This construction cannot fail because there's always a
-                            // valid topic.
-                            let message = minimq::Publication::new(&data[..len])
-                                .reply(properties)
-                                // Override the response topic with the path.
-                                .topic(&topic)
-                                .qos(QoS::AtLeastOnce)
-                                .finish()
-                                .unwrap();
+                    match client.publish(message) {
+                        Err(minimq::PubError::Serialization(error)) => error.into(),
 
-                            if client.publish(message).is_err() {
-                                Response::error("Can't publish `Get` response")
-                            } else {
-                                Response::ok()
-                            }
-                        }
+                        // Otherwise, we should consider the response sent. Handling of this
+                        // `Get` command is now complete and we have responded appropriately (or
+                        // within our current capacity).
+                        _ => return,
                     }
                 }
                 Command::Set { path, value } => {
@@ -555,19 +522,14 @@ where
                     .qos(QoS::AtLeastOnce)
                     .finish()
                 else {
+                    // If we couldn't build the response for some reason, complete handling of the
+                    // request immediately. There's nothing more we can do.
                     log::warn!("Failed to build response `Pub`");
                     return;
                 };
 
-                // If we cannot publish the response yet (possibly because we just published something
-                // that hasn't completed yet), cache the response for future transmission.
                 if client.publish(response_pub).is_err() {
-                    // Note(unwrap): The vector is guaranteed to be as large as the largest MQTT
-                    // message size, so the properties (which are a portion of the message) will
-                    // always fit into it.
-                    self.properties_cache
-                        .replace(Vec::from_slice(binary_props).unwrap());
-                    self.pending_response.replace(response);
+                    log::warn!("Failed to publish response");
                 }
             }
         }) {
@@ -633,7 +595,7 @@ struct Response<const N: usize> {
 impl<const N: usize> Response<N> {
     pub fn ok() -> Self {
         Self {
-            msg: String::from("OK"),
+            msg: String::new(),
             code: ResponseCode::Ok,
         }
     }
@@ -692,4 +654,29 @@ impl<const N: usize, T: core::fmt::Debug> From<Error<T>> for Response<N> {
             msg,
         }
     }
+}
+
+fn handle_listing_request(
+    properties: &minimq::types::Properties<'_>,
+) -> Result<ListCache, &'static str> {
+    // If the response topic is too long, send an error
+    let response_topic = properties.into_iter().response_topic().unwrap();
+
+    // If there is a CD and it's too long, send an error response.
+    let correlation_data = if let Some(cd) = properties.into_iter().find_map(|prop| {
+        if let Ok(minimq::Property::CorrelationData(cd)) = prop {
+            Some(cd.0)
+        } else {
+            None
+        }
+    }) {
+        Some(Vec::try_from(cd).map_err(|_| "Correlation data too long")?)
+    } else {
+        None
+    };
+
+    Ok(ListCache {
+        topic: String::try_from(response_topic).map_err(|_| "Response topic too long")?,
+        correlation_data,
+    })
 }
