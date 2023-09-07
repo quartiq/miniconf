@@ -22,7 +22,7 @@ log = {version = "0.4", optional = true }
 heapless = { version = "0.7", optional=true }
 minimq = { git = "https://github.com/quartiq/minimq", optional = true}
 smlang = { version = "0.6", optional = true }
-embedded-io = { git = "https://github.com/quartiq/embedded-hal", branch = "rs/write-len", optional = true }
+embedded-io = { version = "0.5", optional = true }
 
 [features]
 default = ["mqtt-client"]

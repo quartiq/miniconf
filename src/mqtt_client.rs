@@ -488,13 +488,15 @@ where
                         return;
                     };
 
-                    if let Err(minimq::PubError::Serialization(error)) = client.publish(message) {
-                        if let Ok(message) =
-                            DeferredPublication::new(|mut buf| write!(buf, "{}", error))
-                                .properties(&[ResponseCode::Error.as_user_property()])
-                                .reply(properties)
-                                .qos(QoS::AtLeastOnce)
-                                .finish()
+                    if let Err(minimq::PubError::Serialization(err)) = client.publish(message) {
+                        if let Ok(message) = DeferredPublication::new(|mut buf| {
+                            let start = buf.len();
+                            write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
+                        })
+                        .properties(&[ResponseCode::Error.as_user_property()])
+                        .reply(properties)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
                         {
                             // Try to send the error as a best-effort. If we don't have enough
                             // buffer space to encode the error, there's nothing more we can do.
@@ -506,12 +508,14 @@ where
                 Command::Set { path, value } => {
                     let mut new_settings = self.settings.clone();
                     if let Err(err) = new_settings.set_json(path, value) {
-                        if let Ok(response) =
-                            DeferredPublication::new(|mut buf| write!(buf, "{}", err))
-                                .properties(&[ResponseCode::Error.as_user_property()])
-                                .reply(properties)
-                                .qos(QoS::AtLeastOnce)
-                                .finish()
+                        if let Ok(response) = DeferredPublication::new(|mut buf| {
+                            let start = buf.len();
+                            write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
+                        })
+                        .properties(&[ResponseCode::Error.as_user_property()])
+                        .reply(properties)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
                         {
                             client.publish(response).ok();
                         }
@@ -531,13 +535,15 @@ where
                                 client.publish(response).ok();
                             }
                         }
-                        Err(e) => {
-                            if let Ok(response) =
-                                DeferredPublication::new(|mut buf| write!(buf, "{}", e))
-                                    .properties(&[ResponseCode::Error.as_user_property()])
-                                    .reply(properties)
-                                    .qos(QoS::AtLeastOnce)
-                                    .finish()
+                        Err(err) => {
+                            if let Ok(response) = DeferredPublication::new(|mut buf| {
+                                let start = buf.len();
+                                write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
+                            })
+                            .properties(&[ResponseCode::Error.as_user_property()])
+                            .reply(properties)
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
                             {
                                 client.publish(response).ok();
                             }
