@@ -7,7 +7,7 @@ use minimq::{
     DeferredPublication, Publication, QoS,
 };
 
-use embedded_io::Write as OtherWrite;
+use embedded_io::Write;
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
