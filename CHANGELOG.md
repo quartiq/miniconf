@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [mqtt] The `MqttClient` API has changed to support new Minimq versions
 * [mqtt] The `Get` command now only generates a single message in response to the provided
   ResponseTopic instead of a response type (with success) and a message on the original topic.
+* [mqtt] Handler function singatures now require `Debug` instead of `AsRef<str>` types
 
 ### Added
 
