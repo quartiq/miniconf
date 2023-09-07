@@ -47,12 +47,18 @@ pub enum Error<E> {
 impl<E: core::fmt::Display> core::fmt::Display for Error<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Absent(index) => write!(f, "Path is not currently available (Depth: {})", index),
-            Error::TooShort(index) => write!(f, "Provided path was too short (Depth: {})", index),
-            Error::NotFound(index) => {
-                write!(f, "The provided path was not found (Depth: {})", index)
+            Error::Absent(index) => {
+                write!(f, "Path is not currently available (Key level: {})", index)
             }
-            Error::TooLong(index) => write!(f, "The provided path was too long (Depth: {})", index),
+            Error::TooShort(index) => {
+                write!(f, "Provided path was too short (Key level: {})", index)
+            }
+            Error::NotFound(index) => {
+                write!(f, "The provided path was not found (Key level: {})", index)
+            }
+            Error::TooLong(index) => {
+                write!(f, "The provided path was too long (Key level: {})", index)
+            }
             Error::Inner(error) => {
                 write!(f, "Value could not be (de)serialized: ")?;
                 error.fmt(f)
