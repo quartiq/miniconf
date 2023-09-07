@@ -22,11 +22,12 @@ log = {version = "0.4", optional = true }
 heapless = { version = "0.7", optional=true }
 minimq = { git = "https://github.com/quartiq/minimq", optional = true}
 smlang = { version = "0.6", optional = true }
+embedded-io = { git = "https://github.com/quartiq/embedded-hal", branch = "rs/write-len", optional = true }
 
 [features]
 default = ["mqtt-client"]
 json-core = ["dep:serde-json-core"]
-mqtt-client = ["json-core", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless"]
+mqtt-client = ["json-core", "dep:minimq", "dep:smlang", "dep:log", "dep:heapless", "dep:embedded-io"]
 std = []
 
 [dev-dependencies]

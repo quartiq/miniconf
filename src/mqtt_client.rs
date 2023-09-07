@@ -1,5 +1,4 @@
 use crate::{Error, JsonCoreSlash, TreeKey};
-use core::fmt::Write;
 use heapless::{String, Vec};
 use minimq::{
     embedded_nal::TcpClientStack,
@@ -7,6 +6,8 @@ use minimq::{
     types::{SubscriptionOptions, TopicFilter},
     DeferredPublication, Publication, QoS,
 };
+
+use embedded_io::Write as OtherWrite;
 
 // The maximum topic length of any settings path.
 const MAX_TOPIC_LENGTH: usize = 128;
@@ -234,17 +235,13 @@ where
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
             // attempting this publish.
-            let response: Response<MAX_TOPIC_LENGTH> = iter
+            let (code, path) = iter
                 .next()
-                .map(|path| Response::custom(ResponseCode::Continue, &path.unwrap()))
-                .unwrap_or_else(Response::ok);
+                .map(|path| (ResponseCode::Continue, path.unwrap()))
+                .unwrap_or((ResponseCode::Ok, String::new()));
 
-            let props = [minimq::Property::UserProperty(
-                minimq::types::Utf8String("code"),
-                minimq::types::Utf8String(response.code.as_ref()),
-            )];
-
-            let outgoing = Publication::new(response.msg.as_bytes())
+            let props = [code.as_user_property()];
+            let outgoing = Publication::new(path.as_bytes())
                 .topic(&cache.topic)
                 .properties(&props)
                 .qos(QoS::AtLeastOnce);
@@ -269,7 +266,7 @@ where
             self.mqtt.client().publish(publication).unwrap();
 
             // If we're done with listing, bail out of the loop.
-            if response.code != ResponseCode::Continue {
+            if code != ResponseCode::Continue {
                 self.listing_state.take();
                 break;
             }
@@ -311,16 +308,12 @@ where
                         minimq::SerError::InsufficientMemory,
                     )),
                 ))) => {
-                    let props = [minimq::Property::UserProperty(
-                        minimq::types::Utf8String("code"),
-                        minimq::types::Utf8String(ResponseCode::Error.as_ref()),
-                    )];
                     self.mqtt
                         .client()
                         .publish(
                             Publication::new(b"<error: serialization too large>")
                                 .topic(&prefixed_topic)
-                                .properties(&props)
+                                .properties(&[ResponseCode::Error.as_user_property()])
                                 .finish()
                                 .unwrap(),
                         )
@@ -385,7 +378,7 @@ where
     pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: AsRef<str>,
+        E: core::fmt::Debug,
     {
         if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
@@ -425,7 +418,7 @@ where
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: AsRef<str>,
+        E: core::fmt::Debug,
     {
         let mut updated = false;
         match self.mqtt.poll(|client, topic, message, properties| {
@@ -439,16 +432,21 @@ where
                 return;
             };
 
-            let have_response_topic = properties
-                .into_iter()
-                .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))));
-
-            let response: Response<32> = match command {
+            match command {
                 Command::List => {
-                    if self.listing_state.is_none() {
-                        if have_response_topic {
+                    if !properties
+                        .into_iter()
+                        .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
+                    {
+                        log::info!("Discarding `List` without `ResponseTopic`");
+                        return;
+                    }
+
+                    let response = match self.listing_state {
+                        Some(_) => "`List` already in progress",
+                        None => {
                             match handle_listing_request(properties) {
-                                Err(msg) => Response::error(msg),
+                                Err(msg) => msg,
                                 Ok(cache) => {
                                     self.listing_state
                                         .replace((cache, Settings::iter_paths_unchecked("/")));
@@ -460,25 +458,26 @@ where
                                     return;
                                 }
                             }
-                        } else {
-                            log::info!("Discarding `List` without `ResponseTopic`");
-                            return;
                         }
-                    } else {
-                        Response::error("`List` already in progress")
+                    };
+
+                    let props = [ResponseCode::Error.as_user_property()];
+                    if let Ok(response) = minimq::Publication::new(response.as_bytes())
+                        .reply(properties)
+                        .properties(&props)
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
+                    {
+                        client.publish(response).ok();
                     }
                 }
 
                 Command::Get { path } => {
-                    let props = [minimq::Property::UserProperty(
-                        minimq::types::Utf8String("code"),
-                        minimq::types::Utf8String(ResponseCode::Ok.as_ref()),
-                    )];
-
+                    let props = [ResponseCode::Ok.as_user_property()];
                     let Ok(message) =
                         DeferredPublication::new(|buf| self.settings.get_json(path, buf))
-                            .reply(properties)
                             .properties(&props)
+                            .reply(properties)
                             // Override the response topic with the path.
                             .qos(QoS::AtLeastOnce)
                             .finish()
@@ -489,47 +488,61 @@ where
                         return;
                     };
 
-                    match client.publish(message) {
-                        Err(minimq::PubError::Serialization(error)) => error.into(),
-
-                        // Otherwise, we should consider the response sent. Handling of this
-                        // `Get` command is now complete and we have responded appropriately (or
-                        // within our current capacity).
-                        _ => return,
+                    if let Err(minimq::PubError::Serialization(error)) = client.publish(message) {
+                        if let Ok(message) =
+                            DeferredPublication::new(|mut buf| write!(buf, "{:?}", error))
+                                .properties(&[ResponseCode::Error.as_user_property()])
+                                .reply(properties)
+                                .qos(QoS::AtLeastOnce)
+                                .finish()
+                        {
+                            // Try to send the error as a best-effort. If we don't have enough
+                            // buffer space to encode the error, there's nothing more we can do.
+                            client.publish(message).ok();
+                        };
                     }
                 }
+
                 Command::Set { path, value } => {
                     let mut new_settings = self.settings.clone();
-                    match new_settings.set_json(path, value) {
-                        Err(err) => err.into(),
+                    if let Err(err) = new_settings.set_json(path, value) {
+                        if let Ok(response) =
+                            DeferredPublication::new(|mut buf| write!(buf, "{:?}", err))
+                                .properties(&[ResponseCode::Error.as_user_property()])
+                                .reply(properties)
+                                .qos(QoS::AtLeastOnce)
+                                .finish()
+                        {
+                            client.publish(response).ok();
+                        }
+                        return;
+                    };
+
+                    updated = true;
+
+                    match handler(path, &mut self.settings, &new_settings) {
                         Ok(_) => {
-                            updated = true;
-                            handler(path, &mut self.settings, &new_settings).into()
+                            if let Ok(response) = Publication::new("OK".as_bytes())
+                                .properties(&[ResponseCode::Ok.as_user_property()])
+                                .reply(properties)
+                                .qos(QoS::AtLeastOnce)
+                                .finish()
+                            {
+                                client.publish(response).ok();
+                            }
+                        }
+                        Err(e) => {
+                            if let Ok(response) =
+                                DeferredPublication::new(|mut buf| write!(buf, "{:?}", e))
+                                    .properties(&[ResponseCode::Error.as_user_property()])
+                                    .reply(properties)
+                                    .qos(QoS::AtLeastOnce)
+                                    .finish()
+                            {
+                                client.publish(response).ok();
+                            }
                         }
                     }
-                }
-            };
-
-            if have_response_topic {
-                let props = [minimq::Property::UserProperty(
-                    minimq::types::Utf8String("code"),
-                    minimq::types::Utf8String(response.code.as_ref()),
-                )];
-
-                let Ok(response_pub) = minimq::Publication::new(response.msg.as_bytes())
-                    .reply(properties)
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce)
-                    .finish()
-                else {
-                    // If we couldn't build the response for some reason, complete handling of the
-                    // request immediately. There's nothing more we can do.
-                    log::warn!("Failed to build response `Pub`");
-                    return;
-                };
-
-                if client.publish(response_pub).is_err() {
-                    log::warn!("Failed to publish response");
                 }
             }
         }) {
@@ -569,90 +582,25 @@ where
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 enum ResponseCode {
     Ok,
     Continue,
     Error,
 }
 
-impl AsRef<str> for ResponseCode {
-    fn as_ref(&self) -> &str {
-        match self {
+impl ResponseCode {
+    fn as_user_property(self) -> minimq::Property<'static> {
+        let string = match self {
             ResponseCode::Ok => "Ok",
             ResponseCode::Continue => "Continue",
             ResponseCode::Error => "Error",
-        }
-    }
-}
+        };
 
-/// The payload of the MQTT response message to a settings update request.
-struct Response<const N: usize> {
-    code: ResponseCode,
-    msg: String<N>,
-}
-
-impl<const N: usize> Response<N> {
-    pub fn ok() -> Self {
-        Self {
-            msg: String::new(),
-            code: ResponseCode::Ok,
-        }
-    }
-
-    /// Generate a custom response with any response code.
-    ///
-    /// # Args
-    /// * `code` - The code to provide in the response.
-    /// * `msg` - The message to provide in the response.
-    pub fn custom(code: ResponseCode, message: &str) -> Self {
-        // Truncate the provided message to ensure it fits within the heapless String.
-        Self {
-            code,
-            msg: String::from(&message[..N.min(message.len())]),
-        }
-    }
-
-    /// Generate an error response
-    ///
-    /// # Args
-    /// * `message` - A message to provide in the response. Will be truncated to fit.
-    pub fn error(message: &str) -> Self {
-        Self::custom(ResponseCode::Error, message)
-    }
-}
-
-impl<T, E: AsRef<str>, const N: usize> From<Result<T, E>> for Response<N> {
-    fn from(result: Result<T, E>) -> Self {
-        match result {
-            Ok(_) => Response::ok(),
-
-            Err(error) => {
-                let mut msg = String::new();
-                if msg.push_str(error.as_ref()).is_err() {
-                    msg = String::from("Configuration Error");
-                }
-
-                Self {
-                    code: ResponseCode::Error,
-                    msg,
-                }
-            }
-        }
-    }
-}
-
-impl<const N: usize, T: core::fmt::Debug> From<Error<T>> for Response<N> {
-    fn from(err: Error<T>) -> Self {
-        let mut msg = String::new();
-        if write!(&mut msg, "{:?}", err).is_err() {
-            msg = String::from("Configuration Error");
-        }
-
-        Self {
-            code: ResponseCode::Error,
-            msg,
-        }
+        minimq::Property::UserProperty(
+            minimq::types::Utf8String("code"),
+            minimq::types::Utf8String(string),
+        )
     }
 }
 
