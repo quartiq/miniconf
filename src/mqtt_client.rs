@@ -490,7 +490,7 @@ where
 
                     if let Err(minimq::PubError::Serialization(error)) = client.publish(message) {
                         if let Ok(message) =
-                            DeferredPublication::new(|mut buf| write!(buf, "{:?}", error))
+                            DeferredPublication::new(|mut buf| write!(buf, "{}", error))
                                 .properties(&[ResponseCode::Error.as_user_property()])
                                 .reply(properties)
                                 .qos(QoS::AtLeastOnce)
@@ -507,7 +507,7 @@ where
                     let mut new_settings = self.settings.clone();
                     if let Err(err) = new_settings.set_json(path, value) {
                         if let Ok(response) =
-                            DeferredPublication::new(|mut buf| write!(buf, "{:?}", err))
+                            DeferredPublication::new(|mut buf| write!(buf, "{}", err))
                                 .properties(&[ResponseCode::Error.as_user_property()])
                                 .reply(properties)
                                 .qos(QoS::AtLeastOnce)
@@ -533,7 +533,7 @@ where
                         }
                         Err(e) => {
                             if let Ok(response) =
-                                DeferredPublication::new(|mut buf| write!(buf, "{:?}", e))
+                                DeferredPublication::new(|mut buf| write!(buf, "{}", e))
                                     .properties(&[ResponseCode::Error.as_user_property()])
                                     .reply(properties)
                                     .qos(QoS::AtLeastOnce)
