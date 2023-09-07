@@ -378,7 +378,7 @@ where
     pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: core::fmt::Debug,
+        E: core::fmt::Display,
     {
         if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
@@ -418,7 +418,7 @@ where
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
         F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
-        E: core::fmt::Debug,
+        E: core::fmt::Display,
     {
         let mut updated = false;
         match self.mqtt.poll(|client, topic, message, properties| {
