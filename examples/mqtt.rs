@@ -25,7 +25,7 @@ async fn mqtt_client() {
     let mut buffer = [0u8; 1024];
     let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::NamedBroker<Stack>> =
         minimq::Minimq::new(
-            Stack::default(),
+            Stack,
             StandardClock::default(),
             minimq::ConfigBuilder::new(
                 minimq::broker::NamedBroker::new("localhost", Stack).unwrap(),
@@ -92,7 +92,7 @@ async fn main() {
     // Construct a settings configuration interface.
     let mut client: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
         miniconf::MqttClient::new(
-            Stack::default(),
+            Stack,
             "sample/prefix",
             StandardClock::default(),
             Settings::default(),

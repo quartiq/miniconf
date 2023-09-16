@@ -44,6 +44,33 @@ pub enum Error<E> {
     PostDeserialization(E),
 }
 
+impl<E: core::fmt::Display> core::fmt::Display for Error<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::Absent(index) => {
+                write!(f, "Path is not currently available (Key level: {})", index)
+            }
+            Error::TooShort(index) => {
+                write!(f, "Provided path was too short (Key level: {})", index)
+            }
+            Error::NotFound(index) => {
+                write!(f, "The provided path was not found (Key level: {})", index)
+            }
+            Error::TooLong(index) => {
+                write!(f, "The provided path was too long (Key level: {})", index)
+            }
+            Error::Inner(error) => {
+                write!(f, "Value could not be (de)serialized: ")?;
+                error.fmt(f)
+            }
+            Error::PostDeserialization(error) => {
+                write!(f, "Error after deserialization: ")?;
+                error.fmt(f)
+            }
+        }
+    }
+}
+
 impl<T> From<T> for Error<T> {
     fn from(value: T) -> Self {
         Error::Inner(value)

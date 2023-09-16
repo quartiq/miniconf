@@ -22,7 +22,7 @@ async fn verify_settings() {
     let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
     let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
-        Stack::default(),
+        Stack,
         StandardClock::default(),
         minimq::ConfigBuilder::new(localhost.into(), &mut buffer)
             .client_id("tester")
