@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * Deserializing with borrowed data is now supported.
-* [derive] Added `#[miniconf(skipped)]` macro attribute to allow skipping entries.
+* [derive] Added `#[tree(skip)]` macro attribute to allow skipping entries.
 
 ## [0.8.0](https://github.com/quartiq/miniconf/compare/v0.7.1...v0.8.0) - 2023-08-03
 
