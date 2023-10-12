@@ -1,4 +1,5 @@
 use crate::PathIter;
+use core::fmt::{Display, Formatter, Write};
 use serde::{Deserializer, Serializer};
 
 /// Errors that can occur when using the Tree traits.
@@ -44,8 +45,8 @@ pub enum Error<E> {
     PostDeserialization(E),
 }
 
-impl<E: core::fmt::Display> core::fmt::Display for Error<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl<E: core::fmt::Display> Display for Error<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Absent(index) => {
                 write!(f, "Path is not currently available (Key level: {})", index)
@@ -140,13 +141,13 @@ impl Metadata {
 /// Capability to convert a key into a node index for a given `M: TreeKey`.
 pub trait Key {
     /// Convert the key `self` to a `usize` index.
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> core::option::Option<usize>;
+    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
 }
 
 // `usize` index as Key
 impl Key for usize {
     #[inline]
-    fn find<const Y: usize, M>(&self) -> core::option::Option<usize> {
+    fn find<const Y: usize, M>(&self) -> Option<usize> {
         Some(*self)
     }
 }
@@ -154,7 +155,7 @@ impl Key for usize {
 // &str name as Key
 impl Key for &str {
     #[inline]
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> core::option::Option<usize> {
+    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
         M::name_to_index(self)
     }
 }
@@ -322,7 +323,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// }
     /// assert_eq!(S::name_to_index("bar"), Some(1));
     /// ```
-    fn name_to_index(name: &str) -> core::option::Option<usize>;
+    fn name_to_index(name: &str) -> Option<usize>;
 
     /// Call a function for each node on the path described by keys.
     ///
@@ -414,7 +415,7 @@ pub trait TreeKey<const Y: usize = 1> {
     where
         K: IntoIterator,
         K::Item: Key,
-        P: core::fmt::Write,
+        P: Write,
     {
         Self::traverse_by_key(keys.into_iter(), |_index, name| {
             path.write_str(sep).and_then(|_| path.write_str(name))
@@ -492,7 +493,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
-    fn iter_paths<P: core::fmt::Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
+    fn iter_paths<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new(sep)
     }
 
@@ -522,7 +523,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<P: core::fmt::Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
+    fn iter_paths_unchecked<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new_unchecked(sep)
     }
 }
