@@ -3,6 +3,7 @@ use syn::{parenthesized, LitInt};
 pub struct StructField {
     pub field: syn::Field,
     pub depth: usize,
+    skipped: bool,
 }
 
 impl StructField {
@@ -15,16 +16,13 @@ impl StructField {
         .iter()
         .cloned()
         .map(Self::new)
+        .filter(|field| !field.skipped)
         .collect()
     }
 
     pub fn new(field: syn::Field) -> Self {
-        let depth = Self::parse_depth(&field);
-        Self { field, depth }
-    }
-
-    fn parse_depth(field: &syn::Field) -> usize {
         let mut depth = 0;
+        let mut skipped = false;
 
         for attr in field.attrs.iter() {
             if attr.path().is_ident("tree") {
@@ -39,6 +37,9 @@ impl StructField {
                         let lit: LitInt = content.parse()?;
                         depth = lit.base10_parse()?;
                         Ok(())
+                    } else if meta.path.is_ident("skip") {
+                        skipped = true;
+                        Ok(())
                     } else {
                         Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
                     }
@@ -46,7 +47,12 @@ impl StructField {
                 .unwrap();
             }
         }
-        depth
+
+        Self {
+            field,
+            depth,
+            skipped,
+        }
     }
 
     fn walk_type_params<F>(

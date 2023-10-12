@@ -31,6 +31,9 @@ struct Inner {
     b: i32,
 }
 
+#[derive(Default)]
+struct ExternalType;
+
 #[derive(Tree, Default)]
 struct Settings {
     // Atomic updtes by field name
@@ -39,6 +42,10 @@ struct Settings {
     struct_: Inner,
     array: [i32; 2],
     option: Option<i32>,
+
+    // Exclude an element from the tree
+    #[tree(skip)]
+    some_other_type: ExternalType,
 
     // Exposing elements of containers
     // ... by field name
