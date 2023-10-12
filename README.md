@@ -40,6 +40,10 @@ struct Settings {
     array: [i32; 2],
     option: Option<i32>,
 
+    // Exclude an element (not Deserialize/Serialize)
+    #[tree(skip)]
+    skipped: (),
+
     // Exposing elements of containers
     // ... by field name
     #[tree]
