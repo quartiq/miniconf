@@ -10,11 +10,9 @@ pub use miniconf_derive::*;
 mod tree;
 pub use tree::*;
 mod array;
-pub use array::*;
 mod iter;
 pub use iter::*;
 mod option;
-pub use option::*;
 
 #[cfg(feature = "json-core")]
 mod json_core;
