@@ -1,4 +1,4 @@
-use crate::PathIter;
+use crate::{IndexIter, PathIter};
 use core::fmt::{Display, Formatter, Write};
 use serde::{Deserializer, Serializer};
 
@@ -525,6 +525,16 @@ pub trait TreeKey<const Y: usize = 1> {
     #[inline]
     fn iter_paths_unchecked<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new_unchecked(sep)
+    }
+
+    #[inline]
+    fn iter_indices() -> IndexIter<Self, Y> {
+        IndexIter::new()
+    }
+
+    #[inline]
+    fn iter_indices_unchecked() -> IndexIter<Self, Y> {
+        IndexIter::new_unchecked()
     }
 }
 
