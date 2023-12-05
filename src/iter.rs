@@ -197,12 +197,11 @@ where
                     self.state[depth - 1] += 1;
                     Some(idx)
                 }
-                // `core::fmt::Write` error (e.g. heapless::String capacity limit).
-                // * Err(Error::Inner(e)) is impossible due to void closure
+                // * Inner(()) is impossible due `func` closure construction
                 // * NotFound(0) Not having consumed any name/index, the only possible case
                 //   is a leaf (e.g. `Option` or newtype), those however can not return `NotFound`.
                 // * TooShort is excluded by construction.
-                // * No other errors are returned by traverse_by_key()/path()
+                // * No other errors are returned by traverse_by_key()
                 _ => unreachable!(),
             };
         }
