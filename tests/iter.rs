@@ -27,7 +27,7 @@ fn struct_iter() {
 
 #[test]
 fn struct_iter_indices() {
-    let mut paths = [&[0][..], &[1][..], &[2, 0][..]].into_iter();
+    let mut paths = [([0, 0], 1), ([1, 0], 1), ([2, 0], 2)].into_iter();
     for (have, expect) in Settings::iter_indices().zip(&mut paths) {
         assert_eq!(have, expect);
     }

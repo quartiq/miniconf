@@ -1,5 +1,3 @@
-use heapless::Vec;
-
 use crate::{Error, TreeKey};
 use core::{fmt::Write, marker::PhantomData};
 
@@ -117,6 +115,8 @@ where
 }
 
 /// An iterator over the indices in a `TreeKey`.
+///
+/// The iterator yields `(indices: [usize; Y], depth: usize)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct IndexIter<M: ?Sized, const Y: usize> {
     /// Zero-size markers to allow being generic over M (by constraining the type parameters).
@@ -161,7 +161,7 @@ impl<M, const Y: usize> Iterator for IndexIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    type Item = Vec<usize, Y>;
+    type Item = ([usize; Y], usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -187,15 +187,15 @@ where
                     } else {
                         debug_assert_eq!(self.count.unwrap_or(1), 1);
                         self.count = Some(0);
-                        Some(Vec::from_slice(&self.state[..1]).unwrap())
+                        Some((self.state, 1))
                     }
                 }
                 // Non-root leaf: advance index at current depth
                 Ok(depth) => {
                     self.count = self.count.map(|c| c - 1);
-                    let idx = Vec::from_slice(&self.state[..depth]).unwrap();
+                    let idx = self.state;
                     self.state[depth - 1] += 1;
-                    Some(idx)
+                    Some((idx, depth))
                 }
                 // * Inner(()) is impossible due `func` closure construction
                 // * NotFound(0) Not having consumed any name/index, the only possible case

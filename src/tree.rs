@@ -538,7 +538,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     foo: u32,
     ///     bar: u16,
     /// };
-    /// assert_eq!(S::iter_indices().next().unwrap(), [0]);
+    /// assert_eq!(S::iter_indices().next().unwrap(), ([0], 1));
     /// ```
     ///
     /// # Returns
@@ -559,7 +559,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     foo: u32,
     ///     bar: u16,
     /// };
-    /// assert_eq!(S::iter_indices_unchecked().next().unwrap(), [0]);
+    /// assert_eq!(S::iter_indices_unchecked().next().unwrap(), ([0], 1));
     /// ```
     ///
     /// # Returns
