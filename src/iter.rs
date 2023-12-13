@@ -191,7 +191,7 @@ where
                     }
                 }
                 // Non-root leaf: advance index at current depth
-                Ok(depth) => {
+                Ok(depth @ 1..) => {
                     self.count = self.count.map(|c| c - 1);
                     let idx = self.state;
                     self.state[depth - 1] += 1;
