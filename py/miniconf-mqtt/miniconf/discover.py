@@ -3,16 +3,16 @@ import json
 import logging
 import time
 
-from typing import Set
+from typing import Set, Union
 
-from gmqtt import Client as MqttClient
+from gmqtt import Client
 
 
-async def discover(broker: str, prefix: str, rel_timeout: float = 3) -> Set[str]:
+async def discover(client: Union[str, Client], prefix: str, rel_timeout: float = 3) -> Set[str]:
     """Get a list of available Miniconf devices.
 
     Args:
-        * `broker` - The broker to search for clients on.
+        * `client` - The MQTT client to search for clients on. Connected to a broker
         * `prefix` - An MQTT-specific topic filter for device prefixes. Note that this will
           be appended to with the default status topic name `/alive`.
         * `rel_timeout` - The duration to search for clients in units of the time it takes
@@ -35,10 +35,12 @@ async def discover(broker: str, prefix: str, rel_timeout: float = 3) -> Set[str]
         if json.loads(payload):
             discovered.append(topic[: -len(suffix)])
 
-    client = MqttClient(client_id="")
+    if isinstance(client, str):
+        client_ = Client(client_id="")
+        await client_.connect(client)
+        client = client_
     client.on_subscribe = on_subscribe
     client.on_message = on_message
-    await client.connect(broker)
 
     fut = asyncio.get_running_loop().create_future()
     t0 = asyncio.get_running_loop().time()
