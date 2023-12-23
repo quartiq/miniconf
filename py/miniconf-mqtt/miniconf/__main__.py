@@ -1,3 +1,6 @@
+"""Miniconf command line interfae
+"""
+
 import asyncio
 import argparse
 import logging

@@ -1,7 +1,9 @@
+"""Discover alive Miniconf prefixes
+"""
+
 import asyncio
 import json
 import logging
-import time
 
 from typing import List, Union
 
@@ -43,12 +45,12 @@ async def discover(client: Union[str, Client], prefix: str, rel_timeout: float =
     client.on_message = on_message
 
     fut = asyncio.get_running_loop().create_future()
-    t0 = asyncio.get_running_loop().time()
+    t_start = asyncio.get_running_loop().time()
     sub[client.subscribe(f"{prefix}{suffix}")] = fut
     await fut
-    dt = asyncio.get_running_loop().time() - t0
-    await asyncio.sleep(rel_timeout * dt)
-    
+    t_rtt = asyncio.get_running_loop().time() - t_start
+    await asyncio.sleep(rel_timeout * t_rtt)
+
     client.unsubscribe(f"{prefix}{suffix}")
     client.on_subscribe = lambda *_a, **_k: None
     client.on_message = lambda *_a, **_k: None

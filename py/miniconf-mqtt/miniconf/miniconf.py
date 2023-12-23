@@ -27,7 +27,7 @@ class Miniconf:
     async def create(cls, client, prefix):
         """Create a connection to the broker and a Miniconf device using it."""
         if isinstance(client, str):
-            client_ = MqttClient(client_id="")
+            client_ = Client(client_id="")
             await client_.connect(client)
             client = client_
         miniconf = cls(client, prefix)
