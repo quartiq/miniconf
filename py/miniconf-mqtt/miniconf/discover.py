@@ -49,4 +49,6 @@ async def discover(client: Union[str, Client], prefix: str, rel_timeout: float =
     dt = asyncio.get_running_loop().time() - t0
     await asyncio.sleep(rel_timeout * dt)
     client.unsubscribe(f"{prefix}{suffix}")
+    client.on_subscribe = lambda *_a, **_k: None
+    client.on_message = lambda *_a, **_k: None
     return discovered

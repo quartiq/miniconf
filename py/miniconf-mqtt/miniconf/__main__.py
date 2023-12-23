@@ -1,82 +1,98 @@
-#!/usr/bin/python3
-"""
-Author: Ryan Summers, Robert Jördens
-
-Description: Command-line utility to program run-time settings utilize Miniconf.
-"""
-
 import asyncio
 import argparse
 import logging
 import json
 
+from gmqtt import Client
+
 from .miniconf import Miniconf, MiniconfException
-from . import discover
+from .discover import discover
 
 
 def main():
-    """ Main program entry point. """
+    """Main program entry point."""
     parser = argparse.ArgumentParser(
-        description='Miniconf command line interface.',
+        description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''Examples:
-%(prog)s dt/sinara/dual-iir/00-11-22-33-aa-bb stream_target=\
-'{"ip": [192, 168, 0, 1], "port": 1000}'
-''')
-    parser.add_argument('-v', '--verbose', action='count', default=0,
-                        help='Increase logging verbosity')
-    parser.add_argument('--broker', '-b', default='mqtt', type=str,
-                        help='The MQTT broker address')
-    parser.add_argument('--no-retain', '-n', default=False,
-                        action='store_true',
-                        help='Do not retain the affected settings')
-    parser.add_argument('prefix', type=str,
-                        help='The MQTT topic prefix of the target (or a prefix filter in the case '
-                             'of discovery)')
-    parser.add_argument('settings', metavar="PATH=VALUE", nargs='*',
-                        help='JSON encoded values for settings path keys.')
-    parser.add_argument('--discover', '-d', action='store_true',
-                        help='Detect and list device prefixes')
-    parser.add_argument('--list', '-l', action='store_true',
-                        help='List all active settings after modification')
+        epilog="""Examples:
+%(prog)s -d dt/sinara/dual-iir/+ 'stream_target={"ip":[192, 168, 0, 1],"port":1000}'
+""",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="count", default=0, help="Increase logging verbosity"
+    )
+    parser.add_argument(
+        "--broker", "-b", default="mqtt", type=str, help="The MQTT broker address"
+    )
+    parser.add_argument(
+        "--retain",
+        "-r",
+        default=False,
+        action="store_true",
+        help="Retain the affected settings",
+    )
+    parser.add_argument(
+        "prefix",
+        type=str,
+        help="The MQTT topic prefix of the target (or a prefix filter in the case "
+        "of discovery)",
+    )
+    parser.add_argument(
+        "sets",
+        metavar="PATH=VALUE",
+        nargs="*",
+        help="JSON encoded values for settings path keys.",
+    )
+    parser.add_argument(
+        "--discover", "-d", action="store_true", help="Detect and list device prefixes"
+    )
+    parser.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List all active settings after modification",
+    )
 
     args = parser.parse_args()
 
     logging.basicConfig(
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        level=logging.WARN - 10*args.verbose)
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        level=logging.WARN - 10 * args.verbose,
+    )
 
     loop = asyncio.get_event_loop()
 
     # If a discovery was requested, try to find a device.
-    prefix = args.prefix
 
-    if args.discover:
-        devices = loop.run_until_complete(discover(args.broker, args.prefix))
+    async def run():
+        client = Client(client_id="")
+        await client.connect(args.broker)
 
-        if not devices:
-            raise MiniconfException('No Miniconf devices found. Please specify a --prefix')
+        if args.discover:
+            devices = await discover(client, args.prefix)
+            if len(devices) != 1:
+                raise MiniconfException(
+                    f"No unique Miniconf device (found `{devices}`). Please specify a `--prefix`"
+                )
+            prefix = devices.pop()
+            logging.info("Found device prefix: %s", prefix)
+        else:
+            prefix = args.prefix
 
-        assert len(devices) == 1, \
-            f'Multiple miniconf devices found ({devices}). Please specify a more specific --prefix'
+        interface = await Miniconf.create(client, prefix)
 
-        prefix = devices.pop()
-        logging.info('Automatically using detected device prefix: %s', prefix)
-
-    async def configure_settings():
-        interface = await Miniconf.create(prefix, args.broker)
-        for setting in args.settings:
-            path, value = setting.split("=", 1)
-            await asyncio.wait_for(interface.set(path, json.loads(value), not args.no_retain), 5)
-            print(f'Set {path}: OK')
+        for arg in args.sets:
+            path, value = arg.split("=", 1)
+            await interface.set(path, json.loads(value), args.retain)
+            print(f"Set {path}: OK")
 
         if args.list:
             for path in await interface.list_paths():
                 value = await interface.get(path)
-                print(f'{path} = {value}')
+                print(f"{path} = {value}")
 
-    loop.run_until_complete(configure_settings())
+    loop.run_until_complete(run())
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
