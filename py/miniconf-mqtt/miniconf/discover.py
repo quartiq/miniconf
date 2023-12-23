@@ -3,12 +3,12 @@ import json
 import logging
 import time
 
-from typing import Set, Union
+from typing import List, Union
 
 from gmqtt import Client
 
 
-async def discover(client: Union[str, Client], prefix: str, rel_timeout: float = 3) -> Set[str]:
+async def discover(client: Union[str, Client], prefix: str, rel_timeout: float = 3.0) -> List[str]:
     """Get a list of available Miniconf devices.
 
     Args:
@@ -48,6 +48,7 @@ async def discover(client: Union[str, Client], prefix: str, rel_timeout: float =
     await fut
     dt = asyncio.get_running_loop().time() - t0
     await asyncio.sleep(rel_timeout * dt)
+    
     client.unsubscribe(f"{prefix}{suffix}")
     client.on_subscribe = lambda *_a, **_k: None
     client.on_message = lambda *_a, **_k: None
