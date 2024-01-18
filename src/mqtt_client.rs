@@ -204,7 +204,7 @@ where
         config: minimq::ConfigBuilder<'buf, Broker>,
     ) -> Result<Self, minimq::ProtocolError> {
         // Configure a will so that we can indicate whether or not we are connected.
-        let prefix = String::from(prefix);
+        let prefix = String::try_from(prefix).unwrap();
         let mut connection_topic = prefix.clone();
         connection_topic.push_str("/alive").unwrap();
         let will = minimq::Will::new(&connection_topic, b"0", &[])?
