@@ -629,8 +629,13 @@ fn handle_listing_request(
         None
     };
 
+    if response_topic.len() > MAX_TOPIC_LENGTH {
+        return Err("Response topic too long");
+    }
+
     Ok(ListCache {
-        topic: String::try_from(response_topic).map_err(|_| "Response topic too long")?,
+        /// `TryFrom` is misleading as it just calls `Into`
+        topic: String::from(response_topic),
         correlation_data,
     })
 }
