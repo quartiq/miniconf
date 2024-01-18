@@ -35,18 +35,6 @@ def main():
         help="Retain the affected settings",
     )
     parser.add_argument(
-        "prefix",
-        type=str,
-        help="The MQTT topic prefix of the target (or a prefix filter in the case "
-        "of discovery)",
-    )
-    parser.add_argument(
-        "sets",
-        metavar="PATH=VALUE",
-        nargs="*",
-        help="JSON encoded values for settings path keys.",
-    )
-    parser.add_argument(
         "--discover", "-d", action="store_true", help="Detect and list device prefixes"
     )
     parser.add_argument(
@@ -55,7 +43,18 @@ def main():
         action="store_true",
         help="List all active settings after modification",
     )
-
+    parser.add_argument(
+        "prefix",
+        type=str,
+        help="The MQTT topic prefix of the target (or a prefix filter in the case "
+        "of discovery)",
+    )
+    parser.add_argument(
+        "paths",
+        metavar="PATH/PATH=VALUE",
+        nargs="*",
+        help="Path to get or path and JSON encoded value to set.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -84,10 +83,15 @@ def main():
 
         interface = await Miniconf.create(client, prefix)
 
-        for arg in args.sets:
-            path, value = arg.split("=", 1)
-            await interface.set(path, json.loads(value), args.retain)
-            print(f"Set {path}: OK")
+        for arg in args.paths:
+            try:
+                path, value = arg.split("=", 1)
+            except ValueError:
+                value = await interface.get(arg)
+                print(f"{arg} = {value}")
+            else:
+                await interface.set(path, json.loads(value), args.retain)
+                print(f"Set {path}: OK")
 
         if args.list:
             for path in await interface.list_paths():

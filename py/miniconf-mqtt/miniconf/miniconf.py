@@ -11,7 +11,7 @@ import logging
 import uuid
 import warnings
 
-from gmqtt import Client, Subscription
+from gmqtt import Client
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,10 +49,7 @@ class Miniconf:
         self.response_topic = f"{prefix}/response"
         self._pending_subscriptions = {
             self.client.subscribe(
-                [
-                    Subscription(self.response_topic),
-                    Subscription(f"{prefix}/settings/#", no_local=True),
-                ],
+                self.response_topic
             ): asyncio.get_running_loop().create_future(),
         }
 

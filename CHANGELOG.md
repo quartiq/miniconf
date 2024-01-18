@@ -8,11 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* Python client signatures have changed (Miniconf.create(), discover())
+* Python lib signatures have changed (Miniconf.create(), discover())
+* Python lib discovery timeout has been optimized to work well for both slow
+  connections (high RTT) and fast ones
 
 ### Added
 
-* Python client: Support for clearing a retained setting
+* Python lib: Support for clearing a retained setting
+* Python CLI: get() support
 
 ## [0.9.0](https://github.com/quartiq/miniconf/compare/v0.8.0...v0.9.0)
 

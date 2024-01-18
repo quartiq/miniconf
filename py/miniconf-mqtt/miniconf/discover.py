@@ -10,7 +10,12 @@ from typing import List, Union
 from gmqtt import Client
 
 
-async def discover(client: Union[str, Client], prefix: str, rel_timeout: float = 3.0) -> List[str]:
+async def discover(
+    client: Union[str, Client],
+    prefix: str,
+    rel_timeout: float = 3.0,
+    abs_timeout: float = 0.1,
+) -> List[str]:
     """Get a list of available Miniconf devices.
 
     Args:
@@ -19,6 +24,8 @@ async def discover(client: Union[str, Client], prefix: str, rel_timeout: float =
           be appended to with the default status topic name `/alive`.
         * `rel_timeout` - The duration to search for clients in units of the time it takes
           to ack the subscribe to the alive topic.
+        * `abs_timeout` - Additional absolute duration to wair for client discovery
+          in seconds.
 
     Returns:
         A list of discovered client prefixes that match the provided filter.
@@ -49,7 +56,7 @@ async def discover(client: Union[str, Client], prefix: str, rel_timeout: float =
     sub[client.subscribe(f"{prefix}{suffix}")] = fut
     await fut
     t_rtt = asyncio.get_running_loop().time() - t_start
-    await asyncio.sleep(rel_timeout * t_rtt)
+    await asyncio.sleep(rel_timeout * t_rtt + abs_timeout)
 
     client.unsubscribe(f"{prefix}{suffix}")
     client.on_subscribe = lambda *_a, **_k: None
