@@ -634,7 +634,7 @@ fn handle_listing_request(
     }
 
     Ok(ListCache {
-        /// `TryFrom` is misleading as it just calls `Into`
+        // `TryFrom` is misleading as it just calls `Into`
         topic: String::from(response_topic),
         correlation_data,
     })
