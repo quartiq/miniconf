@@ -13,7 +13,7 @@ rust-version = "1.65.0"  # keep in sync with CI
 resolver = "2"
 
 [dependencies]
-serde = { version = "1.0.120", features = ["derive"], default-features = false }
+serde = { version = "1.0.120", default-features = false }
 miniconf_derive = { path = "miniconf_derive" , version = "0.9" }
 itoa = "1.0.4"
 serde-json-core = { version = "0.5.1" , optional = true }
@@ -35,6 +35,7 @@ env_logger = "0.10"
 std-embedded-nal = "0.2"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
+serde = { version = "1.0.120", features = ["derive"], default-features = false }
 
 [[example]]
 name = "mqtt"
