@@ -24,7 +24,7 @@ async def discover(
           be appended to with the default status topic name `/alive`.
         * `rel_timeout` - The duration to search for clients in units of the time it takes
           to ack the subscribe to the alive topic.
-        * `abs_timeout` - Additional absolute duration to wair for client discovery
+        * `abs_timeout` - Additional absolute duration to wait for client discovery
           in seconds.
 
     Returns:
