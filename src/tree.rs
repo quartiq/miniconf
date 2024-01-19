@@ -1,4 +1,4 @@
-use crate::PathIter;
+use crate::{IndexIter, PathIter};
 use core::fmt::{Display, Formatter, Write};
 use serde::{Deserializer, Serializer};
 
@@ -525,6 +525,48 @@ pub trait TreeKey<const Y: usize = 1> {
     #[inline]
     fn iter_paths_unchecked<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new_unchecked(sep)
+    }
+
+    /// Create an iterator of all possible indices.
+    ///
+    /// See also [TreeKey::iter_paths].
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     bar: u16,
+    /// };
+    /// assert_eq!(S::iter_indices().next().unwrap(), ([0], 1));
+    /// ```
+    ///
+    /// # Returns
+    /// An iterator of indices with a trusted and exact [`Iterator::size_hint()`].
+    #[inline]
+    fn iter_indices() -> IndexIter<Self, Y> {
+        IndexIter::new()
+    }
+
+    /// Create an unchecked iterator of all possible indices.
+    ///
+    /// See also [TreeKey::iter_indices].
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     bar: u16,
+    /// };
+    /// assert_eq!(S::iter_indices_unchecked().next().unwrap(), ([0], 1));
+    /// ```
+    ///
+    /// # Returns
+    /// An iterator of indices.
+    #[inline]
+    fn iter_indices_unchecked() -> IndexIter<Self, Y> {
+        IndexIter::new_unchecked()
     }
 }
 
