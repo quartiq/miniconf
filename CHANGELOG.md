@@ -6,8 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.9.0...main)
 
+### Changed
+
+* Python lib signatures have changed (Miniconf.create(), discover())
+* Python lib discovery timeout has been optimized to work well for both slow
+  connections (high RTT) and fast ones
+
 ### Added
 
+* Python lib: Support for clearing a retained setting
+* Python CLI: get() support
 * `TreeKey::iter_indices()` and `iter_indices_unchecked()`
 
 ## [0.9.0](https://github.com/quartiq/miniconf/compare/v0.8.0...v0.9.0)
