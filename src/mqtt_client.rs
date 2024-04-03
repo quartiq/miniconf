@@ -151,30 +151,29 @@ struct ListCache {
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),
-///     Settings::default(),
 ///     minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
 /// )
 /// .unwrap();
+/// let mut settings = Settings::default();
 ///
 /// client
-///     .handled_update(|path, old_settings, new_settings| {
+///     .handled_update(&mut settings, |path, settings, new_settings| {
 ///         if new_settings.foo {
 ///             return Err("Foo!");
 ///         }
-///         *old_settings = new_settings.clone();
+///         *settings = new_settings;
 ///         Ok(())
 ///     })
 ///     .unwrap();
 /// ```
 pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
 where
-    Settings: TreeKey<Y> + Clone,
+    Settings: TreeKey<Y>,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
     Broker: minimq::Broker,
 {
     mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
-    settings: Settings,
     state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
     prefix: String<MAX_TOPIC_LENGTH>,
     listing_state: Option<(ListCache, Iter<Settings, Y>)>,
@@ -194,13 +193,11 @@ where
     /// * `stack` - The network stack to use for communication.
     /// * `prefix` - The MQTT device prefix to use for this device.
     /// * `clock` - The clock for managing the MQTT connection.
-    /// * `settings` - The initial settings values.
     /// * `config` - The configuration of the MQTT client.
     pub fn new(
         stack: Stack,
         prefix: &str,
         clock: Clock,
-        settings: Settings,
         config: minimq::ConfigBuilder<'buf, Broker>,
     ) -> Result<Self, minimq::ProtocolError> {
         // Configure a will so that we can indicate whether or not we are connected.
@@ -221,7 +218,6 @@ where
         Ok(Self {
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
-            settings,
             prefix,
             listing_state: None,
         })
@@ -273,7 +269,7 @@ where
         }
     }
 
-    fn handle_republish(&mut self) {
+    fn handle_republish(&mut self, settings: &Settings) {
         while self.mqtt.client().can_publish(QoS::AtMostOnce) {
             let Some(topic) = self.state.context_mut().republish_state.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
@@ -295,7 +291,7 @@ where
                 // If the topic is not present, we'll fail to serialize the setting into the
                 // payload and will never publish. The iterator has already incremented, so this is
                 // acceptable.
-                DeferredPublication::new(|buf| self.settings.get_json(&topic, buf))
+                DeferredPublication::new(|buf| settings.get_json(&topic, buf))
                     .topic(&prefixed_topic)
                     .finish()
                     .unwrap(),
@@ -375,9 +371,13 @@ where
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn handled_update<F, E>(&mut self, handler: F) -> Result<bool, minimq::Error<Stack::Error>>
+    pub fn handled_update<F, E>(
+        &mut self,
+        settings: &mut Settings,
+        handler: F,
+    ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
+        F: FnMut(&str, &mut Settings, Settings) -> Result<(), E>,
         E: core::fmt::Display,
     {
         if !self.mqtt.client().is_connected() {
@@ -400,7 +400,7 @@ where
                         .unwrap();
                 }
             }
-            sm::States::RepublishingSettings => self.handle_republish(),
+            sm::States::RepublishingSettings => self.handle_republish(settings),
 
             // Nothing to do in the active state.
             sm::States::Active => {}
@@ -409,19 +409,20 @@ where
         self.handle_listing();
 
         // All states must handle MQTT traffic.
-        self.handle_mqtt_traffic(handler)
+        self.handle_mqtt_traffic(settings, handler)
     }
 
     fn handle_mqtt_traffic<F, E>(
         &mut self,
+        settings: &mut Settings,
         mut handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &mut Settings, &Settings) -> Result<(), E>,
+        F: FnMut(&str, &mut Settings, Settings) -> Result<(), E>,
         E: core::fmt::Display,
     {
         let mut updated = false;
-        match self.mqtt.poll(|client, topic, message, properties| {
+        let poll = self.mqtt.poll(|client, topic, message, properties| {
             let Some(path) = topic.strip_prefix(self.prefix.as_str()) else {
                 log::info!("Unexpected topic prefix: {topic}");
                 return;
@@ -474,13 +475,12 @@ where
 
                 Command::Get { path } => {
                     let props = [ResponseCode::Ok.as_user_property()];
-                    let Ok(message) =
-                        DeferredPublication::new(|buf| self.settings.get_json(path, buf))
-                            .properties(&props)
-                            .reply(properties)
-                            // Override the response topic with the path.
-                            .qos(QoS::AtLeastOnce)
-                            .finish()
+                    let Ok(message) = DeferredPublication::new(|buf| settings.get_json(path, buf))
+                        .properties(&props)
+                        .reply(properties)
+                        // Override the response topic with the path.
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
                     else {
                         // If we can't create the publication, it's because there's no way to reply
                         // to the message. Since we don't know where to send things, abort now and
@@ -506,7 +506,7 @@ where
                 }
 
                 Command::Set { path, value } => {
-                    let mut new_settings = self.settings.clone();
+                    let mut new_settings = settings.clone();
                     if let Err(err) = new_settings.set_json(path, value) {
                         if let Ok(response) = DeferredPublication::new(|mut buf| {
                             let start = buf.len();
@@ -524,7 +524,7 @@ where
 
                     updated = true;
 
-                    match handler(path, &mut self.settings, &new_settings) {
+                    match handler(path, settings, new_settings) {
                         Ok(_) => {
                             if let Ok(response) = Publication::new("OK".as_bytes())
                                 .properties(&[ResponseCode::Ok.as_user_property()])
@@ -551,7 +551,8 @@ where
                     }
                 }
             }
-        }) {
+        });
+        match poll {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
                 log::warn!("Session reset");
@@ -566,16 +567,11 @@ where
     ///
     /// # Returns
     /// True if the settings changed. False otherwise
-    pub fn update(&mut self) -> Result<bool, minimq::Error<Stack::Error>> {
-        self.handled_update(|_, old, new| {
-            *old = new.clone();
+    pub fn update(&mut self, settings: &mut Settings) -> Result<bool, minimq::Error<Stack::Error>> {
+        self.handled_update(settings, |_path, settings, new_settings| {
+            *settings = new_settings;
             Result::<_, &'static str>::Ok(())
         })
-    }
-
-    /// Get the current settings from miniconf.
-    pub fn settings(&self) -> &Settings {
-        &self.settings
     }
 
     /// Force republication of the current settings.

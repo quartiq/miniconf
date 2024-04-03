@@ -97,7 +97,6 @@ fn main() -> std::io::Result<()> {
         minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
     );
 
-    // Construct a settings configuration interface.
     let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 
@@ -107,7 +106,6 @@ fn main() -> std::io::Result<()> {
             Stack,
             "device",
             StandardClock::default(),
-            Settings::default(),
             minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
         )
         .unwrap();
@@ -115,6 +113,8 @@ fn main() -> std::io::Result<()> {
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();
     let mut timer = Timer::new(std::time::Duration::from_millis(100));
+
+    let mut settings = Settings::default();
 
     loop {
         // First, update our client's MQTT state.
@@ -125,7 +125,7 @@ fn main() -> std::io::Result<()> {
         .unwrap();
 
         // Next, service the settings interface and progress the test.
-        let setting_update = interface.update().unwrap();
+        let setting_update = interface.update(&mut settings).unwrap();
         match state {
             TestState::Started(_) => {
                 if timer.is_complete() && mqtt.client().is_connected() {
@@ -174,9 +174,9 @@ fn main() -> std::io::Result<()> {
             }
             TestState::Complete(_) => {
                 // Verify the settings all have the correct value.
-                info!("Verifying settings: {:?}", interface.settings());
-                assert!(interface.settings().data == 500);
-                assert!(interface.settings().more.inner == 100);
+                info!("Verifying settings: {:?}", settings);
+                assert!(settings.data == 500);
+                assert!(settings.more.inner == 100);
                 std::process::exit(0);
             }
 

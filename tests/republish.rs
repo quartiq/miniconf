@@ -86,16 +86,17 @@ async fn main() {
             Stack,
             "republish/device",
             StandardClock::default(),
-            Settings::default(),
             minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
         )
         .unwrap();
+
+    let mut settings = Settings::default();
 
     // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
     // all settings values.
     for _ in 0..500 {
         // The interface should never indicate a settings update during the republish process.
-        assert!(!interface.update().unwrap());
+        assert!(!interface.update(&mut settings).unwrap());
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
