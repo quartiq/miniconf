@@ -98,10 +98,11 @@ async fn main() {
     let mut should_exit = false;
     loop {
         interface
-            .handled_update(&mut settings, |_path, _settings, new_settings| {
+            .handled_update(&mut settings, |_path, _old_settings, new_settings| {
                 log::info!("Handling setting update");
                 if new_settings.error {
                     should_exit = true;
+
                     return Err("Exiting now");
                 }
 

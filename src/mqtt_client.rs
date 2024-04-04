@@ -157,11 +157,10 @@ struct ListCache {
 /// let mut settings = Settings::default();
 ///
 /// client
-///     .handled_update(&mut settings, |path, settings, new_settings| {
+///     .handled_update(&mut settings, |_path, _old_settings, new_settings| {
 ///         if new_settings.foo {
 ///             return Err("Foo!");
 ///         }
-///         *settings = new_settings;
 ///         Ok(())
 ///     })
 ///     .unwrap();
@@ -366,8 +365,10 @@ where
     /// supplied.
     ///
     /// # Args
-    /// * `handler` - A closure called with updated settings that can be used to apply current
-    ///   settings or validate the configuration. Arguments are (path, old_settings, new_settings).
+    /// * `handler` - A closure called with updated settings that can be used to validate current
+    ///   settings or revert. Arguments are (path, old_settings, new_settings).
+    ///   If the handler returns an `Err`, the settings will revert to the old settings and no
+    ///   update will be done.
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
@@ -377,7 +378,7 @@ where
         handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &mut Settings, Settings) -> Result<(), E>,
+        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
         E: core::fmt::Display,
     {
         if !self.mqtt.client().is_connected() {
@@ -418,7 +419,7 @@ where
         mut handler: F,
     ) -> Result<bool, minimq::Error<Stack::Error>>
     where
-        F: FnMut(&str, &mut Settings, Settings) -> Result<(), E>,
+        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
         E: core::fmt::Display,
     {
         let mut updated = false;
@@ -506,8 +507,8 @@ where
                 }
 
                 Command::Set { path, value } => {
-                    let mut new_settings = settings.clone();
-                    if let Err(err) = new_settings.set_json(path, value) {
+                    let old_settings = settings.clone();
+                    if let Err(err) = settings.set_json(path, value) {
                         if let Ok(response) = DeferredPublication::new(|mut buf| {
                             let start = buf.len();
                             write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
@@ -522,10 +523,9 @@ where
                         return;
                     };
 
-                    updated = true;
-
-                    match handler(path, settings, new_settings) {
+                    match handler(path, &old_settings, settings) {
                         Ok(_) => {
+                            updated = true;
                             if let Ok(response) = Publication::new("OK".as_bytes())
                                 .properties(&[ResponseCode::Ok.as_user_property()])
                                 .reply(properties)
@@ -536,6 +536,7 @@ where
                             }
                         }
                         Err(err) => {
+                            *settings = old_settings;
                             if let Ok(response) = DeferredPublication::new(|mut buf| {
                                 let start = buf.len();
                                 write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
@@ -568,8 +569,7 @@ where
     /// # Returns
     /// True if the settings changed. False otherwise
     pub fn update(&mut self, settings: &mut Settings) -> Result<bool, minimq::Error<Stack::Error>> {
-        self.handled_update(settings, |_path, settings, new_settings| {
-            *settings = new_settings;
+        self.handled_update(settings, |_path, _settings, _old_settings| {
             Result::<_, &'static str>::Ok(())
         })
     }

@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Python lib discovery timeout has been optimized to work well for both slow
   connections (high RTT) and fast ones
 * The MQTT client does not own the miniconf settings struct anymore.
+* The MQTT settings validation handler now receives the already updated new settings
+  and the old settings (instead of the not updated current settings and the new settings).
 
 ### Added
 
