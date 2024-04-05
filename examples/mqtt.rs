@@ -95,17 +95,17 @@ async fn main() {
             Stack,
             "sample/prefix",
             StandardClock::default(),
-            Settings::default(),
             minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
         )
         .unwrap();
 
+    let mut settings = Settings::default();
     loop {
-        if client.update().unwrap() {
-            println!("Settings updated: {:?}", client.settings());
+        if client.update(&mut settings).unwrap() {
+            println!("Settings updated: {:?}", settings);
         }
 
-        if client.settings().exit {
+        if settings.exit {
             break;
         }
 

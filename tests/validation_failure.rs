@@ -88,19 +88,21 @@ async fn main() {
             Stack,
             "validation_failure/device",
             StandardClock::default(),
-            Settings::default(),
             minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
         )
         .unwrap();
+
+    let mut settings = Settings::default();
 
     // Update the client until the exit
     let mut should_exit = false;
     loop {
         interface
-            .handled_update(|_path, _old_settings, new_settings| {
+            .handled_update(&mut settings, |_path, _old_settings, new_settings| {
                 log::info!("Handling setting update");
                 if new_settings.error {
                     should_exit = true;
+
                     return Err("Exiting now");
                 }
 
@@ -116,5 +118,5 @@ async fn main() {
     }
 
     // Check that the error setting did not stick.
-    assert!(!interface.settings().error);
+    assert!(!settings.error);
 }
