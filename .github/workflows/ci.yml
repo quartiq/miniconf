@@ -159,7 +159,6 @@ jobs:
       matrix:
         example:
           - mqtt
-          - readback
     steps:
       - uses: actions/checkout@v2
 

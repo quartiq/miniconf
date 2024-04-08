@@ -9,6 +9,9 @@ repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
 
+[features]
+std = []
+
 [lib]
 
 [dependencies]
