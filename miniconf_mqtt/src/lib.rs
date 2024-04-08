@@ -7,6 +7,7 @@
 
 use heapless::{String, Vec};
 use miniconf::{Error, JsonCoreSlash, PathIter, TreeKey};
+pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,

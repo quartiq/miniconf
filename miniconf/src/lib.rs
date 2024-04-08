@@ -19,9 +19,6 @@ mod json_core;
 #[cfg(feature = "json-core")]
 pub use json_core::*;
 
-#[cfg(feature = "mqtt-client")]
-pub use minimq;
-
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
