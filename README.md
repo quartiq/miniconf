@@ -118,9 +118,11 @@ for path in Settings::iter_paths::<String>("/") {
 ## Settings management
 
 One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
+
 It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
 payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a [MQTT settings management
-client](MqttClient) and a Python reference implementation to interact with it.
+client](MqttClient) and a Python reference implementation to interact with it. Now it is agnostic of
+`serde` backend/format, hierarchy separator, and transport/protocol.
 
 ## Formats
 
@@ -132,16 +134,16 @@ through the [`JsonCoreSlash`] super trait.
 
 ## Transport
 
-Miniconf is also protocol-agnostic. Any means that can receive key-value input from
-some external source can be used to access nodes by path.
+Miniconf is also protocol-agnostic. Any means that can receive or emit serialized key-value data
+can be used to access nodes by path.
 
-The [`MqttClient`] implements settings management over the [MQTT
+The [`MqttClient`] in the `miniconf_mqtt` crate implements settings management over the [MQTT
 protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
 interfaces with it. This example discovers the unique prefix of an application listening to messages
-under the topic `quartiq/application/12345` and set its `foo` setting to `true`.
+under the topic `quartiq/application/12345` and set its `/foo` setting to `true`.
 
 ```sh
-python -m miniconf -d quartiq/application/+ foo=true
+python -m miniconf -d quartiq/application/+ /foo=true
 ```
 
 ## Derive macros
@@ -171,8 +173,7 @@ other than [`Option`]. These are still however usable in their atomic `serde` fo
 
 ## Features
 
-* `mqtt-client` Enable the MQTT client feature. See the example in [`MqttClient`].
-* `json-core` Enable the [`JsonCoreSlash`] implementation of serializing from and
+* `json-core`: Enable the [`JsonCoreSlash`] implementation of serializing from and
   into json slices (using `serde_json_core`).
 
-The `mqtt-client` and `json-core` features are enabled by default.
+The `json-core` feature is enabled by default.
