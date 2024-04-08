@@ -1,0 +1,24 @@
+[package]
+name = "miniconf"
+# Don't forget to change `miniconf_derive`'s and `miniconf_mqtt`'s version as well, including their releases.
+version = "0.9.0"
+authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
+edition = "2021"
+license = "MIT"
+description = "Serialize/deserialize/access  Inspect serde namespaces by path"
+repository = "https://github.com/quartiq/miniconf"
+keywords = ["settings", "serde", "no_std", "json", "mqtt"]
+categories = ["no-std", "config", "rust-patterns", "parsing"]
+rust-version = "1.65.0"  # keep in sync with CI and with other crates
+resolver = "2"
+
+[dependencies]
+serde = { version = "1.0.120", default-features = false }
+miniconf_derive = { path = "../miniconf_derive" , version = "0.9" }
+itoa = "1.0.4"
+serde-json-core = { version = "0.5.1" , optional = true }
+
+[features]
+default = ["json-core"]
+json-core = ["dep:serde-json-core"]
+std = []

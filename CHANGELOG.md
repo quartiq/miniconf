@@ -1,4 +1,5 @@
 # Changelog
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -14,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * The MQTT client does not own the miniconf settings struct anymore.
 * The MQTT settings validation handler now receives the already updated new settings
   and the old settings (instead of the not updated current settings and the new settings).
+* The MQTT client has been split into its own `miniconf_mqtt` crate.
 
 ### Added
 

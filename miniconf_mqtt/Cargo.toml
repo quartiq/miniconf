@@ -1,0 +1,36 @@
+[package]
+name = "miniconf_mqtt"
+version = "0.9.0"
+rust-version = "1.65.0"
+authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
+edition = "2021"
+license = "MIT"
+description = "MQTT interface for Miniconf, using `minimq`"
+repository = "https://github.com/quartiq/miniconf"
+keywords = ["settings", "serde", "no_std", "json", "mqtt"]
+categories = ["no-std", "config", "rust-patterns", "parsing"]
+resolver = "2"
+
+[features]
+std = []
+
+[lib]
+
+[dependencies]
+miniconf = { version = "0.9", path = "../miniconf" }
+minimq = { version = "0.8.0"}
+smlang = { version = "0.6"}
+embedded-io = { version = "0.6"}
+log = { version = "0.4" }
+heapless = { version = "0.8", features = ["serde"] }
+
+[[example]]
+name = "mqtt"
+
+[dev-dependencies]
+machine = "0.3"
+env_logger = "0.10"
+std-embedded-nal = "0.2"
+tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
+std-embedded-time = "0.1"
+serde = { version = "1.0.120", features = ["derive"], default-features = false }

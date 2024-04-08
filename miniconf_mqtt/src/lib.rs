@@ -1,5 +1,13 @@
-use crate::{Error, JsonCoreSlash, TreeKey};
+#![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
+#![deny(rust_2018_compatibility)]
+#![deny(rust_2018_idioms)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
+//! The Minimq MQTT client for Miniconf.
+
 use heapless::{String, Vec};
+use miniconf::{Error, JsonCoreSlash, PathIter, TreeKey};
+pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
@@ -20,7 +28,7 @@ const MAX_CD_LENGTH: usize = 32;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M, const Y: usize> = crate::PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
+type Iter<M, const Y: usize> = PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
 
 mod sm {
     use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
@@ -138,7 +146,8 @@ struct ListCache {
 ///
 /// # Example
 /// ```
-/// use miniconf::{MqttClient, Tree};
+/// use miniconf::Tree;
+/// use miniconf_mqtt::MqttClient;
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {

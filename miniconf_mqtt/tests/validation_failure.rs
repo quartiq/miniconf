@@ -83,8 +83,8 @@ async fn main() {
     // Construct a settings configuration interface.
     let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
-    let mut interface: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> =
-        miniconf::MqttClient::new(
+    let mut interface: miniconf_mqtt::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> =
+        miniconf_mqtt::MqttClient::new(
             Stack,
             "validation_failure/device",
             StandardClock::default(),
