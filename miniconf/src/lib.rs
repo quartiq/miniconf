@@ -20,11 +20,6 @@ mod json_core;
 pub use json_core::*;
 
 #[cfg(feature = "mqtt-client")]
-mod mqtt_client;
-#[cfg(feature = "mqtt-client")]
-pub use mqtt_client::*;
-
-#[cfg(feature = "mqtt-client")]
 pub use minimq;
 
 // re-export for proc-macro

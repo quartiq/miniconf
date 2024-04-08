@@ -90,8 +90,8 @@ async fn main() {
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 
     // Construct a settings configuration interface.
-    let mut client: miniconf::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
-        miniconf::MqttClient::new(
+    let mut client: miniconf_mqtt::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
+        miniconf_mqtt::MqttClient::new(
             Stack,
             "sample/prefix",
             StandardClock::default(),
