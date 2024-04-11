@@ -264,10 +264,10 @@ impl Key for &str {
 /// #[derive(TreeKey)]
 /// struct S {
 ///     // "/b/1/2" = 5
-///     #[tree(depth(2))]
+///     #[tree(depth=2)]
 ///     b: [[u32; 3]; 3],
 ///     // "/c/0" = [3,4], optionally absent at runtime
-///     #[tree(depth(2))]
+///     #[tree(depth=2)]
 ///     c: [Option<[u32; 2]>; 2],
 /// }
 /// ```
@@ -290,7 +290,7 @@ impl Key for &str {
 /// # use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S<T> {
-///     #[tree(depth(3))]
+///     #[tree(depth=3)]
 ///     a: [Option<T>; 2],
 /// };
 /// // This works as [u32; N] implements TreeKey<1>:

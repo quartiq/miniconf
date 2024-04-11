@@ -24,7 +24,7 @@ fn generic_type() {
 fn generic_array() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        #[tree()]
+        #[tree(depth = 1)]
         pub data: [T; 2],
     }
 
@@ -69,9 +69,9 @@ fn generic_atomic() {
     #[derive(Tree, Default)]
     struct Settings<T> {
         atomic: Inner<T>,
-        #[tree(depth(2))]
+        #[tree(depth = 2)]
         opt: [[Option<T>; 0]; 0],
-        #[tree(depth(3))]
+        #[tree(depth = 3)]
         opt1: [[Option<T>; 0]; 0],
     }
 
@@ -108,14 +108,14 @@ fn test_derive_macro_bound_failure() {
     struct S<T: Serialize + DeserializeOwned>(
         // this wrongly infers T: Tree<1> instead of T: SerDe
         // adding the missing bound is a workaround
-        #[tree(depth(2))] A<T>,
+        #[tree(depth = 2)] A<T>,
     );
 }
 
 #[test]
 fn test_depth() {
     #[derive(Tree)]
-    struct S<T>(#[tree(depth(3))] Option<Option<T>>);
+    struct S<T>(#[tree(depth = 3)] Option<Option<T>>);
     // works as array implements Tree<1>
     S::<[u32; 1]>::metadata();
     // does not compile as u32 does not implement Tree<1>

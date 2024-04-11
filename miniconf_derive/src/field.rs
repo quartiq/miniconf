@@ -1,57 +1,31 @@
-use syn::{parenthesized, LitInt};
+use darling::{ast, util::Flag, FromDeriveInput, FromField, FromMeta};
+use syn::Path;
 
-pub struct StructField {
-    pub field: syn::Field,
+#[derive(Debug, FromField)]
+#[darling(attributes(tree))]
+pub struct TreeField {
+    pub ident: Option<syn::Ident>,
+    pub vis: syn::Visibility,
+    pub ty: syn::Type,
+    // attrs: Vec<syn::Attribute>,
+    #[darling(default)]
     pub depth: usize,
+    pub skip: Flag,
+    pub validate: Option<Path>,
 }
 
-impl StructField {
-    pub fn extract(fields: &syn::Fields) -> Vec<Self> {
-        match fields {
-            syn::Fields::Named(syn::FieldsNamed { named, .. }) => named,
-            syn::Fields::Unnamed(syn::FieldsUnnamed { unnamed, .. }) => unnamed,
-            syn::Fields::Unit => unimplemented!("Unit struct not supported"),
-        }
-        .iter()
-        .cloned()
-        .filter_map(Self::new)
-        .collect()
-    }
+#[derive(Debug, FromDeriveInput)]
+#[darling(attributes(tree))]
+#[darling(supports(struct_any))]
+pub struct Tree {
+    pub ident: syn::Ident,
+    pub generics: syn::Generics,
+    pub vis: syn::Visibility,
+    pub data: ast::Data<(), TreeField>,
+    // attrs: Vec<syn::Attribute>,
+}
 
-    pub fn new(field: syn::Field) -> Option<Self> {
-        let mut depth = 0;
-        let mut skip = false;
-
-        for attr in field.attrs.iter() {
-            if attr.path().is_ident("tree") {
-                depth = 1;
-                if matches!(attr.meta, syn::Meta::Path(_)) {
-                    continue;
-                }
-                attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("depth") {
-                        let content;
-                        parenthesized!(content in meta.input);
-                        let lit: LitInt = content.parse()?;
-                        depth = lit.base10_parse()?;
-                        Ok(())
-                    } else if meta.path.is_ident("skip") {
-                        skip = true;
-                        Ok(())
-                    } else {
-                        Err(meta.error(format!("unrecognized miniconf attribute {:?}", meta.path)))
-                    }
-                })
-                .unwrap();
-            }
-        }
-        if skip {
-            None
-        } else {
-            Some(Self { field, depth })
-        }
-    }
-
+impl TreeField {
     fn walk_type_params<F>(
         typ: &syn::Type,
         func: &mut F,
@@ -125,10 +99,14 @@ impl StructField {
         };
     }
 
+    pub(crate) fn depth(&self) -> usize {
+        self.depth
+    }
+
     pub(crate) fn bound_generics<F>(&self, func: &mut F, generics: &mut syn::Generics)
     where
         F: FnMut(usize) -> Option<syn::TypeParamBound>,
     {
-        Self::walk_type_params(&self.field.ty, func, self.depth, generics)
+        Self::walk_type_params(&self.ty, func, self.depth, generics)
     }
 }
