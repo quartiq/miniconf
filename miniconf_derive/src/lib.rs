@@ -1,5 +1,4 @@
 use proc_macro::TokenStream;
-// use proc_macro_error::abort;
 use quote::quote;
 use syn::{parse_macro_input, parse_quote, DeriveInput};
 
@@ -16,7 +15,6 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         }
     };
 
-    let fields = tree.fields();
     tree.bound_generics(
         &mut |depth| {
             if depth > 0 {
@@ -28,6 +26,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         &mut input.generics,
     );
 
+    let fields = tree.fields();
     let traverse_by_key_arms = fields
         .iter()
         .enumerate()
@@ -118,7 +117,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
             return e.write_errors().into();
         }
     };
-    let fields = tree.fields();
+
     tree.bound_generics(
         &mut |depth| {
             if depth > 0 {
@@ -130,7 +129,8 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         &mut input.generics,
     );
 
-    let serialize_by_key_arms = fields
+    let serialize_by_key_arms = tree
+        .fields()
         .iter()
         .enumerate()
         .map(|(i, field)| field.serialize_by_key(i));
@@ -177,7 +177,6 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
             return e.write_errors().into();
         }
     };
-    let fields = tree.fields();
 
     tree.bound_generics(
         &mut |depth| {
@@ -190,7 +189,8 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         &mut input.generics,
     );
 
-    let deserialize_by_key_arms = fields
+    let deserialize_by_key_arms = tree
+        .fields()
         .iter()
         .enumerate()
         .map(|(i, field)| field.deserialize_by_key(i));
