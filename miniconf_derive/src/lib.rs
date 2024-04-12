@@ -242,13 +242,31 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         let ident = name_or_index(i, &field.ident);
         let depth = field.depth();
         if depth > 0 {
-            quote! {
-                #i => ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(&mut self.#ident, keys, de)
-            }
-        } else {
+            let validate = match &field.validate {
+                Some(validate) => quote!(
+                    |i| #validate(stringify!(#ident), &mut self.#ident)
+                        .and(Ok(i)).map_err(|msg| Error::Invalid(0, msg))
+                ),
+                None => quote!(|i| Ok(i)),
+            };
             quote! {
                 #i => {
-                    self.#ident = ::miniconf::Deserialize::deserialize(de)?;
+                    ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(&mut self.#ident, keys, de)
+                        .and_then(#validate)
+                }
+            }
+        } else {
+            let validate = match &field.validate {
+                Some(validate) => quote!(
+                    #validate(&self, stringify!(#ident), &mut value, &self.#ident)
+                        .map_err(|msg| Error::Invalid(0,msg))?;),
+                None => quote!(),
+            };
+            quote! {
+                #i => {
+                    let mut value = ::miniconf::Deserialize::deserialize(de)?;
+                    #validate
+                    self.#ident = value;
                     Ok(0)
                 }
             }

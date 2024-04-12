@@ -43,6 +43,11 @@ pub enum Error<E> {
     /// The [`TreeDeserialize::deserialize_by_key()`] update takes place but this
     /// error will be returned.
     PostDeserialization(E),
+
+    /// The value was found to be invalid after deserialization.
+    ///
+    /// The validation callback returned an error.
+    Invalid(usize, &'static str),
 }
 
 impl<E: core::fmt::Display> Display for Error<E> {
@@ -68,6 +73,13 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 write!(f, "Error after deserialization: ")?;
                 error.fmt(f)
             }
+            Error::Invalid(index, msg) => {
+                write!(
+                    f,
+                    "The deserialized value is invalid (Key level: {}): {}",
+                    index, msg
+                )
+            }
         }
     }
 }
@@ -92,6 +104,7 @@ impl<E> Increment for Result<usize, Error<E>> {
             Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
             Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
             Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
+            Err(Error::Invalid(i, msg)) => Err(Error::Invalid(i + 1, msg)),
             e => e,
         }
     }

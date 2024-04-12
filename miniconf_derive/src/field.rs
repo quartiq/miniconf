@@ -1,4 +1,4 @@
-use darling::{ast, util::Flag, FromDeriveInput, FromField, FromMeta};
+use darling::{ast, util::Flag, FromDeriveInput, FromField};
 use syn::Path;
 
 #[derive(Debug, FromField)]
