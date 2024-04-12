@@ -151,18 +151,7 @@ struct ListCache {
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
-///     #[tree(validate=Self::check)]
 ///     foo: bool,
-/// }
-///
-/// impl Settings {
-///     fn check(&self, new: bool, _ident: &str, _old: &bool) -> Result<bool, &'static str> {
-///         if new {
-///             Err("Foo!")
-///         } else {
-///             Ok(new)
-///         }
-///     }
 /// }
 ///
 /// let mut buffer = [0u8; 1024];

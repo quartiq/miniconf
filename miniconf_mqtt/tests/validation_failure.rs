@@ -13,11 +13,7 @@ struct Settings {
 }
 impl Settings {
     fn check(&self, new: bool, _ident: &str, _old: &bool) -> Result<bool, &'static str> {
-        if !new {
-            Err("should exit")
-        } else {
-            Ok(new)
-        }
+        new.then_some(new).ok_or("Should exit")
     }
 }
 
