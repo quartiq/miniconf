@@ -7,22 +7,29 @@ struct Inner {
 
 #[derive(Tree, Default)]
 struct Settings {
-    #[tree(validate=Self::check_v)]
+    #[tree(validate=Self::check)]
     v: f32,
-    #[tree(validate=Self::check_i, depth=1)]
+    #[tree(depth=1, validate=Inner::check)]
     i: Inner,
 }
 
 impl Settings {
-    fn check_v(&self, _field: &str, new: &mut f32, _old: &f32) -> Result<(), &'static str> {
+    fn check(&self, new: f32, _field: &str, _old: &f32) -> Result<f32, &'static str> {
         if new.is_sign_negative() {
+            Err("Must not be negative.")
+        } else {
+            Ok(new)
+        }
+    }
+}
+
+impl Inner {
+    fn check(&mut self, _field: &str) -> Result<(), &'static str> {
+        if self.a.is_sign_negative() {
             Err("Must not be negative.")
         } else {
             Ok(())
         }
-    }
-    fn check_i(_field: &str, _new: &mut Inner) -> Result<(), &'static str> {
-        Ok(())
     }
 }
 
@@ -31,8 +38,16 @@ fn validate() {
     let mut s = Settings::default();
     s.set_json("/v", "1.0".as_bytes()).unwrap();
     assert_eq!(s.v, 1.0);
-    s.set_json("/v", "-1.0".as_bytes()).unwrap_err();
-    assert_eq!(s.v, 1.0);
+    assert!(matches!(
+        s.set_json("/v", "-1.0".as_bytes()),
+        Err(Error::Invalid(1, _))
+    ));
+    assert_eq!(s.v, 1.0); // remains unchanged
     s.set_json("/i/a", "1.0".as_bytes()).unwrap();
     assert_eq!(s.i.a, 1.0);
+    assert!(matches!(
+        s.set_json("/i/a", "-1.0".as_bytes()),
+        Err(Error::Invalid(1, _))
+    ));
+    assert_eq!(s.i.a, -1.0); // changes as validation failed at higher level
 }

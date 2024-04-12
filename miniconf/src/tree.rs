@@ -12,7 +12,7 @@ use serde::{Deserializer, Serializer};
 /// If multiple errors are applicable simultaneously the precedence
 /// is from high to low:
 ///
-/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization`
+/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization > Invalid`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -225,11 +225,11 @@ impl Key for &str {
 /// or implement the respective `TreeSerialize`/`TreeDeserialize` trait themselves for the required remaining
 /// recursion depth.
 ///
-/// For each field, the remaining recursion depth is configured through the `#[tree(depth(Y))]`
-/// attribute, with `Y = 1` being the implied default when using `#[tree()]` and `Y = 0` invalid.
-/// If the attribute is not present, the field is a leaf and accessed only through its
+/// For each field, the remaining recursion depth is configured through the `#[tree(depth=Y)]`
+/// attribute, with `Y = 0` being the implied default.
+/// If `Y = 0`, the field is a leaf and accessed only through its
 /// [`serde::Serialize`]/[`serde::Deserialize`] implementation.
-/// With the attribute present the field is accessed through its `TreeKey<Y>` implementation with the given
+/// With `Y > 0` the field is accessed through its `TreeKey<Y>` implementation with the given
 /// remaining recursion depth.
 ///
 /// # Array
@@ -237,7 +237,7 @@ impl Key for &str {
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
 /// up to recursion depth `Y = 8`.
 ///
-/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth(Y))]` in a struct)
+/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
 /// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic
 /// value. For `Y = 1` each index of the array is is instead accessed as
@@ -247,9 +247,9 @@ impl Key for &str {
 /// contains `TreeKey` items, one can (and often wants to) use `Y >= 2`.
 /// However, if each element in the array should be individually configurable as a single value (e.g. a list
 /// of `u32`), then `Y = 1` can be used. With `Y = 0` all items are to be accessed simultaneously and atomically.
-/// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 5`. It automatically implements
-/// `TreeKey<5>`.
-/// For `[[T; 2]; 3] where T: Serialize + DeserializeOwned`, any `Y <= 2` is available.
+/// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 3 + 1 + 1 = 5`.
+/// It automatically implements `TreeKey<5>`.
+/// For `[[T; 2]; 3] where T: Serialize + DeserializeOwned`, any `Y <= 2` is implemented.
 ///
 /// # Option
 ///
@@ -265,7 +265,7 @@ impl Key for &str {
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
-/// If the depth specified by the `#[tree(depth(Y))]` attribute exceeds 1,
+/// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
 /// the `Option` can be used to access within the inner type using its `TreeKey` trait.
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
@@ -294,7 +294,7 @@ impl Key for &str {
 ///
 /// * With the `#[tree()]` attribute not present on `a`, `T` will receive bounds `Serialize`/`DeserializeOwned` when
 ///   `TreeSerialize`/`TreeDeserialize` is derived.
-/// * With `#[tree(depth(Y))]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
+/// * With `#[tree(depth=Y)]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
 /// * For `Y - X >= 1` it will receive the bound `T: TreeKey<Y - X>`.
 ///
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
@@ -315,8 +315,30 @@ impl Key for &str {
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
 /// when deriving `TreeKey` for a struct that (a) forwards its own type parameters as type
 /// parameters to its field types, (b) uses `TreeKey` on those fields, and (c) those field
-/// types use their type parameters at other levels than `TreeKey<Y - 1>`. See the
+/// types use their type parameters at other levels than `TreeKey<Y - 1>`. See also the
 /// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
+///
+/// ## Validation
+///
+/// The `TreeDeserialize` derive macro supports validation callbacks.
+/// For leaf fields the signature is `fn(struct: &S, new: T, ident: &str, old: &T) -> Result<T, &str>`
+/// The callback returns `Ok(new)` if the value is to be set. If the callback returns
+/// an `Err(&str)`, the update is aborted and the value remains unchanged.
+/// For intermediate fields the signature is `fn(new: &mut T, ident: &str) -> Result<(), &str>`.
+/// In this case the update has already taken place, but the validator may still mutate `new`.
+///
+/// ```
+/// # use miniconf::{Error, Tree, JsonCoreSlash};
+/// #[derive(Tree, Default)]
+/// struct S {
+///     #[tree(validate=fail)]
+///     a: f32,
+/// };
+/// fn fail(_s: &S, _new: f32, _ident: &'static str, _old: &f32) -> Result<f32, &'static str> {
+///     Err("fail")
+/// }
+/// assert_eq!(S::default().set_json("/a", "3.0".as_bytes()), Err(Error::Invalid(1, "fail")));
+/// ```
 ///
 /// # Example
 ///

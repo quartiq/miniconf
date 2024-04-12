@@ -174,8 +174,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         } else {
             quote! {
                 #i => {
-                    ::miniconf::Serialize::serialize(&self.#ident, ser)?;
-                    Ok(0)
+                    ::miniconf::Serialize::serialize(&self.#ident, ser).and(Ok(0)).map_err(|e| ::miniconf::Error::Inner(e))
                }
             }
         }
@@ -244,8 +243,8 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         if depth > 0 {
             let validate = match &field.validate {
                 Some(validate) => quote!(
-                    |i| #validate(stringify!(#ident), &mut self.#ident)
-                        .and(Ok(i)).map_err(|msg| Error::Invalid(0, msg))
+                    |i| #validate(&mut self.#ident, stringify!(#ident))
+                        .and(Ok(i)).map_err(|msg| ::miniconf::Error::Invalid(0, msg))
                 ),
                 None => quote!(|i| Ok(i)),
             };
@@ -258,16 +257,19 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         } else {
             let validate = match &field.validate {
                 Some(validate) => quote!(
-                    #validate(&self, stringify!(#ident), &mut value, &self.#ident)
-                        .map_err(|msg| Error::Invalid(0,msg))?;),
-                None => quote!(),
+                    |v| #validate(&self, v, stringify!(#ident), &self.#ident)
+                        .map_err(|msg| ::miniconf::Error::Invalid(0, msg))),
+                None => quote!(|v| Ok(v)),
             };
             quote! {
                 #i => {
-                    let mut value = ::miniconf::Deserialize::deserialize(de)?;
-                    #validate
-                    self.#ident = value;
-                    Ok(0)
+                    ::miniconf::Deserialize::deserialize(de)
+                        .map_err(|e| ::miniconf::Error::Inner(e))
+                        .and_then(#validate)
+                        .and_then(|v| {
+                            self.#ident = v;
+                            Ok(0)
+                        })
                 }
             }
         }
