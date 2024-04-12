@@ -8,7 +8,17 @@ const RESPONSE_TOPIC: &str = "validation_failure/device/response";
 
 #[derive(Clone, Debug, Default, Tree)]
 struct Settings {
+    #[tree(validate=Self::check)]
     error: bool,
+}
+impl Settings {
+    fn check(&self, new: bool, _ident: &str, _old: &bool) -> Result<bool, &'static str> {
+        if !new {
+            Err("should exit")
+        } else {
+            Ok(new)
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -94,23 +104,10 @@ async fn main() {
 
     let mut settings = Settings::default();
 
-    // Update the client until the exit
-    let mut should_exit = false;
     loop {
-        interface
-            .handled_update(&mut settings, |_path, _old_settings, new_settings| {
-                log::info!("Handling setting update");
-                if new_settings.error {
-                    should_exit = true;
+        interface.update(&mut settings).unwrap();
 
-                    return Err("Exiting now");
-                }
-
-                Ok(())
-            })
-            .unwrap();
-
-        if should_exit {
+        if settings.error {
             break;
         }
 

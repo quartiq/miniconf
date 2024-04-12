@@ -151,7 +151,18 @@ struct ListCache {
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
+///     #[tree(validate=Self::check)]
 ///     foo: bool,
+/// }
+///
+/// impl Settings {
+///     fn check(&self, new: bool, _ident: &str, _old: &bool) -> Result<bool, &'static str> {
+///         if new {
+///             Err("Foo!")
+///         } else {
+///             Ok(new)
+///         }
+///     }
 /// }
 ///
 /// let mut buffer = [0u8; 1024];
@@ -160,19 +171,11 @@ struct ListCache {
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),
-///     minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+///     minimq::ConfigBuilder::new(localhost.into(), &mut buffer),
 /// )
 /// .unwrap();
 /// let mut settings = Settings::default();
-///
-/// client
-///     .handled_update(&mut settings, |_path, _old_settings, new_settings| {
-///         if new_settings.foo {
-///             return Err("Foo!");
-///         }
-///         Ok(())
-///     })
-///     .unwrap();
+/// client.update(&mut settings).unwrap();
 /// ```
 pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
 where
@@ -370,26 +373,11 @@ where
         }
     }
 
-    /// Update the MQTT interface and service the network. Pass any settings changes to the handler
-    /// supplied.
-    ///
-    /// # Args
-    /// * `handler` - A closure called with updated settings that can be used to validate current
-    ///   settings or revert. Arguments are (path, old_settings, new_settings).
-    ///   If the handler returns an `Err`, the settings will revert to the old settings and no
-    ///   update will be done.
+    /// Update the MQTT interface and service the network.
     ///
     /// # Returns
     /// True if the settings changed. False otherwise.
-    pub fn handled_update<F, E>(
-        &mut self,
-        settings: &mut Settings,
-        handler: F,
-    ) -> Result<bool, minimq::Error<Stack::Error>>
-    where
-        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
-        E: core::fmt::Display,
-    {
+    pub fn update(&mut self, settings: &mut Settings) -> Result<bool, minimq::Error<Stack::Error>> {
         if !self.mqtt.client().is_connected() {
             // Note(unwrap): It's always safe to reset.
             self.state.process_event(sm::Events::Reset).unwrap();
@@ -419,18 +407,13 @@ where
         self.handle_listing();
 
         // All states must handle MQTT traffic.
-        self.handle_mqtt_traffic(settings, handler)
+        self.handle_mqtt_traffic(settings)
     }
 
-    fn handle_mqtt_traffic<F, E>(
+    fn handle_mqtt_traffic(
         &mut self,
         settings: &mut Settings,
-        mut handler: F,
-    ) -> Result<bool, minimq::Error<Stack::Error>>
-    where
-        F: FnMut(&str, &Settings, &mut Settings) -> Result<(), E>,
-        E: core::fmt::Display,
-    {
+    ) -> Result<bool, minimq::Error<Stack::Error>> {
         let mut updated = false;
         let poll = self.mqtt.poll(|client, topic, message, properties| {
             let Some(path) = topic.strip_prefix(self.prefix.as_str()) else {
@@ -515,9 +498,19 @@ where
                     }
                 }
 
-                Command::Set { path, value } => {
-                    let old_settings = settings.clone();
-                    if let Err(err) = settings.set_json(path, value) {
+                Command::Set { path, value } => match settings.set_json(path, value) {
+                    Ok(_depth) => {
+                        updated = true;
+                        if let Ok(response) = Publication::new("OK".as_bytes())
+                            .properties(&[ResponseCode::Ok.as_user_property()])
+                            .reply(properties)
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
+                        {
+                            client.publish(response).ok();
+                        }
+                    }
+                    Err(err) => {
                         if let Ok(response) = DeferredPublication::new(|mut buf| {
                             let start = buf.len();
                             write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
@@ -529,37 +522,8 @@ where
                         {
                             client.publish(response).ok();
                         }
-                        return;
-                    };
-
-                    match handler(path, &old_settings, settings) {
-                        Ok(_) => {
-                            updated = true;
-                            if let Ok(response) = Publication::new("OK".as_bytes())
-                                .properties(&[ResponseCode::Ok.as_user_property()])
-                                .reply(properties)
-                                .qos(QoS::AtLeastOnce)
-                                .finish()
-                            {
-                                client.publish(response).ok();
-                            }
-                        }
-                        Err(err) => {
-                            *settings = old_settings;
-                            if let Ok(response) = DeferredPublication::new(|mut buf| {
-                                let start = buf.len();
-                                write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
-                            })
-                            .properties(&[ResponseCode::Error.as_user_property()])
-                            .reply(properties)
-                            .qos(QoS::AtLeastOnce)
-                            .finish()
-                            {
-                                client.publish(response).ok();
-                            }
-                        }
                     }
-                }
+                },
             }
         });
         match poll {
@@ -571,16 +535,6 @@ where
             }
             Err(other) => Err(other),
         }
-    }
-
-    /// Update the settings from the network stack without any specific handling.
-    ///
-    /// # Returns
-    /// True if the settings changed. False otherwise
-    pub fn update(&mut self, settings: &mut Settings) -> Result<bool, minimq::Error<Stack::Error>> {
-        self.handled_update(settings, |_path, _settings, _old_settings| {
-            Result::<_, &'static str>::Ok(())
-        })
     }
 
     /// Force republication of the current settings.
@@ -601,7 +555,7 @@ enum ResponseCode {
 }
 
 impl ResponseCode {
-    fn as_user_property(self) -> minimq::Property<'static> {
+    const fn as_user_property(self) -> minimq::Property<'static> {
         let string = match self {
             ResponseCode::Ok => "Ok",
             ResponseCode::Continue => "Continue",
