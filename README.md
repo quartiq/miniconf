@@ -120,8 +120,8 @@ for path in Settings::iter_paths::<String>("/") {
 One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
 
 It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
-payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a [MQTT settings management
-client](MqttClient) and a Python reference implementation to interact with it. Now it is agnostic of
+payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a MQTT settings management
+client and a Python reference implementation to interact with it. Now it is agnostic of
 `serde` backend/format, hierarchy separator, and transport/protocol.
 
 ## Formats
@@ -137,7 +137,7 @@ through the [`JsonCoreSlash`] super trait.
 Miniconf is also protocol-agnostic. Any means that can receive or emit serialized key-value data
 can be used to access nodes by path.
 
-The [`MqttClient`] in the `miniconf_mqtt` crate implements settings management over the [MQTT
+The `MqttClient` in the `miniconf_mqtt` crate implements settings management over the [MQTT
 protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
 interfaces with it. This example discovers the unique prefix of an application listening to messages
 under the topic `quartiq/application/12345` and set its `/foo` setting to `true`.
