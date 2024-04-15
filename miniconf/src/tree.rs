@@ -60,38 +60,38 @@ pub enum Error<E> {
 impl<E: core::fmt::Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Absent(index) => {
-                write!(f, "Path is not currently available (depth: {})", index)
+            Error::Absent(depth) => {
+                write!(f, "Path not currently present (depth: {})", depth)
             }
-            Error::TooShort(index) => {
-                write!(f, "Provided path was too short (depth: {})", index)
+            Error::TooShort(depth) => {
+                write!(f, "Path too short (depth: {})", depth)
             }
-            Error::NotFound(index) => {
-                write!(f, "The provided path was not found (depth: {})", index)
+            Error::NotFound(depth) => {
+                write!(f, "Path not found (depth: {})", depth)
             }
-            Error::TooLong(index) => {
-                write!(f, "The provided path was too long (depth: {})", index)
+            Error::TooLong(depth) => {
+                write!(f, "Path too long (depth: {})", depth)
             }
             Error::Inner(error) => {
-                write!(f, "Value could not be (de)serialized: ")?;
+                write!(f, "(De)serialization error: ")?;
                 error.fmt(f)
             }
             Error::PostDeserialization(error) => {
-                write!(f, "Error after deserialization: ")?;
+                write!(f, "Deserializer error after deserialization: ")?;
                 error.fmt(f)
             }
-            Error::InvalidLeaf(index, msg) => {
+            Error::InvalidLeaf(depth, msg) => {
                 write!(
                     f,
-                    "The deserialized leaf value is invalid (depth: {}): {}",
-                    index, msg
+                    "Invalid deserialized leaf value (depth: {}): {}",
+                    depth, msg
                 )
             }
-            Error::InvalidInternal(index, msg) => {
+            Error::InvalidInternal(depth, msg) => {
                 write!(
                     f,
-                    "The internal (non-leaf) field is invalid (depth: {}): {}",
-                    index, msg
+                    "Invalid internal (non-leaf) field (depth: {}): {}",
+                    depth, msg
                 )
             }
         }
