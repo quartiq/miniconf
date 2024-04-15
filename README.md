@@ -46,23 +46,23 @@ struct Settings {
 
     // Exposing elements of containers
     // ... by field name
-    #[tree]
+    #[tree(depth=1)]
     struct_tree: Inner,
     // ... or by index
-    #[tree]
+    #[tree(depth=1)]
     array_tree: [i32; 2],
     // ... or exposing two levels (array index and then inner field name)
-    #[tree(depth(2))]
+    #[tree(depth=2)]
     array_tree2: [Inner; 2],
 
     // Hiding paths by setting the Option to `None` at runtime
-    #[tree]
+    #[tree(depth=1)]
     option_tree: Option<i32>,
     // Hiding a path and descending into the inner `Tree`
-    #[tree(depth(2))]
+    #[tree(depth=2)]
     option_tree2: Option<Inner>,
     // Hiding elements of an array of `Tree`s
-    #[tree(depth(3))]
+    #[tree(depth=3)]
     array_option_tree: [Option<Inner>; 2],
 }
 
@@ -120,8 +120,8 @@ for path in Settings::iter_paths::<String>("/") {
 One possible use of `Miniconf` is a backend for run-time settings management in embedded devices.
 
 It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
-payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a [MQTT settings management
-client](MqttClient) and a Python reference implementation to interact with it. Now it is agnostic of
+payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a MQTT settings management
+client and a Python reference implementation to interact with it. Now it is agnostic of
 `serde` backend/format, hierarchy separator, and transport/protocol.
 
 ## Formats
@@ -137,7 +137,7 @@ through the [`JsonCoreSlash`] super trait.
 Miniconf is also protocol-agnostic. Any means that can receive or emit serialized key-value data
 can be used to access nodes by path.
 
-The [`MqttClient`] in the `miniconf_mqtt` crate implements settings management over the [MQTT
+The `MqttClient` in the `miniconf_mqtt` crate implements settings management over the [MQTT
 protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
 interfaces with it. This example discovers the unique prefix of an application listening to messages
 under the topic `quartiq/application/12345` and set its `/foo` setting to `true`.

@@ -9,7 +9,7 @@ struct Inner {
 struct Settings {
     a: f32,
     b: i32,
-    #[tree()]
+    #[tree(depth = 1)]
     c: Inner,
 }
 

@@ -12,7 +12,7 @@ use serde::{Deserializer, Serializer};
 /// If multiple errors are applicable simultaneously the precedence
 /// is from high to low:
 ///
-/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization`
+/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization > Invalid`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -43,30 +43,56 @@ pub enum Error<E> {
     /// The [`TreeDeserialize::deserialize_by_key()`] update takes place but this
     /// error will be returned.
     PostDeserialization(E),
+
+    /// A leaf value was found to be invalid after deserialization and
+    /// `deserialize_by_key()` was aborted.
+    ///
+    /// The validation callback returned an error message.
+    InvalidLeaf(usize, &'static str),
+
+    /// An internal (non-leaf) field was found to be invalid after deserialization
+    /// and update of a leaf value.
+    ///
+    /// The validation callback returned an error message.
+    InvalidInternal(usize, &'static str),
 }
 
 impl<E: core::fmt::Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Absent(index) => {
-                write!(f, "Path is not currently available (Key level: {})", index)
+            Error::Absent(depth) => {
+                write!(f, "Path not currently present (depth: {})", depth)
             }
-            Error::TooShort(index) => {
-                write!(f, "Provided path was too short (Key level: {})", index)
+            Error::TooShort(depth) => {
+                write!(f, "Path too short (depth: {})", depth)
             }
-            Error::NotFound(index) => {
-                write!(f, "The provided path was not found (Key level: {})", index)
+            Error::NotFound(depth) => {
+                write!(f, "Path not found (depth: {})", depth)
             }
-            Error::TooLong(index) => {
-                write!(f, "The provided path was too long (Key level: {})", index)
+            Error::TooLong(depth) => {
+                write!(f, "Path too long (depth: {})", depth)
             }
             Error::Inner(error) => {
-                write!(f, "Value could not be (de)serialized: ")?;
+                write!(f, "(De)serialization error: ")?;
                 error.fmt(f)
             }
             Error::PostDeserialization(error) => {
-                write!(f, "Error after deserialization: ")?;
+                write!(f, "Deserializer error after deserialization: ")?;
                 error.fmt(f)
+            }
+            Error::InvalidLeaf(depth, msg) => {
+                write!(
+                    f,
+                    "Invalid deserialized leaf value (depth: {}): {}",
+                    depth, msg
+                )
+            }
+            Error::InvalidInternal(depth, msg) => {
+                write!(
+                    f,
+                    "Invalid internal (non-leaf) field (depth: {}): {}",
+                    depth, msg
+                )
             }
         }
     }
@@ -78,7 +104,7 @@ impl<T> From<T> for Error<T> {
     }
 }
 
-/// Pass a [`Result`] up one hierarchy level, incrementing its usize member.
+/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize member.
 pub trait Increment {
     /// Increment the `depth` member by one.
     fn increment(self) -> Self;
@@ -92,6 +118,8 @@ impl<E> Increment for Result<usize, Error<E>> {
             Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
             Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
             Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
+            Err(Error::InvalidLeaf(i, msg)) => Err(Error::InvalidLeaf(i + 1, msg)),
+            Err(Error::InvalidInternal(i, msg)) => Err(Error::InvalidInternal(i + 1, msg)),
             e => e,
         }
     }
@@ -212,11 +240,11 @@ impl Key for &str {
 /// or implement the respective `TreeSerialize`/`TreeDeserialize` trait themselves for the required remaining
 /// recursion depth.
 ///
-/// For each field, the remaining recursion depth is configured through the `#[tree(depth(Y))]`
-/// attribute, with `Y = 1` being the implied default when using `#[tree()]` and `Y = 0` invalid.
-/// If the attribute is not present, the field is a leaf and accessed only through its
+/// For each field, the remaining recursion depth is configured through the `#[tree(depth=Y)]`
+/// attribute, with `Y = 0` being the implied default.
+/// If `Y = 0`, the field is a leaf and accessed only through its
 /// [`serde::Serialize`]/[`serde::Deserialize`] implementation.
-/// With the attribute present the field is accessed through its `TreeKey<Y>` implementation with the given
+/// With `Y > 0` the field is accessed through its `TreeKey<Y>` implementation with the given
 /// remaining recursion depth.
 ///
 /// # Array
@@ -224,7 +252,7 @@ impl Key for &str {
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
 /// up to recursion depth `Y = 8`.
 ///
-/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth(Y))]` in a struct)
+/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
 /// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic
 /// value. For `Y = 1` each index of the array is is instead accessed as
@@ -234,9 +262,9 @@ impl Key for &str {
 /// contains `TreeKey` items, one can (and often wants to) use `Y >= 2`.
 /// However, if each element in the array should be individually configurable as a single value (e.g. a list
 /// of `u32`), then `Y = 1` can be used. With `Y = 0` all items are to be accessed simultaneously and atomically.
-/// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 5`. It automatically implements
-/// `TreeKey<5>`.
-/// For `[[T; 2]; 3] where T: Serialize + DeserializeOwned`, any `Y <= 2` is available.
+/// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 3 + 1 + 1 = 5`.
+/// It automatically implements `TreeKey<5>`.
+/// For `[[T; 2]; 3] where T: Serialize + DeserializeOwned`, any `Y <= 2` is implemented.
 ///
 /// # Option
 ///
@@ -252,7 +280,7 @@ impl Key for &str {
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// namespaces will not be exposed for it.
 ///
-/// If the depth specified by the `#[tree(depth(Y))]` attribute exceeds 1,
+/// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
 /// the `Option` can be used to access within the inner type using its `TreeKey` trait.
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
@@ -264,10 +292,10 @@ impl Key for &str {
 /// #[derive(TreeKey)]
 /// struct S {
 ///     // "/b/1/2" = 5
-///     #[tree(depth(2))]
+///     #[tree(depth=2)]
 ///     b: [[u32; 3]; 3],
 ///     // "/c/0" = [3,4], optionally absent at runtime
-///     #[tree(depth(2))]
+///     #[tree(depth=2)]
 ///     c: [Option<[u32; 2]>; 2],
 /// }
 /// ```
@@ -281,7 +309,7 @@ impl Key for &str {
 ///
 /// * With the `#[tree()]` attribute not present on `a`, `T` will receive bounds `Serialize`/`DeserializeOwned` when
 ///   `TreeSerialize`/`TreeDeserialize` is derived.
-/// * With `#[tree(depth(Y))]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
+/// * With `#[tree(depth=Y)]`, and `Y - X < 1` it will also receive bounds `Serialize + DeserializeOwned`.
 /// * For `Y - X >= 1` it will receive the bound `T: TreeKey<Y - X>`.
 ///
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
@@ -290,7 +318,7 @@ impl Key for &str {
 /// # use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S<T> {
-///     #[tree(depth(3))]
+///     #[tree(depth=3)]
 ///     a: [Option<T>; 2],
 /// };
 /// // This works as [u32; N] implements TreeKey<1>:
@@ -302,10 +330,44 @@ impl Key for &str {
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
 /// when deriving `TreeKey` for a struct that (a) forwards its own type parameters as type
 /// parameters to its field types, (b) uses `TreeKey` on those fields, and (c) those field
-/// types use their type parameters at other levels than `TreeKey<Y - 1>`. See the
+/// types use their type parameters at other depths than `TreeKey<Y - 1>`. See also the
 /// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
 ///
-/// # Example
+/// ## Validation
+///
+/// The `TreeDeserialize` derive macro supports validation callbacks.
+///
+/// For leaf fields the callback signature is
+/// `fn(&mut self, new: T) -> Result<T, &str>`
+/// The callback must return the new value to be set as `Ok(new)`.
+/// If the callback returns an `Err(&str)`, the value is not updated and [`Error::InvalidLeaf`] is returned.
+///
+/// For internal (non-leaf) fields the signature is `fn(&mut self) -> Result<(), &str>`.
+/// Note that in this case the deserialization and leaf value update have already taken place successfully
+/// deeper in the tree when any non-leaf validator callbacks are invoked.
+///
+/// Note: In both cases the callbacks receive `&mut self` as an argument and may mutate the container.
+/// Note: Obtaining [`Error::InvalidInternal`] does not by itself mean that
+/// the update was aborted.
+///
+/// ```
+/// # use miniconf::{Error, Tree, JsonCoreSlash};
+/// #[derive(Tree, Default)]
+/// struct S {
+///     #[tree(validate=leaf)]
+///     a: f32,
+///     #[tree(depth=1, validate=non_leaf)]
+///     b: [f32; 2],
+/// };
+/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
+///     Err("fail")
+/// }
+/// fn non_leaf(s: &mut S) -> Result<(), &'static str> {
+///     Err("fail")
+/// }
+/// ```
+///
+/// # Examples
 ///
 /// See the [`crate`] documentation for an example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {

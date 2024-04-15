@@ -10,13 +10,13 @@ struct Inner {
 #[derive(Debug, Default, Tree)]
 struct Settings {
     a: [u8; 2],
-    #[tree()]
+    #[tree(depth = 1)]
     d: [u8; 2],
-    #[tree()]
+    #[tree(depth = 1)]
     dm: [Inner; 2],
-    #[tree(depth(2))]
+    #[tree(depth = 2)]
     am: [Inner; 2],
-    #[tree(depth(3))]
+    #[tree(depth = 3)]
     aam: [[Inner; 2]; 2],
 }
 
@@ -103,9 +103,9 @@ fn empty() {
 
     #[derive(Tree, Default)]
     struct Q {
-        #[tree(depth(2))]
+        #[tree(depth = 2)]
         a: [S; 0],
-        #[tree()]
+        #[tree(depth = 1)]
         b: [S; 0],
     }
     assert!(Q::default().set_json_by_index(&[], b"").is_err());

@@ -4,72 +4,41 @@ use syn::{parse_macro_input, parse_quote, DeriveInput};
 
 mod field;
 
-use field::StructField;
-
-fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
-    match ident {
-        None => {
-            let index = syn::Index::from(i);
-            quote! { #index }
-        }
-        Some(name) => quote! { #name },
-    }
-}
-
 /// Derive the `TreeKey` trait for a struct.
 #[proc_macro_derive(TreeKey, attributes(tree))]
 pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
-    let syn::Data::Struct(data) = input.data else {
-        unimplemented!()
+    let tree = match field::Tree::parse(&input) {
+        Ok(t) => t,
+        Err(e) => {
+            return e.write_errors().into();
+        }
     };
-    let fields = StructField::extract(&data.fields);
-    for f in &fields {
-        f.bound_generics(
-            &mut |depth| {
-                if depth > 0 {
-                    Some(parse_quote!(::miniconf::TreeKey<#depth>))
-                } else {
-                    None
-                }
-            },
-            &mut input.generics,
-        )
-    }
 
-    let traverse_by_key_arms = fields.iter().enumerate().filter_map(|(i, field)| {
-        // Quote context is a match of the field index with `traverse_by_key()` args available.
-        let depth = field.depth;
-        if depth > 0 {
-            let field_type = &field.field.ty;
-            Some(quote! {
-                #i => <#field_type as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
-            })
-        } else {
-            None
-        }
-    });
-    let metadata_arms = fields.iter().enumerate().filter_map(|(i, field)| {
-        // Quote context is a match of the field index with `metadata()` args available.
-        let depth = field.depth;
-        if depth > 0 {
-            let field_type = &field.field.ty;
-            Some(quote! {
-                #i => <#field_type as ::miniconf::TreeKey<#depth>>::metadata()
-            })
-        } else {
-            None
-        }
-    });
+    tree.bound_generics(
+        &mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeKey<#depth>))
+            } else {
+                None
+            }
+        },
+        &mut input.generics,
+    );
 
-    let names = fields.iter().enumerate().map(|(i, field)| {
-        let name = name_or_index(i, &field.field.ident);
-        quote! { stringify!(#name) }
-    });
+    let fields = tree.fields();
+    let traverse_by_key_arms = fields
+        .iter()
+        .enumerate()
+        .filter_map(|(i, field)| field.traverse_by_key(i));
+    let metadata_arms = fields
+        .iter()
+        .enumerate()
+        .filter_map(|(i, field)| field.metadata(i));
+    let names = fields.iter().enumerate().map(|(i, field)| field.name(i));
     let fields_len = fields.len();
-
     let defers = fields.iter().map(|field| field.depth > 0);
-    let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
+    let depth = tree.depth();
     let ident = input.ident;
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -142,42 +111,30 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(TreeSerialize, attributes(tree))]
 pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
-    let syn::Data::Struct(data) = input.data else {
-        unimplemented!()
-    };
-    let fields = StructField::extract(&data.fields);
-    for f in &fields {
-        f.bound_generics(
-            &mut |depth| {
-                if depth > 0 {
-                    Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
-                } else {
-                    Some(parse_quote!(::miniconf::Serialize))
-                }
-            },
-            &mut input.generics,
-        )
-    }
-
-    let serialize_by_key_arms = fields.iter().enumerate().map(|(i, field)| {
-        // Quote context is a match of the field name with `serialize_by_key()` args available.
-        let ident = name_or_index(i, &field.field.ident);
-        let depth = field.depth;
-        if depth > 0 {
-            quote! {
-                #i => ::miniconf::TreeSerialize::<#depth>::serialize_by_key(&self.#ident, keys, ser)
-            }
-        } else {
-            quote! {
-                #i => {
-                    ::miniconf::Serialize::serialize(&self.#ident, ser)?;
-                    Ok(0)
-               }
-            }
+    let tree = match field::Tree::parse(&input) {
+        Ok(t) => t,
+        Err(e) => {
+            return e.write_errors().into();
         }
-    });
+    };
 
-    let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
+    tree.bound_generics(
+        &mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
+            } else {
+                Some(parse_quote!(::miniconf::Serialize))
+            }
+        },
+        &mut input.generics,
+    );
+
+    let serialize_by_key_arms = tree
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(i, field)| field.serialize_by_key(i));
+    let depth = tree.depth();
     let ident = input.ident;
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
@@ -214,42 +171,30 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(TreeDeserialize, attributes(tree))]
 pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as DeriveInput);
-    let syn::Data::Struct(data) = input.data else {
-        unimplemented!()
-    };
-    let fields = StructField::extract(&data.fields);
-    for f in &fields {
-        f.bound_generics(
-            &mut |depth| {
-                if depth > 0 {
-                    Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
-                } else {
-                    Some(parse_quote!(::miniconf::DeserializeOwned))
-                }
-            },
-            &mut input.generics,
-        )
-    }
-
-    let deserialize_by_key_arms = fields.iter().enumerate().map(|(i, field)| {
-        // Quote context is a match of the field name with `deserialize_by_key()` args available.
-        let ident = name_or_index(i, &field.field.ident);
-        let depth = field.depth;
-        if depth > 0 {
-            quote! {
-                #i => ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(&mut self.#ident, keys, de)
-            }
-        } else {
-            quote! {
-                #i => {
-                    self.#ident = ::miniconf::Deserialize::deserialize(de)?;
-                    Ok(0)
-                }
-            }
+    let tree = match field::Tree::parse(&input) {
+        Ok(t) => t,
+        Err(e) => {
+            return e.write_errors().into();
         }
-    });
+    };
 
-    let depth = fields.iter().fold(0usize, |d, field| d.max(field.depth)) + 1;
+    tree.bound_generics(
+        &mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
+            } else {
+                Some(parse_quote!(::miniconf::DeserializeOwned))
+            }
+        },
+        &mut input.generics,
+    );
+
+    let deserialize_by_key_arms = tree
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(i, field)| field.deserialize_by_key(i));
+    let depth = tree.depth();
     let ident = input.ident;
 
     let orig_generics = input.generics.clone();
@@ -298,6 +243,6 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
 pub fn derive_tree(input: TokenStream) -> TokenStream {
     let mut t = derive_tree_key(input.clone());
     t.extend(derive_tree_serialize(input.clone()));
-    t.extend(derive_tree_deserialize(input.clone()));
+    t.extend(derive_tree_deserialize(input));
     t
 }
