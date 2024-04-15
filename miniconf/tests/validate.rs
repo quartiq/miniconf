@@ -31,14 +31,14 @@ fn validate() {
     assert_eq!(s.v, 1.0);
     assert!(matches!(
         s.set_json("/v", "-1.0".as_bytes()),
-        Err(Error::Invalid(1, _))
+        Err(Error::InvalidLeaf(1, _))
     ));
     assert_eq!(s.v, 1.0); // remains unchanged
     s.set_json("/i/a", "1.0".as_bytes()).unwrap();
     assert_eq!(s.i.a, 1.0);
     assert!(matches!(
         s.set_json("/i/a", "-1.0".as_bytes()),
-        Err(Error::Invalid(1, _))
+        Err(Error::InvalidInternal(1, _))
     ));
-    assert_eq!(s.i.a, -1.0); // changes as validation failed at higher level
+    assert_eq!(s.i.a, -1.0); // has changed
 }

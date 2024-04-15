@@ -90,7 +90,7 @@ impl TreeField {
                 Some(validate) => quote!(
                     |i| #validate(self)
                         .and(Ok(i))
-                        .map_err(|msg| ::miniconf::Error::Invalid(0, msg))
+                        .map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
                 ),
                 None => quote!(Ok),
             };
@@ -104,7 +104,7 @@ impl TreeField {
             let validate = match &self.validate {
                 Some(validate) => quote!(
                     |new| #validate(self, new)
-                        .map_err(|msg| ::miniconf::Error::Invalid(0, msg))
+                        .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
                 ),
                 None => quote!(Ok),
             };

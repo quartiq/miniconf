@@ -44,10 +44,17 @@ pub enum Error<E> {
     /// error will be returned.
     PostDeserialization(E),
 
-    /// The value was found to be invalid after deserialization.
+    /// A leaf value was found to be invalid after deserialization and
+    /// `deserialize_by_key()` was aborted.
     ///
-    /// A validation callback returned an error message.
-    Invalid(usize, &'static str),
+    /// The validation callback returned an error message.
+    InvalidLeaf(usize, &'static str),
+
+    /// An internal (non-leaf) field was found to be invalid after deserialization
+    /// and update of a leaf value.
+    ///
+    /// The validation callback returned an error message.
+    InvalidInternal(usize, &'static str),
 }
 
 impl<E: core::fmt::Display> Display for Error<E> {
@@ -73,10 +80,17 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 write!(f, "Error after deserialization: ")?;
                 error.fmt(f)
             }
-            Error::Invalid(index, msg) => {
+            Error::InvalidLeaf(index, msg) => {
                 write!(
                     f,
-                    "The deserialized value is invalid (depth: {}): {}",
+                    "The deserialized leaf value is invalid (depth: {}): {}",
+                    index, msg
+                )
+            }
+            Error::InvalidInternal(index, msg) => {
+                write!(
+                    f,
+                    "The internal (non-leaf) field is invalid (depth: {}): {}",
                     index, msg
                 )
             }
@@ -104,7 +118,8 @@ impl<E> Increment for Result<usize, Error<E>> {
             Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
             Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
             Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
-            Err(Error::Invalid(i, msg)) => Err(Error::Invalid(i + 1, msg)),
+            Err(Error::InvalidLeaf(i, msg)) => Err(Error::InvalidLeaf(i + 1, msg)),
+            Err(Error::InvalidInternal(i, msg)) => Err(Error::InvalidInternal(i + 1, msg)),
             e => e,
         }
     }
@@ -324,12 +339,16 @@ impl Key for &str {
 ///
 /// For leaf fields the callback signature is
 /// `fn(&mut self, new: T) -> Result<T, &str>`
-/// The callback must return `Ok(new)` if a new value is to be set.
-/// If the callback returns an `Err(&str)`, the update is aborted and the value remains unchanged.
+/// The callback must return the new value to be set as `Ok(new)`.
+/// If the callback returns an `Err(&str)`, the value is not updated and [`Error::InvalidLeaf`] is returned.
 ///
-/// For non-leaf fields the signature is `fn(&mut self) -> Result<(), &str>`.
-/// In this case the update has already taken place, but the callback may
-/// still mutate `self`.
+/// For internal (non-leaf) fields the signature is `fn(&mut self) -> Result<(), &str>`.
+/// Note that in this case the deserialization and leaf value update have already taken place successfully
+/// deeper in the tree when any non-leaf validator callbacks are invoked.
+///
+/// Note: In both cases the callbacks receive `&mut self` as an argument and may mutate the container.
+/// Note: Obtaining [`Error::InvalidInternal`] does not by itself mean that
+/// the update was aborted.
 ///
 /// ```
 /// # use miniconf::{Error, Tree, JsonCoreSlash};
