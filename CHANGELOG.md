@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Python lib discovery timeout has been optimized to work well for both slow
   connections (high RTT) and fast ones
 * [breaking] The MQTT client does not own the miniconf settings struct anymore.
-* [breaking] `handled_update()` has been removed from the MQTT client in favor of validator callbacks.
+* [breaking] `handled_update()` has been removed from the MQTT client in favor of validator/getter/setter callbacks.
 * [breaking] The MQTT client has been split into its own `miniconf_mqtt` crate.
 * [breaking] The attribute syntax has changed from `#[tree(depth(1))]` to `#[tree(depth=1)]`.
 * [breaking] The default depth is `0`, also in the case where a `#[tree()]` without `depth` has been specified.
@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Python lib: Support for clearing a retained setting
 * Python CLI: get() support
 * `TreeKey::iter_indices()` and `iter_indices_unchecked()`
-* Support for validation callbacks and errors to check deserialized data.
+* Support for fallible getter/setter/validation callbacks
 
 ## [0.9.0](https://github.com/quartiq/miniconf/compare/v0.8.0...v0.9.0)
 

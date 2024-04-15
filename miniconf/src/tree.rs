@@ -44,16 +44,16 @@ pub enum Error<E> {
     /// error will be returned.
     PostDeserialization(E),
 
-    /// A leaf value was found to be invalid after deserialization and
-    /// `deserialize_by_key()` was aborted.
+    /// A leaf value was found to be invalid before serialization or
+    /// after deserialization.
     ///
-    /// The validation callback returned an error message.
+    /// The leaf getter/setter returned an error message.
     InvalidLeaf(usize, &'static str),
 
-    /// An internal (non-leaf) field was found to be invalid after deserialization
-    /// and update of a leaf value.
+    /// An internal (non-leaf) field was found to be invalid before serialization
+    /// or after deserialization.
     ///
-    /// The validation callback returned an error message.
+    /// The getter/setter returned an error message.
     InvalidInternal(usize, &'static str),
 }
 
@@ -81,11 +81,7 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 error.fmt(f)
             }
             Error::InvalidLeaf(depth, msg) => {
-                write!(
-                    f,
-                    "Invalid deserialized leaf value (depth: {}): {}",
-                    depth, msg
-                )
+                write!(f, "Invalid leaf value (depth: {}): {}", depth, msg)
             }
             Error::InvalidInternal(depth, msg) => {
                 write!(
@@ -333,33 +329,45 @@ impl Key for &str {
 /// types use their type parameters at other depths than `TreeKey<Y - 1>`. See also the
 /// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
 ///
-/// ## Validation
+/// ## Validation/Getter/Setter
 ///
-/// The `TreeDeserialize` derive macro supports validation callbacks.
+/// The `TreeSerialize`/`TreeDeserialize` derive macros supports per-field callbacks that
+/// can be used to implement validation or custom getters, setters.
 ///
-/// For leaf fields the callback signature is
-/// `fn(&mut self, new: T) -> Result<T, &str>`
-/// The callback must return the new value to be set as `Ok(new)`.
-/// If the callback returns an `Err(&str)`, the value is not updated and [`Error::InvalidLeaf`] is returned.
+/// The getter is called during `serialize_by_key()` before leaf serialization.
+/// Its signature is `fn(&self) -> Result<&T, &str>`.
+/// The default getter is `Ok(&self.field)`.
+/// Getters can be used for both
+/// leaf fields as well as internal (non-leaf) fields.
+/// If a getter returns an error message `Err(&str)` the serialization is not performed
+/// and [`Error::InvalidLeaf`] or [`Error::InvalidInternal`] is returned
+/// from `serialize_by_key()` depending on which getter failed.
 ///
-/// For internal (non-leaf) fields the signature is `fn(&mut self) -> Result<(), &str>`.
-/// Note that in this case the deserialization and leaf value update have already taken place successfully
-/// deeper in the tree when any non-leaf validator callbacks are invoked.
+/// The setter is called during `deserialize_by_key()` after successful deserialization.
+/// For leaf fields the setter signature is `fn(&mut self, new: T) -> Result<(), &str>`
+/// The default leaf setter is `{ self.field = new; Ok(()) }`.
+/// If the leaf setter returns an `Err(&str)`, the value is not updated and [`Error::InvalidLeaf`]
+/// is returned from `deserialize_by_key()`.
 ///
-/// Note: In both cases the callbacks receive `&mut self` as an argument and may mutate the container.
-/// Note: Obtaining [`Error::InvalidInternal`] does not by itself mean that
-/// the update was aborted.
+/// For internal (non-leaf) fields the setter signature is `fn(&mut self) -> Result<(), &str>`.
+/// Note that in this case when the non-leaf setter is invoked, deserialization and leaf
+/// value update have already taken place successfully deeper in the tree.
+/// If the internal setter returns an `Err(&str)`, the value **has** been updated and
+/// [`Error::InvalidLeaf`] will returned from `deserialize_by_key()`.
+///
+/// Note: In both cases the setters receive `&mut self` as an argument and may
+/// mutate the struct.
 ///
 /// ```
 /// # use miniconf::{Error, Tree, JsonCoreSlash};
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(validate=leaf)]
+///     #[tree(setter=leaf)]
 ///     a: f32,
-///     #[tree(depth=1, validate=non_leaf)]
+///     #[tree(depth=1, setter=non_leaf)]
 ///     b: [f32; 2],
 /// };
-/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
+/// fn leaf(s: &mut S, new: f32) -> Result<(), &'static str> {
 ///     Err("fail")
 /// }
 /// fn non_leaf(s: &mut S) -> Result<(), &'static str> {

@@ -1,5 +1,3 @@
-#![cfg(feature = "mqtt-client")]
-
 use miniconf::{Deserialize, Tree};
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -8,12 +6,19 @@ const RESPONSE_TOPIC: &str = "validation_failure/device/response";
 
 #[derive(Clone, Debug, Default, Tree)]
 struct Settings {
-    #[tree(validate=Self::check)]
+    #[tree(setter=Self::check)]
     error: bool,
+    exit: bool,
 }
 impl Settings {
-    fn check(&self, new: bool, _ident: &str, _old: &bool) -> Result<bool, &'static str> {
-        new.then_some(new).ok_or("Should exit")
+    fn check(&mut self, new: bool) -> Result<(), &'static str> {
+        if new {
+            self.exit = true;
+            Err("Should exit")
+        } else {
+            self.error = new;
+            Ok(())
+        }
     }
 }
 
@@ -103,7 +108,7 @@ async fn main() {
     loop {
         interface.update(&mut settings).unwrap();
 
-        if settings.error {
+        if settings.exit {
             break;
         }
 

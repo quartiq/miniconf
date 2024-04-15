@@ -7,20 +7,36 @@ struct Inner {
 
 #[derive(Tree, Default)]
 struct Settings {
-    #[tree(validate=Self::check_v)]
+    #[tree(getter=Self::v, setter=Self::set_v)]
     v: f32,
-    #[tree(depth=1, validate=Self::check_i)]
+    #[tree(depth=1, getter=Self::i, setter=Self::set_i)]
     i: Inner,
 }
 
 impl Settings {
-    fn check_i(&mut self) -> Result<(), &'static str> {
-        (self.i.a >= 0.0)
-            .then_some(())
-            .ok_or("Must not be negative.")
+    fn i(&self) -> Result<&Inner, &'static str> {
+        Ok(&self.i)
     }
-    fn check_v(&mut self, new: f32) -> Result<f32, &'static str> {
-        (new >= 0.0).then_some(new).ok_or("Must not be negative.")
+
+    fn set_i(&mut self) -> Result<(), &'static str> {
+        if self.i.a >= 0.0 {
+            Ok(())
+        } else {
+            Err("Must not be negative.")
+        }
+    }
+
+    fn v(&self) -> Result<&f32, &'static str> {
+        Ok(&self.v)
+    }
+
+    fn set_v(&mut self, new: f32) -> Result<(), &'static str> {
+        if new >= 0.0 {
+            self.v = new;
+            Ok(())
+        } else {
+            Err("Must not be negative.")
+        }
     }
 }
 

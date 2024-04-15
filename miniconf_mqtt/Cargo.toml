@@ -18,11 +18,12 @@ std = []
 
 [dependencies]
 miniconf = { version = "0.9", path = "../miniconf" }
-minimq = { version = "0.8.0"}
-smlang = { version = "0.6"}
-embedded-io = { version = "0.6"}
-log = { version = "0.4" }
+minimq = "0.8.0"
+smlang = "0.6"
+embedded-io = "0.6"
+log = "0.4"
 heapless = { version = "0.8", features = ["serde"] }
+serde-json-core = "0.5.1"
 
 [[example]]
 name = "mqtt"

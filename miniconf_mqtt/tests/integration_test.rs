@@ -1,5 +1,3 @@
-#![cfg(feature = "mqtt-client")]
-
 use machine::*;
 use miniconf::Tree;
 use minimq::{types::TopicFilter, Publication};
@@ -17,7 +15,7 @@ struct AdditionalSettings {
 #[derive(Clone, Debug, Default, Tree)]
 struct Settings {
     data: u32,
-    #[tree()]
+    #[tree(depth = 1)]
     more: AdditionalSettings,
 }
 
