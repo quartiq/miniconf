@@ -324,7 +324,7 @@ impl Key for &str {
 /// For leaf fields the signature is `fn(struct: &S, new: T, ident: &str, old: &T) -> Result<T, &str>`
 /// The callback returns `Ok(new)` if the value is to be set. If the callback returns
 /// an `Err(&str)`, the update is aborted and the value remains unchanged.
-/// For intermediate fields the signature is `fn(new: &mut T, ident: &str) -> Result<(), &str>`.
+/// For non-leaf fields the signature is `fn(new: &mut T, ident: &str) -> Result<(), &str>`.
 /// In this case the update has already taken place, but the validator may still mutate `new`.
 ///
 /// ```
