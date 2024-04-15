@@ -5,22 +5,21 @@ struct Inner {
     a: f32,
 }
 
-impl Inner {
-    fn check(&mut self, _field: &str) -> Result<(), &'static str> {
-        (self.a >= 0.0).then_some(()).ok_or("Must not be negative.")
-    }
-}
-
 #[derive(Tree, Default)]
 struct Settings {
-    #[tree(validate=Self::check)]
+    #[tree(validate=Self::check_v)]
     v: f32,
-    #[tree(depth=1, validate=Inner::check)]
+    #[tree(depth=1, validate=Self::check_i)]
     i: Inner,
 }
 
 impl Settings {
-    fn check(&self, new: f32, _field: &str, _old: &f32) -> Result<f32, &'static str> {
+    fn check_i(&mut self) -> Result<(), &'static str> {
+        (self.i.a >= 0.0)
+            .then_some(())
+            .ok_or("Must not be negative.")
+    }
+    fn check_v(&mut self, new: f32) -> Result<f32, &'static str> {
         (new >= 0.0).then_some(new).ok_or("Must not be negative.")
     }
 }

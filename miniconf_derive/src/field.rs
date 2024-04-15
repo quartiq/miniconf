@@ -73,7 +73,9 @@ impl TreeField {
         } else {
             quote! {
                 #i => {
-                    ::miniconf::Serialize::serialize(&self.#ident, ser).and(Ok(0)).map_err(|e| ::miniconf::Error::Inner(e))
+                    ::miniconf::Serialize::serialize(&self.#ident, ser)
+                        .and(Ok(0))
+                        .map_err(::miniconf::Error::Inner)
                }
             }
         }
@@ -86,10 +88,11 @@ impl TreeField {
         if depth > 0 {
             let validate = match &self.validate {
                 Some(validate) => quote!(
-                    |i| #validate(&mut self.#ident, stringify!(#ident))
-                        .and(Ok(i)).map_err(|msg| ::miniconf::Error::Invalid(0, msg))
+                    |i| #validate(self)
+                        .and(Ok(i))
+                        .map_err(|msg| ::miniconf::Error::Invalid(0, msg))
                 ),
-                None => quote!(|i| Ok(i)),
+                None => quote!(Ok),
             };
             quote! {
                 #i => {
@@ -100,17 +103,18 @@ impl TreeField {
         } else {
             let validate = match &self.validate {
                 Some(validate) => quote!(
-                        |v| #validate(&self, v, stringify!(#ident), &self.#ident)
-                            .map_err(|msg| ::miniconf::Error::Invalid(0, msg))),
-                None => quote!(|v| Ok(v)),
+                    |new| #validate(self, new)
+                        .map_err(|msg| ::miniconf::Error::Invalid(0, msg))
+                ),
+                None => quote!(Ok),
             };
             quote! {
                 #i => {
                     ::miniconf::Deserialize::deserialize(de)
-                        .map_err(|e| ::miniconf::Error::Inner(e))
+                        .map_err(::miniconf::Error::Inner)
                         .and_then(#validate)
-                        .and_then(|v| {
-                            self.#ident = v;
+                        .and_then(|new| {
+                            self.#ident = new;
                             Ok(0)
                         })
                 }

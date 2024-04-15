@@ -46,7 +46,7 @@ pub enum Error<E> {
 
     /// The value was found to be invalid after deserialization.
     ///
-    /// The validation callback returned an error.
+    /// A validation callback returned an error message.
     Invalid(usize, &'static str),
 }
 
@@ -54,16 +54,16 @@ impl<E: core::fmt::Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Absent(index) => {
-                write!(f, "Path is not currently available (Key level: {})", index)
+                write!(f, "Path is not currently available (depth: {})", index)
             }
             Error::TooShort(index) => {
-                write!(f, "Provided path was too short (Key level: {})", index)
+                write!(f, "Provided path was too short (depth: {})", index)
             }
             Error::NotFound(index) => {
-                write!(f, "The provided path was not found (Key level: {})", index)
+                write!(f, "The provided path was not found (depth: {})", index)
             }
             Error::TooLong(index) => {
-                write!(f, "The provided path was too long (Key level: {})", index)
+                write!(f, "The provided path was too long (depth: {})", index)
             }
             Error::Inner(error) => {
                 write!(f, "Value could not be (de)serialized: ")?;
@@ -76,7 +76,7 @@ impl<E: core::fmt::Display> Display for Error<E> {
             Error::Invalid(index, msg) => {
                 write!(
                     f,
-                    "The deserialized value is invalid (Key level: {}): {}",
+                    "The deserialized value is invalid (depth: {}): {}",
                     index, msg
                 )
             }
@@ -90,7 +90,7 @@ impl<T> From<T> for Error<T> {
     }
 }
 
-/// Pass a [`Result`] up one hierarchy level, incrementing its usize member.
+/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize member.
 pub trait Increment {
     /// Increment the `depth` member by one.
     fn increment(self) -> Self;
@@ -315,32 +315,40 @@ impl Key for &str {
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
 /// when deriving `TreeKey` for a struct that (a) forwards its own type parameters as type
 /// parameters to its field types, (b) uses `TreeKey` on those fields, and (c) those field
-/// types use their type parameters at other levels than `TreeKey<Y - 1>`. See also the
+/// types use their type parameters at other depths than `TreeKey<Y - 1>`. See also the
 /// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
 ///
 /// ## Validation
 ///
 /// The `TreeDeserialize` derive macro supports validation callbacks.
-/// For leaf fields the signature is `fn(struct: &S, new: T, ident: &str, old: &T) -> Result<T, &str>`
-/// The callback returns `Ok(new)` if the value is to be set. If the callback returns
-/// an `Err(&str)`, the update is aborted and the value remains unchanged.
-/// For non-leaf fields the signature is `fn(new: &mut T, ident: &str) -> Result<(), &str>`.
-/// In this case the update has already taken place, but the validator may still mutate `new`.
+///
+/// For leaf fields the callback signature is
+/// `fn(&mut self, new: T) -> Result<T, &str>`
+/// The callback must return `Ok(new)` if a new value is to be set.
+/// If the callback returns an `Err(&str)`, the update is aborted and the value remains unchanged.
+///
+/// For non-leaf fields the signature is `fn(&mut self) -> Result<(), &str>`.
+/// In this case the update has already taken place, but the callback may
+/// still mutate `self`.
 ///
 /// ```
 /// # use miniconf::{Error, Tree, JsonCoreSlash};
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(validate=fail)]
+///     #[tree(validate=leaf)]
 ///     a: f32,
+///     #[tree(depth=1, validate=non_leaf)]
+///     b: [f32; 2],
 /// };
-/// fn fail(_s: &S, _new: f32, _ident: &'static str, _old: &f32) -> Result<f32, &'static str> {
+/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
 ///     Err("fail")
 /// }
-/// assert_eq!(S::default().set_json("/a", "3.0".as_bytes()), Err(Error::Invalid(1, "fail")));
+/// fn non_leaf(s: &mut S) -> Result<(), &'static str> {
+///     Err("fail")
+/// }
 /// ```
 ///
-/// # Example
+/// # Examples
 ///
 /// See the [`crate`] documentation for an example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {
