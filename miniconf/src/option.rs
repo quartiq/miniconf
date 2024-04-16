@@ -1,4 +1,4 @@
-use crate::{Error, Key, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use crate::{Error, Keys, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
@@ -13,11 +13,14 @@ macro_rules! depth {
                 None
             }
 
+            fn len() -> usize {
+                0
+            }
+
             fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
             where
-                K: Iterator,
-                K::Item: Key,
-                F: FnMut(usize, &str) -> Result<(), E>,
+                K: Keys,
+                F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
                 T::traverse_by_key(keys, func)
             }
@@ -30,8 +33,7 @@ macro_rules! depth {
         impl<T: TreeSerialize<{$y - 1}>> TreeSerialize<$y> for Option<T> {
             fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
             where
-                K: Iterator,
-                K::Item: Key,
+                K: Keys,
                 S: Serializer,
             {
                 if let Some(inner) = self {
@@ -45,8 +47,7 @@ macro_rules! depth {
         impl<'de, T: TreeDeserialize<'de, {$y - 1}>> TreeDeserialize<'de, $y> for Option<T> {
             fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
-                K: Iterator,
-                K::Item: Key,
+                K: Keys,
                 D: Deserializer<'de>,
             {
                 if let Some(inner) = self {
@@ -66,9 +67,13 @@ impl<T> TreeKey for Option<T> {
         None
     }
 
+    fn len() -> usize {
+        0
+    }
+
     fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
     where
-        F: FnMut(usize, &str) -> Result<(), E>,
+        F: FnMut(usize, &str, usize) -> Result<(), E>,
     {
         Ok(0)
     }
@@ -84,10 +89,10 @@ impl<T> TreeKey for Option<T> {
 impl<T: Serialize> TreeSerialize for Option<T> {
     fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
-        K: Iterator,
+        K: Keys,
         S: Serializer,
     {
-        if keys.next().is_some() {
+        if keys.next::<1, Self>().is_some() {
             Err(Error::TooLong(0))
         } else if let Some(inner) = self {
             inner.serialize(ser)?;
@@ -101,10 +106,10 @@ impl<T: Serialize> TreeSerialize for Option<T> {
 impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
     fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
-        K: Iterator,
+        K: Keys,
         D: Deserializer<'de>,
     {
-        if keys.next().is_some() {
+        if keys.next::<1, Self>().is_some() {
             Err(Error::TooLong(0))
         } else if let Some(inner) = self {
             *inner = T::deserialize(de)?;

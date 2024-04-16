@@ -1,3 +1,4 @@
+#![cfg(feature = "json-core")]
 use miniconf::{Error, JsonCoreSlash, Tree};
 
 #[derive(Tree, Default)]

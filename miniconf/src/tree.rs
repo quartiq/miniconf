@@ -1,5 +1,8 @@
 use crate::{IndexIter, PathIter};
-use core::fmt::{Display, Formatter, Write};
+use core::{
+    fmt::{Display, Formatter, Write},
+    num::NonZeroUsize,
+};
 use serde::{Deserializer, Serializer};
 
 /// Errors that can occur when using the Tree traits.
@@ -162,9 +165,7 @@ impl Metadata {
     }
 }
 
-/// Capability to convert a key into a node index for a given `M: TreeKey`.
 pub trait Key {
-    /// Convert the key `self` to a `usize` index.
     fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
 }
 
@@ -181,6 +182,86 @@ impl Key for &str {
     #[inline]
     fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
         M::name_to_index(self)
+    }
+}
+
+/// Capability to yield usize indices given `M: TreeKey`.
+pub trait Keys {
+    type Item: Key;
+    /// Convert the next key `self` to a `usize` index.
+    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item>;
+}
+
+impl<'a, T> Keys for T
+where
+    T: Iterator,
+    T::Item: Key,
+{
+    type Item = T::Item;
+    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
+        Iterator::next(self)
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[repr(transparent)]
+pub struct Packed(NonZeroUsize);
+
+impl Packed {
+    pub fn new(v: usize) -> Option<Self> {
+        NonZeroUsize::new(v).map(Self)
+    }
+}
+
+impl Default for Packed {
+    fn default() -> Self {
+        Self::new(1).unwrap()
+    }
+}
+
+impl Keys for Packed {
+    type Item = usize;
+    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
+        match (self.0.get(), M::len()) {
+            // marker bit
+            (1, _) => None,
+            (_, 0) => Some(0),
+            (mut s, m) => {
+                let n = (m - 1).leading_zeros();
+                let idx = s & (usize::MAX >> n);
+                s >>= usize::BITS - n;
+                if s == 0 {
+                    None
+                } else {
+                    self.0 = NonZeroUsize::new(s).unwrap();
+                    Some(idx)
+                }
+            }
+        }
+    }
+}
+
+impl IntoKeys for Packed {
+    type IntoKeys = Self;
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
+pub trait IntoKeys {
+    type IntoKeys: Keys;
+    fn into_keys(self) -> Self::IntoKeys;
+}
+
+impl<T> IntoKeys for T
+where
+    T: IntoIterator,
+    T::IntoIter: Keys,
+    T::Item: Key,
+{
+    type IntoKeys = T::IntoIter;
+    fn into_keys(self) -> Self::IntoKeys {
+        self.into_iter()
     }
 }
 
@@ -357,6 +438,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn name_to_index(name: &str) -> Option<usize>;
 
+    fn len() -> usize;
+
     /// Call a function for each node on the path described by keys.
     ///
     /// Traversal is aborted once `func` returns an `Err(E)`.
@@ -377,8 +460,8 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: u16,
     /// };
     /// assert_eq!(
-    ///     S::traverse_by_key(["bar"].into_iter(), |index, name| {
-    ///         assert_eq!((1, "bar"), (index, name));
+    ///     S::traverse_by_key(["bar"].into_iter(), |index, name, len| {
+    ///         assert_eq!((1, "bar", 2), (index, name, len));
     ///         Ok::<_, ()>(())
     ///     }),
     ///     Ok(1)
@@ -395,11 +478,10 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Final node depth on success
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
-        K: Iterator,
-        K::Item: Key,
+        K: Keys,
         // Writing this to return an iterator instead of using a callback
         // would have worse performance (O(n^2) instead of O(n) for matching)
-        F: FnMut(usize, &str) -> Result<(), E>;
+        F: FnMut(usize, &str, usize) -> Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
     ///
@@ -445,11 +527,10 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Final node depth on success
     fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<usize, Error<core::fmt::Error>>
     where
-        K: IntoIterator,
-        K::Item: Key,
+        K: IntoKeys,
         P: Write,
     {
-        Self::traverse_by_key(keys.into_iter(), |_index, name| {
+        Self::traverse_by_key(keys.into_keys(), |_index, name, len| {
             path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
@@ -484,16 +565,30 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Final node depth on success
     fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<SliceShort>>
     where
-        K: IntoIterator,
-        K::Item: Key,
+        K: IntoKeys,
         I: IntoIterator<Item = &'a mut usize>,
     {
         let mut indices = indices.into_iter();
-        Self::traverse_by_key(keys.into_iter(), |index, _name| {
+        Self::traverse_by_key(keys.into_keys(), |index, _name, _len| {
             let idx = indices.next().ok_or(SliceShort)?;
             *idx = index;
             Ok(())
         })
+    }
+
+    fn packed<K>(keys: K) -> Result<Packed, Error<SliceShort>>
+    where
+        K: IntoKeys,
+    {
+        let mut packed = 1;
+        Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
+            debug_assert!(index < len);
+            debug_assert!(len > 0);
+            packed <<= usize::BITS - (len - 1).leading_zeros();
+            packed |= index;
+            Ok(())
+        })?;
+        Ok(Packed::new(packed).unwrap())
     }
 
     /// Create an iterator of all possible paths.
@@ -650,8 +745,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// Node depth on success.
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
-        K: Iterator,
-        K::Item: Key,
+        K: Keys,
         S: Serializer;
 }
 
@@ -727,7 +821,6 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// Node depth on success
     fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
-        K: Iterator,
-        K::Item: Key,
+        K: Keys,
         D: Deserializer<'de>;
 }

@@ -59,7 +59,7 @@ where
         let mut path = P::default();
 
         loop {
-            return match M::path(self.state, &mut path, self.separator) {
+            return match M::path(self.state.iter().copied(), &mut path, self.separator) {
                 // Out of valid indices at the root: iteration done
                 Err(Error::NotFound(1)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
@@ -165,7 +165,8 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            return match M::traverse_by_key(self.state.iter().copied(), |_, _| Ok::<(), ()>(())) {
+            return match M::traverse_by_key(self.state.iter().copied(), |_, _, _| Ok::<(), ()>(()))
+            {
                 // Out of valid indices at the root: iteration done
                 Err(Error::NotFound(1)) => {
                     debug_assert_eq!(self.count.unwrap_or_default(), 0);
