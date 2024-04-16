@@ -188,58 +188,15 @@ pub trait Keys {
     fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item>;
 }
 
-impl<'a, T> Keys for T
+impl<T> Keys for T
 where
     T: Iterator,
     T::Item: Key,
 {
     type Item = T::Item;
+    #[inline]
     fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
         Iterator::next(self)
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
-#[repr(transparent)]
-pub struct Packed(NonZeroUsize);
-
-impl Packed {
-    pub fn new(v: usize) -> Option<Self> {
-        NonZeroUsize::new(v).map(Self)
-    }
-}
-
-impl Default for Packed {
-    fn default() -> Self {
-        Self::new(1).unwrap()
-    }
-}
-
-impl Keys for Packed {
-    type Item = usize;
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
-        match (self.0.get(), M::len()) {
-            (1, _) => None, // marker bit, matching sizes
-            (_, 0) => Some(0),
-            (mut s, m) => {
-                let n = (m - 1).leading_zeros();
-                let idx = s & (usize::MAX >> n);
-                s >>= usize::BITS - n;
-                if s == 0 {
-                    None // mismatched sizes or too short
-                } else {
-                    self.0 = NonZeroUsize::new(s).unwrap();
-                    Some(idx)
-                }
-            }
-        }
-    }
-}
-
-impl IntoKeys for Packed {
-    type IntoKeys = Self;
-    fn into_keys(self) -> Self::IntoKeys {
-        self
     }
 }
 
@@ -255,8 +212,67 @@ where
     T::Item: Key,
 {
     type IntoKeys = T::IntoIter;
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self.into_iter()
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[repr(transparent)]
+pub struct Packed(NonZeroUsize);
+
+impl Default for Packed {
+    #[inline]
+    fn default() -> Self {
+        Self::new(1).unwrap()
+    }
+}
+
+impl Packed {
+    #[inline]
+    pub fn new(v: usize) -> Option<Self> {
+        NonZeroUsize::new(v).map(Self)
+    }
+
+    #[inline]
+    pub fn pop(&mut self, bits: u32) -> Option<usize> {
+        let s = self.0.get();
+        if let Some(v) = NonZeroUsize::new(s >> bits) {
+            self.0 = v;
+            Some(s & (usize::MAX >> (usize::BITS - bits)))
+        } else {
+            self.0 = NonZeroUsize::new(1).unwrap();
+            None
+        }
+    }
+
+    #[inline]
+    pub fn push(&mut self, bits: u32, value: usize) -> Option<()> {
+        debug_assert_eq!(value >> bits, 0);
+        let s = self.0.get();
+        if bits <= s.leading_zeros() {
+            self.0 = NonZeroUsize::new((s << bits) | value).unwrap();
+            Some(())
+        } else {
+            None
+        }
+    }
+}
+
+impl Keys for Packed {
+    type Item = usize;
+    #[inline]
+    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
+        self.pop(usize::BITS - (M::len() - 1).leading_zeros())
+    }
+}
+
+impl IntoKeys for Packed {
+    type IntoKeys = Self;
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        self
     }
 }
 
@@ -575,20 +591,13 @@ pub trait TreeKey<const Y: usize = 1> {
     where
         K: IntoKeys,
     {
-        let mut packed = 1usize; // marker bit
+        let mut packed = Packed::default();
         Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
-            if len > 0 {
-                debug_assert!(index < len);
-                let m = usize::BITS - (len - 1).leading_zeros();
-                if packed.leading_zeros() < m {
-                    return Err(());
-                }
-                packed <<= m;
-                packed |= index;
-            }
-            Ok(())
+            packed
+                .push(usize::BITS - (len - 1).leading_zeros(), index)
+                .ok_or(())
         })?;
-        Ok(Packed::new(packed).unwrap())
+        Ok(packed)
     }
 
     /// Create an iterator of all possible paths.
