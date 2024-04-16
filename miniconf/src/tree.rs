@@ -124,10 +124,6 @@ impl<E> Increment for Result<usize, Error<E>> {
     }
 }
 
-/// Unit struct to indicate a short indices iterator in [`TreeKey::indices()`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct SliceShort;
-
 /// Metadata about a [TreeKey] namespace.
 #[non_exhaustive]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -223,15 +219,14 @@ impl Keys for Packed {
     type Item = usize;
     fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
         match (self.0.get(), M::len()) {
-            // marker bit
-            (1, _) => None,
+            (1, _) => None, // marker bit, matching sizes
             (_, 0) => Some(0),
             (mut s, m) => {
                 let n = (m - 1).leading_zeros();
                 let idx = s & (usize::MAX >> n);
                 s >>= usize::BITS - n;
                 if s == 0 {
-                    None
+                    None // mismatched sizes or too short
                 } else {
                     self.0 = NonZeroUsize::new(s).unwrap();
                     Some(idx)
@@ -530,7 +525,7 @@ pub trait TreeKey<const Y: usize = 1> {
         K: IntoKeys,
         P: Write,
     {
-        Self::traverse_by_key(keys.into_keys(), |_index, name, len| {
+        Self::traverse_by_key(keys.into_keys(), |_index, name, _len| {
             path.write_str(sep).and_then(|_| path.write_str(name))
         })
     }
@@ -558,34 +553,39 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `indices`: An iterator of `&mut usize` to write the node indices into.
-    ///   If `indices` is shorter than the node depth, [`Error<SliceShort>`] is returned
+    ///   If `indices` is shorter than the node depth, [`Error<()>`] is returned
     ///   See also [TreeKey::metadata()] for upper bounds on depth.
     ///
     /// # Returns
     /// Final node depth on success
-    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<SliceShort>>
+    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<()>>
     where
         K: IntoKeys,
         I: IntoIterator<Item = &'a mut usize>,
     {
         let mut indices = indices.into_iter();
         Self::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            let idx = indices.next().ok_or(SliceShort)?;
+            let idx = indices.next().ok_or(())?;
             *idx = index;
             Ok(())
         })
     }
 
-    fn packed<K>(keys: K) -> Result<Packed, Error<SliceShort>>
+    fn packed<K>(keys: K) -> Result<Packed, Error<()>>
     where
         K: IntoKeys,
     {
-        let mut packed = 1;
+        let mut packed = 1usize; // marker bit
         Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
-            debug_assert!(index < len);
-            debug_assert!(len > 0);
-            packed <<= usize::BITS - (len - 1).leading_zeros();
-            packed |= index;
+            if len > 0 {
+                debug_assert!(index < len);
+                let m = usize::BITS - (len - 1).leading_zeros();
+                if packed.leading_zeros() < m {
+                    return Err(());
+                }
+                packed <<= m;
+                packed |= index;
+            }
             Ok(())
         })?;
         Ok(Packed::new(packed).unwrap())
