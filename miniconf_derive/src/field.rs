@@ -27,7 +27,8 @@ pub struct TreeField {
     #[darling(default)]
     pub depth: usize,
     pub skip: Flag,
-    pub validate: Option<Path>,
+    pub setter: Option<Path>,
+    pub getter: Option<Path>,
 }
 
 impl TreeField {
@@ -66,17 +67,27 @@ impl TreeField {
         // Quote context is a match of the field name with `serialize_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
+        let getter = if let Some(getter) = &self.getter {
+            quote!( #getter(&self) )
+        } else {
+            quote!( Ok(&self.#ident) )
+        };
         if depth > 0 {
             quote! {
-                #i => ::miniconf::TreeSerialize::<#depth>::serialize_by_key(&self.#ident, keys, ser)
+                #i => #getter
+                    .map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+                    .and_then(|value|
+                        ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser))
             }
         } else {
             quote! {
-                #i => {
-                    ::miniconf::Serialize::serialize(&self.#ident, ser)
-                        .and(Ok(0))
+                #i => #getter
+                    .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
+                    .and_then(|value|
+                        ::miniconf::Serialize::serialize(value, ser)
                         .map_err(::miniconf::Error::Inner)
-               }
+                    )
+                    .and(Ok(0))
             }
         }
     }
@@ -86,10 +97,10 @@ impl TreeField {
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
         if depth > 0 {
-            let validate = match &self.validate {
-                Some(validate) => quote!(
-                    |i| #validate(self)
-                        .and(Ok(i))
+            let setter = match &self.setter {
+                Some(setter) => quote!( |depth|
+                    #setter(self)
+                        .and(Ok(depth))
                         .map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
                 ),
                 None => quote!(Ok),
@@ -97,26 +108,26 @@ impl TreeField {
             quote! {
                 #i => {
                     ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(&mut self.#ident, keys, de)
-                        .and_then(#validate)
+                        .and_then(#setter)
                 }
             }
         } else {
-            let validate = match &self.validate {
-                Some(validate) => quote!(
-                    |new| #validate(self, new)
-                        .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
+            let setter = match &self.setter {
+                Some(setter) => quote!( |value|
+                    #setter(self, value)
+                    .and(Ok(0))
+                    .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
                 ),
-                None => quote!(Ok),
+                None => quote!( |value| {
+                    self.#ident = value;
+                    Ok(0)
+                }),
             };
             quote! {
                 #i => {
                     ::miniconf::Deserialize::deserialize(de)
                         .map_err(::miniconf::Error::Inner)
-                        .and_then(#validate)
-                        .and_then(|new| {
-                            self.#ident = new;
-                            Ok(0)
-                        })
+                        .and_then(#setter)
                 }
             }
         }

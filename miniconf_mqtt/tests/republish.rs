@@ -1,5 +1,3 @@
-#![cfg(feature = "mqtt-client")]
-
 use miniconf::Tree;
 use minimq::{self, types::TopicFilter};
 use std_embedded_nal::Stack;
@@ -13,7 +11,7 @@ struct AdditionalSettings {
 #[derive(Clone, Debug, Default, Tree)]
 struct Settings {
     data: u32,
-    #[tree()]
+    #[tree(depth = 1)]
     more: AdditionalSettings,
 }
 

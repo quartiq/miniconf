@@ -1,8 +1,6 @@
-#![cfg(feature = "mqtt-client")]
-
 use machine::*;
 use miniconf::Tree;
-use minimq::{types::TopicFilter, Publication};
+use minimq::Publication;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
@@ -17,7 +15,7 @@ struct AdditionalSettings {
 #[derive(Clone, Debug, Default, Tree)]
 struct Settings {
     data: u32,
-    #[tree()]
+    #[tree(depth = 1)]
     more: AdditionalSettings,
 }
 
@@ -30,15 +28,13 @@ machine!(
         Started,
         SentSimpleSetting,
         SentInnerSetting,
-        Complete,
     }
 );
 
 transitions!(TestState,
     [
       (Started, Advance) => SentSimpleSetting,
-      (SentSimpleSetting, Advance) => SentInnerSetting,
-      (SentInnerSetting, Advance) => Complete
+      (SentSimpleSetting, Advance) => SentInnerSetting
     ]
 );
 
@@ -51,12 +47,6 @@ impl Started {
 impl SentSimpleSetting {
     pub fn on_advance(self, _: Advance) -> SentInnerSetting {
         SentInnerSetting {}
-    }
-}
-
-impl SentInnerSetting {
-    pub fn on_advance(self, _: Advance) -> Complete {
-        Complete {}
     }
 }
 
@@ -94,7 +84,7 @@ fn main() -> std::io::Result<()> {
     let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack,
         StandardClock::default(),
-        minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+        minimq::ConfigBuilder::new(localhost.into(), &mut buffer),
     );
 
     let mut buffer = [0u8; 1024];
@@ -106,13 +96,13 @@ fn main() -> std::io::Result<()> {
             Stack,
             "device",
             StandardClock::default(),
-            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+            minimq::ConfigBuilder::new(localhost.into(), &mut buffer),
         )
         .unwrap();
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();
-    let mut timer = Timer::new(std::time::Duration::from_millis(100));
+    let mut timer = Timer::new(std::time::Duration::from_millis(200));
 
     let mut settings = Settings::default();
 
@@ -129,11 +119,6 @@ fn main() -> std::io::Result<()> {
         match state {
             TestState::Started(_) => {
                 if timer.is_complete() && mqtt.client().is_connected() {
-                    // Subscribe to the default device log topic.
-                    mqtt.client()
-                        .subscribe(&[TopicFilter::new("device/log")], &[])
-                        .unwrap();
-
                     // Send a request to set a property.
                     info!("Sending first settings value");
                     mqtt.client()
@@ -166,18 +151,14 @@ fn main() -> std::io::Result<()> {
                 }
             }
             TestState::SentInnerSetting(_) => {
-                // Finally, commit the settings so they become active.
-                if timer.is_complete() {
-                    state = state.on_advance(Advance);
-                    timer.restart();
+                if timer.is_complete() || setting_update {
+                    assert!(setting_update);
+                    // Verify the settings all have the correct value.
+                    info!("Verifying settings: {:?}", settings);
+                    assert_eq!(settings.data, 500);
+                    assert_eq!(settings.more.inner, 100);
+                    std::process::exit(0);
                 }
-            }
-            TestState::Complete(_) => {
-                // Verify the settings all have the correct value.
-                info!("Verifying settings: {:?}", settings);
-                assert!(settings.data == 500);
-                assert!(settings.more.inner == 100);
-                std::process::exit(0);
             }
 
             other => panic!("Undefined state: {:?}", other),
