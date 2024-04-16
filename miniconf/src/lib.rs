@@ -13,6 +13,10 @@ mod array;
 mod iter;
 pub use iter::*;
 mod option;
+mod packed;
+pub use packed::*;
+mod key;
+pub use key::*;
 
 #[cfg(feature = "json-core")]
 mod json_core;

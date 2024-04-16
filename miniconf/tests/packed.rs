@@ -1,4 +1,4 @@
-use miniconf::{Error, IntoKeys, Packed, Tree, TreeKey};
+use miniconf::{Error, Packed, Tree, TreeKey};
 
 #[derive(Tree, Default)]
 struct Settings {
@@ -17,26 +17,18 @@ fn packed() {
     );
     p.clear();
 
+    for q in Settings::iter_paths::<String>("/") {
+        let q = q.unwrap();
+        let a = Settings::packed(q.split("/").skip(1)).unwrap();
+        Settings::path(a, &mut p, "/").unwrap();
+        assert_eq!(p, q);
+        p.clear();
+    }
+
     assert_eq!(
-        Settings::path(Packed::new(0b10).unwrap(), &mut p, "/"),
+        Settings::path(Packed::new(0b01 << 29).unwrap(), &mut p, "/"),
         Ok(1)
     );
     assert_eq!(p, "/a");
     p.clear();
-
-    assert_eq!(
-        Settings::path(Packed::new(0b111).unwrap(), &mut p, "/"),
-        Ok(2)
-    );
-    assert_eq!(p, "/b/1");
-
-    assert_eq!(Settings::packed(["a"]), Ok(Packed::new(0b10).unwrap()));
-    assert_eq!(
-        Settings::packed(["b", "0"]),
-        Ok(Packed::new(0b110).unwrap())
-    );
-    assert_eq!(
-        Settings::packed(["b", "1"]),
-        Ok(Packed::new(0b111).unwrap())
-    );
 }

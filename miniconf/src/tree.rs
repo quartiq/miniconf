@@ -1,8 +1,5 @@
-use crate::{IndexIter, PathIter};
-use core::{
-    fmt::{Display, Formatter, Write},
-    num::NonZeroUsize,
-};
+use crate::{IndexIter, IntoKeys, Keys, Packed, PathIter};
+use core::fmt::{Display, Formatter, Write};
 use serde::{Deserializer, Serializer};
 
 /// Errors that can occur when using the Tree traits.
@@ -158,121 +155,6 @@ impl Metadata {
             max_length: self.max_length + self.max_depth * separator.len(),
             ..self
         }
-    }
-}
-
-pub trait Key {
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
-}
-
-// `usize` index as Key
-impl Key for usize {
-    #[inline]
-    fn find<const Y: usize, M>(&self) -> Option<usize> {
-        Some(*self)
-    }
-}
-
-// &str name as Key
-impl Key for &str {
-    #[inline]
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
-        M::name_to_index(self)
-    }
-}
-
-/// Capability to yield usize indices given `M: TreeKey`.
-pub trait Keys {
-    type Item: Key;
-    /// Convert the next key `self` to a `usize` index.
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item>;
-}
-
-impl<T> Keys for T
-where
-    T: Iterator,
-    T::Item: Key,
-{
-    type Item = T::Item;
-    #[inline]
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
-        Iterator::next(self)
-    }
-}
-
-pub trait IntoKeys {
-    type IntoKeys: Keys;
-    fn into_keys(self) -> Self::IntoKeys;
-}
-
-impl<T> IntoKeys for T
-where
-    T: IntoIterator,
-    T::IntoIter: Keys,
-    T::Item: Key,
-{
-    type IntoKeys = T::IntoIter;
-    #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        self.into_iter()
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
-#[repr(transparent)]
-pub struct Packed(NonZeroUsize);
-
-impl Default for Packed {
-    #[inline]
-    fn default() -> Self {
-        Self::new(1).unwrap()
-    }
-}
-
-impl Packed {
-    #[inline]
-    pub fn new(v: usize) -> Option<Self> {
-        NonZeroUsize::new(v).map(Self)
-    }
-
-    #[inline]
-    pub fn pop(&mut self, bits: u32) -> Option<usize> {
-        let s = self.0.get();
-        if let Some(v) = NonZeroUsize::new(s >> bits) {
-            self.0 = v;
-            Some(s & (usize::MAX >> (usize::BITS - bits)))
-        } else {
-            self.0 = NonZeroUsize::new(1).unwrap();
-            None
-        }
-    }
-
-    #[inline]
-    pub fn push(&mut self, bits: u32, value: usize) -> Option<()> {
-        debug_assert_eq!(value >> bits, 0);
-        let s = self.0.get();
-        if bits <= s.leading_zeros() {
-            self.0 = NonZeroUsize::new((s << bits) | value).unwrap();
-            Some(())
-        } else {
-            None
-        }
-    }
-}
-
-impl Keys for Packed {
-    type Item = usize;
-    #[inline]
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
-        self.pop(usize::BITS - (M::len() - 1).leading_zeros())
-    }
-}
-
-impl IntoKeys for Packed {
-    type IntoKeys = Self;
-    #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        self
     }
 }
 
@@ -449,6 +331,13 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn name_to_index(name: &str) -> Option<usize>;
 
+    /// The number of paths at this level.
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// assert_eq!(<[f32; 5] as TreeKey>::len(), 5);
+    /// assert_eq!(<Option<f32> as TreeKey>::len(), 0);
+    /// ```
     fn len() -> usize;
 
     /// Call a function for each node on the path described by keys.
@@ -587,6 +476,30 @@ pub trait TreeKey<const Y: usize = 1> {
         })
     }
 
+    /// Convert keys to packed usize bitfield representation.
+    ///
+    /// See also [`Packed`].
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 5],
+    /// };
+    /// let p = S::packed(["bar", "4"]).unwrap();
+    /// assert_eq!(p.get(), 0b11001 << (usize::BITS - 5));
+    /// let mut s = String::new();
+    /// S::path(p, &mut s, "/").unwrap();
+    /// assert_eq!(s, "/bar/4");
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    ///
+    /// # Returns
+    /// The packed indices representation on success
     fn packed<K>(keys: K) -> Result<Packed, Error<()>>
     where
         K: IntoKeys,
@@ -594,8 +507,9 @@ pub trait TreeKey<const Y: usize = 1> {
         let mut packed = Packed::default();
         Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
             packed
-                .push(usize::BITS - (len - 1).leading_zeros(), index)
+                .push_lsb(usize::BITS - (len - 1).leading_zeros(), index)
                 .ok_or(())
+                .and(Ok(()))
         })?;
         Ok(packed)
     }
