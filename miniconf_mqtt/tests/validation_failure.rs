@@ -35,7 +35,7 @@ async fn client_task() {
     let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
         Stack,
         StandardClock::default(),
-        minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
+        minimq::ConfigBuilder::new(localhost.into(), &mut buffer),
     );
 
     // Wait for the broker connection
@@ -49,7 +49,7 @@ async fn client_task() {
     mqtt.client().subscribe(&[topic_filter], &[]).unwrap();
 
     // Wait the other device to connect.
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
     // Configure the error variable to trigger an internal validation failure.
     let properties = [minimq::Property::ResponseTopic(minimq::types::Utf8String(
@@ -68,18 +68,14 @@ async fn client_task() {
         .unwrap();
 
     // Wait until we get a response to the request.
-    loop {
-        if let Some(false) = mqtt
-            .poll(|_client, _topic, message, _properties| {
-                let data: Response = serde_json_core::from_slice(message).unwrap().0;
-                assert!(data.code != 0);
-                false
-            })
-            .unwrap()
-        {
-            break;
-        }
-
+    while mqtt
+        .poll(|_client, _topic, message, _properties| {
+            let data: Response = serde_json_core::from_slice(message).unwrap().0;
+            assert!(data.code != 0);
+        })
+        .unwrap()
+        .is_none()
+    {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 }
@@ -105,12 +101,8 @@ async fn main() {
 
     let mut settings = Settings::default();
 
-    loop {
+    while !settings.exit {
         interface.update(&mut settings).unwrap();
-
-        if settings.exit {
-            break;
-        }
 
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
