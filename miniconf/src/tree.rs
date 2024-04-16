@@ -618,7 +618,8 @@ pub trait TreeKey<const Y: usize = 1> {
 /// The default getter is `Ok(&self.field)`.
 /// Getters can be used for both
 /// leaf fields as well as internal (non-leaf) fields.
-/// If a getter returns an error message `Err(&str)` the serialization is not performed
+/// If a getter returns an error message `Err(&str)` the serialization is not performed,
+/// further getters at greater depth are invoked
 /// and [`Error::InvalidLeaf`] or [`Error::InvalidInternal`] is returned
 /// from `serialize_by_key()` depending on which getter failed.
 pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
@@ -668,8 +669,8 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 /// The setter is called during `deserialize_by_key()` after successful deserialization.
 /// For leaf fields the setter signature is `fn(&mut self, new: T) -> Result<(), &str>`
 /// The default leaf setter is `{ self.field = new; Ok(()) }`.
-/// If the leaf setter returns an `Err(&str)`, [`Error::InvalidLeaf`]
-/// is returned from `deserialize_by_key()`.
+/// If the leaf setter returns an `Err(&str)` no further setters are be invoked and
+/// [`Error::InvalidLeaf`] is returned from `deserialize_by_key()`.
 ///
 /// For internal (non-leaf) fields the setter signature is `fn(&mut self) -> Result<(), &str>`.
 /// The default internal setter is `Ok(())` (a no-op).
@@ -677,7 +678,8 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 /// value update have already taken place successfully deeper in the tree.
 /// Unless the internal setter implements some roll-back mechanism the value **has** been updated,
 /// even if the internal setter returns an `Err(&str)`. If it does return an `Err`
-/// [`Error::InvalidInternal`] will returned from `deserialize_by_key()`.
+/// no further setters are be invoked and [`Error::InvalidInternal`] will be returned
+/// from `deserialize_by_key()`.
 ///
 /// Note: In both cases the setters receive `&mut self` as an argument and may
 /// mutate the struct.
