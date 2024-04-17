@@ -65,7 +65,7 @@ where
                 State::Done
             }
             // Node not found at depth: reset current index, increment parent index,
-            // then retry path()
+            // then retry
             Err(Error::NotFound(depth @ 2..)) => {
                 self.state[depth - 1] = 0;
                 self.state[depth - 2] += 1;
@@ -80,16 +80,15 @@ where
                 } else {
                     debug_assert_eq!(self.count.unwrap_or(1), 1);
                     self.count = Some(0);
-                    State::Leaf(1)
+                    State::Leaf(0)
                 }
             }
             // Non-root leaf: advance index at current depth
-            Ok(depth) => {
+            Ok(depth @ 1..) => {
                 self.count = self.count.map(|c| c - 1);
                 self.state[depth - 1] += 1;
                 State::Leaf(depth)
             }
-            // `core::fmt::Write` error (e.g. heapless::String capacity limit).
             Err(Error::Inner(e)) => State::Err(e),
             // * NotFound(0) Not having consumed any name/index, the only possible case
             //   is a leaf (e.g. `Option` or newtype), those however can not return `NotFound`.
@@ -107,23 +106,8 @@ where
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
-    /// Zero-size markers to allow being generic over M/P (by constraining the type parameters).
-    m: PhantomData<M>,
+    iter: Iter<M, Y>,
     p: PhantomData<P>,
-
-    /// The iteration state.
-    ///
-    /// It contains the current field/element index at each path hierarchy level
-    /// and needs to be at least as large as the maximum path depth.
-    state: [usize; Y],
-
-    /// The remaining length of the iterator.
-    ///
-    /// It is used to provide an exact and trusted [Iterator::size_hint] ([core::iter::TrustedLen]).
-    ///
-    /// It may be None to indicate unknown length.
-    count: Option<usize>,
-
     /// The separator before each name.
     separator: &'a str,
 }
@@ -133,20 +117,18 @@ where
     M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new(separator: &'a str) -> Self {
-        let meta = M::metadata();
-        assert!(Y >= meta.max_depth);
-        let mut s = Self::new_unchecked(separator);
-        s.count = Some(meta.count);
-        s
+        Self {
+            iter: Iter::new(),
+            p: PhantomData,
+            separator,
+        }
     }
 
     pub(crate) fn new_unchecked(separator: &'a str) -> Self {
         Self {
-            count: None,
-            separator,
-            state: [0; Y],
-            m: PhantomData,
+            iter: Iter::new_unchecked(),
             p: PhantomData,
+            separator,
         }
     }
 }
@@ -162,51 +144,23 @@ where
         let mut path = P::default();
 
         loop {
-            return match M::path(self.state.iter().copied(), &mut path, self.separator) {
-                // Out of valid indices at the root: iteration done
-                Err(Error::NotFound(1)) => {
-                    debug_assert_eq!(self.count.unwrap_or_default(), 0);
-                    None
-                }
-                // Node not found at depth: reset current index, increment parent index,
-                // then retry path()
-                Err(Error::NotFound(depth @ 2..)) => {
+            return match self.iter.next(|_index, name, _len| {
+                path.write_str(self.separator)
+                    .and_then(|_| path.write_str(name))
+            }) {
+                State::Retry => {
                     path = P::default();
-                    self.state[depth - 1] = 0;
-                    self.state[depth - 2] += 1;
                     continue;
                 }
-                // Found a leaf at the root: leaf Option/newtype
-                // Since there is no way to end iteration by hoping for `NotFound` on a leaf Option,
-                // we force the count to Some(0) and trigger on that.
-                Ok(0) => {
-                    if self.count == Some(0) {
-                        None
-                    } else {
-                        debug_assert_eq!(self.count.unwrap_or(1), 1);
-                        self.count = Some(0);
-                        Some(Ok(path))
-                    }
-                }
-                // Non-root leaf: advance index at current depth
-                Ok(depth) => {
-                    self.count = self.count.map(|c| c - 1);
-                    self.state[depth - 1] += 1;
-                    Some(Ok(path))
-                }
-                // `core::fmt::Write` error (e.g. heapless::String capacity limit).
-                Err(Error::Inner(e @ core::fmt::Error)) => Some(Err(e)),
-                // * NotFound(0) Not having consumed any name/index, the only possible case
-                //   is a leaf (e.g. `Option` or newtype), those however can not return `NotFound`.
-                // * TooShort is excluded by construction.
-                // * No other errors are returned by traverse_by_key()/path()
-                _ => unreachable!(),
+                State::Leaf(_depth) => Some(Ok(path)),
+                State::Done => None,
+                State::Err(e @ core::fmt::Error) => Some(Err(e)),
             };
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.count.unwrap_or_default(), self.count)
+        self.iter.size_hint()
     }
 }
 
