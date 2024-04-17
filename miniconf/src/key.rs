@@ -28,7 +28,7 @@ pub trait Keys {
     type Item: Key;
 
     /// Convert the next key `self` to a `usize` index.
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item>;
+    fn next(&mut self, len: usize) -> Option<Self::Item>;
 }
 
 impl<T> Keys for T
@@ -39,7 +39,7 @@ where
     type Item = T::Item;
 
     #[inline]
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
+    fn next(&mut self, _len: usize) -> Option<Self::Item> {
         Iterator::next(self)
     }
 }

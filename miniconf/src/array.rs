@@ -30,7 +30,7 @@ macro_rules! depth {
                 K: Keys,
                 F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let key = keys.next::<$y, Self>().ok_or(Error::TooShort(0))?;
+                let key = keys.next(N).ok_or(Error::TooShort(0))?;
                 let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 if index >= N {
                     return Err(Error::NotFound(1));
@@ -56,7 +56,7 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                let key = keys.next::<$y, Self>().ok_or(Error::TooShort(0))?;
+                let key = keys.next(N).ok_or(Error::TooShort(0))?;
                 let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
                 item.serialize_by_key(keys, ser).increment()
@@ -69,7 +69,7 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let key = keys.next::<$y, Self>().ok_or(Error::TooShort(0))?;
+                let key = keys.next(N).ok_or(Error::TooShort(0))?;
                 let index = key.find::<$y, Self>().ok_or(Error::NotFound(1))?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
                 item.deserialize_by_key(keys, de).increment()
@@ -94,7 +94,7 @@ impl<T, const N: usize> TreeKey for [T; N] {
         K: Keys,
         F: FnMut(usize, &str, usize) -> Result<(), E>,
     {
-        let key = keys.next::<1, Self>().ok_or(Error::TooShort(0))?;
+        let key = keys.next(N).ok_or(Error::TooShort(0))?;
         match key.find::<1, Self>() {
             Some(index) if index < N => {
                 func(index, itoa::Buffer::new().format(index), N)?;
@@ -119,11 +119,11 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         K: Keys,
         S: Serializer,
     {
-        let key = keys.next::<1, Self>().ok_or(Error::TooShort(0))?;
+        let key = keys.next(N).ok_or(Error::TooShort(0))?;
         let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         // Precedence
-        if keys.next::<1, Self>().is_some() {
+        if keys.next(N).is_some() {
             Err(Error::TooLong(1))
         } else {
             item.serialize(ser)?;
@@ -138,11 +138,11 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         K: Keys,
         D: Deserializer<'de>,
     {
-        let key = keys.next::<1, Self>().ok_or(Error::TooShort(0))?;
+        let key = keys.next(N).ok_or(Error::TooShort(0))?;
         let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         // Precedence
-        if keys.next::<1, Self>().is_some() {
+        if keys.next(N).is_some() {
             Err(Error::TooLong(1))
         } else {
             *item = T::deserialize(de)?;

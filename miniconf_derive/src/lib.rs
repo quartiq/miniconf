@@ -69,7 +69,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let key = ::miniconf::Keys::next::<#depth, Self>(&mut keys)
+                let key = ::miniconf::Keys::next(&mut keys, #fields_len)
                     .ok_or(::miniconf::Error::TooShort(0))?;
                 let index = ::miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(::miniconf::Error::NotFound(1))?;
@@ -139,6 +139,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         .map(|(i, field)| field.serialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
+    let fields_len = tree.fields().len();
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
@@ -149,13 +150,13 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 S: ::miniconf::Serializer,
             {
-                let key = ::miniconf::Keys::next::<#depth, Self>(&mut keys)
+                let key = ::miniconf::Keys::next(&mut keys, #fields_len)
                     .ok_or(::miniconf::Error::TooShort(0))?;
                 let index = ::miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && ::miniconf::Keys::next::<#depth, Self>(&mut keys).is_some() {
+                if !defer && ::miniconf::Keys::next(&mut keys, #fields_len).is_some() {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
@@ -198,6 +199,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         .map(|(i, field)| field.deserialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
+    let fields_len = tree.fields().len();
 
     let orig_generics = input.generics.clone();
     let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
@@ -219,13 +221,13 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 D: ::miniconf::Deserializer<'de>,
             {
-                let key = ::miniconf::Keys::next::<#depth, Self>(&mut keys)
+                let key = ::miniconf::Keys::next(&mut keys, #fields_len)
                     .ok_or(::miniconf::Error::TooShort(0))?;
                 let index = ::miniconf::Key::find::<#depth, Self>(&key)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && ::miniconf::Keys::next::<#depth, Self>(&mut keys).is_some() {
+                if !defer && ::miniconf::Keys::next(&mut keys, #fields_len).is_some() {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now

@@ -91,8 +91,8 @@ impl Packed {
 impl Keys for Packed {
     type Item = usize;
     #[inline]
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Option<Self::Item> {
-        self.pop_msb(usize::BITS - (M::len() - 1).leading_zeros())
+    fn next(&mut self, len: usize) -> Option<Self::Item> {
+        self.pop_msb(usize::BITS - (len - 1).leading_zeros())
     }
 }
 
