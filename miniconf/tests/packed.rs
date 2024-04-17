@@ -19,7 +19,7 @@ fn packed() {
 
     for q in Settings::iter_paths::<String>("/") {
         let q = q.unwrap();
-        let a = Settings::packed(q.split("/").skip(1)).unwrap();
+        let (a, _d) = Settings::packed(q.split("/").skip(1)).unwrap();
         Settings::path(a, &mut p, "/").unwrap();
         assert_eq!(p, q);
         p.clear();

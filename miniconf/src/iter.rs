@@ -3,10 +3,7 @@ use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over nodes in a `TreeKey`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct Iter<M: ?Sized, const Y: usize> {
-    /// Zero-size markers to allow being generic over M (by constraining the type parameters).
-    m: PhantomData<M>,
-
+struct Iter<const Y: usize> {
     /// The iteration state.
     ///
     /// It contains the current field/element index at each path hierarchy level
@@ -21,23 +18,11 @@ struct Iter<M: ?Sized, const Y: usize> {
     count: Option<usize>,
 }
 
-impl<M, const Y: usize> Iter<M, Y>
-where
-    M: TreeKey<Y> + ?Sized,
-{
-    fn new() -> Self {
-        let meta = M::metadata();
-        assert!(Y >= meta.max_depth);
-        let mut s = Self::new_unchecked();
-        s.count = Some(meta.count);
-        s
-    }
-
-    fn new_unchecked() -> Self {
+impl<const Y: usize> Iter<Y> {
+    fn new(count: Option<usize>) -> Self {
         Self {
-            count: None,
+            count,
             state: [0; Y],
-            m: PhantomData,
         }
     }
 }
@@ -50,15 +35,12 @@ enum State<E> {
     Err(E),
 }
 
-impl<M, const Y: usize> Iter<M, Y>
-where
-    M: TreeKey<Y> + ?Sized,
-{
-    fn next<F, E>(&mut self, func: F) -> State<E>
+impl<const Y: usize> Iter<Y> {
+    fn next<F, E>(&mut self, mut func: F) -> State<E>
     where
-        F: FnMut(usize, &str, usize) -> Result<(), E>,
+        F: FnMut(core::iter::Copied<core::slice::Iter<'_, usize>>) -> Result<usize, Error<E>>,
     {
-        match M::traverse_by_key(self.state.iter().copied(), func) {
+        match func(self.state.iter().copied()) {
             // Out of valid indices at the root: iteration done
             Err(Error::NotFound(1)) => {
                 debug_assert_eq!(self.count.unwrap_or_default(), 0);
@@ -106,8 +88,8 @@ where
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
-    iter: Iter<M, Y>,
-    p: PhantomData<P>,
+    iter: Iter<Y>,
+    pm: PhantomData<(P, M)>,
     /// The separator before each name.
     separator: &'a str,
 }
@@ -117,17 +99,19 @@ where
     M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new(separator: &'a str) -> Self {
+        let meta = M::metadata();
+        assert!(Y >= meta.max_depth);
         Self {
-            iter: Iter::new(),
-            p: PhantomData,
+            iter: Iter::new(Some(meta.count)),
+            pm: PhantomData,
             separator,
         }
     }
 
     pub(crate) fn new_unchecked(separator: &'a str) -> Self {
         Self {
-            iter: Iter::new_unchecked(),
-            p: PhantomData,
+            iter: Iter::new(None),
+            pm: PhantomData,
             separator,
         }
     }
@@ -144,10 +128,10 @@ where
         let mut path = P::default();
 
         loop {
-            return match self.iter.next(|_index, name, _len| {
-                path.write_str(self.separator)
-                    .and_then(|_| path.write_str(name))
-            }) {
+            return match self
+                .iter
+                .next(|keys| M::path(keys, &mut path, self.separator))
+            {
                 State::Retry => {
                     path = P::default();
                     continue;
@@ -175,18 +159,20 @@ where
 ///
 /// The iterator yields `(indices: [usize; Y], depth: usize)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct IndexIter<M: ?Sized, const Y: usize>(Iter<M, Y>);
+pub struct IndexIter<M: ?Sized, const Y: usize>(Iter<Y>, PhantomData<M>);
 
 impl<M, const Y: usize> IndexIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new() -> Self {
-        Self(Iter::new())
+        let meta = M::metadata();
+        assert!(Y >= meta.max_depth);
+        Self(Iter::new(Some(meta.count)), PhantomData)
     }
 
     pub(crate) fn new_unchecked() -> Self {
-        Self(Iter::new_unchecked())
+        Self(Iter::new(None), PhantomData)
     }
 }
 
@@ -198,7 +184,10 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            return match self.0.next(|_, _, _| Ok(())) {
+            return match self
+                .0
+                .next(|keys| M::traverse_by_key(keys, |_, _, _| Ok(())))
+            {
                 State::Retry => {
                     continue;
                 }
@@ -227,18 +216,20 @@ impl<M, const Y: usize> core::iter::FusedIterator for IndexIter<M, Y> where M: T
 ///
 /// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PackedIter<M: ?Sized, const Y: usize>(Iter<M, Y>);
+pub struct PackedIter<M: ?Sized, const Y: usize>(Iter<Y>, PhantomData<M>);
 
 impl<M, const Y: usize> PackedIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new() -> Self {
-        Self(Iter::new())
+        let meta = M::metadata();
+        assert!(Y >= meta.max_depth);
+        Self(Iter::new(Some(meta.count)), PhantomData)
     }
 
     pub(crate) fn new_unchecked() -> Self {
-        Self(Iter::new_unchecked())
+        Self(Iter::new(None), PhantomData)
     }
 }
 
@@ -251,11 +242,10 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let mut packed = Packed::default();
         loop {
-            return match self.0.next(|index, _, len| {
-                packed
-                    .push_lsb(usize::BITS - (len - 1).leading_zeros(), index)
-                    .ok_or(())
-                    .and(Ok(()))
+            return match self.0.next(|keys| {
+                let (p, depth) = M::packed(keys)?;
+                packed = p;
+                Ok(depth)
             }) {
                 State::Retry => {
                     packed = Packed::default();

@@ -488,7 +488,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 5],
     /// };
-    /// let p = S::packed(["bar", "4"]).unwrap();
+    /// let (p, _) = S::packed(["bar", "4"]).unwrap();
     /// assert_eq!(p.get(), 0b11001 << (usize::BITS - 5));
     /// let mut s = String::new();
     /// S::path(p, &mut s, "/").unwrap();
@@ -499,19 +499,19 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     ///
     /// # Returns
-    /// The packed indices representation on success
-    fn packed<K>(keys: K) -> Result<Packed, Error<()>>
+    /// The packed indices representation on success and the leaf depth.
+    fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
     where
         K: IntoKeys,
     {
         let mut packed = Packed::default();
-        Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
+        let depth = Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
             packed
                 .push_lsb(usize::BITS - (len - 1).leading_zeros(), index)
                 .ok_or(())
                 .and(Ok(()))
         })?;
-        Ok(packed)
+        Ok((packed, depth))
     }
 
     /// Create an iterator of all possible paths.
