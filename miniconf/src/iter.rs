@@ -1,6 +1,109 @@
 use crate::{Error, TreeKey};
 use core::{fmt::Write, marker::PhantomData};
 
+/// An iterator over nodes in a `TreeKey`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Iter<M: ?Sized, const Y: usize> {
+    /// Zero-size markers to allow being generic over M (by constraining the type parameters).
+    m: PhantomData<M>,
+
+    /// The iteration state.
+    ///
+    /// It contains the current field/element index at each path hierarchy level
+    /// and needs to be at least as large as the maximum path depth.
+    state: [usize; Y],
+
+    /// The remaining length of the iterator.
+    ///
+    /// It is used to provide an exact and trusted [Iterator::size_hint] ([core::iter::TrustedLen]).
+    ///
+    /// It may be None to indicate unknown length.
+    count: Option<usize>,
+}
+
+impl<M, const Y: usize> Iter<M, Y>
+where
+    M: TreeKey<Y> + ?Sized,
+{
+    fn new() -> Self {
+        let meta = M::metadata();
+        assert!(Y >= meta.max_depth);
+        let mut s = Self::new_unchecked();
+        s.count = Some(meta.count);
+        s
+    }
+
+    fn new_unchecked() -> Self {
+        Self {
+            count: None,
+            state: [0; Y],
+            m: PhantomData,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
+enum State<E> {
+    Leaf(usize),
+    Done,
+    Retry,
+    Err(E),
+}
+
+impl<M, const Y: usize> Iter<M, Y>
+where
+    M: TreeKey<Y> + ?Sized,
+{
+    fn next<F, E>(&mut self, func: F) -> State<E>
+    where
+        F: FnMut(usize, &str, usize) -> Result<(), E>,
+    {
+        match M::traverse_by_key(self.state.iter().copied(), func) {
+            // Out of valid indices at the root: iteration done
+            Err(Error::NotFound(1)) => {
+                debug_assert_eq!(self.count.unwrap_or_default(), 0);
+                State::Done
+            }
+            // Node not found at depth: reset current index, increment parent index,
+            // then retry path()
+            Err(Error::NotFound(depth @ 2..)) => {
+                self.state[depth - 1] = 0;
+                self.state[depth - 2] += 1;
+                State::Retry
+            }
+            // Found a leaf at the root: leaf Option/newtype
+            // Since there is no way to end iteration by hoping for `NotFound` on a leaf Option,
+            // we force the count to Some(0) and trigger on that.
+            Ok(0) => {
+                if self.count == Some(0) {
+                    State::Done
+                } else {
+                    debug_assert_eq!(self.count.unwrap_or(1), 1);
+                    self.count = Some(0);
+                    State::Leaf(1)
+                }
+            }
+            // Non-root leaf: advance index at current depth
+            Ok(depth) => {
+                self.count = self.count.map(|c| c - 1);
+                self.state[depth - 1] += 1;
+                State::Leaf(depth)
+            }
+            // `core::fmt::Write` error (e.g. heapless::String capacity limit).
+            Err(Error::Inner(e)) => State::Err(e),
+            // * NotFound(0) Not having consumed any name/index, the only possible case
+            //   is a leaf (e.g. `Option` or newtype), those however can not return `NotFound`.
+            // * TooShort is excluded by construction.
+            // * No other errors are returned by traverse_by_key()/path()
+            _ => unreachable!(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.count.unwrap_or_default(), self.count)
+    }
+}
+
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
@@ -188,7 +291,7 @@ where
                     } else {
                         debug_assert_eq!(self.count.unwrap_or(1), 1);
                         self.count = Some(0);
-                        Some((self.state, 1))
+                        Some((self.state, 0))
                     }
                 }
                 // Non-root leaf: advance index at current depth
