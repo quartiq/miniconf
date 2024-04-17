@@ -1,4 +1,4 @@
-use crate::{Error, TreeKey};
+use crate::{Error, Packed, TreeKey};
 use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over nodes in a `TreeKey`.
@@ -222,3 +222,55 @@ where
 }
 
 impl<M, const Y: usize> core::iter::FusedIterator for IndexIter<M, Y> where M: TreeKey<Y> {}
+
+/// An iterator over packed indices in a `TreeKey`.
+///
+/// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PackedIter<M: ?Sized, const Y: usize>(Iter<M, Y>);
+
+impl<M, const Y: usize> PackedIter<M, Y>
+where
+    M: TreeKey<Y> + ?Sized,
+{
+    pub(crate) fn new() -> Self {
+        Self(Iter::new())
+    }
+
+    pub(crate) fn new_unchecked() -> Self {
+        Self(Iter::new_unchecked())
+    }
+}
+
+impl<M, const Y: usize> Iterator for PackedIter<M, Y>
+where
+    M: TreeKey<Y> + ?Sized,
+{
+    type Item = Result<(Packed, usize), ()>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut packed = Packed::default();
+        loop {
+            return match self.0.next(|index, _, len| {
+                packed
+                    .push_lsb(usize::BITS - (len - 1).leading_zeros(), index)
+                    .ok_or(())
+                    .and(Ok(()))
+            }) {
+                State::Retry => {
+                    packed = Packed::default();
+                    continue;
+                }
+                State::Leaf(depth) => Some(Ok((packed, depth))),
+                State::Done => None,
+                State::Err(()) => Some(Err(())),
+            };
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl<M, const Y: usize> core::iter::FusedIterator for PackedIter<M, Y> where M: TreeKey<Y> {}
