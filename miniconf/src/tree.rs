@@ -1,4 +1,4 @@
-use crate::{IndexIter, IntoKeys, Keys, Packed, PathIter};
+use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
 use core::fmt::{Display, Formatter, Write};
 use serde::{Deserializer, Serializer};
 
@@ -518,8 +518,8 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// This is a depth-first walk.
     /// The iterator will walk all paths, including those that may be absent at
-    /// run-time (see [Option]).
-    /// The iterator has an exact and trusted [Iterator::size_hint].
+    /// run-time (see [`TreeKey#option`]).
+    /// The iterator has an exact and trusted [`Iterator::size_hint()`].
     ///
     /// ```
     /// # #[cfg(feature = "std")] {
@@ -544,25 +544,12 @@ pub trait TreeKey<const Y: usize = 1> {
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
     fn iter_paths<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new(sep)
+        PathIter::new(sep, Some(Self::metadata().count))
     }
 
     /// Create an unchecked iterator of all possible paths.
     ///
-    /// See also [TreeKey::iter_paths].
-    ///
-    /// ```
-    /// # #[cfg(feature = "std")] {
-    /// # use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: u16,
-    /// };
-    /// let paths: Vec<String> = S::iter_paths_unchecked("/").map(|p| p.unwrap()).collect();
-    /// assert_eq!(paths, ["/foo", "/bar"]);
-    /// # }
-    /// ```
+    /// See also [`TreeKey::iter_paths`].
     ///
     /// # Generics
     /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write + Default`.
@@ -574,12 +561,10 @@ pub trait TreeKey<const Y: usize = 1> {
     /// A iterator of paths.
     #[inline]
     fn iter_paths_unchecked<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new_unchecked(sep)
+        PathIter::new(sep, None)
     }
 
     /// Create an iterator of all possible indices.
-    ///
-    /// See also [TreeKey::iter_paths].
     ///
     /// ```
     /// # use miniconf::TreeKey;
@@ -595,28 +580,38 @@ pub trait TreeKey<const Y: usize = 1> {
     /// An iterator of indices with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
     fn iter_indices() -> IndexIter<Self, Y> {
-        IndexIter::new()
+        IndexIter::new(Some(Self::metadata().count))
     }
 
     /// Create an unchecked iterator of all possible indices.
     ///
-    /// See also [TreeKey::iter_indices].
-    ///
-    /// ```
-    /// # use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: u16,
-    /// };
-    /// assert_eq!(S::iter_indices_unchecked().next().unwrap(), ([0], 1));
-    /// ```
+    /// See also [`TreeKey::iter_indices()`].
     ///
     /// # Returns
     /// An iterator of indices.
     #[inline]
     fn iter_indices_unchecked() -> IndexIter<Self, Y> {
-        IndexIter::new_unchecked()
+        IndexIter::new(None)
+    }
+
+    /// Create an iterator of all packed indices.
+    ///
+    /// # Returns
+    /// An iterator of packed indices.
+    #[inline]
+    fn iter_packed() -> PackedIter<Self, Y> {
+        PackedIter::new(Some(Self::metadata().count))
+    }
+
+    /// Create an iterator of all packed indices.
+    ///
+    /// See also [`TreeKey::iter_packed()`].
+    ///
+    /// # Returns
+    /// An iterator of packed indices.
+    #[inline]
+    fn iter_packed_unchecked() -> PackedIter<Self, Y> {
+        PackedIter::new(None)
     }
 }
 

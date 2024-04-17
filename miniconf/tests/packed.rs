@@ -24,6 +24,12 @@ fn packed() {
         assert_eq!(p, q);
         p.clear();
     }
+    println!(
+        "{:?}",
+        Settings::iter_packed()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>()
+    );
 
     assert_eq!(
         Settings::path(Packed::new(0b01 << 29).unwrap(), &mut p, "/"),

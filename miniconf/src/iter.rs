@@ -98,19 +98,9 @@ impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    pub(crate) fn new(separator: &'a str) -> Self {
-        let meta = M::metadata();
-        assert!(Y >= meta.max_depth);
+    pub(crate) fn new(separator: &'a str, count: Option<usize>) -> Self {
         Self {
-            iter: Iter::new(Some(meta.count)),
-            pm: PhantomData,
-            separator,
-        }
-    }
-
-    pub(crate) fn new_unchecked(separator: &'a str) -> Self {
-        Self {
-            iter: Iter::new(None),
+            iter: Iter::new(count),
             pm: PhantomData,
             separator,
         }
@@ -165,14 +155,8 @@ impl<M, const Y: usize> IndexIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    pub(crate) fn new() -> Self {
-        let meta = M::metadata();
-        assert!(Y >= meta.max_depth);
-        Self(Iter::new(Some(meta.count)), PhantomData)
-    }
-
-    pub(crate) fn new_unchecked() -> Self {
-        Self(Iter::new(None), PhantomData)
+    pub(crate) fn new(count: Option<usize>) -> Self {
+        Self(Iter::new(count), PhantomData)
     }
 }
 
@@ -222,14 +206,8 @@ impl<M, const Y: usize> PackedIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    pub(crate) fn new() -> Self {
-        let meta = M::metadata();
-        assert!(Y >= meta.max_depth);
-        Self(Iter::new(Some(meta.count)), PhantomData)
-    }
-
-    pub(crate) fn new_unchecked() -> Self {
-        Self(Iter::new(None), PhantomData)
+    pub(crate) fn new(count: Option<usize>) -> Self {
+        Self(Iter::new(count), PhantomData)
     }
 }
 
@@ -242,11 +220,12 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         let mut packed = Packed::default();
         loop {
-            return match self.0.next(|keys| {
+            let state = self.0.next(|keys| {
                 let (p, depth) = M::packed(keys)?;
                 packed = p;
                 Ok(depth)
-            }) {
+            });
+            return match state {
                 State::Retry => {
                     packed = Packed::default();
                     continue;
