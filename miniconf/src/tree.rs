@@ -12,7 +12,7 @@ use serde::{Deserializer, Serializer};
 /// If multiple errors are applicable simultaneously the precedence
 /// is from high to low:
 ///
-/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization > Invalid`
+/// `Absent > TooShort > NotFound > TooLong > Inner > Finalization > Invalid`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -36,13 +36,16 @@ pub enum Error<E> {
     /// or the traversal function returned an error.
     Inner(E),
 
-    /// There was an error after deserializing a value.
+    /// There was an error during finalization.
     ///
     /// The `Deserializer` has encountered an error only after successfully
     /// deserializing a value. This is the case if there is additional unexpected data.
     /// The [`TreeDeserialize::deserialize_by_key()`] update takes place but this
     /// error will be returned.
-    PostDeserialization(E),
+    ///
+    /// A `Serializer` may write checksums or additional framing data and fail with
+    /// this error during finalization after the value has been serialized.
+    Finalization(E),
 
     /// A leaf value was found to be invalid before serialization or
     /// after deserialization.
@@ -76,7 +79,7 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 write!(f, "(De)serialization error: ")?;
                 error.fmt(f)
             }
-            Error::PostDeserialization(error) => {
+            Error::Finalization(error) => {
                 write!(f, "Deserializer error after deserialization: ")?;
                 error.fmt(f)
             }

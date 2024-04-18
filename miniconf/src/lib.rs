@@ -23,6 +23,11 @@ mod json_core;
 #[cfg(feature = "json-core")]
 pub use json_core::*;
 
+#[cfg(feature = "postcard")]
+mod postcard;
+#[cfg(feature = "postcard")]
+pub use postcard::*;
+
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};

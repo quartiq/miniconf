@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * The trait methods are now generic over `Keys` and not over `Iterator<Item: Key>`.
   A blanket implementation has been provided.
 * `JsonCoreSlash::{set,get}_json_by_indices()` removed in favor of `{get,set}_json_by_key()`.
+* [breaking] `Error::PostDeserialization` renamed to `Error::Finalization`.
+* [breaking] `json-core` removed from default features.
 
 ### Added
 
@@ -29,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `TreeKey::iter_indices()` and `iter_indices_unchecked()`
 * Derive macros: Support for fallible getter/setter/validation callbacks
 * Support for bit-packed keys `Packed` and `iter_packed()`/`iter_packed_unchecked()`
+* A `postcard` feature and `Postcard` trait and blanket implementation
 
 ## [0.9.0](https://github.com/quartiq/miniconf/compare/v0.8.0...v0.9.0)
 
