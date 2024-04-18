@@ -150,8 +150,8 @@ impl Packed {
     #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
-        if let Some(v) = Self::new(s << bits) {
-            *self = v;
+        if let Some(new) = Self::new(s << bits) {
+            self.0 = new.0;
             Some(s >> (Self::BITS - bits))
         } else {
             None
@@ -164,18 +164,11 @@ impl Packed {
     #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
-        let mut s = self.get();
-        let mut n = self.trailing_zeros();
-        if bits <= n {
-            // clear old marker
-            s ^= 1 << n;
-            // new traling zeros
-            n -= bits;
-            // push value and marker
-            s |= ((value << 1) | 1) << n;
-            // Note(unwrap): we ensure there is at least the marker bit set
-            *self = Self::new(s).unwrap();
-            Some(n)
+        let n = self.trailing_zeros();
+        if let Some(marker) = Self::new((1 << n) >> bits) {
+            let m = n - bits;
+            self.0 = (self.get() ^ (1 << n)) | (value << (m + 1)) | marker.0;
+            Some(m)
         } else {
             None
         }
