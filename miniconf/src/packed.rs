@@ -146,7 +146,8 @@ impl Packed {
     /// If the value does not contain sufficient bits
     /// it is left unchanged and `None` is returned.
     ///
-    /// Note(panic): Panics if not `0 < bits <= usize::BITS`.
+    /// # Args
+    /// * `bits`: Number of bits to pop. `1 <= bits <= Self::BITS`
     #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
@@ -161,14 +162,19 @@ impl Packed {
     /// Push the given number `bits` of `value` as new LSBs.
     ///
     /// Returns the remaining number of unused bits on success.
+    ///
+    /// # Args
+    /// * `bits`: Number of bits to push. `1 <= bits <= Self::BITS`
+    /// * `value`: Value to push. `value >> bits == 0`
     #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
-        let n = self.trailing_zeros();
-        if let Some(marker) = Self::new((1 << n) >> bits) {
-            let m = n - bits;
-            self.0 = (self.get() ^ (1 << n)) | (value << (m + 1)) | marker.0;
-            Some(m)
+        let mut n = self.trailing_zeros();
+        let m = 1 << n;
+        if let Some(marker) = Self::new(m >> bits) {
+            n -= bits;
+            self.0 = (self.get() ^ m) | ((value << n) << 1) | marker.0;
+            Some(n)
         } else {
             None
         }
