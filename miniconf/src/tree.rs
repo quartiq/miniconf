@@ -506,10 +506,9 @@ pub trait TreeKey<const Y: usize = 1> {
     {
         let mut packed = Packed::default();
         let depth = Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
-            packed
-                .push_lsb(usize::BITS - (len - 1).leading_zeros(), index)
-                .ok_or(())
-                .and(Ok(()))
+            // ensure at least one bit
+            let bits = (usize::BITS - (len - 1).leading_zeros()).max(1);
+            packed.push_lsb(bits, index).ok_or(()).and(Ok(()))
         })?;
         Ok((packed, depth))
     }

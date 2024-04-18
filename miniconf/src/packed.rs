@@ -1,4 +1,4 @@
-use crate::{IntoKeys, Keys, TreeKey};
+use crate::{IntoKeys, Keys};
 use core::num::NonZeroUsize;
 
 /// A bit-packed representation of `TreeKey` indices.
@@ -55,7 +55,10 @@ impl Packed {
 
     /// Remove the given number of MSBs and return them.
     ///
-    /// If the value does not contain sufficient bits, it is cleared and `None` is returned.
+    /// If the value does not contain sufficient bits
+    /// it is left unchanged and `None` is returned.
+    ///
+    /// Note(panic): `bits` must not be zero.
     #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.0.get();
@@ -63,14 +66,13 @@ impl Packed {
             self.0 = v;
             Some(s >> (usize::BITS - bits))
         } else {
-            self.clear();
             None
         }
     }
 
     /// Push the given number `bits` of `value` as new LSBs.
     ///
-    /// Returns the remaining unused number of bits on success.
+    /// Returns the remaining number of unused bits on success.
     #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
@@ -92,7 +94,10 @@ impl Keys for Packed {
     type Item = usize;
     #[inline]
     fn next(&mut self, len: usize) -> Option<Self::Item> {
-        self.pop_msb(usize::BITS - (len - 1).leading_zeros())
+        debug_assert!(len > 0);
+        // ensure at least one bit
+        let bits = (usize::BITS - (len - 1).leading_zeros()).max(1);
+        self.pop_msb(bits)
     }
 }
 
@@ -101,5 +106,24 @@ impl IntoKeys for Packed {
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test() {
+        let t = [1usize, 3, 4, 0, 1];
+        let mut p = Packed::default();
+        for t in t {
+            let bits = (usize::BITS - t.leading_zeros()).max(1);
+            p.push_lsb(bits, t).unwrap();
+        }
+        for t in t {
+            let bits = (usize::BITS - t.leading_zeros()).max(1);
+            assert_eq!(p.pop_msb(bits).unwrap(), t);
+        }
     }
 }

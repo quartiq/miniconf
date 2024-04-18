@@ -122,8 +122,8 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         let key = keys.next(N).ok_or(Error::TooShort(0))?;
         let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
-        // Precedence
-        if keys.next(N).is_some() {
+        // ensure no non-trivial key is left
+        if keys.next(1).is_some() {
             Err(Error::TooLong(1))
         } else {
             item.serialize(ser)?;
@@ -141,8 +141,8 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         let key = keys.next(N).ok_or(Error::TooShort(0))?;
         let index = key.find::<1, Self>().ok_or(Error::NotFound(1))?;
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-        // Precedence
-        if keys.next(N).is_some() {
+        // ensure no non-trivial key is left
+        if keys.next(1).is_some() {
             Err(Error::TooLong(1))
         } else {
             *item = T::deserialize(de)?;

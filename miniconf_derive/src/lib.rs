@@ -156,7 +156,8 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && ::miniconf::Keys::next(&mut keys, #fields_len).is_some() {
+                // ensure no non-trivial key is left
+                if !defer && ::miniconf::Keys::next(&mut keys, 1).is_some() {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
@@ -227,7 +228,8 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && ::miniconf::Keys::next(&mut keys, #fields_len).is_some() {
+                // ensure no non-trivial key is left
+                if !defer && ::miniconf::Keys::next(&mut keys, 1).is_some() {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now

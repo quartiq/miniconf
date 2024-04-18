@@ -28,6 +28,10 @@ pub trait Keys {
     type Item: Key;
 
     /// Convert the next key `self` to a `usize` index.
+    ///
+    /// # Args
+    /// * `len` is an upper limit to the number of keys at this level.
+    ///   It is non-zero.
     fn next(&mut self, len: usize) -> Option<Self::Item>;
 }
 
