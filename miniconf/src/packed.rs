@@ -19,7 +19,10 @@ use core::{
 /// and stability properties.
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(transparent)]
-pub struct Packed(NonZeroUsize);
+pub struct Packed(
+    // Could use generic_nonzero #120257
+    NonZeroUsize,
+);
 
 impl Default for Packed {
     #[inline]
@@ -29,12 +32,14 @@ impl Default for Packed {
 }
 
 impl From<NonZeroUsize> for Packed {
+    #[inline]
     fn from(value: NonZeroUsize) -> Self {
         Self(value)
     }
 }
 
 impl From<Packed> for NonZeroUsize {
+    #[inline]
     fn from(value: Packed) -> Self {
         value.0
     }
@@ -42,12 +47,15 @@ impl From<Packed> for NonZeroUsize {
 
 impl Deref for Packed {
     type Target = NonZeroUsize;
+
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl DerefMut for Packed {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -78,8 +86,8 @@ impl Packed {
 
     /// The value is empty.
     #[inline]
-    pub fn is_empty(&self) -> bool {
-        *self == Self::EMPTY
+    pub const fn is_empty(&self) -> bool {
+        matches!(*self, Self::EMPTY)
     }
 
     /// Clear and discard all bits pushed.
@@ -99,7 +107,7 @@ impl Packed {
     #[inline]
     pub fn into_lsb(&self) -> NonZeroUsize {
         // Note(unwrap): we ensure there is at least the marker bit set
-        NonZeroUsize::new(((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros())
+        NonZeroUsize::new(((self.get() >> 1) | (1 << Self::CAPACITY)) >> self.trailing_zeros())
             .unwrap()
     }
 
@@ -124,12 +132,12 @@ impl Packed {
     /// If the value does not contain sufficient bits
     /// it is left unchanged and `None` is returned.
     ///
-    /// Note(panic): `bits` must not be zero.
+    /// Note(panic): Panics if not `0 < bits <= usize::BITS`.
     #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
-        let s = self.0.get();
-        if let Some(v) = NonZeroUsize::new(s << bits) {
-            self.0 = v;
+        let s = self.get();
+        if let Some(v) = Self::new(s << bits) {
+            *self = v;
             Some(s >> (Self::BITS - bits))
         } else {
             None
@@ -142,14 +150,17 @@ impl Packed {
     #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
-        let mut s = self.0.get();
-        let mut n = self.0.trailing_zeros();
+        let mut s = self.get();
+        let mut n = self.trailing_zeros();
         if bits <= n {
+            // clear old marker
             s ^= 1 << n;
+            // new traling zeros
             n -= bits;
+            // push value and marker
             s |= ((value << 1) | 1) << n;
             // Note(unwrap): we ensure there is at least the marker bit set
-            self.0 = NonZeroUsize::new(s).unwrap();
+            *self = Self::new(s).unwrap();
             Some(n)
         } else {
             None
