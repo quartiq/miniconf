@@ -9,7 +9,8 @@ struct Iter<const Y: usize> {
     /// The iteration state.
     ///
     /// It contains the current field/element index at each path hierarchy level
-    /// and needs to be at least as large as the maximum path depth.
+    /// and needs to be at least as large as the maximum path depth (ensured by
+    /// `TreeKey<Y>` contract).
     state: [usize; Y],
 
     /// The remaining length of the iterator.
@@ -55,26 +56,26 @@ impl<const Y: usize> Iter<Y> {
             // Found a leaf at the root: leaf Option/newtype
             // Since there is no way to end iteration by hoping for `NotFound` on a leaf Option,
             // we force the count to Some(0) and trigger on that.
+            Ok(0) if matches!(self.count, Some(0)) => State::Done,
             Ok(0) => {
-                if self.count == Some(0) {
-                    State::Done
-                } else {
-                    debug_assert_eq!(self.count.unwrap_or(1), 1);
-                    self.count = Some(0);
-                    State::Leaf(0)
-                }
+                debug_assert_eq!(self.count.unwrap_or(1), 1);
+                self.count = Some(0);
+                State::Leaf(0)
             }
-            // Non-root leaf: advance index at current depth
-            Ok(depth @ 1..) => {
+            // Non-root leaf (depth @ 1..): advance index at current depth
+            Ok(depth) => {
                 self.count = self.count.map(|c| c - 1);
                 self.state[depth - 1] += 1;
                 State::Leaf(depth)
             }
             Err(Error::Inner(e)) => State::Err(e),
-            // * NotFound(0) Not having consumed any name/index, the only possible case
-            //   is a leaf (e.g. `Option` or newtype), those however can not return `NotFound`.
-            // * TooShort is excluded by construction.
-            // * No other errors are returned by traverse_by_key()/path()
+            // Note(unreachable):
+            // * NotFound(0): Not having consumed any name/index, the only possible case
+            //   is a root leaf (e.g. `Option` or newtype), those however can not return
+            //   `NotFound` as they don't do key lookup.
+            // * TooShort: Excluded by construction (`state.len() == Y` and `Y` being an
+            //   upper bound to key length.
+            // * No other errors are returned by traverse_by_key()/path()/packed()
             _ => unreachable!(),
         }
     }
@@ -89,7 +90,6 @@ impl<const Y: usize> Iter<Y> {
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
     iter: Iter<Y>,
     pm: PhantomData<(P, M)>,
-    /// The separator before each name.
     separator: &'a str,
 }
 
@@ -128,7 +128,7 @@ where
                 }
                 State::Leaf(_depth) => Some(Ok(path)),
                 State::Done => None,
-                State::Err(e @ core::fmt::Error) => Some(Err(e)),
+                State::Err(e) => Some(Err(e)),
             };
         }
     }
