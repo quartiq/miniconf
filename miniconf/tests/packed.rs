@@ -54,7 +54,7 @@ fn zero_key() {
         assert_eq!(
             TreeSerialize::<2>::serialize_by_key(
                 &mut a,
-                Packed::new(0b1 << (usize::BITS - 1 - n as u32)).unwrap(),
+                Packed::from_lsb((0b1 << n).try_into().unwrap()),
                 &mut ser
             ),
             *e
@@ -62,7 +62,7 @@ fn zero_key() {
         assert_eq!(
             TreeSerialize::<2>::serialize_by_key(
                 &mut b,
-                Packed::new(0b1 << (usize::BITS - 1 - n as u32)).unwrap(),
+                Packed::from_lsb((0b1 << n).try_into().unwrap()),
                 &mut ser
             ),
             *e

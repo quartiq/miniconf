@@ -480,7 +480,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: [u16; 5],
     /// };
     /// let (p, _) = S::packed(["bar", "4"]).unwrap();
-    /// assert_eq!(p.get(), 0b11001 << (usize::BITS - 5));
+    /// assert_eq!(p.as_lsb().get(), 0b11100);
     /// let mut s = String::new();
     /// S::path(p, &mut s, "/").unwrap();
     /// assert_eq!(s, "/bar/4");
@@ -497,9 +497,10 @@ pub trait TreeKey<const Y: usize = 1> {
     {
         let mut packed = Packed::default();
         let depth = Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
-            // ensure at least one bit
-            let bits = (usize::BITS - (len - 1).leading_zeros()).max(1);
-            packed.push_lsb(bits, index).ok_or(()).and(Ok(()))
+            packed
+                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
+                .ok_or(())
+                .and(Ok(()))
         })?;
         Ok((packed, depth))
     }
@@ -594,8 +595,8 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     foo: u32,
     ///     bar: [u16; 2],
     /// };
-    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().aligned()).collect();
-    /// assert_eq!(packed, [0, 1]);
+    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().as_lsb().get()).collect();
+    /// assert_eq!(packed, [0b10, 0b11]);
     /// ```
     ///
     /// # Returns
