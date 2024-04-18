@@ -80,7 +80,7 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 error.fmt(f)
             }
             Error::Finalization(error) => {
-                write!(f, "Deserializer error after deserialization: ")?;
+                write!(f, "(De)serializer finalization error: ")?;
                 error.fmt(f)
             }
             Error::InvalidLeaf(depth, msg) => {
