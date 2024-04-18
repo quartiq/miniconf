@@ -9,7 +9,7 @@ description = "Serialize/deserialize/access  Inspect serde namespaces by path"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
-rust-version = "1.67.0" # keep in sync with CI and with other crates and with github branch protection
+rust-version = "1.70.0" # keep in sync with CI and with other crates and with github branch protection
 resolver = "2"
 
 [dependencies]

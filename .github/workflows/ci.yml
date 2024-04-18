@@ -76,7 +76,7 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.67.0  # keep in sync with manifest MSRV
+          - 1.70.0  # keep in sync with manifest MSRV
         target:
           - thumbv7em-none-eabihf
 
@@ -125,7 +125,7 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.67.0  # keep in sync with manifest MSRV
+          - 1.70.0  # keep in sync with manifest MSRV
         args:
           - ""
           - --all-features

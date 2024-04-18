@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `JsonCoreSlash::{set,get}_json_by_indices()` removed in favor of `{get,set}_json_by_key()`.
 * [breaking] `Error::PostDeserialization` renamed to `Error::Finalization`.
 * [breaking] `json-core` removed from default features.
-* [breaking] Bumped MSRV to 1.67.0
+* [breaking] Bumped MSRV to 1.70.0
 
 ### Added
 
