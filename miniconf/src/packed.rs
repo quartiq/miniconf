@@ -6,15 +6,26 @@ use core::{
 
 /// A bit-packed representation of `TreeKey` indices.
 ///
-/// The value consists of a number of (from MSB to LSB):
+/// The value consists of a number of (from storage MSB to LSB):
 ///
 /// * Zero or more groups of variable bit length, concatenated, each containing
 ///   the index at the given `TreeKey` level. The deepest level is last.
 /// * A set bit to mark the end of the used bits.
 /// * Zero or more cleared bits corresponding to unused index space.
 ///
+/// [`Packed::EMPTY`] has the marker at the MSB.
+/// During [`Packed::push_lsb()`] the values are inserted with their MSB
+/// where the marker was and the marker moves toward the storage LSB.
+/// During [`Packed::pop_msb()`] the values are removed with their MSB
+/// aligned with the storage MSB and marker moves toward the storage MSB.
+///
 /// The representation is MSB aligned to make key `Ord` more natural and stable.
-/// Smaller numbers in LSB-aligned representation can be obtained through
+/// The `Packed` key `Ord` matches the ordering of node on a depth-first tree
+/// traversal. New nodes can be added to the tree without changing the implicit
+/// encoding as long no new bits need to be allocated. Under this condition
+/// the mapping between indices and `Packed` representation is stable.
+///
+/// "Small numbers" in LSB-aligned representation can be obtained through
 /// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
 /// and stability properties.
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -80,8 +91,11 @@ impl Packed {
     ///
     /// The value must not be zero.
     #[inline]
-    pub fn new(v: usize) -> Option<Self> {
-        NonZeroUsize::new(v).map(Self)
+    pub const fn new(value: usize) -> Option<Self> {
+        match NonZeroUsize::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
     }
 
     /// The value is empty.
@@ -90,13 +104,13 @@ impl Packed {
         matches!(*self, Self::EMPTY)
     }
 
-    /// Clear and discard all bits pushed.
+    /// Clear and discard all bits stored.
     #[inline]
     pub fn clear(&mut self) {
         *self = Self::EMPTY;
     }
 
-    /// Number of bits set (previously pushed and now available for `pop()`).
+    /// Number of bits stored.
     #[inline]
     pub const fn len(&self) -> u32 {
         Self::CAPACITY - self.0.trailing_zeros()
@@ -170,6 +184,7 @@ impl Packed {
 
 impl Keys for Packed {
     type Item = usize;
+
     #[inline]
     fn next(&mut self, len: usize) -> Option<Self::Item> {
         self.pop_msb(Self::bits_for(len.saturating_sub(1)))
@@ -178,6 +193,7 @@ impl Keys for Packed {
 
 impl IntoKeys for Packed {
     type IntoKeys = Self;
+
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
