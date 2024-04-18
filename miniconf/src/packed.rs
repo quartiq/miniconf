@@ -1,5 +1,8 @@
 use crate::{IntoKeys, Keys};
-use core::num::NonZeroUsize;
+use core::{
+    num::NonZeroUsize,
+    ops::{Deref, DerefMut},
+};
 
 /// A bit-packed representation of `TreeKey` indices.
 ///
@@ -7,16 +10,46 @@ use core::num::NonZeroUsize;
 ///
 /// * Zero or more groups of variable bit length, concatenated, each containing
 ///   the index at the given `TreeKey` level. The deepest level is last.
-/// * A set marker bit
+/// * A set bit to mark the end of the used bits.
 /// * Zero or more cleared bits corresponding to unused index space.
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+///
+/// The representation is MSB aligned to make key `Ord` more natural and stable.
+/// Smaller numbers in LSB-aligned representation can be obtained through
+/// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
+/// and stability properties.
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(transparent)]
 pub struct Packed(NonZeroUsize);
 
 impl Default for Packed {
     #[inline]
     fn default() -> Self {
-        Self::ZERO
+        Self::EMPTY
+    }
+}
+
+impl From<NonZeroUsize> for Packed {
+    fn from(value: NonZeroUsize) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Packed> for NonZeroUsize {
+    fn from(value: Packed) -> Self {
+        value.0
+    }
+}
+
+impl Deref for Packed {
+    type Target = NonZeroUsize;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Packed {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -28,7 +61,7 @@ impl Packed {
     pub const CAPACITY: u32 = Self::BITS - 1;
 
     /// The empty value
-    pub const ZERO: Self = Self(
+    pub const EMPTY: Self = Self(
         // Slightly cumbersome to generate it with `const`
         NonZeroUsize::MIN
             .saturating_add(1)
@@ -43,22 +76,16 @@ impl Packed {
         NonZeroUsize::new(v).map(Self)
     }
 
-    /// Get the contained bit-packed indices representation as a `usize`.
-    #[inline]
-    pub const fn get(&self) -> usize {
-        self.0.get()
-    }
-
     /// The value is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        *self == Self::default()
+        *self == Self::EMPTY
     }
 
     /// Clear and discard all bits pushed.
     #[inline]
     pub fn clear(&mut self) {
-        *self = Self::default();
+        *self = Self::EMPTY;
     }
 
     /// Number of bits set (previously pushed and now available for `pop()`).
@@ -70,7 +97,7 @@ impl Packed {
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
     #[inline]
-    pub fn as_lsb(&self) -> NonZeroUsize {
+    pub fn into_lsb(&self) -> NonZeroUsize {
         // Note(unwrap): we ensure there is at least the marker bit set
         NonZeroUsize::new(((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros())
             .unwrap()
@@ -118,7 +145,7 @@ impl Packed {
         let mut s = self.0.get();
         let mut n = self.0.trailing_zeros();
         if bits <= n {
-            s &= !(1 << n);
+            s ^= 1 << n;
             n -= bits;
             s |= ((value << 1) | 1) << n;
             // Note(unwrap): we ensure there is at least the marker bit set
