@@ -1,6 +1,8 @@
 use crate::{Error, Packed, TreeKey};
 use core::{fmt::Write, marker::PhantomData};
 
+// core::iter::ExactSizeIterator would be applicable if `count.is_some()`.`
+
 /// An iterator over nodes in a `TreeKey`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Iter<const Y: usize> {
