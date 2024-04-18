@@ -45,7 +45,7 @@ impl Packed {
 
     /// Get the contained bit-packed indices representation as a `usize`.
     #[inline]
-    pub fn get(&self) -> usize {
+    pub const fn get(&self) -> usize {
         self.0.get()
     }
 
@@ -63,7 +63,7 @@ impl Packed {
 
     /// Number of bits set (previously pushed and now available for `pop()`).
     #[inline]
-    pub fn len(&self) -> u32 {
+    pub const fn len(&self) -> u32 {
         Self::CAPACITY - self.0.trailing_zeros()
     }
 

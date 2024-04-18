@@ -412,17 +412,17 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `path`: A string to write the separators and node names into.
     ///   See also [TreeKey::metadata()] for upper bounds on path length.
-    /// * `sep`: The path hierarchy separator to be inserted before each name.
+    /// * `separator`: The path hierarchy separator to be inserted before each name.
     ///
     /// # Returns
     /// Final node depth on success
-    fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<usize, Error<core::fmt::Error>>
+    fn path<K, P>(keys: K, mut path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
     where
         K: IntoKeys,
         P: Write,
     {
         Self::traverse_by_key(keys.into_keys(), |_index, name, _len| {
-            path.write_str(sep).and_then(|_| path.write_str(name))
+            path.write_str(separator).and_then(|_| path.write_str(name))
         })
     }
 
@@ -529,13 +529,13 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write + Default`
     ///
     /// # Args
-    /// * `sep` - The path hierarchy separator
+    /// * `separator` - The path hierarchy separator
     ///
     /// # Returns
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
-    fn iter_paths<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new(sep, Some(Self::metadata().count))
+    fn iter_paths<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
+        PathIter::new(separator, Some(Self::metadata().count))
     }
 
     /// Create an unchecked iterator of all possible paths.
@@ -546,13 +546,13 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write + Default`.
     ///
     /// # Args
-    /// * `sep` - The path hierarchy separator
+    /// * `separator` - The path hierarchy separator
     ///
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new(sep, None)
+    fn iter_paths_unchecked<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
+        PathIter::new(separator, None)
     }
 
     /// Create an iterator of all possible indices.
