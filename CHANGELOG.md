@@ -20,11 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] The `traverse_by_key` callback also receives the number of indices at the given level.
 * The trait methods are now generic over `Keys` and not over `Iterator<Item: Key>`.
   A blanket implementation has been provided.
+* `JsonCoreSlash::{set,get}_json_by_indices()` removed in favor of `{get,set}_json_by_key()`.
 
 ### Added
 
-* Python lib: Support for clearing a retained setting
-* Python CLI: get() support
+* Python MQTT lib: Support for clearing a retained setting
+* Python MQTT CLI: get() support
 * `TreeKey::iter_indices()` and `iter_indices_unchecked()`
 * Derive macros: Support for fallible getter/setter/validation callbacks
 * Support for bit-packed keys `Packed` and `iter_packed()`/`iter_packed_unchecked()`
