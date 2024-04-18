@@ -1,9 +1,9 @@
 use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 
-/// Miniconf with [`postcard`].
+/// Miniconf with `postcard`.
 pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<'de, Y> {
-    /// Deserialize and set a node value from a [`postcard`] flavor.
+    /// Deserialize and set a node value from a `postcard` flavor.
     ///
     /// ```
     /// # use miniconf::{Tree, TreeKey, Postcard, Packed};
@@ -26,7 +26,7 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
         flavor: F,
     ) -> Result<F::Remainder, Error<postcard::Error>>;
 
-    /// Get and serialize a node value into a [`postcard`] flavor.
+    /// Get and serialize a node value into a `postcard` flavor.
     ///
     /// ```
     /// # use miniconf::{Tree, TreeKey, Postcard, Packed};

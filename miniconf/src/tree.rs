@@ -452,7 +452,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `indices`: An iterator of `&mut usize` to write the node indices into.
-    ///   If `indices` is shorter than the node depth, [`Error<()>`] is returned
+    ///   If `indices` is shorter than the node depth, [`Error::Inner`] is returned
     ///   See also [TreeKey::metadata()] for upper bounds on depth.
     ///
     /// # Returns
