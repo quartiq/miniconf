@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] The MQTT client has been split into its own `miniconf_mqtt` crate.
 * [breaking] The attribute syntax has changed from `#[tree(depth(1))]` to `#[tree(depth=1)]`.
 * [breaking] The default depth is `0`, also in the case where a `#[tree()]` without `depth` has been specified.
-* The `traverse_by_key` callback also receives the number of indices at the given level.
-* The trait methods are not generic over `Iterator<Item: Key>` but over `Keys`.
+* [breaking] The `traverse_by_key` callback also receives the number of indices at the given level.
+* The trait methods are now generic over `Keys` and not over `Iterator<Item: Key>`.
+  A blanket implementation has been provided.
 
 ### Added
 
@@ -97,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] Metadata is now computed by default without taking into account
   path separators. These can be included using `Metadata::separator()`.
 
-## [0.7.1] (https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
+## [0.7.1](https://github.com/quartiq/miniconf/compare/v0.7.0...v0.7.1)
 
 ### Fixed
 
@@ -108,6 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.7.0](https://github.com/quartiq/miniconf/compare/v0.6.3...v0.7.0)
 
 ### Added
+
 * [MQTT client] Getting values is now supported by publishing an empty message to the topic.
 * [MQTT client] New `list` command is exposed under the Miniconf prefix to allow host software to
   discover current device settings tree structure.
@@ -117,12 +119,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Updated to minimq 0.7
 
 ### Changed
+
 * Responses now encode status values as strings in a `UserProperty` with key "code"
 
 ### Fixed
+
 * `miniconf::Option`'s `get_path()` and `set_path()` return `Err(Error::PathAbsent)`
   if `None`
-
 
 ## [0.6.3](https://github.com/quartiq/miniconf/compare/v0.6.2...v0.6.3) - 2022-12-09
 
@@ -140,6 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.6.0](https://github.com/quartiq/miniconf/compare/v0.5.0...v0.6.0) - 2022-11-04
 
 ### Changed
+
 * python module: don't emite whitespace in JSON to match serde-json-core (#92)
 * `heapless::String` now implements `Miniconf` directly.
 * Python client API is no longer retain by default. CLI is unchanged
@@ -165,15 +169,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * MQTT client no longer uses correlation data to ignore local transmissions.
 
 ### Fixed
+
 * Python device discovery now only discovers unique device identifiers. See [#97](https://github.com/quartiq/miniconf/issues/97)
 * Python requests API updated to use a static response topic
 * Python requests now have a timeout
 * Generic trait bound requirements have been made more specific.
 
-
 ## [0.5.0] - 2022-05-12
 
 ### Changed
+
 * **breaking** The Miniconf trait for iteration was renamed from `unchecked_iter()` and `iter()` to
   `unchecked_iter_settings()` and `iter_settings()` respectively to avoid issues with slice iteration
   name conflicts. See [#87](https://github.com/quartiq/miniconf/issues/87)
@@ -181,10 +186,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2022-05-11
 
 ### Added
+
 * Added support for custom handling of settings updates.
 * `Option` support added to enable run-time settings tree presence.
 
 ### Changed
+
 * [breaking] MqttClient constructor now accepts initial settings values.
 * Settings republish will no longer register as incoming configuration requests. See
   [#71](https://github.com/quartiq/miniconf/issues/71)
@@ -192,11 +199,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   respectively to conform with standard conventions.
 
 ### Removed
+
 * The client no longer resets the republish timeout when receiving messages.
 
 ## [0.3.0] - 2021-12-13
 
 ### Added
+
 * Added key iteration
 * Added support for retrieving serialized values via keys.
 * Added APIs to the Miniconf trait for asynchronous iteration.
@@ -205,16 +214,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Support for republishing settings after a predefined delay.
 
 ### Changed
+
 * `miniconf::update()` replaced with `Miniconf::set()`, which is part of the trait and now
   directly available on structures.
 
 ## [0.2.0] - 2021-10-28
 
 ### Added
+
 * Added support for generic maximum MQTT message size
 * `derive_miniconf` added support for generic types
 
 ### Changed
+
 * Updated minimq dependency to support ping TCP reconnection support
 
 ## [0.1.0] - 2021-08-11
