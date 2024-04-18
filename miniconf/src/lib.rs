@@ -26,7 +26,7 @@ pub use json_core::*;
 #[cfg(feature = "postcard")]
 mod postcard;
 #[cfg(feature = "postcard")]
-pub use postcard::*;
+pub use crate::postcard::*;
 
 // re-export for proc-macro
 #[doc(hidden)]
