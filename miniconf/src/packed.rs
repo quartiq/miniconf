@@ -147,13 +147,13 @@ impl Packed {
     /// it is left unchanged and `None` is returned.
     ///
     /// # Args
-    /// * `bits`: Number of bits to pop. `1 <= bits <= Self::BITS`
+    /// * `bits`: Number of bits to pop. `bits <= Self::CAPACITY`
     #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
         if let Some(new) = Self::new(s << bits) {
             self.0 = new.0;
-            Some(s >> (Self::BITS - bits))
+            Some((s >> (Self::CAPACITY - bits)) >> 1)
         } else {
             None
         }
@@ -164,7 +164,7 @@ impl Packed {
     /// Returns the remaining number of unused bits on success.
     ///
     /// # Args
-    /// * `bits`: Number of bits to push. `1 <= bits <= Self::BITS`
+    /// * `bits`: Number of bits to push. `bits <= Self::CAPACITY`
     /// * `value`: Value to push. `value >> bits == 0`
     #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
