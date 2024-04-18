@@ -36,11 +36,8 @@ enum State<E> {
 }
 
 impl<const Y: usize> Iter<Y> {
-    fn next<F, E>(&mut self, mut func: F) -> State<E>
-    where
-        F: FnMut(core::iter::Copied<core::slice::Iter<'_, usize>>) -> Result<usize, Error<E>>,
-    {
-        match func(self.state.iter().copied()) {
+    fn next<E>(&mut self, ret: Result<usize, Error<E>>) -> State<E> {
+        match ret {
             // Out of valid indices at the root: iteration done
             Err(Error::NotFound(1)) => {
                 debug_assert_eq!(self.count.unwrap_or_default(), 0);
@@ -118,10 +115,11 @@ where
         let mut path = P::default();
 
         loop {
-            return match self
-                .iter
-                .next(|keys| M::path(keys, &mut path, self.separator))
-            {
+            return match self.iter.next(M::path(
+                self.iter.state.iter().copied(),
+                &mut path,
+                self.separator,
+            )) {
                 State::Retry => {
                     path = P::default();
                     continue;
@@ -149,14 +147,20 @@ where
 ///
 /// The iterator yields `(indices: [usize; Y], depth: usize)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct IndexIter<M: ?Sized, const Y: usize>(Iter<Y>, PhantomData<M>);
+pub struct IndexIter<M: ?Sized, const Y: usize> {
+    iter: Iter<Y>,
+    m: PhantomData<M>,
+}
 
 impl<M, const Y: usize> IndexIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new(count: Option<usize>) -> Self {
-        Self(Iter::new(count), PhantomData)
+        Self {
+            iter: Iter::new(count),
+            m: PhantomData,
+        }
     }
 }
 
@@ -168,15 +172,15 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            return match self
-                .0
-                .next(|keys| M::traverse_by_key(keys, |_, _, _| Ok(())))
-            {
+            return match self.iter.next(M::traverse_by_key(
+                self.iter.state.iter().copied(),
+                |_, _, _| Ok(()),
+            )) {
                 State::Retry => {
                     continue;
                 }
                 State::Leaf(depth) => {
-                    let mut idx = self.0.state;
+                    let mut idx = self.iter.state;
                     if depth > 0 {
                         // Undo the index advancement in Iter::next()
                         idx[depth - 1] -= 1;
@@ -190,7 +194,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
+        self.iter.size_hint()
     }
 }
 
@@ -200,14 +204,20 @@ impl<M, const Y: usize> core::iter::FusedIterator for IndexIter<M, Y> where M: T
 ///
 /// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PackedIter<M: ?Sized, const Y: usize>(Iter<Y>, PhantomData<M>);
+pub struct PackedIter<M: ?Sized, const Y: usize> {
+    iter: Iter<Y>,
+    m: PhantomData<M>,
+}
 
 impl<M, const Y: usize> PackedIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
     pub(crate) fn new(count: Option<usize>) -> Self {
-        Self(Iter::new(count), PhantomData)
+        Self {
+            iter: Iter::new(count),
+            m: PhantomData,
+        }
     }
 }
 
@@ -215,22 +225,20 @@ impl<M, const Y: usize> Iterator for PackedIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    type Item = Result<(Packed, usize), ()>;
+    type Item = Result<Packed, ()>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut packed = Packed::default();
         loop {
-            let state = self.0.next(|keys| {
-                let (p, depth) = M::packed(keys)?;
+            let mut packed = Packed::default();
+            let ret = M::packed(self.iter.state.iter().copied()).map(|(p, depth)| {
                 packed = p;
-                Ok(depth)
+                depth
             });
-            return match state {
+            return match self.iter.next(ret) {
                 State::Retry => {
-                    packed = Packed::default();
                     continue;
                 }
-                State::Leaf(depth) => Some(Ok((packed, depth))),
+                State::Leaf(_depth) => Some(Ok(packed)),
                 State::Done => None,
                 State::Err(()) => Some(Err(())),
             };
@@ -238,7 +246,7 @@ where
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
+        self.iter.size_hint()
     }
 }
 

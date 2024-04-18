@@ -331,15 +331,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn name_to_index(name: &str) -> Option<usize>;
 
-    /// The number of paths at this level.
-    ///
-    /// ```
-    /// # use miniconf::TreeKey;
-    /// assert_eq!(<[f32; 5] as TreeKey>::len(), 5);
-    /// assert_eq!(<Option<f32> as TreeKey>::len(), 0);
-    /// ```
-    fn len() -> usize;
-
     /// Call a function for each node on the path described by keys.
     ///
     /// Traversal is aborted once `func` returns an `Err(E)`.
@@ -603,7 +594,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     foo: u32,
     ///     bar: [u16; 2],
     /// };
-    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().0.aligned()).collect();
+    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().aligned()).collect();
     /// assert_eq!(packed, [0, 1]);
     /// ```
     ///

@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] The MQTT client has been split into its own `miniconf_mqtt` crate.
 * [breaking] The attribute syntax has changed from `#[tree(depth(1))]` to `#[tree(depth=1)]`.
 * [breaking] The default depth is `0`, also in the case where a `#[tree()]` without `depth` has been specified.
+* The `traverse_by_key` callback also receives the number of indices at the given level.
+* The trait methods are not generic over `Iterator<Item: Key>` but over `Keys`.
 
 ### Added
 
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Python CLI: get() support
 * `TreeKey::iter_indices()` and `iter_indices_unchecked()`
 * Derive macros: Support for fallible getter/setter/validation callbacks
+* Support for bit-packed keys `Packed` and `iter_packed()`/`iter_packed_unchecked()`
 
 ## [0.9.0](https://github.com/quartiq/miniconf/compare/v0.8.0...v0.9.0)
 

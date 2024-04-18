@@ -21,10 +21,6 @@ macro_rules! depth {
                 value.parse().ok()
             }
 
-            fn len() -> usize {
-                N
-            }
-
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
             where
                 K: Keys,
@@ -83,10 +79,6 @@ depth!(2 3 4 5 6 7 8);
 impl<T, const N: usize> TreeKey for [T; N] {
     fn name_to_index(value: &str) -> Option<usize> {
         value.parse().ok()
-    }
-
-    fn len() -> usize {
-        N
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>

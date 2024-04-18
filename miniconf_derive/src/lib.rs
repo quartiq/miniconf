@@ -57,10 +57,6 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
             }
 
-            fn len() -> usize {
-                #fields_len
-            }
-
             fn traverse_by_key<K, F, E>(
                 mut keys: K,
                 mut func: F,
