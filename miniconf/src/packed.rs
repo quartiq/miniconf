@@ -53,6 +53,13 @@ impl Packed {
         usize::BITS - 1 - self.0.get().trailing_zeros()
     }
 
+    /// Return the representation LSB aligned with the marker bit stripped.
+    #[inline]
+    pub fn aligned(&self) -> usize {
+        let s = self.0.get();
+        (s >> s.trailing_zeros()) >> 1
+    }
+
     /// Remove the given number of MSBs and return them.
     ///
     /// If the value does not contain sufficient bits

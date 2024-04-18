@@ -572,7 +572,8 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     foo: u32,
     ///     bar: u16,
     /// };
-    /// assert_eq!(S::iter_indices().next().unwrap(), ([0], 1));
+    /// let indices: Vec<_> = S::iter_indices().collect();
+    /// assert_eq!(indices, [([0], 1), ([1], 1)]);
     /// ```
     ///
     /// # Returns
@@ -594,6 +595,17 @@ pub trait TreeKey<const Y: usize = 1> {
     }
 
     /// Create an iterator of all packed indices.
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     bar: [u16; 2],
+    /// };
+    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().0.aligned()).collect();
+    /// assert_eq!(packed, [0, 1]);
+    /// ```
     ///
     /// # Returns
     /// An iterator of packed indices.
