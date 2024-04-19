@@ -152,7 +152,7 @@ fn option_absent() {
     assert_eq!(s.set_json("/d", b" 7"), Ok(2));
     assert!(matches!(
         s.set_json("/d", b"7i"),
-        Err(Error::PostDeserialization(_))
+        Err(Error::Finalization(_))
     ));
 }
 

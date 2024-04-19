@@ -23,51 +23,48 @@ struct Settings {
 #[test]
 fn atomic() {
     let mut s = Settings::default();
-    s.set_json_by_index(&[0], b"[1,2]").unwrap();
+    s.set_json_by_key([0], b"[1,2]").unwrap();
     assert_eq!(s.a, [1, 2]);
 }
 
 #[test]
 fn defer() {
     let mut s = Settings::default();
-    s.set_json_by_index(&[1, 1], b"99").unwrap();
+    s.set_json_by_key([1, 1], b"99").unwrap();
     assert_eq!(s.d, [0, 99]);
 }
 
 #[test]
 fn defer_miniconf() {
     let mut s = Settings::default();
-    s.set_json_by_index(&[3, 0, 0], b"1").unwrap();
+    s.set_json_by_key([3, 0, 0], b"1").unwrap();
     assert_eq!(s.am[0].c, 1);
-    s.set_json_by_index(&[4, 0, 0, 0], b"3").unwrap();
+    s.set_json_by_key([4, 0, 0, 0], b"3").unwrap();
     assert_eq!(s.aam[0][0].c, 3);
 }
 
 #[test]
 fn too_short() {
     let mut s = Settings::default();
-    assert_eq!(
-        s.set_json_by_index(&[1], b"[1,2,3]"),
-        Err(Error::TooShort(1))
-    );
+    assert_eq!(s.set_json_by_key([1], b"[1,2,3]"), Err(Error::TooShort(1)));
 }
 
 #[test]
 fn too_long() {
     assert_eq!(
-        Settings::default().set_json_by_index(&[0, 1], b"7"),
+        Settings::default().set_json_by_key([0, 1], b"7"),
         Err(Error::TooLong(1))
     );
     assert_eq!(
-        Settings::default().set_json_by_index(&[1, 0, 2], b"7"),
+        Settings::default().set_json_by_key([1, 0, 2], b"7"),
         Err(Error::TooLong(2))
     );
     assert_eq!(
-        Settings::default().set_json_by_index(&[2, 0, 0], b"7"),
+        Settings::default().set_json_by_key([2, 0, 0], b"7"),
         Err(Error::TooLong(2))
     );
     assert_eq!(
-        Settings::default().set_json_by_index(&[2, 0, 1], b"7"),
+        Settings::default().set_json_by_key([2, 0, 1], b"7"),
         Err(Error::TooLong(2))
     );
 }
@@ -75,31 +72,31 @@ fn too_long() {
 #[test]
 fn not_found() {
     assert_eq!(
-        Settings::default().set_json_by_index(&[1, 3], b"7"),
+        Settings::default().set_json_by_key([1, 3], b"7"),
         Err(Error::NotFound(2))
     );
     assert_eq!(
-        Settings::default().set_json_by_index(&[5], b"7"),
+        Settings::default().set_json_by_key([5], b"7"),
         Err(Error::NotFound(1))
     );
     assert_eq!(
-        Settings::default().set_json_by_index(&[4, 0, 0, 1], b"7"),
+        Settings::default().set_json_by_key([4, 0, 0, 1], b"7"),
         Err(Error::NotFound(4))
     );
 }
 
 #[test]
 fn empty() {
-    assert!([0u32; 0].set_json_by_index(&[], b"").is_err());
+    assert!([0u32; 0].set_json_by_key([0usize; 0], b"").is_err());
 
     #[derive(Tree, Serialize, Deserialize, Copy, Clone, Default)]
     struct S {}
 
     let mut s = [S::default(); 0];
-    assert!(JsonCoreSlash::<1>::set_json_by_index(&mut s, &[], b"").is_err());
+    assert!(JsonCoreSlash::<1>::set_json_by_key(&mut s, [0usize; 0], b"1").is_err());
 
     let mut s = [[S::default(); 0]; 0];
-    assert!(JsonCoreSlash::<1>::set_json_by_index(&mut s, &[], b"").is_err());
+    assert!(JsonCoreSlash::<1>::set_json_by_key(&mut s, [0usize; 0], b"1").is_err());
 
     #[derive(Tree, Default)]
     struct Q {
@@ -108,5 +105,5 @@ fn empty() {
         #[tree(depth = 1)]
         b: [S; 0],
     }
-    assert!(Q::default().set_json_by_index(&[], b"").is_err());
+    assert!(Q::default().set_json_by_key([0usize; 0], b"").is_err());
 }

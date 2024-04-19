@@ -126,11 +126,17 @@ client and a Python reference implementation to interact with it. Now it is agno
 
 ## Formats
 
-`Miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, path
-hierarchy separator, and key lookup algorithm.
+`Miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, and key format.
 
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
 through the [`JsonCoreSlash`] super trait.
+
+The [`Postcard`] super trait supports the `postcard` wire format with any `postcard` flavor and
+any [`Keys`] type. Combined with the [`Packed`] key representation, this is a very
+space-efficient key-serde API.
+
+Blanket implementations are provided for all
+`TreeSerialize`+`TreeDeserialize` types for all formats.
 
 ## Transport
 
@@ -162,9 +168,14 @@ See also the [`TreeKey`] trait documentation for details.
 
 ## Keys and paths
 
-Lookup into the tree is done using an iterator over [`Key`] items. `usize` indices or `&str` names are supported.
+Lookup into the tree is done using a [`Keys`] implementation. A blanket implementation through [`IntoKeys`]
+is provided for `IntoIterator`s over [`Key`] items. The [`Key`] lookup capability is implemented
+for `usize` indices and `&str` names.
 
 Path iteration is supported with arbitrary separator between names.
+
+Very compact hierarchical indices encodings can be obtained from the [`Packed`] structure.
+It implements [`Keys`].
 
 ## Limitations
 

@@ -62,17 +62,13 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 mut func: F,
             ) -> Result<usize, ::miniconf::Error<E>>
             where
-                K: Iterator,
-                K::Item: ::miniconf::Key,
-                F: FnMut(usize, &str) -> Result<(), E>,
+                K: ::miniconf::Keys,
+                F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let key = keys.next()
-                    .ok_or(::miniconf::Error::TooShort(0))?;
-                let index = ::miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys, #fields_len)?;
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                func(index, name)?;
+                func(index, name, #fields_len)?;
                 ::miniconf::Increment::increment(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
@@ -136,6 +132,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         .map(|(i, field)| field.serialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
+    let fields_len = tree.fields().len();
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
@@ -143,17 +140,13 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
             fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
             where
-                K: Iterator,
-                K::Item: ::miniconf::Key,
+                K: ::miniconf::Keys,
                 S: ::miniconf::Serializer,
             {
-                let key = keys.next()
-                    .ok_or(::miniconf::Error::TooShort(0))?;
-                let index = ::miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys, #fields_len)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && keys.next().is_some() {
+                if !defer && !::miniconf::Keys::is_empty(&mut keys) {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
@@ -196,6 +189,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         .map(|(i, field)| field.deserialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
+    let fields_len = tree.fields().len();
 
     let orig_generics = input.generics.clone();
     let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
@@ -214,17 +208,13 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
             fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
             where
-                K: Iterator,
-                K::Item: ::miniconf::Key,
+                K: ::miniconf::Keys,
                 D: ::miniconf::Deserializer<'de>,
             {
-                let key = keys.next()
-                    .ok_or(::miniconf::Error::TooShort(0))?;
-                let index = ::miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys, #fields_len)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && keys.next().is_some() {
+                if !defer && !::miniconf::Keys::is_empty(&mut keys) {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now

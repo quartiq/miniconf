@@ -1,4 +1,4 @@
-use crate::{IndexIter, PathIter};
+use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
 use core::fmt::{Display, Formatter, Write};
 use serde::{Deserializer, Serializer};
 
@@ -12,7 +12,7 @@ use serde::{Deserializer, Serializer};
 /// If multiple errors are applicable simultaneously the precedence
 /// is from high to low:
 ///
-/// `Absent > TooShort > NotFound > TooLong > Inner > PostDeserialization > Invalid`
+/// `Absent > TooShort > NotFound > TooLong > Inner > Finalization > Invalid`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -36,13 +36,16 @@ pub enum Error<E> {
     /// or the traversal function returned an error.
     Inner(E),
 
-    /// There was an error after deserializing a value.
+    /// There was an error during finalization.
     ///
     /// The `Deserializer` has encountered an error only after successfully
     /// deserializing a value. This is the case if there is additional unexpected data.
     /// The [`TreeDeserialize::deserialize_by_key()`] update takes place but this
     /// error will be returned.
-    PostDeserialization(E),
+    ///
+    /// A `Serializer` may write checksums or additional framing data and fail with
+    /// this error during finalization after the value has been serialized.
+    Finalization(E),
 
     /// A leaf value was found to be invalid before serialization or
     /// after deserialization.
@@ -76,8 +79,8 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 write!(f, "(De)serialization error: ")?;
                 error.fmt(f)
             }
-            Error::PostDeserialization(error) => {
-                write!(f, "Deserializer error after deserialization: ")?;
+            Error::Finalization(error) => {
+                write!(f, "(De)serializer finalization error: ")?;
                 error.fmt(f)
             }
             Error::InvalidLeaf(depth, msg) => {
@@ -121,10 +124,6 @@ impl<E> Increment for Result<usize, Error<E>> {
     }
 }
 
-/// Unit struct to indicate a short indices iterator in [`TreeKey::indices()`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct SliceShort;
-
 /// Metadata about a [TreeKey] namespace.
 #[non_exhaustive]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -159,28 +158,6 @@ impl Metadata {
             max_length: self.max_length + self.max_depth * separator.len(),
             ..self
         }
-    }
-}
-
-/// Capability to convert a key into a node index for a given `M: TreeKey`.
-pub trait Key {
-    /// Convert the key `self` to a `usize` index.
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
-}
-
-// `usize` index as Key
-impl Key for usize {
-    #[inline]
-    fn find<const Y: usize, M>(&self) -> Option<usize> {
-        Some(*self)
-    }
-}
-
-// &str name as Key
-impl Key for &str {
-    #[inline]
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
-        M::name_to_index(self)
     }
 }
 
@@ -377,8 +354,8 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: u16,
     /// };
     /// assert_eq!(
-    ///     S::traverse_by_key(["bar"].into_iter(), |index, name| {
-    ///         assert_eq!((1, "bar"), (index, name));
+    ///     S::traverse_by_key(["bar"].into_iter(), |index, name, len| {
+    ///         assert_eq!((1, "bar", 2), (index, name, len));
     ///         Ok::<_, ()>(())
     ///     }),
     ///     Ok(1)
@@ -395,11 +372,10 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Final node depth on success
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
-        K: Iterator,
-        K::Item: Key,
+        K: Keys,
         // Writing this to return an iterator instead of using a callback
         // would have worse performance (O(n^2) instead of O(n) for matching)
-        F: FnMut(usize, &str) -> Result<(), E>;
+        F: FnMut(usize, &str, usize) -> Result<(), E>;
 
     /// Get metadata about the paths in the namespace.
     ///
@@ -439,18 +415,17 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `path`: A string to write the separators and node names into.
     ///   See also [TreeKey::metadata()] for upper bounds on path length.
-    /// * `sep`: The path hierarchy separator to be inserted before each name.
+    /// * `separator`: The path hierarchy separator to be inserted before each name.
     ///
     /// # Returns
     /// Final node depth on success
-    fn path<K, P>(keys: K, mut path: P, sep: &str) -> Result<usize, Error<core::fmt::Error>>
+    fn path<K, P>(keys: K, mut path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
     where
-        K: IntoIterator,
-        K::Item: Key,
+        K: IntoKeys,
         P: Write,
     {
-        Self::traverse_by_key(keys.into_iter(), |_index, name| {
-            path.write_str(sep).and_then(|_| path.write_str(name))
+        Self::traverse_by_key(keys.into_keys(), |_index, name, _len| {
+            path.write_str(separator).and_then(|_| path.write_str(name))
         })
     }
 
@@ -477,31 +452,68 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `indices`: An iterator of `&mut usize` to write the node indices into.
-    ///   If `indices` is shorter than the node depth, [`Error<SliceShort>`] is returned
+    ///   If `indices` is shorter than the node depth, [`Error::Inner`] is returned
     ///   See also [TreeKey::metadata()] for upper bounds on depth.
     ///
     /// # Returns
     /// Final node depth on success
-    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<SliceShort>>
+    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<()>>
     where
-        K: IntoIterator,
-        K::Item: Key,
+        K: IntoKeys,
         I: IntoIterator<Item = &'a mut usize>,
     {
         let mut indices = indices.into_iter();
-        Self::traverse_by_key(keys.into_iter(), |index, _name| {
-            let idx = indices.next().ok_or(SliceShort)?;
+        Self::traverse_by_key(keys.into_keys(), |index, _name, _len| {
+            let idx = indices.next().ok_or(())?;
             *idx = index;
             Ok(())
         })
+    }
+
+    /// Convert keys to packed usize bitfield representation.
+    ///
+    /// See also [`Packed`].
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 5],
+    /// };
+    /// let (p, _) = S::packed(["bar", "4"]).unwrap();
+    /// assert_eq!(p.into_lsb().get(), 0b11100);
+    /// let mut s = String::new();
+    /// S::path(p, &mut s, "/").unwrap();
+    /// assert_eq!(s, "/bar/4");
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    ///
+    /// # Returns
+    /// The packed indices representation on success and the leaf depth.
+    fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
+    where
+        K: IntoKeys,
+    {
+        let mut packed = Packed::default();
+        let depth = Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
+            packed
+                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
+                .ok_or(())
+                .and(Ok(()))
+        })?;
+        Ok((packed, depth))
     }
 
     /// Create an iterator of all possible paths.
     ///
     /// This is a depth-first walk.
     /// The iterator will walk all paths, including those that may be absent at
-    /// run-time (see [Option]).
-    /// The iterator has an exact and trusted [Iterator::size_hint].
+    /// run-time (see [`TreeKey#option`]).
+    /// The iterator has an exact and trusted [`Iterator::size_hint()`].
     ///
     /// ```
     /// # #[cfg(feature = "std")] {
@@ -520,48 +532,33 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write + Default`
     ///
     /// # Args
-    /// * `sep` - The path hierarchy separator
+    /// * `separator` - The path hierarchy separator
     ///
     /// # Returns
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
-    fn iter_paths<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new(sep)
+    fn iter_paths<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
+        PathIter::new(separator, Some(Self::metadata().count))
     }
 
     /// Create an unchecked iterator of all possible paths.
     ///
-    /// See also [TreeKey::iter_paths].
-    ///
-    /// ```
-    /// # #[cfg(feature = "std")] {
-    /// # use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: u16,
-    /// };
-    /// let paths: Vec<String> = S::iter_paths_unchecked("/").map(|p| p.unwrap()).collect();
-    /// assert_eq!(paths, ["/foo", "/bar"]);
-    /// # }
-    /// ```
+    /// See also [`TreeKey::iter_paths`].
     ///
     /// # Generics
     /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write + Default`.
     ///
     /// # Args
-    /// * `sep` - The path hierarchy separator
+    /// * `separator` - The path hierarchy separator
     ///
     /// # Returns
     /// A iterator of paths.
     #[inline]
-    fn iter_paths_unchecked<P: Write>(sep: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter::new_unchecked(sep)
+    fn iter_paths_unchecked<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
+        PathIter::new(separator, None)
     }
 
     /// Create an iterator of all possible indices.
-    ///
-    /// See also [TreeKey::iter_paths].
     ///
     /// ```
     /// # use miniconf::TreeKey;
@@ -570,35 +567,57 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     foo: u32,
     ///     bar: u16,
     /// };
-    /// assert_eq!(S::iter_indices().next().unwrap(), ([0], 1));
+    /// let indices: Vec<_> = S::iter_indices().collect();
+    /// assert_eq!(indices, [([0], 1), ([1], 1)]);
     /// ```
     ///
     /// # Returns
     /// An iterator of indices with a trusted and exact [`Iterator::size_hint()`].
     #[inline]
     fn iter_indices() -> IndexIter<Self, Y> {
-        IndexIter::new()
+        IndexIter::new(Some(Self::metadata().count))
     }
 
     /// Create an unchecked iterator of all possible indices.
     ///
-    /// See also [TreeKey::iter_indices].
+    /// See also [`TreeKey::iter_indices()`].
+    ///
+    /// # Returns
+    /// An iterator of indices.
+    #[inline]
+    fn iter_indices_unchecked() -> IndexIter<Self, Y> {
+        IndexIter::new(None)
+    }
+
+    /// Create an iterator of all packed indices.
     ///
     /// ```
     /// # use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     bar: [u16; 2],
     /// };
-    /// assert_eq!(S::iter_indices_unchecked().next().unwrap(), ([0], 1));
+    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().into_lsb().get()).collect();
+    /// assert_eq!(packed, [0b10, 0b11]);
     /// ```
     ///
     /// # Returns
-    /// An iterator of indices.
+    /// An iterator of packed indices.
     #[inline]
-    fn iter_indices_unchecked() -> IndexIter<Self, Y> {
-        IndexIter::new_unchecked()
+    fn iter_packed() -> PackedIter<Self, Y> {
+        PackedIter::new(Some(Self::metadata().count))
+    }
+
+    /// Create an iterator of all packed indices.
+    ///
+    /// See also [`TreeKey::iter_packed()`].
+    ///
+    /// # Returns
+    /// An iterator of packed indices.
+    #[inline]
+    fn iter_packed_unchecked() -> PackedIter<Self, Y> {
+        PackedIter::new(None)
     }
 }
 
@@ -650,8 +669,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// Node depth on success.
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
-        K: Iterator,
-        K::Item: Key,
+        K: Keys,
         S: Serializer;
 }
 
@@ -727,7 +745,6 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// Node depth on success
     fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
-        K: Iterator,
-        K::Item: Key,
+        K: Keys,
         D: Deserializer<'de>;
 }
