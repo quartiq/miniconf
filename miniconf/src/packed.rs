@@ -28,6 +28,29 @@ use core::{
 /// "Small numbers" in LSB-aligned representation can be obtained through
 /// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
 /// and stability properties.
+///
+/// `Packed` can be used to uniquely identify
+/// nodes in a [`crate::TreeKey`] using only a very small amount of bits.
+/// For many realistic `TreeKey`s a `u16` or even a `u8` is sufficient
+/// to hold a `Packed` in LSB notation. Together with the `Postcard` trait
+/// and `postcard` `serde` format, this then gives access to any node in a nested
+/// heterogeneous `Tree` with just a `u16` or `u8` as compact key and `[u8]` as
+/// compact value.
+///
+/// ```
+/// # use miniconf::Packed;
+///
+/// let mut p = Packed::EMPTY;
+/// let mut p_lsb = 1; // marker
+/// for (bits, value) in [(2, 3), (1, 0), (0, 0), (3, 5)] {
+///     p.push_lsb(bits, value).unwrap();
+///     p_lsb <<= bits;
+///     p_lsb |= value;
+/// }
+/// assert_eq!(p_lsb, 0b1_11_0__101);
+/// assert_eq!(p, Packed::from_lsb(p_lsb.try_into().unwrap()));
+/// assert_eq!(p.get(), 0b11_0__101_1 << (Packed::CAPACITY - p.len()));
+/// ```
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(transparent)]
 pub struct Packed(
@@ -151,8 +174,11 @@ impl Packed {
     #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
+        // Remove value from self
         if let Some(new) = Self::new(s << bits) {
             self.0 = new.0;
+            // Extract value from old self
+            // Done in two steps as bits + 1 can be Self::BITS which would wrap.
             Some((s >> (Self::CAPACITY - bits)) >> 1)
         } else {
             None
@@ -170,10 +196,14 @@ impl Packed {
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
         let mut n = self.trailing_zeros();
-        let m = 1 << n;
-        if let Some(marker) = Self::new(m >> bits) {
+        let old_marker = 1 << n;
+        if let Some(new_marker) = Self::new(old_marker >> bits) {
             n -= bits;
-            self.0 = (self.get() ^ m) | ((value << n) << 1) | marker.0;
+            // * Remove old marker
+            // * Add value at offset n + 1
+            //   This is done in two steps as n + 1 can be Self::BITS, which would wrap.
+            // * Add new marker
+            self.0 = (self.get() ^ old_marker) | ((value << n) << 1) | new_marker.0;
             Some(n)
         } else {
             None

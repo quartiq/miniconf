@@ -11,20 +11,19 @@ struct Settings {
 
 #[test]
 fn packed() {
-    let mut p = String::new();
+    let mut path = String::new();
 
     assert_eq!(
-        Settings::path(Packed::default(), &mut p, "/"),
+        Settings::path(Packed::default(), &mut path, "/"),
         Err(Error::TooShort(0))
     );
-    p.clear();
+    path.clear();
 
-    for q in Settings::iter_paths::<String>("/") {
-        let q = q.unwrap();
-        let (a, _d) = Settings::packed(q.split("/").skip(1)).unwrap();
-        Settings::path(a, &mut p, "/").unwrap();
-        assert_eq!(p, q);
-        p.clear();
+    for iter_path in Settings::iter_paths::<String>("/").map(Result::unwrap) {
+        let (packed, _depth) = Settings::packed(iter_path.split("/").skip(1)).unwrap();
+        Settings::path(packed, &mut path, "/").unwrap();
+        assert_eq!(path, iter_path);
+        path.clear();
     }
     println!(
         "{:?}",
@@ -33,39 +32,40 @@ fn packed() {
             .collect::<Vec<_>>()
     );
 
+    // Check that Packed `marker + 0b0` is equivalent to `/a`
     assert_eq!(
-        Settings::path(Packed::new(0b01 << 29).unwrap(), &mut p, "/"),
+        Settings::path(Packed::from_lsb(0b10.try_into().unwrap()), &mut path, "/"),
         Ok(1)
     );
-    assert_eq!(p, "/a");
-    p.clear();
+    assert_eq!(path, "/a");
+    path.clear();
 }
 
 #[test]
 fn zero_key() {
-    let mut a = [[0]];
-    let mut b = [[0, 0], [0, 0]];
+    let mut a11 = [[0]];
+    let mut a22 = [[0, 0], [0, 0]];
     let mut buf = [0u8; 100];
     let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    for (n, e) in [Err(Error::TooShort(0)), Err(Error::TooShort(1)), Ok(2)]
+    for (depth, result) in [Err(Error::TooShort(0)), Err(Error::TooShort(1)), Ok(2)]
         .iter()
         .enumerate()
     {
         assert_eq!(
             TreeSerialize::<2>::serialize_by_key(
-                &mut a,
-                Packed::from_lsb((0b1 << n).try_into().unwrap()),
+                &mut a11,
+                Packed::from_lsb((0b1 << depth).try_into().unwrap()),
                 &mut ser
             ),
-            *e
+            *result
         );
         assert_eq!(
             TreeSerialize::<2>::serialize_by_key(
-                &mut b,
-                Packed::from_lsb((0b1 << n).try_into().unwrap()),
+                &mut a22,
+                Packed::from_lsb((0b1 << depth).try_into().unwrap()),
                 &mut ser
             ),
-            *e
+            *result
         );
     }
 }
