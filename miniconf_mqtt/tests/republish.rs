@@ -32,7 +32,7 @@ async fn verify_settings() {
     while !mqtt.client().is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
     // Subscribe to the settings topic.
@@ -40,16 +40,13 @@ async fn verify_settings() {
         .subscribe(&[TopicFilter::new("republish/device/settings/#")], &[])
         .unwrap();
 
-    // Wait the other device to connect and publish settings.
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-
     // Make sure the device republished all available settings.
     let mut received_settings = std::collections::HashMap::from([
         ("republish/device/settings/data".to_string(), 0),
         ("republish/device/settings/more/inner".to_string(), 0),
     ]);
 
-    for _ in 0..50 {
+    for _ in 0..300 { // 3 seconds
         mqtt.poll(|_, topic, value, _properties| {
             log::info!("{}: {:?}", &topic, value);
             let element = received_settings.get_mut(&topic.to_string()).unwrap();
@@ -92,7 +89,7 @@ async fn main() {
 
     // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
     // all settings values.
-    for _ in 0..500 {
+    for _ in 0..300 {
         // The interface should never indicate a settings update during the republish process.
         assert!(!interface.update(&mut settings).unwrap());
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;

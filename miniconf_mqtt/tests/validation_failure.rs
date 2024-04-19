@@ -42,7 +42,7 @@ async fn client_task() {
     while !mqtt.client().is_connected() {
         mqtt.poll(|_client, _topic, _message, _properties| {})
             .unwrap();
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
     let topic_filter = minimq::types::TopicFilter::new(RESPONSE_TOPIC);
