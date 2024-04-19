@@ -26,7 +26,7 @@ macro_rules! depth {
                 K: Keys,
                 F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let index = keys.lookup::<$y, Self, E>(N)?;
+                let index = keys.lookup::<$y, Self, _>(N)?;
                 if index >= N {
                     return Err(Error::NotFound(1));
                 }
@@ -51,7 +51,7 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                let index = keys.lookup::<$y, Self, S::Error>(N)?;
+                let index = keys.lookup::<$y, Self, _>(N)?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
                 item.serialize_by_key(keys, ser).increment()
             }
@@ -63,7 +63,7 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let index = keys.lookup::<$y, Self, D::Error>(N)?;
+                let index = keys.lookup::<$y, Self, _>(N)?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
                 item.deserialize_by_key(keys, de).increment()
             }
@@ -108,7 +108,7 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         K: Keys,
         S: Serializer,
     {
-        let index = keys.lookup::<1, Self, S::Error>(N)?;
+        let index = keys.lookup::<1, Self, _>(N)?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
@@ -126,7 +126,7 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         K: Keys,
         D: Deserializer<'de>,
     {
-        let index = keys.lookup::<1, Self, D::Error>(N)?;
+        let index = keys.lookup::<1, Self, _>(N)?;
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
