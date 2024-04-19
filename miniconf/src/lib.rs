@@ -20,6 +20,7 @@ mod packed;
 pub use packed::*;
 mod key;
 pub use key::*;
+mod phantom;
 
 #[cfg(feature = "json-core")]
 mod json_core;
