@@ -218,6 +218,11 @@ impl Keys for Packed {
     fn next(&mut self, len: usize) -> Option<Self::Item> {
         self.pop_msb(Self::bits_for(len.saturating_sub(1)))
     }
+
+    #[inline]
+    fn is_empty(&mut self) -> bool {
+        Packed::is_empty(self)
+    }
 }
 
 impl IntoKeys for Packed {

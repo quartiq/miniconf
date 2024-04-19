@@ -84,7 +84,7 @@ impl<T: Serialize> TreeSerialize for Option<T> {
         K: Keys,
         S: Serializer,
     {
-        if keys.next(0).is_some() {
+        if !keys.is_empty() {
             Err(Error::TooLong(0))
         } else if let Some(inner) = self {
             inner.serialize(ser)?;
@@ -101,7 +101,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        if keys.next(0).is_some() {
+        if !keys.is_empty() {
             Err(Error::TooLong(0))
         } else if let Some(inner) = self {
             *inner = T::deserialize(de)?;

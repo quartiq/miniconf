@@ -65,10 +65,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let key = ::miniconf::Keys::next(&mut keys, #fields_len)
-                    .ok_or(::miniconf::Error::TooShort(0))?;
-                let index = ::miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, E>(&mut keys, #fields_len)?;
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 func(index, name, #fields_len)?;
@@ -146,13 +143,10 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 S: ::miniconf::Serializer,
             {
-                let key = ::miniconf::Keys::next(&mut keys, #fields_len)
-                    .ok_or(::miniconf::Error::TooShort(0))?;
-                let index = ::miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, S::Error>(&mut keys, #fields_len)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && ::miniconf::Keys::next(&mut keys, 0).is_some() {
+                if !defer && !::miniconf::Keys::is_empty(&mut keys) {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
@@ -217,13 +211,10 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 D: ::miniconf::Deserializer<'de>,
             {
-                let key = ::miniconf::Keys::next(&mut keys, #fields_len)
-                    .ok_or(::miniconf::Error::TooShort(0))?;
-                let index = ::miniconf::Key::find::<#depth, Self>(&key)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, D::Error>(&mut keys, #fields_len)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                if !defer && ::miniconf::Keys::next(&mut keys, 0).is_some() {
+                if !defer && !::miniconf::Keys::is_empty(&mut keys) {
                     return Err(::miniconf::Error::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now

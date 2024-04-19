@@ -1,4 +1,4 @@
-use crate::TreeKey;
+use crate::{Error, TreeKey};
 
 /// Capability to convert a key into a node index for a given `M: TreeKey`
 pub trait Key {
@@ -33,6 +33,24 @@ pub trait Keys {
     /// * `len` is an upper limit to the number of keys at this level.
     ///   It is non-zero.
     fn next(&mut self, len: usize) -> Option<Self::Item>;
+
+    /// Look up a key in a [`TreeKey`] and convert to `usize` index.
+    ///
+    /// # Args
+    /// * `len` as for [`Keys::next()`]
+    fn lookup<const Y: usize, S: TreeKey<Y>, E>(&mut self, len: usize) -> Result<usize, Error<E>> {
+        self.next(len)
+            .ok_or(Error::TooShort(0))?
+            .find::<Y, S>()
+            .ok_or(Error::NotFound(1))
+    }
+
+    /// Return whether there are more keys.
+    ///
+    /// This may mutate and consume remaining keys.
+    fn is_empty(&mut self) -> bool {
+        self.next(0).is_none()
+    }
 }
 
 impl<T> Keys for T
