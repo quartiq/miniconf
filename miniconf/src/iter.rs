@@ -39,7 +39,7 @@ enum State<E> {
 }
 
 impl<const Y: usize> Iter<Y> {
-    fn next<E>(&mut self, ret: Result<usize, Error<E>>) -> State<E> {
+    fn handle<E>(&mut self, ret: Result<usize, Error<E>>) -> State<E> {
         match ret {
             // Out of valid indices at the root: iteration done
             Err(Error::NotFound(1)) => {
@@ -69,14 +69,21 @@ impl<const Y: usize> Iter<Y> {
                 State::Leaf(depth)
             }
             Err(Error::Inner(e)) => State::Err(e),
-            // Note(unreachable):
-            // * NotFound(0): Not having consumed any name/index, the only possible case
-            //   is a root leaf (e.g. `Option` or newtype), those however can not return
-            //   `NotFound` as they don't do key lookup.
-            // * TooShort: Excluded by construction (`state.len() == Y` and `Y` being an
-            //   upper bound to key length.
-            // * No other errors are returned by traverse_by_key()/path()/packed()
-            _ => unreachable!(),
+            // NotFound(0): Not having consumed any name/index, the only possible case
+            // is a root leaf (e.g. `Option` or newtype), those however can not return
+            // `NotFound` as they don't do key lookup.
+            Err(Error::NotFound(0)) |
+            // TooShort: Excluded by construction (`state.len() == Y` and `Y` being an
+            // upper bound to key length as per the `TreeKey<Y>` contract.
+            Err(Error::TooShort(_)) |
+            // TooLong, Absent, Finalization, InvalidLead, InvalidInternal:
+            // Are not returned by traverse_by_key()
+            Err(Error::TooLong(_)) |
+            Err(Error::Absent(_)) |
+            Err(Error::Finalization(_)) |
+            Err(Error::InvalidInternal(_, _)) |
+            Err(Error::InvalidLeaf(_, _))
+            => unreachable!(),
         }
     }
 
@@ -117,7 +124,7 @@ where
         let mut path = P::default();
 
         loop {
-            return match self.iter.next(M::path(
+            return match self.iter.handle(M::path(
                 self.iter.state.iter().copied(),
                 &mut path,
                 self.separator,
@@ -174,7 +181,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            return match self.iter.next(M::traverse_by_key(
+            return match self.iter.handle(M::traverse_by_key(
                 self.iter.state.iter().copied(),
                 |_, _, _| Ok(()),
             )) {
@@ -236,7 +243,7 @@ where
                 packed = p;
                 depth
             });
-            return match self.iter.next(ret) {
+            return match self.iter.handle(ret) {
                 State::Retry => {
                     continue;
                 }
