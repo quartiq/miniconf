@@ -235,8 +235,9 @@ mod test {
 
     #[test]
     fn test() {
+        // Check path encoding round trip.
         let t = [1usize, 3, 4, 0, 1];
-        let mut p = Packed::default();
+        let mut p = Packed::EMPTY;
         for t in t {
             let bits = Packed::bits_for(t);
             p.push_lsb(bits, t).unwrap();

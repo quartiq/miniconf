@@ -13,12 +13,14 @@ struct Settings {
 fn packed() {
     let mut path = String::new();
 
+    // Check empty being too short
     assert_eq!(
-        Settings::path(Packed::default(), &mut path, "/"),
+        Settings::path(Packed::EMPTY, &mut path, "/"),
         Err(Error::TooShort(0))
     );
     path.clear();
 
+    // Check path-packed round trip.
     for iter_path in Settings::iter_paths::<String>("/").map(Result::unwrap) {
         let (packed, _depth) = Settings::packed(iter_path.split("/").skip(1)).unwrap();
         Settings::path(packed, &mut path, "/").unwrap();
@@ -43,6 +45,8 @@ fn packed() {
 
 #[test]
 fn zero_key() {
+    // Check the corner case of a len=1 index where (len - 1) = 0 and zero bits would be required to encode.
+    // Hence the Packed values for len=1 and len=2 are the same.
     let mut a11 = [[0]];
     let mut a22 = [[0, 0], [0, 0]];
     let mut buf = [0u8; 100];
