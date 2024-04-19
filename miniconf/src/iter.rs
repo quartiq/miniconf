@@ -72,7 +72,8 @@ impl<const Y: usize> Iter<Y> {
             // NotFound(0): Not having consumed any name/index, the only possible case
             // is a root leaf (e.g. `Option` or newtype), those however can not return
             // `NotFound` as they don't do key lookup.
-            Err(Error::NotFound(0)) |
+            // We write NotFound(_) as e.g. rust 1.70.0 isn't smart enough to prove coverage.
+            Err(Error::NotFound(_)) |
             // TooShort: Excluded by construction (`state.len() == Y` and `Y` being an
             // upper bound to key length as per the `TreeKey<Y>` contract.
             Err(Error::TooShort(_)) |
