@@ -53,6 +53,11 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
+            #[inline]
+            fn len() -> usize {
+                Self::__MINICONF_NAMES.len()
+            }
+
             fn name_to_index(value: &str) -> Option<usize> {
                 Self::__MINICONF_NAMES.iter().position(|&n| n == value)
             }
@@ -65,10 +70,10 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys, #fields_len)?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
-                func(index, name, #fields_len)?;
+                func(index, name, Self::len())?;
                 ::miniconf::Increment::increment(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
@@ -77,7 +82,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 
             fn metadata() -> ::miniconf::Metadata {
                 let mut meta = ::miniconf::Metadata::default();
-                for index in 0..#fields_len {
+                for index in 0..Self::len() {
                     let item_meta: ::miniconf::Metadata = match index {
                         #(#metadata_arms ,)*
                         _ => {
@@ -132,7 +137,6 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         .map(|(i, field)| field.serialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
-    let fields_len = tree.fields().len();
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
@@ -143,7 +147,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 S: ::miniconf::Serializer,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys, #fields_len)?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
@@ -189,7 +193,6 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         .map(|(i, field)| field.deserialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
-    let fields_len = tree.fields().len();
 
     let orig_generics = input.generics.clone();
     let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
@@ -211,7 +214,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 D: ::miniconf::Deserializer<'de>,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys, #fields_len)?;
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {

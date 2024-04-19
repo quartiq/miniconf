@@ -38,8 +38,8 @@ pub trait Keys {
     ///
     /// # Args
     /// * `len` as for [`Keys::next()`]
-    fn lookup<const Y: usize, S: TreeKey<Y>, E>(&mut self, len: usize) -> Result<usize, Error<E>> {
-        self.next(len)
+    fn lookup<const Y: usize, S: TreeKey<Y>, E>(&mut self) -> Result<usize, Error<E>> {
+        self.next(S::len())
             .ok_or(Error::TooShort(0))?
             .find::<Y, S>()
             .ok_or(Error::NotFound(1))

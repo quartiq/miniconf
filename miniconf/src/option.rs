@@ -9,6 +9,11 @@ use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>> TreeKey<$y> for Option<T> {
+            #[inline]
+            fn len() -> usize {
+                0
+            }
+
             fn name_to_index(_value: &str) -> Option<usize> {
                 None
             }
@@ -59,6 +64,11 @@ depth!(2 3 4 5 6 7 8);
 
 // Y == 1
 impl<T> TreeKey for Option<T> {
+    #[inline]
+    fn len() -> usize {
+        0
+    }
+
     fn name_to_index(_value: &str) -> Option<usize> {
         None
     }

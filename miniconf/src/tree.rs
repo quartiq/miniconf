@@ -318,6 +318,9 @@ impl Metadata {
 ///
 /// See the [`crate`] documentation for an example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {
+    /// The number of top-level nodes.
+    fn len() -> usize;
+
     /// Convert a node name to a node index.
     ///
     /// The details of the mapping and the `usize` index values
