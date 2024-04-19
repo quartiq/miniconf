@@ -46,7 +46,8 @@ async fn verify_settings() {
         ("republish/device/settings/more/inner".to_string(), 0),
     ]);
 
-    for _ in 0..300 { // 3 seconds
+    for _ in 0..300 {
+        // 3 seconds
         mqtt.poll(|_, topic, value, _properties| {
             log::info!("{}: {:?}", &topic, value);
             let element = received_settings.get_mut(&topic.to_string()).unwrap();
