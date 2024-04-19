@@ -102,7 +102,7 @@ fn main() -> std::io::Result<()> {
 
     // We will wait 100ms in between each state to allow the MQTT broker to catch up
     let mut state = TestState::started();
-    let mut timer = Timer::new(std::time::Duration::from_millis(1000));
+    let mut timer = Timer::new(std::time::Duration::from_millis(100));
 
     let mut settings = Settings::default();
 
