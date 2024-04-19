@@ -41,8 +41,8 @@ use core::{
 /// # use miniconf::Packed;
 ///
 /// let mut p = Packed::EMPTY;
-/// let mut p_lsb = 1; // marker
-/// for (bits, value) in [(2, 3), (1, 0), (0, 0), (3, 5)] {
+/// let mut p_lsb = 0b1; // marker
+/// for (bits, value) in [(2, 0b11), (1, 0b0), (0, 0b0), (3, 0b101)] {
 ///     p.push_lsb(bits, value).unwrap();
 ///     p_lsb <<= bits;
 ///     p_lsb |= value;
