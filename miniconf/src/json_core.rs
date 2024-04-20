@@ -60,17 +60,14 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
 impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCoreSlash<'de, Y>
     for T
 {
-    #[inline]
     fn set_json(&mut self, path: &str, data: &'de [u8]) -> Result<usize, Error<de::Error>> {
         self.set_json_by_key(path.split('/').skip(1), data)
     }
 
-    #[inline]
     fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>> {
         self.get_json_by_key(path.split('/').skip(1), data)
     }
 
-    #[inline]
     fn set_json_by_key<K: IntoKeys>(
         &mut self,
         keys: K,
@@ -81,7 +78,6 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCor
         de.end().map_err(Error::Finalization)
     }
 
-    #[inline]
     fn get_json_by_key<K: IntoKeys>(
         &self,
         keys: K,

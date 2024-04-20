@@ -53,7 +53,6 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-            #[inline]
             fn len() -> usize {
                 Self::__MINICONF_NAMES.len()
             }

@@ -5,7 +5,6 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Path;
 
 pub(crate) fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
     match ident {
@@ -27,11 +26,16 @@ pub struct TreeField {
     #[darling(default)]
     pub depth: usize,
     pub skip: Flag,
-    pub setter: Option<Path>,
-    pub getter: Option<Path>,
+    pub typ: Option<syn::Type>,
+    pub setter: Option<syn::Path>,
+    pub getter: Option<syn::Path>,
 }
 
 impl TreeField {
+    pub(crate) fn typ(&self) -> &syn::Type {
+        self.typ.as_ref().unwrap_or(&self.ty)
+    }
+
     pub(crate) fn name(&self, i: usize) -> TokenStream {
         let name = name_or_index(i, &self.ident);
         quote! { stringify!(#name) }
@@ -41,7 +45,7 @@ impl TreeField {
         // Quote context is a match of the field index with `traverse_by_key()` args available.
         let depth = self.depth;
         if depth > 0 {
-            let field_type = &self.ty;
+            let field_type = self.typ();
             Some(quote! {
                 #i => <#field_type as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
             })
@@ -54,7 +58,7 @@ impl TreeField {
         // Quote context is a match of the field index with `metadata()` args available.
         let depth = self.depth;
         if depth > 0 {
-            let field_type = &self.ty;
+            let field_type = self.typ();
             Some(quote! {
                 #i => <#field_type as ::miniconf::TreeKey<#depth>>::metadata()
             })
@@ -98,17 +102,15 @@ impl TreeField {
         let depth = self.depth;
         if depth > 0 {
             let setter = match &self.setter {
-                Some(setter) => quote!( |depth|
-                    #setter(self)
-                        .and(Ok(depth))
-                        .map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+                Some(setter) => quote!(
+                    #setter(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
                 ),
-                None => quote!(Ok),
+                None => quote!(Ok(&mut self.#ident)),
             };
             quote! {
                 #i => {
-                    ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(&mut self.#ident, keys, de)
-                        .and_then(#setter)
+                    #setter.and_then(|value|
+                        ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(value, keys, de))
                 }
             }
         } else {
@@ -178,7 +180,7 @@ impl Tree {
         F: FnMut(usize) -> Option<syn::TypeParamBound>,
     {
         for f in self.fields().iter() {
-            walk_type_params(&f.ty, func, f.depth, generics)
+            walk_type_params(f.typ(), func, f.depth, generics)
         }
     }
 }

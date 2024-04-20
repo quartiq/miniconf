@@ -8,7 +8,6 @@ pub trait Key {
 
 // `usize` index as Key
 impl Key for usize {
-    #[inline]
     fn find<const Y: usize, M>(&self) -> Option<usize> {
         Some(*self)
     }
@@ -16,7 +15,6 @@ impl Key for usize {
 
 // &str name as Key
 impl Key for &str {
-    #[inline]
     fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
         M::name_to_index(self)
     }
@@ -60,7 +58,6 @@ where
 {
     type Item = T::Item;
 
-    #[inline]
     fn next(&mut self, _len: usize) -> Option<Self::Item> {
         Iterator::next(self)
     }
@@ -82,7 +79,6 @@ where
 {
     type IntoKeys = T::IntoIter;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self.into_iter()
     }
