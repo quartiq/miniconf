@@ -1,5 +1,5 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
-#![cfg_attr(all(feature = "json-core", feature = "postcard"), doc = include_str!("../../README.md"))]
+#![cfg_attr(all(feature = "json-core", feature = "postcard"), doc = include_str!("../README.md"))]
 #![cfg_attr(
     not(all(feature = "json-core", feature = "postcard")),
     doc = "Miniconf"
