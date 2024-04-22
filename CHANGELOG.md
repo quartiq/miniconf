@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Support for bit-packed keys `Packed` and `iter_packed()`/`iter_packed_unchecked()`
 * A `postcard` feature and `Postcard` trait and blanket implementation
 * `TreeKey::len()`
+* The `typ` derive macro attribute
 
 ## [0.9.0](https://github.com/quartiq/miniconf/compare/v0.8.0...v0.9.0)
 

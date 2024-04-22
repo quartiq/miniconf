@@ -53,6 +53,10 @@ fn validate() {
     assert_eq!(s.i.a, 1.0);
     assert_eq!(s.set_json("/i/a", b"-1.0"), Ok(4));
     assert_eq!(s.i.a, -1.0); // has changed
+    assert_eq!(
+        s.set_json("/i/a", b"1.0"),
+        Err(Error::InvalidInternal(1, ""))
+    ); // now invalid
 }
 
 #[test]
