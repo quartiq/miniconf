@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "miniconf",
     "miniconf_derive",
+    "miniconf",
     "miniconf_mqtt",
 ]
 resolver = "2"
