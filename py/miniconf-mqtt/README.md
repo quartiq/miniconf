@@ -1,6 +1,6 @@
 # Miniconf Python Utility
 
-This directory contains a Python package for interacting with Miniconf utilities.
+This directory contains a Python package for interacting with `Miniconf` targets.
 
 ## Installation
 Run `pip install .` from this directory to install the `miniconf` package.
