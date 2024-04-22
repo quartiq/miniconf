@@ -318,6 +318,9 @@ impl Metadata {
 ///
 /// See the [`crate`] documentation for an example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {
+    /// The number of top-level nodes.
+    fn len() -> usize;
+
     /// Convert a node name to a node index.
     ///
     /// The details of the mapping and the `usize` index values
@@ -536,7 +539,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
-    #[inline]
     fn iter_paths<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new(separator, Some(Self::metadata().count))
     }
@@ -553,7 +555,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// A iterator of paths.
-    #[inline]
     fn iter_paths_unchecked<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new(separator, None)
     }
@@ -573,7 +574,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// An iterator of indices with a trusted and exact [`Iterator::size_hint()`].
-    #[inline]
     fn iter_indices() -> IndexIter<Self, Y> {
         IndexIter::new(Some(Self::metadata().count))
     }
@@ -584,7 +584,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// An iterator of indices.
-    #[inline]
     fn iter_indices_unchecked() -> IndexIter<Self, Y> {
         IndexIter::new(None)
     }
@@ -604,7 +603,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// An iterator of packed indices.
-    #[inline]
     fn iter_packed() -> PackedIter<Self, Y> {
         PackedIter::new(Some(Self::metadata().count))
     }
@@ -615,7 +613,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// An iterator of packed indices.
-    #[inline]
     fn iter_packed_unchecked() -> PackedIter<Self, Y> {
         PackedIter::new(None)
     }
@@ -684,20 +681,22 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 ///
 /// ## `setter` field attribute
 ///
-/// The setter is called during `deserialize_by_key()` after successful deserialization.
-/// For leaf fields the setter signature is `fn(&mut self, new: T) -> Result<(), &str>`
-/// The default leaf setter is `{ self.field = new; Ok(()) }`.
-/// If the leaf setter returns an `Err(&str)` no further setters are be invoked and
-/// [`Error::InvalidLeaf`] is returned from `deserialize_by_key()`.
-///
-/// For internal (non-leaf) fields the setter signature is `fn(&mut self) -> Result<(), &str>`.
-/// The default internal setter is `Ok(())` (a no-op).
+/// For internal (non-leaf) fields the setter is invoked before deserialization
+/// while traversing down to the leaf node.
+/// The internal setter signature is `fn(&mut self) -> Result<&mut T, &str>`.
+/// The default internal setter is `Ok(&mut self.field)`.
 /// Note that when a non-leaf setter is invoked, deserialization and leaf
-/// value update have already taken place successfully deeper in the tree.
-/// Unless the internal setter implements some roll-back mechanism the value **has** been updated,
-/// even if the internal setter returns an `Err(&str)`. If it does return an `Err`
-/// no further setters are be invoked and [`Error::InvalidInternal`] will be returned
+/// value update have not yet taken place.
+/// If an internal setter returns an `Err`
+/// no further setters are invoked and [`Error::InvalidInternal`] will be returned
 /// from `deserialize_by_key()`.
+///
+/// For leaf fields the setter is invoked during `deserialize_by_key()` after
+/// successful deserialization but before updating the leaf value.
+/// The setter signature is `fn(&mut self, new: T) -> Result<(), &str>`
+/// The default leaf setter is `{ self.field = new; Ok(()) }`.
+/// If the leaf setter returns an `Err(&str)`
+/// [`Error::InvalidLeaf`] is returned from `deserialize_by_key()`.
 ///
 /// Note: In both cases the setters receive `&mut self` as an argument and may
 /// mutate the struct.
@@ -714,7 +713,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 /// fn leaf(s: &mut S, new: f32) -> Result<(), &'static str> {
 ///     Err("fail")
 /// }
-/// fn non_leaf(s: &mut S) -> Result<(), &'static str> {
+/// fn non_leaf(s: &mut S) -> Result<&mut [f32; 2], &'static str> {
 ///     Err("fail")
 /// }
 /// ```

@@ -52,7 +52,6 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
 }
 
 impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> Postcard<'de, Y> for T {
-    #[inline]
     fn set_postcard_by_key<K: IntoKeys, F: de_flavors::Flavor<'de>>(
         &mut self,
         keys: K,
@@ -63,7 +62,6 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> Postcar
         de.finalize().map_err(Error::Finalization)
     }
 
-    #[inline]
     fn get_postcard_by_key<K: IntoKeys, F: ser_flavors::Flavor>(
         &mut self,
         keys: K,

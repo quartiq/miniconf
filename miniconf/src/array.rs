@@ -17,6 +17,10 @@ const fn digits(x: usize) -> usize {
 macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
+            fn len() -> usize {
+                N
+            }
+
             fn name_to_index(value: &str) -> Option<usize> {
                 value.parse().ok()
             }
@@ -26,7 +30,7 @@ macro_rules! depth {
                 K: Keys,
                 F: FnMut(usize, &str, usize) -> Result<(), E>,
             {
-                let index = keys.lookup::<$y, Self, _>(N)?;
+                let index = keys.lookup::<$y, Self, _>()?;
                 if index >= N {
                     return Err(Error::NotFound(1));
                 }
@@ -51,7 +55,7 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                let index = keys.lookup::<$y, Self, _>(N)?;
+                let index = keys.lookup::<$y, Self, _>()?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
                 item.serialize_by_key(keys, ser).increment()
             }
@@ -63,7 +67,7 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let index = keys.lookup::<$y, Self, _>(N)?;
+                let index = keys.lookup::<$y, Self, _>()?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
                 item.deserialize_by_key(keys, de).increment()
             }
@@ -74,6 +78,10 @@ depth!(2 3 4 5 6 7 8);
 
 // Y == 1
 impl<T, const N: usize> TreeKey for [T; N] {
+    fn len() -> usize {
+        N
+    }
+
     fn name_to_index(value: &str) -> Option<usize> {
         value.parse().ok()
     }
@@ -108,7 +116,7 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         K: Keys,
         S: Serializer,
     {
-        let index = keys.lookup::<1, Self, _>(N)?;
+        let index = keys.lookup::<1, Self, _>()?;
         let item = self.get(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
@@ -126,7 +134,7 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         K: Keys,
         D: Deserializer<'de>,
     {
-        let index = keys.lookup::<1, Self, _>(N)?;
+        let index = keys.lookup::<1, Self, _>()?;
         let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
