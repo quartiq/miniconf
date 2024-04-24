@@ -73,7 +73,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 func(index, name, Self::len())?;
-                ::miniconf::Increment::increment(match index {
+                ::miniconf::increment(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
                 })
@@ -154,7 +154,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
-                ::miniconf::Increment::increment(match index {
+                ::miniconf::increment(match index {
                     #(#serialize_by_key_arms ,)*
                     _ => unreachable!()
                 })
@@ -221,7 +221,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
-                ::miniconf::Increment::increment(match index {
+                ::miniconf::increment(match index {
                     #(#deserialize_by_key_arms ,)*
                     _ => unreachable!()
                 })

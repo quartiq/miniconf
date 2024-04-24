@@ -15,7 +15,7 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     ///     bar: [u16; 3],
     /// };
     /// let mut s = S::default();
-    /// let p = Packed::from_lsb(0b1110.try_into().unwrap());
+    /// let p = Packed::from_lsb(0b1_1_10.try_into().unwrap());
     /// let r = s.set_postcard_by_key(p, Slice::new(&[7])).unwrap();
     /// assert_eq!(s.bar[2], 7);
     /// assert!(r.is_empty());
@@ -39,7 +39,7 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     /// };
     /// let mut s = S::default();
     /// s.bar[2] = 7;
-    /// let p = Packed::from_lsb(0b1110.try_into().unwrap());
+    /// let p = Packed::from_lsb(0b1_1_10.try_into().unwrap());
     /// let mut buf = [0; 1];
     /// let o = s.get_postcard_by_key(p, Slice::new(&mut buf[..])).unwrap();
     /// assert_eq!(o, [7]);
