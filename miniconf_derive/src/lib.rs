@@ -27,6 +27,14 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     );
 
     let fields = tree.fields();
+
+    let name_to_index = if fields.iter().all(|f| f.ident.is_none()) {
+        quote!(str::parse(value).ok())
+    } else {
+        assert!(fields.iter().all(|f| f.ident.is_some()));
+        quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value))
+    };
+
     let traverse_by_key_arms = fields
         .iter()
         .enumerate()
@@ -46,19 +54,19 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
-            // TODO: for unnamed structs, simplify `["0", "1", "2"].position(|&n| n == value)`
-            //       to `parse::<usize>(value)`
             const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
         impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
+            #[inline]
             fn len() -> usize {
                 Self::__MINICONF_NAMES.len()
             }
 
+            #[inline]
             fn name_to_index(value: &str) -> Option<usize> {
-                Self::__MINICONF_NAMES.iter().position(|&n| n == value)
+                #name_to_index
             }
 
             fn traverse_by_key<K, F, E>(
@@ -73,7 +81,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 let name = Self::__MINICONF_NAMES.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 func(index, name, Self::len())?;
-                ::miniconf::Increment::increment(match index {
+                ::miniconf::increment(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
                 })
@@ -154,7 +162,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
-                ::miniconf::Increment::increment(match index {
+                ::miniconf::increment(match index {
                     #(#serialize_by_key_arms ,)*
                     _ => unreachable!()
                 })
@@ -221,7 +229,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
-                ::miniconf::Increment::increment(match index {
+                ::miniconf::increment(match index {
                     #(#deserialize_by_key_arms ,)*
                     _ => unreachable!()
                 })

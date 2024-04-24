@@ -185,6 +185,6 @@ other than [`Option`]. These are still however usable in their atomic `serde` fo
 ## Features
 
 * `json-core`: Enable the [`JsonCoreSlash`] implementation of serializing from and
-  into json slices (using `serde_json_core`).
-
-The `json-core` feature is enabled by default.
+  into json slices (using the `serde_json_core` crate).
+* `postcard`: Enable the [`Postcard`] implementation of serializing from and
+  into the postcard compact binary format (using the `postcard` crate).

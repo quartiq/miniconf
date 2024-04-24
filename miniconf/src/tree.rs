@@ -12,7 +12,7 @@ use serde::{Deserializer, Serializer};
 /// If multiple errors are applicable simultaneously the precedence
 /// is from high to low:
 ///
-/// `Absent > TooShort > NotFound > TooLong > Inner > Finalization > Invalid`
+/// `Absent > TooShort > NotFound > TooLong > Inner > Finalization > InvalidInternal > InvalidLeaf`
 /// before any `Ok`.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -83,15 +83,15 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 write!(f, "(De)serializer finalization error: ")?;
                 error.fmt(f)
             }
-            Error::InvalidLeaf(depth, msg) => {
-                write!(f, "Invalid leaf value (depth: {}): {}", depth, msg)
-            }
             Error::InvalidInternal(depth, msg) => {
                 write!(
                     f,
                     "Invalid internal (non-leaf) field (depth: {}): {}",
                     depth, msg
                 )
+            }
+            Error::InvalidLeaf(depth, msg) => {
+                write!(f, "Invalid leaf value (depth: {}): {}", depth, msg)
             }
         }
     }
@@ -103,24 +103,17 @@ impl<T> From<T> for Error<T> {
     }
 }
 
-/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize member.
-pub trait Increment {
-    /// Increment the `depth` member by one.
-    fn increment(self) -> Self;
-}
-
-impl<E> Increment for Result<usize, Error<E>> {
-    fn increment(self) -> Self {
-        match self {
-            Ok(i) => Ok(i + 1),
-            Err(Error::NotFound(i)) => Err(Error::NotFound(i + 1)),
-            Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
-            Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
-            Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
-            Err(Error::InvalidLeaf(i, msg)) => Err(Error::InvalidLeaf(i + 1, msg)),
-            Err(Error::InvalidInternal(i, msg)) => Err(Error::InvalidInternal(i + 1, msg)),
-            e => e,
-        }
+/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize member by one.
+pub fn increment<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
+    match result {
+        Ok(i) => Ok(i + 1),
+        Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
+        Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
+        Err(Error::NotFound(i)) => Err(Error::NotFound(i + 1)),
+        Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
+        Err(Error::InvalidInternal(i, msg)) => Err(Error::InvalidInternal(i + 1, msg)),
+        Err(Error::InvalidLeaf(i, msg)) => Err(Error::InvalidLeaf(i + 1, msg)),
+        e => e,
     }
 }
 
@@ -153,6 +146,7 @@ impl Metadata {
     ///
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
+    #[inline]
     pub fn separator(self, separator: &str) -> Self {
         Self {
             max_length: self.max_length + self.max_depth * separator.len(),
@@ -194,12 +188,13 @@ impl Metadata {
 ///
 /// # Keys
 ///
-/// The keys used to locate nodes can be either iterators over `usize` or iterators
-/// over `&str` names.
+/// The keys used to locate nodes can be iterators over `usize` indices or `&str` names or can
+/// be [`Packed`] compound indices.
 ///
-/// `usize` is modelled after ASN.1 Object Identifiers.
-/// `&str` keys are sequences of names, like path names. When concatenated, they are separated by
+/// * `usize` is modelled after ASN.1 Object Identifiers.
+/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
 /// some path hierarchy separator, e.g. `'/'`.
+/// * `Packed` is a variable bit-width compact notation of hierarchical indices.
 ///
 /// # Derive macros
 ///
@@ -223,6 +218,11 @@ impl Metadata {
 /// Fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
 /// (`#[tree(skip)]`).
 ///
+/// The type to use when accessing the field through `TreeKey` can be overridden using the `typ`
+/// derive macro attribute (`#[tree(typ="[f32; 4]")]`). Together with the `getter` and `setter` attributes
+/// which override the `TreeSerialize` and `TreeDeserialize` accessors this can be used to customize
+/// the field behavior.
+///
 /// # Array
 ///
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
@@ -232,7 +232,7 @@ impl Metadata {
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
 /// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic
 /// value. For `Y = 1` each index of the array is is instead accessed as
-/// one atomic value.
+/// an atomic value.
 ///
 /// The type to use depends on the desired semantics of the data contained in the array. If the array
 /// contains `TreeKey` items, one can (and often wants to) use `Y >= 2`.
@@ -250,11 +250,11 @@ impl Metadata {
 /// These implementation do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
 /// of the tree inaccessible at run-time. It will still be iterated over by [`TreeKey::iter_paths()`] but attempts
-/// to [`TreeSerialize::serialize_by_key()`] or [`TreeDeserialize::deserialize_by_key()`] them
+/// to [`TreeSerialize::serialize_by_key()`] or [`TreeDeserialize::deserialize_by_key()`]
 /// return [`Error::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
-/// namespaces will not be exposed for it.
+/// the nodes will not be exposed for serialization/deserialization.
 ///
 /// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
 /// the `Option` can be used to access within the inner type using its `TreeKey` trait.
@@ -319,6 +319,16 @@ impl Metadata {
 /// See the [`crate`] documentation for an example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {
     /// The number of top-level nodes.
+    ///
+    /// ```
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     bar: [u16; 2],
+    /// }
+    /// assert_eq!(S::len(), 2);
+    /// ```
     fn len() -> usize;
 
     /// Convert a node name to a node index.
@@ -354,14 +364,19 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
     /// assert_eq!(
-    ///     S::traverse_by_key(["bar"].into_iter(), |index, name, len| {
-    ///         assert_eq!((1, "bar", 2), (index, name, len));
+    ///     S::traverse_by_key(["bar", "0"].into_iter(), |index, name, len| {
+    ///         if name == "bar" {
+    ///             assert_eq!((1, 2), (index, len));
+    ///         } else {
+    ///             assert_eq!((0, "0", 2), (index, name, len));
+    ///         }
     ///         Ok::<_, ()>(())
     ///     }),
-    ///     Ok(1)
+    ///     Ok(2)
     /// );
     /// ```
     ///
@@ -387,10 +402,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
     /// let m = S::metadata();
-    /// assert_eq!((m.max_depth, m.max_length, m.count), (1, 3, 2));
+    /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
     fn metadata() -> Metadata;
 
@@ -406,11 +422,12 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
     /// let mut s = String::new();
-    /// S::path([1], &mut s, "/").unwrap();
-    /// assert_eq!(s, "/bar");
+    /// S::path([1, 1], &mut s, "/").unwrap();
+    /// assert_eq!(s, "/bar/1");
     /// # }
     /// ```
     ///
@@ -445,18 +462,20 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
     /// let mut i = [0; 2];
-    /// let depth = S::indices(["bar"], &mut i).unwrap();
-    /// assert_eq!(&i[..depth], &[1]);
+    /// let depth = S::indices(["bar", "1"], &mut i).unwrap();
+    /// assert_eq!(&i[..depth], [1, 1]);
     /// ```
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `indices`: An iterator of `&mut usize` to write the node indices into.
     ///   If `indices` is shorter than the node depth, [`Error::Inner`] is returned
-    ///   See also [TreeKey::metadata()] for upper bounds on depth.
+    ///   `Y` is an upper bound for the required depth. See also
+    ///   [TreeKey::metadata()] for an exact value.
     ///
     /// # Returns
     /// Final node depth on success
@@ -486,7 +505,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: [u16; 5],
     /// };
     /// let (p, _) = S::packed(["bar", "4"]).unwrap();
-    /// assert_eq!(p.into_lsb().get(), 0b11100);
+    /// assert_eq!(p.into_lsb().get(), 0b1_1_100);
     /// let mut s = String::new();
     /// S::path(p, &mut s, "/").unwrap();
     /// assert_eq!(s, "/bar/4");
@@ -524,10 +543,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
     /// let paths: Vec<String> = S::iter_paths("/").map(|p| p.unwrap()).collect();
-    /// assert_eq!(paths, ["/foo", "/bar"]);
+    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// # }
     /// ```
     ///
@@ -544,6 +564,9 @@ pub trait TreeKey<const Y: usize = 1> {
     }
 
     /// Create an unchecked iterator of all possible paths.
+    ///
+    /// The iterator does not provide helpful information through
+    /// its [`Iterator::size_hint()`].
     ///
     /// See also [`TreeKey::iter_paths`].
     ///
@@ -566,10 +589,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
     /// let indices: Vec<_> = S::iter_indices().collect();
-    /// assert_eq!(indices, [([0], 1), ([1], 1)]);
+    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
     ///
     /// # Returns
@@ -579,6 +603,9 @@ pub trait TreeKey<const Y: usize = 1> {
     }
 
     /// Create an unchecked iterator of all possible indices.
+    ///
+    /// The iterator does not provide helpful information through
+    /// its [`Iterator::size_hint()`].
     ///
     /// See also [`TreeKey::iter_indices()`].
     ///
@@ -595,10 +622,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
+    ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
     /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().into_lsb().get()).collect();
-    /// assert_eq!(packed, [0b10, 0b11]);
+    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
     ///
     /// # Returns
@@ -608,6 +636,9 @@ pub trait TreeKey<const Y: usize = 1> {
     }
 
     /// Create an iterator of all packed indices.
+    ///
+    /// The iterator does not provide helpful information through
+    /// its [`Iterator::size_hint()`].
     ///
     /// See also [`TreeKey::iter_packed()`].
     ///
@@ -647,12 +678,13 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// #[derive(TreeKey, TreeSerialize)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
-    /// let s = S { foo: 9, bar: 11 };
+    /// let s = S { foo: 9, bar: [11, 3] };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["bar"].into_iter(), &mut ser).unwrap();
+    /// s.serialize_by_key(["bar", "0"].into_iter(), &mut ser).unwrap();
     /// let length = ser.end();
     /// assert_eq!(&buf[..length], b"11");
     /// # }
@@ -723,16 +755,17 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// ```
     /// # #[cfg(feature = "json-core")] {
     /// # use miniconf::{TreeDeserialize, TreeKey};
-    /// #[derive(TreeKey, TreeDeserialize)]
+    /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
     ///     foo: u32,
-    ///     bar: u16,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
     /// };
-    /// let mut s = S { foo: 9, bar: 11 };
+    /// let mut s = S::default();
     /// let mut de = serde_json_core::de::Deserializer::new(b"7");
-    /// s.deserialize_by_key(["bar"].into_iter(), &mut de).unwrap();
+    /// s.deserialize_by_key(["bar", "0"].into_iter(), &mut de).unwrap();
     /// de.end().unwrap();
-    /// assert_eq!(s.bar, 7);
+    /// assert_eq!(s.bar[0], 7);
     /// # }
     /// ```
     ///

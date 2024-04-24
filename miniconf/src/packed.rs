@@ -1,8 +1,10 @@
-use crate::{IntoKeys, Keys};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
 };
+use serde::{Deserialize, Serialize};
+
+use crate::{IntoKeys, Keys};
 
 /// A bit-packed representation of `TreeKey` indices.
 ///
@@ -20,10 +22,10 @@ use core::{
 /// aligned with the storage MSB and marker moves toward the storage MSB.
 ///
 /// The representation is MSB aligned to make key `Ord` more natural and stable.
-/// The `Packed` key `Ord` matches the ordering of node on a depth-first tree
-/// traversal. New nodes can be added to the tree without changing the implicit
-/// encoding as long no new bits need to be allocated. Under this condition
-/// the mapping between indices and `Packed` representation is stable.
+/// The `Packed` key `Ord` matches the ordering of nodes in a horizontal leaf tree
+/// traversal. New nodes can be added/removed to the tree without changing the implicit
+/// encoding (and ordering!) as long no new bits need to be allocated/deallocated.
+/// Under this condition the mapping between indices/paths and `Packed` representation is stable.
 ///
 /// "Small numbers" in LSB-aligned representation can be obtained through
 /// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
@@ -51,26 +53,30 @@ use core::{
 /// assert_eq!(p, Packed::from_lsb(p_lsb.try_into().unwrap()));
 /// assert_eq!(p.get(), 0b11_0__101_1 << (Packed::CAPACITY - p.len()));
 /// ```
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
+#[serde(transparent)]
 pub struct Packed(
     // Could use generic_nonzero #120257
     NonZeroUsize,
 );
 
 impl Default for Packed {
+    #[inline]
     fn default() -> Self {
         Self::EMPTY
     }
 }
 
 impl From<NonZeroUsize> for Packed {
+    #[inline]
     fn from(value: NonZeroUsize) -> Self {
         Self(value)
     }
 }
 
 impl From<Packed> for NonZeroUsize {
+    #[inline]
     fn from(value: Packed) -> Self {
         value.0
     }
@@ -79,12 +85,14 @@ impl From<Packed> for NonZeroUsize {
 impl Deref for Packed {
     type Target = NonZeroUsize;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl DerefMut for Packed {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -166,12 +174,11 @@ impl Packed {
     ///
     /// # Args
     /// * `bits`: Number of bits to pop. `bits <= Self::CAPACITY`
-    #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
         // Remove value from self
         if let Some(new) = Self::new(s << bits) {
-            self.0 = new.0;
+            *self = new;
             // Extract value from old self
             // Done in two steps as bits + 1 can be Self::BITS which would wrap.
             Some((s >> (Self::CAPACITY - bits)) >> 1)
@@ -187,7 +194,6 @@ impl Packed {
     /// # Args
     /// * `bits`: Number of bits to push. `bits <= Self::CAPACITY`
     /// * `value`: Value to push. `value >> bits == 0`
-    #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
         let mut n = self.trailing_zeros();
@@ -196,7 +202,7 @@ impl Packed {
             n -= bits;
             // * Remove old marker
             // * Add value at offset n + 1
-            //   This is done in two steps as n + 1 can be Self::BITS, which would wrap.
+            //   Done in two steps as n + 1 can be Self::BITS, which would wrap.
             // * Add new marker
             self.0 = (self.get() ^ old_marker) | ((value << n) << 1) | new_marker.0;
             Some(n)
@@ -213,6 +219,7 @@ impl Keys for Packed {
         self.pop_msb(Self::bits_for(len.saturating_sub(1)))
     }
 
+    #[inline]
     fn is_empty(&mut self) -> bool {
         Packed::is_empty(self)
     }
@@ -221,6 +228,7 @@ impl Keys for Packed {
 impl IntoKeys for Packed {
     type IntoKeys = Self;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }
