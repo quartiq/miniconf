@@ -1,10 +1,10 @@
-use serde::{Deserialize, Serialize};
-
-use crate::{IntoKeys, Keys};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
 };
+use serde::{Deserialize, Serialize};
+
+use crate::{IntoKeys, Keys};
 
 /// A bit-packed representation of `TreeKey` indices.
 ///
@@ -22,10 +22,10 @@ use core::{
 /// aligned with the storage MSB and marker moves toward the storage MSB.
 ///
 /// The representation is MSB aligned to make key `Ord` more natural and stable.
-/// The `Packed` key `Ord` matches the ordering of node on a depth-first tree
-/// traversal. New nodes can be added to the tree without changing the implicit
-/// encoding as long no new bits need to be allocated. Under this condition
-/// the mapping between indices and `Packed` representation is stable.
+/// The `Packed` key `Ord` matches the ordering of nodes in a horizontal leaf tree
+/// traversal. New nodes can be added/removed to the tree without changing the implicit
+/// encoding (and ordering!) as long no new bits need to be allocated/deallocated.
+/// Under this condition the mapping between indices/paths and `Packed` representation is stable.
 ///
 /// "Small numbers" in LSB-aligned representation can be obtained through
 /// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
