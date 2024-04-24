@@ -467,7 +467,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// };
     /// let mut i = [0; 2];
     /// let depth = S::indices(["bar", "1"], &mut i).unwrap();
-    /// assert_eq!(&i[..depth], &[1, 1]);
+    /// assert_eq!(&i[..depth], [1, 1]);
     /// ```
     ///
     /// # Args
