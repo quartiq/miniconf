@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{IntoKeys, Keys};
 use core::{
     num::NonZeroUsize,
@@ -51,8 +53,9 @@ use core::{
 /// assert_eq!(p, Packed::from_lsb(p_lsb.try_into().unwrap()));
 /// assert_eq!(p.get(), 0b11_0__101_1 << (Packed::CAPACITY - p.len()));
 /// ```
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]
+#[serde(transparent)]
 pub struct Packed(
     // Could use generic_nonzero #120257
     NonZeroUsize,
@@ -175,7 +178,7 @@ impl Packed {
         let s = self.get();
         // Remove value from self
         if let Some(new) = Self::new(s << bits) {
-            self.0 = new.0;
+            *self = new;
             // Extract value from old self
             // Done in two steps as bits + 1 can be Self::BITS which would wrap.
             Some((s >> (Self::CAPACITY - bits)) >> 1)
@@ -199,7 +202,7 @@ impl Packed {
             n -= bits;
             // * Remove old marker
             // * Add value at offset n + 1
-            //   This is done in two steps as n + 1 can be Self::BITS, which would wrap.
+            //   Done in two steps as n + 1 can be Self::BITS, which would wrap.
             // * Add new marker
             self.0 = (self.get() ^ old_marker) | ((value << n) << 1) | new_marker.0;
             Some(n)
