@@ -146,6 +146,7 @@ impl Metadata {
     ///
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
+    #[inline]
     pub fn separator(self, separator: &str) -> Self {
         Self {
             max_length: self.max_length + self.max_depth * separator.len(),
@@ -473,7 +474,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `indices`: An iterator of `&mut usize` to write the node indices into.
     ///   If `indices` is shorter than the node depth, [`Error::Inner`] is returned
-    ///   See also [TreeKey::metadata()] for upper bounds on depth.
+    ///   `Y` is an upper bound for the required depth. See also
+    ///   [TreeKey::metadata()] for an exact value.
     ///
     /// # Returns
     /// Final node depth on success
@@ -563,6 +565,9 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Create an unchecked iterator of all possible paths.
     ///
+    /// The iterator does not provide helpful information through
+    /// its [`Iterator::size_hint()`].
+    ///
     /// See also [`TreeKey::iter_paths`].
     ///
     /// # Generics
@@ -599,6 +604,9 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Create an unchecked iterator of all possible indices.
     ///
+    /// The iterator does not provide helpful information through
+    /// its [`Iterator::size_hint()`].
+    ///
     /// See also [`TreeKey::iter_indices()`].
     ///
     /// # Returns
@@ -628,6 +636,9 @@ pub trait TreeKey<const Y: usize = 1> {
     }
 
     /// Create an iterator of all packed indices.
+    ///
+    /// The iterator does not provide helpful information through
+    /// its [`Iterator::size_hint()`].
     ///
     /// See also [`TreeKey::iter_packed()`].
     ///

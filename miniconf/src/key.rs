@@ -36,16 +36,17 @@ pub trait Keys {
     ///
     /// # Args
     /// * `len` as for [`Keys::next()`]
-    fn lookup<const Y: usize, S: TreeKey<Y>, E>(&mut self) -> Result<usize, Error<E>> {
-        self.next(S::len())
+    fn lookup<const Y: usize, M: TreeKey<Y>, E>(&mut self) -> Result<usize, Error<E>> {
+        self.next(M::len())
             .ok_or(Error::TooShort(0))?
-            .find::<Y, S>()
+            .find::<Y, M>()
             .ok_or(Error::NotFound(1))
     }
 
     /// Return whether there are more keys.
     ///
     /// This may mutate and consume remaining keys.
+    #[inline]
     fn is_empty(&mut self) -> bool {
         self.next(0).is_none()
     }

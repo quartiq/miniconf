@@ -59,18 +59,21 @@ pub struct Packed(
 );
 
 impl Default for Packed {
+    #[inline]
     fn default() -> Self {
         Self::EMPTY
     }
 }
 
 impl From<NonZeroUsize> for Packed {
+    #[inline]
     fn from(value: NonZeroUsize) -> Self {
         Self(value)
     }
 }
 
 impl From<Packed> for NonZeroUsize {
+    #[inline]
     fn from(value: Packed) -> Self {
         value.0
     }
@@ -79,12 +82,14 @@ impl From<Packed> for NonZeroUsize {
 impl Deref for Packed {
     type Target = NonZeroUsize;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl DerefMut for Packed {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -166,7 +171,6 @@ impl Packed {
     ///
     /// # Args
     /// * `bits`: Number of bits to pop. `bits <= Self::CAPACITY`
-    #[inline]
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
         // Remove value from self
@@ -187,7 +191,6 @@ impl Packed {
     /// # Args
     /// * `bits`: Number of bits to push. `bits <= Self::CAPACITY`
     /// * `value`: Value to push. `value >> bits == 0`
-    #[inline]
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
         let mut n = self.trailing_zeros();
@@ -213,6 +216,7 @@ impl Keys for Packed {
         self.pop_msb(Self::bits_for(len.saturating_sub(1)))
     }
 
+    #[inline]
     fn is_empty(&mut self) -> bool {
         Packed::is_empty(self)
     }
@@ -221,6 +225,7 @@ impl Keys for Packed {
 impl IntoKeys for Packed {
     type IntoKeys = Self;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }
