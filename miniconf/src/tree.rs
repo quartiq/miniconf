@@ -250,7 +250,7 @@ impl Metadata {
 /// These implementation do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
 /// of the tree inaccessible at run-time. It will still be iterated over by [`TreeKey::iter_paths()`] but attempts
-/// to [`TreeSerialize::serialize_by_key()`] or [`TreeDeserialize::deserialize_by_key()`] it
+/// to [`TreeSerialize::serialize_by_key()`] or [`TreeDeserialize::deserialize_by_key()`]
 /// return [`Error::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
