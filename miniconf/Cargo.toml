@@ -2,7 +2,7 @@
 name = "miniconf"
 # Sync all crate versions and the py client
 version = "0.10.0"
-authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
+authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
 description = "Serialize/deserialize/access  Inspect serde namespaces by path"
