@@ -68,7 +68,7 @@ impl TreeField {
     }
 
     pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
-        // Quote context is a match of the field name with `serialize_by_key()` args available.
+        // Quote context is a match of the field index with `serialize_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
         let getter = if let Some(getter) = &self.getter {
@@ -97,7 +97,7 @@ impl TreeField {
     }
 
     pub(crate) fn deserialize_by_key(&self, i: usize) -> TokenStream {
-        // Quote context is a match of the field name with `deserialize_by_key()` args available.
+        // Quote context is a match of the field index with `deserialize_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
         if depth > 0 {
