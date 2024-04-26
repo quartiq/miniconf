@@ -38,11 +38,7 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                if let Some(inner) = self {
-                    inner.serialize_by_key(keys, ser)
-                } else {
-                    Err(Error::Absent(0))
-                }
+                self.as_ref().ok_or(Error::Absent(0)).and_then(|inner| inner.serialize_by_key(keys, ser))
             }
         }
 
@@ -52,11 +48,7 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                if let Some(inner) = self {
-                    inner.deserialize_by_key(keys, de)
-                } else {
-                    Err(Error::Absent(0))
-                }
+                self.as_mut().ok_or(Error::Absent(0)).and_then(|inner| inner.deserialize_by_key(keys, de))
             }
         }
 
@@ -65,22 +57,14 @@ macro_rules! depth {
             where
                 K: Keys,
             {
-                if let Some(inner) = self {
-                    inner.get_by_key(keys)
-                } else {
-                    Err(Error::Absent(0))
-                }
+                self.as_ref().ok_or(Error::Absent(0)).and_then(|inner| inner.get_by_key(keys))
             }
 
             fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
             where
                 K: Keys,
             {
-                if let Some(inner) = self {
-                    inner.get_mut_by_key(keys)
-                } else {
-                    Err(Error::Absent(0))
-                }
+                self.as_mut().ok_or(Error::Absent(0)).and_then(|inner| inner.get_mut_by_key(keys))
             }
         }
     )+}
