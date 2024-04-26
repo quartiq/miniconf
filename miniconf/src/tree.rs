@@ -111,7 +111,7 @@ pub fn increment_error<E>(err: Error<E>) -> Error<E> {
 }
 
 /// Pass a [`Result`] up one hierarchy depth level, incrementing its usize depth field by one.
-pub fn increment<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
+pub fn increment_result<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
     match result {
         Ok(i) => Ok(i + 1),
         Err(err) => Err(increment_error(err)),

@@ -1,8 +1,8 @@
 use core::any::Any;
 
 use crate::{
-    increment, increment_error, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey,
-    TreeSerialize,
+    increment_error, increment_result, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize,
+    TreeKey, TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
@@ -40,7 +40,7 @@ macro_rules! depth {
                     return Err(Error::NotFound(1));
                 }
                 func(index, itoa::Buffer::new().format(index), N)?;
-                increment(T::traverse_by_key(keys, func))
+                increment_result(T::traverse_by_key(keys, func))
             }
 
             fn metadata() -> Metadata {
@@ -62,7 +62,7 @@ macro_rules! depth {
             {
                 let index = keys.lookup::<$y, Self, _>()?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
-                increment(item.serialize_by_key(keys, ser))
+                increment_result(item.serialize_by_key(keys, ser))
             }
         }
 
@@ -74,7 +74,7 @@ macro_rules! depth {
             {
                 let index = keys.lookup::<$y, Self, _>()?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-                increment(item.deserialize_by_key(keys, de))
+                increment_result(item.deserialize_by_key(keys, de))
             }
         }
 

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.10.1...HEAD) - RELEASE-DATE
 
 ### Changed
-* `Increment` trait and blanket impl removed in favor of function
+* `Increment` trait and blanket impl removed in favor of `increment_result`
 
 ## [0.10.1](https://github.com/quartiq/miniconf/compare/v0.10.0...v0.10.1) - 2024-04-22
 
