@@ -289,10 +289,12 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
-                match index {
+                let ret: Result<&dyn ::core::any::Any, ::miniconf::Error<()>> = match index {
                     #(#get_by_key_arms ,)*
                     _ => unreachable!()
-                }.map_err(::miniconf::increment_error)
+                };
+                #[allow(unreachable_code)]
+                ret.map_err(::miniconf::increment_error)
             }
 
             fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Error<()>>
@@ -307,10 +309,12 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
-                match index {
+                let ret: Result<&mut dyn ::core::any::Any, ::miniconf::Error<()>> = match index {
                     #(#get_mut_by_key_arms ,)*
                     _ => unreachable!()
-                }.map_err(::miniconf::increment_error)
+                };
+                #[allow(unreachable_code)]
+                ret.map_err(::miniconf::increment_error)
             }
         }
     }.into()
@@ -320,6 +324,8 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(Tree, attributes(tree))]
 pub fn derive_tree(input: TokenStream) -> TokenStream {
     let mut t = derive_tree_key(input.clone());
+    // Can't blanket-derive TreeAny since it requires Sized + Any + 'static
+    // t.extend(derive_tree_any(input.clone()));
     t.extend(derive_tree_serialize(input.clone()));
     t.extend(derive_tree_deserialize(input));
     t

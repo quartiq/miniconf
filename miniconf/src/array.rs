@@ -182,7 +182,7 @@ impl<T: Any, const N: usize> TreeAny for [T; N] {
         if !keys.is_empty() {
             Err(Error::TooLong(1))
         } else {
-            Ok(item as &dyn Any)
+            Ok(item)
         }
     }
 
@@ -196,7 +196,7 @@ impl<T: Any, const N: usize> TreeAny for [T; N] {
         if !keys.is_empty() {
             Err(Error::TooLong(1))
         } else {
-            Ok(item as &mut dyn Any)
+            Ok(item)
         }
     }
 }

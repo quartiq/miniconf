@@ -60,7 +60,6 @@ macro_rules! depth {
             }
         }
 
-        #[cfg(feature = "std")]
         impl<T: TreeAny<{$y - 1}>> TreeAny<$y> for Option<T> {
             fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Error<()>>
             where
@@ -155,7 +154,7 @@ impl<T: Any> TreeAny for Option<T> {
         if !keys.is_empty() {
             Err(Error::TooLong(0))
         } else if let Some(inner) = self {
-            Ok(inner as &dyn Any)
+            Ok(inner)
         } else {
             Err(Error::Absent(0))
         }
@@ -168,7 +167,7 @@ impl<T: Any> TreeAny for Option<T> {
         if !keys.is_empty() {
             Err(Error::TooLong(0))
         } else if let Some(inner) = self {
-            Ok(inner as &mut dyn Any)
+            Ok(inner)
         } else {
             Err(Error::Absent(0))
         }

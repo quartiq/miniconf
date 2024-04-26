@@ -157,13 +157,11 @@ impl TreeField {
                 Some(getter) => quote!(
                     #getter(self).map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
                 ),
-                None => quote!(
-                    Ok(&self.#ident as &dyn ::core::any::Any)
-                ),
+                None => quote!(Ok(&self.#ident)),
             };
             quote! {
                 #i => {
-                    #getter
+                    #getter.map(|value| value as &dyn ::core::any::Any)
                 }
             }
         }
@@ -189,13 +187,11 @@ impl TreeField {
         } else {
             let setter = match &self.setter {
                 Some(_) | // TODO
-                None => quote!(
-                    Ok(&mut self.#ident as &mut dyn ::core::any::Any)
-                ),
+                None => quote!(Ok(&mut self.#ident)),
             };
             quote! {
                 #i => {
-                    #setter
+                    #setter.map(|value| value as &mut dyn ::core::any::Any)
                 }
             }
         }
