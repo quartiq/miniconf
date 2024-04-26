@@ -4,7 +4,7 @@ use core::{fmt::Write, marker::PhantomData};
 // core::iter::ExactSizeIterator would be applicable if `count.is_some()`.`
 
 /// An iterator over nodes in a `TreeKey`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Iter<const Y: usize> {
     /// The iteration state.
     ///
@@ -94,7 +94,7 @@ impl<const Y: usize> Iter<Y> {
 }
 
 /// An iterator over the paths in a `TreeKey`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
     iter: Iter<Y>,
     pm: PhantomData<(P, M)>,
@@ -156,7 +156,7 @@ where
 /// An iterator over the indices in a `TreeKey`.
 ///
 /// The iterator yields `(indices: [usize; Y], depth: usize)`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexIter<M: ?Sized, const Y: usize> {
     iter: Iter<Y>,
     m: PhantomData<M>,
@@ -190,7 +190,7 @@ where
                     continue;
                 }
                 State::Leaf(depth) => {
-                    let mut idx = self.iter.state;
+                    let mut idx = self.iter.state; // copy
                     if depth > 0 {
                         // Undo the index advancement in Iter::next()
                         idx[depth - 1] -= 1;
@@ -213,7 +213,7 @@ impl<M, const Y: usize> core::iter::FusedIterator for IndexIter<M, Y> where M: T
 /// An iterator over packed indices in a `TreeKey`.
 ///
 /// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackedIter<M: ?Sized, const Y: usize> {
     iter: Iter<Y>,
     m: PhantomData<M>,

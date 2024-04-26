@@ -1,6 +1,6 @@
 use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
 use core::fmt::{Display, Formatter, Write};
-use serde::{Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Errors that can occur when using the Tree traits.
 ///
@@ -10,10 +10,7 @@ use serde::{Deserializer, Serializer};
 /// of an indices slice.
 ///
 /// If multiple errors are applicable simultaneously the precedence
-/// is from high to low:
-///
-/// `Absent > TooShort > NotFound > TooLong > Inner > Finalization > InvalidInternal > InvalidLeaf`
-/// before any `Ok`.
+/// is as per the order in the enum definition (from high to low).
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error<E> {
@@ -32,6 +29,18 @@ pub enum Error<E> {
     /// The key is too long and goes beyond a leaf node.
     TooLong(usize),
 
+    /// An internal (non-leaf) field was found to be invalid before serialization
+    /// or deserialization.
+    ///
+    /// The getter/setter returned an error message.
+    InvalidInternal(usize, &'static str),
+
+    /// A leaf value was found to be invalid before serialization or
+    /// after deserialization.
+    ///
+    /// The leaf getter/setter returned an error message.
+    InvalidLeaf(usize, &'static str),
+
     /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.
     Inner(E),
@@ -46,52 +55,34 @@ pub enum Error<E> {
     /// A `Serializer` may write checksums or additional framing data and fail with
     /// this error during finalization after the value has been serialized.
     Finalization(E),
-
-    /// A leaf value was found to be invalid before serialization or
-    /// after deserialization.
-    ///
-    /// The leaf getter/setter returned an error message.
-    InvalidLeaf(usize, &'static str),
-
-    /// An internal (non-leaf) field was found to be invalid before serialization
-    /// or after deserialization.
-    ///
-    /// The getter/setter returned an error message.
-    InvalidInternal(usize, &'static str),
 }
 
 impl<E: core::fmt::Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Error::Absent(depth) => {
-                write!(f, "Path not currently present (depth: {})", depth)
+                write!(f, "Path not currently present (depth: {depth})")
             }
             Error::TooShort(depth) => {
-                write!(f, "Path too short (depth: {})", depth)
+                write!(f, "Path too short (depth: {depth})")
             }
             Error::NotFound(depth) => {
-                write!(f, "Path not found (depth: {})", depth)
+                write!(f, "Path not found (depth: {depth})")
             }
             Error::TooLong(depth) => {
-                write!(f, "Path too long (depth: {})", depth)
+                write!(f, "Path too long (depth: {depth})")
             }
             Error::Inner(error) => {
-                write!(f, "(De)serialization error: ")?;
-                error.fmt(f)
+                write!(f, "(De)serialization error: {error}")
             }
             Error::Finalization(error) => {
-                write!(f, "(De)serializer finalization error: ")?;
-                error.fmt(f)
+                write!(f, "(De)serializer finalization error: {error}")
             }
             Error::InvalidInternal(depth, msg) => {
-                write!(
-                    f,
-                    "Invalid internal (non-leaf) field (depth: {}): {}",
-                    depth, msg
-                )
+                write!(f, "Invalid internal (non-leaf) (depth: {depth}): {msg}")
             }
             Error::InvalidLeaf(depth, msg) => {
-                write!(f, "Invalid leaf value (depth: {}): {}", depth, msg)
+                write!(f, "Invalid leaf (depth: {depth}): {msg}")
             }
         }
     }
@@ -103,7 +94,7 @@ impl<T> From<T> for Error<T> {
     }
 }
 
-/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize member by one.
+/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize depth field by one.
 pub fn increment<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
     match result {
         Ok(i) => Ok(i + 1),
@@ -119,7 +110,7 @@ pub fn increment<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> 
 
 /// Metadata about a [TreeKey] namespace.
 #[non_exhaustive]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///

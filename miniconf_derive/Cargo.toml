@@ -2,7 +2,7 @@
 name = "miniconf_derive"
 version = "0.10.0"
 rust-version = "1.70.0"
-authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com", "Robert Jördens <rj@quartiq.de>"]
+authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
 description = "Derive macros for `miniconf`"
