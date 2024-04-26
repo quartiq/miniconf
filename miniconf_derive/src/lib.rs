@@ -287,7 +287,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 match index {
                     #(#get_mut_by_key_arms ,)*
                     _ => unreachable!()
-                } // TODO ::miniconf::increment()
+                }.map_err(::miniconf::increment_error)
             }
         }
     }.into()

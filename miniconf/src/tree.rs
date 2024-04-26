@@ -97,17 +97,24 @@ impl<T> From<T> for Error<T> {
     }
 }
 
+/// TODO
+pub fn increment_error<E>(err: Error<E>) -> Error<E> {
+    match err {
+        Error::Absent(i) => Error::Absent(i + 1),
+        Error::TooShort(i) => Error::TooShort(i + 1),
+        Error::NotFound(i) => Error::NotFound(i + 1),
+        Error::TooLong(i) => Error::TooLong(i + 1),
+        Error::InvalidInternal(i, msg) => Error::InvalidInternal(i + 1, msg),
+        Error::InvalidLeaf(i, msg) => Error::InvalidLeaf(i + 1, msg),
+        e => e,
+    }
+}
+
 /// Pass a [`Result`] up one hierarchy depth level, incrementing its usize depth field by one.
 pub fn increment<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
     match result {
         Ok(i) => Ok(i + 1),
-        Err(Error::Absent(i)) => Err(Error::Absent(i + 1)),
-        Err(Error::TooShort(i)) => Err(Error::TooShort(i + 1)),
-        Err(Error::NotFound(i)) => Err(Error::NotFound(i + 1)),
-        Err(Error::TooLong(i)) => Err(Error::TooLong(i + 1)),
-        Err(Error::InvalidInternal(i, msg)) => Err(Error::InvalidInternal(i + 1, msg)),
-        Err(Error::InvalidLeaf(i, msg)) => Err(Error::InvalidLeaf(i + 1, msg)),
-        e => e,
+        Err(err) => Err(increment_error(err)),
     }
 }
 

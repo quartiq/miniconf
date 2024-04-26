@@ -1,7 +1,8 @@
 use core::any::Any;
 
 use crate::{
-    increment, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+    increment, increment_error, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey,
+    TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
@@ -85,7 +86,7 @@ macro_rules! depth {
             {
                 let index = keys.lookup::<1, Self, _>()?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-                item.get_mut_by_key(keys) //.map_err(|e| increment(Err(e)))
+                item.get_mut_by_key(keys).map_err(increment_error)
             }
         }
     )+}
