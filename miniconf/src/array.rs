@@ -78,8 +78,16 @@ macro_rules! depth {
             }
         }
 
-        #[cfg(feature = "std")]
         impl<T: TreeAny<{$y - 1}>, const N: usize> TreeAny<$y> for [T; N] {
+            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Error<()>>
+            where
+                K: Keys,
+            {
+                let index = keys.lookup::<1, Self, _>()?;
+                let item = self.get(index).ok_or(Error::NotFound(1))?;
+                item.get_by_key(keys).map_err(increment_error)
+            }
+
             fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
             where
                 K: Keys,
@@ -164,6 +172,20 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
 }
 
 impl<T: Any, const N: usize> TreeAny for [T; N] {
+    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Error<()>>
+    where
+        K: Keys,
+    {
+        let index = keys.lookup::<1, Self, _>()?;
+        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        // Precedence
+        if !keys.is_empty() {
+            Err(Error::TooLong(1))
+        } else {
+            Ok(item as &dyn Any)
+        }
+    }
+
     fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
     where
         K: Keys,

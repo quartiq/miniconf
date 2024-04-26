@@ -97,7 +97,7 @@ impl<T> From<T> for Error<T> {
     }
 }
 
-/// TODO
+/// Pass an [`Error`] up one hierarchy depth level, incrementing its usize depth field by one.
 pub fn increment_error<E>(err: Error<E>) -> Error<E> {
     match err {
         Error::Absent(i) => Error::Absent(i + 1),
@@ -652,6 +652,11 @@ pub trait TreeKey<const Y: usize = 1> {
 
 /// TODO
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
+    /// TODO
+    fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Error<()>>
+    where
+        K: Keys;
+
     /// TODO
     fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
     where

@@ -135,6 +135,40 @@ impl TreeField {
         }
     }
 
+    pub(crate) fn get_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let ident = name_or_index(i, &self.ident);
+        let depth = self.depth;
+        if depth > 0 {
+            let getter = match &self.getter {
+                Some(getter) => quote!(
+                    #getter(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+                ),
+                None => quote!(Ok(&self.#ident)),
+            };
+            quote! {
+                #i => {
+                    #getter.and_then(|value|
+                        ::miniconf::TreeAny::<#depth>::get_by_key(value, keys))
+                }
+            }
+        } else {
+            let getter = match &self.getter {
+                Some(getter) => quote!(
+                    #getter(self).map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
+                ),
+                None => quote!(
+                    Ok(&self.#ident as &dyn ::core::any::Any)
+                ),
+            };
+            quote! {
+                #i => {
+                    #getter
+                }
+            }
+        }
+    }
+
     pub(crate) fn get_mut_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let ident = name_or_index(i, &self.ident);

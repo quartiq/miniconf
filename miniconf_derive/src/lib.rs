@@ -260,6 +260,11 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
         &mut input.generics,
     );
 
+    let get_by_key_arms = tree
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(i, field)| field.get_by_key(i));
     let get_mut_by_key_arms = tree
         .fields()
         .iter()
@@ -272,6 +277,24 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
+            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Error<()>>
+            where
+                K: ::miniconf::Keys,
+            {
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let defer = Self::__MINICONF_DEFERS.get(index)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
+                if !defer && !::miniconf::Keys::is_empty(&mut keys) {
+                    return Err(::miniconf::Error::TooLong(1))
+                }
+                // Note(unreachable) empty structs have diverged by now
+                #[allow(unreachable_code)]
+                match index {
+                    #(#get_by_key_arms ,)*
+                    _ => unreachable!()
+                }.map_err(::miniconf::increment_error)
+            }
+
             fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Error<()>>
             where
                 K: ::miniconf::Keys,

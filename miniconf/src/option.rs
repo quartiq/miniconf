@@ -62,6 +62,17 @@ macro_rules! depth {
 
         #[cfg(feature = "std")]
         impl<T: TreeAny<{$y - 1}>> TreeAny<$y> for Option<T> {
+            fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Error<()>>
+            where
+                K: Keys,
+            {
+                if let Some(inner) = self {
+                    inner.get_by_key(keys)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
+
             fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
             where
                 K: Keys,
@@ -136,8 +147,20 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
     }
 }
 
-#[cfg(feature = "std")]
 impl<T: Any> TreeAny for Option<T> {
+    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Error<()>>
+    where
+        K: Keys,
+    {
+        if !keys.is_empty() {
+            Err(Error::TooLong(0))
+        } else if let Some(inner) = self {
+            Ok(inner as &dyn Any)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+
     fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
     where
         K: Keys,
