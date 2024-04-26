@@ -1,4 +1,8 @@
-use crate::{increment, Error, Key, Keys, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use core::any::Any;
+
+use crate::{
+    increment, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
@@ -72,6 +76,18 @@ macro_rules! depth {
                 increment(item.deserialize_by_key(keys, de))
             }
         }
+
+        #[cfg(feature = "std")]
+        impl<T: TreeAny<{$y - 1}>, const N: usize> TreeAny<$y> for [T; N] {
+            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
+            where
+                K: Keys,
+            {
+                let index = keys.lookup::<1, Self, _>()?;
+                let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+                item.get_mut_by_key(keys) //.map_err(|e| increment(Err(e)))
+            }
+        }
     )+}
 }
 depth!(2 3 4 5 6 7 8);
@@ -142,6 +158,22 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         } else {
             *item = T::deserialize(de)?;
             Ok(1)
+        }
+    }
+}
+
+impl<T: Any, const N: usize> TreeAny for [T; N] {
+    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
+    where
+        K: Keys,
+    {
+        let index = keys.lookup::<1, Self, _>()?;
+        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        // Precedence
+        if !keys.is_empty() {
+            Err(Error::TooLong(1))
+        } else {
+            Ok(item as &mut dyn Any)
         }
     }
 }

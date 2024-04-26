@@ -1,5 +1,8 @@
-use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
+use core::any::Any;
 use core::fmt::{Display, Formatter, Write};
+
+use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Errors that can occur when using the Tree traits.
@@ -638,6 +641,14 @@ pub trait TreeKey<const Y: usize = 1> {
     fn iter_packed_unchecked() -> PackedIter<Self, Y> {
         PackedIter::new(None)
     }
+}
+
+/// TODO
+pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
+    /// TODO
+    fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
+    where
+        K: Keys;
 }
 
 /// Serialize a leaf node by its keys.

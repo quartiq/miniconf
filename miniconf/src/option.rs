@@ -1,4 +1,6 @@
-use crate::{Error, Keys, Metadata, TreeDeserialize, TreeKey, TreeSerialize};
+use core::any::Any;
+
+use crate::{Error, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
@@ -52,6 +54,20 @@ macro_rules! depth {
             {
                 if let Some(inner) = self {
                     inner.deserialize_by_key(keys, de)
+                } else {
+                    Err(Error::Absent(0))
+                }
+            }
+        }
+
+        #[cfg(feature = "std")]
+        impl<T: TreeAny<{$y - 1}>> TreeAny<$y> for Option<T> {
+            fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
+            where
+                K: Keys,
+            {
+                if let Some(inner) = self {
+                    inner.get_mut_by_key(keys)
                 } else {
                     Err(Error::Absent(0))
                 }
@@ -114,6 +130,22 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
         } else if let Some(inner) = self {
             *inner = T::deserialize(de)?;
             Ok(0)
+        } else {
+            Err(Error::Absent(0))
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: Any> TreeAny for Option<T> {
+    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
+    where
+        K: Keys,
+    {
+        if !keys.is_empty() {
+            Err(Error::TooLong(0))
+        } else if let Some(inner) = self {
+            Ok(inner as &mut dyn Any)
         } else {
             Err(Error::Absent(0))
         }

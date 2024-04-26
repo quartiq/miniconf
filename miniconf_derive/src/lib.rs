@@ -238,6 +238,61 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     }.into()
 }
 
+/// Derive the `TreeDeserialize` trait for a struct.
+#[proc_macro_derive(TreeAny, attributes(tree))]
+pub fn derive_tree_any(input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as DeriveInput);
+    let tree = match field::Tree::parse(&input) {
+        Ok(t) => t,
+        Err(e) => {
+            return e.write_errors().into();
+        }
+    };
+
+    tree.bound_generics(
+        &mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeAny<#depth>))
+            } else {
+                Some(parse_quote!(::core::any::Any))
+            }
+        },
+        &mut input.generics,
+    );
+
+    let get_mut_by_key_arms = tree
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(i, field)| field.get_mut_by_key(i));
+    let depth = tree.depth();
+    let ident = input.ident;
+
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    quote! {
+        impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
+            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Error<()>>
+            where
+                K: ::miniconf::Keys,
+            {
+                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let defer = Self::__MINICONF_DEFERS.get(index)
+                    .ok_or(::miniconf::Error::NotFound(1))?;
+                if !defer && !::miniconf::Keys::is_empty(&mut keys) {
+                    return Err(::miniconf::Error::TooLong(1))
+                }
+                // Note(unreachable) empty structs have diverged by now
+                #[allow(unreachable_code)]
+                match index {
+                    #(#get_mut_by_key_arms ,)*
+                    _ => unreachable!()
+                } // TODO ::miniconf::increment()
+            }
+        }
+    }.into()
+}
+
 /// Shorthand to derive the `TreeKey`, `TreeSerialize`, and `TreeDeserialize` traits for a struct.
 #[proc_macro_derive(Tree, attributes(tree))]
 pub fn derive_tree(input: TokenStream) -> TokenStream {
