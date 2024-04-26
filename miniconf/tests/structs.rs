@@ -1,6 +1,8 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
+use miniconf::{
+    Deserialize, JsonCoreSlash, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+};
 
 #[test]
 fn atomic_struct() {
@@ -86,7 +88,8 @@ fn empty_struct() {
 
 #[test]
 fn borrowed() {
-    #[derive(Tree)]
+    // Can't derive TreeAny
+    #[derive(TreeKey, TreeDeserialize, TreeSerialize)]
     struct S<'a> {
         a: &'a str,
     }

@@ -1,5 +1,7 @@
 #![cfg(feature = "json-core")]
 
+use core::any::Any;
+
 use miniconf::{Deserialize, DeserializeOwned, JsonCoreSlash, Serialize, Tree, TreeKey};
 
 #[test]
@@ -105,7 +107,7 @@ fn test_derive_macro_bound_failure() {
     // adding the required traits by hand works.
     type A<T> = [[T; 0]; 0];
     #[derive(Tree)]
-    struct S<T: Serialize + DeserializeOwned>(
+    struct S<T: Serialize + DeserializeOwned + Any>(
         // this wrongly infers T: Tree<1> instead of T: SerDe
         // adding the missing bound is a workaround
         #[tree(depth = 2)] A<T>,
