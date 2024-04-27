@@ -100,16 +100,14 @@ where
     type Item = Result<P, core::fmt::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut path = P::default();
-
         loop {
+            let mut path = P::default();
             return match self.iter.handle(M::path(
                 self.iter.state.iter().copied(),
                 &mut path,
                 self.separator,
             )) {
                 State::Retry => {
-                    path = P::default();
                     continue;
                 }
                 State::Leaf(_depth) => Some(Ok(path)),
