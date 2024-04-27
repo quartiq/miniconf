@@ -147,7 +147,7 @@ fn option_absent() {
     s.d = Some(3);
     assert_eq!(s.set_json("/d", b"7"), Ok(1));
     assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(_))));
+    assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(1, _))));
     assert_eq!(s.set_json("/d", b"7 "), Ok(2));
     assert_eq!(s.set_json("/d", b" 7"), Ok(2));
     assert!(matches!(

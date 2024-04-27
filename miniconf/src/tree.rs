@@ -33,14 +33,14 @@ pub enum Error<E> {
     /// The key is too long and goes beyond a leaf node.
     TooLong(usize),
 
-    /// An internal (non-leaf) field could not be accessed.
+    /// An field could not be accessed.
     ///
     /// The `get` or `get_mut` accessor returned an error message.
     Access(usize, &'static str),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.
-    Inner(E),
+    Inner(usize, E),
 
     /// There was an error during finalization.
     ///
@@ -74,8 +74,8 @@ impl<E: core::fmt::Display> Display for Error<E> {
             Error::TooLong(depth) => {
                 write!(f, "Path too long (depth: {depth})")
             }
-            Error::Inner(error) => {
-                write!(f, "(De)serialization error: {error}")
+            Error::Inner(depth, error) => {
+                write!(f, "(De)serialization error (depth: {depth}): {error}")
             }
             Error::Finalization(error) => {
                 write!(f, "(De)serializer finalization error: {error}")
@@ -92,7 +92,7 @@ impl<E: core::fmt::Display> Display for Error<E> {
 
 impl<T> From<T> for Error<T> {
     fn from(value: T) -> Self {
-        Error::Inner(value)
+        Error::Inner(0, value)
     }
 }
 
@@ -105,7 +105,8 @@ pub fn increment_error<E>(err: Error<E>) -> Error<E> {
         Error::TooLong(i) => Error::TooLong(i + 1),
         Error::Access(i, msg) => Error::Access(i + 1, msg),
         Error::Invalid(i, msg) => Error::Invalid(i + 1, msg),
-        e => e,
+        Error::Inner(i, e) => Error::Inner(i + 1, e),
+        Error::Finalization(e) => Error::Finalization(e),
     }
 }
 

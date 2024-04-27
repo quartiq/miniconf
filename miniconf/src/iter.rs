@@ -26,7 +26,7 @@ enum State<E> {
     Leaf(usize),
     Done,
     Retry,
-    Err(E),
+    Err(usize, E),
 }
 
 impl<const Y: usize> Iter<Y> {
@@ -59,7 +59,7 @@ impl<const Y: usize> Iter<Y> {
                 self.state[depth - 1] += 1;
                 State::Leaf(depth)
             }
-            Err(Error::Inner(e)) => State::Err(e),
+            Err(Error::Inner(depth, e)) => State::Err(depth, e),
             // NotFound(0): Not having consumed any name/index, the only possible case
             // is a root leaf (e.g. `Option` or newtype), those however can not return
             // `NotFound` as they don't do key lookup.
@@ -112,7 +112,7 @@ where
                 }
                 State::Leaf(_depth) => Some(Ok(path)),
                 State::Done => None,
-                State::Err(e) => Some(Err(e)),
+                State::Err(_depth, e) => Some(Err(e)),
             };
         }
     }
@@ -162,7 +162,7 @@ where
                     Some((idx, depth))
                 }
                 State::Done => None,
-                State::Err(()) => unreachable!(),
+                State::Err(_depth, ()) => unreachable!(),
             };
         }
     }
@@ -187,7 +187,7 @@ impl<M, const Y: usize> Iterator for PackedIter<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    type Item = Result<Packed, ()>;
+    type Item = Result<Packed, usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -202,7 +202,7 @@ where
                 }
                 State::Leaf(_depth) => Some(Ok(packed)),
                 State::Done => None,
-                State::Err(()) => Some(Err(())),
+                State::Err(depth, ()) => Some(Err(depth)),
             };
         }
     }

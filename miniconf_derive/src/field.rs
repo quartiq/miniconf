@@ -107,7 +107,7 @@ impl TreeField {
                 #i => #getter
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
-                        .map_err(::miniconf::Error::Inner)
+                        .map_err(Into::into)
                         .and(Ok(0))
                     )
             }
@@ -130,7 +130,7 @@ impl TreeField {
         } else {
             quote! {
                 #i => ::miniconf::Deserialize::deserialize(de)
-                    .map_err(::miniconf::Error::Inner)
+                    .map_err(Into::into)
                     .and_then(#validator)
                     .and_then(|value|
                         #getter_mut.and_then(|item| {
