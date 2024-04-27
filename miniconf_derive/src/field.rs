@@ -20,7 +20,7 @@ pub(crate) fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2
 #[darling(attributes(tree))]
 pub struct TreeField {
     pub ident: Option<syn::Ident>,
-    pub vis: syn::Visibility,
+    // pub vis: syn::Visibility,
     pub ty: syn::Type,
     // attrs: Vec<syn::Attribute>,
     #[darling(default)]
@@ -184,9 +184,9 @@ impl TreeField {
 #[darling(attributes(tree))]
 #[darling(supports(struct_any))]
 pub struct Tree {
-    pub ident: syn::Ident,
+    // pub ident: syn::Ident,
     pub generics: syn::Generics,
-    pub vis: syn::Visibility,
+    // pub vis: syn::Visibility,
     pub data: ast::Data<(), TreeField>,
     // attrs: Vec<syn::Attribute>,
 }
@@ -219,11 +219,19 @@ impl Tree {
         &mut fields.fields
     }
 
-    pub(crate) fn bound_generics<F>(&self, func: &mut F, generics: &mut syn::Generics)
+    pub(crate) fn bound_generics<F>(&mut self, func: &mut F)
     where
         F: FnMut(usize) -> Option<syn::TypeParamBound>,
     {
-        for f in self.fields().iter() {
+        let Self {
+            ref mut generics,
+            data: Data::Struct(ref fields),
+            ..
+        } = self
+        else {
+            unreachable!()
+        };
+        for f in fields.fields.iter() {
             walk_type_params(f.typ(), func, f.depth, generics)
         }
     }

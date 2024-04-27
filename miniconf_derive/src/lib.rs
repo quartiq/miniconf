@@ -7,8 +7,8 @@ mod field;
 /// Derive the `TreeKey` trait for a struct.
 #[proc_macro_derive(TreeKey, attributes(tree))]
 pub fn derive_tree_key(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-    let tree = match field::Tree::parse(&input) {
+    let input = parse_macro_input!(input as DeriveInput);
+    let mut tree = match field::Tree::parse(&input) {
         Ok(t) => t,
         Err(e) => {
             return e.write_errors().into();
@@ -23,7 +23,6 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 None
             }
         },
-        &mut input.generics,
     );
 
     let fields = tree.fields();
@@ -49,7 +48,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     let depth = tree.depth();
     let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
 
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
@@ -118,8 +117,8 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 /// Derive the `TreeSerialize` trait for a struct.
 #[proc_macro_derive(TreeSerialize, attributes(tree))]
 pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-    let tree = match field::Tree::parse(&input) {
+    let input = parse_macro_input!(input as DeriveInput);
+    let mut tree = match field::Tree::parse(&input) {
         Ok(t) => t,
         Err(e) => {
             return e.write_errors().into();
@@ -134,7 +133,6 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 Some(parse_quote!(::miniconf::Serialize))
             }
         },
-        &mut input.generics,
     );
 
     let serialize_by_key_arms = tree
@@ -145,7 +143,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     let depth = tree.depth();
     let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
 
     quote! {
         impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
@@ -174,8 +172,8 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
 /// Derive the `TreeDeserialize` trait for a struct.
 #[proc_macro_derive(TreeDeserialize, attributes(tree))]
 pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-    let tree = match field::Tree::parse(&input) {
+    let input = parse_macro_input!(input as DeriveInput);
+    let mut tree = match field::Tree::parse(&input) {
         Ok(t) => t,
         Err(e) => {
             return e.write_errors().into();
@@ -190,29 +188,29 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 Some(parse_quote!(::miniconf::DeserializeOwned))
             }
         },
-        &mut input.generics,
     );
 
-    let deserialize_by_key_arms = tree
-        .fields()
-        .iter()
-        .enumerate()
-        .map(|(i, field)| field.deserialize_by_key(i));
     let depth = tree.depth();
     let ident = input.ident;
 
-    let orig_generics = input.generics.clone();
+    let orig_generics = tree.generics.clone();
     let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
-    let lts: Vec<_> = input.generics.lifetimes().cloned().collect();
-    input.generics.params.push(parse_quote!('de));
-    if let Some(syn::GenericParam::Lifetime(de)) = input.generics.params.last_mut() {
+    let lts: Vec<_> = tree.generics.lifetimes().cloned().collect();
+    tree.generics.params.push(parse_quote!('de));
+    if let Some(syn::GenericParam::Lifetime(de)) = tree.generics.params.last_mut() {
         assert_eq!(de.lifetime.ident, "de");
         for l in lts {
             assert!(l.lifetime.ident != "de");
             de.bounds.push(l.lifetime);
         }
     }
-    let (impl_generics, _, _) = input.generics.split_for_impl();
+    let (impl_generics, _, _) = tree.generics.split_for_impl();
+
+    let deserialize_by_key_arms = tree
+    .fields()
+    .iter()
+    .enumerate()
+    .map(|(i, field)| field.deserialize_by_key(i));
 
     quote! {
         impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
@@ -241,8 +239,8 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
 /// Derive the `TreeDeserialize` trait for a struct.
 #[proc_macro_derive(TreeAny, attributes(tree))]
 pub fn derive_tree_any(input: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(input as DeriveInput);
-    let tree = match field::Tree::parse(&input) {
+    let input = parse_macro_input!(input as DeriveInput);
+    let mut tree = match field::Tree::parse(&input) {
         Ok(t) => t,
         Err(e) => {
             return e.write_errors().into();
@@ -257,7 +255,6 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 Some(parse_quote!(::core::any::Any))
             }
         },
-        &mut input.generics,
     );
 
     let get_by_key_arms = tree
@@ -273,7 +270,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
     let depth = tree.depth();
     let ident = input.ident;
 
-    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
 
     quote! {
         impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
