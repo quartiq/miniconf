@@ -68,7 +68,7 @@ mod sm {
                 clock,
                 timeout: None,
                 // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                republish_state: M::iter_paths_unchecked("/"),
+                republish_state: M::iter_paths("/"),
             }
         }
 
@@ -91,7 +91,7 @@ mod sm {
 
         fn start_republish(&mut self) {
             // Skip redundant check (done comprehensively in `MqttClient::new()`)
-            self.republish_state = M::iter_paths_unchecked("/");
+            self.republish_state = M::iter_paths("/");
         }
     }
 }
@@ -432,7 +432,7 @@ where
                                 Err(msg) => msg,
                                 Ok(cache) => {
                                     self.listing_state
-                                        .replace((cache, Settings::iter_paths_unchecked("/")));
+                                        .replace((cache, Settings::iter_paths("/")));
 
                                     // There is no positive response sent during list commands,
                                     // instead, the response is sent as a property of the listed

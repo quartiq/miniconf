@@ -1,8 +1,7 @@
 use core::any::Any;
 use core::fmt::{Display, Formatter, Write};
-use core::marker::PhantomData;
 
-use crate::{IndexIter, IntoKeys, Iter, Keys, Packed, PackedIter, PathIter};
+use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -561,40 +560,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// An iterator of paths with a trusted and exact [`Iterator::size_hint()`].
     fn iter_paths<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter {
-            iter: Iter {
-                count: Some(Self::metadata().count),
-                state: [0; Y],
-            },
-            separator,
-            pm: PhantomData,
-        }
-    }
-
-    /// Create an unchecked iterator of all possible paths.
-    ///
-    /// The iterator does not provide helpful information through
-    /// its [`Iterator::size_hint()`].
-    ///
-    /// See also [`TreeKey::iter_paths`].
-    ///
-    /// # Generics
-    /// * `P`  - The type to hold the path. Needs to be `core::fmt::Write + Default`.
-    ///
-    /// # Args
-    /// * `separator` - The path hierarchy separator
-    ///
-    /// # Returns
-    /// A iterator of paths.
-    fn iter_paths_unchecked<P: Write>(separator: &str) -> PathIter<'_, Self, Y, P> {
-        PathIter {
-            iter: Iter {
-                count: None,
-                state: [0; Y],
-            },
-            separator,
-            pm: PhantomData,
-        }
+        PathIter::new(separator)
     }
 
     /// Create an iterator of all possible indices.
@@ -614,32 +580,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// An iterator of indices with a trusted and exact [`Iterator::size_hint()`].
     fn iter_indices() -> IndexIter<Self, Y> {
-        IndexIter {
-            iter: Iter {
-                count: Some(Self::metadata().count),
-                state: [0; Y],
-            },
-            m: PhantomData,
-        }
-    }
-
-    /// Create an unchecked iterator of all possible indices.
-    ///
-    /// The iterator does not provide helpful information through
-    /// its [`Iterator::size_hint()`].
-    ///
-    /// See also [`TreeKey::iter_indices()`].
-    ///
-    /// # Returns
-    /// An iterator of indices.
-    fn iter_indices_unchecked() -> IndexIter<Self, Y> {
-        IndexIter {
-            iter: Iter {
-                count: None,
-                state: [0; Y],
-            },
-            m: PhantomData,
-        }
+        IndexIter::default()
     }
 
     /// Create an iterator of all packed indices.
@@ -659,32 +600,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// An iterator of packed indices.
     fn iter_packed() -> PackedIter<Self, Y> {
-        PackedIter {
-            iter: Iter {
-                count: Some(Self::metadata().count),
-                state: [0; Y],
-            },
-            m: PhantomData,
-        }
-    }
-
-    /// Create an iterator of all packed indices.
-    ///
-    /// The iterator does not provide helpful information through
-    /// its [`Iterator::size_hint()`].
-    ///
-    /// See also [`TreeKey::iter_packed()`].
-    ///
-    /// # Returns
-    /// An iterator of packed indices.
-    fn iter_packed_unchecked() -> PackedIter<Self, Y> {
-        PackedIter {
-            iter: Iter {
-                count: None,
-                state: [0; Y],
-            },
-            m: PhantomData,
-        }
+        PackedIter::default()
     }
 }
 
