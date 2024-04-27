@@ -63,25 +63,48 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
-        // Quote context is a match of the field index with `serialize_by_key()` args available.
+    fn getter(&self, i: usize) -> TokenStream {
         let ident = self.name_or_index(i);
-        let depth = self.depth;
-        let get = match &self.get {
+        match &self.get {
             Some(get) => quote! {
-                #get(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+                #get(self).map_err(|msg| ::miniconf::Error::Access(0, msg))
             },
             None => quote! { Ok(&self.#ident) },
-        };
+        }
+    }
+
+    fn getter_mut(&self, i: usize) -> TokenStream {
+        let ident = self.name_or_index(i);
+        match &self.get_mut {
+            Some(get_mut) => quote!(
+                #get_mut(self).map_err(|msg| ::miniconf::Error::Access(0, msg))
+            ),
+            None => quote!( Ok(&mut self.#ident) ),
+        }
+    }
+
+    fn validator(&self) -> TokenStream {
+        match &self.validate {
+            Some(validate) => quote! { |value|
+                #validate(self, value).map_err(|msg| ::miniconf::Error::Invalid(0, msg))
+            },
+            None => quote! { |value| Ok(value) },
+        }
+    }
+
+    pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `serialize_by_key()` args available.
+        let depth = self.depth;
+        let getter = self.getter(i);
         if depth > 0 {
             quote! {
-                #i => #get
+                #i => #getter
                     .and_then(|value|
                         ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser))
             }
         } else {
             quote! {
-                #i => #get
+                #i => #getter
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
                         .map_err(::miniconf::Error::Inner)
@@ -93,35 +116,24 @@ impl TreeField {
 
     pub(crate) fn deserialize_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        let ident = self.name_or_index(i);
         let depth = self.depth;
-        let get_mut = match &self.get_mut {
-            Some(get_mut) => quote!(
-                #get_mut(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-            ),
-            None => quote!( Ok(&mut self.#ident) ),
-        };
-        let validate = match &self.validate {
-            Some(validate) => quote! { |value|
-                #validate(self, value).map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
-            },
-            None => quote! { |value| Ok(value) },
-        };
+        let getter_mut = self.getter_mut(i);
+        let validator = self.validator();
         if depth > 0 {
             quote! {
-                #i => #get_mut
+                #i => #getter_mut
                     .and_then(|item|
                         ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(item, keys, de)
                     )
-                    .and_then(#validate)
+                    .and_then(#validator)
             }
         } else {
             quote! {
                 #i => ::miniconf::Deserialize::deserialize(de)
                     .map_err(::miniconf::Error::Inner)
-                    .and_then(#validate)
+                    .and_then(#validator)
                     .and_then(|value|
-                        #get_mut.and_then(|item| {
+                        #getter_mut.and_then(|item| {
                             *item = value;
                             Ok(0)
                         })
@@ -132,44 +144,32 @@ impl TreeField {
 
     pub(crate) fn get_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let ident = self.name_or_index(i);
         let depth = self.depth;
-        let get = match &self.get {
-            Some(get) => quote! {
-                #get(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-            },
-            None => quote! { Ok(&self.#ident) },
-        };
+        let getter = self.getter(i);
         if depth > 0 {
             quote! {
-                #i => #get
+                #i => #getter
                     .and_then(|value| ::miniconf::TreeAny::<#depth>::get_by_key(value, keys))
             }
         } else {
             quote! {
-                #i => #get.map(|value| value as &dyn ::core::any::Any)
+                #i => #getter.map(|value| value as &dyn ::core::any::Any)
             }
         }
     }
 
     pub(crate) fn get_mut_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let ident = self.name_or_index(i);
         let depth = self.depth;
-        let get_mut = match &self.get_mut {
-            Some(get_mut) => quote! {
-                #get_mut(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-            },
-            None => quote! { Ok(&mut self.#ident) },
-        };
+        let getter_mut = self.getter_mut(i);
         if depth > 0 {
             quote! {
-                #i => #get_mut
+                #i => #getter_mut
                     .and_then(|value| ::miniconf::TreeAny::<#depth>::get_mut_by_key(value, keys))
             }
         } else {
             quote! {
-                #i => #get_mut.map(|value| value as &mut dyn ::core::any::Any)
+                #i => #getter_mut.map(|value| value as &mut dyn ::core::any::Any)
             }
         }
     }

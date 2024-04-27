@@ -32,17 +32,10 @@ pub enum Error<E> {
     /// The key is too long and goes beyond a leaf node.
     TooLong(usize),
 
-    /// An internal (non-leaf) field was found to be invalid before serialization
-    /// or deserialization.
+    /// An internal (non-leaf) field could not be accessed.
     ///
-    /// The getter/setter returned an error message.
-    InvalidInternal(usize, &'static str),
-
-    /// A leaf value was found to be invalid before serialization or
-    /// after deserialization.
-    ///
-    /// The leaf getter/setter returned an error message.
-    InvalidLeaf(usize, &'static str),
+    /// The `get` or `get_mut` accessor returned an error message.
+    Access(usize, &'static str),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal function returned an error.
@@ -58,6 +51,11 @@ pub enum Error<E> {
     /// A `Serializer` may write checksums or additional framing data and fail with
     /// this error during finalization after the value has been serialized.
     Finalization(E),
+
+    /// A deserialized leaf value was found to be invalid.
+    ///
+    /// The `validate` callback returned an error message.
+    Invalid(usize, &'static str),
 }
 
 impl<E: core::fmt::Display> Display for Error<E> {
@@ -81,11 +79,11 @@ impl<E: core::fmt::Display> Display for Error<E> {
             Error::Finalization(error) => {
                 write!(f, "(De)serializer finalization error: {error}")
             }
-            Error::InvalidInternal(depth, msg) => {
-                write!(f, "Invalid internal (non-leaf) (depth: {depth}): {msg}")
+            Error::Access(depth, msg) => {
+                write!(f, "Access failed (depth: {depth}): {msg}")
             }
-            Error::InvalidLeaf(depth, msg) => {
-                write!(f, "Invalid leaf (depth: {depth}): {msg}")
+            Error::Invalid(depth, msg) => {
+                write!(f, "Invalid value (depth: {depth}): {msg}")
             }
         }
     }
@@ -104,8 +102,8 @@ pub fn increment_error<E>(err: Error<E>) -> Error<E> {
         Error::TooShort(i) => Error::TooShort(i + 1),
         Error::NotFound(i) => Error::NotFound(i + 1),
         Error::TooLong(i) => Error::TooLong(i + 1),
-        Error::InvalidInternal(i, msg) => Error::InvalidInternal(i + 1, msg),
-        Error::InvalidLeaf(i, msg) => Error::InvalidLeaf(i + 1, msg),
+        Error::Access(i, msg) => Error::Access(i + 1, msg),
+        Error::Invalid(i, msg) => Error::Invalid(i + 1, msg),
         e => e,
     }
 }

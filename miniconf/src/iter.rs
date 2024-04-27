@@ -82,8 +82,8 @@ impl<const Y: usize> Iter<Y> {
             Err(Error::TooLong(_)) |
             Err(Error::Absent(_)) |
             Err(Error::Finalization(_)) |
-            Err(Error::InvalidInternal(_, _)) |
-            Err(Error::InvalidLeaf(_, _))
+            Err(Error::Access(_, _)) |
+            Err(Error::Invalid(_, _))
             => unreachable!(),
         }
     }

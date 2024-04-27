@@ -38,11 +38,11 @@ fn validate() {
     let mut s = Settings::default();
     s.set_json("/v", b"1.0").unwrap();
     assert_eq!(s.v, 1.0);
-    assert_eq!(s.set_json("/v", b"-1.0"), Err(Error::InvalidLeaf(1, "")));
+    assert_eq!(s.set_json("/v", b"-1.0"), Err(Error::Invalid(1, "")));
     assert_eq!(s.v, 1.0); // remains unchanged
     s.set_json("/i/a", b"1.0").unwrap();
     assert_eq!(s.i.a, 1.0);
-    assert_eq!(s.set_json("/i/a", b"-1.0"), Err(Error::InvalidLeaf(1, "")));
+    assert_eq!(s.set_json("/i/a", b"-1.0"), Err(Error::Invalid(1, "")));
     assert_eq!(s.i.a, -1.0); // has changed as internal validation was done after leaf setting
     assert_eq!(s.set_json("/i/a", b"1.0"), Ok(3));
 }
@@ -53,7 +53,7 @@ fn other_type() {
     // through a variable offset, fixed length array.
     #[derive(Default, Tree)]
     struct S {
-        #[tree(depth=1, typ="[i32; 4]", get=Self::get::<4>, get_mut=Self::set::<4>)]
+        #[tree(depth=1, typ="[i32; 4]", get=Self::get::<4>, get_mut=Self::get_mut::<4>)]
         vec: Vec<i32>,
         offset: usize,
     }
@@ -62,15 +62,15 @@ fn other_type() {
             Ok(self
                 .vec
                 .get(self.offset..self.offset + N)
-                .ok_or("short")?
+                .ok_or("range")?
                 .try_into()
                 .unwrap())
         }
-        fn set<const N: usize>(&mut self) -> Result<&mut [i32; N], &'static str> {
+        fn get_mut<const N: usize>(&mut self) -> Result<&mut [i32; N], &'static str> {
             Ok(self
                 .vec
                 .get_mut(self.offset..self.offset + N)
-                .ok_or("short")?
+                .ok_or("range")?
                 .try_into()
                 .unwrap())
         }
@@ -84,8 +84,5 @@ fn other_type() {
     let len = s.get_json("/vec/1", &mut buf[..]).unwrap();
     assert_eq!(buf[..len], b"5"[..]);
     s.set_json("/offset", b"100").unwrap();
-    assert_eq!(
-        s.set_json("/vec/1", b"5"),
-        Err(Error::InvalidInternal(1, "short"))
-    );
+    assert_eq!(s.set_json("/vec/1", b"5"), Err(Error::Access(1, "range")));
 }
