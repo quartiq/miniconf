@@ -5,29 +5,20 @@ use core::{fmt::Write, marker::PhantomData};
 
 /// An iterator over nodes in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Iter<const Y: usize> {
+pub(crate) struct Iter<const Y: usize> {
     /// The iteration state.
     ///
     /// It contains the current field/element index at each path hierarchy level
     /// and needs to be at least as large as the maximum path depth (ensured by
     /// `TreeKey<Y>` contract).
-    state: [usize; Y],
+    pub(crate) state: [usize; Y],
 
     /// The remaining length of the iterator.
     ///
     /// It is used to provide an exact and trusted [Iterator::size_hint] ([core::iter::TrustedLen]).
     ///
     /// It may be None to indicate unknown length.
-    count: Option<usize>,
-}
-
-impl<const Y: usize> Iter<Y> {
-    fn new(count: Option<usize>) -> Self {
-        Self {
-            count,
-            state: [0; Y],
-        }
-    }
+    pub(crate) count: Option<usize>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
@@ -96,22 +87,9 @@ impl<const Y: usize> Iter<Y> {
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
-    iter: Iter<Y>,
-    pm: PhantomData<(P, M)>,
-    separator: &'a str,
-}
-
-impl<'a, M, const Y: usize, P> PathIter<'a, M, Y, P>
-where
-    M: TreeKey<Y> + ?Sized,
-{
-    pub(crate) fn new(separator: &'a str, count: Option<usize>) -> Self {
-        Self {
-            iter: Iter::new(count),
-            pm: PhantomData,
-            separator,
-        }
-    }
+    pub(crate) iter: Iter<Y>,
+    pub(crate) separator: &'a str,
+    pub(crate) pm: PhantomData<(P, M)>,
 }
 
 impl<'a, M, const Y: usize, P> Iterator for PathIter<'a, M, Y, P>
@@ -158,20 +136,8 @@ where
 /// The iterator yields `(indices: [usize; Y], depth: usize)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexIter<M: ?Sized, const Y: usize> {
-    iter: Iter<Y>,
-    m: PhantomData<M>,
-}
-
-impl<M, const Y: usize> IndexIter<M, Y>
-where
-    M: TreeKey<Y> + ?Sized,
-{
-    pub(crate) fn new(count: Option<usize>) -> Self {
-        Self {
-            iter: Iter::new(count),
-            m: PhantomData,
-        }
-    }
+    pub(crate) iter: Iter<Y>,
+    pub(crate) m: PhantomData<M>,
 }
 
 impl<M, const Y: usize> Iterator for IndexIter<M, Y>
@@ -215,20 +181,8 @@ impl<M, const Y: usize> core::iter::FusedIterator for IndexIter<M, Y> where M: T
 /// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackedIter<M: ?Sized, const Y: usize> {
-    iter: Iter<Y>,
-    m: PhantomData<M>,
-}
-
-impl<M, const Y: usize> PackedIter<M, Y>
-where
-    M: TreeKey<Y> + ?Sized,
-{
-    pub(crate) fn new(count: Option<usize>) -> Self {
-        Self {
-            iter: Iter::new(count),
-            m: PhantomData,
-        }
-    }
+    pub(crate) iter: Iter<Y>,
+    pub(crate) m: PhantomData<M>,
 }
 
 impl<M, const Y: usize> Iterator for PackedIter<M, Y>
