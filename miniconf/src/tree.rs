@@ -650,12 +650,36 @@ pub trait TreeKey<const Y: usize = 1> {
 
 /// TODO
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
-    /// TODO
+    /// ```
+    /// # use miniconf::{TreeAny, TreeKey};
+    /// #[derive(TreeKey, TreeAny, Default)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let s = S { foo: 9, bar: [11, 3] };
+    /// let a = s.get_by_key(["bar", "1"].into_iter()).unwrap();
+    /// assert_eq!(a.downcast_ref::<u16>().unwrap(), &3);
+    /// ```
     fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Error<()>>
     where
         K: Keys;
 
-    /// TODO
+    /// ```
+    /// # use miniconf::{TreeAny, TreeKey};
+    /// #[derive(TreeKey, TreeAny, Default)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let mut s = S::default();
+    /// let a = s.get_mut_by_key(["bar", "1"].into_iter()).unwrap();
+    /// let a = a.downcast_mut::<u16>().unwrap();
+    /// *a = 3;
+    /// assert_eq!(s.bar[1], 3);
+    /// ```
     fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
     where
         K: Keys;
