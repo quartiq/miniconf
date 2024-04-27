@@ -179,7 +179,7 @@ impl TreeField {
 #[darling(attributes(tree))]
 #[darling(supports(struct_any))]
 pub struct Tree {
-    // pub ident: syn::Ident,
+    pub ident: syn::Ident,
     pub generics: syn::Generics,
     // pub vis: syn::Visibility,
     pub data: ast::Data<(), TreeField>,
