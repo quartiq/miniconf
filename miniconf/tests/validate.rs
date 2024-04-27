@@ -9,33 +9,24 @@ struct Inner {
 
 #[derive(Tree, Default)]
 struct Settings {
-    #[tree(getter=Self::v, setter=Self::set_v)]
+    #[tree(validate=Self::validate_v)]
     v: f32,
-    #[tree(depth=1, getter=Self::i, setter=Self::set_i)]
+    #[tree(depth=1, validate=Self::validate_i)]
     i: Inner,
 }
 
 impl Settings {
-    fn i(&self) -> Result<&Inner, &'static str> {
-        Ok(&self.i)
-    }
-
-    fn set_i(&mut self) -> Result<&mut Inner, &'static str> {
-        if self.i.a >= 0.0 {
-            Ok(&mut self.i)
+    fn validate_v(&mut self, new: f32) -> Result<f32, &'static str> {
+        if new >= 0.0 {
+            Ok(new)
         } else {
             Err("")
         }
     }
 
-    fn v(&self) -> Result<&f32, &'static str> {
-        Ok(&self.v)
-    }
-
-    fn set_v(&mut self, new: f32) -> Result<(), &'static str> {
-        if new >= 0.0 {
-            self.v = new;
-            Ok(())
+    fn validate_i(&mut self, depth: usize) -> Result<usize, &'static str> {
+        if self.i.a >= 0.0 {
+            Ok(depth)
         } else {
             Err("")
         }
@@ -51,12 +42,9 @@ fn validate() {
     assert_eq!(s.v, 1.0); // remains unchanged
     s.set_json("/i/a", b"1.0").unwrap();
     assert_eq!(s.i.a, 1.0);
-    assert_eq!(s.set_json("/i/a", b"-1.0"), Ok(4));
-    assert_eq!(s.i.a, -1.0); // has changed
-    assert_eq!(
-        s.set_json("/i/a", b"1.0"),
-        Err(Error::InvalidInternal(1, ""))
-    ); // now invalid
+    assert_eq!(s.set_json("/i/a", b"-1.0"), Err(Error::InvalidLeaf(1, "")));
+    assert_eq!(s.i.a, -1.0); // has changed as internal validation was done after leaf setting
+    assert_eq!(s.set_json("/i/a", b"1.0"), Ok(3));
 }
 
 #[test]
@@ -65,7 +53,7 @@ fn other_type() {
     // through a variable offset, fixed length array.
     #[derive(Default, Tree)]
     struct S {
-        #[tree(depth=1, typ="[i32; 4]", getter=Self::get::<4>, setter=Self::set::<4>)]
+        #[tree(depth=1, typ="[i32; 4]", get=Self::get::<4>, get_mut=Self::set::<4>)]
         vec: Vec<i32>,
         offset: usize,
     }

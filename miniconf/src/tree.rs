@@ -751,15 +751,15 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 /// # use miniconf::{Error, Tree, JsonCoreSlash};
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(setter=leaf)]
+///     #[tree(validate=leaf)]
 ///     a: f32,
-///     #[tree(depth=1, setter=non_leaf)]
+///     #[tree(depth=1, validate=non_leaf)]
 ///     b: [f32; 2],
 /// };
-/// fn leaf(s: &mut S, new: f32) -> Result<(), &'static str> {
+/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
 ///     Err("fail")
 /// }
-/// fn non_leaf(s: &mut S) -> Result<&mut [f32; 2], &'static str> {
+/// fn non_leaf(s: &mut S, depth: usize) -> Result<usize, &'static str> {
 ///     Err("fail")
 /// }
 /// ```

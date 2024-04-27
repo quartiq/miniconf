@@ -27,8 +27,9 @@ pub struct TreeField {
     pub depth: usize,
     pub skip: Flag,
     pub typ: Option<syn::Type>,
-    pub setter: Option<syn::Path>,
-    pub getter: Option<syn::Path>,
+    pub validate: Option<syn::Path>,
+    pub get: Option<syn::Path>,
+    pub get_mut: Option<syn::Path>,
 }
 
 impl TreeField {
@@ -71,27 +72,26 @@ impl TreeField {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
-        let getter = if let Some(getter) = &self.getter {
-            quote!( #getter(&self) )
-        } else {
-            quote!( Ok(&self.#ident) )
+        let get = match &self.get {
+            Some(get) => quote! {
+                #get(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+            },
+            None => quote! { Ok(&self.#ident) },
         };
         if depth > 0 {
             quote! {
-                #i => #getter
-                    .map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+                #i => #get
                     .and_then(|value|
                         ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser))
             }
         } else {
             quote! {
-                #i => #getter
-                    .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
+                #i => #get
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
                         .map_err(::miniconf::Error::Inner)
+                        .and(Ok(0))
                     )
-                    .and(Ok(0))
             }
         }
     }
@@ -100,37 +100,37 @@ impl TreeField {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
+        let get_mut = match &self.get_mut {
+            Some(get_mut) => quote!(
+                #get_mut(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+            ),
+            None => quote!( Ok(&mut self.#ident) ),
+        };
+        let validate = match &self.validate {
+            Some(validate) => quote! { |value|
+                #validate(self, value).map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
+            },
+            None => quote! { |value| Ok(value) },
+        };
         if depth > 0 {
-            let setter = match &self.setter {
-                Some(setter) => quote!(
-                    #setter(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-                ),
-                None => quote!(Ok(&mut self.#ident)),
-            };
             quote! {
-                #i => {
-                    #setter.and_then(|value|
-                        ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(value, keys, de))
-                }
+                #i => #get_mut
+                    .and_then(|item|
+                        ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(item, keys, de)
+                    )
+                    .and_then(#validate)
             }
         } else {
-            let setter = match &self.setter {
-                Some(setter) => quote!( |value|
-                    #setter(self, value)
-                    .and(Ok(0))
-                    .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
-                ),
-                None => quote!( |value| {
-                    self.#ident = value;
-                    Ok(0)
-                }),
-            };
             quote! {
-                #i => {
-                    ::miniconf::Deserialize::deserialize(de)
-                        .map_err(::miniconf::Error::Inner)
-                        .and_then(#setter)
-                }
+                #i => ::miniconf::Deserialize::deserialize(de)
+                    .map_err(::miniconf::Error::Inner)
+                    .and_then(#validate)
+                    .and_then(|value|
+                        #get_mut.and_then(|item| {
+                            *item = value;
+                            Ok(0)
+                        })
+                    )
             }
         }
     }
@@ -139,30 +139,20 @@ impl TreeField {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
+        let get = match &self.get {
+            Some(get) => quote! {
+                #get(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+            },
+            None => quote! { Ok(&self.#ident) },
+        };
         if depth > 0 {
-            let getter = match &self.getter {
-                Some(getter) => quote!(
-                    #getter(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-                ),
-                None => quote!(Ok(&self.#ident)),
-            };
             quote! {
-                #i => {
-                    #getter.and_then(|value|
-                        ::miniconf::TreeAny::<#depth>::get_by_key(value, keys))
-                }
+                #i => #get
+                    .and_then(|value| ::miniconf::TreeAny::<#depth>::get_by_key(value, keys))
             }
         } else {
-            let getter = match &self.getter {
-                Some(getter) => quote!(
-                    #getter(self).map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
-                ),
-                None => quote!(Ok(&self.#ident)),
-            };
             quote! {
-                #i => {
-                    #getter.map(|value| value as &dyn ::core::any::Any)
-                }
+                #i => #get.map(|value| value as &dyn ::core::any::Any)
             }
         }
     }
@@ -171,28 +161,20 @@ impl TreeField {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
+        let get_mut = match &self.get_mut {
+            Some(get_mut) => quote! {
+                #get_mut(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
+            },
+            None => quote! { Ok(&mut self.#ident) },
+        };
         if depth > 0 {
-            let setter = match &self.setter {
-                Some(setter) => quote!(
-                    #setter(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-                ),
-                None => quote!(Ok(&mut self.#ident)),
-            };
             quote! {
-                #i => {
-                    #setter.and_then(|value|
-                        ::miniconf::TreeAny::<#depth>::get_mut_by_key(value, keys))
-                }
+                #i => #get_mut
+                    .and_then(|value| ::miniconf::TreeAny::<#depth>::get_mut_by_key(value, keys))
             }
         } else {
-            let setter = match &self.setter {
-                Some(_) | // TODO
-                None => quote!(Ok(&mut self.#ident)),
-            };
             quote! {
-                #i => {
-                    #setter.map(|value| value as &mut dyn ::core::any::Any)
-                }
+                #i => #get_mut.map(|value| value as &mut dyn ::core::any::Any)
             }
         }
     }

@@ -6,18 +6,18 @@ const RESPONSE_TOPIC: &str = "validation_failure/device/response";
 
 #[derive(Clone, Debug, Default, Tree)]
 struct Settings {
-    #[tree(setter=Self::check)]
+    #[tree(validate=Self::validate)]
     error: bool,
     exit: bool,
 }
 impl Settings {
-    fn check(&mut self, new: bool) -> Result<(), &'static str> {
+    fn validate(&mut self, new: bool) -> Result<bool, &'static str> {
         if new {
             self.exit = true;
             Err("Should exit")
         } else {
             self.error = new;
-            Ok(())
+            Ok(new)
         }
     }
 }
