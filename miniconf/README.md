@@ -131,7 +131,7 @@ client and a Python reference implementation to interact with it. Now it is agno
 Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
 through the [`JsonCoreSlash`] super trait.
 
-The [`Postcard`] super trait supports the `postcard` wire format with any `postcard` flavor and
+The `Postcard` super trait supports the `postcard` wire format with any `postcard` flavor and
 any [`Keys`] type. Combined with the [`Packed`] key representation, this is a very
 space-efficient key-serde API.
 
@@ -186,5 +186,5 @@ other than [`Option`]. These are still however usable in their atomic `serde` fo
 
 * `json-core`: Enable the [`JsonCoreSlash`] implementation of serializing from and
   into json slices (using the `serde_json_core` crate).
-* `postcard`: Enable the [`Postcard`] implementation of serializing from and
+* `postcard`: Enable the `Postcard` implementation of serializing from and
   into the postcard compact binary format (using the `postcard` crate).
