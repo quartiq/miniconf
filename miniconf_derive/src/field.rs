@@ -6,16 +6,6 @@ use darling::{
 use proc_macro2::TokenStream;
 use quote::quote;
 
-pub(crate) fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
-    match ident {
-        None => {
-            let index = syn::Index::from(i);
-            quote! { #index }
-        }
-        Some(name) => quote! { #name },
-    }
-}
-
 #[derive(Debug, FromField)]
 #[darling(attributes(tree))]
 pub struct TreeField {
@@ -37,9 +27,14 @@ impl TreeField {
         self.typ.as_ref().unwrap_or(&self.ty)
     }
 
-    pub(crate) fn name(&self, i: usize) -> TokenStream {
-        let name = name_or_index(i, &self.ident);
-        quote! { stringify!(#name) }
+    pub(crate) fn name_or_index(&self, i: usize) -> TokenStream {
+        match &self.ident {
+            None => {
+                let index = syn::Index::from(i);
+                quote! { #index }
+            }
+            Some(name) => quote! { #name },
+        }
     }
 
     pub(crate) fn traverse_by_key(&self, i: usize) -> Option<TokenStream> {
@@ -70,7 +65,7 @@ impl TreeField {
 
     pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
-        let ident = name_or_index(i, &self.ident);
+        let ident = self.name_or_index(i);
         let depth = self.depth;
         let get = match &self.get {
             Some(get) => quote! {
@@ -98,7 +93,7 @@ impl TreeField {
 
     pub(crate) fn deserialize_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        let ident = name_or_index(i, &self.ident);
+        let ident = self.name_or_index(i);
         let depth = self.depth;
         let get_mut = match &self.get_mut {
             Some(get_mut) => quote!(
@@ -137,7 +132,7 @@ impl TreeField {
 
     pub(crate) fn get_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let ident = name_or_index(i, &self.ident);
+        let ident = self.name_or_index(i);
         let depth = self.depth;
         let get = match &self.get {
             Some(get) => quote! {
@@ -159,7 +154,7 @@ impl TreeField {
 
     pub(crate) fn get_mut_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let ident = name_or_index(i, &self.ident);
+        let ident = self.name_or_index(i);
         let depth = self.depth;
         let get_mut = match &self.get_mut {
             Some(get_mut) => quote! {
@@ -248,7 +243,7 @@ where
                 // call back if it is a generic type for us
                 for generic in &mut generics.params {
                     if let syn::GenericParam::Type(type_param) = generic {
-                        if type_param.ident == *ident {
+                        if &type_param.ident == ident {
                             if let Some(bound) = func(depth) {
                                 type_param.bounds.push(bound);
                             }

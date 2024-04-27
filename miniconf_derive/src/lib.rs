@@ -15,15 +15,13 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         }
     };
 
-    tree.bound_generics(
-        &mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeKey<#depth>))
-            } else {
-                None
-            }
-        },
-    );
+    tree.bound_generics(&mut |depth| {
+        if depth > 0 {
+            Some(parse_quote!(::miniconf::TreeKey<#depth>))
+        } else {
+            None
+        }
+    });
 
     let fields = tree.fields();
 
@@ -42,7 +40,10 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         .iter()
         .enumerate()
         .filter_map(|(i, field)| field.metadata(i));
-    let names = fields.iter().enumerate().map(|(i, field)| field.name(i));
+    let names = fields.iter().enumerate().map(|(i, field)| {
+        let name = field.name_or_index(i);
+        quote! { stringify!(#name) }
+    });
     let fields_len = fields.len();
     let defers = fields.iter().map(|field| field.depth > 0);
     let depth = tree.depth();
@@ -125,15 +126,13 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
         }
     };
 
-    tree.bound_generics(
-        &mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
-            } else {
-                Some(parse_quote!(::miniconf::Serialize))
-            }
-        },
-    );
+    tree.bound_generics(&mut |depth| {
+        if depth > 0 {
+            Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
+        } else {
+            Some(parse_quote!(::miniconf::Serialize))
+        }
+    });
 
     let serialize_by_key_arms = tree
         .fields()
@@ -180,15 +179,13 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         }
     };
 
-    tree.bound_generics(
-        &mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
-            } else {
-                Some(parse_quote!(::miniconf::DeserializeOwned))
-            }
-        },
-    );
+    tree.bound_generics(&mut |depth| {
+        if depth > 0 {
+            Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
+        } else {
+            Some(parse_quote!(::miniconf::DeserializeOwned))
+        }
+    });
 
     let depth = tree.depth();
     let ident = input.ident;
@@ -207,10 +204,10 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     let (impl_generics, _, _) = tree.generics.split_for_impl();
 
     let deserialize_by_key_arms = tree
-    .fields()
-    .iter()
-    .enumerate()
-    .map(|(i, field)| field.deserialize_by_key(i));
+        .fields()
+        .iter()
+        .enumerate()
+        .map(|(i, field)| field.deserialize_by_key(i));
 
     quote! {
         impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
@@ -247,15 +244,13 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
         }
     };
 
-    tree.bound_generics(
-        &mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeAny<#depth>))
-            } else {
-                Some(parse_quote!(::core::any::Any))
-            }
-        },
-    );
+    tree.bound_generics(&mut |depth| {
+        if depth > 0 {
+            Some(parse_quote!(::miniconf::TreeAny<#depth>))
+        } else {
+            Some(parse_quote!(::core::any::Any))
+        }
+    });
 
     let get_by_key_arms = tree
         .fields()
