@@ -689,6 +689,21 @@ pub trait TreeKey<const Y: usize = 1> {
 }
 
 /// TODO
+///
+/// ```
+/// # use miniconf::{TreeAny, TreeKey};
+/// #[derive(TreeKey, TreeAny, Default)]
+/// struct S {
+///     foo: u32,
+///     #[tree(depth=1)]
+///     bar: [u16; 2],
+/// };
+/// let s = S::default();
+/// for (k, depth) in S::iter_indices() {
+///     let a = s.get_by_key(k.into_iter().take(depth)).unwrap();
+///     eprintln!("{:?}", (&*a).type_id());
+/// }
+/// ```
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     /// ```
     /// # use miniconf::{TreeAny, TreeKey};
