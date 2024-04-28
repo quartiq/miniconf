@@ -734,7 +734,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let indices: Vec<_> = S::iter_indices().collect();
+    /// let indices: Vec<_> = S::iter_indices().count().collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
     ///
@@ -756,7 +756,10 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let packed: Vec<_> = S::iter_packed().map(|p| p.unwrap().into_lsb().get()).collect();
+    /// let packed: Vec<_> = S::iter_packed()
+    ///     .count()
+    ///     .map(|p| p.unwrap().into_lsb().get())
+    ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
     ///

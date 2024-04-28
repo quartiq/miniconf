@@ -36,7 +36,6 @@ fn struct_iter_indices() {
 }
 
 #[test]
-#[inline(never)]
 fn array_iter() {
     #[derive(Tree, Copy, Clone, Default)]
     struct I {

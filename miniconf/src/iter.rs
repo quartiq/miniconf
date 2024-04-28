@@ -39,6 +39,7 @@ impl<T: Iterator> Iterator for Counting<T> {
 impl<T: Iterator> ExactSizeIterator for Counting<T> {}
 
 impl<T: FusedIterator> FusedIterator for Counting<T> {}
+
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
 
 /// A managed indices state for iteration of nodes in a `TreeKey`.

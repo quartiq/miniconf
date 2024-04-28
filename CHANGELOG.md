@@ -12,10 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Error::increment`/`Traversal::increment`
 * Uncounted iteration is the default and counted iteration is supported (includung
   `ExactSizeIterator`) through the `count()` "augmentation" methods on the iterators.
-* The `traverse_by_key` callback receives the field name as an `Option<&'static str>`
+* [breaking] The `traverse_by_key` callback receives the field name as an `Option<&'static str>`
   (`None` in the case of arrays and tuple structs).
-* The `Traversal` error enum has been split from the `Error<E>` enum to reduce genericism.
-* Field accessor/validation revamp: `getter -> get`, `setter -> get_mut` and `validate`
+* [breaking] The `Traversal` error enum has been split from the `Error<E>` enum to reduce genericism.
+* [breaking] Field accessor/validation revamp: `getter -> get`, `setter -> get_mut` and `validate`
   with more idiomatic usage and call timing.
 
 ### Added
@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `rename` field attribute for derive macros
 
 ### Removed
-* `TreeKey::iter_*_unchecked()` have been removed. Uncounted iteration is the default.
+* [breaking] `TreeKey::iter_*_unchecked()` have been removed. Uncounted iteration is the default.
 
 ## [0.10.1](https://github.com/quartiq/miniconf/compare/v0.10.0...v0.10.1) - 2024-04-22
 

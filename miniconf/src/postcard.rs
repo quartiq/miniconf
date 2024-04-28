@@ -51,7 +51,9 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     ) -> Result<F::Output, Error<postcard::Error>>;
 }
 
-impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> Postcard<'de, Y> for T {
+impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize> Postcard<'de, Y>
+    for T
+{
     fn set_postcard_by_key<K: IntoKeys, F: de_flavors::Flavor<'de>>(
         &mut self,
         keys: K,

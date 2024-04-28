@@ -73,6 +73,16 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
             #names
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
+
+            fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
+                let index = ::miniconf::Keys::next::<#depth, Self>(keys)?;
+                let defer = Self::__MINICONF_DEFERS.get(index)
+                    .ok_or(::miniconf::Traversal::NotFound(1))?;
+                if !defer {
+                    ::miniconf::Keys::finalize::<1>(keys)?;
+                }
+                Ok(index)
+            }
         }
 
         impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
@@ -166,12 +176,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 S: ::miniconf::Serializer,
             {
-                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer {
-                    ::miniconf::Keys::finalize::<1>(&mut keys)?;
-                }
+                let index = Self::__miniconf_lookup(&mut keys)?;
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
                 ::miniconf::increment_result(match index {
@@ -230,12 +235,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 D: ::miniconf::Deserializer<'de>,
             {
-                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer {
-                    ::miniconf::Keys::finalize::<1>(&mut keys)?;
-                }
+                let index = Self::__miniconf_lookup(&mut keys)?;
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
                 ::miniconf::increment_result(match index {
@@ -286,12 +286,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
             where
                 K: ::miniconf::Keys,
             {
-                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer {
-                    ::miniconf::Keys::finalize::<1>(&mut keys)?;
-                }
+                let index = Self::__miniconf_lookup(&mut keys)?;
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
                 {
@@ -307,12 +302,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
             where
                 K: ::miniconf::Keys,
             {
-                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer {
-                    ::miniconf::Keys::finalize::<1>(&mut keys)?;
-                }
+                let index = Self::__miniconf_lookup(&mut keys)?;
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
                 {

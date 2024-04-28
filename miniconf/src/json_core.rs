@@ -57,8 +57,8 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     ) -> Result<usize, Error<ser::Error>>;
 }
 
-impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCoreSlash<'de, Y>
-    for T
+impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize>
+    JsonCoreSlash<'de, Y> for T
 {
     fn set_json(&mut self, path: &str, data: &'de [u8]) -> Result<usize, Error<de::Error>> {
         self.set_json_by_key(path.split('/').skip(1), data)

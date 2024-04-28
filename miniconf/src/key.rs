@@ -5,19 +5,19 @@ use crate::{Traversal, TreeKey};
 /// Capability to convert a key into a node index for a given `M: TreeKey`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
+    fn find<const Y: usize, M: TreeKey<Y> + ?Sized>(&self) -> Option<usize>;
 }
 
 // `usize` index as Key
 impl Key for usize {
-    fn find<const Y: usize, M>(&self) -> Option<usize> {
+    fn find<const Y: usize, M: ?Sized>(&self) -> Option<usize> {
         Some(*self)
     }
 }
 
 // &str name as Key
 impl Key for &str {
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
+    fn find<const Y: usize, M: TreeKey<Y> + ?Sized>(&self) -> Option<usize> {
         M::name_to_index(self)
     }
 }
@@ -25,7 +25,7 @@ impl Key for &str {
 /// Capability to yield [`Key`]s
 pub trait Keys {
     /// Look up the next key in a [`TreeKey`] and convert to `usize` index.
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Result<usize, Traversal>;
+    fn next<const Y: usize, M: TreeKey<Y> + ?Sized>(&mut self) -> Result<usize, Traversal>;
 
     /// Return whether there are more keys.
     ///
@@ -47,7 +47,7 @@ where
     T: Iterator,
     T::Item: Key,
 {
-    fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Result<usize, Traversal> {
+    fn next<const Y: usize, M: TreeKey<Y> + ?Sized>(&mut self) -> Result<usize, Traversal> {
         let key = Iterator::next(self).ok_or(Traversal::TooShort(0))?;
         key.find::<Y, M>().ok_or(Traversal::NotFound(1))
     }
