@@ -466,6 +466,36 @@ pub trait TreeKey<const Y: usize = 1> {
         })
     }
 
+    /// Return the keys formatted as a JSON path.
+    ///
+    /// ```
+    /// # #[cfg(feature = "std")] {
+    /// # use miniconf::TreeKey;
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let mut s = String::new();
+    /// S::json_path([1, 1], &mut s).unwrap();
+    /// assert_eq!(s, ".bar[1]");
+    /// # }
+    /// ```
+    fn json_path<K, P>(keys: K, mut path: P) -> Result<usize, Error<core::fmt::Error>>
+    where
+        K: IntoKeys,
+        P: Write,
+    {
+        Self::traverse_by_key(keys.into_keys(), |index, name, _len| match name {
+            None => path
+                .write_char('[')
+                .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
+                .and_then(|_| path.write_char(']')),
+            Some(name) => path.write_char('.').and_then(|_| path.write_str(name)),
+        })
+    }
+
     /// Convert keys to `indices`.
     ///
     /// See also [`TreeKey::path()`].
