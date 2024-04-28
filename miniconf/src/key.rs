@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{Traversal, TreeKey};
 
 /// Capability to convert a key into a node index for a given `M: TreeKey`
@@ -92,11 +94,11 @@ where
 ///     "['foo']['bar'][4]['baz'][5][6]",
 ///     ".foo['bar'].4.'baz'['5'].'6'",
 /// ] {
-///     assert_eq!(&path[..], JsonPath::new(valid).collect::<Vec<_>>());
+///     assert_eq!(&path[..], JsonPath::from(valid).collect::<Vec<_>>());
 /// }
 ///
-/// for short in ["'", "[", ""] {
-///     assert!(JsonPath::new(short).next().is_none());
+/// for short in ["'", "[", "['"] {
+///     assert!(JsonPath::from(short).next().is_none());
 /// }
 /// # }
 /// ```
@@ -106,13 +108,23 @@ where
 /// * No attempt at validating conformance.
 /// * It does not support any escaping.
 ///
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
+#[repr(transparent)]
+#[serde(transparent)]
 pub struct JsonPath<'a>(&'a str);
 
-impl<'a> JsonPath<'a> {
-    /// Create a new `JsonPath`
-    pub fn new(path: &'a str) -> Self {
-        Self(path)
+impl<'a, T> From<&'a T> for JsonPath<'a>
+where
+    T: AsRef<str> + ?Sized,
+{
+    fn from(value: &'a T) -> Self {
+        Self(value.as_ref())
+    }
+}
+
+impl<'a> From<JsonPath<'a>> for &'a str {
+    fn from(value: JsonPath<'a>) -> Self {
+        value.0
     }
 }
 
@@ -123,7 +135,7 @@ impl<'a> Iterator for JsonPath<'a> {
         // Reappropriation of `Result` as `Either`
         for (open, close) in [
             (".'", Ok("'")),             // "'" inclusive
-            (".", Err(&['.', '['][..])), // '.' or '[' are exclusive
+            (".", Err(&['.', '['][..])), // '.' or '[' exclusive
             ("['", Ok("']")),            // "']" inclusive
             ("[", Ok("]")),              // "]" inclusive
         ] {

@@ -593,7 +593,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// S::json_path(idx, &mut s).unwrap();
     /// assert_eq!(s, ".bar[1]");
     ///
-    /// let (indices, depth) = S::indices(JsonPath::new(&s)).unwrap();
+    /// let (indices, depth) = S::indices(JsonPath::from(&s)).unwrap();
     /// assert_eq!(&indices[..depth], idx);
     /// # }
     /// ```

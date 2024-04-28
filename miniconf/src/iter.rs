@@ -4,8 +4,8 @@ use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 /// Counting wrapper for iterators
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Counting<T> {
-    count: usize,
     iter: T,
+    count: usize,
 }
 
 impl<T> Counting<T> {
