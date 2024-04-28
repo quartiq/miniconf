@@ -21,7 +21,10 @@ fn packed() {
     path.clear();
 
     // Check path-packed round trip.
-    for iter_path in Settings::iter_paths::<String>("/").map(Result::unwrap) {
+    for iter_path in Settings::iter_paths::<String>("/")
+        .count()
+        .map(Result::unwrap)
+    {
         let (packed, _depth) = Settings::packed(iter_path.split("/").skip(1)).unwrap();
         Settings::path(packed, &mut path, "/").unwrap();
         assert_eq!(path, iter_path);

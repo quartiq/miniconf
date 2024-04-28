@@ -608,6 +608,7 @@ pub trait TreeKey<const Y: usize = 1> {
 ///
 /// ```
 /// # use miniconf::{TreeAny, TreeKey};
+/// # use core::any::Any;
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
@@ -617,7 +618,8 @@ pub trait TreeKey<const Y: usize = 1> {
 /// let s = S::default();
 /// for (k, depth) in S::iter_indices() {
 ///     let a = s.get_by_key(k.into_iter().take(depth)).unwrap();
-///     eprintln!("{:?}", (&*a).type_id());
+///     let t = (&*a).type_id();
+///     assert!([0u32.type_id(), 0u16.type_id()].contains(&t));
 /// }
 /// ```
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {

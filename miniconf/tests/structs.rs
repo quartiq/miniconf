@@ -83,7 +83,7 @@ fn recursive_struct() {
 fn empty_struct() {
     #[derive(Tree, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<String>("/").next().is_none());
+    assert!(Settings::iter_paths::<String>("/").count().next().is_none());
 }
 
 #[test]
