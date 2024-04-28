@@ -144,7 +144,7 @@ where
                     continue;
                 }
                 Some(Ok(_depth)) => Some(Ok(path)),
-                Some(Err((_depth, e))) => Some(Err(e)),
+                Some(Err((_depth, err))) => Some(Err(err)),
             };
         }
     }

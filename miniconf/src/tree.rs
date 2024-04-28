@@ -135,11 +135,11 @@ impl<E: core::fmt::Display> Display for Error<E> {
 
 // Try to extract the Traversal from an Error
 impl<E> TryFrom<Error<E>> for Traversal {
-    type Error = ();
+    type Error = Error<E>;
     fn try_from(value: Error<E>) -> Result<Self, Self::Error> {
         match value {
             Error::Traversal(e) => Ok(e),
-            _ => Err(()),
+            e => Err(e),
         }
     }
 }
@@ -568,10 +568,11 @@ pub trait TreeKey<const Y: usize = 1> {
         K: IntoKeys,
         P: Write,
     {
-        Self::traverse_by_key(keys.into_keys(), |index, name, _len| {
+        let func = |index, name: Option<_>, _len| {
             path.write_str(separator)
                 .and_then(|_| path.write_str(name.unwrap_or(itoa::Buffer::new().format(index))))
-        })
+        };
+        Self::traverse_by_key(keys.into_keys(), func)
     }
 
     /// Return the keys formatted as a normalized JSON path.
@@ -602,13 +603,14 @@ pub trait TreeKey<const Y: usize = 1> {
         K: IntoKeys,
         P: Write,
     {
-        Self::traverse_by_key(keys.into_keys(), |index, name, _len| match name {
+        let func = |index, name, _len| match name {
             Some(name) => path.write_char('.').and_then(|_| path.write_str(name)),
             None => path
                 .write_char('[')
                 .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
                 .and_then(|_| path.write_char(']')),
-        })
+        };
+        Self::traverse_by_key(keys.into_keys(), func)
     }
 
     /// Convert keys to `indices`.
