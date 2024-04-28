@@ -1,7 +1,7 @@
 use core::any::Any;
 
 use crate::{
-    digits, increment_result, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey,
+    digits, increment_result, Error, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey,
     TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
@@ -104,13 +104,12 @@ impl<T, const N: usize> TreeKey for [T; N] {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        let key = keys.next(N).ok_or(Error::TooShort(0))?;
-        match key.find::<1, Self>() {
-            Some(index) if index < N => {
-                func(index, None, N)?;
-                Ok(1)
-            }
-            _ => Err(Error::NotFound(1)),
+        let index = keys.lookup::<1, Self, _>()?;
+        if index < N {
+            func(index, None, N)?;
+            Ok(1)
+        } else {
+            Err(Error::NotFound(1))
         }
     }
 

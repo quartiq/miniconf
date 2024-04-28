@@ -1,7 +1,7 @@
 use crate::{Error, TreeKey};
 
 /// Capability to convert a key into a node index for a given `M: TreeKey`
-pub trait Key {
+trait Key {
     /// Convert the key `self` to a `usize` index
     fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
 }
