@@ -94,7 +94,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let name = #index_to_name;
                 func(index, name, Self::len())?;
                 ::miniconf::increment_result(match index {
@@ -166,7 +166,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 S: ::miniconf::Serializer,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
@@ -230,7 +230,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 D: ::miniconf::Deserializer<'de>,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
@@ -286,7 +286,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
             where
                 K: ::miniconf::Keys,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
@@ -307,7 +307,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
             where
                 K: ::miniconf::Keys,
             {
-                let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
+                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
                     .ok_or(::miniconf::Error::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {

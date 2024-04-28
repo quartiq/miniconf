@@ -4,7 +4,7 @@ use core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{IntoKeys, Keys};
+use crate::{IntoKeys, Key, Keys};
 
 /// A bit-packed representation of `TreeKey` indices.
 ///
@@ -213,10 +213,10 @@ impl Packed {
 }
 
 impl Keys for Packed {
-    type Item = usize;
-
-    fn next(&mut self, len: usize) -> Option<Self::Item> {
-        self.pop_msb(Self::bits_for(len.saturating_sub(1)))
+    fn next<const Y: usize, M: crate::TreeKey<Y>>(&mut self) -> Result<usize, crate::Error<()>> {
+        let bits = Self::bits_for(M::len().saturating_sub(1));
+        let index = self.pop_msb(bits).ok_or(crate::Error::TooShort(0))?;
+        index.find::<Y, M>().ok_or(crate::Error::NotFound(1))
     }
 
     #[inline]
