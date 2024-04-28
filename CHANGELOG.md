@@ -14,9 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ExactSizeIterator`) through the `count()` "augmentation" methods on the iterators.
 * The `traverse_by_key` callback receives the field name as an `Option<&'static str>`
   (`None` in the case of arrays and tuple structs).
+* The `Traversal` error enum has been split of from the `Error<E>` enum to reduce genericism.
 
 ### Added
 * `TreeAny` to access nodes trough `Any` trait objects.
+* `TreeKey::json_path()`
+* `JsonPath: Keys`
 
 ## [0.10.1](https://github.com/quartiq/miniconf/compare/v0.10.0...v0.10.1) - 2024-04-22
 

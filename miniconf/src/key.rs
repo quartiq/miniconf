@@ -66,3 +66,59 @@ where
         self.into_iter()
     }
 }
+
+/// JSON style path notation
+///
+/// Supported are both dot an key notation
+/// as well as mixtures:
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # {
+/// # use miniconf::JsonPath;
+/// let path = ["foo", "bar", "4", "baz", "5", "6"];
+/// for valid in [
+///     ".foo.bar[4].baz[5][6]",
+///     "['foo']['bar'][4]['baz'][5][6]",
+///     ".foo['bar'].4.baz['5'][6]",
+/// ] {
+///     assert_eq!(&path[..], JsonPath::new(valid).collect::<Vec<_>>());
+/// }
+///
+/// for short in ["'", "[", ""] {
+///     assert!(JsonPath::new(short).next().is_none());
+/// }
+/// # }
+/// ```
+#[derive(Clone, Debug)]
+pub struct JsonPath<'a>(&'a str);
+
+impl<'a> JsonPath<'a> {
+    /// Create a new `JsonPath`
+    pub fn new(path: &'a str) -> Self {
+        Self(path)
+    }
+}
+
+impl<'a> Iterator for JsonPath<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        for (open, close) in [
+            (".", Err(&['.', '['][..])),
+            ("['", Ok("']")),
+            ("[", Ok("]")),
+        ] {
+            if let Some(rest) = self.0.strip_prefix(open) {
+                let (end, sep) = match close {
+                    Err(close) => (rest.find(close).unwrap_or(rest.len()), 0),
+                    Ok(close) => (rest.find(close)?, close.len()),
+                };
+                let (next, rest) = rest.split_at(end);
+                self.0 = &rest[sep..];
+                return Some(next);
+            }
+        }
+        None
+    }
+}

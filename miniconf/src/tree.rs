@@ -158,7 +158,7 @@ pub fn increment_result<E>(result: Result<usize, Error<E>>) -> Result<usize, Err
 
 /// Metadata about a [TreeKey] namespace.
 ///
-/// Metadata includes paths that may be [`Error::Absent`] at runtime.
+/// Metadata includes paths that may be [`Traversal::Absent`] at runtime.
 #[non_exhaustive]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
@@ -345,7 +345,7 @@ impl Metadata {
 /// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::iter_paths()`]) but attempts
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
 /// [`TreeAny::get_by_key()`], or [`TreeAny::get_mut_by_key()`])
-/// return [`Error::Absent`].
+/// return [`Traversal::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// the nodes will not be exposed for serialization/deserialization.
@@ -501,11 +501,14 @@ pub trait TreeKey<const Y: usize = 1> {
         })
     }
 
-    /// Return the keys formatted as a JSON path.
+    /// Return the keys formatted as a normalized JSON path.
+    ///
+    /// * named fields (struct) in dot notation
+    /// * indices (tuple struct, array) in key notation
     ///
     /// ```
     /// # #[cfg(feature = "std")] {
-    /// # use miniconf::TreeKey;
+    /// # use miniconf::{TreeKey, JsonPath};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -513,8 +516,13 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: [u16; 2],
     /// };
     /// let mut s = String::new();
-    /// S::json_path([1, 1], &mut s).unwrap();
+    /// let idx = [1, 1];
+    /// S::json_path(idx, &mut s).unwrap();
     /// assert_eq!(s, ".bar[1]");
+    ///
+    /// let mut idx_new = [0; 5];
+    /// let len = S::indices(JsonPath::new(&s), &mut idx_new).unwrap();
+    /// assert_eq!(&idx_new[..len], idx);
     /// # }
     /// ```
     fn json_path<K, P>(keys: K, mut path: P) -> Result<usize, Error<core::fmt::Error>>
@@ -523,11 +531,11 @@ pub trait TreeKey<const Y: usize = 1> {
         P: Write,
     {
         Self::traverse_by_key(keys.into_keys(), |index, name, _len| match name {
+            Some(name) => path.write_char('.').and_then(|_| path.write_str(name)),
             None => path
                 .write_char('[')
                 .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
                 .and_then(|_| path.write_char(']')),
-            Some(name) => path.write_char('.').and_then(|_| path.write_str(name)),
         })
     }
 
