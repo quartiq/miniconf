@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.10.1...HEAD) - RELEASE-DATE
 
 ### Changed
-* `Increment` trait and blanket impl removed in favor of `increment_result`
+* `Increment` trait and blanket impl removed in favor of `increment_result` and `Error::increment`
 * `TreeKey::iter_*_unchecked()` have been removed in favor of performing an
   uncounted iteration by default and supporting counted iteration (unclidung
   `ExactSizeIterator`) through the `count()` "augmentation" methods on the iterators.
+* The `traverse_by_key` callback receives the field name as an `Option<&'static str>`
+  (`None` in the case of arrays and tuple structs).
 
 ### Added
 * `TreeAny` to access nodes trough `Any` trait objects.

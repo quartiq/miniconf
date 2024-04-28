@@ -20,7 +20,7 @@ impl Key for &str {
     }
 }
 
-/// Capability to yield keys given `M: TreeKey`
+/// Capability to yield [`Key`]s
 pub trait Keys {
     /// The type of key that we yield.
     type Item: Key;

@@ -23,13 +23,36 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     });
 
     let fields = tree.fields();
+    let fields_len = fields.len();
 
-    let name_to_index = if fields.iter().all(|f| f.ident.is_none()) {
-        quote!(str::parse(value).ok())
-    } else {
-        assert!(fields.iter().all(|f| f.ident.is_some()));
-        quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value))
-    };
+    let (names, name_to_index, index_to_name, index_len) =
+        if fields.iter().all(|f| f.ident.is_none()) {
+            (
+                None,
+                quote!(str::parse(value).ok()),
+                quote!(if index >= #fields_len {
+                    Err(::miniconf::Error::NotFound(1))?
+                } else {
+                    None
+                }),
+                quote!(::miniconf::digits::<10>(index)),
+            )
+        } else {
+            let names = fields.iter().map(|field| {
+                let name = field.name().unwrap();
+                quote! { stringify!(#name) }
+            });
+            (
+                Some(quote!(const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];)),
+                quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
+                quote!(Some(
+                    *Self::__MINICONF_NAMES
+                        .get(index)
+                        .ok_or(::miniconf::Error::NotFound(1))?
+                )),
+                quote!(Self::__MINICONF_NAMES[index].len()),
+            )
+        };
 
     let traverse_by_key_arms = fields
         .iter()
@@ -39,11 +62,6 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         .iter()
         .enumerate()
         .filter_map(|(i, field)| field.metadata(i));
-    let names = fields.iter().enumerate().map(|(i, field)| {
-        let name = field.name_or_index(i);
-        quote! { stringify!(#name) }
-    });
-    let fields_len = fields.len();
     let defers = fields.iter().map(|field| field.depth > 0);
     let depth = tree.depth();
     let ident = &tree.ident;
@@ -53,14 +71,14 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
-            const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
+            #names
             const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
         }
 
         impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
             #[inline]
             fn len() -> usize {
-                Self::__MINICONF_NAMES.len()
+                #fields_len
             }
 
             #[inline]
@@ -74,11 +92,10 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             ) -> Result<usize, ::miniconf::Error<E>>
             where
                 K: ::miniconf::Keys,
-                F: FnMut(usize, &str, usize) -> Result<(), E>,
+                F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
                 let index = ::miniconf::Keys::lookup::<#depth, Self, _>(&mut keys)?;
-                let name = Self::__MINICONF_NAMES.get(index)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                let name = #index_to_name;
                 func(index, name, Self::len())?;
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
@@ -98,7 +115,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                         }
                     };
                     meta.max_length = meta.max_length.max(
-                        Self::__MINICONF_NAMES[index].len() +
+                        #index_len +
                         item_meta.max_length
                     );
                     meta.max_depth = meta.max_depth.max(
@@ -180,7 +197,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
         if depth > 0 {
             Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
         } else {
-            Some(parse_quote!(::miniconf::DeserializeOwned))
+            Some(parse_quote!(::miniconf::Deserialize<'de>))
         }
     });
 
@@ -282,7 +299,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                         #(#get_by_key_arms ,)*
                         _ => unreachable!()
                     };
-                    ret.map_err(::miniconf::increment_error)
+                    ret.map_err(::miniconf::Error::increment)
                 }
             }
 
@@ -303,7 +320,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                         #(#get_mut_by_key_arms ,)*
                         _ => unreachable!()
                     };
-                    ret.map_err(::miniconf::increment_error)
+                    ret.map_err(::miniconf::Error::increment)
                 }
             }
         }

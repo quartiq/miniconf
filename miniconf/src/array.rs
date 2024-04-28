@@ -1,22 +1,10 @@
 use core::any::Any;
 
 use crate::{
-    increment_error, increment_result, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize,
-    TreeKey, TreeSerialize,
+    digits, increment_result, Error, Key, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey,
+    TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
-
-/// Returns the number of digits required to format an integer less than `x`.
-const fn digits<const BASE: usize>(x: usize) -> usize {
-    let mut max = BASE;
-    let mut digits = 1;
-
-    while x > max {
-        max *= BASE;
-        digits += 1;
-    }
-    digits
-}
 
 // Y >= 2
 macro_rules! depth {
@@ -33,13 +21,13 @@ macro_rules! depth {
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
             where
                 K: Keys,
-                F: FnMut(usize, &str, usize) -> Result<(), E>,
+                F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
                 let index = keys.lookup::<$y, Self, _>()?;
                 if index >= N {
                     return Err(Error::NotFound(1));
                 }
-                func(index, itoa::Buffer::new().format(index), N)?;
+                func(index, None, N)?;
                 increment_result(T::traverse_by_key(keys, func))
             }
 
@@ -85,7 +73,7 @@ macro_rules! depth {
             {
                 let index = keys.lookup::<1, Self, _>()?;
                 let item = self.get(index).ok_or(Error::NotFound(1))?;
-                item.get_by_key(keys).map_err(increment_error)
+                item.get_by_key(keys).map_err(Error::increment)
             }
 
             fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
@@ -94,7 +82,7 @@ macro_rules! depth {
             {
                 let index = keys.lookup::<1, Self, _>()?;
                 let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-                item.get_mut_by_key(keys).map_err(increment_error)
+                item.get_mut_by_key(keys).map_err(Error::increment)
             }
         }
     )+}
@@ -114,12 +102,12 @@ impl<T, const N: usize> TreeKey for [T; N] {
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, &str, usize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
         let key = keys.next(N).ok_or(Error::TooShort(0))?;
         match key.find::<1, Self>() {
             Some(index) if index < N => {
-                func(index, itoa::Buffer::new().format(index), N)?;
+                func(index, None, N)?;
                 Ok(1)
             }
             _ => Err(Error::NotFound(1)),

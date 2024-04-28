@@ -22,7 +22,7 @@ macro_rules! depth {
             fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
             where
                 K: Keys,
-                F: FnMut(usize, &str, usize) -> Result<(), E>,
+                F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
                 T::traverse_by_key(keys, func)
             }
@@ -83,7 +83,7 @@ impl<T> TreeKey for Option<T> {
 
     fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
     where
-        F: FnMut(usize, &str, usize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
         Ok(0)
     }

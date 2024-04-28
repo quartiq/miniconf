@@ -53,7 +53,7 @@ fn other_type() {
     // through a variable offset, fixed length array.
     #[derive(Default, Tree)]
     struct S {
-        #[tree(depth=1, typ="[i32; 4]", get=Self::get::<4>, get_mut=Self::get_mut::<4>)]
+        #[tree(depth=1, typ="[i32; 4]", get=Self::get::<4>, get_mut=Self::get_mut::<4>, rename=arr)]
         vec: Vec<i32>,
         offset: usize,
     }
@@ -78,11 +78,11 @@ fn other_type() {
     let mut s = S::default();
     s.vec.resize(10, 0);
     s.set_json("/offset", b"3").unwrap();
-    s.set_json("/vec/1", b"5").unwrap();
+    s.set_json("/arr/1", b"5").unwrap();
     assert_eq!(s.vec[s.offset + 1], 5);
     let mut buf = [0; 10];
-    let len = s.get_json("/vec/1", &mut buf[..]).unwrap();
+    let len = s.get_json("/arr/1", &mut buf[..]).unwrap();
     assert_eq!(buf[..len], b"5"[..]);
     s.set_json("/offset", b"100").unwrap();
-    assert_eq!(s.set_json("/vec/1", b"5"), Err(Error::Access(1, "range")));
+    assert_eq!(s.set_json("/arr/1", b"5"), Err(Error::Access(1, "range")));
 }

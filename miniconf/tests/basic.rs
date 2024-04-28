@@ -58,7 +58,7 @@ fn indices() {
 fn traverse_empty() {
     #[derive(Tree, Default)]
     struct S {}
-    let f = |_, _: &_, _| unreachable!();
+    let f = |_, _, _| unreachable!();
     assert_eq!(
         S::traverse_by_key([0].into_iter(), f),
         Err(Error::<()>::NotFound(1))

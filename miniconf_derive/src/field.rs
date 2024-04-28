@@ -20,6 +20,7 @@ pub struct TreeField {
     pub validate: Option<syn::Path>,
     pub get: Option<syn::Path>,
     pub get_mut: Option<syn::Path>,
+    pub rename: Option<syn::Ident>,
 }
 
 impl TreeField {
@@ -27,7 +28,11 @@ impl TreeField {
         self.typ.as_ref().unwrap_or(&self.ty)
     }
 
-    pub(crate) fn name_or_index(&self, i: usize) -> TokenStream {
+    pub(crate) fn name(&self) -> Option<&syn::Ident> {
+        self.rename.as_ref().or(self.ident.as_ref())
+    }
+
+    fn ident_or_index(&self, i: usize) -> TokenStream {
         match &self.ident {
             None => {
                 let index = syn::Index::from(i);
@@ -64,7 +69,7 @@ impl TreeField {
     }
 
     fn getter(&self, i: usize) -> TokenStream {
-        let ident = self.name_or_index(i);
+        let ident = self.ident_or_index(i);
         match &self.get {
             Some(get) => quote! {
                 #get(self).map_err(|msg| ::miniconf::Error::Access(0, msg))
@@ -74,7 +79,7 @@ impl TreeField {
     }
 
     fn getter_mut(&self, i: usize) -> TokenStream {
-        let ident = self.name_or_index(i);
+        let ident = self.ident_or_index(i);
         match &self.get_mut {
             Some(get_mut) => quote!(
                 #get_mut(self).map_err(|msg| ::miniconf::Error::Access(0, msg))
