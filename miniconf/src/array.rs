@@ -6,26 +6,36 @@ use crate::{
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
-fn get<'a, const Y: usize, const N: usize, K: Keys, T>(
+fn get<'a, const Y: usize, const N: usize, K, T>(
     arr: &'a [T; N],
     keys: &mut K,
 ) -> Result<&'a T, Traversal>
 where
     [T; N]: TreeKey<Y>,
+    K: Keys,
 {
     let index = keys.next::<Y, [T; N]>()?;
-    arr.get(index).ok_or(Traversal::NotFound(1))
+    let item = arr.get(index).ok_or(Traversal::NotFound(1))?;
+    if Y == 1 {
+        keys.finalize::<1>()?;
+    }
+    Ok(item)
 }
 
-fn get_mut<'a, const Y: usize, const N: usize, K: Keys, T>(
+fn get_mut<'a, const Y: usize, const N: usize, K, T>(
     arr: &'a mut [T; N],
     keys: &mut K,
 ) -> Result<&'a mut T, Traversal>
 where
     [T; N]: TreeKey<Y>,
+    K: Keys,
 {
     let index = keys.next::<Y, [T; N]>()?;
-    arr.get_mut(index).ok_or(Traversal::NotFound(1))
+    let item = arr.get_mut(index).ok_or(Traversal::NotFound(1))?;
+    if Y == 1 {
+        keys.finalize::<1>()?;
+    }
+    Ok(item)
 }
 
 // Y >= 2
@@ -134,9 +144,8 @@ impl<T, const N: usize> TreeKey for [T; N] {
         if index >= N {
             Err(Traversal::NotFound(1))?
         }
-        func(index, None, N)
-            .map_err(|err| Error::Inner(1, err))
-            .and(Ok(1))
+        func(index, None, N).map_err(|err| Error::Inner(1, err))?;
+        Ok(1)
     }
 }
 
@@ -147,11 +156,8 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         S: Serializer,
     {
         let item = get::<1, N, _, _>(self, &mut keys)?;
-        // Precedence
-        keys.finalize::<1>()?;
-        item.serialize(ser)
-            .map_err(|err| Error::Inner(1, err))
-            .and(Ok(1))
+        item.serialize(ser).map_err(|err| Error::Inner(1, err))?;
+        Ok(1)
     }
 }
 
@@ -162,8 +168,6 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         D: Deserializer<'de>,
     {
         let item = get_mut::<1, N, _, _>(self, &mut keys)?;
-        // Precedence
-        keys.finalize::<1>()?;
         *item = T::deserialize(de).map_err(|err| Error::Inner(1, err))?;
         Ok(1)
     }
@@ -174,19 +178,13 @@ impl<T: Any, const N: usize> TreeAny for [T; N] {
     where
         K: Keys,
     {
-        let item = get::<1, N, _, _>(self, &mut keys)?;
-        // Precedence
-        keys.finalize::<1>()?;
-        Ok(item)
+        Ok(get::<1, N, _, _>(self, &mut keys)?)
     }
 
     fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
-        let item = get_mut::<1, N, _, _>(self, &mut keys)?;
-        // Precedence
-        keys.finalize::<1>()?;
-        Ok(item)
+        Ok(get_mut::<1, N, _, _>(self, &mut keys)?)
     }
 }
