@@ -116,8 +116,9 @@ impl<T, const N: usize> TreeKey for [T; N] {
         if index >= N {
             Err(Traversal::NotFound(1))?
         }
-        func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-        Ok(keys.finalize::<1>()?)
+        func(index, None, N)
+            .map_err(|err| Error::Inner(1, err))
+            .and(Ok(1))
     }
 }
 

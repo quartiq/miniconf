@@ -77,7 +77,7 @@ impl<const Y: usize> State<Y> {
     fn handle<E>(&mut self, ret: Result<usize, Error<E>>) -> Option<Result<usize, (usize, E)>> {
         match ret {
             // Node found, save depth for increment at next iteration
-            Ok(depth) | Err(Error::Traversal(Traversal::TooLong(depth))) => {
+            Ok(depth) => {
                 self.depth = depth;
                 Some(Ok(depth))
             }
@@ -93,7 +93,7 @@ impl<const Y: usize> State<Y> {
             // `NotFound` as they don't do key lookup.
             // Traversal::TooShort(_): Excluded by construction (`state.len() == Y` and `Y` being an
             // upper bound to key length as per the `TreeKey<Y>` contract.
-            // Absent, Finalization, InvalidLead, InvalidInternal:
+            // TooLong, Absent, Finalization, InvalidLead, InvalidInternal:
             // Are not returned by traverse_by_key()
             _ => unreachable!(),
         }

@@ -31,11 +31,11 @@ pub trait Keys {
     fn is_empty(&mut self) -> bool;
 
     /// Check for no remaining keys.
-    fn finalize<const Y: usize>(&mut self) -> Result<usize, Traversal> {
+    fn finalize<const Y: usize>(&mut self) -> Result<(), Traversal> {
         if !self.is_empty() {
             Err(Traversal::TooLong(Y))
         } else {
-            Ok(Y)
+            Ok(())
         }
     }
 }

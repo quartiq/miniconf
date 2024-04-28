@@ -94,12 +94,12 @@ impl<T> TreeKey for Option<T> {
         }
     }
 
-    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
+    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        Ok(keys.finalize::<0>()?)
+        Ok(0)
     }
 }
 
@@ -116,7 +116,7 @@ impl<T: Serialize> TreeSerialize for Option<T> {
                 .map_err(|err| Error::Inner(0, err))
                 .and(Ok(0))
         } else {
-            Err(Traversal::Absent(0))?
+            Err(Traversal::Absent(0).into())
         }
     }
 }
@@ -132,7 +132,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
             *inner = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
             Ok(0)
         } else {
-            Err(Traversal::Absent(0))?
+            Err(Traversal::Absent(0).into())
         }
     }
 }

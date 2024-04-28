@@ -585,11 +585,9 @@ pub trait TreeKey<const Y: usize = 1> {
             *idx = index;
             Ok(())
         };
-        let ret = Self::traverse_by_key(keys.into_keys(), func);
-        match ret.map_err(|err| err.try_into().unwrap()) {
-            Ok(depth) | Err(Traversal::TooLong(depth)) => Ok((indices, depth)),
-            Err(err) => Err(err),
-        }
+        Self::traverse_by_key(keys.into_keys(), func)
+            .map_err(|err| err.try_into().unwrap())
+            .map(|depth| (indices, depth))
     }
 
     /// Convert keys to packed usize bitfield representation.
@@ -627,11 +625,7 @@ pub trait TreeKey<const Y: usize = 1> {
                 .ok_or(())
                 .and(Ok(()))
         };
-        let ret = Self::traverse_by_key(keys.into_keys(), func);
-        match ret {
-            Ok(depth) | Err(Error::Traversal(Traversal::TooLong(depth))) => Ok((packed, depth)),
-            Err(err) => Err(err),
-        }
+        Self::traverse_by_key(keys.into_keys(), func).map(|depth| (packed, depth))
     }
 
     /// Create an iterator of all possible paths.

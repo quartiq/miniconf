@@ -123,8 +123,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 func(index, name, Self::len()).map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
-                    _ => ::miniconf::Keys::finalize::<0>(&mut keys)
-                        .map_err(::miniconf::Error::Traversal),
+                    _ => Ok(0),
                 })
             }
         }

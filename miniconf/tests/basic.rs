@@ -61,10 +61,7 @@ fn traverse_empty() {
         S::traverse_by_key([0; 0].into_iter(), f),
         Err(Traversal::TooShort(0).into())
     );
-    assert_eq!(
-        Option::<i32>::traverse_by_key([0].into_iter(), f),
-        Err(Traversal::TooLong(0).into())
-    );
+    assert_eq!(Option::<i32>::traverse_by_key([0].into_iter(), f), Ok(0));
     assert_eq!(Option::<i32>::traverse_by_key([0; 0].into_iter(), f), Ok(0));
     assert_eq!(
         <Option::<S> as TreeKey<2>>::traverse_by_key([0].into_iter(), f),
