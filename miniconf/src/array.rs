@@ -7,12 +7,12 @@ use crate::{
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
-const fn digits(x: usize) -> usize {
-    let mut max = 10;
+const fn digits<const BASE: usize>(x: usize) -> usize {
+    let mut max = BASE;
     let mut digits = 1;
 
     while x > max {
-        max *= 10;
+        max *= BASE;
         digits += 1;
     }
     digits
@@ -46,7 +46,7 @@ macro_rules! depth {
             fn metadata() -> Metadata {
                 let mut meta = T::metadata();
 
-                meta.max_length += digits(N);
+                meta.max_length += digits::<10>(N);
                 meta.max_depth += 1;
                 meta.count *= N;
 
@@ -128,7 +128,7 @@ impl<T, const N: usize> TreeKey for [T; N] {
 
     fn metadata() -> Metadata {
         Metadata {
-            max_length: digits(N),
+            max_length: digits::<10>(N),
             max_depth: 1,
             count: N,
         }

@@ -25,8 +25,7 @@ impl<T: Iterator> Iterator for Counting<T> {
             self.count -= 1;
             Some(v)
         } else {
-            debug_assert_eq!(self.count, 0);
-            None
+            unreachable!();
         }
     }
 
@@ -35,52 +34,57 @@ impl<T: Iterator> Iterator for Counting<T> {
     }
 }
 
+// Even though general TreeKey iterations may well be longer than usize::MAX
+// we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for Counting<T> {}
+
 impl<T: FusedIterator> FusedIterator for Counting<T> {}
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
 
-/// An iterator over nodes in a `TreeKey`.
+/// A managed indices state for iteration of nodes in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Iter<const Y: usize> {
+struct State<const Y: usize> {
     state: [usize; Y],
-    depth: Option<usize>,
+    depth: usize,
 }
 
-impl<const Y: usize> Default for Iter<Y> {
+impl<const Y: usize> Default for State<Y> {
     fn default() -> Self {
         Self {
             state: [0; Y],
-            depth: None,
+            depth: usize::MAX,
         }
     }
 }
 
-impl<const Y: usize> Iter<Y> {
+impl<const Y: usize> State<Y> {
+    /// Try to prepare for the next iteratiion
+    ///
+    /// Increment current current index and return indices iterator.
     fn next(&mut self) -> Option<impl Iterator<Item = usize> + '_> {
-        match self.depth {
-            // Initial state, `handle()` will set a depth
-            None => Some(self.state.iter().copied()),
+        if self.depth == 0 {
             // Found root leaf (Option/newtype) or done at root
-            Some(0) => None,
-            // Increment current depth
-            Some(depth) => {
-                self.state[depth - 1] += 1;
-                Some(self.state.iter().copied())
-            }
+            return None;
         }
+        if self.depth != usize::MAX {
+            // Not initial state: increment
+            self.state[self.depth - 1] += 1;
+        }
+        Some(self.state.iter().copied())
     }
 
+    /// Handle the result of a `traverse_by_key()` and update `depth` for next iteration.
     fn handle<E>(&mut self, ret: Result<usize, Error<E>>) -> Option<Result<usize, (usize, E)>> {
         match ret {
-            // Node found
+            // Node found, save depth for increment at next iteration
             Ok(depth) => {
-                self.depth = Some(depth);
+                self.depth = depth;
                 Some(Ok(depth))
             }
             // Node not found at finite depth: reset current index, then retry
             Err(Error::NotFound(depth @ 1..)) => {
                 self.state[depth - 1] = 0;
-                self.depth = Some(depth - 1);
+                self.depth = depth - 1;
                 None
             }
             Err(Error::Inner(depth, err)) => Some(Err((depth, err))),
@@ -107,15 +111,15 @@ impl<const Y: usize> Iter<Y> {
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
-    iter: Iter<Y>,
+    state: State<Y>,
     separator: &'a str,
     pm: PhantomData<(P, M)>,
 }
 
-impl<'a, M: ?Sized + TreeKey<Y>, const Y: usize, P> PathIter<'a, M, Y, P> {
+impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P> PathIter<'a, M, Y, P> {
     pub(crate) fn new(separator: &'a str) -> Self {
         Self {
-            iter: Iter::default(),
+            state: State::default(),
             separator,
             pm: PhantomData,
         }
@@ -125,7 +129,7 @@ impl<'a, M: ?Sized + TreeKey<Y>, const Y: usize, P> PathIter<'a, M, Y, P> {
     ///
     /// Note(panic): Panics, if the iterator had `next()` called.
     pub fn count(self) -> Counting<Self> {
-        assert!(self.iter.depth.is_none());
+        assert!(self.state.depth == usize::MAX);
         Counting::new(self, M::metadata().count)
     }
 }
@@ -139,10 +143,10 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let keys = self.iter.next()?;
+            let keys = self.state.next()?;
             let mut path = P::default();
             let ret = M::path(keys, &mut path, self.separator);
-            return match self.iter.handle(ret) {
+            return match self.state.handle(ret) {
                 None => {
                     continue;
                 }
@@ -155,7 +159,7 @@ where
 
 impl<'a, M, const Y: usize, P> core::iter::FusedIterator for PathIter<'a, M, Y, P>
 where
-    M: TreeKey<Y>,
+    M: TreeKey<Y> + ?Sized,
     P: Write + Default,
 {
 }
@@ -165,25 +169,25 @@ where
 /// The iterator yields `(indices: [usize; Y], depth: usize)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexIter<M: ?Sized, const Y: usize> {
-    iter: Iter<Y>,
+    state: State<Y>,
     m: PhantomData<M>,
 }
 
 impl<M: ?Sized, const Y: usize> Default for IndexIter<M, Y> {
     fn default() -> Self {
         Self {
-            iter: Iter::default(),
+            state: State::default(),
             m: PhantomData,
         }
     }
 }
 
-impl<M: ?Sized + TreeKey<Y>, const Y: usize> IndexIter<M, Y> {
+impl<M: TreeKey<Y> + ?Sized, const Y: usize> IndexIter<M, Y> {
     /// Wrap the iterator in an exact size counting iterator.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called.
     pub fn count(self) -> Counting<Self> {
-        assert!(self.iter.depth.is_none());
+        assert!(self.state.depth == usize::MAX);
         Counting::new(self, M::metadata().count)
     }
 }
@@ -196,45 +200,45 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let keys = self.iter.next()?;
+            let keys = self.state.next()?;
             let ret = M::traverse_by_key(keys, |_, _, _| Ok(()));
-            return match self.iter.handle(ret) {
+            return match self.state.handle(ret) {
                 None => {
                     continue;
                 }
-                Some(Ok(depth)) => Some((self.iter.state, depth)),
+                Some(Ok(depth)) => Some((self.state.state, depth)),
                 Some(Err((_, ()))) => unreachable!(),
             };
         }
     }
 }
 
-impl<M, const Y: usize> FusedIterator for IndexIter<M, Y> where M: TreeKey<Y> {}
+impl<M, const Y: usize> FusedIterator for IndexIter<M, Y> where M: TreeKey<Y> + ?Sized {}
 
 /// An iterator over packed indices in a `TreeKey`.
 ///
 /// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackedIter<M: ?Sized, const Y: usize> {
-    iter: Iter<Y>,
+    state: State<Y>,
     m: PhantomData<M>,
 }
 
 impl<M: ?Sized, const Y: usize> Default for PackedIter<M, Y> {
     fn default() -> Self {
         Self {
-            iter: Iter::default(),
+            state: State::default(),
             m: PhantomData,
         }
     }
 }
 
-impl<M: ?Sized + TreeKey<Y>, const Y: usize> PackedIter<M, Y> {
+impl<M: TreeKey<Y> + ?Sized, const Y: usize> PackedIter<M, Y> {
     /// Wrap the iterator in an exact size counting iterator.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called.
     pub fn count(self) -> Counting<Self> {
-        assert!(self.iter.depth.is_none());
+        assert!(self.state.depth == usize::MAX);
         Counting::new(self, M::metadata().count)
     }
 }
@@ -247,13 +251,13 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            let keys = self.iter.next()?;
+            let keys = self.state.next()?;
             let mut packed = Packed::default();
             let ret = M::packed(keys).map(|(p, depth)| {
                 packed = p;
                 depth
             });
-            return match self.iter.handle(ret) {
+            return match self.state.handle(ret) {
                 None => {
                     continue;
                 }
@@ -264,4 +268,4 @@ where
     }
 }
 
-impl<M, const Y: usize> FusedIterator for PackedIter<M, Y> where M: TreeKey<Y> {}
+impl<M, const Y: usize> FusedIterator for PackedIter<M, Y> where M: TreeKey<Y> + ?Sized {}
