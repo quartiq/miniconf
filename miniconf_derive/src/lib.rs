@@ -72,11 +72,11 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         impl #impl_generics #ident #ty_generics #where_clause {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
             #names
-            const __MINICONF_DEFERS: [bool; #fields_len] = [#(#defers ,)*];
 
             fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
+                const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
                 let index = ::miniconf::Keys::next::<#depth, Self>(keys)?;
-                let defer = Self::__MINICONF_DEFERS.get(index)
+                let defer = DEFERS.get(index)
                     .ok_or(::miniconf::Traversal::NotFound(1))?;
                 if !defer {
                     ::miniconf::Keys::finalize::<1>(keys)?;
