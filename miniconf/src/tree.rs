@@ -296,7 +296,7 @@ impl Metadata {
 /// is not performed, further getters at greater depth are not invoked
 /// and [`Traversal::Access`] is returned.
 ///
-/// ## `get_mut` field attribute
+/// ## `get_mut`
 ///
 /// For internal (non-leaf) fields `get_mut` is invoked during `get_mut_by_key()` and
 /// during `deserialize_by_key()` before deserialization while traversing down to
@@ -304,11 +304,11 @@ impl Metadata {
 /// For leaf fields it is invoked after deserialization and validation but before
 /// updating the leaf value.
 /// The signature is `fn(&mut self) -> Result<&mut T, &str>`.
-/// The default internal setter is `Ok(&mut self.field)`.
-/// If an internal setter returns an `Err`
-/// no further setters are invoked and [`Traversal::Access`] will be returned.
+/// The default internal `get_mut` is `Ok(&mut self.field)`.
+/// If an internal `get_mut` returns an `Err`
+/// no further `get_mut`s are invoked and [`Traversal::Access`] will be returned.
 ///
-/// Note: In both cases the setters receive `&mut self` as an argument and may
+/// Note: In both cases `get_mut` receives `&mut self` as an argument and may
 /// mutate the struct.
 ///
 /// ```
@@ -333,11 +333,18 @@ impl Metadata {
 /// For leaf fields the `validate` callback is called during `deserialize_by_key()`
 /// after successful deserialization of the leaf value but before setting it.
 /// The leaf `validate` signature is `fn(&mut self, value: T) ->
-/// Result<T, &'static str>`.
+/// Result<T, &'static str>`. It may mutate the value before it is being stored.
+/// If a leaf validate callback returns `Err()`, the leaf value is not updated
+/// and `Traversal::Invalid` is returned from `deserialize_by_key()`.
 /// For internal fields it is called after the successful update of the leaf field
 /// during upward traversal.
 /// The internal `validate` signature is `fn(&mut self, depth: usize) ->
 /// Result<usize, &'static str>`
+/// If an internal validate callback returns `Err()`, the leaf value **has been**
+/// updated and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
+///
+/// Note: In both cases `validate` receives `&mut self` as an argument and may
+/// mutate the struct.
 ///
 /// ## Bounds
 ///
@@ -760,7 +767,9 @@ pub trait TreeKey<const Y: usize = 1> {
     }
 }
 
-/// TODO
+/// Access any node by keys.
+///
+/// This uses the `dyn Any` trait object.
 ///
 /// ```
 /// # use miniconf::{TreeAny, TreeKey};

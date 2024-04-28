@@ -247,7 +247,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     }.into()
 }
 
-/// Derive the `TreeDeserialize` trait for a struct.
+/// Derive the `TreeAny` trait for a struct.
 #[proc_macro_derive(TreeAny, attributes(tree))]
 pub fn derive_tree_any(input: TokenStream) -> TokenStream {
     let mut tree = match field::Tree::parse(&parse_macro_input!(input as DeriveInput)) {
