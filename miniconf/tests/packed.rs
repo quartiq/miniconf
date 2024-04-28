@@ -28,12 +28,17 @@ fn packed() {
         let (packed, _depth) = Settings::packed(iter_path.split("/").skip(1)).unwrap();
         Settings::path(packed, &mut path, "/").unwrap();
         assert_eq!(path, iter_path);
+        println!(
+            "{path} {iter_path}, {:#06b} {} {_depth}",
+            packed.get() >> 60,
+            packed.into_lsb().get()
+        );
         path.clear();
     }
     println!(
         "{:?}",
         Settings::iter_packed()
-            .map(Result::unwrap)
+            .map(|p| p.unwrap().into_lsb().get())
             .collect::<Vec<_>>()
     );
 
@@ -44,6 +49,31 @@ fn packed() {
     );
     assert_eq!(path, "/a");
     path.clear();
+}
+
+#[test]
+fn top() {
+    #[derive(Tree)]
+    struct S {
+        #[tree(depth = 1)]
+        baz: [i32; 0],
+        foo: i32,
+    }
+    assert_eq!(
+        S::iter_paths::<String>("/")
+            .map(Result::unwrap)
+            .collect::<Vec<_>>(),
+        ["/foo"]
+    );
+    assert_eq!(S::iter_indices().collect::<Vec<_>>(), [([1, 0], 1)]);
+    let (p, depth) = S::packed([1]).unwrap();
+    assert_eq!((p.into_lsb().get(), depth), (0b11, 1));
+    assert_eq!(
+        S::iter_packed()
+            .map(|p| p.unwrap().into_lsb().get())
+            .collect::<Vec<_>>(),
+        [0b11]
+    );
 }
 
 #[test]

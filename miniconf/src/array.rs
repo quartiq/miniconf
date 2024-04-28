@@ -18,6 +18,16 @@ macro_rules! depth {
                 value.parse().ok()
             }
 
+            fn metadata() -> Metadata {
+                let mut meta = T::metadata();
+
+                meta.max_length += digits::<10>(N);
+                meta.max_depth += 1;
+                meta.count *= N;
+
+                meta
+            }
+
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
             where
                 K: Keys,
@@ -29,16 +39,6 @@ macro_rules! depth {
                 }
                 func(index, None, N).map_err(|err| Error::Inner(1, err))?;
                 increment_result(T::traverse_by_key(keys, func))
-            }
-
-            fn metadata() -> Metadata {
-                let mut meta = T::metadata();
-
-                meta.max_length += digits::<10>(N);
-                meta.max_depth += 1;
-                meta.count *= N;
-
-                meta
             }
         }
 
@@ -99,27 +99,25 @@ impl<T, const N: usize> TreeKey for [T; N] {
         value.parse().ok()
     }
 
-    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-    {
-        let index = keys.next::<1, Self>()?;
-        if index < N {
-            func(index, None, N)
-                .map_err(|err| Error::Inner(1, err))
-                .and(Ok(1))
-        } else {
-            Err(Traversal::NotFound(1))?
-        }
-    }
-
     fn metadata() -> Metadata {
         Metadata {
             max_length: digits::<10>(N),
             max_depth: 1,
             count: N,
         }
+    }
+
+    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        let index = keys.next::<1, Self>()?;
+        if index >= N {
+            Err(Traversal::NotFound(1))?
+        }
+        func(index, None, N).map_err(|err| Error::Inner(1, err))?;
+        Ok(keys.finalize::<1>()?)
     }
 }
 
@@ -132,13 +130,10 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         let index = keys.next::<1, Self>()?;
         let item = self.get(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(1))?
-        } else {
-            item.serialize(ser)
-                .map_err(|err| Error::Inner(1, err))
-                .and(Ok(1))
-        }
+        keys.finalize::<1>()?;
+        item.serialize(ser)
+            .map_err(|err| Error::Inner(1, err))
+            .and(Ok(1))
     }
 }
 
@@ -151,12 +146,9 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         let index = keys.next::<1, Self>()?;
         let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(1))?
-        } else {
-            *item = T::deserialize(de).map_err(|err| Error::Inner(1, err))?;
-            Ok(1)
-        }
+        keys.finalize::<1>()?;
+        *item = T::deserialize(de).map_err(|err| Error::Inner(1, err))?;
+        Ok(1)
     }
 }
 
@@ -168,11 +160,8 @@ impl<T: Any, const N: usize> TreeAny for [T; N] {
         let index = keys.next::<1, Self>()?;
         let item = self.get(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(1))
-        } else {
-            Ok(item)
-        }
+        keys.finalize::<1>()?;
+        Ok(item)
     }
 
     fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
@@ -182,10 +171,7 @@ impl<T: Any, const N: usize> TreeAny for [T; N] {
         let index = keys.next::<1, Self>()?;
         let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(1))
-        } else {
-            Ok(item)
-        }
+        keys.finalize::<1>()?;
+        Ok(item)
     }
 }

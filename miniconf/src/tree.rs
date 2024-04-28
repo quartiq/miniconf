@@ -82,6 +82,18 @@ impl Traversal {
             Self::Invalid(i, msg) => Self::Invalid(i + 1, msg),
         }
     }
+
+    /// Return the traversal depth
+    pub fn depth(&self) -> &usize {
+        match self {
+            Self::Absent(i)
+            | Self::TooShort(i)
+            | Self::NotFound(i)
+            | Self::TooLong(i)
+            | Self::Access(i, _)
+            | Self::Invalid(i, _) => i,
+        }
+    }
 }
 
 /// Compound errors
@@ -121,6 +133,7 @@ impl<E: core::fmt::Display> Display for Error<E> {
     }
 }
 
+// Try to extract the Traversal from an Error
 impl<E> TryFrom<Error<E>> for Traversal {
     type Error = ();
     fn try_from(value: Error<E>) -> Result<Self, Self::Error> {
@@ -567,13 +580,16 @@ pub trait TreeKey<const Y: usize = 1> {
     {
         let mut indices = [0; Y];
         let mut it = indices.iter_mut();
-        Self::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            let idx = it.next().ok_or(())?;
+        let func = |index, _name, _len| -> Result<(), ()> {
+            let idx = it.next().unwrap();
             *idx = index;
-            Ok::<_, ()>(())
-        })
-        .map_err(|err| err.try_into().unwrap())
-        .map(|depth| (indices, depth))
+            Ok(())
+        };
+        let ret = Self::traverse_by_key(keys.into_keys(), func);
+        match ret.map_err(|err| err.try_into().unwrap()) {
+            Ok(depth) | Err(Traversal::TooLong(depth)) => Ok((indices, depth)),
+            Err(err) => Err(err),
+        }
     }
 
     /// Convert keys to packed usize bitfield representation.
@@ -605,13 +621,17 @@ pub trait TreeKey<const Y: usize = 1> {
         K: IntoKeys,
     {
         let mut packed = Packed::default();
-        let depth = Self::traverse_by_key(keys.into_keys(), |index, _name, len| {
+        let func = |index, _name, len: usize| {
             packed
                 .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
                 .ok_or(())
                 .and(Ok(()))
-        })?;
-        Ok((packed, depth))
+        };
+        let ret = Self::traverse_by_key(keys.into_keys(), func);
+        match ret {
+            Ok(depth) | Err(Error::Traversal(Traversal::TooLong(depth))) => Ok((packed, depth)),
+            Err(err) => Err(err),
+        }
     }
 
     /// Create an iterator of all possible paths.

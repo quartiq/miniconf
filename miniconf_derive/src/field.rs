@@ -201,7 +201,13 @@ impl Tree {
 
     pub(crate) fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
         let mut t = Self::from_derive_input(input)?;
-        t.fields_mut().retain(|f| !f.skip.is_present());
+        t.fields_mut().retain(|f| {
+            if f.skip.is_present() {
+                // unnamed fields can only be skipped if they are terminal
+                assert!(f.ident.is_some());
+            }
+            !f.skip.is_present()
+        });
         Ok(t)
     }
 

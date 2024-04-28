@@ -19,16 +19,16 @@ macro_rules! depth {
                 None
             }
 
+            fn metadata() -> Metadata {
+                T::metadata()
+            }
+
             fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
             where
                 K: Keys,
                 F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
                 T::traverse_by_key(keys, func)
-            }
-
-            fn metadata() -> Metadata {
-                T::metadata()
             }
         }
 
@@ -40,7 +40,7 @@ macro_rules! depth {
             {
                 self
                     .as_ref()
-                    .ok_or(Error::Traversal(Traversal::Absent(0)))
+                    .ok_or(Traversal::Absent(0).into())
                     .and_then(|inner| inner.serialize_by_key(keys, ser))
             }
         }
@@ -53,7 +53,7 @@ macro_rules! depth {
             {
                 self
                     .as_mut()
-                    .ok_or(Error::Traversal(Traversal::Absent(0)))
+                    .ok_or(Traversal::Absent(0).into())
                     .and_then(|inner| inner.deserialize_by_key(keys, de))
             }
         }
@@ -87,18 +87,19 @@ impl<T> TreeKey for Option<T> {
         None
     }
 
-    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
-    where
-        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-    {
-        Ok(0)
-    }
-
     fn metadata() -> Metadata {
         Metadata {
             count: 1,
             ..Default::default()
         }
+    }
+
+    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        Ok(keys.finalize::<0>()?)
     }
 }
 
@@ -108,9 +109,8 @@ impl<T: Serialize> TreeSerialize for Option<T> {
         K: Keys,
         S: Serializer,
     {
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(0))?
-        } else if let Some(inner) = self {
+        keys.finalize::<0>()?;
+        if let Some(inner) = self {
             inner
                 .serialize(ser)
                 .map_err(|err| Error::Inner(0, err))
@@ -127,9 +127,8 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(0))?
-        } else if let Some(inner) = self {
+        keys.finalize::<0>()?;
+        if let Some(inner) = self {
             *inner = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
             Ok(0)
         } else {
@@ -143,9 +142,8 @@ impl<T: Any> TreeAny for Option<T> {
     where
         K: Keys,
     {
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(0))
-        } else if let Some(inner) = self {
+        keys.finalize::<0>()?;
+        if let Some(inner) = self {
             Ok(inner)
         } else {
             Err(Traversal::Absent(0))
@@ -156,9 +154,8 @@ impl<T: Any> TreeAny for Option<T> {
     where
         K: Keys,
     {
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(0))
-        } else if let Some(inner) = self {
+        keys.finalize::<0>()?;
+        if let Some(inner) = self {
             Ok(inner)
         } else {
             Err(Traversal::Absent(0))

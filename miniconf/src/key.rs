@@ -29,6 +29,15 @@ pub trait Keys {
     ///
     /// This may mutate and consume remaining keys.
     fn is_empty(&mut self) -> bool;
+
+    /// Check for no remaining keys.
+    fn finalize<const Y: usize>(&mut self) -> Result<usize, Traversal> {
+        if !self.is_empty() {
+            Err(Traversal::TooLong(Y))
+        } else {
+            Ok(Y)
+        }
+    }
 }
 
 impl<T> Keys for T
@@ -37,8 +46,8 @@ where
     T::Item: Key,
 {
     fn next<const Y: usize, M: TreeKey<Y>>(&mut self) -> Result<usize, Traversal> {
-        let index = Iterator::next(self).ok_or(Traversal::TooShort(0))?;
-        index.find::<Y, M>().ok_or(Traversal::NotFound(1))
+        let key = Iterator::next(self).ok_or(Traversal::TooShort(0))?;
+        key.find::<Y, M>().ok_or(Traversal::NotFound(1))
     }
 
     fn is_empty(&mut self) -> bool {
@@ -69,8 +78,8 @@ where
 
 /// JSON style path notation
 ///
-/// Supported are both dot an key notation
-/// as well as mixtures:
+/// Supported are both dot and key notation with and without
+/// names enclosed by `'` as well as mixtures:
 ///
 /// ```
 /// # #[cfg(feature = "std")]
@@ -80,7 +89,7 @@ where
 /// for valid in [
 ///     ".foo.bar[4].baz[5][6]",
 ///     "['foo']['bar'][4]['baz'][5][6]",
-///     ".foo['bar'].4.baz['5'][6]",
+///     ".foo['bar'].4.'baz'['5'].'6'",
 /// ] {
 ///     assert_eq!(&path[..], JsonPath::new(valid).collect::<Vec<_>>());
 /// }
@@ -90,6 +99,11 @@ where
 /// }
 /// # }
 /// ```
+///
+/// # Limitations
+///
+/// * It does not support any escaping.
+///
 #[derive(Clone, Debug)]
 pub struct JsonPath<'a>(&'a str);
 
@@ -104,10 +118,12 @@ impl<'a> Iterator for JsonPath<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // Reappropriation of `Result` as `Either`
         for (open, close) in [
-            (".", Err(&['.', '['][..])),
-            ("['", Ok("']")),
-            ("[", Ok("]")),
+            (".'", Ok("'")),             // "'" inclusive
+            (".", Err(&['.', '['][..])), // '.' or '[' are exclusive
+            ("['", Ok("']")),            // "']" inclusive
+            ("[", Ok("]")),              // "]" inclusive
         ] {
             if let Some(rest) = self.0.strip_prefix(open) {
                 let (end, sep) = match close {

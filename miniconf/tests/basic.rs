@@ -24,10 +24,10 @@ fn meta() {
 #[test]
 fn path() {
     let mut s = String::new();
-    assert_eq!(Settings::path([1, 0, 0], &mut s, "/"), Ok(1));
+    assert_eq!(Settings::path([1], &mut s, "/"), Ok(1));
     assert_eq!(s, "/b");
     s.clear();
-    assert_eq!(Settings::path([2, 0, 0], &mut s, "/"), Ok(2));
+    assert_eq!(Settings::path([2, 0], &mut s, "/"), Ok(2));
     assert_eq!(s, "/c/inner");
     s.clear();
     assert_eq!(
@@ -42,8 +42,8 @@ fn path() {
 
 #[test]
 fn indices() {
-    assert_eq!(Settings::indices(["b", "foo"]), Ok(([1, 0], 1)));
-    assert_eq!(Settings::indices(["c", "inner", "bar"]), Ok(([2, 0], 2)));
+    assert_eq!(Settings::indices(["b"]), Ok(([1, 0], 1)));
+    assert_eq!(Settings::indices(["c", "inner"]), Ok(([2, 0], 2)));
     assert_eq!(Settings::indices(["c"]), Err(Traversal::TooShort(1).into()));
     assert_eq!(Option::<i8>::indices([0; 0]), Ok(([0], 0)));
 }
@@ -61,7 +61,11 @@ fn traverse_empty() {
         S::traverse_by_key([0; 0].into_iter(), f),
         Err(Traversal::TooShort(0).into())
     );
-    assert_eq!(Option::<i32>::traverse_by_key([0].into_iter(), f), Ok(0));
+    assert_eq!(
+        Option::<i32>::traverse_by_key([0].into_iter(), f),
+        Err(Traversal::TooLong(0).into())
+    );
+    assert_eq!(Option::<i32>::traverse_by_key([0; 0].into_iter(), f), Ok(0));
     assert_eq!(
         <Option::<S> as TreeKey<2>>::traverse_by_key([0].into_iter(), f),
         Err(Traversal::NotFound(1).into())
