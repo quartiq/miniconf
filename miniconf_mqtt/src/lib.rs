@@ -6,7 +6,7 @@
 //! The Minimq MQTT client for Miniconf.
 
 use heapless::{String, Vec};
-use miniconf::{Error, JsonCoreSlash, PathIter, TreeKey};
+use miniconf::{Error, JsonCoreSlash, PathIter, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
@@ -296,7 +296,7 @@ where
                     .finish()
                     .unwrap(),
             ) {
-                Err(minimq::PubError::Serialization(Error::Absent(_))) => {}
+                Err(minimq::PubError::Serialization(Error::Traversal(Traversal::Absent(_)))) => {}
 
                 // If the value is too large to serialize, print an error to the topic instead
                 Err(minimq::PubError::Error(minimq::Error::Minimq(

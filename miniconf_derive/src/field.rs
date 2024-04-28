@@ -72,7 +72,7 @@ impl TreeField {
         let ident = self.ident_or_index(i);
         match &self.get {
             Some(get) => quote! {
-                #get(self).map_err(|msg| ::miniconf::Error::Access(0, msg))
+                #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             },
             None => quote! { Ok(&self.#ident) },
         }
@@ -82,7 +82,7 @@ impl TreeField {
         let ident = self.ident_or_index(i);
         match &self.get_mut {
             Some(get_mut) => quote!(
-                #get_mut(self).map_err(|msg| ::miniconf::Error::Access(0, msg))
+                #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             ),
             None => quote!( Ok(&mut self.#ident) ),
         }
@@ -91,7 +91,7 @@ impl TreeField {
     fn validator(&self) -> TokenStream {
         match &self.validate {
             Some(validate) => quote! { |value|
-                #validate(self, value).map_err(|msg| ::miniconf::Error::Invalid(0, msg))
+                #validate(self, value).map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
             },
             None => quote! { |value| Ok(value) },
         }
@@ -112,7 +112,7 @@ impl TreeField {
                 #i => #getter
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
-                        .map_err(Into::into)
+                        .map_err(|err| ::miniconf::Error::Inner(0, err))
                         .and(Ok(0))
                     )
             }
@@ -135,7 +135,7 @@ impl TreeField {
         } else {
             quote! {
                 #i => ::miniconf::Deserialize::deserialize(de)
-                    .map_err(Into::into)
+                    .map_err(|err| ::miniconf::Error::Inner(0, err))
                     .and_then(#validator)
                     .and_then(|value|
                         #getter_mut.and_then(|item| {

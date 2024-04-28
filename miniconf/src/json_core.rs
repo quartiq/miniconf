@@ -73,7 +73,7 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCor
         keys: K,
         data: &'de [u8],
     ) -> Result<usize, Error<de::Error>> {
-        let mut de = de::Deserializer::new(data);
+        let mut de: de::Deserializer<'_> = de::Deserializer::new(data);
         self.deserialize_by_key(keys.into_keys(), &mut de)?;
         de.end().map_err(Error::Finalization)
     }

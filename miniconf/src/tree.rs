@@ -17,7 +17,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// is as per the order in the enum definition (from high to low).
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Error<E> {
+pub enum Traversal {
     /// The key is valid, but does not exist at runtime.
     ///
     /// This is the case if an [`Option`] using the `Tree*` traits
@@ -39,6 +39,58 @@ pub enum Error<E> {
     /// The `get` or `get_mut` accessor returned an error message.
     Access(usize, &'static str),
 
+    /// A deserialized leaf value was found to be invalid.
+    ///
+    /// The `validate` callback returned an error message.
+    Invalid(usize, &'static str),
+}
+
+impl Display for Traversal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Traversal::Absent(depth) => {
+                write!(f, "Key not currently present (depth: {depth})")
+            }
+            Traversal::TooShort(depth) => {
+                write!(f, "Key too short (depth: {depth})")
+            }
+            Traversal::NotFound(depth) => {
+                write!(f, "Key not found (depth: {depth})")
+            }
+            Traversal::TooLong(depth) => {
+                write!(f, "Key too long (depth: {depth})")
+            }
+            Traversal::Access(depth, msg) => {
+                write!(f, "Access failed (depth: {depth}): {msg}")
+            }
+            Traversal::Invalid(depth, msg) => {
+                write!(f, "Invalid value (depth: {depth}): {msg}")
+            }
+        }
+    }
+}
+
+impl Traversal {
+    /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
+    pub fn increment(self) -> Self {
+        match self {
+            Self::Absent(i) => Self::Absent(i + 1),
+            Self::TooShort(i) => Self::TooShort(i + 1),
+            Self::NotFound(i) => Self::NotFound(i + 1),
+            Self::TooLong(i) => Self::TooLong(i + 1),
+            Self::Access(i, msg) => Self::Access(i + 1, msg),
+            Self::Invalid(i, msg) => Self::Invalid(i + 1, msg),
+        }
+    }
+}
+
+/// Compound errors
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Error<E> {
+    /// Tree traversal error
+    Traversal(Traversal),
+
     /// The value provided could not be serialized or deserialized
     /// or the traversal callback returned an error.
     Inner(usize, E),
@@ -53,47 +105,35 @@ pub enum Error<E> {
     /// A `Serializer` may write checksums or additional framing data and fail with
     /// this error during finalization after the value has been serialized.
     Finalization(E),
-
-    /// A deserialized leaf value was found to be invalid.
-    ///
-    /// The `validate` callback returned an error message.
-    Invalid(usize, &'static str),
 }
 
 impl<E: core::fmt::Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            Error::Absent(depth) => {
-                write!(f, "Key not currently present (depth: {depth})")
-            }
-            Error::TooShort(depth) => {
-                write!(f, "Key too short (depth: {depth})")
-            }
-            Error::NotFound(depth) => {
-                write!(f, "Key not found (depth: {depth})")
-            }
-            Error::TooLong(depth) => {
-                write!(f, "Key too long (depth: {depth})")
-            }
-            Error::Inner(depth, error) => {
+            Self::Traversal(t) => t.fmt(f),
+            Self::Inner(depth, error) => {
                 write!(f, "(De)serialization error (depth: {depth}): {error}")
             }
-            Error::Finalization(error) => {
+            Self::Finalization(error) => {
                 write!(f, "(De)serializer finalization error: {error}")
-            }
-            Error::Access(depth, msg) => {
-                write!(f, "Access failed (depth: {depth}): {msg}")
-            }
-            Error::Invalid(depth, msg) => {
-                write!(f, "Invalid value (depth: {depth}): {msg}")
             }
         }
     }
 }
 
-impl<T> From<T> for Error<T> {
-    fn from(value: T) -> Self {
-        Error::Inner(0, value)
+impl<E> TryFrom<Error<E>> for Traversal {
+    type Error = ();
+    fn try_from(value: Error<E>) -> Result<Self, Self::Error> {
+        match value {
+            Error::Traversal(e) => Ok(e),
+            _ => Err(()),
+        }
+    }
+}
+
+impl<E> From<Traversal> for Error<E> {
+    fn from(value: Traversal) -> Self {
+        Self::Traversal(value)
     }
 }
 
@@ -101,14 +141,9 @@ impl<E> Error<E> {
     /// Pass an [`Error`] up one hierarchy depth level, incrementing its usize depth field by one.
     pub fn increment(self) -> Self {
         match self {
-            Error::Absent(i) => Error::Absent(i + 1),
-            Error::TooShort(i) => Error::TooShort(i + 1),
-            Error::NotFound(i) => Error::NotFound(i + 1),
-            Error::TooLong(i) => Error::TooLong(i + 1),
-            Error::Access(i, msg) => Error::Access(i + 1, msg),
-            Error::Invalid(i, msg) => Error::Invalid(i + 1, msg),
-            Error::Inner(i, e) => Error::Inner(i + 1, e),
-            Error::Finalization(e) => Error::Finalization(e),
+            Self::Traversal(t) => Self::Traversal(t.increment()),
+            Self::Inner(i, e) => Self::Inner(i + 1, e),
+            Self::Finalization(e) => Self::Finalization(e),
         }
     }
 }
@@ -524,7 +559,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// Final node depth (number of items consumed and indices written) on success
-    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Error<()>>
+    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Traversal>
     where
         K: IntoKeys,
         I: IntoIterator<Item = &'a mut usize>,
@@ -533,8 +568,9 @@ pub trait TreeKey<const Y: usize = 1> {
         Self::traverse_by_key(keys.into_keys(), |index, _name, _len| {
             let idx = indices.next().ok_or(())?;
             *idx = index;
-            Ok(())
+            Ok::<_, ()>(())
         })
+        .map_err(|err| err.try_into().unwrap())
     }
 
     /// Convert keys to packed usize bitfield representation.
@@ -684,7 +720,7 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     /// let any = s.get_by_key(["bar", "1"].into_iter()).unwrap();
     /// assert_eq!(*any.downcast_ref::<u16>().unwrap(), 3);
     /// ```
-    fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Error<()>>
+    fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys;
 
@@ -702,7 +738,7 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     /// *val = 3u16;
     /// assert_eq!(s.bar[1], 3);
     /// ```
-    fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
+    fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys;
 }

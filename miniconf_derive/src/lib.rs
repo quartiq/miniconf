@@ -31,7 +31,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 None,
                 quote!(str::parse(value).ok()),
                 quote!(if index >= #fields_len {
-                    Err(::miniconf::Error::NotFound(1))?
+                    Err(::miniconf::Traversal::NotFound(1))?
                 } else {
                     None
                 }),
@@ -48,7 +48,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 quote!(Some(
                     *Self::__MINICONF_NAMES
                         .get(index)
-                        .ok_or(::miniconf::Error::NotFound(1))?
+                        .ok_or(::miniconf::Traversal::NotFound(1))?
                 )),
                 quote!(Self::__MINICONF_NAMES[index].len()),
             )
@@ -96,7 +96,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             {
                 let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let name = #index_to_name;
-                func(index, name, Self::len())?;
+                func(index, name, Self::len()).map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
@@ -168,9 +168,9 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
             {
                 let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                    .ok_or(::miniconf::Traversal::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
-                    return Err(::miniconf::Error::TooLong(1))
+                    Err(::miniconf::Traversal::TooLong(1))?
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
@@ -232,9 +232,9 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
             {
                 let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                    .ok_or(::miniconf::Traversal::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
-                    return Err(::miniconf::Error::TooLong(1))
+                    Err(::miniconf::Traversal::TooLong(1))?
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
@@ -282,15 +282,15 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
-            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Error<()>>
+            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
             where
                 K: ::miniconf::Keys,
             {
                 let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                    .ok_or(::miniconf::Traversal::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
-                    return Err(::miniconf::Error::TooLong(1))
+                    return Err(::miniconf::Traversal::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
@@ -299,19 +299,19 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                         #(#get_by_key_arms ,)*
                         _ => unreachable!()
                     };
-                    ret.map_err(::miniconf::Error::increment)
+                    ret.map_err(::miniconf::Traversal::increment)
                 }
             }
 
-            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Error<()>>
+            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
             where
                 K: ::miniconf::Keys,
             {
                 let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
                 let defer = Self::__MINICONF_DEFERS.get(index)
-                    .ok_or(::miniconf::Error::NotFound(1))?;
+                    .ok_or(::miniconf::Traversal::NotFound(1))?;
                 if !defer && !::miniconf::Keys::is_empty(&mut keys) {
-                    return Err(::miniconf::Error::TooLong(1))
+                    return Err(::miniconf::Traversal::TooLong(1))
                 }
                 // Note(unreachable) empty structs have diverged by now
                 #[allow(unreachable_code)]
@@ -320,7 +320,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                         #(#get_mut_by_key_arms ,)*
                         _ => unreachable!()
                     };
-                    ret.map_err(::miniconf::Error::increment)
+                    ret.map_err(::miniconf::Traversal::increment)
                 }
             }
         }

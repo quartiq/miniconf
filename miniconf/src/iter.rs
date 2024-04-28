@@ -1,4 +1,4 @@
-use crate::{Error, Packed, TreeKey};
+use crate::{Error, Packed, Traversal, TreeKey};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// Counting wrapper for iterators
@@ -82,28 +82,20 @@ impl<const Y: usize> State<Y> {
                 Some(Ok(depth))
             }
             // Node not found at finite depth: reset current index, then retry
-            Err(Error::NotFound(depth @ 1..)) => {
+            Err(Error::Traversal(Traversal::NotFound(depth @ 1..))) => {
                 self.state[depth - 1] = 0;
                 self.depth = depth - 1;
                 None
             }
             Err(Error::Inner(depth, err)) => Some(Err((depth, err))),
-            // NotFound(0): Not having consumed any name/index, the only possible case
+            // Traversal::NotFound(0): Not having consumed any name/index, the only possible case
             // is a root leaf (e.g. `Option` or newtype), those however can not return
             // `NotFound` as they don't do key lookup.
-            // We write NotFound(_) as e.g. rust 1.70.0 isn't smart enough to prove coverage.
-            Err(Error::NotFound(_)) |
-            // TooShort: Excluded by construction (`state.len() == Y` and `Y` being an
+            // Traversal::TooShort(_): Excluded by construction (`state.len() == Y` and `Y` being an
             // upper bound to key length as per the `TreeKey<Y>` contract.
-            Err(Error::TooShort(_)) |
             // TooLong, Absent, Finalization, InvalidLead, InvalidInternal:
             // Are not returned by traverse_by_key()
-            Err(Error::TooLong(_)) |
-            Err(Error::Absent(_)) |
-            Err(Error::Finalization(_)) |
-            Err(Error::Access(_, _)) |
-            Err(Error::Invalid(_, _))
-            => unreachable!(),
+            _ => unreachable!(),
         }
     }
 }

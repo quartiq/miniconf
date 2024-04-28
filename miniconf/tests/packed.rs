@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, Packed, Tree, TreeKey, TreeSerialize};
+use miniconf::{Packed, Traversal, Tree, TreeKey, TreeSerialize};
 
 #[derive(Tree, Default)]
 struct Settings {
@@ -16,7 +16,7 @@ fn packed() {
     // Check empty being too short
     assert_eq!(
         Settings::path(Packed::EMPTY, &mut path, "/"),
-        Err(Error::TooShort(0))
+        Err(Traversal::TooShort(0).into())
     );
     path.clear();
 
@@ -54,9 +54,13 @@ fn zero_key() {
     let mut a22 = [[0, 0], [0, 0]];
     let mut buf = [0u8; 100];
     let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    for (depth, result) in [Err(Error::TooShort(0)), Err(Error::TooShort(1)), Ok(2)]
-        .iter()
-        .enumerate()
+    for (depth, result) in [
+        Err(Traversal::TooShort(0).into()),
+        Err(Traversal::TooShort(1).into()),
+        Ok(2),
+    ]
+    .iter()
+    .enumerate()
     {
         assert_eq!(
             TreeSerialize::<2>::serialize_by_key(

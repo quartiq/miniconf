@@ -1,7 +1,7 @@
 use core::any::Any;
 
 use crate::{
-    digits, increment_result, Error, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey,
+    digits, increment_result, Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey,
     TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
@@ -25,9 +25,9 @@ macro_rules! depth {
             {
                 let index = keys.next::<$y, Self>()?;
                 if index >= N {
-                    return Err(Error::NotFound(1));
+                    Err(Traversal::NotFound(1))?
                 }
-                func(index, None, N)?;
+                func(index, None, N).map_err(|err| Error::Inner(1, err))?;
                 increment_result(T::traverse_by_key(keys, func))
             }
 
@@ -49,7 +49,7 @@ macro_rules! depth {
                 S: Serializer,
             {
                 let index = keys.next::<$y, Self>()?;
-                let item = self.get(index).ok_or(Error::NotFound(1))?;
+                let item = self.get(index).ok_or(Traversal::NotFound(1))?;
                 increment_result(item.serialize_by_key(keys, ser))
             }
         }
@@ -61,28 +61,28 @@ macro_rules! depth {
                 D: Deserializer<'de>,
             {
                 let index = keys.next::<$y, Self>()?;
-                let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+                let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
                 increment_result(item.deserialize_by_key(keys, de))
             }
         }
 
         impl<T: TreeAny<{$y - 1}>, const N: usize> TreeAny<$y> for [T; N] {
-            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Error<()>>
+            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let index = keys.next::<1, Self>()?;
-                let item = self.get(index).ok_or(Error::NotFound(1))?;
-                item.get_by_key(keys).map_err(Error::increment)
+                let item = self.get(index).ok_or(Traversal::NotFound(1))?;
+                item.get_by_key(keys).map_err(Traversal::increment)
             }
 
-            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
+            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let index = keys.next::<1, Self>()?;
-                let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
-                item.get_mut_by_key(keys).map_err(Error::increment)
+                let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
+                item.get_mut_by_key(keys).map_err(Traversal::increment)
             }
         }
     )+}
@@ -106,10 +106,11 @@ impl<T, const N: usize> TreeKey for [T; N] {
     {
         let index = keys.next::<1, Self>()?;
         if index < N {
-            func(index, None, N)?;
-            Ok(1)
+            func(index, None, N)
+                .map_err(|err| Error::Inner(1, err))
+                .and(Ok(1))
         } else {
-            Err(Error::NotFound(1))
+            Err(Traversal::NotFound(1))?
         }
     }
 
@@ -129,13 +130,14 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         S: Serializer,
     {
         let index = keys.next::<1, Self>()?;
-        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
-            Err(Error::TooLong(1))
+            Err(Traversal::TooLong(1))?
         } else {
-            item.serialize(ser)?;
-            Ok(1)
+            item.serialize(ser)
+                .map_err(|err| Error::Inner(1, err))
+                .and(Ok(1))
         }
     }
 }
@@ -147,41 +149,41 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         D: Deserializer<'de>,
     {
         let index = keys.next::<1, Self>()?;
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
-            Err(Error::TooLong(1))
+            Err(Traversal::TooLong(1))?
         } else {
-            *item = T::deserialize(de)?;
+            *item = T::deserialize(de).map_err(|err| Error::Inner(1, err))?;
             Ok(1)
         }
     }
 }
 
 impl<T: Any, const N: usize> TreeAny for [T; N] {
-    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Error<()>>
+    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
         let index = keys.next::<1, Self>()?;
-        let item = self.get(index).ok_or(Error::NotFound(1))?;
+        let item = self.get(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
-            Err(Error::TooLong(1))
+            Err(Traversal::TooLong(1))
         } else {
             Ok(item)
         }
     }
 
-    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
+    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
         let index = keys.next::<1, Self>()?;
-        let item = self.get_mut(index).ok_or(Error::NotFound(1))?;
+        let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
         // Precedence
         if !keys.is_empty() {
-            Err(Error::TooLong(1))
+            Err(Traversal::TooLong(1))
         } else {
             Ok(item)
         }

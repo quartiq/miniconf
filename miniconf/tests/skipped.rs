@@ -1,4 +1,4 @@
-use miniconf::{Error, Tree, TreeKey};
+use miniconf::{Traversal, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -25,6 +25,9 @@ fn path() {
     assert_eq!(Settings::path([0], &mut s, "/"), Ok(1));
     assert_eq!(s, "/value");
     s.clear();
-    assert_eq!(Settings::path([1], &mut s, "/"), Err(Error::NotFound(1)));
+    assert_eq!(
+        Settings::path([1], &mut s, "/"),
+        Err(Traversal::NotFound(1).into())
+    );
     assert_eq!(s, "");
 }

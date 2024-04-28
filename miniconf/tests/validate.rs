@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, JsonCoreSlash, Tree};
+use miniconf::{JsonCoreSlash, Traversal, Tree};
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -38,11 +38,17 @@ fn validate() {
     let mut s = Settings::default();
     s.set_json("/v", b"1.0").unwrap();
     assert_eq!(s.v, 1.0);
-    assert_eq!(s.set_json("/v", b"-1.0"), Err(Error::Invalid(1, "")));
+    assert_eq!(
+        s.set_json("/v", b"-1.0"),
+        Err(Traversal::Invalid(1, "").into())
+    );
     assert_eq!(s.v, 1.0); // remains unchanged
     s.set_json("/i/a", b"1.0").unwrap();
     assert_eq!(s.i.a, 1.0);
-    assert_eq!(s.set_json("/i/a", b"-1.0"), Err(Error::Invalid(1, "")));
+    assert_eq!(
+        s.set_json("/i/a", b"-1.0"),
+        Err(Traversal::Invalid(1, "").into())
+    );
     assert_eq!(s.i.a, -1.0); // has changed as internal validation was done after leaf setting
     assert_eq!(s.set_json("/i/a", b"1.0"), Ok(3));
 }
@@ -84,5 +90,8 @@ fn other_type() {
     let len = s.get_json("/arr/1", &mut buf[..]).unwrap();
     assert_eq!(buf[..len], b"5"[..]);
     s.set_json("/offset", b"100").unwrap();
-    assert_eq!(s.set_json("/arr/1", b"5"), Err(Error::Access(1, "range")));
+    assert_eq!(
+        s.set_json("/arr/1", b"5"),
+        Err(Traversal::Access(1, "range").into())
+    );
 }

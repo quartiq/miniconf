@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Deserialize, Error, JsonCoreSlash, Serialize, Tree, TreeKey};
+use miniconf::{Deserialize, JsonCoreSlash, Serialize, Traversal, Tree, TreeKey};
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
@@ -46,28 +46,34 @@ fn defer_miniconf() {
 #[test]
 fn too_short() {
     let mut s = Settings::default();
-    assert_eq!(s.set_json("/d", b"[1,2]"), Err(Error::TooShort(1)));
+    assert_eq!(
+        s.set_json("/d", b"[1,2]"),
+        Err(Traversal::TooShort(1).into())
+    );
     // Check precedence over `Inner`.
-    assert_eq!(s.set_json("/d", b"[1,2,3]"), Err(Error::TooShort(1)));
+    assert_eq!(
+        s.set_json("/d", b"[1,2,3]"),
+        Err(Traversal::TooShort(1).into())
+    );
 }
 
 #[test]
 fn too_long() {
     assert_eq!(
         Settings::default().set_json("/a/1", b"7"),
-        Err(Error::TooLong(1))
+        Err(Traversal::TooLong(1).into())
     );
     assert_eq!(
         Settings::default().set_json("/d/0/b", b"7"),
-        Err(Error::TooLong(2))
+        Err(Traversal::TooLong(2).into())
     );
     assert_eq!(
         Settings::default().set_json("/dm/0/c", b"7"),
-        Err(Error::TooLong(2))
+        Err(Traversal::TooLong(2).into())
     );
     assert_eq!(
         Settings::default().set_json("/dm/0/d", b"7"),
-        Err(Error::TooLong(2))
+        Err(Traversal::TooLong(2).into())
     );
 }
 
@@ -75,15 +81,15 @@ fn too_long() {
 fn not_found() {
     assert_eq!(
         Settings::default().set_json("/d/3", b"7"),
-        Err(Error::NotFound(2))
+        Err(Traversal::NotFound(2).into())
     );
     assert_eq!(
         Settings::default().set_json("/b", b"7"),
-        Err(Error::NotFound(1))
+        Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
         Settings::default().set_json("/aam/0/0/d", b"7"),
-        Err(Error::NotFound(4))
+        Err(Traversal::NotFound(4).into())
     );
 }
 

@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use crate::{Error, Keys, Metadata, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
+use crate::{Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
@@ -38,7 +38,10 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                self.as_ref().ok_or(Error::Absent(0)).and_then(|inner| inner.serialize_by_key(keys, ser))
+                self
+                    .as_ref()
+                    .ok_or(Error::Traversal(Traversal::Absent(0)))
+                    .and_then(|inner| inner.serialize_by_key(keys, ser))
             }
         }
 
@@ -48,23 +51,26 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                self.as_mut().ok_or(Error::Absent(0)).and_then(|inner| inner.deserialize_by_key(keys, de))
+                self
+                    .as_mut()
+                    .ok_or(Error::Traversal(Traversal::Absent(0)))
+                    .and_then(|inner| inner.deserialize_by_key(keys, de))
             }
         }
 
         impl<T: TreeAny<{$y - 1}>> TreeAny<$y> for Option<T> {
-            fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Error<()>>
+            fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
             where
                 K: Keys,
             {
-                self.as_ref().ok_or(Error::Absent(0)).and_then(|inner| inner.get_by_key(keys))
+                self.as_ref().ok_or(Traversal::Absent(0)).and_then(|inner| inner.get_by_key(keys))
             }
 
-            fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Error<()>>
+            fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
             where
                 K: Keys,
             {
-                self.as_mut().ok_or(Error::Absent(0)).and_then(|inner| inner.get_mut_by_key(keys))
+                self.as_mut().ok_or(Traversal::Absent(0)).and_then(|inner| inner.get_mut_by_key(keys))
             }
         }
     )+}
@@ -103,12 +109,14 @@ impl<T: Serialize> TreeSerialize for Option<T> {
         S: Serializer,
     {
         if !keys.is_empty() {
-            Err(Error::TooLong(0))
+            Err(Traversal::TooLong(0))?
         } else if let Some(inner) = self {
-            inner.serialize(ser)?;
-            Ok(0)
+            inner
+                .serialize(ser)
+                .map_err(|err| Error::Inner(0, err))
+                .and(Ok(0))
         } else {
-            Err(Error::Absent(0))
+            Err(Traversal::Absent(0))?
         }
     }
 }
@@ -120,40 +128,40 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
         D: Deserializer<'de>,
     {
         if !keys.is_empty() {
-            Err(Error::TooLong(0))
+            Err(Traversal::TooLong(0))?
         } else if let Some(inner) = self {
-            *inner = T::deserialize(de)?;
+            *inner = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
             Ok(0)
         } else {
-            Err(Error::Absent(0))
+            Err(Traversal::Absent(0))?
         }
     }
 }
 
 impl<T: Any> TreeAny for Option<T> {
-    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Error<()>>
+    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
         if !keys.is_empty() {
-            Err(Error::TooLong(0))
+            Err(Traversal::TooLong(0))
         } else if let Some(inner) = self {
             Ok(inner)
         } else {
-            Err(Error::Absent(0))
+            Err(Traversal::Absent(0))
         }
     }
 
-    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Error<()>>
+    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
         if !keys.is_empty() {
-            Err(Error::TooLong(0))
+            Err(Traversal::TooLong(0))
         } else if let Some(inner) = self {
             Ok(inner)
         } else {
-            Err(Error::Absent(0))
+            Err(Traversal::Absent(0))
         }
     }
 }

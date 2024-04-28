@@ -1,6 +1,6 @@
 #![cfg(feature = "json-core")]
 
-use miniconf::{Error, JsonCoreSlash, Tree, TreeKey};
+use miniconf::{Error, JsonCoreSlash, Traversal, Tree, TreeKey};
 
 #[derive(PartialEq, Debug, Clone, Default, Tree)]
 struct Inner {
@@ -29,15 +29,15 @@ fn option_get_set_none() {
     settings.value.take();
     assert_eq!(
         settings.get_json("/value_foo", &mut data),
-        Err(miniconf::Error::NotFound(1))
+        Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
         settings.get_json("/value", &mut data),
-        Err(miniconf::Error::Absent(1))
+        Err(Traversal::Absent(1).into())
     );
     assert_eq!(
         settings.set_json("/value/data", b"5"),
-        Err(miniconf::Error::Absent(1))
+        Err(Traversal::Absent(1).into())
     );
 }
 
@@ -139,14 +139,20 @@ fn option_absent() {
     }
 
     let mut s = S::default();
-    assert_eq!(s.set_json("/d", b"7"), Err(Error::Absent(1)));
+    assert_eq!(s.set_json("/d", b"7"), Err(Traversal::Absent(1).into()));
     // Check precedence
-    assert_eq!(s.set_json("/d", b""), Err(Error::Absent(1)));
-    assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert_eq!(s.set_json("", b"7"), Err(Error::TooShort(0)));
+    assert_eq!(s.set_json("/d", b""), Err(Traversal::Absent(1).into()));
+    assert_eq!(
+        s.set_json("/d/foo", b"7"),
+        Err(Traversal::TooLong(1).into())
+    );
+    assert_eq!(s.set_json("", b"7"), Err(Traversal::TooShort(0).into()));
     s.d = Some(3);
     assert_eq!(s.set_json("/d", b"7"), Ok(1));
-    assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
+    assert_eq!(
+        s.set_json("/d/foo", b"7"),
+        Err(Traversal::TooLong(1).into())
+    );
     assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(1, _))));
     assert_eq!(s.set_json("/d", b"7 "), Ok(2));
     assert_eq!(s.set_json("/d", b" 7"), Ok(2));

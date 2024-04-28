@@ -15,7 +15,7 @@ See below for a comprehensive example showing the features of the `Tree` traits.
 See also the documentation of the [`TreeKey`] trait for a detailed description.
 
 ```rust
-use miniconf::{Error, JsonCoreSlash, Tree, TreeKey};
+use miniconf::{Error, JsonCoreSlash, Traversal, Tree, TreeKey};
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Default)]
@@ -87,7 +87,7 @@ settings.set_json("/array_tree2/1/b", b"11")?;
 
 // If a `Tree`-Option is `None` it is hidden at runtime and can't be serialized/deserialized.
 settings.option_tree = None;
-assert_eq!(settings.set_json("/option_tree", b"13"), Err(Error::Absent(1)));
+assert_eq!(settings.set_json("/option_tree", b"13"), Err(Traversal::Absent(1).into()));
 settings.option_tree = Some(0);
 settings.set_json("/option_tree", b"13")?;
 settings.option_tree2 = Some(Inner::default());
@@ -107,7 +107,7 @@ for path in Settings::iter_paths::<String>("/") {
         // Full round-trip: deserialize and set again
         Ok(len) => { settings.set_json(&path, &buf[..len])?; }
         // Some settings are still `None` and thus their paths are expected to be absent
-        Err(Error::Absent(_)) => {}
+        Err(Error::Traversal(Traversal::Absent(_))) => {}
         e => { e.unwrap(); }
     }
 }
