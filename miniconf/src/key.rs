@@ -78,6 +78,7 @@ where
 
 /// JSON style path notation
 ///
+/// This is only styled after JSON notation, it does not adhere to it.
 /// Supported are both dot and key notation with and without
 /// names enclosed by `'` as well as mixtures:
 ///
@@ -102,6 +103,7 @@ where
 ///
 /// # Limitations
 ///
+/// * No attempt at validating conformance.
 /// * It does not support any escaping.
 ///
 #[derive(Clone, Debug)]

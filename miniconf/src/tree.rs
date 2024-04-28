@@ -286,6 +286,59 @@ impl Metadata {
 /// The `get`, `get_mut`, `validate` callbacks can be used to implement accessors,
 /// validation or support remote types (e.g. `#[tree(get_mut=func)]`)
 ///
+/// ## `get`
+///
+/// The getter is called during `serialize_by_key()` before leaf serialization and
+/// during `get by_key()` Its signature is `fn(&self) -> Result<&T, &str>`.
+/// The default getter is `Ok(&self.field)`.
+/// Getters can be used for both leaf fields as well as internal (non-leaf) fields.
+/// If a getter returns an error message `Err(&str)` the serialization/traversal
+/// is not performed, further getters at greater depth are not invoked
+/// and [`Traversal::Access`] is returned.
+///
+/// ## `get_mut` field attribute
+///
+/// For internal (non-leaf) fields `get_mut` is invoked during `get_mut_by_key()` and
+/// during `deserialize_by_key()` before deserialization while traversing down to
+/// the leaf node.
+/// For leaf fields it is invoked after deserialization and validation but before
+/// updating the leaf value.
+/// The signature is `fn(&mut self) -> Result<&mut T, &str>`.
+/// The default internal setter is `Ok(&mut self.field)`.
+/// If an internal setter returns an `Err`
+/// no further setters are invoked and [`Traversal::Access`] will be returned.
+///
+/// Note: In both cases the setters receive `&mut self` as an argument and may
+/// mutate the struct.
+///
+/// ```
+/// # use miniconf::{Error, Tree, JsonCoreSlash};
+/// #[derive(Tree, Default)]
+/// struct S {
+///     #[tree(validate=leaf)]
+///     a: f32,
+///     #[tree(depth=1, validate=non_leaf)]
+///     b: [f32; 2],
+/// };
+/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
+///     Err("fail")
+/// }
+/// fn non_leaf(s: &mut S, depth: usize) -> Result<usize, &'static str> {
+///     Err("fail")
+/// }
+/// ```
+///
+/// ### `validate`
+///
+/// For leaf fields the `validate` callback is called during `deserialize_by_key()`
+/// after successful deserialization of the leaf value but before setting it.
+/// The leaf `validate` signature is `fn(&mut self, value: T) ->
+/// Result<T, &'static str>`.
+/// For internal fields it is called after the successful update of the leaf field
+/// during upward traversal.
+/// The internal `validate` signature is `fn(&mut self, depth: usize) ->
+/// Result<usize, &'static str>`
+///
 /// ## Bounds
 ///
 /// To derive `TreeSerialize`/`TreeDeserialize`/`TreeAny`, each field (that is not `skip`ped)
@@ -768,19 +821,7 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
 /// # Derive macro
 ///
 /// [`macro@crate::TreeSerialize`] derives `TreeSerialize` for structs with named fields and tuple structs.
-/// The `depth` and `skip` field attributes are described in the [`TreeKey`] trait.
-///
-/// ## `getter` field attribute
-///
-/// The getter is called during `serialize_by_key()` before leaf serialization.
-/// Its signature is `fn(&self) -> Result<&T, &str>`.
-/// The default getter is `Ok(&self.field)`.
-/// Getters can be used for both
-/// leaf fields as well as internal (non-leaf) fields.
-/// If a getter returns an error message `Err(&str)` the serialization is not performed,
-/// further getters at greater depth are invoked
-/// and [`Error::InvalidLeaf`] or [`Error::InvalidInternal`] is returned
-/// from `serialize_by_key()` depending on which getter failed.
+/// The field attributes are described in the [`TreeKey`] trait.
 pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// Serialize a node by keys.
     ///
@@ -821,46 +862,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 /// # Derive macro
 ///
 /// [`macro@crate::TreeDeserialize`] derives `TreeSerialize` for structs with named fields and tuple structs.
-/// The `depth` and `skip` field attributes are described in the [`TreeKey`] trait.
-///
-/// ## `setter` field attribute
-///
-/// For internal (non-leaf) fields the setter is invoked before deserialization
-/// while traversing down to the leaf node.
-/// The internal setter signature is `fn(&mut self) -> Result<&mut T, &str>`.
-/// The default internal setter is `Ok(&mut self.field)`.
-/// Note that when a non-leaf setter is invoked, deserialization and leaf
-/// value update have not yet taken place.
-/// If an internal setter returns an `Err`
-/// no further setters are invoked and [`Error::InvalidInternal`] will be returned
-/// from `deserialize_by_key()`.
-///
-/// For leaf fields the setter is invoked during `deserialize_by_key()` after
-/// successful deserialization but before updating the leaf value.
-/// The setter signature is `fn(&mut self, new: T) -> Result<(), &str>`
-/// The default leaf setter is `{ self.field = new; Ok(()) }`.
-/// If the leaf setter returns an `Err(&str)`
-/// [`Error::InvalidLeaf`] is returned from `deserialize_by_key()`.
-///
-/// Note: In both cases the setters receive `&mut self` as an argument and may
-/// mutate the struct.
-///
-/// ```
-/// # use miniconf::{Error, Tree, JsonCoreSlash};
-/// #[derive(Tree, Default)]
-/// struct S {
-///     #[tree(validate=leaf)]
-///     a: f32,
-///     #[tree(depth=1, validate=non_leaf)]
-///     b: [f32; 2],
-/// };
-/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
-///     Err("fail")
-/// }
-/// fn non_leaf(s: &mut S, depth: usize) -> Result<usize, &'static str> {
-///     Err("fail")
-/// }
-/// ```
+/// The field attributes are described in the [`TreeKey`] trait.
 pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// Deserialize a leaf node by its keys.
     ///
