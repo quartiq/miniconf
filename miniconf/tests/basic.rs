@@ -42,19 +42,10 @@ fn path() {
 
 #[test]
 fn indices() {
-    let mut s = [0usize; 2];
-    assert_eq!(Settings::indices(["b", "foo"], s.iter_mut()), Ok(1));
-    assert_eq!(s, [1, 0]);
-    assert_eq!(
-        Settings::indices(["c", "inner", "bar"], s.iter_mut()),
-        Ok(2)
-    );
-    assert_eq!(s, [2, 0]);
-    assert_eq!(
-        Settings::indices(["c"], s.iter_mut()),
-        Err(Traversal::TooShort(1).into())
-    );
-    assert_eq!(Option::<i8>::indices([0; 0], s.iter_mut()), Ok(0));
+    assert_eq!(Settings::indices(["b", "foo"]), Ok(([1, 0], 1)));
+    assert_eq!(Settings::indices(["c", "inner", "bar"]), Ok(([2, 0], 2)));
+    assert_eq!(Settings::indices(["c"]), Err(Traversal::TooShort(1).into()));
+    assert_eq!(Option::<i8>::indices([0; 0]), Ok(([0], 0)));
 }
 
 #[test]

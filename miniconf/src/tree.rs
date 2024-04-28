@@ -520,9 +520,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// S::json_path(idx, &mut s).unwrap();
     /// assert_eq!(s, ".bar[1]");
     ///
-    /// let mut idx_new = [0; 5];
-    /// let len = S::indices(JsonPath::new(&s), &mut idx_new).unwrap();
-    /// assert_eq!(&idx_new[..len], idx);
+    /// let (indices, depth) = S::indices(JsonPath::new(&s)).unwrap();
+    /// assert_eq!(&indices[..depth], idx);
     /// # }
     /// ```
     fn json_path<K, P>(keys: K, mut path: P) -> Result<usize, Error<core::fmt::Error>>
@@ -553,32 +552,28 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let mut i = [0; 2];
-    /// let depth = S::indices(["bar", "1"], &mut i).unwrap();
-    /// assert_eq!(&i[..depth], [1, 1]);
+    /// let (indices, depth) = S::indices(["bar", "1"]).unwrap();
+    /// assert_eq!(&indices[..depth], [1, 1]);
     /// ```
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `indices`: An iterator of `&mut usize` to write the node indices into.
-    ///   If `indices` is shorter than the node depth, [`Error::Inner`] is returned.
-    ///   `Y` is an upper bound for the required `indices` length. See also
-    ///   [TreeKey::metadata()] for an exact value.
     ///
     /// # Returns
-    /// Final node depth (number of items consumed and indices written) on success
-    fn indices<'a, K, I>(keys: K, indices: I) -> Result<usize, Traversal>
+    /// Indices and depth on success
+    fn indices<K>(keys: K) -> Result<([usize; Y], usize), Traversal>
     where
         K: IntoKeys,
-        I: IntoIterator<Item = &'a mut usize>,
     {
-        let mut indices = indices.into_iter();
+        let mut indices = [0; Y];
+        let mut it = indices.iter_mut();
         Self::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            let idx = indices.next().ok_or(())?;
+            let idx = it.next().ok_or(())?;
             *idx = index;
             Ok::<_, ()>(())
         })
         .map_err(|err| err.try_into().unwrap())
+        .map(|depth| (indices, depth))
     }
 
     /// Convert keys to packed usize bitfield representation.
