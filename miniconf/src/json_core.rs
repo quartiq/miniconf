@@ -5,6 +5,8 @@ use serde_json_core::{de, ser};
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
+///
+/// Paths used here are reciprocal to `TreeKey::path(..., "/")`/`TreeKey::iter_paths("/")`.
 pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     TreeSerialize<Y> + TreeDeserialize<'de, Y>
 {
@@ -21,7 +23,7 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to the node.
+    /// * `path` - The path to the node. Everything before the first `'/'` is ignored.
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
@@ -57,8 +59,8 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     ) -> Result<usize, Error<ser::Error>>;
 }
 
-impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCoreSlash<'de, Y>
-    for T
+impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize>
+    JsonCoreSlash<'de, Y> for T
 {
     fn set_json(&mut self, path: &str, data: &'de [u8]) -> Result<usize, Error<de::Error>> {
         self.set_json_by_key(path.split('/').skip(1), data)
@@ -73,7 +75,7 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y>, const Y: usize> JsonCor
         keys: K,
         data: &'de [u8],
     ) -> Result<usize, Error<de::Error>> {
-        let mut de = de::Deserializer::new(data);
+        let mut de: de::Deserializer<'_> = de::Deserializer::new(data);
         self.deserialize_by_key(keys.into_keys(), &mut de)?;
         de.end().map_err(Error::Finalization)
     }

@@ -1,4 +1,6 @@
-use miniconf::{Error, Tree, TreeKey};
+#![cfg(feature = "derive")]
+
+use miniconf::{Traversal, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -13,9 +15,9 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::metadata().separator("/");
+    let meta = Settings::metadata();
     assert_eq!(meta.max_depth, 1);
-    assert_eq!(meta.max_length, "/value".len());
+    assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count, 1);
 }
 
@@ -25,6 +27,9 @@ fn path() {
     assert_eq!(Settings::path([0], &mut s, "/"), Ok(1));
     assert_eq!(s, "/value");
     s.clear();
-    assert_eq!(Settings::path([1], &mut s, "/"), Err(Error::NotFound(1)));
+    assert_eq!(
+        Settings::path([1], &mut s, "/"),
+        Err(Traversal::NotFound(1).into())
+    );
     assert_eq!(s, "");
 }

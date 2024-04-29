@@ -6,29 +6,21 @@ use darling::{
 use proc_macro2::TokenStream;
 use quote::quote;
 
-pub(crate) fn name_or_index(i: usize, ident: &Option<syn::Ident>) -> proc_macro2::TokenStream {
-    match ident {
-        None => {
-            let index = syn::Index::from(i);
-            quote! { #index }
-        }
-        Some(name) => quote! { #name },
-    }
-}
-
 #[derive(Debug, FromField)]
 #[darling(attributes(tree))]
 pub struct TreeField {
     pub ident: Option<syn::Ident>,
-    pub vis: syn::Visibility,
+    // pub vis: syn::Visibility,
     pub ty: syn::Type,
     // attrs: Vec<syn::Attribute>,
     #[darling(default)]
     pub depth: usize,
     pub skip: Flag,
     pub typ: Option<syn::Type>,
-    pub setter: Option<syn::Path>,
-    pub getter: Option<syn::Path>,
+    pub validate: Option<syn::Path>,
+    pub get: Option<syn::Path>,
+    pub get_mut: Option<syn::Path>,
+    pub rename: Option<syn::Ident>,
 }
 
 impl TreeField {
@@ -36,9 +28,18 @@ impl TreeField {
         self.typ.as_ref().unwrap_or(&self.ty)
     }
 
-    pub(crate) fn name(&self, i: usize) -> TokenStream {
-        let name = name_or_index(i, &self.ident);
-        quote! { stringify!(#name) }
+    pub(crate) fn name(&self) -> Option<&syn::Ident> {
+        self.rename.as_ref().or(self.ident.as_ref())
+    }
+
+    fn ident_or_index(&self, i: usize) -> TokenStream {
+        match &self.ident {
+            None => {
+                let index = syn::Index::from(i);
+                quote! { #index }
+            }
+            Some(name) => quote! { #name },
+        }
     }
 
     pub(crate) fn traverse_by_key(&self, i: usize) -> Option<TokenStream> {
@@ -67,70 +68,113 @@ impl TreeField {
         }
     }
 
+    fn getter(&self, i: usize) -> TokenStream {
+        let ident = self.ident_or_index(i);
+        match &self.get {
+            Some(get) => quote! {
+                #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
+            },
+            None => quote! { Ok(&self.#ident) },
+        }
+    }
+
+    fn getter_mut(&self, i: usize) -> TokenStream {
+        let ident = self.ident_or_index(i);
+        match &self.get_mut {
+            Some(get_mut) => quote!(
+                #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
+            ),
+            None => quote!( Ok(&mut self.#ident) ),
+        }
+    }
+
+    fn validator(&self) -> TokenStream {
+        match &self.validate {
+            Some(validate) => quote! { |value|
+                #validate(self, value).map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
+            },
+            None => quote! { |value| Ok(value) },
+        }
+    }
+
     pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
-        let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
-        let getter = if let Some(getter) = &self.getter {
-            quote!( #getter(&self) )
-        } else {
-            quote!( Ok(&self.#ident) )
-        };
+        let getter = self.getter(i);
         if depth > 0 {
             quote! {
                 #i => #getter
-                    .map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
                     .and_then(|value|
                         ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser))
             }
         } else {
             quote! {
                 #i => #getter
-                    .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
-                        .map_err(::miniconf::Error::Inner)
+                        .map_err(|err| ::miniconf::Error::Inner(0, err))
+                        .and(Ok(0))
                     )
-                    .and(Ok(0))
             }
         }
     }
 
     pub(crate) fn deserialize_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        let ident = name_or_index(i, &self.ident);
         let depth = self.depth;
+        let getter_mut = self.getter_mut(i);
+        let validator = self.validator();
         if depth > 0 {
-            let setter = match &self.setter {
-                Some(setter) => quote!(
-                    #setter(self).map_err(|msg| ::miniconf::Error::InvalidInternal(0, msg))
-                ),
-                None => quote!(Ok(&mut self.#ident)),
-            };
             quote! {
-                #i => {
-                    #setter.and_then(|value|
-                        ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(value, keys, de))
-                }
+                #i => #getter_mut
+                    .and_then(|item|
+                        ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(item, keys, de)
+                    )
+                    .and_then(#validator)
             }
         } else {
-            let setter = match &self.setter {
-                Some(setter) => quote!( |value|
-                    #setter(self, value)
-                    .and(Ok(0))
-                    .map_err(|msg| ::miniconf::Error::InvalidLeaf(0, msg))
-                ),
-                None => quote!( |value| {
-                    self.#ident = value;
-                    Ok(0)
-                }),
-            };
             quote! {
-                #i => {
-                    ::miniconf::Deserialize::deserialize(de)
-                        .map_err(::miniconf::Error::Inner)
-                        .and_then(#setter)
-                }
+                #i => ::miniconf::Deserialize::deserialize(de)
+                    .map_err(|err| ::miniconf::Error::Inner(0, err))
+                    .and_then(#validator)
+                    .and_then(|value|
+                        #getter_mut.and_then(|item| {
+                            *item = value;
+                            Ok(0)
+                        })
+                    )
+            }
+        }
+    }
+
+    pub(crate) fn get_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let depth = self.depth;
+        let getter = self.getter(i);
+        if depth > 0 {
+            quote! {
+                #i => #getter
+                    .and_then(|value| ::miniconf::TreeAny::<#depth>::get_by_key(value, keys))
+            }
+        } else {
+            quote! {
+                #i => #getter.map(|value| value as &dyn ::core::any::Any)
+            }
+        }
+    }
+
+    pub(crate) fn get_mut_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let depth = self.depth;
+        let getter_mut = self.getter_mut(i);
+        if depth > 0 {
+            quote! {
+                #i => #getter_mut
+                    .and_then(|value| ::miniconf::TreeAny::<#depth>::get_mut_by_key(value, keys))
+            }
+        } else {
+            quote! {
+                #i => #getter_mut.map(|value| value as &mut dyn ::core::any::Any)
             }
         }
     }
@@ -142,7 +186,7 @@ impl TreeField {
 pub struct Tree {
     pub ident: syn::Ident,
     pub generics: syn::Generics,
-    pub vis: syn::Visibility,
+    // pub vis: syn::Visibility,
     pub data: ast::Data<(), TreeField>,
     // attrs: Vec<syn::Attribute>,
 }
@@ -157,7 +201,13 @@ impl Tree {
 
     pub(crate) fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
         let mut t = Self::from_derive_input(input)?;
-        t.fields_mut().retain(|f| !f.skip.is_present());
+        t.fields_mut().retain(|f| {
+            if f.skip.is_present() {
+                // unnamed fields can only be skipped if they are terminal
+                assert!(f.ident.is_some());
+            }
+            !f.skip.is_present()
+        });
         Ok(t)
     }
 
@@ -175,11 +225,19 @@ impl Tree {
         &mut fields.fields
     }
 
-    pub(crate) fn bound_generics<F>(&self, func: &mut F, generics: &mut syn::Generics)
+    pub(crate) fn bound_generics<F>(&mut self, func: &mut F)
     where
         F: FnMut(usize) -> Option<syn::TypeParamBound>,
     {
-        for f in self.fields().iter() {
+        let Self {
+            ref mut generics,
+            data: Data::Struct(ref fields),
+            ..
+        } = self
+        else {
+            unreachable!()
+        };
+        for f in fields.fields.iter() {
             walk_type_params(f.typ(), func, f.depth, generics)
         }
     }
@@ -196,7 +254,7 @@ where
                 // call back if it is a generic type for us
                 for generic in &mut generics.params {
                     if let syn::GenericParam::Type(type_param) = generic {
-                        if type_param.ident == *ident {
+                        if &type_param.ident == ident {
                             if let Some(bound) = func(depth) {
                                 type_param.bounds.push(bound);
                             }

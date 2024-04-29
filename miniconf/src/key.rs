@@ -1,54 +1,42 @@
-use crate::{Error, TreeKey};
+use crate::{Traversal, TreeKey};
 
 /// Capability to convert a key into a node index for a given `M: TreeKey`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize>;
+    fn find<const Y: usize, M: TreeKey<Y> + ?Sized>(&self) -> Option<usize>;
 }
 
 // `usize` index as Key
 impl Key for usize {
-    fn find<const Y: usize, M>(&self) -> Option<usize> {
+    fn find<const Y: usize, M: ?Sized>(&self) -> Option<usize> {
         Some(*self)
     }
 }
 
 // &str name as Key
 impl Key for &str {
-    fn find<const Y: usize, M: TreeKey<Y>>(&self) -> Option<usize> {
+    fn find<const Y: usize, M: TreeKey<Y> + ?Sized>(&self) -> Option<usize> {
         M::name_to_index(self)
     }
 }
 
-/// Capability to yield keys given `M: TreeKey`
+/// Capability to yield [`Key`]s
 pub trait Keys {
-    /// The type of key that we yield.
-    type Item: Key;
-
-    /// Convert the next key `self` to a `usize` index.
-    ///
-    /// # Args
-    /// * `len` is an upper limit to the number of keys at this level.
-    ///   It is non-zero.
-    fn next(&mut self, len: usize) -> Option<Self::Item>;
-
-    /// Look up a key in a [`TreeKey`] and convert to `usize` index.
-    ///
-    /// # Args
-    /// * `len` as for [`Keys::next()`]
-    fn lookup<const Y: usize, M: TreeKey<Y>, E>(&mut self) -> Result<usize, Error<E>> {
-        self.next(M::len())
-            .ok_or(Error::TooShort(0))?
-            .find::<Y, M>()
-            .ok_or(Error::NotFound(1))
-    }
+    /// Look up the next key in a [`TreeKey`] and convert to `usize` index.
+    fn next<const Y: usize, M: TreeKey<Y> + ?Sized>(&mut self) -> Result<usize, Traversal>;
 
     /// Return whether there are more keys.
     ///
     /// This may mutate and consume remaining keys.
-    #[inline]
-    fn is_empty(&mut self) -> bool {
-        self.next(0).is_none()
+    fn is_empty(&mut self) -> bool;
+
+    /// Check for no remaining keys.
+    fn finalize<const Y: usize>(&mut self) -> Result<(), Traversal> {
+        if !self.is_empty() {
+            Err(Traversal::TooLong(Y))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -57,10 +45,13 @@ where
     T: Iterator,
     T::Item: Key,
 {
-    type Item = T::Item;
+    fn next<const Y: usize, M: TreeKey<Y> + ?Sized>(&mut self) -> Result<usize, Traversal> {
+        let key = Iterator::next(self).ok_or(Traversal::TooShort(0))?;
+        key.find::<Y, M>().ok_or(Traversal::NotFound(1))
+    }
 
-    fn next(&mut self, _len: usize) -> Option<Self::Item> {
-        Iterator::next(self)
+    fn is_empty(&mut self) -> bool {
+        self.next().is_none()
     }
 }
 

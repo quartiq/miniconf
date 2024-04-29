@@ -1,6 +1,9 @@
-#![cfg(feature = "json-core")]
+#![cfg(all(feature = "json-core", feature = "derive"))]
 
-use miniconf::{Deserialize, DeserializeOwned, JsonCoreSlash, Serialize, Tree, TreeKey};
+use core::any::Any;
+
+use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
+use serde::de::DeserializeOwned;
 
 #[test]
 fn generic_type() {
@@ -34,9 +37,9 @@ fn generic_array() {
     assert_eq!(settings.data[0], 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata().separator("/");
+    let metadata = Settings::<f32>::metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length, "/data/0".len());
+    assert_eq!(metadata.max_length("/"), "/data/0".len());
     assert_eq!(metadata.count, 2);
 }
 
@@ -58,9 +61,9 @@ fn generic_struct() {
     assert_eq!(settings.inner.data, 3.0);
 
     // Test metadata
-    let metadata = Settings::<Inner>::metadata().separator("/");
+    let metadata = Settings::<Inner>::metadata();
     assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "/inner".len());
+    assert_eq!(metadata.max_length("/"), "/inner".len());
     assert_eq!(metadata.count, 1);
 }
 
@@ -88,9 +91,9 @@ fn generic_atomic() {
     assert_eq!(settings.atomic.inner[0], 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata().separator("/");
+    let metadata = Settings::<f32>::metadata();
     assert_eq!(metadata.max_depth, 3);
-    assert_eq!(metadata.max_length, "/opt1/0/0".len());
+    assert_eq!(metadata.max_length("/"), "/opt1/0/0".len());
 }
 
 #[test]
@@ -105,7 +108,7 @@ fn test_derive_macro_bound_failure() {
     // adding the required traits by hand works.
     type A<T> = [[T; 0]; 0];
     #[derive(Tree)]
-    struct S<T: Serialize + DeserializeOwned>(
+    struct S<T: Serialize + DeserializeOwned + Any>(
         // this wrongly infers T: Tree<1> instead of T: SerDe
         // adding the missing bound is a workaround
         #[tree(depth = 2)] A<T>,

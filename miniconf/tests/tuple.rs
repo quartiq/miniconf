@@ -1,6 +1,6 @@
-#![cfg(feature = "json-core")]
+#![cfg(all(feature = "json-core", feature = "derive"))]
 
-use miniconf::{JsonCoreSlash, Tree};
+use miniconf::{JsonCoreSlash, Tree, TreeKey};
 
 #[test]
 fn tuple_struct() {
@@ -17,4 +17,12 @@ fn tuple_struct() {
     assert_eq!(s.1, 3.0);
     s.set_json("/2", b"3.0").unwrap_err();
     s.set_json("/foo", b"3.0").unwrap_err();
+
+    assert_eq!(
+        Settings::iter_paths::<String>("/")
+            .count()
+            .map(Result::unwrap)
+            .collect::<Vec<_>>(),
+        vec!["/0", "/1"]
+    );
 }

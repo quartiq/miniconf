@@ -6,7 +6,7 @@
 //! The Minimq MQTT client for Miniconf.
 
 use heapless::{String, Vec};
-use miniconf::{Error, JsonCoreSlash, PathIter, TreeKey};
+use miniconf::{Error, JsonCoreSlash, PathIter, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
@@ -68,7 +68,7 @@ mod sm {
                 clock,
                 timeout: None,
                 // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                republish_state: M::iter_paths_unchecked("/"),
+                republish_state: M::iter_paths("/"),
             }
         }
 
@@ -91,7 +91,7 @@ mod sm {
 
         fn start_republish(&mut self) {
             // Skip redundant check (done comprehensively in `MqttClient::new()`)
-            self.republish_state = M::iter_paths_unchecked("/");
+            self.republish_state = M::iter_paths("/");
         }
     }
 }
@@ -212,8 +212,8 @@ where
 
         let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
-        let meta = Settings::metadata().separator("/");
-        assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
+        let max_length = Settings::metadata().max_length("/");
+        assert!(prefix.len() + "/settings".len() + max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,
@@ -296,7 +296,7 @@ where
                     .finish()
                     .unwrap(),
             ) {
-                Err(minimq::PubError::Serialization(Error::Absent(_))) => {}
+                Err(minimq::PubError::Serialization(Error::Traversal(Traversal::Absent(_)))) => {}
 
                 // If the value is too large to serialize, print an error to the topic instead
                 Err(minimq::PubError::Error(minimq::Error::Minimq(
@@ -432,7 +432,7 @@ where
                                 Err(msg) => msg,
                                 Ok(cache) => {
                                     self.listing_state
-                                        .replace((cache, Settings::iter_paths_unchecked("/")));
+                                        .replace((cache, Settings::iter_paths("/")));
 
                                     // There is no positive response sent during list commands,
                                     // instead, the response is sent as a property of the listed

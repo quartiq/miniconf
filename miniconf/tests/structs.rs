@@ -1,6 +1,8 @@
-#![cfg(feature = "json-core")]
+#![cfg(all(feature = "json-core", feature = "derive"))]
 
-use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
+use miniconf::{
+    Deserialize, JsonCoreSlash, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+};
 
 #[test]
 fn atomic_struct() {
@@ -35,9 +37,9 @@ fn atomic_struct() {
     assert_eq!(settings, expected);
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata().separator("/");
+    let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "/c".len());
+    assert_eq!(metadata.max_length("/"), "/c".len());
     assert_eq!(metadata.count, 3);
 }
 
@@ -71,9 +73,9 @@ fn recursive_struct() {
     assert!(settings.set_json("/c", b"{\"a\": 5}").is_err());
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata().separator("/");
+    let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length, "/c/a".len());
+    assert_eq!(metadata.max_length("/"), "/c/a".len());
     assert_eq!(metadata.count, 3);
 }
 
@@ -81,12 +83,13 @@ fn recursive_struct() {
 fn empty_struct() {
     #[derive(Tree, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<String>("/").next().is_none());
+    assert!(Settings::iter_paths::<String>("/").count().next().is_none());
 }
 
 #[test]
 fn borrowed() {
-    #[derive(Tree)]
+    // Can't derive TreeAny
+    #[derive(TreeKey, TreeDeserialize, TreeSerialize)]
     struct S<'a> {
         a: &'a str,
     }

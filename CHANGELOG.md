@@ -8,7 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.10.1...HEAD) - RELEASE-DATE
 
 ### Changed
-* `Increment` trait and blanket impl removed in favor of function
+* [breaking] The `Traversal` error enum has been split from the `Error<E>` enum to reduce genericism.
+* [breaking] `Increment` trait and blanket impl removed in favor of `increment_result`/
+  `Error::increment`/`Traversal::increment`
+* Uncounted iteration is the default
+* [breaking] The `traverse_by_key` callback receives the field name as an `Option<&'static str>`
+  (`None` in the case of arrays and tuple structs).
+* [breaking] Derive macro attributes: accessor/validation revamp: `getter -> get`, `setter -> get_mut`,
+  and `validate` with more idiomatic and flexible usage and call sequencing.
+* [breaking] `Metadata.separator()` has been changed to only return the new maximum length for
+  consistency and renamed to `max_length(separator: &str)`.
+
+### Added
+* `TreeAny` to access nodes trough `Any` trait objects.
+* `TreeKey::json_path()` for JSON path notation `.bar[5]`
+* `JsonPath: Keys`
+* `rename` field attribute for derive macros
+* Counted iteration is supported (includung `ExactSizeIterator`) through the `count()`
+  "augmentation" methods on the iterators.
+* `derive` feature in `miniconf` crate to control pulling in the derive macros, default enabled
+
+### Removed
+* [breaking] `TreeKey::iter_*_unchecked()` have been removed. Uncounted iteration is the default.
 
 ## [0.10.1](https://github.com/quartiq/miniconf/compare/v0.10.0...v0.10.1) - 2024-04-22
 

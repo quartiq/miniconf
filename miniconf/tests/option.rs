@@ -1,6 +1,6 @@
-#![cfg(feature = "json-core")]
+#![cfg(all(feature = "json-core", feature = "derive"))]
 
-use miniconf::{Error, JsonCoreSlash, Tree, TreeKey};
+use miniconf::{Error, JsonCoreSlash, Traversal, Tree, TreeKey};
 
 #[derive(PartialEq, Debug, Clone, Default, Tree)]
 struct Inner {
@@ -15,7 +15,7 @@ struct Settings {
 
 #[test]
 fn just_option() {
-    let mut it = Option::<u32>::iter_paths::<String>("/");
+    let mut it = Option::<u32>::iter_paths::<String>("/").count();
     assert_eq!(it.next(), Some(Ok("".into())));
     assert_eq!(it.next(), None);
 }
@@ -29,15 +29,15 @@ fn option_get_set_none() {
     settings.value.take();
     assert_eq!(
         settings.get_json("/value_foo", &mut data),
-        Err(miniconf::Error::NotFound(1))
+        Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
         settings.get_json("/value", &mut data),
-        Err(miniconf::Error::Absent(1))
+        Err(Traversal::Absent(1).into())
     );
     assert_eq!(
         settings.set_json("/value/data", b"5"),
-        Err(miniconf::Error::Absent(1))
+        Err(Traversal::Absent(1).into())
     );
 }
 
@@ -62,13 +62,13 @@ fn option_iterate_some_none() {
 
     // When the value is None, it will still be iterated over as a topic but may not exist at runtime.
     settings.value.take();
-    let mut iterator = Settings::iter_paths::<String>("/");
+    let mut iterator = Settings::iter_paths::<String>("/").count();
     assert_eq!(iterator.next(), Some(Ok("/value/data".into())));
     assert!(iterator.next().is_none());
 
     // When the value is Some, it should be iterated over.
     settings.value.replace(Inner { data: 5 });
-    let mut iterator = Settings::iter_paths::<String>("/");
+    let mut iterator = Settings::iter_paths::<String>("/").count();
     assert_eq!(iterator.next(), Some(Ok("/value/data".into())));
     assert_eq!(iterator.next(), None);
 }
@@ -83,14 +83,14 @@ fn option_test_normal_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::iter_paths::<String>("/");
+    let mut iterator = S::iter_paths::<String>("/").count();
     assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
     s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
-    let mut iterator = S::iter_paths::<String>("/");
+    let mut iterator = S::iter_paths::<String>("/").count();
     assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
@@ -109,7 +109,7 @@ fn option_test_defer_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::iter_paths::<String>("/");
+    let mut iterator = S::iter_paths::<String>("/").count();
     assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
@@ -118,7 +118,7 @@ fn option_test_defer_option() {
     s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
 
-    let mut iterator = S::iter_paths::<String>("/");
+    let mut iterator = S::iter_paths::<String>("/").count();
     assert_eq!(iterator.next(), Some(Ok("/data".into())));
     assert!(iterator.next().is_none());
 
@@ -139,15 +139,21 @@ fn option_absent() {
     }
 
     let mut s = S::default();
-    assert_eq!(s.set_json("/d", b"7"), Err(Error::Absent(1)));
+    assert_eq!(s.set_json("/d", b"7"), Err(Traversal::Absent(1).into()));
     // Check precedence
-    assert_eq!(s.set_json("/d", b""), Err(Error::Absent(1)));
-    assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert_eq!(s.set_json("", b"7"), Err(Error::TooShort(0)));
+    assert_eq!(s.set_json("/d", b""), Err(Traversal::Absent(1).into()));
+    assert_eq!(
+        s.set_json("/d/foo", b"7"),
+        Err(Traversal::TooLong(1).into())
+    );
+    assert_eq!(s.set_json("", b"7"), Err(Traversal::TooShort(0).into()));
     s.d = Some(3);
     assert_eq!(s.set_json("/d", b"7"), Ok(1));
-    assert_eq!(s.set_json("/d/foo", b"7"), Err(Error::TooLong(1)));
-    assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(_))));
+    assert_eq!(
+        s.set_json("/d/foo", b"7"),
+        Err(Traversal::TooLong(1).into())
+    );
+    assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(1, _))));
     assert_eq!(s.set_json("/d", b"7 "), Ok(2));
     assert_eq!(s.set_json("/d", b" 7"), Ok(2));
     assert!(matches!(

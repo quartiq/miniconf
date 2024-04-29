@@ -1,4 +1,6 @@
-use miniconf::{Error, Tree, TreeKey};
+#![cfg(all(feature = "derive"))]
+
+use miniconf::{Traversal, Tree, TreeKey};
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -15,22 +17,25 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::metadata().separator("/");
+    let meta = Settings::metadata();
     assert_eq!(meta.max_depth, 2);
-    assert_eq!(meta.max_length, "/c/inner".len());
+    assert_eq!(meta.max_length("/"), "/c/inner".len());
     assert_eq!(meta.count, 3);
 }
 
 #[test]
 fn path() {
     let mut s = String::new();
-    assert_eq!(Settings::path([1, 0, 0], &mut s, "/"), Ok(1));
+    assert_eq!(Settings::path([1], &mut s, "/"), Ok(1));
     assert_eq!(s, "/b");
     s.clear();
-    assert_eq!(Settings::path([2, 0, 0], &mut s, "/"), Ok(2));
+    assert_eq!(Settings::path([2, 0], &mut s, "/"), Ok(2));
     assert_eq!(s, "/c/inner");
     s.clear();
-    assert_eq!(Settings::path([2], &mut s, "/"), Err(Error::TooShort(1)));
+    assert_eq!(
+        Settings::path([2], &mut s, "/"),
+        Err(Traversal::TooShort(1).into())
+    );
     assert_eq!(s, "/c");
     s.clear();
     assert_eq!(Option::<i8>::path([0; 0], &mut s, "/"), Ok(0));
@@ -39,41 +44,33 @@ fn path() {
 
 #[test]
 fn indices() {
-    let mut s = [0usize; 2];
-    assert_eq!(Settings::indices(["b", "foo"], s.iter_mut()), Ok(1));
-    assert_eq!(s, [1, 0]);
-    assert_eq!(
-        Settings::indices(["c", "inner", "bar"], s.iter_mut()),
-        Ok(2)
-    );
-    assert_eq!(s, [2, 0]);
-    assert_eq!(
-        Settings::indices(["c"], s.iter_mut()),
-        Err(Error::TooShort(1))
-    );
-    assert_eq!(Option::<i8>::indices([0; 0], s.iter_mut()), Ok(0));
+    assert_eq!(Settings::indices(["b"]), Ok(([1, 0], 1)));
+    assert_eq!(Settings::indices(["c", "inner"]), Ok(([2, 0], 2)));
+    assert_eq!(Settings::indices(["c"]), Err(Traversal::TooShort(1).into()));
+    assert_eq!(Option::<i8>::indices([0; 0]), Ok(([0], 0)));
 }
 
 #[test]
 fn traverse_empty() {
     #[derive(Tree, Default)]
     struct S {}
-    let f = |_, _: &_, _| unreachable!();
+    let f = |_, _, _| -> Result<(), ()> { unreachable!() };
     assert_eq!(
         S::traverse_by_key([0].into_iter(), f),
-        Err(Error::<()>::NotFound(1))
+        Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
         S::traverse_by_key([0; 0].into_iter(), f),
-        Err(Error::TooShort(0))
+        Err(Traversal::TooShort(0).into())
     );
     assert_eq!(Option::<i32>::traverse_by_key([0].into_iter(), f), Ok(0));
+    assert_eq!(Option::<i32>::traverse_by_key([0; 0].into_iter(), f), Ok(0));
     assert_eq!(
         <Option::<S> as TreeKey<2>>::traverse_by_key([0].into_iter(), f),
-        Err(Error::NotFound(1))
+        Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
         <Option::<S> as TreeKey<2>>::traverse_by_key([0; 0].into_iter(), f),
-        Err(Error::TooShort(0))
+        Err(Traversal::TooShort(0).into())
     );
 }
