@@ -95,3 +95,76 @@ fn other_type() {
         Err(Traversal::Access(1, "range").into())
     );
 }
+
+#[test]
+fn enable_option() {
+    // This may be less desirable as enable and the variant are redundant and can
+    // become desynced by direct writes.
+    // Also it forgets the Some value.
+    #[derive(Default, Tree)]
+    struct S {
+        #[tree(depth=1)]
+        opt: Option<i32>,
+        #[tree(validate=Self::validate)]
+        enable: bool,
+    }
+
+    impl S {
+        fn validate(&mut self, en: bool) -> Result<bool, &'static str> {
+            if en {
+                if self.opt.is_none() {
+                    self.opt = Some(Default::default());
+                }
+            } else {
+                self.opt = None;
+            }
+            Ok(en)
+        }
+    }
+
+    let mut s = S::default();
+    s.set_json("/enable", b"true").unwrap();
+    s.set_json("/opt", b"1").unwrap();
+    assert_eq!(s.opt, Some(1));
+    s.set_json("/enable", b"false").unwrap();
+    assert_eq!(s.opt, None);
+    s.set_json("/opt", b"1").unwrap_err();
+}
+
+#[test]
+fn locked() {
+    // This is a bit nicer (could also be called `lock`, or be a `Access` enum)
+    // It doesn't show up as `Absent` though.
+    #[derive(Default, Tree)]
+    struct S {
+        #[tree(get=Self::get, get_mut=Self::get_mut)]
+        val: i32,
+        read: bool,
+        write: bool,
+    }
+
+    impl S {
+        fn get(&self) -> Result<&i32, &'static str> {
+            if self.read {
+                Ok(&self.val)
+            } else {
+                Err("not readable")
+            }
+        }
+        fn get_mut(&mut self) -> Result<&mut i32, &'static str> {
+            if self.write {
+                Ok(&mut self.val)
+            } else {
+                Err("not writable")
+            }
+        }
+    }
+
+    let mut s = S::default();
+    s.set_json("/write", b"true").unwrap();
+    s.set_json("/val", b"1").unwrap();
+    assert_eq!(s.val, 1);
+    s.set_json("/write", b"false").unwrap();
+    assert_eq!(s.val, 1);
+    s.set_json("/val", b"1").unwrap_err();
+}
