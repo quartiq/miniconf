@@ -7,6 +7,26 @@ use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 // But it does add one Tree API layer between its `Tree<Y>` level
 // and its inner type `Tree<Y'>` level: `Y' = Y - 1`.
 
+fn get<'a, const Y: bool, T, K: Keys>(
+    opt: &'a Option<T>,
+    keys: &mut K,
+) -> Result<&'a T, Traversal> {
+    if Y {
+        keys.finalize::<0>()?;
+    }
+    opt.as_ref().ok_or(Traversal::Absent(0))
+}
+
+fn get_mut<'a, const Y: bool, T, K: Keys>(
+    opt: &'a mut Option<T>,
+    keys: &mut K,
+) -> Result<&'a mut T, Traversal> {
+    if Y {
+        keys.finalize::<0>()?;
+    }
+    opt.as_mut().ok_or(Traversal::Absent(0))
+}
+
 // the Y >= 2 cases:
 macro_rules! depth {
     ($($y:literal)+) => {$(
@@ -33,44 +53,42 @@ macro_rules! depth {
         }
 
         impl<T: TreeSerialize<{$y - 1}>> TreeSerialize<$y> for Option<T> {
-            fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
             where
                 K: Keys,
                 S: Serializer,
             {
-                self
-                    .as_ref()
-                    .ok_or(Traversal::Absent(0).into())
-                    .and_then(|inner| inner.serialize_by_key(keys, ser))
+                let inner = get::<false, _, _>(self, &mut keys)?;
+                inner.serialize_by_key(keys, ser)
             }
         }
 
         impl<'de, T: TreeDeserialize<'de, {$y - 1}>> TreeDeserialize<'de, $y> for Option<T> {
-            fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+            fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                self
-                    .as_mut()
-                    .ok_or(Traversal::Absent(0).into())
-                    .and_then(|inner| inner.deserialize_by_key(keys, de))
+                let inner = get_mut::<false, _, _>(self, &mut keys)?;
+                inner.deserialize_by_key(keys, de)
             }
         }
 
         impl<T: TreeAny<{$y - 1}>> TreeAny<$y> for Option<T> {
-            fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
             where
                 K: Keys,
             {
-                self.as_ref().ok_or(Traversal::Absent(0)).and_then(|inner| inner.get_by_key(keys))
+                let inner = get::<false, _, _>(self, &mut keys)?;
+                inner.get_by_key(keys)
             }
 
-            fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
             where
                 K: Keys,
             {
-                self.as_mut().ok_or(Traversal::Absent(0)).and_then(|inner| inner.get_mut_by_key(keys))
+                let inner = get_mut::<false, _, _>(self, &mut keys)?;
+                inner.get_mut_by_key(keys)
             }
         }
     )+}
@@ -109,15 +127,9 @@ impl<T: Serialize> TreeSerialize for Option<T> {
         K: Keys,
         S: Serializer,
     {
-        keys.finalize::<0>()?;
-        if let Some(inner) = self {
-            inner
-                .serialize(ser)
-                .map_err(|err| Error::Inner(0, err))
-                .and(Ok(0))
-        } else {
-            Err(Traversal::Absent(0).into())
-        }
+        let inner = get::<true, _, _>(self, &mut keys)?;
+        inner.serialize(ser).map_err(|err| Error::Inner(0, err))?;
+        Ok(0)
     }
 }
 
@@ -127,13 +139,9 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize::<0>()?;
-        if let Some(inner) = self {
-            *inner = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-            Ok(0)
-        } else {
-            Err(Traversal::Absent(0).into())
-        }
+        let inner = get_mut::<true, _, _>(self, &mut keys)?;
+        *inner = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
+        Ok(0)
     }
 }
 
@@ -142,23 +150,15 @@ impl<T: Any> TreeAny for Option<T> {
     where
         K: Keys,
     {
-        keys.finalize::<0>()?;
-        if let Some(inner) = self {
-            Ok(inner)
-        } else {
-            Err(Traversal::Absent(0))
-        }
+        let inner = get::<true, _, _>(self, &mut keys)?;
+        Ok(inner)
     }
 
     fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
-        keys.finalize::<0>()?;
-        if let Some(inner) = self {
-            Ok(inner)
-        } else {
-            Err(Traversal::Absent(0))
-        }
+        let inner = get_mut::<true, _, _>(self, &mut keys)?;
+        Ok(inner)
     }
 }
