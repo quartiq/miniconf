@@ -1,4 +1,4 @@
-#![cfg(feature = "json-core")]
+#![cfg(all(feature = "json-core", feature = "derive"))]
 
 use miniconf::{Packed, Traversal, Tree, TreeKey, TreeSerialize};
 

@@ -17,7 +17,7 @@ std = []
 [lib]
 
 [dependencies]
-miniconf = { version = "0.10", features = ["json-core"], path = "../miniconf" }
+miniconf = { version = "0.10", features = ["json-core", "derive"], path = "../miniconf" }
 minimq = "0.8.0"
 smlang = "0.6"
 embedded-io = "0.6"

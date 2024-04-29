@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `rename` field attribute for derive macros
 * Counted iteration is supported (includung `ExactSizeIterator`) through the `count()`
   "augmentation" methods on the iterators.
+* `derive` feature in `miniconf` crate to control pulling in the derive macros, default enabled
 
 ### Removed
 * [breaking] `TreeKey::iter_*_unchecked()` have been removed. Uncounted iteration is the default.

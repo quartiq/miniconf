@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "derive")]
 pub use miniconf_derive::*;
 mod tree;
 pub use tree::*;
