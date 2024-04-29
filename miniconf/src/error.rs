@@ -29,7 +29,7 @@ pub enum Traversal {
     /// The key is too long and goes beyond a leaf node.
     TooLong(usize),
 
-    /// An field could not be accessed.
+    /// A field could not be accessed.
     ///
     /// The `get` or `get_mut` accessor returned an error message.
     Access(usize, &'static str),

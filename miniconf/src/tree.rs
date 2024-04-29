@@ -124,7 +124,7 @@ impl Metadata {
 /// ## `get`
 ///
 /// The getter is called during `serialize_by_key()` before leaf serialization and
-/// during `get by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
+/// during `get_by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
 /// The default getter is `Ok(&self.field)`.
 /// Getters can be used for both leaf fields as well as internal (non-leaf) fields.
 /// If a getter returns an error message `Err(&str)` the serialization/traversal
@@ -416,7 +416,7 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Return the keys formatted as a normalized JSON path.
     ///
-    /// * Named fields (struct) are encoded in in dot notation.
+    /// * Named fields (struct) are encoded in dot notation.
     /// * Indices (tuple struct, array) are encoded in index notation
     ///
     /// See also [`TreeKey::path()`].

@@ -61,7 +61,7 @@ impl<const Y: usize> Default for State<Y> {
 impl<const Y: usize> State<Y> {
     /// Try to prepare for the next iteratiion
     ///
-    /// Increment current current index and return indices iterator.
+    /// Increment current index and return indices iterator.
     fn next(&mut self) -> Option<impl Iterator<Item = usize> + '_> {
         if self.depth == 0 {
             // Found root leaf (Option/newtype) or done at root
