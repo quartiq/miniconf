@@ -1,173 +1,9 @@
 use core::any::Any;
-use core::fmt::{Display, Formatter, Write};
+use core::fmt::Write;
 
-use crate::{IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter};
+use crate::{Error, IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter, Traversal};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-/// Errors that can occur when using the Tree traits.
-///
-/// A `usize` member indicates the key depth where the error occurred.
-/// The depth here is the number of names or indices consumed.
-/// It is also the number of separators in a path or the length
-/// of an indices slice. The [`TreeKey<Y>` recursion depth](TreeKey#recursion-depth)
-/// is an upper bound to the key depth here but not equivalent.
-///
-/// If multiple errors are applicable simultaneously the precedence
-/// is as per the order in the enum definition (from high to low).
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Traversal {
-    /// The key is valid, but does not exist at runtime.
-    ///
-    /// This is the case if an [`Option`] using the `Tree*` traits
-    /// is `None` at runtime. See also [`TreeKey#option`].
-    Absent(usize),
-
-    /// The key ends early and does not reach a leaf node.
-    TooShort(usize),
-
-    /// The key was not found (index parse failure or too large,
-    /// name not found or invalid).
-    NotFound(usize),
-
-    /// The key is too long and goes beyond a leaf node.
-    TooLong(usize),
-
-    /// An field could not be accessed.
-    ///
-    /// The `get` or `get_mut` accessor returned an error message.
-    Access(usize, &'static str),
-
-    /// A deserialized leaf value was found to be invalid.
-    ///
-    /// The `validate` callback returned an error message.
-    Invalid(usize, &'static str),
-}
-
-impl Display for Traversal {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Traversal::Absent(depth) => {
-                write!(f, "Key not currently present (depth: {depth})")
-            }
-            Traversal::TooShort(depth) => {
-                write!(f, "Key too short (depth: {depth})")
-            }
-            Traversal::NotFound(depth) => {
-                write!(f, "Key not found (depth: {depth})")
-            }
-            Traversal::TooLong(depth) => {
-                write!(f, "Key too long (depth: {depth})")
-            }
-            Traversal::Access(depth, msg) => {
-                write!(f, "Access failed (depth: {depth}): {msg}")
-            }
-            Traversal::Invalid(depth, msg) => {
-                write!(f, "Invalid value (depth: {depth}): {msg}")
-            }
-        }
-    }
-}
-
-impl Traversal {
-    /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
-    pub fn increment(self) -> Self {
-        match self {
-            Self::Absent(i) => Self::Absent(i + 1),
-            Self::TooShort(i) => Self::TooShort(i + 1),
-            Self::NotFound(i) => Self::NotFound(i + 1),
-            Self::TooLong(i) => Self::TooLong(i + 1),
-            Self::Access(i, msg) => Self::Access(i + 1, msg),
-            Self::Invalid(i, msg) => Self::Invalid(i + 1, msg),
-        }
-    }
-
-    /// Return the traversal depth
-    pub fn depth(&self) -> &usize {
-        match self {
-            Self::Absent(i)
-            | Self::TooShort(i)
-            | Self::NotFound(i)
-            | Self::TooLong(i)
-            | Self::Access(i, _)
-            | Self::Invalid(i, _) => i,
-        }
-    }
-}
-
-/// Compound errors
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum Error<E> {
-    /// Tree traversal error
-    Traversal(Traversal),
-
-    /// The value provided could not be serialized or deserialized
-    /// or the traversal callback returned an error.
-    Inner(usize, E),
-
-    /// There was an error during finalization.
-    ///
-    /// The `Deserializer` has encountered an error only after successfully
-    /// deserializing a value. This is the case if there is additional unexpected data.
-    /// The `deserialize_by_key()` update takes place but this
-    /// error will be returned.
-    ///
-    /// A `Serializer` may write checksums or additional framing data and fail with
-    /// this error during finalization after the value has been serialized.
-    Finalization(E),
-}
-
-impl<E: core::fmt::Display> Display for Error<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Traversal(t) => t.fmt(f),
-            Self::Inner(depth, error) => {
-                write!(f, "(De)serialization error (depth: {depth}): {error}")
-            }
-            Self::Finalization(error) => {
-                write!(f, "(De)serializer finalization error: {error}")
-            }
-        }
-    }
-}
-
-// Try to extract the Traversal from an Error
-impl<E> TryFrom<Error<E>> for Traversal {
-    type Error = Error<E>;
-    fn try_from(value: Error<E>) -> Result<Self, Self::Error> {
-        match value {
-            Error::Traversal(e) => Ok(e),
-            e => Err(e),
-        }
-    }
-}
-
-impl<E> From<Traversal> for Error<E> {
-    fn from(value: Traversal) -> Self {
-        Self::Traversal(value)
-    }
-}
-
-impl<E> Error<E> {
-    /// Pass an [`Error`] up one hierarchy depth level, incrementing its usize depth field by one.
-    pub fn increment(self) -> Self {
-        match self {
-            Self::Traversal(t) => Self::Traversal(t.increment()),
-            Self::Inner(i, e) => Self::Inner(i + 1, e),
-            Self::Finalization(e) => Self::Finalization(e),
-        }
-    }
-}
-
-/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize depth field by one.
-pub fn increment_result<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
-    match result {
-        Ok(i) => Ok(i + 1),
-        Err(err) => Err(err.increment()),
-    }
-}
 
 /// Metadata about a [TreeKey] namespace.
 ///
@@ -177,17 +13,18 @@ pub fn increment_result<E>(result: Result<usize, Error<E>>) -> Result<usize, Err
 pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///
-    /// This is the concatenation of all names in a path
-    /// and does not include separators.
+    /// This is the exact maximum of the length of the concatenation of all field names/indices
+    /// in a path. By default, it does not include separators.
     pub max_length: usize,
 
     /// The maximum key depth.
     ///
-    /// This is equal to the maximum number of path hierarchy separators/the maximum key length.
+    /// This is equal to the exact maximum number of path hierarchy separators.
+    /// It's the exact maximum number of key indices.
     /// It may be smaller than the [`TreeKey<Y>` recursion depth](TreeKey#recursion-depth).
     pub max_depth: usize,
 
-    /// The total number of keys.
+    /// The exact total number of keys.
     pub count: usize,
 }
 
@@ -197,11 +34,8 @@ impl Metadata {
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
     #[inline]
-    pub fn separator(self, separator: &str) -> Self {
-        Self {
-            max_length: self.max_length + self.max_depth * separator.len(),
-            ..self
-        }
+    pub fn max_length(self, separator: &str) -> usize {
+        self.max_length + self.max_depth * separator.len()
     }
 }
 
@@ -211,30 +45,31 @@ impl Metadata {
 ///
 /// # Recursion depth
 ///
-/// The `TreeKey` trait (and the sub-traits as well) are meant to be implemented
+/// The `Tree*` traits are meant to be implemented
 /// recursively on nested data structures. Recursion here means that a container
-/// that implements `TreeKey`, may call on the `TreeKey` implementations of
-/// inner types.
+/// that implements `Tree*`, may call on the `Tree*` implementations of
+/// inner types or `Serialize`/`Deserialize`/`Any` of leaf types.
 ///
-/// The const parameter `Y` in the traits here is the recursion depth and determines the
-/// maximum nesting of `TreeKey` layers. It's at least `1` and defaults to `1`.
+/// The const parameter `Y` in the traits is the recursion depth and determines the
+/// maximum nesting of `Tree*` layers. It's at least `1` and defaults to `1`.
 ///
 /// The recursion depth `Y` doubles as an upper bound to the maximum key length
 /// (the depth/height of the tree):
 /// An implementor of `TreeKey<Y>` may consume at most `Y` items from the
-/// `keys` iterator argument in the recursive methods (
-/// [`TreeKey::traverse_by_key()`], [`TreeSerialize::serialize_by_key()`] etc.). This includes
-/// both the items consumed directly before recursing and those consumed indirectly
-/// by recursing into inner types. In the same way it may call `func` in
+/// `keys` argument. This includes
+/// both the items consumed directly before recursing/terminating and those consumed
+/// indirectly by recursing into inner types. In the same way it may call `func` in
 /// [`TreeKey::traverse_by_key()`] at most `Y` times, again including those calls due
-/// to recursion into inner `Miniconf` types.
+/// to recursion into inner `TreeKey` types.
 ///
 /// This implies that if an implementor `T` of `TreeKey<Y>` (with `Y >= 1`) contains and recurses into
 /// an inner type using that type's `TreeKey<Z>` implementation, then `1 <= Z <= Y` must
 /// hold and `T` may consume at most `Y - Z` items from the `keys` iterators and call
-/// `func` at most `Y - Z` times.
+/// `func` at most `Y - Z` times. It is recommended (but not necessary) to keep `Z = Y - 1`
+/// (even if no keys are consumed directly) to satisfy the bound
+/// heuristics in the derive macro.
 ///
-/// The exact maximum key length can be obtained through [`TreeKey::metadata()`].
+/// The exact maximum key depth can be obtained through [`TreeKey::metadata()`].
 ///
 /// # Keys
 ///
@@ -289,7 +124,7 @@ impl Metadata {
 /// ## `get`
 ///
 /// The getter is called during `serialize_by_key()` before leaf serialization and
-/// during `get by_key()` Its signature is `fn(&self) -> Result<&T, &str>`.
+/// during `get by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
 /// The default getter is `Ok(&self.field)`.
 /// Getters can be used for both leaf fields as well as internal (non-leaf) fields.
 /// If a getter returns an error message `Err(&str)` the serialization/traversal
@@ -304,9 +139,10 @@ impl Metadata {
 /// For leaf fields it is invoked after deserialization and validation but before
 /// updating the leaf value.
 /// The signature is `fn(&mut self) -> Result<&mut T, &str>`.
-/// The default internal `get_mut` is `Ok(&mut self.field)`.
-/// If an internal `get_mut` returns an `Err`
-/// no further `get_mut`s are invoked and [`Traversal::Access`] will be returned.
+/// The default `get_mut` is `Ok(&mut self.field)`.
+/// If `get_mut` returns an `Err` [`Traversal::Access`] will be returned.
+/// If a leaf `get_mut` returns an `Err` the leaf node is not updated in
+/// `deserialize_by_key()`.
 ///
 /// Note: In both cases `get_mut` receives `&mut self` as an argument and may
 /// mutate the struct.
@@ -331,12 +167,13 @@ impl Metadata {
 /// ### `validate`
 ///
 /// For leaf fields the `validate` callback is called during `deserialize_by_key()`
-/// after successful deserialization of the leaf value but before setting it.
+/// after successful deserialization of the leaf value but before `get_mut()` and
+/// before storing the value.
 /// The leaf `validate` signature is `fn(&mut self, value: T) ->
 /// Result<T, &'static str>`. It may mutate the value before it is being stored.
-/// If a leaf validate callback returns `Err()`, the leaf value is not updated
-/// and `Traversal::Invalid` is returned from `deserialize_by_key()`.
-/// For internal fields it is called after the successful update of the leaf field
+/// If a leaf validate callback returns `Err(&str)`, the leaf value is not updated
+/// and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
+/// For internal fields `validate` is called after the successful update of the leaf field
 /// during upward traversal.
 /// The internal `validate` signature is `fn(&mut self, depth: usize) ->
 /// Result<usize, &'static str>`
@@ -350,8 +187,7 @@ impl Metadata {
 ///
 /// To derive `TreeSerialize`/`TreeDeserialize`/`TreeAny`, each field (that is not `skip`ped)
 /// in the struct must either implement [`Serialize`]/[`Deserialize`]/[`Any`]
-/// (and ultimately also be supported by the intended [`Serializer`]/[`Deserializer`] backend)
-/// or implement the respective `TreeSerialize`/`TreeDeserialize`/`TreeAny` trait themselves
+/// or implement the respective `TreeSerialize`/`TreeDeserialize`/`TreeAny` trait
 /// for the required remaining recursion depth.
 ///
 /// ## Generics
@@ -390,7 +226,7 @@ impl Metadata {
 /// # Array
 ///
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
-/// up to recursion depth `Y = 8`.
+/// up to recursion depth `Y = 16`.
 ///
 /// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
@@ -405,20 +241,19 @@ impl Metadata {
 /// of `u32`), then `Y = 1` can be used. With `Y = 0` all items are to be accessed simultaneously and atomically.
 /// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 3 + 1 + 1 = 5`.
 /// It automatically implements `TreeKey<5>`.
-/// For `[[T; 2]; 3], any `Y <= 2` is implemented, including `TreeSerialize`, `TreeDeserialize`,
-/// and `TreeAny` if `T: Serialize`/`T: Deserialize`/`T: Any` respectively.`
+/// For `[[T; 2]; 3]` with `T: Serialize`/`T: Deserialize`/`T: Any` any `Y <= 2` trait is implemented.
 ///
 /// # Option
 ///
 /// Blanket implementations of the `TreeKey` traits are provided for [`Option<T>`]
-/// up to recursion depth `Y = 8`.
+/// up to recursion depth `Y = 16`.
 ///
-/// These implementation do not alter the path hierarchy and do not consume any items from the `keys`
+/// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
 /// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::iter_paths()`]) but attempts
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
 /// [`TreeAny::get_by_key()`], or [`TreeAny::get_mut_by_key()`])
-/// return [`Traversal::Absent`].
+/// return the special [`Traversal::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
 /// the nodes will not be exposed for serialization/deserialization.
@@ -449,6 +284,8 @@ impl Metadata {
 pub trait TreeKey<const Y: usize = 1> {
     /// The number of top-level nodes.
     ///
+    /// This may be `unreachable!()` if `Self` does not consume any keys directly (e.g. `Option`).
+    ///
     /// ```
     /// # use miniconf::TreeKey;
     /// #[derive(TreeKey)]
@@ -460,11 +297,13 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn len() -> usize;
 
-    /// Convert a node name to a node index.
+    /// Convert a top level node name to a node index.
     ///
     /// The details of the mapping and the `usize` index values
-    /// are an implementation detail and only need to be stable for at runtime.
+    /// are an implementation detail and only need to be stable at runtime.
     /// This is used by `impl Key for &str`.
+    ///
+    /// This may be `unreachable!()` if `Self` does not consume any keys directly (e.g. `Option`).
     ///
     /// ```
     /// # use miniconf::TreeKey;
@@ -477,7 +316,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn name_to_index(name: &str) -> Option<usize>;
 
-    /// Get metadata about the paths in the namespace.
+    /// Compute metadata about all paths.
     ///
     /// ```
     /// # use miniconf::TreeKey;
@@ -492,7 +331,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn metadata() -> Metadata;
 
-    /// Call a function for each node on the walk described by keys.
+    /// Traverse from the root to a leaf and call a function for each node.
     ///
     /// Traversal is aborted once `func` returns an `Err(E)`.
     ///
@@ -500,8 +339,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// may be longer than required: `Error::TooLong` is not returned.
     /// If `Self` is a leaf, nothing will be consumed from `keys`
     /// and `Ok(0)` will be returned.
-    /// If `Self` is non-leaf (internal node) and the iterator is
-    /// exhausted (empty),
+    /// If `Self` is non-leaf (internal node) and `Keys` is exhausted (empty),
     /// `Err(Error::TooShort(0))` will be returned.
     ///
     /// ```
@@ -522,12 +360,12 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Args
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `func`: A `FnMut` to be called for each node on the path. Its arguments are
-    ///   the index and the optional name of the node and the number of top-level nodes
-    ///   at the given depth. Returning `Err()` aborts the traversal.
+    /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
+    ///   Its arguments are the index and the optional name of the node and the number
+    ///   of top-level nodes at the given depth. Returning `Err()` aborts the traversal.
     ///
     /// # Returns
-    /// Final node depth on success (the number of keys consumed)
+    /// Final node depth on success (the number of keys consumed, number of calls to `func`)
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -556,9 +394,10 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     ///
     /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `path`: A string to write the separators and node names into.
-    ///   See also [TreeKey::metadata()] for upper bounds on path length.
+    /// * `keys`: `IntoKeys` to identify the node.
+    /// * `path`: A `Write` to write the separators and node names into.
+    ///   See also [TreeKey::metadata()] and [`Metadata::max_length()`] for upper bounds
+    ///   on path length.
     /// * `separator`: The path hierarchy separator to be inserted before each name.
     ///
     /// # Returns
@@ -577,8 +416,10 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Return the keys formatted as a normalized JSON path.
     ///
-    /// * named fields (struct) in dot notation
-    /// * indices (tuple struct, array) in key notation
+    /// * Named fields (struct) are encoded in in dot notation.
+    /// * Indices (tuple struct, array) are encoded in index notation
+    ///
+    /// See also [`TreeKey::path()`].
     ///
     /// ```
     /// # #[cfg(feature = "std")] {
@@ -617,8 +458,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// See also [`TreeKey::path()`].
     ///
-    /// Entries in `indices` at and beyond the `depth` returned are unaffected.
-    ///
     /// ```
     /// # use miniconf::TreeKey;
     /// #[derive(TreeKey)]
@@ -630,9 +469,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let (indices, depth) = S::indices(["bar", "1"]).unwrap();
     /// assert_eq!(&indices[..depth], [1, 1]);
     /// ```
-    ///
-    /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
     ///
     /// # Returns
     /// Indices and depth on success
@@ -654,7 +490,7 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Convert keys to packed usize bitfield representation.
     ///
-    /// See also [`Packed`].
+    /// See also [`Packed`] and [`TreeKey::path()`].
     ///
     /// ```
     /// # use miniconf::TreeKey;
@@ -671,11 +507,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(s, "/bar/4");
     /// ```
     ///
-    /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    ///
     /// # Returns
-    /// The packed indices representation on success and the leaf depth.
+    /// The packed indices representation and leaf depth on success.
     fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
     where
         K: IntoKeys,
@@ -690,9 +523,9 @@ pub trait TreeKey<const Y: usize = 1> {
         Self::traverse_by_key(keys.into_keys(), func).map(|depth| (packed, depth))
     }
 
-    /// Create an iterator of all possible paths.
+    /// Create an iterator of all possible leaf paths.
     ///
-    /// This is a depth-first walk.
+    /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
     /// runtime (see [`TreeKey#option`]).
     /// An iterator with an exact and trusted `size_hint()` can be obtained from
@@ -717,14 +550,11 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Args
     /// * `separator` - The path hierarchy separator
-    ///
-    /// # Returns
-    /// An iterator of paths.
     fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P> {
         PathIter::new(separator)
     }
 
-    /// Create an iterator of all possible indices.
+    /// Create an iterator of all possible leaf indices.
     ///
     /// See also [`TreeKey::iter_paths()`].
     ///
@@ -739,14 +569,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let indices: Vec<_> = S::iter_indices().count().collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
-    ///
-    /// # Returns
-    /// An iterator of indices.
     fn iter_indices() -> IndexIter<Self, Y> {
         IndexIter::default()
     }
 
-    /// Create an iterator of all packed indices.
+    /// Create an iterator of all packed leaf indices.
     ///
     /// See also [`TreeKey::iter_paths()`].
     ///
@@ -764,9 +591,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
-    ///
-    /// # Returns
-    /// An iterator of packed indices.
     fn iter_packed() -> PackedIter<Self, Y> {
         PackedIter::default()
     }
@@ -792,6 +616,8 @@ pub trait TreeKey<const Y: usize = 1> {
 /// }
 /// ```
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
+    /// Obtain a reference to a `dyn Any` trait object for a leaf node.
+    ///
     /// ```
     /// # use miniconf::{TreeAny, TreeKey};
     /// #[derive(TreeKey, TreeAny, Default)]
@@ -808,6 +634,8 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     where
         K: Keys;
 
+    /// Obtain a mutable reference to a `dyn Any` trait object for a leaf node.
+    ///
     /// ```
     /// # use miniconf::{TreeAny, TreeKey};
     /// #[derive(TreeKey, TreeAny, Default)]

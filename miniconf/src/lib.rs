@@ -17,6 +17,10 @@ mod packed;
 pub use packed::*;
 mod key;
 pub use key::*;
+mod jsonpath;
+pub use jsonpath::*;
+mod error;
+pub use error::*;
 
 #[cfg(feature = "json-core")]
 mod json_core;

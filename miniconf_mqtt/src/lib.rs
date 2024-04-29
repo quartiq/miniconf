@@ -212,8 +212,8 @@ where
 
         let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
 
-        let meta = Settings::metadata().separator("/");
-        assert!(prefix.len() + "/settings".len() + meta.max_length <= MAX_TOPIC_LENGTH);
+        let max_length = Settings::metadata().max_length("/");
+        assert!(prefix.len() + "/settings".len() + max_length <= MAX_TOPIC_LENGTH);
 
         Ok(Self {
             mqtt,

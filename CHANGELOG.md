@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] The `Traversal` error enum has been split from the `Error<E>` enum to reduce genericism.
 * [breaking] Field accessor/validation revamp: `getter -> get`, `setter -> get_mut` and `validate`
   with more idiomatic usage and call timing.
+* [breaking] `Metadata.separator()` has been changed to only return the new maximum length for
+  consistency and renamed to `max_length(separator: &str)`.
 
 ### Added
 * `TreeAny` to access nodes trough `Any` trait objects.

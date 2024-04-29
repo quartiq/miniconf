@@ -13,9 +13,9 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::metadata().separator("/");
+    let meta = Settings::metadata();
     assert_eq!(meta.max_depth, 1);
-    assert_eq!(meta.max_length, "/value".len());
+    assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count, 1);
 }
 

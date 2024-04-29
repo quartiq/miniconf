@@ -1,10 +1,9 @@
+use crate::{IntoKeys, Key, Keys, Traversal, TreeKey};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
 };
 use serde::{Deserialize, Serialize};
-
-use crate::{IntoKeys, Key, Keys, Traversal, TreeKey};
 
 /// A bit-packed representation of multiple indices.
 ///
