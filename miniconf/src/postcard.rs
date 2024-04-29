@@ -2,6 +2,36 @@ use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 
 /// Miniconf with `postcard`.
+///
+/// ```
+/// # #[cfg(feature = "std")]
+/// # {
+/// use miniconf::{Tree, TreeKey, Postcard, Packed};
+/// use postcard::{ser_flavors::AllocVec, de_flavors::Slice};
+///
+/// #[derive(Tree, Default, PartialEq, Debug)]
+/// struct S {
+///     foo: u32,
+///     #[tree(depth=1)]
+///     bar: [u16; 2],
+/// };
+///
+/// let source = S { foo: 9, bar: [7, 11] };
+/// let kv: Vec<_> = S::iter_packed().map(|p| {
+///     let p = p.unwrap();
+///     let v = source.get_postcard_by_key(p, AllocVec::new()).unwrap();
+///     (p.into_lsb().get(), v)
+/// }).collect();
+/// assert_eq!(kv, [(2, vec![9]), (6, vec![7]), (7, vec![11])]);
+///
+/// let mut target = S::default();
+/// for (k, v) in kv {
+///     let p = Packed::from_lsb(k.try_into().unwrap());
+///     target.set_postcard_by_key(p, Slice::new(&v[..])).unwrap();
+/// }
+/// assert_eq!(source, target);
+/// # }
+/// ```
 pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<'de, Y> {
     /// Deserialize and set a node value from a `postcard` flavor.
     ///
@@ -45,7 +75,7 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     /// assert_eq!(o, [7]);
     /// ```
     fn get_postcard_by_key<K: IntoKeys, F: ser_flavors::Flavor>(
-        &mut self,
+        &self,
         keys: K,
         flavor: F,
     ) -> Result<F::Output, Error<postcard::Error>>;
@@ -65,7 +95,7 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize
     }
 
     fn get_postcard_by_key<K: IntoKeys, F: ser_flavors::Flavor>(
-        &mut self,
+        &self,
         keys: K,
         flavor: F,
     ) -> Result<F::Output, Error<postcard::Error>> {

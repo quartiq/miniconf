@@ -20,11 +20,11 @@ serde-json-core = { version = "0.5.1", optional = true }
 postcard = { version = "1.0.8", optional = true }
 
 [features]
-default = []
+default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive"]
-std = ["derive"]
+std = ["postcard?/use-std"]
 
 [package.metadata.docs.rs]
 all-features = true
