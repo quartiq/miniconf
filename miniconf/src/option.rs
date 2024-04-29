@@ -12,38 +12,30 @@ use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 // derive macros assume that a field type `#[tree(depth=Y)] F<T>` calls its generic types at
 // `TreeKey<{Y - 1}>`. The latter could be ameliorated with a `bounds` derive macro attribute.
 
-fn get<'a, const Y: bool, T, K: Keys>(
-    opt: &'a Option<T>,
-    keys: &mut K,
-) -> Result<&'a T, Traversal> {
-    if Y {
-        keys.finalize::<0>()?;
+fn get<'a, T, K: Keys>(opt: &'a Option<T>, keys: &mut K, drain: bool) -> Result<&'a T, Traversal> {
+    if drain && !keys.is_empty() {
+        Err(Traversal::TooLong(0))
+    } else {
+        opt.as_ref().ok_or(Traversal::Absent(0))
     }
-    opt.as_ref().ok_or(Traversal::Absent(0))
 }
 
-fn get_mut<'a, const Y: bool, T, K: Keys>(
+fn get_mut<'a, T, K: Keys>(
     opt: &'a mut Option<T>,
     keys: &mut K,
+    drain: bool,
 ) -> Result<&'a mut T, Traversal> {
-    if Y {
-        keys.finalize::<0>()?;
+    if drain && !keys.is_empty() {
+        Err(Traversal::TooLong(0))
+    } else {
+        opt.as_mut().ok_or(Traversal::Absent(0))
     }
-    opt.as_mut().ok_or(Traversal::Absent(0))
 }
 
 // the Y >= 2 cases:
 macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>> TreeKey<$y> for Option<T> {
-            fn len() -> usize {
-                unreachable!()
-            }
-
-            fn name_to_index(_value: &str) -> Option<usize> {
-                unreachable!()
-            }
-
             fn metadata() -> Metadata {
                 T::metadata()
             }
@@ -63,7 +55,7 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                let inner = get::<false, _, _>(self, &mut keys)?;
+                let inner = get(self, &mut keys, false)?;
                 inner.serialize_by_key(keys, ser)
             }
         }
@@ -74,7 +66,7 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let inner = get_mut::<false, _, _>(self, &mut keys)?;
+                let inner = get_mut(self, &mut keys, false)?;
                 inner.deserialize_by_key(keys, de)
             }
         }
@@ -84,7 +76,7 @@ macro_rules! depth {
             where
                 K: Keys,
             {
-                let inner = get::<false, _, _>(self, &mut keys)?;
+                let inner = get(self, &mut keys, false)?;
                 inner.get_by_key(keys)
             }
 
@@ -92,7 +84,7 @@ macro_rules! depth {
             where
                 K: Keys,
             {
-                let inner = get_mut::<false, _, _>(self, &mut keys)?;
+                let inner = get_mut(self, &mut keys, false)?;
                 inner.get_mut_by_key(keys)
             }
         }
@@ -102,14 +94,6 @@ depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 
 // Y == 1
 impl<T> TreeKey for Option<T> {
-    fn len() -> usize {
-        unreachable!()
-    }
-
-    fn name_to_index(_value: &str) -> Option<usize> {
-        unreachable!()
-    }
-
     fn metadata() -> Metadata {
         Metadata {
             count: 1,
@@ -132,7 +116,7 @@ impl<T: Serialize> TreeSerialize for Option<T> {
         K: Keys,
         S: Serializer,
     {
-        let inner = get::<true, _, _>(self, &mut keys)?;
+        let inner = get(self, &mut keys, true)?;
         inner.serialize(ser).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
@@ -144,7 +128,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        let inner = get_mut::<true, _, _>(self, &mut keys)?;
+        let inner = get_mut(self, &mut keys, true)?;
         *inner = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
@@ -155,7 +139,7 @@ impl<T: Any> TreeAny for Option<T> {
     where
         K: Keys,
     {
-        let inner = get::<true, _, _>(self, &mut keys)?;
+        let inner = get(self, &mut keys, true)?;
         Ok(inner)
     }
 
@@ -163,7 +147,7 @@ impl<T: Any> TreeAny for Option<T> {
     where
         K: Keys,
     {
-        let inner = get_mut::<true, _, _>(self, &mut keys)?;
+        let inner = get_mut(self, &mut keys, true)?;
         Ok(inner)
     }
 }

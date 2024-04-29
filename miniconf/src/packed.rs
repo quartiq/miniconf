@@ -1,4 +1,4 @@
-use crate::{IntoKeys, Key, Keys, Traversal, TreeKey};
+use crate::{IntoKeys, Key, Keys, Traversal, TreeLookup};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 /// and stability properties.
 ///
 /// `Packed` can be used to uniquely identify
-/// nodes in a [`TreeKey`] using only a very small amount of bits.
+/// nodes in a `TreeKey` using only a very small amount of bits.
 /// For many realistic `TreeKey`s a `u16` or even a `u8` is sufficient
 /// to hold a `Packed` in LSB notation. Together with the `Postcard` trait
 /// and `postcard` `serde` format, this then gives access to any node in a nested
@@ -219,10 +219,10 @@ impl Packed {
 }
 
 impl Keys for Packed {
-    fn next<const Y: usize, M: TreeKey<Y> + ?Sized>(&mut self) -> Result<usize, Traversal> {
+    fn next<M: TreeLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
         let bits = Self::bits_for(M::len().saturating_sub(1));
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
-        index.find::<Y, M>().ok_or(Traversal::NotFound(1))
+        index.find::<M>().ok_or(Traversal::NotFound(1))
     }
 
     #[inline]

@@ -103,7 +103,7 @@ fn enable_option() {
     // Also it forgets the Some value.
     #[derive(Default, Tree)]
     struct S {
-        #[tree(depth=1)]
+        #[tree(depth = 1)]
         opt: Option<i32>,
         #[tree(validate=Self::validate)]
         enable: bool,
