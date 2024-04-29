@@ -130,6 +130,17 @@ impl Packed {
         }
     }
 
+    /// Create a new `Packed` from LSB aligned `usize`
+    ///
+    /// The value must not be zero.
+    #[inline]
+    pub const fn new_from_lsb(value: usize) -> Option<Self> {
+        match NonZeroUsize::new(value) {
+            Some(value) => Some(Self::from_lsb(value)),
+            None => None,
+        }
+    }
+
     /// The value is empty.
     #[inline]
     pub const fn is_empty(&self) -> bool {
@@ -177,7 +188,7 @@ impl Packed {
     /// Ensures that at least one bit is allocated.
     #[inline]
     pub const fn bits_for(num: usize) -> u32 {
-        match Self::BITS - num.leading_zeros() {
+        match usize::BITS - num.leading_zeros() {
             0 => 1,
             v => v,
         }
