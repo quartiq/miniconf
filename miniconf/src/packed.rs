@@ -151,18 +151,25 @@ impl Packed {
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
     #[inline]
-    pub fn into_lsb(self) -> NonZeroUsize {
-        // Note(unwrap): we ensure there is at least the marker bit set
-        NonZeroUsize::new(((self.get() >> 1) | (1 << Self::CAPACITY)) >> self.trailing_zeros())
-            .unwrap()
+    pub const fn into_lsb(self) -> NonZeroUsize {
+        match NonZeroUsize::new(
+            ((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros(),
+        ) {
+            Some(v) => v,
+            // We ensure there is at least the marker bit set
+            None => unreachable!(),
+        }
     }
 
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
     /// moved from the MSB the LSB.
     #[inline]
-    pub fn from_lsb(value: NonZeroUsize) -> Self {
-        // Note(unwrap): we ensure there is at least the marker bit set
-        Self::new(((value.get() << 1) | 1) << value.leading_zeros()).unwrap()
+    pub const fn from_lsb(value: NonZeroUsize) -> Self {
+        match Self::new(((value.get() << 1) | 1) << value.leading_zeros()) {
+            Some(v) => v,
+            // We ensure there is at least the marker bit set
+            None => unreachable!(),
+        }
     }
 
     /// Return the number of bits required to represent `num`.
