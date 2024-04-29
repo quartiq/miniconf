@@ -78,6 +78,26 @@ fn top() {
 
 #[test]
 fn zero_key() {
+    assert_eq!(
+        Option::<()>::iter_packed()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_lsb()
+            .get(),
+        0b1
+    );
+
+    assert_eq!(
+        <[usize; 1]>::iter_packed()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_lsb()
+            .get(),
+        0b10
+    );
+
     // Check the corner case of a len=1 index where (len - 1) = 0 and zero bits would be required to encode.
     // Hence the Packed values for len=1 and len=2 are the same.
     let mut a11 = [[0]];
