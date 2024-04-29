@@ -176,8 +176,11 @@ impl Packed {
     ///
     /// Ensures that at least one bit is allocated.
     #[inline]
-    pub fn bits_for(num: usize) -> u32 {
-        (Self::BITS - num.leading_zeros()).max(1)
+    pub const fn bits_for(num: usize) -> u32 {
+        match Self::BITS - num.leading_zeros() {
+            0 => 1,
+            v => v,
+        }
     }
 
     /// Remove the given number of MSBs and return them.
