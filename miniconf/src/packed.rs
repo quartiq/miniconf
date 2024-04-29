@@ -6,26 +6,33 @@ use serde::{Deserialize, Serialize};
 
 use crate::{IntoKeys, Key, Keys, Traversal, TreeKey};
 
-/// A bit-packed representation of `TreeKey` indices.
+/// A bit-packed representation of multiple indices.
 ///
-/// The value consists of a number of (from storage MSB to LSB):
+/// Given known bit width of each index, the bits are
+/// concatenated above a marker bit.
+///
+/// The value consists of (from storage MSB to LSB):
 ///
 /// * Zero or more groups of variable bit length, concatenated, each containing
-///   the index at the given `TreeKey` level. The deepest level is last.
+///   one index. The first is aligned with the storage MSB.
 /// * A set bit to mark the end of the used bits.
 /// * Zero or more cleared bits corresponding to unused index space.
 ///
 /// [`Packed::EMPTY`] has the marker at the MSB.
-/// During [`Packed::push_lsb()`] the values are inserted with their MSB
+/// During [`Packed::push_lsb()`] the indices are inserted with their MSB
 /// where the marker was and the marker moves toward the storage LSB.
-/// During [`Packed::pop_msb()`] the values are removed with their MSB
-/// aligned with the storage MSB and marker moves toward the storage MSB.
+/// During [`Packed::pop_msb()`] the indices are removed with their MSB
+/// aligned with the storage MSB and the remaining bits and the marker move
+/// toward the storage MSB.
 ///
-/// The representation is MSB aligned to make key `Ord` more natural and stable.
+/// The representation is MSB aligned to make `PartialOrd`/`Ord` more natural and stable.
 /// The `Packed` key `Ord` matches the ordering of nodes in a horizontal leaf tree
 /// traversal. New nodes can be added/removed to the tree without changing the implicit
-/// encoding (and ordering!) as long no new bits need to be allocated/deallocated.
-/// Under this condition the mapping between indices/paths and `Packed` representation is stable.
+/// encoding (and ordering!) as long no new bits need to be allocated/deallocated (
+/// as long as the number of child nodes of an internal node does not cross a
+/// power-of-two boundary).
+/// Under this condition the mapping between indices/paths and `Packed` representation
+/// is stable even if child nodes are added/removed.
 ///
 /// "Small numbers" in LSB-aligned representation can be obtained through
 /// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
@@ -145,7 +152,7 @@ impl Packed {
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
     #[inline]
-    pub fn into_lsb(&self) -> NonZeroUsize {
+    pub fn into_lsb(self) -> NonZeroUsize {
         // Note(unwrap): we ensure there is at least the marker bit set
         NonZeroUsize::new(((self.get() >> 1) | (1 << Self::CAPACITY)) >> self.trailing_zeros())
             .unwrap()

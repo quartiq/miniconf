@@ -5,6 +5,8 @@ use serde_json_core::{de, ser};
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
+///
+/// Paths used here are reciprocal to `TreeKey::path(..., "/")`/`TreeKey::iter_paths("/")`.
 pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     TreeSerialize<Y> + TreeDeserialize<'de, Y>
 {
@@ -21,7 +23,7 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     /// Retrieve a serialized value by path.
     ///
     /// # Args
-    /// * `path` - The path to the node.
+    /// * `path` - The path to the node. Everything before the first `'/'` is ignored.
     /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns

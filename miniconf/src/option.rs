@@ -6,6 +6,10 @@ use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
 // But it does add one Tree API layer between its `Tree<Y>` level
 // and its inner type `Tree<Y'>` level: `Y' = Y - 1`.
+// Otherwise we would not be able to distinguish between an augmented `Option<T>: TreeKey<1>`
+// and a plain-serde `Option<T>: Serialize/Deserialize/Any`. Also the generics heuristics in the
+// derive macros assume that a field type `#[tree(depth=Y)] F<T>` calls its generic types at
+// `TreeKey<{Y - 1}>`.
 
 fn get<'a, const Y: bool, T, K: Keys>(
     opt: &'a Option<T>,

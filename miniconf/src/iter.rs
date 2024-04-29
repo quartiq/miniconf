@@ -1,7 +1,7 @@
 use crate::{Error, Packed, Traversal, TreeKey};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
-/// Counting wrapper for iterators
+/// Counting wrapper for iterators with known size
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Counting<T> {
     iter: T,
@@ -22,7 +22,7 @@ impl<T: Iterator> Iterator for Counting<T> {
             debug_assert!(self.iter.next().is_none());
             None
         } else if let Some(v) = self.iter.next() {
-            self.count -= 1;
+            self.count -= 1; // checks for overflow in debug
             Some(v)
         } else {
             unreachable!();
@@ -94,8 +94,7 @@ impl<const Y: usize> State<Y> {
             // `NotFound` as they don't do key lookup.
             // Traversal::TooShort(_): Excluded by construction (`state.len() == Y` and `Y` being an
             // upper bound to key length as per the `TreeKey<Y>` contract.
-            // TooLong, Absent, Finalization, InvalidLead, InvalidInternal:
-            // Are not returned by traverse_by_key()
+            // TooLong, Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
             _ => unreachable!(),
         }
     }
@@ -106,7 +105,7 @@ impl<const Y: usize> State<Y> {
 pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
     state: State<Y>,
     separator: &'a str,
-    pm: PhantomData<(P, M)>,
+    _pm: PhantomData<(P, M)>,
 }
 
 impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P> PathIter<'a, M, Y, P> {
@@ -114,7 +113,7 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P> PathIter<'a, M, Y, P> {
         Self {
             state: State::default(),
             separator,
-            pm: PhantomData,
+            _pm: PhantomData,
         }
     }
 
@@ -163,14 +162,14 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexIter<M: ?Sized, const Y: usize> {
     state: State<Y>,
-    m: PhantomData<M>,
+    _m: PhantomData<M>,
 }
 
 impl<M: ?Sized, const Y: usize> Default for IndexIter<M, Y> {
     fn default() -> Self {
         Self {
             state: State::default(),
-            m: PhantomData,
+            _m: PhantomData,
         }
     }
 }
@@ -214,14 +213,14 @@ impl<M, const Y: usize> FusedIterator for IndexIter<M, Y> where M: TreeKey<Y> + 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PackedIter<M: ?Sized, const Y: usize> {
     state: State<Y>,
-    m: PhantomData<M>,
+    _m: PhantomData<M>,
 }
 
 impl<M: ?Sized, const Y: usize> Default for PackedIter<M, Y> {
     fn default() -> Self {
         Self {
             state: State::default(),
-            m: PhantomData,
+            _m: PhantomData,
         }
     }
 }

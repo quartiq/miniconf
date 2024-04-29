@@ -30,7 +30,7 @@ pub use crate::postcard::*;
 
 // re-export for proc-macro
 #[doc(hidden)]
-pub use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize, Serializer};
+pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Returns the number of digits required to format an integer less than `x`.
 pub const fn digits<const BASE: usize>(x: usize) -> usize {

@@ -2,7 +2,8 @@
 
 use core::any::Any;
 
-use miniconf::{Deserialize, DeserializeOwned, JsonCoreSlash, Serialize, Tree, TreeKey};
+use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
+use serde::de::DeserializeOwned;
 
 #[test]
 fn generic_type() {
