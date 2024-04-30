@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_derive"
-version = "0.10.1"
+version = "0.11.1"
 rust-version = "1.70.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
@@ -15,7 +15,7 @@ resolver = "2"
 proc-macro = true
 
 [dependencies]
-syn = { version = "2.0", features = ["extra-traits"] }
+syn = { version = "2.0" } #, features = ["extra-traits"] }
 quote = "1.0"
 proc-macro2 = "1.0"
 darling = "0.20"
