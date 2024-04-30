@@ -8,7 +8,7 @@
 `miniconf` enables lightweight (`no_std`/no alloc) serialization, deserialization,
 and access within a tree of heretogeneous types by keys.
 
-# Reflection
+## Reflection
 
 The `miniconf` features border on the concept of reflection for which
 [`bevy_reflect`](https://crates.io/crates/bevy_reflect) is a comprehensive mature crate:
