@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] `Metadata.separator()` has been changed to only return the new maximum length for
   consistency and renamed to `max_length(separator: &str)`.
 * [breaking] The `KeyLookup` trait has been split from `TreeKey`.
+* [breaking] `minimq v0.9` requiring `embedded-nal v0.8`.
 
 ### Added
 * `TreeAny` to access nodes trough `Any` trait objects.
