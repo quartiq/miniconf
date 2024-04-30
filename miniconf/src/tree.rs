@@ -108,8 +108,21 @@ impl Metadata {
 ///
 /// ## Skip
 ///
-/// Fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
+/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
 /// (`#[tree(skip)]`).
+/// Note that for tuple structs skipping is only supported for terminal fields:
+///
+/// ```compile_fail
+/// # use miniconf::Tree;
+/// #[derive(Tree)]
+/// struct S(#[tree(skip)] (), i32);
+/// ```
+///
+/// ```
+/// # use miniconf::Tree;
+/// #[derive(Tree)]
+/// struct S(i32, #[tree(skip)] ());
+/// ```
 ///
 /// ## Type
 ///
