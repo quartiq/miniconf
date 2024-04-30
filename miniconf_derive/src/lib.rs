@@ -268,16 +268,16 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
         }
     });
 
-    let get_by_key_arms = tree
+    let ref_any_by_key_arms = tree
         .fields()
         .iter()
         .enumerate()
-        .map(|(i, field)| field.get_by_key(i));
-    let get_mut_by_key_arms = tree
+        .map(|(i, field)| field.ref_any_by_key(i));
+    let mut_any_by_key_arms = tree
         .fields()
         .iter()
         .enumerate()
-        .map(|(i, field)| field.get_mut_by_key(i));
+        .map(|(i, field)| field.mut_any_by_key(i));
     let depth = tree.depth();
     let ident = &tree.ident;
 
@@ -285,7 +285,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
-            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+            fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
             where
                 K: ::miniconf::Keys,
             {
@@ -294,14 +294,14 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 #[allow(unreachable_code)]
                 {
                     let ret: Result<_, _> = match index {
-                        #(#get_by_key_arms ,)*
+                        #(#ref_any_by_key_arms ,)*
                         _ => unreachable!()
                     };
                     ret.map_err(::miniconf::Traversal::increment)
                 }
             }
 
-            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+            fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
             where
                 K: ::miniconf::Keys,
             {
@@ -310,7 +310,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 #[allow(unreachable_code)]
                 {
                     let ret: Result<_, _> = match index {
-                        #(#get_mut_by_key_arms ,)*
+                        #(#mut_any_by_key_arms ,)*
                         _ => unreachable!()
                     };
                     ret.map_err(::miniconf::Traversal::increment)

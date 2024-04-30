@@ -124,7 +124,7 @@ impl Metadata {
 /// ## `get`
 ///
 /// The getter is called during `serialize_by_key()` before leaf serialization and
-/// during `get_by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
+/// during `ref_any_by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
 /// The default getter is `Ok(&self.field)`.
 /// Getters can be used for both leaf fields as well as internal (non-leaf) fields.
 /// If a getter returns an error message `Err(&str)` the serialization/traversal
@@ -133,7 +133,7 @@ impl Metadata {
 ///
 /// ## `get_mut`
 ///
-/// For internal (non-leaf) fields `get_mut` is invoked during `get_mut_by_key()` and
+/// For internal (non-leaf) fields `get_mut` is invoked during `mut_any_by_key()` and
 /// during `deserialize_by_key()` before deserialization while traversing down to
 /// the leaf node.
 /// For leaf fields it is invoked after deserialization and validation but before
@@ -252,7 +252,7 @@ impl Metadata {
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
 /// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::iter_paths()`]) but attempts
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
-/// [`TreeAny::get_by_key()`], or [`TreeAny::get_mut_by_key()`])
+/// [`TreeAny::ref_any_by_key()`], or [`TreeAny::mut_any_by_key()`])
 /// return the special [`Traversal::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
@@ -567,7 +567,7 @@ pub trait TreeKey<const Y: usize = 1> {
 /// This uses the `dyn Any` trait object.
 ///
 /// ```
-/// # use miniconf::{TreeAny, TreeKey};
+/// # use miniconf::{TreeAny, TreeKey, JsonPath};
 /// # use core::any::Any;
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
@@ -575,50 +575,44 @@ pub trait TreeKey<const Y: usize = 1> {
 ///     #[tree(depth=1)]
 ///     bar: [u16; 2],
 /// };
-/// let s = S::default();
+/// let mut s = S::default();
+///
 /// for (key, depth) in S::iter_indices() {
-///     let a = s.get_by_key(key.into_iter().take(depth)).unwrap();
+///     let a = s.ref_any_by_key(key[..depth].iter().copied()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
+///
+/// let val: &mut u16 = s.mut_by_key(JsonPath::from(".bar[1]")).unwrap();
+/// *val = 3;
+/// assert_eq!(s.bar[1], 3);
+///
+/// let val: &u16 = s.ref_by_key(JsonPath::from(".bar[1]")).unwrap();
+/// assert_eq!(*val, 3);
 /// ```
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     /// Obtain a reference to a `dyn Any` trait object for a leaf node.
-    ///
-    /// ```
-    /// # use miniconf::{TreeAny, TreeKey};
-    /// #[derive(TreeKey, TreeAny, Default)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let s = S { foo: 9, bar: [11, 3] };
-    /// let any = s.get_by_key(["bar", "1"].into_iter()).unwrap();
-    /// assert_eq!(*any.downcast_ref::<u16>().unwrap(), 3);
-    /// ```
-    fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys;
 
     /// Obtain a mutable reference to a `dyn Any` trait object for a leaf node.
-    ///
-    /// ```
-    /// # use miniconf::{TreeAny, TreeKey};
-    /// #[derive(TreeKey, TreeAny, Default)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let mut s = S::default();
-    /// let any = s.get_mut_by_key(["bar", "1"].into_iter()).unwrap();
-    /// let val = any.downcast_mut().unwrap();
-    /// *val = 3u16;
-    /// assert_eq!(s.bar[1], 3);
-    /// ```
-    fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys;
+
+    /// Obtain a reference to a leaf of known type by key.
+    fn ref_by_key<T: Any, K: IntoKeys>(&self, keys: K) -> Result<&T, Traversal> {
+        self.ref_any_by_key(keys.into_keys())?
+            .downcast_ref()
+            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+    }
+
+    /// Obtain a mutable reference to a leaf of known type by key.
+    fn mut_by_key<T: Any, K: IntoKeys>(&mut self, keys: K) -> Result<&mut T, Traversal> {
+        self.mut_any_by_key(keys.into_keys())?
+            .downcast_mut()
+            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+    }
 }
 
 /// Serialize a leaf node by its keys.

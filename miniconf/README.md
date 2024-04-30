@@ -5,9 +5,42 @@
 [![QUARTIQ Matrix Chat](https://img.shields.io/matrix/quartiq:matrix.org)](https://matrix.to/#/#quartiq:matrix.org)
 [![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
-`Miniconf` enables lightweight (`no_std`) partial serialization (retrieval) and deserialization
-(updates, modification) within a tree by key. The tree is backed by
-structs/arrays/Options of serializable types.
+`Miniconf` enables lightweight (`no_std`/no alloc) serialization, deserialization,
+and access within a tree of heretogeneous types by key.
+
+# Reflection
+
+Some `Miniconf` features border on the concept of reflection. As such, other crates might be relevant:
+
+## [`bevy_reflect`](https://crates.io/crates/bevy_reflect)
+
+A comprehensive reflection crate. It's thoroughly `std` while `miniconf` aims at `no_std`.
+`bevy_reflect` uses `Reflect` trait objects to pass nodes around while `miniconf` uses serialized data or `Any` exclusively.
+The `Tree*` traits in `miniconf` are all decidedly non-object save and can thus not be used as trait objects.
+`Miniconf` works fine with non-`'static` borrowed data while `bevy_reflect` requires `'static`.
+
+
+[`intertrait`](https://crates.io/crates/intertrait) can be used to implement the type registry and
+casts from `dyn Any` and other desired trait objects. It could also be used to implement node serialization/deserialization
+using `miniconf`'s `TreeAny` without `TreeSerialize`/`TreeDeserialize`. But it requires `std`.
+
+## [`deflect`](https://crates.io/crates/deflect)
+
+Allows reflection on trait objects (like `Any`) using adjacent debug info.
+
+<!--
+Tangential crates:
+
+* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract format descriptions/schema
+* [`typetag`](https://crates.io/crates/typetag): perform serde for trait objects (of local traits and impls)
+
+-->
+
+## Alternative designs
+
+One could have (ab)used a custom `Serializer`/`Deserializer` wrapper for this but that would be inefficient:
+`Serialize` would try to pass each node to the `Serializer` until the `Serializer` matches the leaf key
+(and could terminate early).
 
 ## Example
 

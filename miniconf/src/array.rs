@@ -93,20 +93,20 @@ macro_rules! depth {
         }
 
         impl<T: TreeAny<{$y - 1}>, const N: usize> TreeAny<$y> for [T; N] {
-            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+            fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let item = get(self, &mut keys, false)?;
-                item.get_by_key(keys).map_err(Traversal::increment)
+                item.ref_any_by_key(keys).map_err(Traversal::increment)
             }
 
-            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+            fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let item = get_mut(self, &mut keys, false)?;
-                item.get_mut_by_key(keys).map_err(Traversal::increment)
+                item.mut_any_by_key(keys).map_err(Traversal::increment)
             }
         }
     )+}
@@ -172,14 +172,14 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
 }
 
 impl<T: Any, const N: usize> TreeAny for [T; N] {
-    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
         Ok(get(self, &mut keys, true)?)
     }
 
-    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
