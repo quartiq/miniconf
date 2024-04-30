@@ -10,15 +10,16 @@ and access within a tree of heretogeneous types by keys.
 
 # Reflection
 
-Some `miniconf` features border on the concept of reflection for which
-[`bevy_reflect`](https://crates.io/crates/bevy_reflect) is a comprehensive mature reflection crate.
+The `miniconf` features border on the concept of reflection for which
+[`bevy_reflect`](https://crates.io/crates/bevy_reflect) is a comprehensive mature crate:
 
 `bevy_reflect` is thoroughly `std` while `miniconf` aims at `no_std`.
 `bevy_reflect` uses its `Reflect` trait to operate on and pass nodes as trait objects.
 `miniconf` uses serialized data or `Any` to access leaf nodes and pure "code" to traverse through internal nodes.
 The `Tree*` traits like `Reflect` thus give access to nodes but unlike `Reflect` they are all decidedly non-object save
-and are not used as trait objects. This allows `miniconf` to support non-`'static` borrowed data while
-`bevy_reflect` requires `'static`.
+and are not used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
+(only for `TreeAny` the leaf nodes need to be `'static`)
+while `bevy_reflect` requires `'static` for all `Reflect` types.
 
 `miniconf`supports at least the following features from the `bevy_reflect` README:
 
@@ -30,18 +31,17 @@ and are not used as trait objects. This allows `miniconf` to support non-`'stati
 * ✅ Iterate over struct fields: `miniconf` Supports recursive iteration.
 * ❌ Automatically serialize and deserialize via Serde without explicit serde impls: `miniconf` relies on existing `impls`.
 * (❌) Trait "reflection": No integrated support but the `std` crate [`intertrait`](https://crates.io/crates/intertrait)
-  can be used to implement the type registry and cast from `dyn Any` returned by `TreeAny` to desired trait objects.
+  can be used to implement the type registry and cast from the `&{mut} dyn Any` returned by `TreeAny` to desired trait objects.
   It could also be used to implement node serialization/deserialization
   using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize`.
-  Another interesting crate is [`deflect`](https://crates.io/crates/deflect)
-  which allows reflection on trait objects (like `Any`) using adjacent debug info. It's `std` and experimental.
+  Another interesting helper crate is [`deflect`](https://crates.io/crates/deflect)
+  which allows reflection on trait objects (like `Any`). It uses adjacent DWARF debug info instead of a custom type registry.
+  It's `std` and experimental.
 
-<!--
-Tangential crates:
+Some tangential crates:
 
-* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract format descriptions/schema
-* [`typetag`](https://crates.io/crates/typetag): perform serde for trait objects (of local traits and impls)
--->
+* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract schemata
+* [`typetag`](https://crates.io/crates/typetag): "derive serde for trait objects" (local traits and impls)
 
 ## Example
 
