@@ -1,4 +1,4 @@
-use crate::{IntoKeys, Key, Keys, Traversal, TreeKey};
+use crate::{IntoKeys, Key, KeyLookup, Keys, Traversal};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
@@ -38,7 +38,7 @@ use serde::{Deserialize, Serialize};
 /// and stability properties.
 ///
 /// `Packed` can be used to uniquely identify
-/// nodes in a [`TreeKey`] using only a very small amount of bits.
+/// nodes in a `TreeKey` using only a very small amount of bits.
 /// For many realistic `TreeKey`s a `u16` or even a `u8` is sufficient
 /// to hold a `Packed` in LSB notation. Together with the `Postcard` trait
 /// and `postcard` `serde` format, this then gives access to any node in a nested
@@ -130,6 +130,17 @@ impl Packed {
         }
     }
 
+    /// Create a new `Packed` from LSB aligned `usize`
+    ///
+    /// The value must not be zero.
+    #[inline]
+    pub const fn new_from_lsb(value: usize) -> Option<Self> {
+        match NonZeroUsize::new(value) {
+            Some(value) => Some(Self::from_lsb(value)),
+            None => None,
+        }
+    }
+
     /// The value is empty.
     #[inline]
     pub const fn is_empty(&self) -> bool {
@@ -151,26 +162,36 @@ impl Packed {
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
     #[inline]
-    pub fn into_lsb(self) -> NonZeroUsize {
-        // Note(unwrap): we ensure there is at least the marker bit set
-        NonZeroUsize::new(((self.get() >> 1) | (1 << Self::CAPACITY)) >> self.trailing_zeros())
-            .unwrap()
+    pub const fn into_lsb(self) -> NonZeroUsize {
+        match NonZeroUsize::new(
+            ((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros(),
+        ) {
+            Some(v) => v,
+            // We ensure there is at least the marker bit set
+            None => unreachable!(),
+        }
     }
 
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
     /// moved from the MSB the LSB.
     #[inline]
-    pub fn from_lsb(value: NonZeroUsize) -> Self {
-        // Note(unwrap): we ensure there is at least the marker bit set
-        Self::new(((value.get() << 1) | 1) << value.leading_zeros()).unwrap()
+    pub const fn from_lsb(value: NonZeroUsize) -> Self {
+        match Self::new(((value.get() << 1) | 1) << value.leading_zeros()) {
+            Some(v) => v,
+            // We ensure there is at least the marker bit set
+            None => unreachable!(),
+        }
     }
 
     /// Return the number of bits required to represent `num`.
     ///
     /// Ensures that at least one bit is allocated.
     #[inline]
-    pub fn bits_for(num: usize) -> u32 {
-        (Self::BITS - num.leading_zeros()).max(1)
+    pub const fn bits_for(num: usize) -> u32 {
+        match usize::BITS - num.leading_zeros() {
+            0 => 1,
+            v => v,
+        }
     }
 
     /// Remove the given number of MSBs and return them.
@@ -219,10 +240,10 @@ impl Packed {
 }
 
 impl Keys for Packed {
-    fn next<const Y: usize, M: TreeKey<Y> + ?Sized>(&mut self) -> Result<usize, Traversal> {
+    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
         let bits = Self::bits_for(M::len().saturating_sub(1));
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
-        index.find::<Y, M>().ok_or(Traversal::NotFound(1))
+        index.find::<M>().ok_or(Traversal::NotFound(1))
     }
 
     #[inline]

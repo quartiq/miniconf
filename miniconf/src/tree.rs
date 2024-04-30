@@ -282,40 +282,6 @@ impl Metadata {
 ///
 /// See the [`crate`] documentation for a longer example showing how the traits and the derive macros work.
 pub trait TreeKey<const Y: usize = 1> {
-    /// The number of top-level nodes.
-    ///
-    /// This may be `unreachable!()` if `Self` does not consume any keys directly (e.g. `Option`).
-    ///
-    /// ```
-    /// # use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: [u16; 2],
-    /// }
-    /// assert_eq!(S::len(), 2);
-    /// ```
-    fn len() -> usize;
-
-    /// Convert a top level node name to a node index.
-    ///
-    /// The details of the mapping and the `usize` index values
-    /// are an implementation detail and only need to be stable at runtime.
-    /// This is used by `impl Key for &str`.
-    ///
-    /// This may be `unreachable!()` if `Self` does not consume any keys directly (e.g. `Option`).
-    ///
-    /// ```
-    /// # use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: u16,
-    /// }
-    /// assert_eq!(S::name_to_index("bar"), Some(1));
-    /// ```
-    fn name_to_index(name: &str) -> Option<usize>;
-
     /// Compute metadata about all paths.
     ///
     /// ```

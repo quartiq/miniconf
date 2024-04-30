@@ -75,17 +75,18 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 
             fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
                 const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
-                let index = ::miniconf::Keys::next::<#depth, Self>(keys)?;
+                let index = ::miniconf::Keys::next::<Self>(keys)?;
                 let defer = DEFERS.get(index)
                     .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer {
-                    ::miniconf::Keys::finalize::<1>(keys)?;
+                if !defer && !keys.is_empty() {
+                    Err(::miniconf::Traversal::TooLong(1))
+                } else {
+                    Ok(index)
                 }
-                Ok(index)
             }
         }
 
-        impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
+        impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
             #[inline]
             fn len() -> usize {
                 #fields_len
@@ -95,10 +96,12 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             fn name_to_index(value: &str) -> Option<usize> {
                 #name_to_index
             }
+        }
 
+        impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
             fn metadata() -> ::miniconf::Metadata {
                 let mut meta = ::miniconf::Metadata::default();
-                for index in 0..Self::len() {
+                for index in 0..#fields_len {
                     let item_meta: ::miniconf::Metadata = match index {
                         #(#metadata_arms ,)*
                         _ => {
@@ -128,9 +131,9 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 K: ::miniconf::Keys,
                 F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
-                let index = ::miniconf::Keys::next::<#depth, Self>(&mut keys)?;
+                let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
                 let name = #index_to_name;
-                func(index, name, Self::len()).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => Ok(0),
