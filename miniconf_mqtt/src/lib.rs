@@ -3,7 +3,7 @@
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
-//! The Minimq MQTT client for Miniconf.
+//! The Minimq MQTT client for `miniconf``.
 
 use heapless::{String, Vec};
 use miniconf::{Error, JsonCoreSlash, PathIter, Traversal, TreeKey};
@@ -21,7 +21,7 @@ use embedded_io::Write;
 const MAX_TOPIC_LENGTH: usize = 128;
 
 // The maximum amount of correlation data that will be cached for listing. This is set to function
-// with the Miniconf python client (i.e. 32 bytes can encode a UUID).
+// with the miniconf-mqtt python client (i.e. 32 bytes can encode a UUID).
 const MAX_CD_LENGTH: usize = 32;
 
 // The delay after not receiving messages after initial connection that settings will be
@@ -411,7 +411,7 @@ where
             };
 
             let Ok(command) = Command::from_message(path, message) else {
-                log::info!("Unknown Miniconf command: {path}");
+                log::info!("Unknown miniconf command: {path}");
                 return;
             };
 

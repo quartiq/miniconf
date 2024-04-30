@@ -102,13 +102,13 @@ impl<const Y: usize> State<Y> {
 
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PathIter<'a, M: ?Sized, const Y: usize, P> {
-    state: State<Y>,
+pub struct PathIter<'a, M: ?Sized, const Y: usize, P, const D: usize> {
+    state: State<D>,
     separator: &'a str,
     _pm: PhantomData<(P, M)>,
 }
 
-impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P> PathIter<'a, M, Y, P> {
+impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a, M, Y, P, D> {
     pub(crate) fn new(separator: &'a str) -> Self {
         Self {
             state: State::default(),
@@ -126,7 +126,7 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P> PathIter<'a, M, Y, P> {
     }
 }
 
-impl<'a, M, const Y: usize, P> Iterator for PathIter<'a, M, Y, P>
+impl<'a, M, const Y: usize, P, const D: usize> Iterator for PathIter<'a, M, Y, P, D>
 where
     M: TreeKey<Y> + ?Sized,
     P: Write + Default,
@@ -149,7 +149,7 @@ where
     }
 }
 
-impl<'a, M, const Y: usize, P> core::iter::FusedIterator for PathIter<'a, M, Y, P>
+impl<'a, M, const Y: usize, P, const D: usize> core::iter::FusedIterator for PathIter<'a, M, Y, P, D>
 where
     M: TreeKey<Y> + ?Sized,
     P: Write + Default,

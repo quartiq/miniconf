@@ -615,6 +615,12 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     }
 }
 
+// # Alternative serialize/deserialize designs
+//
+// One could have (ab)used a custom `Serializer`/`Deserializer` wrapper for this but that would be inefficient:
+// `Serialize` would try to pass each node to the `Serializer` until the `Serializer` matches the leaf key
+// (and could terminate early).
+
 /// Serialize a leaf node by its keys.
 ///
 /// See also [`crate::JsonCoreSlash`] or `Postcard` for convenient

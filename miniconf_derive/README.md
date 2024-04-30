@@ -1,3 +1,3 @@
-# Miniconf Derive Macros
+# `miniconf` Derive Macros
 
-This package contains derive macros for [`Miniconf`](https://crates.io/crates/miniconf).
+This package contains derive macros for [`miniconf`](https://crates.io/crates/miniconf).

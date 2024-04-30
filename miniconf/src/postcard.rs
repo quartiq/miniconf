@@ -1,7 +1,7 @@
 use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 
-/// Miniconf with `postcard`.
+/// `TreeSerialize`/`TreeDeserialize` with `postcard`.
 ///
 /// ```
 /// # #[cfg(feature = "std")]

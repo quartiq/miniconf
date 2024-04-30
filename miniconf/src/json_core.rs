@@ -1,7 +1,7 @@
 use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use serde_json_core::{de, ser};
 
-/// Miniconf with "JSON and `/`".
+/// `TreeSerialize`/`TreeDeserialize` with "JSON and `/`".
 ///
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.

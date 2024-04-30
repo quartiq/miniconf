@@ -5,10 +5,10 @@ version = "0.11.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
-description = "Serialize/deserialize/access  Inspect serde namespaces by path"
+description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
-keywords = ["settings", "serde", "no_std", "json", "mqtt"]
-categories = ["no-std", "config", "rust-patterns", "parsing"]
+keywords = ["config", "serde", "no_std", "reflection", "graph"]
+categories = ["no_std", "config", "data-structures", "parsing"]
 rust-version = "1.70.0" # keep in sync with CI and with other crates and with github branch protection
 resolver = "2"
 
