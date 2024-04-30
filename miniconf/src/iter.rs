@@ -44,21 +44,21 @@ impl<T: FusedIterator> FusedIterator for Counting<T> {}
 
 /// A managed indices state for iteration of nodes in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct State<const Y: usize> {
-    state: [usize; Y],
+struct State<const D: usize> {
+    state: [usize; D],
     depth: usize,
 }
 
-impl<const Y: usize> Default for State<Y> {
+impl<const D: usize> Default for State<D> {
     fn default() -> Self {
         Self {
-            state: [0; Y],
+            state: [0; D],
             depth: usize::MAX,
         }
     }
 }
 
-impl<const Y: usize> State<Y> {
+impl<const D: usize> State<D> {
     /// Try to prepare for the next iteratiion
     ///
     /// Increment current index and return indices iterator.
@@ -88,12 +88,16 @@ impl<const Y: usize> State<Y> {
                 self.depth = depth - 1;
                 None
             }
+            // Indices is too short, try next node at maximum depth
+            Err(Error::Traversal(Traversal::TooShort(depth))) => {
+                debug_assert_eq!(depth, D);
+                self.depth = depth;
+                None
+            }
             Err(Error::Inner(depth, err)) => Some(Err((depth, err))),
-            // Traversal::NotFound(0): Not having consumed any name/index, the only possible case
+            // NotFound(0): Not having consumed any name/index, the only possible case
             // is a root leaf (e.g. `Option` or newtype), those however can not return
             // `NotFound` as they don't do key lookup.
-            // Traversal::TooShort(_): Excluded by construction (`state.len() == Y` and `Y` being an
-            // upper bound to key length as per the `TreeKey<Y>` contract.
             // TooLong, Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
             _ => unreachable!(),
         }
@@ -109,7 +113,8 @@ pub struct PathIter<'a, M: ?Sized, const Y: usize, P, const D: usize> {
 }
 
 impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a, M, Y, P, D> {
-    pub(crate) fn new(separator: &'a str) -> Self {
+    /// Create a new iterator given a path hierarchy separator.
+    pub fn new(separator: &'a str) -> Self {
         Self {
             state: State::default(),
             separator,
@@ -119,9 +124,11 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a,
 
     /// Wrap the iterator in an exact size counting iterator.
     ///
-    /// Note(panic): Panics, if the iterator had `next()` called.
+    /// Note(panic): Panics, if the iterator had `next()` called or
+    /// if the iteration depth has been limited.
     pub fn count(self) -> Counting<Self> {
         assert!(self.state.depth == usize::MAX);
+        assert!(D >= Y);
         Counting::new(self, M::metadata().count)
     }
 }
@@ -149,7 +156,8 @@ where
     }
 }
 
-impl<'a, M, const Y: usize, P, const D: usize> core::iter::FusedIterator for PathIter<'a, M, Y, P, D>
+impl<'a, M, const Y: usize, P, const D: usize> core::iter::FusedIterator
+    for PathIter<'a, M, Y, P, D>
 where
     M: TreeKey<Y> + ?Sized,
     P: Write + Default,
@@ -160,12 +168,12 @@ where
 ///
 /// The iterator yields `(indices: [usize; Y], depth: usize)`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IndexIter<M: ?Sized, const Y: usize> {
-    state: State<Y>,
+pub struct IndexIter<M: ?Sized, const Y: usize, const D: usize> {
+    state: State<D>,
     _m: PhantomData<M>,
 }
 
-impl<M: ?Sized, const Y: usize> Default for IndexIter<M, Y> {
+impl<M: ?Sized, const Y: usize, const D: usize> Default for IndexIter<M, Y, D> {
     fn default() -> Self {
         Self {
             state: State::default(),
@@ -174,21 +182,23 @@ impl<M: ?Sized, const Y: usize> Default for IndexIter<M, Y> {
     }
 }
 
-impl<M: TreeKey<Y> + ?Sized, const Y: usize> IndexIter<M, Y> {
+impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> IndexIter<M, Y, D> {
     /// Wrap the iterator in an exact size counting iterator.
     ///
-    /// Note(panic): Panics, if the iterator had `next()` called.
+    /// Note(panic): Panics, if the iterator had `next()` called or
+    /// if the iteration depth has been limited.
     pub fn count(self) -> Counting<Self> {
         assert!(self.state.depth == usize::MAX);
+        assert!(D >= Y);
         Counting::new(self, M::metadata().count)
     }
 }
 
-impl<M, const Y: usize> Iterator for IndexIter<M, Y>
+impl<M, const Y: usize, const D: usize> Iterator for IndexIter<M, Y, D>
 where
     M: TreeKey<Y> + ?Sized,
 {
-    type Item = ([usize; Y], usize);
+    type Item = ([usize; D], usize);
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -205,18 +215,21 @@ where
     }
 }
 
-impl<M, const Y: usize> FusedIterator for IndexIter<M, Y> where M: TreeKey<Y> + ?Sized {}
+impl<M, const Y: usize, const D: usize> FusedIterator for IndexIter<M, Y, D> where
+    M: TreeKey<Y> + ?Sized
+{
+}
 
 /// An iterator over packed indices in a `TreeKey`.
 ///
 /// The iterator yields `Result<(packed: Packed, depth: usize), ()>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PackedIter<M: ?Sized, const Y: usize> {
-    state: State<Y>,
+pub struct PackedIter<M: ?Sized, const Y: usize, const D: usize> {
+    state: State<D>,
     _m: PhantomData<M>,
 }
 
-impl<M: ?Sized, const Y: usize> Default for PackedIter<M, Y> {
+impl<M: ?Sized, const Y: usize, const D: usize> Default for PackedIter<M, Y, D> {
     fn default() -> Self {
         Self {
             state: State::default(),
@@ -225,17 +238,19 @@ impl<M: ?Sized, const Y: usize> Default for PackedIter<M, Y> {
     }
 }
 
-impl<M: TreeKey<Y> + ?Sized, const Y: usize> PackedIter<M, Y> {
+impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> PackedIter<M, Y, D> {
     /// Wrap the iterator in an exact size counting iterator.
     ///
-    /// Note(panic): Panics, if the iterator had `next()` called.
+    /// Note(panic): Panics, if the iterator had `next()` called or
+    /// if the iteration depth has been limited.
     pub fn count(self) -> Counting<Self> {
         assert!(self.state.depth == usize::MAX);
+        assert!(D >= Y);
         Counting::new(self, M::metadata().count)
     }
 }
 
-impl<M, const Y: usize> Iterator for PackedIter<M, Y>
+impl<M, const Y: usize, const D: usize> Iterator for PackedIter<M, Y, D>
 where
     M: TreeKey<Y> + ?Sized,
 {
@@ -260,4 +275,7 @@ where
     }
 }
 
-impl<M, const Y: usize> FusedIterator for PackedIter<M, Y> where M: TreeKey<Y> + ?Sized {}
+impl<M, const Y: usize, const D: usize> FusedIterator for PackedIter<M, Y, D> where
+    M: TreeKey<Y> + ?Sized
+{
+}

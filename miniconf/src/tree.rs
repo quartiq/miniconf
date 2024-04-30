@@ -516,7 +516,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Args
     /// * `separator` - The path hierarchy separator
-    fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P> {
+    fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P, Y> {
         PathIter::new(separator)
     }
 
@@ -535,7 +535,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let indices: Vec<_> = S::iter_indices().count().collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
-    fn iter_indices() -> IndexIter<Self, Y> {
+    fn iter_indices() -> IndexIter<Self, Y, Y> {
         IndexIter::default()
     }
 
@@ -557,7 +557,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
-    fn iter_packed() -> PackedIter<Self, Y> {
+    fn iter_packed() -> PackedIter<Self, Y, Y> {
         PackedIter::default()
     }
 }

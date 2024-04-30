@@ -28,7 +28,7 @@ const MAX_CD_LENGTH: usize = 32;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M, const Y: usize> = PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
+type Iter<M, const Y: usize> = PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>, Y>;
 
 mod sm {
     use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
