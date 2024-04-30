@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD024 -->
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -8,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.11.0](https://github.com/quartiq/miniconf/compare/v0.10.1...v0.11.0) - 2024-04-30
 
 ### Changed
+
 * [breaking] The `Traversal` error enum has been split from the `Error<E>` enum to reduce genericism.
 * [breaking] `Increment` trait and blanket impl removed in favor of `increment_result`/
   `Error::increment`/`Traversal::increment`
@@ -22,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [breaking] `minimq v0.9` requiring `embedded-nal v0.8`.
 
 ### Added
+
 * `TreeAny` to access nodes trough `Any` trait objects.
 * `TreeKey::json_path()` for JSON path notation `.bar[5]`
 * `JsonPath: Keys`
@@ -32,11 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Limited depth iteration has been added.
 
 ### Removed
+
 * [breaking] `TreeKey::iter_*_unchecked()` have been removed. Uncounted iteration is the default.
 
 ## [0.10.1](https://github.com/quartiq/miniconf/compare/v0.10.0...v0.10.1) - 2024-04-22
 
 ### Changed
+
 * README changes to fix docs
 
 ## [0.10.0](https://github.com/quartiq/miniconf/compare/v0.9.0...v0.10.0) - 2024-04-22
