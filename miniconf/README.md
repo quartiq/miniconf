@@ -10,32 +10,36 @@ and access within a tree of heretogeneous types by keys.
 
 ## Reflection
 
-The `miniconf` features border on the concept of reflection for which
-[`bevy_reflect`](https://crates.io/crates/bevy_reflect) is a comprehensive mature crate:
+`miniconf` enables certain kinds of reflective access to heterogeneous trees.
+Let's compare it to [`bevy_reflect`](https://crates.io/crates/bevy_reflect)
+which is a comprehensive and mature reflection crate:
 
 `bevy_reflect` is thoroughly `std` while `miniconf` aims at `no_std`.
 `bevy_reflect` uses its `Reflect` trait to operate on and pass nodes as trait objects.
 `miniconf` uses serialized data or `Any` to access leaf nodes and pure "code" to traverse through internal nodes.
-The `Tree*` traits like `Reflect` thus give access to nodes but unlike `Reflect` they are all decidedly non-object save
-and are not used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
+The `Tree*` traits like `Reflect` thus give access to nodes but unlike `Reflect` they are all decidedly not object-safe
+and can not used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
 (only for `TreeAny` the leaf nodes need to be `'static`)
-while `bevy_reflect` requires `'static` for all `Reflect` types.
+while `bevy_reflect` requires `'static` for `Reflect` types.
 
-`miniconf`supports at least the following features from the `bevy_reflect` README:
+`miniconf`supports at least the following reflection features mentioned in the `bevy_reflect` README:
 
-* ✅ Derive the traits: `miniconf`'s `Tree*` derive macros and blanket implementations for containers.
+* ➕ Derive the traits: `miniconf` has `Tree*` derive macros and blanket implementations for arrays and Options.
   Leaf nodes just need some impls of `Serialize/Deserialize/Any` where desired.
-* ✅ Interact with fields using their names
-* ❌ "Patch" your types with new values: `miniconf` has no "dynamic" types.
-* ✅ Look up nested fields using "path strings"
-* ✅ Iterate over struct fields: `miniconf` Supports recursive iteration.
-* ❌ Automatically serialize and deserialize via Serde without explicit serde impls: `miniconf` relies on existing `impls`.
-* (❌) Trait "reflection": No integrated support but the `std` crate [`intertrait`](https://crates.io/crates/intertrait)
-  can be used to implement the type registry and cast from the `&{mut} dyn Any` returned by `TreeAny` to desired trait objects.
+* ➕ Interact with fields using their names
+* ➖ "Patch" your types with new values: `miniconf` only supports limited changes to the tree structure at runtime
+  (`Option` and custom accessors) while `bevy_reflect` has powerful dynamic typing tools.
+* ➕ Look up nested fields using "path strings": In addition to a superset of JSON path style
+  "path strings" `miniconf` supports hierarchical indices and bit-packed ordered keys.
+* ➕ Iterate over struct fields: `miniconf` Supports recursive iteration over node keys.
+* • Automatically serialize and deserialize via Serde without explicit serde impls:
+  `miniconf` supports automatic serializing/deserializing into a key-value pairs without an explicit container serde impl.
+* ➖ Trait "reflection": `miniconf` has no integrated support but the `std` crate [`intertrait`](https://crates.io/crates/intertrait)
+  can be used to implement the type registry and cast from the `dyn Any` returned by `TreeAny` to desired trait objects.
   It could also be used to implement node serialization/deserialization
-  using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize`.
-  Another interesting helper crate is [`deflect`](https://crates.io/crates/deflect)
-  which allows reflection on trait objects (like `Any`). It uses adjacent DWARF debug info instead of a custom type registry.
+  using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize` similar to `bevy_reflect`.
+  Another interesting crate is [`deflect`](https://crates.io/crates/deflect)
+  which allows reflection on trait objects (like `Any`) using adjacent DWARF debug info as the type registry.
   It's `std` and experimental.
 
 Some tangential crates:
@@ -45,21 +49,21 @@ Some tangential crates:
 
 ## Example
 
-See below for a comprehensive example showing the features of the `Tree` traits.
+See below for an example showing some of the features of the `Tree*` traits.
 See also the documentation of the [`TreeKey`] trait for a detailed description.
 
 ```rust
-use miniconf::{Error, JsonCoreSlash, Traversal, Tree, TreeKey};
 use serde::{Deserialize, Serialize};
+use miniconf::{Error, JsonCoreSlash, JsonPath, Traversal, Tree, TreeKey, Packed};
 
-#[derive(Deserialize, Serialize, Copy, Clone, Default)]
+#[derive(Deserialize, Serialize, Default)]
 enum Either {
     #[default]
     Bad,
     Good,
 }
 
-#[derive(Deserialize, Serialize, Copy, Clone, Default, Tree)]
+#[derive(Deserialize, Serialize, Default, Tree)]
 struct Inner {
     a: i32,
     b: i32,
@@ -67,41 +71,32 @@ struct Inner {
 
 #[derive(Tree, Default)]
 struct Settings {
-    // Atomic updtes by field name
     foo: bool,
     enum_: Either,
     struct_: Inner,
     array: [i32; 2],
     option: Option<i32>,
 
-    // Exclude an element (not Deserialize/Serialize)
+    // Skipping (`()` is not Deserialize/Serialize)
     #[tree(skip)]
     skipped: (),
 
-    // Exposing elements of containers
-    // ... by field name
     #[tree(depth=1)]
     struct_tree: Inner,
-    // ... or by index
     #[tree(depth=1)]
     array_tree: [i32; 2],
-    // ... or exposing two levels (array index and then inner field name)
     #[tree(depth=2)]
     array_tree2: [Inner; 2],
 
-    // Hiding paths by setting the Option to `None` at runtime
     #[tree(depth=1)]
     option_tree: Option<i32>,
-    // Hiding a path and descending into the inner `Tree`
     #[tree(depth=2)]
     option_tree2: Option<Inner>,
-    // Hiding elements of an array of `Tree`s
     #[tree(depth=3)]
     array_option_tree: [Option<Inner>; 2],
 }
 
 let mut settings = Settings::default();
-let mut buf = [0; 64];
 
 // Atomic updates by field name
 settings.set_json("/foo", b"true")?;
@@ -112,31 +107,43 @@ settings.set_json("/array", b"[6, 6]")?;
 settings.set_json("/option", b"12")?;
 settings.set_json("/option", b"null")?;
 
-// Deep access by field name in a struct
+// Exposing nodes of containers
+// ... by field name in a struct
 settings.set_json("/struct_tree/a", b"4")?;
 // ... or by index in an array
 settings.set_json("/array_tree/0", b"7")?;
 // ... or by index and then struct field name
-settings.set_json("/array_tree2/1/b", b"11")?;
+settings.set_json("/array_tree2/0/a", b"11")?;
+// ... or by hierarchical index
+settings.set_json_by_key([7, 0, 1].into_iter(), b"8")?;
+// ... or by packed index
+let (packed, _depth) = Settings::packed([7, 1, 0]).unwrap();
+assert_eq!(packed.into_lsb().get(), 0b1_0111_1_0);
+settings.set_json_by_key(packed, b"9")?;
+// ... or by JSON path
+settings.set_json_by_key(JsonPath::from(".array_tree2[1].b"), b"10")?;
 
-// If a `Tree`-Option is `None` it is hidden at runtime and can't be serialized/deserialized.
-settings.option_tree = None;
+// Hiding paths by setting an Option to `None` at runtime
 assert_eq!(settings.set_json("/option_tree", b"13"), Err(Traversal::Absent(1).into()));
 settings.option_tree = Some(0);
 settings.set_json("/option_tree", b"13")?;
+// Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());
 settings.set_json("/option_tree2/a", b"14")?;
+// Hiding items of an array of `Tree`s
 settings.array_option_tree[1] = Some(Inner::default());
 settings.set_json("/array_option_tree/1/a", b"15")?;
 
-// Serializing elements by path
+let mut buf = [0; 16];
+
+// Serializing nodes by path
 let len = settings.get_json("/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
 for path in Settings::iter_paths::<String>("/") {
     let path = path.unwrap();
-    // Serializing each
+    // Serialize each
     match settings.get_json(&path, &mut buf) {
         // Full round-trip: deserialize and set again
         Ok(len) => { settings.set_json(&path, &buf[..len])?; }
@@ -213,8 +220,8 @@ It implements [`Keys`].
 
 ## Limitations
 
-Deferred/deep/non-atomic access to inner elements of some types is not yet supported, e.g. enums
-other than [`Option`]. These are still however usable in their atomic `serde` form as leaves.
+Access to inner fields of some types is not yet supported, e.g. enums
+other than [`Option`]. These are still however usable in their atomic `serde` form as leaf nodes.
 
 ## Features
 
@@ -222,3 +229,4 @@ other than [`Option`]. These are still however usable in their atomic `serde` fo
   into json slices (using the `serde_json_core` crate).
 * `postcard`: Enable the `Postcard` implementation of serializing from and
   into the postcard compact binary format (using the `postcard` crate).
+* `derive`: Enable the derive macros in `miniconf_derive`. Enabled by default.
