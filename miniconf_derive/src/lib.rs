@@ -86,7 +86,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl #impl_generics ::miniconf::TreeLookup for #ident #ty_generics #where_clause {
+        impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
             #[inline]
             fn len() -> usize {
                 #fields_len

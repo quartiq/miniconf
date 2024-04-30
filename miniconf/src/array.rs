@@ -1,8 +1,8 @@
 use core::any::Any;
 
 use crate::{
-    digits, increment_result, Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey,
-    TreeLookup, TreeSerialize,
+    digits, increment_result, Error, KeyLookup, Keys, Metadata, Traversal, TreeAny,
+    TreeDeserialize, TreeKey, TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
@@ -12,7 +12,7 @@ fn get<'a, const N: usize, K, T>(
     drain: bool,
 ) -> Result<&'a T, Traversal>
 where
-    [T; N]: TreeLookup,
+    [T; N]: KeyLookup,
     K: Keys,
 {
     let index = keys.next::<[T; N]>()?;
@@ -30,7 +30,7 @@ fn get_mut<'a, const N: usize, K, T>(
     drain: bool,
 ) -> Result<&'a mut T, Traversal>
 where
-    [T; N]: TreeLookup,
+    [T; N]: KeyLookup,
     K: Keys,
 {
     let index = keys.next::<[T; N]>()?;
@@ -113,7 +113,7 @@ macro_rules! depth {
 }
 depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 
-impl<const N: usize, T> TreeLookup for [T; N] {
+impl<const N: usize, T> KeyLookup for [T; N] {
     fn len() -> usize {
         N
     }

@@ -1,4 +1,4 @@
-use crate::{IntoKeys, Key, Keys, Traversal, TreeLookup};
+use crate::{IntoKeys, Key, KeyLookup, Keys, Traversal};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
@@ -240,7 +240,7 @@ impl Packed {
 }
 
 impl Keys for Packed {
-    fn next<M: TreeLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
+    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
         let bits = Self::bits_for(M::len().saturating_sub(1));
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
         index.find::<M>().ok_or(Traversal::NotFound(1))
