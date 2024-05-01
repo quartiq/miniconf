@@ -1,17 +1,14 @@
 use core::any::{Any, TypeId};
 use miniconf::{JsonPath, TreeAny, TreeKey};
-#[cfg(feature = "std")]
 use std::{rc::Rc, sync::Arc};
 
-struct Caster<T: ?Sized> {
-    ref_: fn(from: &dyn Any) -> Option<&T>,
-    mut_: fn(from: &mut dyn Any) -> Option<&mut T>,
-    #[cfg(feature = "std")]
-    box_: fn(from: Box<dyn Any>) -> Result<Box<T>, Box<dyn Any>>,
-    #[cfg(feature = "std")]
-    rc: fn(from: Rc<dyn Any>) -> Result<Rc<T>, Rc<dyn Any>>,
-    #[cfg(feature = "std")]
-    arc: fn(from: Arc<dyn Any + Sync + Send>) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>>,
+#[non_exhaustive]
+pub struct Caster<T: ?Sized> {
+    pub ref_: fn(from: &dyn Any) -> Option<&T>,
+    pub mut_: fn(from: &mut dyn Any) -> Option<&mut T>,
+    pub box_: fn(from: Box<dyn Any>) -> Result<Box<T>, Box<dyn Any>>,
+    pub rc: fn(from: Rc<dyn Any>) -> Result<Rc<T>, Rc<dyn Any>>,
+    pub arc: fn(from: Arc<dyn Any + Sync + Send>) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>>,
 }
 
 macro_rules! casters {
@@ -20,11 +17,8 @@ macro_rules! casters {
         &Caster::<dyn $trait> {
             ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
             mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
-            #[cfg(feature = "std")]
             box_: |any| any.downcast::<$ty>().map(|t| t as _),
-            #[cfg(feature = "std")]
             rc: |any| any.downcast::<$ty>().map(|t| t as _),
-            #[cfg(feature = "std")]
             arc: |any| Err(any), // any.downcast::<$ty>().map(|t| t as _),
         },
     )};
@@ -41,9 +35,12 @@ pub struct Registry<'a> {
 }
 
 impl<'a> Registry<'a> {
-    fn caster<'b, T: ?Sized + 'static>(&self, any: &dyn Any) -> Option<&Caster<T>> {
+    pub fn caster<'b, T: ?Sized + 'static>(&self, any: &dyn Any) -> Option<&Caster<T>> {
         let target = TypeId::of::<T>();
-        let (_, types) = self.casters.iter().find(|(trait_id, _)| trait_id == &target)?;
+        let (_, types) = self
+            .casters
+            .iter()
+            .find(|(trait_id, _)| trait_id == &target)?;
         let source = (&*any).type_id();
         let (_, caster) = types.iter().find(|(type_id, _)| type_id == &source)?;
         caster.downcast_ref()
@@ -54,42 +51,37 @@ impl<'a> Registry<'a> {
     }
 
     pub fn cast_ref<'b, T: ?Sized + 'static>(&self, any: &'b dyn Any) -> Option<&'b T> {
-        let caster = self.caster(any)?;
-        (caster.ref_)(any)
+        (self.caster(any)?.ref_)(any)
     }
 
     pub fn cast_mut<'b, T: ?Sized + 'static>(&self, any: &'b mut dyn Any) -> Option<&'b mut T> {
-        let caster = self.caster(any)?;
-        (caster.mut_)(any)
+        (self.caster(any)?.mut_)(any)
     }
 
-    #[cfg(feature = "std")]
     pub fn cast_box<'b, T: ?Sized + 'static>(
         &self,
         any: Box<dyn Any>,
     ) -> Result<Box<T>, Box<dyn Any>> {
-        if let Some(c) = self.caster(&any) {
+        if let Some(c) = self.caster(&*any) {
             (c.box_)(any)
         } else {
             Err(any)
         }
     }
 
-    #[cfg(feature = "std")]
     pub fn cast_rc<'b, T: ?Sized + 'static>(&self, any: Rc<dyn Any>) -> Result<Rc<T>, Rc<dyn Any>> {
-        if let Some(c) = self.caster(&any) {
+        if let Some(c) = self.caster(&*any) {
             (c.rc)(any)
         } else {
             Err(any)
         }
     }
 
-    #[cfg(feature = "std")]
     pub fn cast_arc<'b, T: ?Sized + 'static>(
         &self,
         any: Arc<dyn Any + Sync + Send>,
     ) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>> {
-        if let Some(c) = self.caster(&any) {
+        if let Some(c) = self.caster(&*any) {
             (c.arc)(any)
         } else {
             Err(any)
@@ -116,8 +108,7 @@ fn main() {
             casters!(Display => u8, i32, String, &str),
             casters!(Debug => u8, i32, String, &[u8], &str),
             casters!(Write => String, Formatter),
-            // casters!(erased_serde::Serialize => ...),
-            // casters!(erased_serde::Deerialize => ...),
+            // casters!(erased_serde::Serialize => u8, i32, String, Vec<u8>),
         ],
     };
 
