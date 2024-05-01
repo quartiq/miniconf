@@ -7,6 +7,9 @@ pub struct Caster<T: ?Sized> {
     pub ref_: fn(from: &dyn Any) -> Option<&T>,
     pub mut_: fn(from: &mut dyn Any) -> Option<&mut T>,
     pub box_: fn(from: Box<dyn Any>) -> Result<Box<T>, Box<dyn Any>>,
+    pub box_send: fn(from: Box<dyn Any + Send>) -> Result<Box<T>, Box<dyn Any + Send>>,
+    pub box_sync:
+        fn(from: Box<dyn Any + Send + Sync>) -> Result<Box<T>, Box<dyn Any + Send + Sync>>,
     pub rc: fn(from: Rc<dyn Any>) -> Result<Rc<T>, Rc<dyn Any>>,
     pub arc: fn(from: Arc<dyn Any + Sync + Send>) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>>,
 }
@@ -18,6 +21,8 @@ macro_rules! casters {
             ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
             mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
             box_: |any| any.downcast::<$ty>().map(|t| t as _),
+            box_send: |any| any.downcast::<$ty>().map(|t| t as _),
+            box_sync: |any| any.downcast::<$ty>().map(|t| t as _),
             rc: |any| any.downcast::<$ty>().map(|t| t as _),
             arc: |any| Err(any), // any.downcast::<$ty>().map(|t| t as _),
         },
@@ -41,7 +46,7 @@ impl<'a> Registry<'a> {
             .casters
             .iter()
             .find(|(trait_id, _)| trait_id == &target)?;
-        let source = (&*any).type_id();
+        let source = any.type_id();
         let (_, caster) = types.iter().find(|(type_id, _)| type_id == &source)?;
         caster.downcast_ref()
     }
@@ -64,6 +69,28 @@ impl<'a> Registry<'a> {
     ) -> Result<Box<T>, Box<dyn Any>> {
         if let Some(c) = self.caster(&*any) {
             (c.box_)(any)
+        } else {
+            Err(any)
+        }
+    }
+
+    pub fn cast_box_send<'b, T: ?Sized + 'static>(
+        &self,
+        any: Box<dyn Any + Send>,
+    ) -> Result<Box<T>, Box<dyn Any + Send>> {
+        if let Some(c) = self.caster(&*any) {
+            (c.box_send)(any)
+        } else {
+            Err(any)
+        }
+    }
+
+    pub fn cast_box_sync<'b, T: ?Sized + 'static>(
+        &self,
+        any: Box<dyn Any + Send + Sync>,
+    ) -> Result<Box<T>, Box<dyn Any + Send + Sync>> {
+        if let Some(c) = self.caster(&*any) {
+            (c.box_sync)(any)
         } else {
             Err(any)
         }
