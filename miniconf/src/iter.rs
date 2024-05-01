@@ -9,6 +9,7 @@ pub struct Counting<T> {
 }
 
 impl<T> Counting<T> {
+    // Not pub since the caller needs to ensure that the count contract holds.
     fn new(iter: T, count: usize) -> Self {
         Self { iter, count }
     }

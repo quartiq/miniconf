@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize};
 /// compact value.
 ///
 /// ```
-/// # use miniconf::Packed;
+/// use miniconf::Packed;
 ///
 /// let mut p = Packed::EMPTY;
 /// let mut p_lsb = 0b1; // marker
@@ -56,8 +56,10 @@ use serde::{Deserialize, Serialize};
 ///     p_lsb |= value;
 /// }
 /// assert_eq!(p_lsb, 0b1_11_0__101);
+/// //                  ^ marker
 /// assert_eq!(p, Packed::from_lsb(p_lsb.try_into().unwrap()));
 /// assert_eq!(p.get(), 0b11_0__101_1 << (Packed::CAPACITY - p.len()));
+/// //                              ^ marker
 /// ```
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
 #[repr(transparent)]

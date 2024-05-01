@@ -7,6 +7,22 @@ use serde_json_core::{de, ser};
 /// as serialization/deserialization payload format.
 ///
 /// Paths used here are reciprocal to `TreeKey::path(..., "/")`/`TreeKey::iter_paths("/")`.
+///
+/// ```
+/// use miniconf::{JsonCoreSlash, Tree};
+/// #[derive(Tree, Default)]
+/// struct S {
+///     foo: u32,
+///     #[tree(depth=1)]
+///     bar: [u16; 2],
+/// };
+/// let mut s = S::default();
+/// s.set_json("/bar/1", b"9").unwrap();
+/// assert_eq!(s.bar[1], 9);
+/// let mut buf = [0u8; 10];
+/// let len = s.get_json("/bar/1", &mut buf[..]).unwrap();
+/// assert_eq!(&buf[..len], b"9");
+/// ```
 pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     TreeSerialize<Y> + TreeDeserialize<'de, Y>
 {
@@ -32,10 +48,6 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
 
     /// Update a node by key.
     ///
-    /// # Args
-    /// * `keys` - The `Keys` to the node.
-    /// * `data` - The serialized data making up the content.
-    ///
     /// # Returns
     /// The number of bytes consumed from `data` or an [Error].
     fn set_json_by_key<K: IntoKeys>(
@@ -45,10 +57,6 @@ pub trait JsonCoreSlash<'de, const Y: usize = 1>:
     ) -> Result<usize, Error<de::Error>>;
 
     /// Retrieve a serialized value by key.
-    ///
-    /// # Args
-    /// * `keys` - The `Keys` to the node.
-    /// * `data` - The buffer to serialize the data into.
     ///
     /// # Returns
     /// The number of bytes used in the `data` buffer or an [Error].

@@ -113,13 +113,13 @@ impl Metadata {
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```compile_fail
-/// # use miniconf::Tree;
+/// use miniconf::Tree;
 /// #[derive(Tree)]
 /// struct S(#[tree(skip)] (), i32);
 /// ```
 ///
 /// ```
-/// # use miniconf::Tree;
+/// use miniconf::Tree;
 /// #[derive(Tree)]
 /// struct S(i32, #[tree(skip)] ());
 /// ```
@@ -161,7 +161,7 @@ impl Metadata {
 /// mutate the struct.
 ///
 /// ```
-/// # use miniconf::{Error, Tree, JsonCoreSlash};
+/// use miniconf::{Error, Tree, JsonCoreSlash};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(validate=leaf)]
@@ -218,7 +218,7 @@ impl Metadata {
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
 ///
 /// ```
-/// # use miniconf::TreeKey;
+/// use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S<T> {
 ///     #[tree(depth=3)]
@@ -276,21 +276,6 @@ impl Metadata {
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
 ///
-/// The following example shows potential usage of arrays and `Option`:
-///
-/// ```
-/// # use miniconf::TreeKey;
-/// #[derive(TreeKey)]
-/// struct S {
-///     // "/b/1/2" = 5
-///     #[tree(depth=2)]
-///     b: [[u32; 3]; 3],
-///     // "/c/0" = [3,4], optionally absent at runtime
-///     #[tree(depth=2)]
-///     c: [Option<[u32; 2]>; 2],
-/// }
-/// ```
-///
 /// # Examples
 ///
 /// See the [`crate`] documentation for a longer example showing how the traits and the derive macros work.
@@ -298,7 +283,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Compute metadata about all paths.
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -322,7 +307,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// `Err(Error::TooShort(0))` will be returned.
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -358,7 +343,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// is not returned.
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -399,7 +384,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::path()`].
     ///
     /// ```
-    /// # use miniconf::{TreeKey, JsonPath};
+    /// use miniconf::{TreeKey, JsonPath};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -434,7 +419,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::path()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -468,7 +453,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`Packed`] and [`TreeKey::path()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -507,7 +492,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// this through [`PathIter::count()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -532,7 +517,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::iter_paths()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -551,7 +536,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::iter_paths()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -574,8 +559,8 @@ pub trait TreeKey<const Y: usize = 1> {
 /// This uses the `dyn Any` trait object.
 ///
 /// ```
-/// # use miniconf::{TreeAny, TreeKey, JsonPath};
-/// # use core::any::Any;
+/// use core::any::Any;
+/// use miniconf::{TreeAny, TreeKey, JsonPath};
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
@@ -642,7 +627,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// # use miniconf::{TreeSerialize, TreeKey};
+    /// use miniconf::{TreeSerialize, TreeKey};
     /// #[derive(TreeKey, TreeSerialize)]
     /// struct S {
     ///     foo: u32,
@@ -683,7 +668,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// # use miniconf::{TreeDeserialize, TreeKey};
+    /// use miniconf::{TreeDeserialize, TreeKey};
     /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
     ///     foo: u32,

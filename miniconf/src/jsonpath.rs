@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// names enclosed by `'` as well as mixtures:
 ///
 /// ```
-/// # use miniconf::JsonPath;
+/// use miniconf::JsonPath;
 /// let path = ["foo", "bar", "4", "baz", "5", "6"];
 /// for valid in [
 ///     ".foo.bar[4].baz[5][6]",
