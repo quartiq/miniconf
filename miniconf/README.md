@@ -36,8 +36,8 @@ while `bevy_reflect` requires `'static` for `Reflect` types.
   `miniconf` supports automatic serializing/deserializing into a key-value pairs without an explicit container serde impl.
 * ➖ Trait "reflection": `miniconf` has no integrated support but the `std` crate [`intertrait`](https://crates.io/crates/intertrait)
   can be used to implement the type registry and cast from the `dyn Any` returned by `TreeAny` to desired trait objects.
-  It could also be used to implement node serialization/deserialization
-  using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize` similar to `bevy_reflect`.
+  It can also be used to implement node serialization/deserialization
+  using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize` similar to `bevy_reflect`, see the `reflect` example.
   Another interesting crate is [`deflect`](https://crates.io/crates/deflect)
   which allows reflection on trait objects (like `Any`) using adjacent DWARF debug info as the type registry.
   It's `std` and experimental.
