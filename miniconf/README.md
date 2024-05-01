@@ -32,11 +32,11 @@ while `bevy_reflect` requires `'static` for `Reflect` types.
 * ➕ Look up nested fields using "path strings": In addition to a superset of JSON path style
   "path strings" `miniconf` supports hierarchical indices and bit-packed ordered keys.
 * ➕ Iterate over struct fields: `miniconf` Supports recursive iteration over node keys.
-* • Automatically serialize and deserialize via Serde without explicit serde impls:
-  `miniconf` supports automatic serializing/deserializing into a key-value pairs without an explicit container serde impl.
-* ➖ Trait "reflection": `miniconf` has no integrated support but the `std` crate [`intertrait`](https://crates.io/crates/intertrait)
-  can be used to implement the type registry and cast from the `dyn Any` returned by `TreeAny` to desired trait objects.
-  It can also be used to implement node serialization/deserialization
+* ➕ Automatically serialize and deserialize via Serde without explicit serde impls:
+  `miniconf` supports automatic serializing/deserializing into key-value pairs without an explicit container serde impls.
+* (➕) Trait "reflection": `miniconf` has no integrated support but the `std` crate [`intertrait`](https://crates.io/crates/intertrait)
+  can be used to implement the type registry and cast from `dyn Any` returned by `TreeAny` to desired trait objects.
+  Together with `erased-serde` it can be used to implement node serialization/deserialization
   using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize` similar to `bevy_reflect`, see the `reflect` example.
   Another interesting crate is [`deflect`](https://crates.io/crates/deflect)
   which allows reflection on trait objects (like `Any`) using adjacent DWARF debug info as the type registry.
@@ -222,6 +222,8 @@ It implements [`Keys`].
 
 Access to inner fields of some types is not yet supported, e.g. enums
 other than [`Option`]. These are still however usable in their atomic `serde` form as leaf nodes.
+
+Many `std` smart pointers are not supported or handled in any special way: `Box`, `Rc`, `Arc`.
 
 ## Features
 
