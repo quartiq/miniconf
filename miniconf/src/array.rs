@@ -114,9 +114,8 @@ macro_rules! depth {
 depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 
 impl<const N: usize, T> KeyLookup for [T; N] {
-    fn len() -> usize {
-        N
-    }
+    const LEN: usize = N;
+    const NAMES: &'static [&'static str] = &[];
 
     fn name_to_index(value: &str) -> Option<usize> {
         value.parse().ok()

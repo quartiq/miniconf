@@ -11,21 +11,27 @@ use crate::Traversal;
 ///     foo: u32,
 ///     bar: [u16; 2],
 /// }
-/// assert_eq!(S::len(), 2);
-/// assert_eq!(S::name_to_index("bar"), Some(1));
+/// assert_eq!(S::LEN, 2);
+/// assert_eq!(S::NAMES[1], "bar");
+/// assert_eq!(S::name_to_index("bar").unwrap(), 1);
 /// ```
 pub trait KeyLookup {
     /// The number of top-level nodes.
     ///
     /// This is used by `impl Keys for Packed`.
-    fn len() -> usize;
+    const LEN: usize;
+
+    /// Field names.
+    ///
+    /// May be empty if `Self` computes and parses names.
+    const NAMES: &'static [&'static str];
 
     /// Convert a top level node name to a node index.
     ///
     /// The details of the mapping and the `usize` index values
     /// are an implementation detail and only need to be stable at runtime.
     /// This is used by `impl Key for &str`.
-    fn name_to_index(name: &str) -> Option<usize>;
+    fn name_to_index(value: &str) -> Option<usize>;
 }
 
 /// Capability to convert a key into a node index for a given `M: TreeKey`
