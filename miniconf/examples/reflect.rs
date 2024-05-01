@@ -67,10 +67,9 @@ impl<'a> Registry<'a> {
         &self,
         any: Box<dyn Any>,
     ) -> Result<Box<T>, Box<dyn Any>> {
-        if let Some(c) = self.caster(&*any) {
-            (c.box_)(any)
-        } else {
-            Err(any)
+        match self.caster(&*any) {
+            Some(c) => (c.box_)(any),
+            None => Err(any),
         }
     }
 
@@ -78,10 +77,9 @@ impl<'a> Registry<'a> {
         &self,
         any: Box<dyn Any + Send>,
     ) -> Result<Box<T>, Box<dyn Any + Send>> {
-        if let Some(c) = self.caster(&*any) {
-            (c.box_send)(any)
-        } else {
-            Err(any)
+        match self.caster(&*any) {
+            Some(c) => (c.box_send)(any),
+            None => Err(any),
         }
     }
 
@@ -89,18 +87,16 @@ impl<'a> Registry<'a> {
         &self,
         any: Box<dyn Any + Send + Sync>,
     ) -> Result<Box<T>, Box<dyn Any + Send + Sync>> {
-        if let Some(c) = self.caster(&*any) {
-            (c.box_sync)(any)
-        } else {
-            Err(any)
+        match self.caster(&*any) {
+            Some(c) => (c.box_sync)(any),
+            None => Err(any),
         }
     }
 
     pub fn cast_rc<'b, T: ?Sized + 'static>(&self, any: Rc<dyn Any>) -> Result<Rc<T>, Rc<dyn Any>> {
-        if let Some(c) = self.caster(&*any) {
-            (c.rc)(any)
-        } else {
-            Err(any)
+        match self.caster(&*any) {
+            Some(c) => (c.rc)(any),
+            None => Err(any),
         }
     }
 
@@ -108,10 +104,9 @@ impl<'a> Registry<'a> {
         &self,
         any: Arc<dyn Any + Sync + Send>,
     ) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>> {
-        if let Some(c) = self.caster(&*any) {
-            (c.arc)(any)
-        } else {
-            Err(any)
+        match self.caster(&*any) {
+            Some(c) => (c.arc)(any),
+            None => Err(any),
         }
     }
 }
