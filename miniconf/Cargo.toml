@@ -24,7 +24,50 @@ default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive"]
-std = ["postcard?/use-std"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[dev-dependencies]
+postcard = { version = "1.0.8", features = ["use-std"] }
+serde = { version = "1.0.120", features = ["derive"] }
+
+[[test]]
+name = "arrays"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "basic"
+required-features = ["derive"]
+
+[[test]]
+name = "generics"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "index"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "iter"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "option"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "packed"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "skipped"
+required-features = ["derive"]
+
+[[test]]
+name = "structs"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "validate"
+required-features = ["json-core", "derive"]

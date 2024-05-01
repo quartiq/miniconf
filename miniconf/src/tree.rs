@@ -358,7 +358,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// is not returned.
     ///
     /// ```
-    /// # #[cfg(feature = "std")] {
     /// # use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
@@ -369,7 +368,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let mut s = String::new();
     /// S::path([1, 1], &mut s, "/").unwrap();
     /// assert_eq!(s, "/bar/1");
-    /// # }
     /// ```
     ///
     /// # Args
@@ -401,7 +399,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::path()`].
     ///
     /// ```
-    /// # #[cfg(feature = "std")] {
     /// # use miniconf::{TreeKey, JsonPath};
     /// #[derive(TreeKey)]
     /// struct S {
@@ -416,7 +413,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// let (indices, depth) = S::indices(JsonPath::from(&s)).unwrap();
     /// assert_eq!(&indices[..depth], idx);
-    /// # }
     /// ```
     fn json_path<K, P>(keys: K, mut path: P) -> Result<usize, Error<core::fmt::Error>>
     where
@@ -511,7 +507,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// this through [`PathIter::count()`].
     ///
     /// ```
-    /// # #[cfg(feature = "std")] {
     /// # use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
@@ -521,7 +516,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// };
     /// let paths: Vec<String> = S::iter_paths("/").count().map(|p| p.unwrap()).collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
-    /// # }
     /// ```
     ///
     /// # Generics

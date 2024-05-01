@@ -1,5 +1,3 @@
-#![cfg(all(feature = "derive"))]
-
 use miniconf::{Traversal, Tree, TreeKey};
 
 #[derive(Tree, Default)]

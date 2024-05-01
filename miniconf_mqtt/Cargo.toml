@@ -17,12 +17,12 @@ std = []
 [lib]
 
 [dependencies]
-miniconf = { version = "0.11", features = ["json-core"], path = "../miniconf" }
+miniconf = { version = "0.11", features = ["json-core"], default-features = false, path = "../miniconf" }
 minimq = "0.9.0"
 smlang = "0.6"
 embedded-io = "0.6"
 log = "0.4"
-heapless = { version = "0.8", features = ["serde"] }
+heapless = "0.8"
 serde-json-core = "0.5.1"
 
 [[example]]
@@ -34,4 +34,6 @@ env_logger = "0.10"
 std-embedded-nal = { git = "https://gitlab.com/ryan-summers/std-embedded-nal", branch = "feature/0.8" }
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
-serde = { version = "1.0.120", features = ["derive"], default-features = false }
+miniconf = { features = ["json-core", "derive"], path = "../miniconf" }
+serde = { version = "1" }
+heapless = { version = "0.8", features = ["serde"] }

@@ -7,8 +7,6 @@ use serde::{Deserialize, Serialize};
 /// names enclosed by `'` as well as mixtures:
 ///
 /// ```
-/// # #[cfg(feature = "std")]
-/// # {
 /// # use miniconf::JsonPath;
 /// let path = ["foo", "bar", "4", "baz", "5", "6"];
 /// for valid in [
@@ -22,7 +20,6 @@ use serde::{Deserialize, Serialize};
 /// for short in ["'", "[", "['"] {
 ///     assert!(JsonPath::from(short).next().is_none());
 /// }
-/// # }
 /// ```
 ///
 /// # Limitations

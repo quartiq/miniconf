@@ -1,5 +1,3 @@
-#![cfg(all(feature = "json-core", feature = "derive"))]
-
 use miniconf::{Deserialize, JsonCoreSlash, Serialize, Traversal, Tree, TreeKey};
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]

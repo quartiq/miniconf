@@ -1,5 +1,3 @@
-#![cfg(all(feature = "json-core", feature = "derive"))]
-
 use miniconf::{JsonCoreSlash, PathIter, Tree, TreeKey};
 
 #[derive(Tree, Default, PartialEq, Debug)]

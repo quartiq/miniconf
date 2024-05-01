@@ -4,8 +4,6 @@ use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 /// `TreeSerialize`/`TreeDeserialize` with `postcard`.
 ///
 /// ```
-/// # #[cfg(feature = "std")]
-/// # {
 /// use miniconf::{Tree, TreeKey, Postcard, Packed};
 /// use postcard::{ser_flavors::AllocVec, de_flavors::Slice};
 ///
@@ -30,7 +28,6 @@ use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 ///     target.set_postcard_by_key(p, Slice::new(&v[..])).unwrap();
 /// }
 /// assert_eq!(source, target);
-/// # }
 /// ```
 pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<'de, Y> {
     /// Deserialize and set a node value from a `postcard` flavor.

@@ -15,7 +15,10 @@ resolver = "2"
 proc-macro = true
 
 [dependencies]
-syn = { version = "2.0" } #, features = ["extra-traits"] }
+syn = "2.0"
 quote = "1.0"
 proc-macro2 = "1.0"
 darling = "0.20"
+
+[dev-dependencies]
+syn = { version = "2.0", features = ["extra-traits"] }

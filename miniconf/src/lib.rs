@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
+#![cfg_attr(not(any(test, doctest)), no_std)]
 #![cfg_attr(feature = "json-core", doc = include_str!("../README.md"))]
 #![cfg_attr(not(feature = "json-core"), doc = "miniconf")]
 #![deny(rust_2018_compatibility)]
