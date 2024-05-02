@@ -25,7 +25,7 @@ use core::{fmt::{Debug, Formatter, Write}, ops::{AddAssign, SubAssign}};
 
 // Add types and trait implementations in the default global registy
 // Implementation status is verified at compile time
-register!{ i32 => dyn Debug }
+register! { i32 => dyn Debug }
 
 // Registering foreign types and traits works fine
 // Serialization/deserialization of `dyn Any` is a major use case
@@ -75,10 +75,10 @@ let a: Option<&(dyn Debug + Sync)> = any.cast();
 assert!(a.is_none());
 
 // Registration can happen anywhere in any order in any downstream crate
-register!{ i32 => dyn AddAssign<i32> }
+register! { i32 => dyn AddAssign<i32> }
 
 // If a type is not Send + Sync, it can't cast as Arc. `no_arc` accounts for that
-register!{ Formatter => dyn Write, no_arc }
+register! { Formatter => dyn Write, no_arc }
 ```
 
 ## Related crates

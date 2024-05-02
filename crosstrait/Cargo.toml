@@ -19,5 +19,6 @@ once_cell = { version = "1.19", default-features = false, features = ["critical-
 
 [features]
 std = ["alloc", "once_cell/std"]
+used_linker = ["linkme/used_linker"]
 alloc = []
 default = ["std"]

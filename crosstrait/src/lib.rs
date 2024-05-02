@@ -1,4 +1,5 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
+#![cfg_attr(feature = "used_linker", feature(used_with_arg))]
 #![cfg_attr(feature = "std", doc = include_str!("../README.md"))]
 
 use core::any::{Any, TypeId};
@@ -48,13 +49,13 @@ pub type Entry = (fn() -> [TypeId; 2], &'static (dyn Any + Send + Sync));
 /// Static slice of key maker fns and Caster trait objects
 #[doc(hidden)]
 #[linkme::distributed_slice]
-pub static __REGISTRY: [Entry];
+pub static REGISTRY_KV: [Entry];
 
 /// Register a type and target trait in the registry
 #[macro_export]
 macro_rules! register {
     ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
-        $crate::register! { $crate::__REGISTRY: $ty => $tr $(, $flag)? }
+        $crate::register! { $crate::REGISTRY_KV: $ty => $tr $(, $flag)? }
     };
     ( $reg:path: $ty:ty => $tr:ty $(, $flag:ident)? ) => {
         $crate::gensym! { $crate::register!{ $reg: $ty => $tr $(, $flag)? } }
@@ -120,7 +121,7 @@ macro_rules! caster {
 #[cfg(not(feature = "std"))]
 #[derive(Default, Debug, Clone)]
 pub struct Registry<'a>(
-    // TODO: fixed size map
+    // TODO: fixed size map, ~6kB RAM
     // Note that each key is size_of([TypeId; 2]) = 32 bytes.
     // Maybe risk type collisions and reduce key size.
     heapless::FnvIndexMap<[TypeId; 2], &'a (dyn Any + Send + Sync), { 1 << 7 }>,
@@ -191,7 +192,7 @@ impl<'a> Registry<'a> {
 /// The global type-trait registry
 pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
     Registry(
-        __REGISTRY
+        REGISTRY_KV
             .iter()
             .map(|(key, value)| (key(), *value))
             .collect(),
