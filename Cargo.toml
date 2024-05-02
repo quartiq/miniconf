@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    # "crosstrait",
+    "crosstrait",
     "miniconf_derive",
     "miniconf",
     "miniconf_mqtt",
