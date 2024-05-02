@@ -31,8 +31,6 @@ all-features = true
 [dev-dependencies]
 postcard = { version = "1.0.8", features = ["use-std"] }
 serde = { version = "1.0.120", features = ["derive"] }
-crosstrait = { version = "0.1", path = "../crosstrait", default-features = false }
-erased-serde = "0.4.4"
 
 [[test]]
 name = "arrays"
@@ -73,7 +71,3 @@ required-features = ["json-core", "derive"]
 [[test]]
 name = "validate"
 required-features = ["json-core", "derive"]
-
-[[example]]
-name = "reflect"
-required-features = ["derive"]
