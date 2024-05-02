@@ -13,7 +13,7 @@ rust-version = "1.70.0" # keep in sync with CI and with other crates and with gi
 resolver = "2"
 
 [dependencies]
-serde = { version = "1.0.120", default-features = false }
+serde = { version = "1.0.120", default-features = false, features = ["derive"] }
 miniconf_derive = { path = "../miniconf_derive", version = "0.11", optional = true }
 itoa = "1.0.4"
 serde-json-core = { version = "0.5.1", optional = true }
@@ -30,7 +30,6 @@ all-features = true
 
 [dev-dependencies]
 postcard = { version = "1.0.8", features = ["use-std"] }
-serde = { version = "1.0.120", features = ["derive"] }
 
 [[test]]
 name = "arrays"
