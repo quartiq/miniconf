@@ -168,7 +168,7 @@ jobs:
       - run: cargo run --release --features used_linker
         env:
           RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
-          working-directory: crosstrait/tests/embedded
+        working-directory: crosstrait/tests/embedded
 
   examples:
     runs-on: ubuntu-latest
