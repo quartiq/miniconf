@@ -8,17 +8,16 @@ pub struct Caster<T: ?Sized> {
 }
 
 macro_rules! casters {
-    ( $ty:ty => $trait:path ) => {(
-        TypeId::of::<$ty>(),
-        &Caster::<dyn $trait> {
-            ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
-            mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
-        },
-    )};
-    ( $( $ty:ty ),+ => $trait:path ) => {(
-        TypeId::of::<dyn $trait>(),
-        &[ $( casters!($ty => $trait) ),+ ],
-    )};
+    ( $( $ty:ty ),+ => $tr:ty ) => { (
+        TypeId::of::<$tr>(),
+        &[ $( (
+            TypeId::of::<$ty>(),
+            &Caster::<$tr> {
+                ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
+                mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
+            },
+        ) ),+ ],
+    ) };
 }
 
 pub struct Registry<'a> {
@@ -66,10 +65,12 @@ struct Settings {
 
 fn main() {
     use core::fmt::{Debug, Formatter, Write};
+    use core::ops::AddAssign;
     let registry = Registry {
         casters: &[
-            casters!(u8, i32, String, &[u8], &str => Debug),
-            casters!(String, Formatter => Write),
+            casters!(u8, i32, String, &[u8], &str => dyn Debug),
+            casters!(String, Formatter => dyn Write),
+            casters!(i32 => dyn AddAssign<i32> + Sync),
             // casters!(erased_serde::Serialize => u8, i32, String, Vec<u8>),
         ],
     };
@@ -81,4 +82,10 @@ fn main() {
     let a_any = s.ref_any_by_key(key).unwrap();
     let a: &dyn Debug = registry.cast_ref(a_any).unwrap();
     println!("{a:?}");
+
+    let key: JsonPath = ".v".into();
+    let v_any = s.mut_any_by_key(key).unwrap();
+    let v: &mut (dyn AddAssign<i32> + Sync) = registry.cast_mut(v_any).unwrap();
+    *v += 3;
+    assert_eq!(s.v, 3);
 }
