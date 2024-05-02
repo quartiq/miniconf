@@ -1,5 +1,7 @@
 use core::any::{Any, TypeId};
+use heapless::FnvIndexMap;
 use miniconf::{JsonPath, TreeAny, TreeKey};
+use once_cell::sync::Lazy;
 
 #[non_exhaustive]
 pub struct Caster<T: ?Sized> {
@@ -7,35 +9,42 @@ pub struct Caster<T: ?Sized> {
     pub mut_: fn(from: &mut dyn Any) -> Option<&mut T>,
 }
 
-macro_rules! casters {
-    ( $( $ty:ty ),+ => $tr:ty ) => { (
-        TypeId::of::<$tr>(),
-        &[ $( (
-            TypeId::of::<$ty>(),
-            &Caster::<$tr> {
-                ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
-                mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
-            },
-        ) ),+ ],
-    ) };
+type Entry = ([TypeId; 2], &'static (dyn Any + Send + Sync));
+
+#[::linkme::distributed_slice]
+static __REGISTRY: [fn() -> Entry];
+
+macro_rules! register {
+    ( $ty:ty, $tr:ty ) => {
+        register! { __REGISTRY, $ty, $tr }
+    };
+    ( $reg:ident, $ty:ty, $tr:ty ) => {
+        ::gensym::gensym! { register!{ $reg, $ty, $tr } }
+    };
+    ( $name:ident, $reg:ident, $ty:ty, $tr:ty ) => {
+        #[::linkme::distributed_slice($reg)]
+        fn $name() -> Entry {
+            (
+                [
+                    ::core::any::TypeId::of::<$tr>(),
+                    ::core::any::TypeId::of::<$ty>(),
+                ],
+                &Caster::<$tr> {
+                    ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
+                    mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
+                },
+            )
+        }
+    };
 }
 
-pub struct Registry<'a> {
-    // use a suitable hashmap (maybe phf+linkme when TypeId::of() is const),
-    // boxes, vecs, lazy caster creation, and a static where possible
-    casters: &'a [(TypeId, &'a [(TypeId, &'a dyn Any)])],
-}
+pub struct Registry<const N: usize>(FnvIndexMap<[TypeId; 2], &'static (dyn Any + Send + Sync), N>);
 
-impl<'a> Registry<'a> {
+impl<const N: usize> Registry<N> {
     pub fn caster<T: ?Sized + 'static>(&self, any: &dyn Any) -> Option<&Caster<T>> {
-        let target = TypeId::of::<T>();
-        let (_, types) = self
-            .casters
-            .iter()
-            .find(|(trait_id, _)| trait_id == &target)?;
-        let source = any.type_id();
-        let (_, caster) = types.iter().find(|(type_id, _)| type_id == &source)?;
-        caster.downcast_ref()
+        self.0
+            .get(&[TypeId::of::<T>(), any.type_id()])?
+            .downcast_ref()
     }
 
     pub fn implements<T: ?Sized + 'static>(&self, any: &dyn Any) -> bool {
@@ -51,6 +60,32 @@ impl<'a> Registry<'a> {
     }
 }
 
+static REGISTRY: Lazy<Registry<128>> =
+    Lazy::new(|| Registry(__REGISTRY.iter().map(|maker| maker()).collect()));
+
+trait Cast<T> {
+    fn cast(self) -> Option<T>;
+}
+
+impl<'a, T: ?Sized + 'static> Cast<&'a T> for &'a dyn Any {
+    fn cast(self) -> Option<&'a T> {
+        REGISTRY.cast_ref(self)
+    }
+}
+
+impl<'a, T: ?Sized + 'static> Cast<&'a mut T> for &'a mut dyn Any {
+    fn cast(self) -> Option<&'a mut T> {
+        REGISTRY.cast_mut(self)
+    }
+}
+
+use core::fmt::Debug;
+use core::ops::AddAssign;
+
+register! { u8, dyn Debug }
+register! { i32, dyn AddAssign<i32> + Sync }
+register! { i32, dyn erased_serde::Serialize }
+
 #[derive(TreeKey, TreeAny, Default)]
 struct Inner {
     a: u8,
@@ -64,28 +99,15 @@ struct Settings {
 }
 
 fn main() {
-    use core::fmt::{Debug, Formatter, Write};
-    use core::ops::AddAssign;
-    let registry = Registry {
-        casters: &[
-            casters!(u8, i32, String, &[u8], &str => dyn Debug),
-            casters!(String, Formatter => dyn Write),
-            casters!(i32 => dyn AddAssign<i32> + Sync),
-            // casters!(erased_serde::Serialize => u8, i32, String, Vec<u8>),
-        ],
-    };
-
     let mut s = Settings::default();
     s.i[1].a = 9;
 
     let key: JsonPath = ".i[1].a".into();
-    let a_any = s.ref_any_by_key(key).unwrap();
-    let a: &dyn Debug = registry.cast_ref(a_any).unwrap();
+    let a: &dyn Debug = s.ref_any_by_key(key).unwrap().cast().unwrap();
     println!("{a:?}");
 
     let key: JsonPath = ".v".into();
-    let v_any = s.mut_any_by_key(key).unwrap();
-    let v: &mut (dyn AddAssign<i32> + Sync) = registry.cast_mut(v_any).unwrap();
+    let v: &mut (dyn AddAssign<i32> + Sync) = s.mut_any_by_key(key).unwrap().cast().unwrap();
     *v += 3;
     assert_eq!(s.v, 3);
 }
