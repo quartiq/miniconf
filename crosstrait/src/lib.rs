@@ -24,6 +24,7 @@ pub use linkme;
 /// The intermediate concrete type must be consistent.
 #[doc(hidden)]
 #[allow(clippy::type_complexity)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Caster<T: ?Sized> {
     pub ref_: fn(&dyn Any) -> Option<&T>,
     pub mut_: fn(&mut dyn Any) -> Option<&mut T>,
@@ -35,20 +36,21 @@ pub struct Caster<T: ?Sized> {
     pub arc: fn(Arc<dyn Any + Sync + Send>) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>>,
 }
 
-/// Key-value pair of the type registry
+/// Key-value pair of the compiled type registry
+/// `TypeId::of()` is not const (https://github.com/rust-lang/rust/issues/77125)
+/// Hence we store a maker fn and call lazily.
+/// Once it is const, remove the `fn() ->` and `||` and investigate phf.
 /// The caster is a static ref to a trait object since its type
 /// varies with the target trait.
 #[doc(hidden)]
-pub type Entry = ([TypeId; 2], &'static (dyn Any + Send + Sync));
+pub type Entry = (fn() -> [TypeId; 2], &'static (dyn Any + Send + Sync));
 
-/// Static slice of key and caster maker functions.
-/// `TypeId::of()` is not const
-/// But luckily we can make the Caster 'static.
+/// Static slice of key maker fns and Caster trait objects
 #[doc(hidden)]
 #[linkme::distributed_slice]
-pub static __REGISTRY: [fn() -> Entry];
+pub static __REGISTRY: [Entry];
 
-/// Register a type and target trait in the registry.
+/// Register a type and target trait in the registry
 #[macro_export]
 macro_rules! register {
     ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
@@ -60,21 +62,29 @@ macro_rules! register {
     ( $name:ident, $reg:path: $ty:ty => $tr:ty $(, $flag:ident)? ) => {
         #[$crate::linkme::distributed_slice($reg)]
         #[linkme(crate=$crate::linkme)]
-        fn $name() -> $crate::Entry {
-            (
-                [
-                    ::core::any::TypeId::of::<$tr>(),
-                    ::core::any::TypeId::of::<$ty>(),
-                ],
-                &$crate::caster!($ty => $tr $(, $flag)? ),
-            )
-        }
+        static $name: $crate::Entry = (
+            || [::core::any::TypeId::of::<$tr>(), ::core::any::TypeId::of::<$ty>()],
+            &$crate::caster!( $ty => $tr $(, $flag)? ),
+        );
     };
 }
 
 /// Build a `Caster` for a given concrete type and target trait
+#[cfg(all(not(feature = "alloc"), not(feature = "std")))]
+#[macro_export]
+#[doc(hidden)]
+macro_rules! caster {
+    ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
+        $crate::Caster::<$tr> {
+            ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
+            mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
+        }
+    };
+}
+/// Build a `Caster` for a given concrete type and target trait
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 #[macro_export]
+#[doc(hidden)]
 macro_rules! caster {
     ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
         $crate::Caster::<$tr> {
@@ -85,19 +95,9 @@ macro_rules! caster {
     };
 }
 /// Build a `Caster` for a given concrete type and target trait
-#[cfg(all(not(feature = "alloc"), not(feature = "std")))]
-#[macro_export]
-macro_rules! caster {
-    ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
-        $crate::Caster::<$tr> {
-            ref_: |any| any.downcast_ref::<$ty>().map(|t| t as _),
-            mut_: |any| any.downcast_mut::<$ty>().map(|t| t as _),
-        }
-    };
-}
-/// Build a `Caster` for a given concrete type and target trait
 #[cfg(feature = "std")]
 #[macro_export]
+#[doc(hidden)]
 macro_rules! caster {
     ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
         $crate::Caster::<$tr> {
@@ -111,51 +111,53 @@ macro_rules! caster {
     ( $ty:ty ) => {
         |any| any.downcast::<$ty>().map(|t| t as _)
     };
-    ( $ty:ty, $flag:ident ) => {
+    ( $ty:ty, no_arc ) => {
         |any| Err(any)
     };
 }
 
-// TODO: fixed size map
-// Note that each key is size_of([TypeId; 2]) = 32 bytes.
-// Maybe risk type collisions and reduce key size.
+/// The type-trait registry
 #[cfg(not(feature = "std"))]
-type RegistryMap = heapless::FnvIndexMap<[TypeId; 2], &'static (dyn Any + Send + Sync), { 1 << 7 }>;
-
-#[cfg(feature = "std")]
-type RegistryMap = std::collections::HashMap<[TypeId; 2], &'static (dyn Any + Send + Sync)>;
-
-/// The type-trait registry.
 #[derive(Default, Debug, Clone)]
-pub struct Registry(pub RegistryMap);
+pub struct Registry<'a>(
+    // TODO: fixed size map
+    // Note that each key is size_of([TypeId; 2]) = 32 bytes.
+    // Maybe risk type collisions and reduce key size.
+    heapless::FnvIndexMap<[TypeId; 2], &'a (dyn Any + Send + Sync), { 1 << 7 }>,
+);
 
-impl Registry {
-    /// Obtain a `Caster` given the TypeId for the concrete type and a target trait `T`.
+/// The type-trait registry
+#[cfg(feature = "std")]
+#[derive(Default, Debug, Clone)]
+pub struct Registry<'a>(std::collections::HashMap<[TypeId; 2], &'a (dyn Any + Send + Sync)>);
+
+impl<'a> Registry<'a> {
+    /// Obtain a `Caster` given the TypeId for the concrete type and a target trait `T`
     fn caster<T: ?Sized + 'static>(&self, any: TypeId) -> Option<&Caster<T>> {
         self.0.get(&[TypeId::of::<T>(), any])?.downcast_ref()
     }
 
-    /// Whether the `Any` can be cast to the target trait.
+    /// Whether the `Any` can be cast to the target trait
     pub fn castable_ref<T: ?Sized + 'static>(&self, any: &dyn Any) -> bool {
         self.0.contains_key(&[TypeId::of::<T>(), any.type_id()])
     }
 
-    /// Whether the concrete type can be case to the target trait.
+    /// Whether the concrete type can be case to the target trait
     pub fn castable<T: ?Sized + 'static, U: ?Sized + 'static>(&self) -> bool {
         self.0.contains_key(&[TypeId::of::<T>(), TypeId::of::<U>()])
     }
 
-    /// Cast to an immuatbly borrowed trait object.
+    /// Cast to an immuatbly borrowed trait object
     pub fn cast_ref<'b, T: ?Sized + 'static>(&self, any: &'b dyn Any) -> Option<&'b T> {
         (self.caster(any.type_id())?.ref_)(any)
     }
 
-    /// Cast to a mutably borrowed trait object.
+    /// Cast to a mutably borrowed trait object
     pub fn cast_mut<'b, T: ?Sized + 'static>(&self, any: &'b mut dyn Any) -> Option<&'b mut T> {
         (self.caster((*any).type_id())?.mut_)(any)
     }
 
-    /// Cast to a boxed trait object.
+    /// Cast to a boxed trait object
     #[cfg(feature = "alloc")]
     pub fn cast_box<T: ?Sized + 'static>(&self, any: Box<dyn Any>) -> Result<Box<T>, Box<dyn Any>> {
         match self.caster((*any).type_id()) {
@@ -164,7 +166,7 @@ impl Registry {
         }
     }
 
-    /// Cast to a ref counted trait object.
+    /// Cast to a ref counted trait object
     #[cfg(feature = "std")]
     pub fn cast_rc<T: ?Sized + 'static>(&self, any: Rc<dyn Any>) -> Result<Rc<T>, Rc<dyn Any>> {
         match self.caster((*any).type_id()) {
@@ -173,7 +175,7 @@ impl Registry {
         }
     }
 
-    /// Cast to an atomically ref counted trait object.
+    /// Cast to an atomically ref counted trait object
     #[cfg(feature = "std")]
     pub fn cast_arc<T: ?Sized + 'static>(
         &self,
@@ -186,13 +188,19 @@ impl Registry {
     }
 }
 
-/// The global type registry
-pub static REGISTRY: Lazy<Registry> =
-    Lazy::new(|| Registry(__REGISTRY.iter().map(|maker| maker()).collect()));
+/// The global type-trait registry
+pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
+    Registry(
+        __REGISTRY
+            .iter()
+            .map(|(key, value)| (key(), *value))
+            .collect(),
+    )
+});
 
-/// Capability to determine whether we can be cast to a given trait object.
+/// Whether a `dyn Any` can be cast to a given trait object
 pub trait CastableRef {
-    /// Whether we can be cast to a given trait object.
+    /// Whether we can be cast to a given trait object
     fn castable<T: ?Sized + 'static>(self) -> bool;
 }
 
@@ -202,9 +210,9 @@ impl CastableRef for &dyn Any {
     }
 }
 
-/// Whether `Any` trait objects of this concrete type can be cast to a given trait object.
+/// Whether this concrete type can be cast to a given trait object
 pub trait Castable {
-    /// This type is castable to the given trait object.
+    /// Whether this type is castable to the given trait object
     fn castable<T: ?Sized + 'static>() -> bool;
 }
 
@@ -214,8 +222,11 @@ impl<U: ?Sized + 'static> Castable for U {
     }
 }
 
-/// Cast an `Any` trait object to another trait object.
+/// Cast an `dyn Any` to another given trait object
+///
+/// Uses the global type-trait registry.
 pub trait Cast<T> {
+    /// Cast a `dyn Any` (reference or smart pointer) to a given trait object
     fn cast(self) -> Option<T>;
 }
 
@@ -231,7 +242,7 @@ impl<'a, T: ?Sized + 'static> Cast<&'a mut T> for &'a mut dyn Any {
     }
 }
 
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 impl<T: ?Sized + 'static> Cast<Box<T>> for Box<dyn Any> {
     fn cast(self) -> Option<Box<T>> {
         REGISTRY.cast_box(self).ok()

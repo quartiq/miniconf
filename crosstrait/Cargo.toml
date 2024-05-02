@@ -8,12 +8,12 @@ description = "Cast from `dyn Any` to other trait objects, with no_std, no alloc
 repository = "https://github.com/quartiq/miniconf"
 documentation = "https://docs.rs/crosstrait"
 readme = "README.md"
-categories = ["rust-patterns", "no-std", "no-std::no-alloc"]
+categories = ["rust-patterns", "embedded", "no-std", "no-std::no-alloc"]
 keywords = ["linkage", "trait", "cast", "any"]
 
 [dependencies]
 linkme = "0.3"
-heapless = "0.8"
+heapless = "0.8" # not(feature = "std")
 gensym = "0.1"
 once_cell = { version = "1.19", default-features = false, features = ["critical-section"] }
 
