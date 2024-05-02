@@ -18,7 +18,7 @@ which is a comprehensive and mature reflection crate:
 `bevy_reflect` uses its `Reflect` trait to operate on and pass nodes as trait objects.
 `miniconf` uses serialized data or `Any` to access leaf nodes and pure "code" to traverse through internal nodes.
 The `Tree*` traits like `Reflect` thus give access to nodes but unlike `Reflect` they are all decidedly not object-safe
-and can not used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
+and can not be used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
 (only for `TreeAny` the leaf nodes need to be `'static`)
 while `bevy_reflect` requires `'static` for `Reflect` types.
 
