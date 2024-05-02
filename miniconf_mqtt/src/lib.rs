@@ -1,9 +1,9 @@
-#![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
+#![cfg_attr(not(any(test, doctest)), no_std)]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
-//! The Minimq MQTT client for Miniconf.
+//! The Minimq MQTT client for `miniconf``.
 
 use heapless::{String, Vec};
 use miniconf::{Error, JsonCoreSlash, PathIter, Traversal, TreeKey};
@@ -21,14 +21,14 @@ use embedded_io::Write;
 const MAX_TOPIC_LENGTH: usize = 128;
 
 // The maximum amount of correlation data that will be cached for listing. This is set to function
-// with the Miniconf python client (i.e. 32 bytes can encode a UUID).
+// with the miniconf-mqtt python client (i.e. 32 bytes can encode a UUID).
 const MAX_CD_LENGTH: usize = 32;
 
 // The delay after not receiving messages after initial connection that settings will be
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M, const Y: usize> = PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>>;
+type Iter<M, const Y: usize> = PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>, Y>;
 
 mod sm {
     use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
@@ -411,7 +411,7 @@ where
             };
 
             let Ok(command) = Command::from_message(path, message) else {
-                log::info!("Unknown Miniconf command: {path}");
+                log::info!("Unknown miniconf command: {path}");
                 return;
             };
 

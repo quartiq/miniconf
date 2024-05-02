@@ -1,11 +1,9 @@
 use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 
-/// Miniconf with `postcard`.
+/// `TreeSerialize`/`TreeDeserialize` with `postcard`.
 ///
 /// ```
-/// # #[cfg(feature = "std")]
-/// # {
 /// use miniconf::{Tree, TreeKey, Postcard, Packed};
 /// use postcard::{ser_flavors::AllocVec, de_flavors::Slice};
 ///
@@ -30,26 +28,9 @@ use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 ///     target.set_postcard_by_key(p, Slice::new(&v[..])).unwrap();
 /// }
 /// assert_eq!(source, target);
-/// # }
 /// ```
 pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<'de, Y> {
     /// Deserialize and set a node value from a `postcard` flavor.
-    ///
-    /// ```
-    /// # use miniconf::{Tree, TreeKey, Postcard, Packed};
-    /// use postcard::de_flavors::Slice;
-    /// #[derive(Tree, Default)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 3],
-    /// };
-    /// let mut s = S::default();
-    /// let p = Packed::from_lsb(0b1_1_10.try_into().unwrap());
-    /// let r = s.set_postcard_by_key(p, Slice::new(&[7u8])).unwrap();
-    /// assert_eq!(s.bar[2], 7);
-    /// assert!(r.is_empty());
-    /// ```
     fn set_postcard_by_key<K: IntoKeys, F: de_flavors::Flavor<'de>>(
         &mut self,
         keys: K,
@@ -57,23 +38,6 @@ pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<
     ) -> Result<F::Remainder, Error<postcard::Error>>;
 
     /// Get and serialize a node value into a `postcard` flavor.
-    ///
-    /// ```
-    /// # use miniconf::{Tree, TreeKey, Postcard, Packed};
-    /// use postcard::ser_flavors::Slice;
-    /// #[derive(Tree, Default)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 3],
-    /// };
-    /// let mut s = S::default();
-    /// s.bar[2] = 7;
-    /// let p = Packed::from_lsb(0b1_1_10.try_into().unwrap());
-    /// let mut buf = [0u8; 1];
-    /// let o = s.get_postcard_by_key(p, Slice::new(&mut buf[..])).unwrap();
-    /// assert_eq!(o, [7]);
-    /// ```
     fn get_postcard_by_key<K: IntoKeys, F: ser_flavors::Flavor>(
         &self,
         keys: K,

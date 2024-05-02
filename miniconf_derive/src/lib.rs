@@ -28,7 +28,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     let (names, name_to_index, index_to_name, index_len) =
         if fields.iter().all(|f| f.ident.is_none()) {
             (
-                None,
+                quote!(&[]),
                 quote!(str::parse(value).ok()),
                 quote!(if index >= #fields_len {
                     Err(::miniconf::Traversal::NotFound(1))?
@@ -43,14 +43,16 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 quote! { stringify!(#name) }
             });
             (
-                Some(quote!(const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];)),
-                quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
+                quote!(&[#(#names ,)*]),
+                quote!(<Self as ::miniconf::KeyLookup>::NAMES
+                    .iter()
+                    .position(|&n| n == value)),
                 quote!(Some(
-                    *Self::__MINICONF_NAMES
+                    *<Self as ::miniconf::KeyLookup>::NAMES
                         .get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?
                 )),
-                quote!(Self::__MINICONF_NAMES[index].len()),
+                quote!(<Self as ::miniconf::KeyLookup>::NAMES[index].len()),
             )
         };
 
@@ -71,8 +73,6 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     quote! {
         impl #impl_generics #ident #ty_generics #where_clause {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
-            #names
-
             fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
                 const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
                 let index = ::miniconf::Keys::next::<Self>(keys)?;
@@ -87,10 +87,8 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
         }
 
         impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-            #[inline]
-            fn len() -> usize {
-                #fields_len
-            }
+            const LEN: usize = #fields_len;
+            const NAMES: &'static [&'static str] = #names;
 
             #[inline]
             fn name_to_index(value: &str) -> Option<usize> {
@@ -268,16 +266,16 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
         }
     });
 
-    let get_by_key_arms = tree
+    let ref_any_by_key_arms = tree
         .fields()
         .iter()
         .enumerate()
-        .map(|(i, field)| field.get_by_key(i));
-    let get_mut_by_key_arms = tree
+        .map(|(i, field)| field.ref_any_by_key(i));
+    let mut_any_by_key_arms = tree
         .fields()
         .iter()
         .enumerate()
-        .map(|(i, field)| field.get_mut_by_key(i));
+        .map(|(i, field)| field.mut_any_by_key(i));
     let depth = tree.depth();
     let ident = &tree.ident;
 
@@ -285,7 +283,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
 
     quote! {
         impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
-            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+            fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
             where
                 K: ::miniconf::Keys,
             {
@@ -294,14 +292,14 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 #[allow(unreachable_code)]
                 {
                     let ret: Result<_, _> = match index {
-                        #(#get_by_key_arms ,)*
+                        #(#ref_any_by_key_arms ,)*
                         _ => unreachable!()
                     };
                     ret.map_err(::miniconf::Traversal::increment)
                 }
             }
 
-            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+            fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
             where
                 K: ::miniconf::Keys,
             {
@@ -310,7 +308,7 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
                 #[allow(unreachable_code)]
                 {
                     let ret: Result<_, _> = match index {
-                        #(#get_mut_by_key_arms ,)*
+                        #(#mut_any_by_key_arms ,)*
                         _ => unreachable!()
                     };
                     ret.map_err(::miniconf::Traversal::increment)

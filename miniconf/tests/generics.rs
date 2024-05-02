@@ -1,5 +1,3 @@
-#![cfg(all(feature = "json-core", feature = "derive"))]
-
 use core::any::Any;
 
 use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};

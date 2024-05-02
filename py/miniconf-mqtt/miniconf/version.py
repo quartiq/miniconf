@@ -2,4 +2,4 @@
 """ Miniconf version file. """
 
 # The semantic version of Miniconf.
-__version__ = '0.10.0'
+__version__ = '0.11.0'

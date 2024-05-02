@@ -3,38 +3,35 @@ use crate::Traversal;
 /// The capability to look up top level field names and convert to indices
 ///
 /// This trait is derived together with [`crate::TreeKey`].
+///
+/// ```
+/// use miniconf::{KeyLookup, TreeKey};
+/// #[derive(TreeKey)]
+/// struct S {
+///     foo: u32,
+///     bar: [u16; 2],
+/// }
+/// assert_eq!(S::LEN, 2);
+/// assert_eq!(S::NAMES[1], "bar");
+/// assert_eq!(S::name_to_index("bar").unwrap(), 1);
+/// ```
 pub trait KeyLookup {
     /// The number of top-level nodes.
     ///
     /// This is used by `impl Keys for Packed`.
+    const LEN: usize;
+
+    /// Field names.
     ///
-    /// ```
-    /// # use miniconf::{KeyLookup, TreeKey};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: [u16; 2],
-    /// }
-    /// assert_eq!(S::len(), 2);
-    /// ```
-    fn len() -> usize;
+    /// May be empty if `Self` computes and parses names.
+    const NAMES: &'static [&'static str];
 
     /// Convert a top level node name to a node index.
     ///
     /// The details of the mapping and the `usize` index values
     /// are an implementation detail and only need to be stable at runtime.
     /// This is used by `impl Key for &str`.
-    ///
-    /// ```
-    /// # use miniconf::{KeyLookup, TreeKey};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: u16,
-    /// }
-    /// assert_eq!(S::name_to_index("bar"), Some(1));
-    /// ```
-    fn name_to_index(name: &str) -> Option<usize>;
+    fn name_to_index(value: &str) -> Option<usize>;
 }
 
 /// Capability to convert a key into a node index for a given `M: TreeKey`

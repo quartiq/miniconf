@@ -1,20 +1,20 @@
 [package]
 name = "miniconf"
 # Sync all crate versions and the py client
-version = "0.10.1"
+version = "0.11.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
-description = "Serialize/deserialize/access  Inspect serde namespaces by path"
+description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
-keywords = ["settings", "serde", "no_std", "json", "mqtt"]
-categories = ["no-std", "config", "rust-patterns", "parsing"]
+keywords = ["config", "serde", "no_std", "reflection", "graph"]
+categories = ["no_std", "config", "data-structures", "parsing"]
 rust-version = "1.70.0" # keep in sync with CI and with other crates and with github branch protection
 resolver = "2"
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
-miniconf_derive = { path = "../miniconf_derive", version = "0.10", optional = true }
+miniconf_derive = { path = "../miniconf_derive", version = "0.11", optional = true }
 itoa = "1.0.4"
 serde-json-core = { version = "0.5.1", optional = true }
 postcard = { version = "1.0.8", optional = true }
@@ -24,7 +24,54 @@ default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive"]
-std = ["postcard?/use-std"]
 
 [package.metadata.docs.rs]
 all-features = true
+
+[dev-dependencies]
+postcard = { version = "1.0.8", features = ["use-std"] }
+serde = { version = "1.0.120", features = ["derive"] }
+
+[[test]]
+name = "arrays"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "basic"
+required-features = ["derive"]
+
+[[test]]
+name = "generics"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "index"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "iter"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "option"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "packed"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "skipped"
+required-features = ["derive"]
+
+[[test]]
+name = "structs"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "validate"
+required-features = ["json-core", "derive"]
+
+[[example]]
+name = "reflect"
+required-features = ["json-core", "derive"]

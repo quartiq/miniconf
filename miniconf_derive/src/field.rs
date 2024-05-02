@@ -147,14 +147,14 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn get_by_key(&self, i: usize) -> TokenStream {
+    pub(crate) fn ref_any_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let depth = self.depth;
         let getter = self.getter(i);
         if depth > 0 {
             quote! {
                 #i => #getter
-                    .and_then(|value| ::miniconf::TreeAny::<#depth>::get_by_key(value, keys))
+                    .and_then(|value| ::miniconf::TreeAny::<#depth>::ref_any_by_key(value, keys))
             }
         } else {
             quote! {
@@ -163,14 +163,14 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn get_mut_by_key(&self, i: usize) -> TokenStream {
+    pub(crate) fn mut_any_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let depth = self.depth;
         let getter_mut = self.getter_mut(i);
         if depth > 0 {
             quote! {
                 #i => #getter_mut
-                    .and_then(|value| ::miniconf::TreeAny::<#depth>::get_mut_by_key(value, keys))
+                    .and_then(|value| ::miniconf::TreeAny::<#depth>::mut_any_by_key(value, keys))
             }
         } else {
             quote! {
@@ -201,9 +201,17 @@ impl Tree {
 
     pub(crate) fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
         let mut t = Self::from_derive_input(input)?;
-        t.fields_mut().retain(|f| {
+        let fields = t.fields_mut();
+        // unnamed fields can only be skipped if they are terminal
+        while fields
+            .last()
+            .map(|f| f.skip.is_present())
+            .unwrap_or_default()
+        {
+            fields.pop();
+        }
+        fields.retain(|f| {
             if f.skip.is_present() {
-                // unnamed fields can only be skipped if they are terminal
                 assert!(f.ident.is_some());
             }
             !f.skip.is_present()

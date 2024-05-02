@@ -108,8 +108,21 @@ impl Metadata {
 ///
 /// ## Skip
 ///
-/// Fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
+/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
 /// (`#[tree(skip)]`).
+/// Note that for tuple structs skipping is only supported for terminal fields:
+///
+/// ```compile_fail
+/// use miniconf::Tree;
+/// #[derive(Tree)]
+/// struct S(#[tree(skip)] (), i32);
+/// ```
+///
+/// ```
+/// use miniconf::Tree;
+/// #[derive(Tree)]
+/// struct S(i32, #[tree(skip)] ());
+/// ```
 ///
 /// ## Type
 ///
@@ -124,7 +137,7 @@ impl Metadata {
 /// ## `get`
 ///
 /// The getter is called during `serialize_by_key()` before leaf serialization and
-/// during `get_by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
+/// during `ref_any_by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
 /// The default getter is `Ok(&self.field)`.
 /// Getters can be used for both leaf fields as well as internal (non-leaf) fields.
 /// If a getter returns an error message `Err(&str)` the serialization/traversal
@@ -133,7 +146,7 @@ impl Metadata {
 ///
 /// ## `get_mut`
 ///
-/// For internal (non-leaf) fields `get_mut` is invoked during `get_mut_by_key()` and
+/// For internal (non-leaf) fields `get_mut` is invoked during `mut_any_by_key()` and
 /// during `deserialize_by_key()` before deserialization while traversing down to
 /// the leaf node.
 /// For leaf fields it is invoked after deserialization and validation but before
@@ -148,7 +161,7 @@ impl Metadata {
 /// mutate the struct.
 ///
 /// ```
-/// # use miniconf::{Error, Tree, JsonCoreSlash};
+/// use miniconf::{Error, Tree, JsonCoreSlash};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(validate=leaf)]
@@ -205,7 +218,7 @@ impl Metadata {
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
 ///
 /// ```
-/// # use miniconf::TreeKey;
+/// use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S<T> {
 ///     #[tree(depth=3)]
@@ -252,7 +265,7 @@ impl Metadata {
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
 /// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::iter_paths()`]) but attempts
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
-/// [`TreeAny::get_by_key()`], or [`TreeAny::get_mut_by_key()`])
+/// [`TreeAny::ref_any_by_key()`], or [`TreeAny::mut_any_by_key()`])
 /// return the special [`Traversal::Absent`].
 /// This is intended as a mechanism to provide run-time construction of the namespace. In some
 /// cases, run-time detection may indicate that some component is not present. In this case,
@@ -263,21 +276,6 @@ impl Metadata {
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
 ///
-/// The following example shows potential usage of arrays and `Option`:
-///
-/// ```
-/// # use miniconf::TreeKey;
-/// #[derive(TreeKey)]
-/// struct S {
-///     // "/b/1/2" = 5
-///     #[tree(depth=2)]
-///     b: [[u32; 3]; 3],
-///     // "/c/0" = [3,4], optionally absent at runtime
-///     #[tree(depth=2)]
-///     c: [Option<[u32; 2]>; 2],
-/// }
-/// ```
-///
 /// # Examples
 ///
 /// See the [`crate`] documentation for a longer example showing how the traits and the derive macros work.
@@ -285,7 +283,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Compute metadata about all paths.
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -309,7 +307,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// `Err(Error::TooShort(0))` will be returned.
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -345,8 +343,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// is not returned.
     ///
     /// ```
-    /// # #[cfg(feature = "std")] {
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -356,7 +353,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let mut s = String::new();
     /// S::path([1, 1], &mut s, "/").unwrap();
     /// assert_eq!(s, "/bar/1");
-    /// # }
     /// ```
     ///
     /// # Args
@@ -388,8 +384,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::path()`].
     ///
     /// ```
-    /// # #[cfg(feature = "std")] {
-    /// # use miniconf::{TreeKey, JsonPath};
+    /// use miniconf::{TreeKey, JsonPath};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -403,7 +398,6 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// let (indices, depth) = S::indices(JsonPath::from(&s)).unwrap();
     /// assert_eq!(&indices[..depth], idx);
-    /// # }
     /// ```
     fn json_path<K, P>(keys: K, mut path: P) -> Result<usize, Error<core::fmt::Error>>
     where
@@ -425,7 +419,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::path()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -459,7 +453,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`Packed`] and [`TreeKey::path()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -498,8 +492,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// this through [`PathIter::count()`].
     ///
     /// ```
-    /// # #[cfg(feature = "std")] {
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -508,7 +501,6 @@ pub trait TreeKey<const Y: usize = 1> {
     /// };
     /// let paths: Vec<String> = S::iter_paths("/").count().map(|p| p.unwrap()).collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
-    /// # }
     /// ```
     ///
     /// # Generics
@@ -516,7 +508,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Args
     /// * `separator` - The path hierarchy separator
-    fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P> {
+    fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P, Y> {
         PathIter::new(separator)
     }
 
@@ -525,7 +517,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::iter_paths()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -535,7 +527,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let indices: Vec<_> = S::iter_indices().count().collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
-    fn iter_indices() -> IndexIter<Self, Y> {
+    fn iter_indices() -> IndexIter<Self, Y, Y> {
         IndexIter::default()
     }
 
@@ -544,7 +536,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// See also [`TreeKey::iter_paths()`].
     ///
     /// ```
-    /// # use miniconf::TreeKey;
+    /// use miniconf::TreeKey;
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -557,7 +549,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
-    fn iter_packed() -> PackedIter<Self, Y> {
+    fn iter_packed() -> PackedIter<Self, Y, Y> {
         PackedIter::default()
     }
 }
@@ -567,59 +559,59 @@ pub trait TreeKey<const Y: usize = 1> {
 /// This uses the `dyn Any` trait object.
 ///
 /// ```
-/// # use miniconf::{TreeAny, TreeKey};
-/// # use core::any::Any;
+/// use core::any::Any;
+/// use miniconf::{TreeAny, TreeKey, JsonPath};
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
 ///     #[tree(depth=1)]
 ///     bar: [u16; 2],
 /// };
-/// let s = S::default();
+/// let mut s = S::default();
+///
 /// for (key, depth) in S::iter_indices() {
-///     let a = s.get_by_key(key.into_iter().take(depth)).unwrap();
+///     let a = s.ref_any_by_key(key[..depth].iter().copied()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
+///
+/// let val: &mut u16 = s.mut_by_key(JsonPath::from(".bar[1]")).unwrap();
+/// *val = 3;
+/// assert_eq!(s.bar[1], 3);
+///
+/// let val: &u16 = s.ref_by_key(JsonPath::from(".bar[1]")).unwrap();
+/// assert_eq!(*val, 3);
 /// ```
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
     /// Obtain a reference to a `dyn Any` trait object for a leaf node.
-    ///
-    /// ```
-    /// # use miniconf::{TreeAny, TreeKey};
-    /// #[derive(TreeKey, TreeAny, Default)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let s = S { foo: 9, bar: [11, 3] };
-    /// let any = s.get_by_key(["bar", "1"].into_iter()).unwrap();
-    /// assert_eq!(*any.downcast_ref::<u16>().unwrap(), 3);
-    /// ```
-    fn get_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys;
 
     /// Obtain a mutable reference to a `dyn Any` trait object for a leaf node.
-    ///
-    /// ```
-    /// # use miniconf::{TreeAny, TreeKey};
-    /// #[derive(TreeKey, TreeAny, Default)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let mut s = S::default();
-    /// let any = s.get_mut_by_key(["bar", "1"].into_iter()).unwrap();
-    /// let val = any.downcast_mut().unwrap();
-    /// *val = 3u16;
-    /// assert_eq!(s.bar[1], 3);
-    /// ```
-    fn get_mut_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys;
+
+    /// Obtain a reference to a leaf of known type by key.
+    fn ref_by_key<T: Any, K: IntoKeys>(&self, keys: K) -> Result<&T, Traversal> {
+        self.ref_any_by_key(keys.into_keys())?
+            .downcast_ref()
+            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+    }
+
+    /// Obtain a mutable reference to a leaf of known type by key.
+    fn mut_by_key<T: Any, K: IntoKeys>(&mut self, keys: K) -> Result<&mut T, Traversal> {
+        self.mut_any_by_key(keys.into_keys())?
+            .downcast_mut()
+            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+    }
 }
+
+// # Alternative serialize/deserialize designs
+//
+// One could have (ab)used a custom `Serializer`/`Deserializer` wrapper for this but that would be inefficient:
+// `Serialize` would try to pass each node to the `Serializer` until the `Serializer` matches the leaf key
+// (and could terminate early).
 
 /// Serialize a leaf node by its keys.
 ///
@@ -635,7 +627,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// # use miniconf::{TreeSerialize, TreeKey};
+    /// use miniconf::{TreeSerialize, TreeKey};
     /// #[derive(TreeKey, TreeSerialize)]
     /// struct S {
     ///     foo: u32,
@@ -676,7 +668,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// # use miniconf::{TreeDeserialize, TreeKey};
+    /// use miniconf::{TreeDeserialize, TreeKey};
     /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
     ///     foo: u32,

@@ -5,7 +5,7 @@ rust-version = "1.70.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
-description = "MQTT interface for Miniconf, using `minimq`"
+description = "MQTT interface for `miniconf`, using `minimq`"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
@@ -17,12 +17,12 @@ std = []
 [lib]
 
 [dependencies]
-miniconf = { version = "0.10", features = ["json-core", "derive"], path = "../miniconf" }
-minimq = "0.8.0"
+miniconf = { version = "0.11", features = ["json-core"], default-features = false, path = "../miniconf" }
+minimq = "0.9.0"
 smlang = "0.6"
 embedded-io = "0.6"
 log = "0.4"
-heapless = { version = "0.8", features = ["serde"] }
+heapless = "0.8"
 serde-json-core = "0.5.1"
 
 [[example]]
@@ -31,7 +31,9 @@ name = "mqtt"
 [dev-dependencies]
 machine = "0.3"
 env_logger = "0.10"
-std-embedded-nal = "0.2"
+std-embedded-nal = { git = "https://gitlab.com/ryan-summers/std-embedded-nal", branch = "feature/0.8" }
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
-serde = { version = "1.0.120", features = ["derive"], default-features = false }
+miniconf = { features = ["json-core", "derive"], path = "../miniconf" }
+serde = { version = "1" }
+heapless = { version = "0.8", features = ["serde"] }

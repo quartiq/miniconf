@@ -1,9 +1,10 @@
-# Miniconf Python Utility
+# `miniconf` Python Utility
 
-This directory contains a Python package for interacting with `Miniconf` targets.
+Python package for interacting with `miniconf-mqtt` targets.
 
 ## Installation
-Run `pip install .` from this directory to install the `miniconf` package.
+
+Run `pip install .` from this directory to install the `miniconf-mqtt` package.
 
 Alternatively, run `python -m pip install
 git+https://github.com/quartiq/miniconf#subdirectory=py/miniconf-mqtt` to avoid cloning locally.

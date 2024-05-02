@@ -72,20 +72,20 @@ macro_rules! depth {
         }
 
         impl<T: TreeAny<{$y - 1}>> TreeAny<$y> for Option<T> {
-            fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+            fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let inner = get(self, &mut keys, false)?;
-                inner.get_by_key(keys)
+                inner.ref_any_by_key(keys)
             }
 
-            fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+            fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let inner = get_mut(self, &mut keys, false)?;
-                inner.get_mut_by_key(keys)
+                inner.mut_any_by_key(keys)
             }
         }
     )+}
@@ -135,7 +135,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Option<T> {
 }
 
 impl<T: Any> TreeAny for Option<T> {
-    fn get_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
@@ -143,7 +143,7 @@ impl<T: Any> TreeAny for Option<T> {
         Ok(inner)
     }
 
-    fn get_mut_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
