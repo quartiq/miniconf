@@ -71,7 +71,3 @@ required-features = ["json-core", "derive"]
 [[test]]
 name = "validate"
 required-features = ["json-core", "derive"]
-
-[[example]]
-name = "reflect"
-required-features = ["json-core", "derive"]

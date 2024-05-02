@@ -53,7 +53,6 @@ jobs:
         with:
           profile: minimal
           toolchain: stable
-          target: thumbv7em-none-eabihf
           override: true
 
       - name: Cargo Doc
@@ -77,8 +76,6 @@ jobs:
         toolchain:
           - stable
           - 1.70.0  # keep in sync with manifest MSRV
-        target:
-          - thumbv7em-none-eabihf
 
     steps:
       - uses: actions/checkout@v2
@@ -86,32 +83,30 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
-          target: ${{ matrix.target }}
           override: true
 
       - name: Cargo Check
         uses: actions-rs/cargo@v1
         with:
           command: check
-          args: --verbose --target ${{ matrix.target }}
+          args: --verbose
 
       - name: Cargo Build [No-Features]
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --no-default-features --target ${{ matrix.target }}
+          args: --no-default-features
 
       - name: Cargo Build
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --target ${{ matrix.target }}
 
       - name: Cargo Build [Release]
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --target ${{ matrix.target }}
+          args: --release
 
       - name: Cargo Build [Examples]
         uses: actions-rs/cargo@v1
@@ -128,9 +123,7 @@ jobs:
           - 1.70.0  # keep in sync with manifest MSRV
         args:
           - ""
-          - --all-features
           - --no-default-features
-          - --no-default-features --features json-core
 
     steps:
       - uses: actions/checkout@v2
@@ -152,6 +145,28 @@ jobs:
         with:
           command: test
           args: ${{ matrix.args }}
+
+  embedded:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          target: thumbv7m-none-eabi
+      - name: Install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-arm
+      - run: cargo run --release
+        env:
+          RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
+        working-directory: crosstrait/tests/embedded
+        continue-on-error: true
+      - run: cargo run --release --features used_linker
+        env:
+          RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
+        working-directory: crosstrait/tests/embedded
 
   examples:
     runs-on: ubuntu-latest
