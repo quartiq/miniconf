@@ -2,6 +2,7 @@
 
 * `no_std` no alloc support
 * No proc macros
+* No unsafe code
 
 ## Usage
 
@@ -18,18 +19,22 @@ For embedded, the linker needs to be informed of the type registry.
 
 ```rust
 use core::any::Any;
-use crosstrait::{Cast, Castable, CastableRef, register, REGISTRY};
+use crosstrait::{Cast, Castable, CastableRef, entry, register, REGISTRY, Registry};
 
 // Some example traits to play with
 use core::{fmt::{Debug, Formatter, Write}, ops::{AddAssign, SubAssign}};
 
-// Add types and trait implementations in the default global registy
+// Add types and trait implementations to the default registry
 // Implementation status is verified at compile time
 register! { i32 => dyn Debug }
 
 // Registering foreign types and traits works fine
 // Serialization/deserialization of `dyn Any` is a major use case
 // register! { i32 => dyn erased_serde::Serialize }
+
+// If a type is not Send + Sync, it can't cast as Arc.
+// `no_arc` accounts for that
+register! { Formatter => dyn Write, no_arc }
 
 // Check for trait impl registration on concrete type
 assert!(i32::castable::<dyn Debug>());
@@ -70,24 +75,27 @@ let _: Arc<dyn Debug> = any.cast().unwrap();
 let any: &dyn Any = &0i32;
 let _: &dyn Debug = REGISTRY.cast_ref(any).unwrap();
 
+// Custom non-static registry
+let myreg = Registry::new([entry!(i32 => dyn Debug)]);
+let _: &dyn Debug = myreg.cast_ref(any).unwrap();
+
 // Autotraits and type/const generics are distinct
 let a: Option<&(dyn Debug + Sync)> = any.cast();
 assert!(a.is_none());
 
-// Registration can happen anywhere in any order in any downstream crate
+// Registration in the default registry can happen anywhere
+// in any order in any downstream crate
 register! { i32 => dyn AddAssign<i32> }
-
-// If a type is not Send + Sync, it can't cast as Arc. `no_arc` accounts for that
-register! { Formatter => dyn Write, no_arc }
 ```
 
 ## Related crates
 
-* [`intertrait`](https://crates.io/crates/intertrait): similar goals, `std`
+* [`intertrait`](https://crates.io/crates/intertrait): source of ideas for `crosstrait`, similar goals, similar features, `std`, proc macros
 * [`miniconf`](https://crates.io/crates/miniconf): provides several ways to get `dyn Any` from nodes in
   heterogeneous nested data structures, `no_std`, no alloc
 * [`erased_serde`](https://crates.io/crates/erased-serde): `Serialize`/`Serializer`/`Deserializer` trait objects
-* [`linkme`](https://crates.io/crates/linkme): linker magic used to build distributed static type registry
+* [`downcast`](https://crates.io/crates/downcast)/[`downcast-rs`](https://crates.io/crates/downcast-rs): support `dyn Trait -> Type`
+* [`linkme`](https://crates.io/crates/linkme): linker magic used here to build distributed static type registry
 
 ## Limitations
 
@@ -103,3 +111,13 @@ all relevant combinations of traits plus auto traits needs to be registered expl
 ### Global registry
 
 A custom non-static [`Registry`] can be built and used explicitly but the `Cast` traits will not use it.
+
+### `used_linker`
+
+The unstable `used_with_arg` feature may be required to keep the linker from optimizing away the items in the registry.
+Enable it using the `used_linker` crate feature and use a nightly toolchain.
+
+### Registry keys
+
+The registry keys are `size_of::<[TypeId; 2]>() = 32` bytes large.
+Hashing and key storage/comparison is not tuned for performance.

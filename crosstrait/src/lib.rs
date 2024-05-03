@@ -1,6 +1,14 @@
 #![cfg_attr(not(any(test, doctest, feature = "std")), no_std)]
 #![cfg_attr(feature = "used_linker", feature(used_with_arg))]
 #![cfg_attr(feature = "std", doc = include_str!("../README.md"))]
+#![cfg_attr(
+    not(feature = "std"),
+    doc = "Cast from `dyn Any` to other trait objects"
+)]
+#![deny(rust_2018_compatibility)]
+#![deny(rust_2018_idioms)]
+#![warn(missing_docs)]
+#![forbid(unsafe_code)]
 
 use core::any::{Any, TypeId};
 
@@ -37,19 +45,20 @@ pub struct Caster<T: ?Sized> {
     pub arc: fn(Arc<dyn Any + Sync + Send>) -> Result<Arc<T>, Arc<dyn Any + Sync + Send>>,
 }
 
-/// Key-value pair of the compiled type registry
+/// Key-value pair of the type registry.
+///
 /// `TypeId::of()` is not const (https://github.com/rust-lang/rust/issues/77125)
 /// Hence we store a maker fn and call lazily.
 /// Once it is const, remove the `fn() ->` and `||` and investigate phf.
 /// The caster is a static ref to a trait object since its type
 /// varies with the target trait.
 #[doc(hidden)]
-pub type Entry = (fn() -> [TypeId; 2], &'static (dyn Any + Send + Sync));
+pub type Entry<'a> = (fn() -> [TypeId; 2], &'a (dyn Any + Send + Sync));
 
 /// Static slice of key maker fns and Caster trait objects
 #[doc(hidden)]
 #[linkme::distributed_slice]
-pub static REGISTRY_KV: [Entry];
+pub static REGISTRY_KV: [Entry<'static>];
 
 /// Register a type and target trait in the registry
 #[macro_export]
@@ -63,10 +72,18 @@ macro_rules! register {
     ( $name:ident, $reg:path: $ty:ty => $tr:ty $(, $flag:ident)? ) => {
         #[$crate::linkme::distributed_slice($reg)]
         #[linkme(crate=$crate::linkme)]
-        static $name: $crate::Entry = (
-            || [::core::any::TypeId::of::<$tr>(), ::core::any::TypeId::of::<$ty>()],
-            &$crate::caster!( $ty => $tr $(, $flag)? ),
-        );
+        static $name: $crate::Entry<'static> = $crate::entry!( $ty => $tr $(, $flag)? );
+    };
+}
+
+/// Build an entry for the type-trait registry
+#[macro_export]
+macro_rules! entry {
+    ( $ty:ty => $tr:ty $(, $flag:ident)? ) => {
+        (
+            (|| [::core::any::TypeId::of::<$tr>(), ::core::any::TypeId::of::<$ty>()]) as _,
+            &$crate::caster!( $ty => $tr $(, $flag)? ) as _,
+        )
     };
 }
 
@@ -133,17 +150,23 @@ pub struct Registry<'a>(
 pub struct Registry<'a>(std::collections::HashMap<[TypeId; 2], &'a (dyn Any + Send + Sync)>);
 
 impl<'a> Registry<'a> {
+    /// Build a new registry from an iterator over key (`fn() -> [TypeId; 2]`)
+    /// value (`&'a dyn Any + Send + Sync`) pairs.
+    pub fn new(it: impl IntoIterator<Item = Entry<'a>>) -> Self {
+        Self(it.into_iter().map(|(key, value)| (key(), value)).collect())
+    }
+
     /// Obtain a `Caster` given the TypeId for the concrete type and a target trait `T`
     fn caster<T: ?Sized + 'static>(&self, any: TypeId) -> Option<&Caster<T>> {
         self.0.get(&[TypeId::of::<T>(), any])?.downcast_ref()
     }
 
-    /// Whether the `Any` can be cast to the target trait
+    /// Whether the `Any` can be cast to the target trait T
     pub fn castable_ref<T: ?Sized + 'static>(&self, any: &dyn Any) -> bool {
         self.0.contains_key(&[TypeId::of::<T>(), any.type_id()])
     }
 
-    /// Whether the concrete type can be case to the target trait
+    /// Whether the concrete type U can be case to the target trait T
     pub fn castable<T: ?Sized + 'static, U: ?Sized + 'static>(&self) -> bool {
         self.0.contains_key(&[TypeId::of::<T>(), TypeId::of::<U>()])
     }
@@ -189,15 +212,9 @@ impl<'a> Registry<'a> {
     }
 }
 
-/// The global type-trait registry
-pub static REGISTRY: Lazy<Registry> = Lazy::new(|| {
-    Registry(
-        REGISTRY_KV
-            .iter()
-            .map(|(key, value)| (key(), *value))
-            .collect(),
-    )
-});
+/// The global static type-trait registry
+pub static REGISTRY: Lazy<Registry<'static>> =
+    Lazy::new(|| Registry::new(REGISTRY_KV.iter().copied()));
 
 /// Whether a `dyn Any` can be cast to a given trait object
 pub trait CastableRef {
