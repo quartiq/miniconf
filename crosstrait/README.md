@@ -76,7 +76,7 @@ let any: &dyn Any = &0i32;
 let _: &dyn Debug = REGISTRY.cast_ref(any).unwrap();
 
 // Custom non-static registry
-let myreg = Registry::new([entry!(i32 => dyn Debug)]);
+let myreg = Registry::new(&[entry!(i32 => dyn Debug)]);
 let _: &dyn Debug = myreg.cast_ref(any).unwrap();
 
 // Autotraits and type/const generics are distinct
