@@ -68,12 +68,13 @@ fn short_iter() {
         PathIter::<Settings, 3, String, 1>::new("/")
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
-        ["/a"]
+        ["/b", "/c", "/d", "/a"]
     );
 
-    assert!(PathIter::<Settings, 3, String, 0>::new("/")
-        .next()
-        .is_none());
+    assert_eq!(
+        PathIter::<Settings, 3, String, 0>::new("/").next(),
+        Some(Ok("".to_string()))
+    );
 }
 
 #[test]

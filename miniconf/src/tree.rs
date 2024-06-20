@@ -373,7 +373,13 @@ pub trait TreeKey<const Y: usize = 1> {
             path.write_str(separator)
                 .and_then(|_| path.write_str(name.unwrap_or(itoa::Buffer::new().format(index))))
         };
-        Self::traverse_by_key(keys.into_keys(), func)
+        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| {
+            if let Error::Traversal(Traversal::TooShort(depth)) = err {
+                Ok(depth)
+            } else {
+                Err(err)
+            }
+        })
     }
 
     /// Return the keys formatted as a normalized JSON path.
@@ -411,7 +417,13 @@ pub trait TreeKey<const Y: usize = 1> {
                 .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
                 .and_then(|_| path.write_char(']')),
         };
-        Self::traverse_by_key(keys.into_keys(), func)
+        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| {
+            if let Error::Traversal(Traversal::TooShort(depth)) = err {
+                Ok(depth)
+            } else {
+                Err(err)
+            }
+        })
     }
 
     /// Convert keys to `indices`.
@@ -444,7 +456,14 @@ pub trait TreeKey<const Y: usize = 1> {
             Ok(())
         };
         Self::traverse_by_key(keys.into_keys(), func)
-            .map_err(|err| err.try_into().unwrap())
+            .or_else(|err| {
+                let err = err.try_into().unwrap();
+                if let Traversal::TooShort(depth) = err {
+                    Ok(depth)
+                } else {
+                    Err(err)
+                }
+            })
             .map(|depth| (indices, depth))
     }
 
@@ -480,7 +499,15 @@ pub trait TreeKey<const Y: usize = 1> {
                 .ok_or(())
                 .and(Ok(()))
         };
-        Self::traverse_by_key(keys.into_keys(), func).map(|depth| (packed, depth))
+        Self::traverse_by_key(keys.into_keys(), func)
+            .or_else(|err| {
+                if let Error::Traversal(Traversal::TooShort(depth)) = err {
+                    Ok(depth)
+                } else {
+                    Err(err)
+                }
+            })
+            .map(|depth| (packed, depth))
     }
 
     /// Create an iterator of all possible leaf paths.

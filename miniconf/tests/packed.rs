@@ -12,10 +12,7 @@ fn packed() {
     let mut path = String::new();
 
     // Check empty being too short
-    assert_eq!(
-        Settings::path(Packed::EMPTY, &mut path, "/"),
-        Err(Traversal::TooShort(0).into())
-    );
+    assert_eq!(Settings::path(Packed::EMPTY, &mut path, "/"), Ok(0));
     path.clear();
 
     // Check path-packed round trip.
