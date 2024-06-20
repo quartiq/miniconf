@@ -48,7 +48,7 @@ Some tangential crates:
 
 ## Functional Programming, Polymorphism
 
-The type-heterogeneity of `miniconf` also borders of functional programming features. For that crates like the
+The type-heterogeneity of `miniconf` also borders on functional programming features. For that crates like the
 following may also be relevant:
 
 * [`frunk`](https://crates.io/crates/frunk)
