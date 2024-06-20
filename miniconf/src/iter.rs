@@ -44,6 +44,9 @@ impl<T: FusedIterator> FusedIterator for Counting<T> {}
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
 
 /// A managed indices state for iteration of nodes in a `TreeKey`.
+///
+/// `D` is the depth limit. Keys that are `Traversal::TooShort` (internal nodes)
+/// will still be returned on iteration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct State<const D: usize> {
     state: [usize; D],
@@ -94,14 +97,9 @@ impl<const D: usize> State<D> {
     fn handle<E>(&mut self, ret: Result<usize, Error<E>>) -> Option<Result<usize, (usize, E)>> {
         match ret {
             Ok(depth) | Err(Error::Traversal(Traversal::NotFound(depth))) if depth < self.root => {
-                // Traversal terminated before reaching root: terminate on loop next()
+                // Traversal terminated (Ok or NotFound) before reaching root: terminate on loop next()
                 self.depth = self.root;
                 None
-            }
-            Ok(depth) => {
-                // Node found, save depth for increment at next iteration
-                self.depth = depth;
-                Some(Ok(depth))
             }
             Err(Error::Traversal(Traversal::NotFound(depth))) => {
                 // Not found below root:
@@ -110,11 +108,10 @@ impl<const D: usize> State<D> {
                 self.depth = depth - 1;
                 None
             }
-            Err(Error::Traversal(Traversal::TooShort(depth))) => {
-                // Indices is too short, try next node at maximum depth
-                debug_assert_eq!(depth, D);
-                self.depth = D;
-                None
+            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => {
+                // Leaf or internal node found, save depth for increment at next iteration
+                self.depth = depth;
+                Some(Ok(depth))
             }
             Err(Error::Inner(depth, err)) => Some(Err((depth, err))),
             // TooLong, Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
@@ -125,19 +122,23 @@ impl<const D: usize> State<D> {
 
 /// An iterator over the paths in a `TreeKey`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PathIter<'a, M: ?Sized, const Y: usize, P, const D: usize> {
+pub struct PathIter<'a, M: ?Sized, const Y: usize, P: ?Sized, const D: usize> {
     state: State<D>,
     separator: &'a str,
-    _pm: PhantomData<(P, M)>,
+    _p: PhantomData<P>,
+    _m: PhantomData<M>,
 }
 
-impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a, M, Y, P, D> {
+impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P: ?Sized, const D: usize>
+    PathIter<'a, M, Y, P, D>
+{
     /// Create a new iterator given a path hierarchy separator.
     pub fn new(separator: &'a str) -> Self {
         Self {
             state: State::default(),
             separator,
-            _pm: PhantomData,
+            _p: PhantomData,
+            _m: PhantomData,
         }
     }
 
@@ -163,7 +164,7 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a,
 impl<'a, M, const Y: usize, P, const D: usize> Iterator for PathIter<'a, M, Y, P, D>
 where
     M: TreeKey<Y> + ?Sized,
-    P: Write + Default,
+    P: Write + Default + ?Sized,
 {
     type Item = Result<P, core::fmt::Error>;
 
@@ -187,7 +188,7 @@ impl<'a, M, const Y: usize, P, const D: usize> core::iter::FusedIterator
     for PathIter<'a, M, Y, P, D>
 where
     M: TreeKey<Y> + ?Sized,
-    P: Write + Default,
+    P: Write + Default + ?Sized,
 {
 }
 
