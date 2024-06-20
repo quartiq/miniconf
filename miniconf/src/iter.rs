@@ -1,4 +1,4 @@
-use crate::{Error, Packed, Traversal, TreeKey};
+use crate::{Error, IntoKeys, Packed, Traversal, TreeKey};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// Counting wrapper for iterators with known size
@@ -48,27 +48,41 @@ impl<T: FusedIterator> FusedIterator for Counting<T> {}
 struct State<const D: usize> {
     state: [usize; D],
     depth: usize,
+    root: usize,
 }
 
 impl<const D: usize> Default for State<D> {
     fn default() -> Self {
         Self {
             state: [0; D],
-            depth: usize::MAX,
+            depth: D + 1,
+            root: 0,
         }
     }
 }
 
 impl<const D: usize> State<D> {
+    fn new(root: &[usize]) -> Self {
+        let mut state = [0; D];
+        state[..root.len()].copy_from_slice(root);
+        Self {
+            state,
+            depth: D + 1,
+            root: root.len(),
+        }
+    }
+
     /// Try to prepare for the next iteratiion
     ///
     /// Increment current index and return indices iterator.
     fn next(&mut self) -> Option<impl Iterator<Item = usize> + '_> {
-        if self.depth == 0 {
-            // Found root leaf (Option/newtype) or done at root
+        debug_assert!(self.depth >= self.root);
+        debug_assert!(self.depth <= D + 1);
+        if self.depth == self.root {
+            // Iteration done
             return None;
         }
-        if self.depth != usize::MAX {
+        if self.depth <= D {
             // Not initial state: increment
             self.state[self.depth - 1] += 1;
         }
@@ -78,27 +92,30 @@ impl<const D: usize> State<D> {
     /// Handle the result of a `traverse_by_key()` and update `depth` for next iteration.
     fn handle<E>(&mut self, ret: Result<usize, Error<E>>) -> Option<Result<usize, (usize, E)>> {
         match ret {
-            // Node found, save depth for increment at next iteration
+            Ok(depth) | Err(Error::Traversal(Traversal::NotFound(depth))) if depth < self.root => {
+                // Traversal terminated before reaching root: terminate on loop next()
+                self.depth = self.root;
+                None
+            }
             Ok(depth) => {
+                // Node found, save depth for increment at next iteration
                 self.depth = depth;
                 Some(Ok(depth))
             }
-            // Node not found at finite depth: reset current index, then retry
-            Err(Error::Traversal(Traversal::NotFound(depth @ 1..))) => {
+            Err(Error::Traversal(Traversal::NotFound(depth))) => {
+                // Not found below root:
+                // Reset index at current depth, then retry with incremented index above
                 self.state[depth - 1] = 0;
                 self.depth = depth - 1;
                 None
             }
-            // Indices is too short, try next node at maximum depth
             Err(Error::Traversal(Traversal::TooShort(depth))) => {
+                // Indices is too short, try next node at maximum depth
                 debug_assert_eq!(depth, D);
-                self.depth = depth;
+                self.depth = D;
                 None
             }
             Err(Error::Inner(depth, err)) => Some(Err((depth, err))),
-            // NotFound(0): Not having consumed any name/index, the only possible case
-            // is a root leaf (e.g. `Option` or newtype), those however can not return
-            // `NotFound` as they don't do key lookup.
             // TooLong, Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
             _ => unreachable!(),
         }
@@ -128,7 +145,8 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a,
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited.
     pub fn count(self) -> Counting<Self> {
-        assert!(self.state.depth == usize::MAX);
+        assert!(self.state.depth > D);
+        assert!(self.state.root == 0);
         assert!(D >= Y);
         Counting::new(self, M::metadata().count)
     }
@@ -189,7 +207,8 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> IndexIter<M, Y, D> 
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited.
     pub fn count(self) -> Counting<Self> {
-        assert!(self.state.depth == usize::MAX);
+        assert!(self.state.depth > D);
+        assert!(self.state.root == 0);
         assert!(D >= Y);
         Counting::new(self, M::metadata().count)
     }
@@ -240,12 +259,20 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for PackedIter<M, Y, D> 
 }
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> PackedIter<M, Y, D> {
+    /// Limit iteration to at and below the provided root.
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<(), Traversal> {
+        let (idx, depth) = M::indices(root)?;
+        self.state = State::new(&idx[..depth]);
+        Ok(())
+    }
+
     /// Wrap the iterator in an exact size counting iterator.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited.
     pub fn count(self) -> Counting<Self> {
-        assert!(self.state.depth == usize::MAX);
+        assert!(self.state.depth > D);
+        assert!(self.state.root == 0);
         assert!(D >= Y);
         Counting::new(self, M::metadata().count)
     }
