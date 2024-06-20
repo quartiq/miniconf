@@ -46,6 +46,13 @@ Some tangential crates:
 * [`deflect`](https://crates.io/crates/deflect): reflection on trait objects using adjacent DWARF debug info as the type registry
 * [`intertrait`](https://crates.io/crates/intertrait): inspiration and source of ideas for `crosstrait`
 
+## Functional Programming, Polymorphism
+
+The type-heterogeneity of `miniconf` also borders of functional programming features. For that crates like the
+following may also be relevant:
+
+* [`frunk`](https://crates.io/crates/frunk)
+* [`lens-rs`](https://crates.io/crates/lens-rs)/[`rovv`](https://crates.io/crates/rovv)
 
 ## Example
 
