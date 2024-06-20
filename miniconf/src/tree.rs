@@ -300,11 +300,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Traversal is aborted once `func` returns an `Err(E)`.
     ///
     /// This may not exhaust `keys` if a leaf is found early. i.e. `keys`
-    /// may be longer than required: `Error::TooLong` is not returned.
+    /// may be longer than required: `Traversal(TooLong)` is not returned.
     /// If `Self` is a leaf, nothing will be consumed from `keys`
     /// and `Ok(0)` will be returned.
     /// If `Self` is non-leaf (internal node) and `Keys` is exhausted (empty),
-    /// `Err(Error::TooShort(0))` will be returned.
+    /// `Err(Traversal(TooShort(0))` will be returned.
     ///
     /// ```
     /// use miniconf::TreeKey;
@@ -339,7 +339,7 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Convert keys to path.
     ///
-    /// `keys` may be longer than required. Extra items are ignored. `Error::TooLong`
+    /// `keys` may be longer than required. Extra items are ignored. `Traversal::TooLong` or `Traversal::TooShort`
     /// is not returned.
     ///
     /// ```
@@ -363,7 +363,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `separator`: The path hierarchy separator to be inserted before each name.
     ///
     /// # Returns
-    /// Final node depth on success
+    /// Node depth on success
     fn path<K, P>(keys: K, mut path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
     where
         K: IntoKeys,
@@ -487,7 +487,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     ///
     /// # Returns
-    /// The packed indices representation and leaf depth on success.
+    /// The packed indices representation and depth on success.
     fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
     where
         K: IntoKeys,

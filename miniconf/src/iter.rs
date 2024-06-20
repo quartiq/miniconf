@@ -62,13 +62,14 @@ impl<const D: usize> Default for State<D> {
 }
 
 impl<const D: usize> State<D> {
+    /// Create a new iterator state from the given root indices.
     fn new(root: &[usize]) -> Self {
         let mut state = [0; D];
         state[..root.len()].copy_from_slice(root);
         Self {
             state,
-            depth: D + 1,
             root: root.len(),
+            ..Default::default()
         }
     }
 
