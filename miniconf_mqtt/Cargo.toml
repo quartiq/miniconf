@@ -30,7 +30,7 @@ name = "mqtt"
 
 [dev-dependencies]
 machine = "0.3"
-env_logger = "0.11"
+env_logger = "0.10"
 std-embedded-nal = { git = "https://gitlab.com/ryan-summers/std-embedded-nal", branch = "feature/0.8" }
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
