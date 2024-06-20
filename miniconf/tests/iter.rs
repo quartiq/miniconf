@@ -90,3 +90,15 @@ fn panic_started_iter() {
     it.next();
     it.count();
 }
+
+#[test]
+fn root() {
+    assert_eq!(
+        Settings::iter_paths("/")
+            .root(["b"])
+            .unwrap()
+            .map(|p| p.unwrap())
+            .collect::<Vec<String>>(),
+        ["/b/0", "/b/1"]
+    );
+}

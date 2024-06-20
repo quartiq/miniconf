@@ -140,6 +140,13 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P, const D: usize> PathIter<'a,
         }
     }
 
+    /// Limit and start iteration to at and below the provided root key.
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
+        let (idx, depth) = M::indices(root)?;
+        self.state = State::new(&idx[..depth]);
+        Ok(self)
+    }
+
     /// Wrap the iterator in an exact size counting iterator.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called or
@@ -202,6 +209,13 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for IndexIter<M, Y, D> {
 }
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> IndexIter<M, Y, D> {
+    /// Limit and start iteration to at and below the provided root key.
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
+        let (idx, depth) = M::indices(root)?;
+        self.state = State::new(&idx[..depth]);
+        Ok(self)
+    }
+
     /// Wrap the iterator in an exact size counting iterator.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called or
@@ -259,11 +273,11 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for PackedIter<M, Y, D> 
 }
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> PackedIter<M, Y, D> {
-    /// Limit iteration to at and below the provided root.
-    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<(), Traversal> {
+    /// Limit and start iteration to at and below the provided root key.
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
         let (idx, depth) = M::indices(root)?;
         self.state = State::new(&idx[..depth]);
-        Ok(())
+        Ok(self)
     }
 
     /// Wrap the iterator in an exact size counting iterator.
