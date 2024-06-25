@@ -39,6 +39,7 @@ fn path() {
 
 #[test]
 fn indices() {
+    assert_eq!(Settings::indices([""; 0]), Ok(([0, 0], 0)));
     assert_eq!(Settings::indices(["b"]), Ok(([1, 0], 1)));
     assert_eq!(Settings::indices(["c", "inner"]), Ok(([2, 0], 2)));
     assert_eq!(Settings::indices(["c"]), Ok(([2, 0], 1)));
