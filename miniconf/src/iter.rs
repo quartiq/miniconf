@@ -66,14 +66,17 @@ impl<const D: usize> Default for State<D> {
 
 impl<const D: usize> State<D> {
     /// Create a new iterator state from the given root indices.
-    fn new(root: &[usize]) -> Self {
+    fn new(root: &[usize]) -> Result<Self, Traversal> {
         let mut state = [0; D];
+        if root.len() > state.len() {
+            return Err(Traversal::TooLong(state.len()));
+        }
         state[..root.len()].copy_from_slice(root);
-        Self {
+        Ok(Self {
             state,
             root: root.len(),
             ..Default::default()
-        }
+        })
     }
 
     /// Try to prepare for the next iteratiion
@@ -145,7 +148,7 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P: ?Sized, const D: usize>
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
         let (idx, depth) = M::indices(root)?;
-        self.state = State::new(&idx[..depth]);
+        self.state = State::new(&idx[..depth])?;
         Ok(self)
     }
 
@@ -214,7 +217,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> IndexIter<M, Y, D> 
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
         let (idx, depth) = M::indices(root)?;
-        self.state = State::new(&idx[..depth]);
+        self.state = State::new(&idx[..depth])?;
         Ok(self)
     }
 
@@ -278,7 +281,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> PackedIter<M, Y, D>
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
         let (idx, depth) = M::indices(root)?;
-        self.state = State::new(&idx[..depth]);
+        self.state = State::new(&idx[..depth])?;
         Ok(self)
     }
 
