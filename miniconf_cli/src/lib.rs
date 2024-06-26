@@ -64,31 +64,25 @@ impl<I: Display> Display for Error<I> {
     }
 }
 
-#[derive(Debug, PartialEq, PartialOrd)]
-pub struct Menu<'a, M, const Y: usize, const S: usize>
+pub const SEPARATOR: &str = "/";
+
+#[derive(Debug, PartialEq, PartialOrd, Default)]
+pub struct Menu<M, const Y: usize, const S: usize>
 where
-    M: TreeKey<Y> + 'a,
+    M: TreeKey<Y> + 'static,
 {
     key: String<S>,
     _m: PhantomData<M>,
-    separator: &'a str,
 }
 
-impl<'a, M, const Y: usize, const S: usize> Menu<'a, M, Y, S>
+impl<M, const Y: usize, const S: usize> Menu<M, Y, S>
 where
     M: TreeKey<Y>,
 {
-    pub fn new(separator: &'a str) -> Self {
-        Self {
-            key: String::new(),
-            _m: PhantomData,
-            separator,
-        }
-    }
-
     fn append(&self, path: Option<&str>) -> Result<String<S>, fmt::Error> {
         let mut key = self.key.clone();
         if let Some(path) = path {
+            key.write_str(SEPARATOR)?;
             key.write_str(path)?;
         }
         Ok(key)
@@ -96,24 +90,36 @@ where
 
     pub fn enter(&mut self, path: &str) -> Result<(), Error<()>> {
         let key = self.append(Some(path))?;
-        M::indices(key.split(self.separator).skip(1))?;
+        let mut it = key.split(SEPARATOR).skip(1);
+        let (_idx, depth) = M::indices(&mut it)?;
+        if it.next().is_some() {
+            return Err(Error::Traversal(miniconf::Traversal::TooLong(depth)));
+        }
         self.key = key;
         Ok(())
     }
 
-    pub fn exit(&mut self) {
-        if let Some(pos) = self.key.rfind(self.separator) {
+    pub fn exit(&mut self) -> Result<(), Error<()>> {
+        if let Some(pos) = self.key.rfind(SEPARATOR) {
             self.key.truncate(pos);
+            Ok(())
+        } else {
+            Err(Error::Traversal(miniconf::Traversal::TooShort(0)))
         }
     }
 
     pub fn list<const D: usize, E>(
         &self,
         path: Option<&str>,
-    ) -> Result<impl Iterator<Item = Result<String<S>, fmt::Error>> + 'a, Error<E>> {
-        let mut iter = PathIter::<M, Y, String<S>, D>::new(self.separator);
-        let (idx, root) = M::indices(self.append(path)?.split(self.separator).skip(1))?;
-        iter.root(idx[..root].iter().copied())?;
+    ) -> Result<impl Iterator<Item = Result<String<S>, fmt::Error>>, Error<E>> {
+        let mut iter = PathIter::<M, Y, String<S>, D>::new(SEPARATOR);
+        let key = self.append(path)?;
+        let mut it = key.split(SEPARATOR).skip(1);
+        let (idx, depth) = M::indices(&mut it)?;
+        if it.next().is_some() {
+            return Err(Error::Traversal(miniconf::Traversal::TooLong(depth)));
+        }
+        iter.root(idx[..depth].iter().copied())?;
         Ok(iter)
     }
 
@@ -155,19 +161,22 @@ where
         let def = M::default();
         let mut len = 0;
         len += awrite(&mut write, self.key.as_bytes()).await?;
-        len += awrite(&mut write, ">\n".as_bytes()).await?;
+        len += awrite(&mut write, "\n".as_bytes()).await?;
         for keys in self.list::<D, _>(path)? {
             let keys = keys?;
-            len += awrite(&mut write, &keys.as_bytes()[self.key.len()..]).await?;
-            len += awrite(&mut write, ": ".as_bytes()).await?;
             let ret = match instance.get_json(&keys, &mut buf) {
-                Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "(absent)".as_bytes(),
+                Err(miniconf::Error::Traversal(Traversal::Absent(_) | Traversal::TooShort(_))) => {
+                    continue;
+                }
                 ret => &buf[..ret?],
             };
             let check: u32 = yafnv::fnv1a(ret.iter().copied());
+            len += awrite(&mut write, "  ".as_bytes()).await?;
+            len += awrite(&mut write, &keys.as_bytes()[self.key.len()..]).await?;
+            len += awrite(&mut write, ": ".as_bytes()).await?;
             len += awrite(&mut write, ret).await?;
             let ret = match def.get_json(&keys, &mut buf) {
-                Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "(absent)".as_bytes(),
+                Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "absent".as_bytes(),
                 ret => &buf[..ret?],
             };
             if yafnv::fnv1a::<u32, _>(ret.iter().copied()) == check {
@@ -220,7 +229,7 @@ mod tests {
         let mut s = S::default();
         const D: usize = 16;
         const B: usize = 1024;
-        let mut m = Menu::<S, 3, B>::new("/");
+        let mut m = Menu::<S, 3, B>::default();
         for p in m.list::<D, ()>(None).unwrap() {
             println!("{}", p.unwrap());
         }
@@ -228,16 +237,17 @@ mod tests {
 
     #[tokio::test]
     async fn dump() {
-        let mut s = S::default();
         const D: usize = 16;
         const B: usize = 1024;
-        let mut m = Menu::<S, 3, B>::new("/");
         let mut buf = [0u8; B];
+        let mut s = S::default();
+        s.c = Some(8);
+        let mut m = Menu::<S, 3, 128>::default();
         let len = m.dump::<_, D, B>(&s, None, &mut buf[..]).await.unwrap();
         println!("{}", core::str::from_utf8(&buf[..len]).unwrap());
-        m.enter("/f").unwrap();
-        let mut buf = [0u8; B];
+        m.enter("f").unwrap();
         let len = m.dump::<_, D, B>(&s, None, &mut buf[..]).await.unwrap();
         println!("{}", core::str::from_utf8(&buf[..len]).unwrap());
+        m.exit().unwrap();
     }
 }
