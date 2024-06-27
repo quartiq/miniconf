@@ -10,11 +10,14 @@ keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
 
 [dependencies]
+embedded-io = "0.6.1"
 embedded-io-async = "0.6.1"
 heapless = "0.8.0"
 miniconf = { version = "0.11.0", path = "../miniconf", features = [
     "json-core",
+    "postcard",
 ] }
+postcard = "1.0.8"
 serde-json-core = "0.5.1"
 yafnv = "1.0.0"
 
@@ -24,3 +27,4 @@ default = ["std"]
 
 [dev-dependencies]
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
+embedded-io-adapters = { version = "0.6.1", features = ["tokio-1"] }

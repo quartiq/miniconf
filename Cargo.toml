@@ -3,6 +3,7 @@ members = [
     "crosstrait",
     "miniconf_derive",
     "miniconf",
-    "miniconf_mqtt", "miniconf_cli",
+    "miniconf_mqtt",
+    "miniconf_cli",
 ]
 resolver = "2"
