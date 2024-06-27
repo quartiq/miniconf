@@ -300,14 +300,15 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Traversal is aborted once `func` returns an `Err(E)`.
     ///
     /// This may not exhaust `keys` if a leaf is found early. i.e. `keys`
-    /// may be longer than required: `Traversal(TooLong)` is not returned.
+    /// may be longer than required: `Traversal(TooLong)` is never returned.
+    /// This is to optimize path iteration (downward probe).
     /// If `Self` is a leaf, nothing will be consumed from `keys`
     /// and `Ok(0)` will be returned.
-    /// If `Self` is non-leaf (internal node) and `Keys` is exhausted (empty),
-    /// `Err(Traversal(TooShort(0))` will be returned.
+    /// If `keys` is exhausted before reaching a leaf node,
+    /// `Err(Traversal(TooShort(depth)))` is returned.
     ///
     /// ```
-    /// use miniconf::TreeKey;
+    /// use miniconf::{TreeKey, IntoKeys};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -319,7 +320,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///         assert_eq!(ret.next().unwrap(), (index, name, len));
     ///         Ok(())
     /// };
-    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_iter(), func), Ok(2));
+    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
     /// ```
     ///
     /// # Args
@@ -339,8 +340,8 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Convert keys to path.
     ///
-    /// `keys` may be longer than required. Extra items are ignored. `Traversal::TooLong` or `Traversal::TooShort`
-    /// is not returned.
+    /// `keys` may be longer than required. Extra items are ignored.
+    /// `Traversal::TooLong` or `Traversal::TooShort` are not returned.
     ///
     /// ```
     /// use miniconf::TreeKey;
@@ -373,12 +374,9 @@ pub trait TreeKey<const Y: usize = 1> {
             path.write_str(separator)
                 .and_then(|_| path.write_str(name.unwrap_or(itoa::Buffer::new().format(index))))
         };
-        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| {
-            if let Error::Traversal(Traversal::TooShort(depth)) = err {
-                Ok(depth)
-            } else {
-                Err(err)
-            }
+        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| match err {
+            Error::Traversal(Traversal::TooShort(depth)) => Ok(depth),
+            _ => Err(err),
         })
     }
 
@@ -417,12 +415,9 @@ pub trait TreeKey<const Y: usize = 1> {
                 .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
                 .and_then(|_| path.write_char(']')),
         };
-        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| {
-            if let Error::Traversal(Traversal::TooShort(depth)) = err {
-                Ok(depth)
-            } else {
-                Err(err)
-            }
+        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| match err {
+            Error::Traversal(Traversal::TooShort(depth)) => Ok(depth),
+            _ => Err(err),
         })
     }
 
@@ -456,13 +451,9 @@ pub trait TreeKey<const Y: usize = 1> {
             Ok(())
         };
         Self::traverse_by_key(keys.into_keys(), func)
-            .or_else(|err| {
-                let err = err.try_into().unwrap();
-                if let Traversal::TooShort(depth) = err {
-                    Ok(depth)
-                } else {
-                    Err(err)
-                }
+            .or_else(|err| match err.try_into().unwrap() {
+                Traversal::TooShort(depth) => Ok(depth),
+                err => Err(err),
             })
             .map(|depth| (indices, depth))
     }
@@ -500,12 +491,9 @@ pub trait TreeKey<const Y: usize = 1> {
                 .and(Ok(()))
         };
         Self::traverse_by_key(keys.into_keys(), func)
-            .or_else(|err| {
-                if let Error::Traversal(Traversal::TooShort(depth)) = err {
-                    Ok(depth)
-                } else {
-                    Err(err)
-                }
+            .or_else(|err| match err {
+                Error::Traversal(Traversal::TooShort(depth)) => Ok(depth),
+                _ => Err(err),
             })
             .map(|depth| (packed, depth))
     }
@@ -587,7 +575,7 @@ pub trait TreeKey<const Y: usize = 1> {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{TreeAny, TreeKey, JsonPath};
+/// use miniconf::{TreeAny, TreeKey, JsonPath, IntoKeys};
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
@@ -597,7 +585,7 @@ pub trait TreeKey<const Y: usize = 1> {
 /// let mut s = S::default();
 ///
 /// for (key, depth) in S::iter_indices() {
-///     let a = s.ref_any_by_key(key[..depth].iter().copied()).unwrap();
+///     let a = s.ref_any_by_key(key[..depth].iter().copied().into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
@@ -654,7 +642,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{TreeSerialize, TreeKey};
+    /// use miniconf::{TreeSerialize, TreeKey, IntoKeys};
     /// #[derive(TreeKey, TreeSerialize)]
     /// struct S {
     ///     foo: u32,
@@ -664,7 +652,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// let s = S { foo: 9, bar: [11, 3] };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["bar", "0"].into_iter(), &mut ser).unwrap();
+    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser).unwrap();
     /// let len = ser.end();
     /// assert_eq!(&buf[..len], b"11");
     /// # }
@@ -695,7 +683,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{TreeDeserialize, TreeKey};
+    /// use miniconf::{TreeDeserialize, TreeKey, IntoKeys};
     /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
     ///     foo: u32,
@@ -704,7 +692,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json_core::de::Deserializer::new(b"7");
-    /// s.deserialize_by_key(["bar", "0"].into_iter(), &mut de).unwrap();
+    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.bar[0], 7);
     /// # }

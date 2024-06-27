@@ -93,12 +93,10 @@ fn panic_started_iter() {
 
 #[test]
 fn root() {
+    let mut iter = Settings::iter_paths("/");
+    iter.root(["b"]).unwrap();
     assert_eq!(
-        Settings::iter_paths("/")
-            .root(["b"])
-            .unwrap()
-            .map(|p| p.unwrap())
-            .collect::<Vec<String>>(),
+        iter.map(|p| p.unwrap()).collect::<Vec<String>>(),
         ["/b/0", "/b/1"]
     );
 }

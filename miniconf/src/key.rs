@@ -63,20 +63,49 @@ pub trait Keys {
     ///
     /// This may mutate and consume remaining keys.
     fn is_empty(&mut self) -> bool;
+
+    /// Return a wrapper to pass Self by mutable reference.
+    fn keys_ref(&mut self) -> Ref<'_, Self> {
+        Ref(self)
+    }
+
+    /// Chain another `Keys` to this one.
+    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
+    where
+        Self: Sized,
+    {
+        Chain(self, other.into_keys())
+    }
 }
 
-impl<T> Keys for T
+/// Iterator wrapper
+pub struct KeysIter<T: ?Sized>(T);
+
+impl<T> Keys for KeysIter<T>
 where
-    T: Iterator,
+    T: Iterator + ?Sized,
     T::Item: Key,
 {
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        let key = Iterator::next(self).ok_or(Traversal::TooShort(0))?;
+        let key = self.0.next().ok_or(Traversal::TooShort(0))?;
         key.find::<M>().ok_or(Traversal::NotFound(1))
     }
 
     fn is_empty(&mut self) -> bool {
-        self.next().is_none()
+        self.0.next().is_none()
+    }
+}
+
+impl<T> Keys for &mut T
+where
+    T: Keys + ?Sized,
+{
+    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
+        T::next::<M>(self)
+    }
+
+    fn is_empty(&mut self) -> bool {
+        T::is_empty(self)
     }
 }
 
@@ -92,11 +121,65 @@ pub trait IntoKeys {
 impl<T> IntoKeys for T
 where
     T: IntoIterator,
-    T::IntoIter: Keys,
+    <T::IntoIter as Iterator>::Item: Key,
 {
-    type IntoKeys = T::IntoIter;
+    type IntoKeys = KeysIter<T::IntoIter>;
 
     fn into_keys(self) -> Self::IntoKeys {
-        self.into_iter()
+        KeysIter(self.into_iter())
+    }
+}
+
+/// Wrapper to allow passing a mutable reference as Keys/IntoKeys
+///
+/// This is a work around to avoid overlapping overlapping trait impls
+pub struct Ref<'a, T: ?Sized>(&'a mut T);
+
+impl<'a, T: Keys + ?Sized> Keys for Ref<'a, T> {
+    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
+        self.0.next::<M>()
+    }
+
+    fn is_empty(&mut self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl<'a, T: Keys + ?Sized> IntoKeys for Ref<'a, T> {
+    type IntoKeys = Self;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
+/// Concatenate two [`Keys`] of different types.
+pub struct Chain<T, U>(T, U);
+
+impl<T, U> Chain<T, U> {
+    /// Return a new concatenated `Keys`
+    pub fn new(t: T, u: U) -> Self {
+        Self(t, u)
+    }
+}
+
+impl<T: Keys, U: Keys> Keys for Chain<T, U> {
+    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
+        match self.0.next::<M>() {
+            Err(Traversal::TooShort(_)) => self.1.next::<M>(),
+            ret => ret,
+        }
+    }
+
+    fn is_empty(&mut self) -> bool {
+        self.0.is_empty() && self.1.is_empty()
+    }
+}
+
+impl<T: Keys, U: Keys> IntoKeys for Chain<T, U> {
+    type IntoKeys = Self;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        self
     }
 }
