@@ -1,4 +1,4 @@
-use crate::{Error, IntoKeys, Packed, Traversal, TreeKey};
+use crate::{Error, IntoKeys, Keys, Packed, Traversal, TreeKey};
 use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
 
 /// Counting wrapper for iterators with known size
@@ -82,7 +82,7 @@ impl<const D: usize> State<D> {
     /// Try to prepare for the next iteratiion
     ///
     /// Increment current index and return indices iterator.
-    fn next(&mut self) -> Option<impl Iterator<Item = usize> + '_> {
+    fn next(&mut self) -> Option<impl IntoKeys + '_> {
         debug_assert!(self.depth >= self.root);
         debug_assert!(self.depth <= D + 1);
         if self.depth == self.root {
@@ -146,10 +146,14 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P: ?Sized, const D: usize>
     }
 
     /// Limit and start iteration to at and below the provided root key.
-    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
-        let (idx, depth) = M::indices(root)?;
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<usize, Traversal> {
+        let mut root = root.into_keys();
+        let (idx, depth) = M::indices(root.keys_ref())?;
+        if !root.is_empty() {
+            return Err(Traversal::TooLong(depth));
+        }
         self.state = State::new(&idx[..depth])?;
-        Ok(self)
+        Ok(depth)
     }
 
     /// Wrap the iterator in an exact size counting iterator.
@@ -215,10 +219,14 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for IndexIter<M, Y, D> {
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> IndexIter<M, Y, D> {
     /// Limit and start iteration to at and below the provided root key.
-    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
-        let (idx, depth) = M::indices(root)?;
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<usize, Traversal> {
+        let mut root = root.into_keys();
+        let (idx, depth) = M::indices(root.keys_ref())?;
+        if !root.is_empty() {
+            return Err(Traversal::TooLong(depth));
+        }
         self.state = State::new(&idx[..depth])?;
-        Ok(self)
+        Ok(depth)
     }
 
     /// Wrap the iterator in an exact size counting iterator.
@@ -242,7 +250,7 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let keys = self.state.next()?;
-            let ret = M::traverse_by_key(keys, |_, _, _| Ok(()));
+            let ret = M::traverse_by_key(keys.into_keys(), |_, _, _| Ok(()));
             return match self.state.handle(ret) {
                 None => {
                     continue;
@@ -279,10 +287,14 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for PackedIter<M, Y, D> 
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> PackedIter<M, Y, D> {
     /// Limit and start iteration to at and below the provided root key.
-    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<&mut Self, Traversal> {
-        let (idx, depth) = M::indices(root)?;
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<usize, Traversal> {
+        let mut root = root.into_keys();
+        let (idx, depth) = M::indices(root.keys_ref())?;
+        if !root.is_empty() {
+            return Err(Traversal::TooLong(depth));
+        }
         self.state = State::new(&idx[..depth])?;
-        Ok(self)
+        Ok(depth)
     }
 
     /// Wrap the iterator in an exact size counting iterator.
