@@ -63,7 +63,7 @@ macro_rules! depth {
             {
                 let index = keys.next::<Self>()?;
                 if index >= N {
-                    Err(Traversal::NotFound(1))?
+                    return Err(Traversal::NotFound(1).into());
                 }
                 func(index, None, N).map_err(|err| Error::Inner(1, err))?;
                 increment_result(T::traverse_by_key(keys, func))
@@ -139,14 +139,10 @@ impl<T, const N: usize> TreeKey for [T; N] {
     {
         let index = keys.next::<Self>()?;
         if index >= N {
-            Err(Traversal::NotFound(1))?
+            return Err(Traversal::NotFound(1).into());
         }
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-        if !keys.is_empty() {
-            Err(Traversal::TooLong(1).into())
-        } else {
-            Ok(1)
-        }
+        Ok(1)
     }
 }
 
