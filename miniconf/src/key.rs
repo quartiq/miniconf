@@ -59,9 +59,7 @@ pub trait Keys {
     /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal>;
 
-    /// Return whether there are more keys.
-    ///
-    /// This may mutate and consume remaining keys.
+    /// Finalize the keys, ensure there are no more.
     fn is_empty(&mut self) -> bool;
 
     /// Return a wrapper to pass Self by mutable reference.

@@ -340,8 +340,10 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Convert keys to path.
     ///
-    /// `keys` may be longer than required. Extra items are ignored.
-    /// `Traversal::TooLong` or `Traversal::TooShort` are not returned.
+    /// The keys can be
+    /// * too short: the internal node is returned
+    /// * matched length: the leaf node is returned
+    /// * too long: the leaf node is returned
     ///
     /// ```
     /// use miniconf::TreeKey;
@@ -371,13 +373,16 @@ pub trait TreeKey<const Y: usize = 1> {
         P: Write,
     {
         let func = |index, name: Option<_>, _len| {
-            path.write_str(separator)
-                .and_then(|_| path.write_str(name.unwrap_or(itoa::Buffer::new().format(index))))
+            path.write_str(separator)?;
+            path.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
         };
-        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| match err {
-            Error::Traversal(Traversal::TooShort(depth)) => Ok(depth),
-            _ => Err(err),
-        })
+        match Self::traverse_by_key(keys.into_keys(), func) {
+            Ok(depth)
+            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
+                Ok(depth)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Return the keys formatted as a normalized JSON path.
@@ -409,16 +414,23 @@ pub trait TreeKey<const Y: usize = 1> {
         P: Write,
     {
         let func = |index, name, _len| match name {
-            Some(name) => path.write_char('.').and_then(|_| path.write_str(name)),
-            None => path
-                .write_char('[')
-                .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
-                .and_then(|_| path.write_char(']')),
+            Some(name) => {
+                path.write_char('.')?;
+                path.write_str(name)
+            }
+            None => {
+                path.write_char('[')?;
+                path.write_str(itoa::Buffer::new().format(index))?;
+                path.write_char(']')
+            }
         };
-        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| match err {
-            Error::Traversal(Traversal::TooShort(depth)) => Ok(depth),
-            _ => Err(err),
-        })
+        match Self::traverse_by_key(keys.into_keys(), func) {
+            Ok(depth)
+            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
+                Ok(depth)
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Convert keys to `indices`.
@@ -446,16 +458,17 @@ pub trait TreeKey<const Y: usize = 1> {
         let mut indices = [0; Y];
         let mut it = indices.iter_mut();
         let func = |index, _name, _len| -> Result<(), ()> {
-            let idx = it.next().unwrap();
+            let idx = it.next().ok_or(())?;
             *idx = index;
             Ok(())
         };
-        Self::traverse_by_key(keys.into_keys(), func)
-            .or_else(|err| match err.try_into().unwrap() {
-                Traversal::TooShort(depth) => Ok(depth),
-                err => Err(err),
-            })
-            .map(|depth| (indices, depth))
+        match Self::traverse_by_key(keys.into_keys(), func) {
+            Ok(depth)
+            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
+                Ok((indices, depth))
+            }
+            Err(err) => Err(Traversal::try_from(err).unwrap()),
+        }
     }
 
     /// Convert keys to packed usize bitfield representation.
@@ -484,18 +497,19 @@ pub trait TreeKey<const Y: usize = 1> {
         K: IntoKeys,
     {
         let mut packed = Packed::default();
-        let func = |index, _name, len: usize| {
-            packed
-                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
-                .ok_or(())
-                .and(Ok(()))
+        let func = |index, _name, len: usize| match packed
+            .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
+        {
+            None => Err(()),
+            Some(_) => Ok(()),
         };
-        Self::traverse_by_key(keys.into_keys(), func)
-            .or_else(|err| match err {
-                Error::Traversal(Traversal::TooShort(depth)) => Ok(depth),
-                _ => Err(err),
-            })
-            .map(|depth| (packed, depth))
+        match Self::traverse_by_key(keys.into_keys(), func) {
+            Ok(depth)
+            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
+                Ok((packed, depth))
+            }
+            Err(err) => Err(err),
+        }
     }
 
     /// Create an iterator of all possible leaf paths.

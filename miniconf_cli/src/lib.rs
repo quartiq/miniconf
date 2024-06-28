@@ -9,6 +9,7 @@ use heapless::String;
 
 use miniconf::{JsonCoreSlash, Keys, Packed, PackedIter, PathIter, Postcard, Traversal, TreeKey};
 
+/// Wrapper to support core::fmt::Write for embedded_io::Write
 struct WriteWrap<T>(T);
 
 impl<T: Write> fmt::Write for WriteWrap<T> {

@@ -134,7 +134,13 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
-                    _ => Ok(0),
+                    _ => {
+                        if !keys.is_empty() {
+                            Err(::miniconf::Traversal::TooLong(0).into())
+                        } else {
+                            Ok(0)
+                        }
+                    }
                 })
             }
         }

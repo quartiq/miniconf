@@ -142,7 +142,11 @@ impl<T, const N: usize> TreeKey for [T; N] {
             Err(Traversal::NotFound(1))?
         }
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-        Ok(1)
+        if !keys.is_empty() {
+            Err(Traversal::TooLong(1).into())
+        } else {
+            Ok(1)
+        }
     }
 }
 

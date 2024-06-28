@@ -101,12 +101,16 @@ impl<T> TreeKey for Option<T> {
         }
     }
 
-    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
+    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        Ok(0)
+        if !keys.is_empty() {
+            Err(Traversal::TooLong(0).into())
+        } else {
+            Ok(0)
+        }
     }
 }
 

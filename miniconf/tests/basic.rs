@@ -47,7 +47,7 @@ fn indices() {
 
     let mut it = [0; 4].into_iter();
     assert_eq!(Settings::indices(&mut it), Ok(([0, 0], 1)));
-    assert_eq!(it.count(), 3);
+    assert_eq!(it.count(), 2);
 }
 
 #[test]
@@ -63,7 +63,10 @@ fn traverse_empty() {
         S::traverse_by_key([0; 0].into_keys(), f),
         Err(Traversal::TooShort(0).into())
     );
-    assert_eq!(Option::<i32>::traverse_by_key([0].into_keys(), f), Ok(0));
+    assert_eq!(
+        Option::<i32>::traverse_by_key([0].into_keys(), f),
+        Err(Traversal::TooLong(0).into())
+    );
     assert_eq!(Option::<i32>::traverse_by_key([0; 0].into_keys(), f), Ok(0));
     assert_eq!(
         <Option::<S> as TreeKey<2>>::traverse_by_key([0].into_keys(), f),

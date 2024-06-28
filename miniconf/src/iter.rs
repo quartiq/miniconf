@@ -58,6 +58,7 @@ impl<const D: usize> Default for State<D> {
     fn default() -> Self {
         Self {
             state: [0; D],
+            // Marker to prevent initial index increment in `next()`
             depth: D + 1,
             root: 0,
         }
@@ -99,25 +100,22 @@ impl<const D: usize> State<D> {
     /// Handle the result of a `traverse_by_key()` and update `depth` for next iteration.
     fn handle<E>(&mut self, ret: Result<usize, Error<E>>) -> Option<Result<usize, (usize, E)>> {
         match ret {
-            Ok(depth) | Err(Error::Traversal(Traversal::NotFound(depth))) if depth < self.root => {
-                // Traversal terminated (Ok or NotFound) before reaching root: terminate on loop next()
-                self.depth = self.root;
-                None
-            }
             Err(Error::Traversal(Traversal::NotFound(depth))) => {
-                // Not found below root:
-                // Reset index at current depth, then retry with incremented index above
+                // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
+                // Key lookup was performed and failed: depth is always >= 1
                 self.state[depth - 1] = 0;
-                self.depth = depth - 1;
+                self.depth = (depth - 1).max(self.root);
                 None
             }
-            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => {
+            Ok(depth)
+            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
+                debug_assert!(depth >= self.root);
                 // Leaf or internal node found, save depth for increment at next iteration
                 self.depth = depth;
                 Some(Ok(depth))
             }
             Err(Error::Inner(depth, err)) => Some(Err((depth, err))),
-            // TooLong, Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
+            // Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
             _ => unreachable!(),
         }
     }
