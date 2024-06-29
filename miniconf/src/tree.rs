@@ -377,10 +377,7 @@ pub trait TreeKey<const Y: usize = 1> {
             path.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
         };
         match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth)
-            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
-                Ok(depth)
-            }
+            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(depth),
             Err(err) => Err(err),
         }
     }
@@ -425,10 +422,7 @@ pub trait TreeKey<const Y: usize = 1> {
             }
         };
         match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth)
-            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
-                Ok(depth)
-            }
+            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(depth),
             Err(err) => Err(err),
         }
     }
@@ -462,11 +456,9 @@ pub trait TreeKey<const Y: usize = 1> {
             *idx = index;
             Ok(())
         };
-        match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth)
-            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
-                Ok((indices, depth))
-            }
+        let mut keys = keys.into_keys();
+        match Self::traverse_by_key(keys.keys_ref(), func) {
+            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok((indices, depth)),
             Err(err) => Err(Traversal::try_from(err).unwrap()),
         }
     }
@@ -505,7 +497,7 @@ pub trait TreeKey<const Y: usize = 1> {
         };
         match Self::traverse_by_key(keys.into_keys(), func) {
             Ok(depth)
-            | Err(Error::Traversal(Traversal::TooShort(depth) | Traversal::TooLong(depth))) => {
+            | Err(Error::Traversal(Traversal::TooShort(depth))) => {
                 Ok((packed, depth))
             }
             Err(err) => Err(err),

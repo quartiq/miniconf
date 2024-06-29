@@ -1,5 +1,5 @@
-use crate::{Error, IntoKeys, Keys, Packed, Traversal, TreeKey};
-use core::{fmt::Write, iter::FusedIterator, marker::PhantomData};
+use crate::{Error, IntoKeys, KeyLookup, Keys, KeysIter, Packed, Traversal, TreeKey};
+use core::{fmt::Write, iter::{Copied, FusedIterator}, marker::PhantomData, slice::Iter};
 
 /// Counting wrapper for iterators with known size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +42,27 @@ impl<T: Iterator> ExactSizeIterator for Counting<T> {}
 impl<T: FusedIterator> FusedIterator for Counting<T> {}
 
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
+
+/// A Keys wrapper that is is_empty()
+pub struct Consume<'a>(KeysIter<Copied<Iter<'a, usize>>>);
+impl<'a> Keys for Consume<'a> {
+    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
+        Keys::next::<M>(&mut self.0)
+    }
+
+    fn is_empty(&mut self) -> bool {
+        true
+    }
+}
+impl<'a> IntoKeys for Consume<'a> {
+    type IntoKeys = Self;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
+
 
 /// A managed indices state for iteration of nodes in a `TreeKey`.
 ///
@@ -94,7 +115,7 @@ impl<const D: usize> State<D> {
             // Not initial state: increment
             self.state[self.depth - 1] += 1;
         }
-        Some(self.state.iter().copied())
+        Some(Consume(self.state.iter().copied().into_keys()))
     }
 
     /// Handle the result of a `traverse_by_key()` and update `depth` for next iteration.
