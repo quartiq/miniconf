@@ -456,8 +456,7 @@ pub trait TreeKey<const Y: usize = 1> {
             *idx = index;
             Ok(())
         };
-        let mut keys = keys.into_keys();
-        match Self::traverse_by_key(keys.keys_ref(), func) {
+        match Self::traverse_by_key(keys.into_keys(), func) {
             Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok((indices, depth)),
             Err(err) => Err(Traversal::try_from(err).unwrap()),
         }

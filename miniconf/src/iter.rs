@@ -169,11 +169,7 @@ impl<'a, M: TreeKey<Y> + ?Sized, const Y: usize, P: ?Sized, const D: usize>
 
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<usize, Traversal> {
-        let mut root = root.into_keys();
-        let (idx, depth) = M::indices(root.keys_ref())?;
-        if !root.is_empty() {
-            return Err(Traversal::TooLong(depth));
-        }
+        let (idx, depth) = M::indices(root)?;
         self.state = State::new(&idx[..depth])?;
         Ok(depth)
     }
@@ -242,11 +238,7 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for IndexIter<M, Y, D> {
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> IndexIter<M, Y, D> {
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<usize, Traversal> {
-        let mut root = root.into_keys();
-        let (idx, depth) = M::indices(root.keys_ref())?;
-        if !root.is_empty() {
-            return Err(Traversal::TooLong(depth));
-        }
+        let (idx, depth) = M::indices(root)?;
         self.state = State::new(&idx[..depth])?;
         Ok(depth)
     }
@@ -310,11 +302,7 @@ impl<M: ?Sized, const Y: usize, const D: usize> Default for PackedIter<M, Y, D> 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, const D: usize> PackedIter<M, Y, D> {
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<usize, Traversal> {
-        let mut root = root.into_keys();
-        let (idx, depth) = M::indices(root.keys_ref())?;
-        if !root.is_empty() {
-            return Err(Traversal::TooLong(depth));
-        }
+        let (idx, depth) = M::indices(root)?;
         self.state = State::new(&idx[..depth])?;
         Ok(depth)
     }

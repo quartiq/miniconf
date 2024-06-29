@@ -62,11 +62,6 @@ pub trait Keys {
     /// Finalize the keys, ensure there are no more.
     fn is_empty(&mut self) -> bool;
 
-    /// Return a wrapper to pass Self by mutable reference.
-    fn keys_ref(&mut self) -> Ref<'_, Self> {
-        Ref(self)
-    }
-
     /// Chain another `Keys` to this one.
     fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
     where
@@ -125,29 +120,6 @@ where
 
     fn into_keys(self) -> Self::IntoKeys {
         KeysIter(self.into_iter())
-    }
-}
-
-/// Wrapper to allow passing a mutable reference as Keys/IntoKeys
-///
-/// This is a work around to avoid overlapping overlapping trait impls
-pub struct Ref<'a, T: ?Sized>(&'a mut T);
-
-impl<'a, T: Keys + ?Sized> Keys for Ref<'a, T> {
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        self.0.next::<M>()
-    }
-
-    fn is_empty(&mut self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl<'a, T: Keys + ?Sized> IntoKeys for Ref<'a, T> {
-    type IntoKeys = Self;
-
-    fn into_keys(self) -> Self::IntoKeys {
-        self
     }
 }
 

@@ -107,13 +107,8 @@ where
     }
 
     fn push(&self, path: &str) -> Result<(Self, usize), miniconf::Error<()>> {
-        let mut new = self.key.chain(path.split(SEPARATOR));
-        let (key, depth) = M::packed(new.keys_ref())?;
-        if !new.is_empty() {
-            Err(miniconf::Traversal::TooLong(depth).into())
-        } else {
-            Ok((Self::new(key), depth))
-        }
+        let (key, depth) = M::packed(self.key.chain(path.split(SEPARATOR)))?;
+        Ok((Self::new(key), depth))
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, usize), miniconf::Error<()>> {

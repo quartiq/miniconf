@@ -48,14 +48,6 @@ impl Node {
     }
 }
 
-// take(self.depth)!
-// impl<T: IntoKeys> IntoKeys for Node<T> {
-//     type IntoKeys = T::IntoKeys;
-//     fn into_keys(self) -> Self::IntoKeys {
-//         self.keys.into_keys()
-//     }
-// }
-
 /// Look up an IntoKeys on a TreeKey and return a node of different Keys with node type info
 pub trait Lookup {
     /// Perform the lookup
