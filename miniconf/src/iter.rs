@@ -1,5 +1,10 @@
 use crate::{Error, IntoKeys, KeyLookup, Keys, KeysIter, Packed, Traversal, TreeKey};
-use core::{fmt::Write, iter::{Copied, FusedIterator}, marker::PhantomData, slice::Iter};
+use core::{
+    fmt::Write,
+    iter::{Copied, FusedIterator},
+    marker::PhantomData,
+    slice::Iter,
+};
 
 /// Counting wrapper for iterators with known size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,8 +66,6 @@ impl<'a> IntoKeys for Consume<'a> {
         self
     }
 }
-
-
 
 /// A managed indices state for iteration of nodes in a `TreeKey`.
 ///

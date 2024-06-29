@@ -22,6 +22,8 @@ mod jsonpath;
 pub use jsonpath::*;
 mod error;
 pub use error::*;
+mod node;
+pub use node::*;
 
 #[cfg(feature = "json-core")]
 mod json_core;

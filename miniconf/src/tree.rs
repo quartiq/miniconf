@@ -496,10 +496,7 @@ pub trait TreeKey<const Y: usize = 1> {
             Some(_) => Ok(()),
         };
         match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth)
-            | Err(Error::Traversal(Traversal::TooShort(depth))) => {
-                Ok((packed, depth))
-            }
+            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok((packed, depth)),
             Err(err) => Err(err),
         }
     }
