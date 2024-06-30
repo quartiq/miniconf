@@ -7,7 +7,10 @@ use embedded_io::Write;
 use embedded_io_async::Write as AWrite;
 use heapless::String;
 
-use miniconf::{JsonCoreSlash, Keys, Packed, PackedIter, PathIter, Postcard, Traversal, TreeKey};
+use miniconf::{
+    JsonCoreSlash, Keys, Node, NodeIter, NodeLookup, Packed, Postcard, SlashPath, Traversal,
+    TreeKey,
+};
 
 /// Wrapper to support core::fmt::Write for embedded_io::Write
 struct WriteWrap<T>(T);
@@ -106,39 +109,40 @@ where
         }
     }
 
-    fn push(&self, path: &str) -> Result<(Self, usize), miniconf::Error<()>> {
-        let (key, depth) = M::packed(self.key.chain(path.split(SEPARATOR)))?;
-        Ok((Self::new(key), depth))
+    fn push(&self, path: &str) -> Result<(Self, Node), Traversal> {
+        let (key, node) = M::lookup(self.key.chain(path.split(SEPARATOR)))?;
+        Ok((Self::new(key), node))
     }
 
-    fn pop(&self, levels: usize) -> Result<(Self, usize), miniconf::Error<()>> {
-        let (idx, depth) = M::indices(self.key)?;
-        if depth < levels {
-            Err(miniconf::Traversal::TooShort(depth).into())
+    fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
+        let mut idx = [0; D];
+        let node = idx.lookup::<M, Y, _>(self.key)?;
+        if node.depth() < levels {
+            Err(Traversal::TooShort(node.depth()))
         } else {
-            let (key, depth) = M::packed(idx[..depth - levels].iter().copied())?;
-            Ok((Self::new(key), depth))
+            let (key, node) = M::lookup(idx[..node.depth() - levels].iter().copied())?;
+            Ok((Self::new(key), node))
         }
     }
 
-    pub fn enter(&mut self, path: &str) -> Result<usize, miniconf::Error<()>> {
-        let (new, depth) = self.push(path)?;
+    pub fn enter(&mut self, path: &str) -> Result<Node, miniconf::Error<()>> {
+        let (new, node) = self.push(path)?;
         *self = new;
-        Ok(depth)
+        Ok(node)
     }
 
-    pub fn exit(&mut self, levels: usize) -> Result<usize, miniconf::Error<()>> {
-        let (new, depth) = self.pop(levels)?;
+    pub fn exit(&mut self, levels: usize) -> Result<Node, miniconf::Error<()>> {
+        let (new, node) = self.pop(levels)?;
         *self = new;
-        Ok(depth)
+        Ok(node)
     }
 
     pub fn list<const S: usize>(
         &self,
-    ) -> Result<impl Iterator<Item = Result<String<S>, fmt::Error>>, Traversal> {
-        let mut iter = PathIter::<M, Y, String<S>, D>::new(SEPARATOR);
+    ) -> Result<impl Iterator<Item = Result<String<S>, usize>>, Traversal> {
+        let mut iter = NodeIter::<M, Y, SlashPath<String<S>>, D>::default();
         iter.root(self.key)?;
-        Ok(iter)
+        Ok(iter.map(|pn| pn.map(|(p, _n)| p.into_path())))
     }
 
     pub fn get(
@@ -172,12 +176,13 @@ where
         M: for<'de> Postcard<'de, Y> + Default,
     {
         let def = M::default();
-        let mut iter = M::iter_packed();
+        let mut iter = M::nodes::<Packed>();
         iter.root(self.key)?;
         use postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
         for keys in iter {
-            let keys =
+            let (keys, node) =
                 keys.map_err(|depth| miniconf::Error::Traversal(Traversal::TooLong(depth)))?;
+            debug_assert!(node.is_leaf());
             let val = match def.get_postcard_by_key(keys, SerSlice::new(&mut buf[..])) {
                 Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
                     continue;
@@ -211,12 +216,13 @@ where
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
-        let mut iter = PackedIter::<M, Y, D>::default();
+        let mut iter = NodeIter::<M, Y, Packed, D>::default();
         iter.root(self.key)?;
         for keys in iter {
-            let keys = keys?;
+            let (keys, node) = keys?;
             let (val, rest) = match instance.get_json_by_key(keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_))) => {
+                    debug_assert!(!node.is_leaf());
                     ("...\n".as_bytes(), &mut buf[..])
                 }
                 Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
@@ -238,6 +244,7 @@ where
             awrite(&mut write, val).await?;
             let def = match def.get_json_by_key(keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_depth))) => {
+                    debug_assert!(!node.is_leaf());
                     continue;
                 }
                 Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "absent".as_bytes(),
