@@ -49,7 +49,7 @@ impl Node {
 }
 
 /// Look up an IntoKeys on a TreeKey and return a node of different Keys with node type info
-pub trait Lookup {
+pub trait NodeLookup {
     /// Perform the lookup
     fn lookup<M, T, const Y: usize>(&mut self, keys: T) -> Result<Node, Traversal>
     where
@@ -58,7 +58,7 @@ pub trait Lookup {
         T: IntoKeys;
 }
 
-fn traverse<E>(ret: Result<usize, Error<E>>) -> Result<Node, Traversal> {
+fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
     match ret {
         Ok(depth) => Ok(Node {
             depth,
@@ -74,7 +74,21 @@ fn traverse<E>(ret: Result<usize, Error<E>>) -> Result<Node, Traversal> {
     }
 }
 
-impl<'a> Lookup for SliceString<'a> {
+impl NodeLookup for () {
+    fn lookup<M, T, const Y: usize>(&mut self, keys: T) -> Result<Node, Traversal>
+    where
+        Self: Sized,
+        M: TreeKey<Y>,
+        T: IntoKeys,
+    {
+        traverse(M::traverse_by_key(
+            keys.into_keys(),
+            |_index, _name: Option<_>, _len| Ok::<_, ()>(()),
+        ))
+    }
+}
+
+impl<'a> NodeLookup for SliceString<'a> {
     fn lookup<M, T, const Y: usize>(&mut self, keys: T) -> Result<Node, Traversal>
     where
         Self: Sized,
@@ -83,15 +97,18 @@ impl<'a> Lookup for SliceString<'a> {
     {
         let separator = self.chars().next().ok_or(Traversal::TooShort(0))?;
         self.clear();
-        let func = |index, name: Option<_>, _len| {
-            self.write_char(separator)?;
-            self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
-        };
-        traverse(M::traverse_by_key(keys.into_keys(), func))
+        traverse(M::traverse_by_key(
+            keys.into_keys(),
+            |index, name: Option<_>, _len| {
+                self.write_char(separator).or(Err(()))?;
+                self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
+                    .or(Err(()))
+            },
+        ))
     }
 }
 
-impl<const D: usize> Lookup for [usize; D] {
+impl<const D: usize> NodeLookup for [usize; D] {
     fn lookup<M, K, const Y: usize>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
@@ -99,28 +116,32 @@ impl<const D: usize> Lookup for [usize; D] {
         K: IntoKeys,
     {
         let mut it = self.iter_mut();
-        let func = |index, _name, _len| -> Result<(), ()> {
-            let idx = it.next().ok_or(())?;
-            *idx = index;
-            Ok(())
-        };
-        traverse(M::traverse_by_key(keys.into_keys(), func))
+        traverse(M::traverse_by_key(
+            keys.into_keys(),
+            |index, _name, _len| {
+                let idx = it.next().ok_or(())?;
+                *idx = index;
+                Ok::<_, ()>(())
+            },
+        ))
     }
 }
 
-impl Lookup for Packed {
+impl NodeLookup for Packed {
     fn lookup<M, K, const Y: usize>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y>,
         K: IntoKeys,
     {
-        let func = |index, _name, len: usize| match self
-            .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
-        {
-            None => Err(()),
-            Some(_) => Ok(()),
-        };
-        traverse(M::traverse_by_key(keys.into_keys(), func))
+        traverse(M::traverse_by_key(
+            keys.into_keys(),
+            |index, _name, len: usize| match self
+                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
+            {
+                None => Err(()),
+                Some(_) => Ok(()),
+            },
+        ))
     }
 }
