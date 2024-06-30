@@ -1,8 +1,13 @@
-use core::fmt::Write;
+use core::{
+    fmt::Write,
+    iter::Skip,
+    ops::{Deref, DerefMut},
+    str::Split,
+};
 
 use slice_string::SliceString;
 
-use crate::{Error, IntoKeys, Packed, Traversal, TreeKey};
+use crate::{Error, IntoKeys, KeysIter, Packed, Traversal, TreeKey};
 
 /// Type of a node
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
@@ -51,11 +56,11 @@ impl Node {
 /// Look up an IntoKeys on a TreeKey and return a node of different Keys with node type info
 pub trait NodeLookup {
     /// Perform the lookup
-    fn lookup<M, T, const Y: usize>(&mut self, keys: T) -> Result<Node, Traversal>
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y>,
-        T: IntoKeys;
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys;
 }
 
 fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
@@ -75,44 +80,158 @@ fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
 }
 
 impl NodeLookup for () {
-    fn lookup<M, T, const Y: usize>(&mut self, keys: T) -> Result<Node, Traversal>
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y>,
-        T: IntoKeys,
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
     {
         traverse(M::traverse_by_key(
             keys.into_keys(),
-            |_index, _name: Option<_>, _len| Ok::<_, ()>(()),
+            |_index, _name, _len| Ok::<_, ()>(()),
         ))
     }
 }
 
 impl<'a> NodeLookup for SliceString<'a> {
-    fn lookup<M, T, const Y: usize>(&mut self, keys: T) -> Result<Node, Traversal>
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y>,
-        T: IntoKeys,
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
     {
         let separator = self.chars().next().ok_or(Traversal::TooShort(0))?;
         self.clear();
-        traverse(M::traverse_by_key(
-            keys.into_keys(),
-            |index, name: Option<_>, _len| {
-                self.write_char(separator).or(Err(()))?;
-                self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
-                    .or(Err(()))
-            },
-        ))
+        traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
+            self.write_char(separator).or(Err(()))?;
+            self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
+                .or(Err(()))
+        }))
+    }
+}
+
+/// Path separated by a separator
+///
+/// The path will either be empty or start with the separator.
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub struct Path<'a, T> {
+    path: T,
+    separator: &'a str,
+}
+
+impl<'a, T> Path<'a, T> {
+    /// Create a new empty path
+    pub fn new(path: T, separator: &'a str) -> Self {
+        Self { path, separator }
+    }
+
+    /// Create a new empty path given a separator
+    pub fn empty(separator: &'a str) -> Self
+    where
+        T: Default,
+    {
+        Self::new(T::default(), separator)
+    }
+
+    /// The path hierarchy separator
+    pub fn separator(&self) -> &str {
+        self.separator
+    }
+
+    /// The path
+    pub fn path(&self) -> &T {
+        &self.path
+    }
+
+    /// Extract just the path
+    pub fn into_path(self) -> T {
+        self.path
+    }
+}
+
+impl<'a, T: AsRef<str>> IntoKeys for &'a Path<'a, T> {
+    type IntoKeys = KeysIter<Skip<Split<'a, &'a str>>>;
+    fn into_keys(self) -> Self::IntoKeys {
+        self.path.as_ref().split(self.separator).skip(1).into_keys()
+    }
+}
+
+impl<'a, T: Write> NodeLookup for Path<'a, T> {
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        Self: Sized,
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
+    {
+        traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
+            self.path.write_str(self.separator).or(Err(()))?;
+            self.path
+                .write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
+                .or(Err(()))
+        }))
+    }
+}
+
+/// Slash-separated [`Path`]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct SlashPath<T>(Path<'static, T>);
+
+impl<T> SlashPath<T> {
+    /// Extract just the path
+    pub fn into_path(self) -> T {
+        self.0.into_path()
+    }
+}
+
+impl<T: Default> Default for SlashPath<T> {
+    fn default() -> Self {
+        Self(Path::new(T::default(), "/"))
+    }
+}
+
+impl<T> From<SlashPath<T>> for Path<'static, T> {
+    fn from(value: SlashPath<T>) -> Self {
+        value.0
+    }
+}
+
+impl<T> Deref for SlashPath<T> {
+    type Target = Path<'static, T>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for SlashPath<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, T: AsRef<str>> IntoKeys for &'a SlashPath<T> {
+    type IntoKeys = KeysIter<Skip<Split<'a, &'a str>>>;
+    fn into_keys(self) -> Self::IntoKeys {
+        self.0.into_keys()
+    }
+}
+
+impl<T: Write> NodeLookup for SlashPath<T> {
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        Self: Sized,
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
+    {
+        self.0.lookup::<M, Y, _>(keys)
     }
 }
 
 impl<const D: usize> NodeLookup for [usize; D] {
-    fn lookup<M, K, const Y: usize>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y>,
+        M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
         let mut it = self.iter_mut();
@@ -128,10 +247,10 @@ impl<const D: usize> NodeLookup for [usize; D] {
 }
 
 impl NodeLookup for Packed {
-    fn lookup<M, K, const Y: usize>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y>,
+        M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
         traverse(M::traverse_by_key(

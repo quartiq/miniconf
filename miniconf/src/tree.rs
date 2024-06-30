@@ -1,7 +1,10 @@
 use core::any::Any;
 use core::fmt::Write;
 
-use crate::{Error, IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter, Traversal};
+use crate::{
+    Error, IndexIter, IntoKeys, Keys, Node, NodeIter, NodeLookup, Packed, PackedIter, PathIter,
+    Traversal,
+};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -337,6 +340,52 @@ pub trait TreeKey<const Y: usize = 1> {
         // Writing this to return an iterator instead of using a callback
         // would have worse performance (O(n^2) instead of O(n) for matching)
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>;
+
+    /// Lookup keys and convert to a new keys representation
+    ///
+    /// ```
+    /// use miniconf::{TreeKey, Path, NodeLookup};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let mut path = Path::<String>::empty("/");
+    /// path.lookup::<S, 2, _>([1, 1]).unwrap();
+    /// assert_eq!(path.path(), "/bar/1");
+    /// let idx: [usize; 2] = S::lookup(&path).unwrap().0;
+    /// assert_eq!(idx, [1, 1]);
+    /// ```
+    fn lookup<N, K>(keys: K) -> Result<(N, Node), Traversal>
+    where
+        K: IntoKeys,
+        N: NodeLookup + Default,
+    {
+        let mut path = N::default();
+        let node = path.lookup::<Self, Y, _>(keys)?;
+        Ok((path, node))
+    }
+
+    /// Return an iterator over nodes of a given type
+    ///
+    /// ```
+    /// use miniconf::{TreeKey, SlashPath};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let paths: Vec<String> = S::nodes::<SlashPath<_>>().count().map(|p| p.unwrap().0.into_path()).collect();
+    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
+    /// ```
+    fn nodes<N>() -> NodeIter<Self, Y, N>
+    where
+        N: NodeLookup + Default,
+    {
+        NodeIter::default()
+    }
 
     /// Convert keys to path.
     ///

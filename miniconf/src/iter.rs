@@ -1,4 +1,6 @@
-use crate::{Error, IntoKeys, KeyLookup, Keys, KeysIter, Packed, Traversal, TreeKey};
+use crate::{
+    Error, IntoKeys, KeyLookup, Keys, KeysIter, Node, NodeLookup, Packed, Traversal, TreeKey,
+};
 use core::{
     fmt::Write,
     iter::{Copied, FusedIterator},
@@ -143,6 +145,99 @@ impl<const D: usize> State<D> {
             _ => unreachable!(),
         }
     }
+}
+
+/// Node iterator
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
+    state: [usize; D],
+    root: usize,
+    depth: usize,
+    _n: PhantomData<N>,
+    _m: PhantomData<M>,
+}
+
+impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N, D> {
+    fn default() -> Self {
+        Self {
+            state: [0; D],
+            root: 0,
+            depth: D + 1,
+            _n: PhantomData,
+            _m: PhantomData,
+        }
+    }
+}
+
+impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N, D> {
+    /// Limit and start iteration to at and below the provided root key.
+    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<Node, Traversal> {
+        let node = self.state.lookup::<M, Y, _>(root)?;
+        self.root = node.depth();
+        Ok(node)
+    }
+
+    /// Wrap the iterator in an exact size counting iterator.
+    ///
+    /// Note(panic): Panics, if the iterator had `next()` called or
+    /// if the iteration depth has been limited.
+    pub fn count(self) -> Counting<Self> {
+        assert!(self.depth > D);
+        assert!(self.root == 0);
+        assert!(D >= Y);
+        Counting::new(self, M::metadata().count)
+    }
+}
+
+impl<M, const Y: usize, N, const D: usize> Iterator for NodeIter<M, Y, N, D>
+where
+    M: TreeKey<Y> + ?Sized,
+    N: NodeLookup + Default,
+{
+    type Item = Result<(N, Node), usize>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            debug_assert!(self.depth >= self.root);
+            debug_assert!(self.depth <= D + 1);
+            if self.depth == self.root {
+                // Iteration done
+                return None;
+            }
+            if self.depth <= D {
+                // Not initial state: increment
+                self.state[self.depth - 1] += 1;
+            }
+            let keys = Consume(self.state.iter().copied().into_keys());
+            let mut path = N::default();
+            return match path.lookup::<M, Y, _>(keys) {
+                Err(Traversal::NotFound(depth)) => {
+                    // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
+                    // Key lookup was performed and failed: depth is always >= 1
+                    self.state[depth - 1] = 0;
+                    self.depth = (depth - 1).max(self.root);
+                    continue;
+                }
+                Ok(node) => {
+                    debug_assert!(node.depth() >= self.root);
+                    // Leaf or internal node found, save depth for increment at next iteration
+                    self.depth = node.depth();
+                    Some(Ok((path, node)))
+                }
+                Err(Traversal::TooShort(depth)) => Some(Err(depth)),
+                // TooLong: Consume
+                // TooShort: Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
+                _ => unreachable!(),
+            };
+        }
+    }
+}
+
+impl<M, const Y: usize, N, const D: usize> core::iter::FusedIterator for NodeIter<M, Y, N, D>
+where
+    M: TreeKey<Y> + ?Sized,
+    N: NodeLookup + Default,
+{
 }
 
 /// An iterator over the paths in a `TreeKey`.
