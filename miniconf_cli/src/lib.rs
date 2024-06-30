@@ -67,17 +67,6 @@ impl<I> From<usize> for Error<I> {
     }
 }
 
-impl<I> From<miniconf::Error<fmt::Error>> for Error<I> {
-    fn from(value: miniconf::Error<fmt::Error>) -> Self {
-        match value {
-            miniconf::Error::Inner(_depth, e) => Self::Fmt(e),
-            miniconf::Error::Traversal(e) => Self::Traversal(e),
-            miniconf::Error::Finalization(_) => unreachable!(),
-            _ => unimplemented!(),
-        }
-    }
-}
-
 pub const SEPARATOR: &str = "/";
 
 #[derive(Debug, PartialEq, PartialOrd)]
@@ -125,13 +114,13 @@ where
         }
     }
 
-    pub fn enter(&mut self, path: &str) -> Result<Node, miniconf::Error<()>> {
+    pub fn enter(&mut self, path: &str) -> Result<Node, Traversal> {
         let (new, node) = self.push(path)?;
         *self = new;
         Ok(node)
     }
 
-    pub fn exit(&mut self, levels: usize) -> Result<Node, miniconf::Error<()>> {
+    pub fn exit(&mut self, levels: usize) -> Result<Node, Traversal> {
         let (new, node) = self.pop(levels)?;
         *self = new;
         Ok(node)
@@ -212,7 +201,7 @@ where
         let def = M::default();
         let bl = buf.len();
         let mut sl = &mut buf[..];
-        M::path(self.key, WriteWrap(&mut sl), SEPARATOR)?;
+        SlashPath::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(self.key)?;
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
@@ -237,7 +226,7 @@ where
             awrite(&mut write, "  ".as_bytes()).await?;
             let rl = rest.len();
             let mut sl = &mut rest[..];
-            M::path(keys, WriteWrap(&mut sl), SEPARATOR)?;
+            SlashPath::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(keys)?;
             let path_len = rl - sl.len();
             awrite(&mut write, &rest[root_len..path_len]).await?;
             awrite(&mut write, ": ".as_bytes()).await?;

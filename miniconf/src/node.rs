@@ -196,6 +196,12 @@ impl<T> From<SlashPath<T>> for Path<'static, T> {
     }
 }
 
+impl<T> From<T> for SlashPath<T> {
+    fn from(value: T) -> Self {
+        Self(Path::new(value, "/"))
+    }
+}
+
 impl<T> Deref for SlashPath<T> {
     type Target = Path<'static, T>;
     fn deref(&self) -> &Self::Target {
