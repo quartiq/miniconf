@@ -113,50 +113,50 @@ impl<'a> NodeLookup for SliceString<'a> {
 /// Path separated by a separator
 ///
 /// The path will either be empty or start with the separator.
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub struct Path<'a, T> {
-    path: T,
-    separator: &'a str,
-}
+#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[repr(transparent)]
+pub struct Path<T, const S: char>(T);
 
-impl<'a, T> Path<'a, T> {
-    /// Create a new empty path
-    pub fn new(path: T, separator: &'a str) -> Self {
-        Self { path, separator }
-    }
-
-    /// Create a new empty path given a separator
-    pub fn empty(separator: &'a str) -> Self
-    where
-        T: Default,
-    {
-        Self::new(T::default(), separator)
-    }
-
+impl<T, const S: char> Path<T, S> {
     /// The path hierarchy separator
-    pub fn separator(&self) -> &str {
-        self.separator
-    }
-
-    /// The path
-    pub fn path(&self) -> &T {
-        &self.path
+    pub const fn separator(&self) -> char {
+        S
     }
 
     /// Extract just the path
-    pub fn into_path(self) -> T {
-        self.path
+    pub fn into_inner(self) -> T {
+        self.0
     }
 }
 
-impl<'a, T: AsRef<str>> IntoKeys for &'a Path<'a, T> {
-    type IntoKeys = KeysIter<Skip<Split<'a, &'a str>>>;
+impl<T, const S: char> From<T> for Path<T, S> {
+    fn from(value: T) -> Self {
+        Path(value)
+    }
+}
+
+impl<T, const S: char> Deref for Path<T, S> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T, const S: char> DerefMut for Path<T, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, T: AsRef<str>, const S: char> IntoKeys for &'a Path<T, S> {
+    type IntoKeys = KeysIter<Skip<Split<'a, char>>>;
     fn into_keys(self) -> Self::IntoKeys {
-        self.path.as_ref().split(self.separator).skip(1).into_keys()
+        self.0.as_ref().split(self.separator()).skip(1).into_keys()
     }
 }
 
-impl<'a, T: Write> NodeLookup for Path<'a, T> {
+impl<T: Write, const S: char> NodeLookup for Path<T, S> {
     fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
@@ -164,72 +164,11 @@ impl<'a, T: Write> NodeLookup for Path<'a, T> {
         K: IntoKeys,
     {
         traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            self.path.write_str(self.separator).or(Err(()))?;
-            self.path
+            self.0.write_char(self.separator()).or(Err(()))?;
+            self.0
                 .write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
                 .or(Err(()))
         }))
-    }
-}
-
-/// Slash-separated [`Path`]
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
-#[repr(transparent)]
-pub struct SlashPath<T>(Path<'static, T>);
-
-impl<T> SlashPath<T> {
-    /// Extract just the path
-    pub fn into_path(self) -> T {
-        self.0.into_path()
-    }
-}
-
-impl<T: Default> Default for SlashPath<T> {
-    fn default() -> Self {
-        Self(Path::new(T::default(), "/"))
-    }
-}
-
-impl<T> From<SlashPath<T>> for Path<'static, T> {
-    fn from(value: SlashPath<T>) -> Self {
-        value.0
-    }
-}
-
-impl<T> From<T> for SlashPath<T> {
-    fn from(value: T) -> Self {
-        Self(Path::new(value, "/"))
-    }
-}
-
-impl<T> Deref for SlashPath<T> {
-    type Target = Path<'static, T>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T> DerefMut for SlashPath<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<'a, T: AsRef<str>> IntoKeys for &'a SlashPath<T> {
-    type IntoKeys = KeysIter<Skip<Split<'a, &'a str>>>;
-    fn into_keys(self) -> Self::IntoKeys {
-        self.0.into_keys()
-    }
-}
-
-impl<T: Write> NodeLookup for SlashPath<T> {
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        Self: Sized,
-        M: TreeKey<Y> + ?Sized,
-        K: IntoKeys,
-    {
-        self.0.lookup::<M, Y, _>(keys)
     }
 }
 

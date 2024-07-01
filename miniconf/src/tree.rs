@@ -351,9 +351,8 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let mut path = Path::<String>::empty("/");
-    /// path.lookup::<S, 2, _>([1, 1]).unwrap();
-    /// assert_eq!(path.path(), "/bar/1");
+    /// let path: Path<String, '/'> = S::lookup([1, 1]).unwrap().0;
+    /// assert_eq!(path.as_str(), "/bar/1");
     /// let idx: [usize; 2] = S::lookup(&path).unwrap().0;
     /// assert_eq!(idx, [1, 1]);
     /// ```
@@ -370,14 +369,14 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Return an iterator over nodes of a given type
     ///
     /// ```
-    /// use miniconf::{TreeKey, SlashPath};
+    /// use miniconf::{TreeKey, Path};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let paths: Vec<String> = S::nodes::<SlashPath<_>>().count().map(|p| p.unwrap().0.into_path()).collect();
+    /// let paths = S::nodes::<Path<String, '/'>>().count().map(|p| p.unwrap().0.into_inner()).collect::<Vec<_>>();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// ```
     fn nodes<N>() -> NodeIter<Self, Y, N>

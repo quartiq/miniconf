@@ -8,8 +8,7 @@ use embedded_io_async::Write as AWrite;
 use heapless::String;
 
 use miniconf::{
-    JsonCoreSlash, Keys, Node, NodeIter, NodeLookup, Packed, Postcard, SlashPath, Traversal,
-    TreeKey,
+    JsonCoreSlash, Keys, Node, NodeIter, NodeLookup, Packed, Path, Postcard, Traversal, TreeKey,
 };
 
 /// Wrapper to support core::fmt::Write for embedded_io::Write
@@ -63,11 +62,11 @@ impl<I> From<miniconf::Error<serde_json_core::ser::Error>> for Error<I> {
 
 impl<I> From<usize> for Error<I> {
     fn from(value: usize) -> Self {
-        Self::Traversal(Traversal::TooLong(value))
+        Traversal::TooLong(value).into()
     }
 }
 
-pub const SEPARATOR: &str = "/";
+pub const SEPARATOR: char = '/';
 
 #[derive(Debug, PartialEq, PartialOrd)]
 pub struct Menu<M, const Y: usize, const D: usize = Y>
@@ -129,9 +128,9 @@ where
     pub fn list<const S: usize>(
         &self,
     ) -> Result<impl Iterator<Item = Result<String<S>, usize>>, Traversal> {
-        let mut iter = NodeIter::<M, Y, SlashPath<String<S>>, D>::default();
+        let mut iter = NodeIter::<M, Y, Path<String<S>, SEPARATOR>, D>::default();
         iter.root(self.key)?;
-        Ok(iter.map(|pn| pn.map(|(p, _n)| p.into_path())))
+        Ok(iter.map(|pn| pn.map(|(p, _n)| p.into_inner())))
     }
 
     pub fn get(
@@ -201,7 +200,7 @@ where
         let def = M::default();
         let bl = buf.len();
         let mut sl = &mut buf[..];
-        SlashPath::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(self.key)?;
+        Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(self.key)?;
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
@@ -226,7 +225,7 @@ where
             awrite(&mut write, "  ".as_bytes()).await?;
             let rl = rest.len();
             let mut sl = &mut rest[..];
-            SlashPath::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(keys)?;
+            Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(keys)?;
             let path_len = rl - sl.len();
             awrite(&mut write, &rest[root_len..path_len]).await?;
             awrite(&mut write, ": ".as_bytes()).await?;
