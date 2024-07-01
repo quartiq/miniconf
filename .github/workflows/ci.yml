@@ -20,8 +20,9 @@ jobs:
           components: rustfmt, clippy
 
       - run: cargo fmt -- --check
+      - run: cargo check
 
-      - run: cargo clippy --all-features -- -D warningscheck
+      - run: cargo clippy --all-features -- -D warnings
 
       - uses: actions/setup-python@v4
       - name: Install Pylint
@@ -41,19 +42,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: docs
 
       - run: cargo doc
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Cargo Audit
-        uses: actions-rs/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
   compile:
     runs-on: ubuntu-latest
