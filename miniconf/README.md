@@ -130,7 +130,7 @@ assert!(node.is_leaf());
 assert_eq!(node.depth(), 3);
 settings.set_json_by_key(packed, b"9")?;
 // ... or by JSON path
-settings.set_json_by_key(JsonPath::from(".array_tree2[1].b"), b"10")?;
+settings.set_json_by_key(&JsonPath::from(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(settings.set_json("/option_tree", b"13"), Err(Traversal::Absent(1).into()));

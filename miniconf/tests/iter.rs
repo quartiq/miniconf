@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlash, PathIter, Tree, TreeKey};
+use miniconf::{Indices, JsonCoreSlash, NodeIter, Path, Tree, TreeKey};
 
 #[derive(Tree, Default, PartialEq, Debug)]
 struct Inner {
@@ -19,9 +19,9 @@ struct Settings {
 #[test]
 fn struct_iter() {
     assert_eq!(
-        Settings::iter_paths::<String>("/")
-            .count()
-            .map(|p| p.unwrap())
+        Settings::nodes::<Path<String, '/'>>()
+            .exact_size()
+            .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
         ["/b/0", "/b/1", "/c/inner", "/d/0/inner", "/a"]
     );
@@ -37,8 +37,9 @@ fn struct_iter_indices() {
         ([3, 0, 0], 1),
     ]
     .into_iter();
-    for (have, expect) in Settings::iter_indices().count().zip(&mut paths) {
-        assert_eq!(have, expect);
+    for (have, expect) in Settings::nodes::<Indices<_>>().exact_size().zip(&mut paths) {
+        let (idx, node) = have.unwrap();
+        assert_eq!((idx.into_inner(), node.depth()), expect);
     }
     // Ensure that all fields were iterated.
     assert_eq!(paths.next(), None);
@@ -48,8 +49,8 @@ fn struct_iter_indices() {
 fn array_iter() {
     let mut s = Settings::default();
 
-    for field in Settings::iter_paths::<String>("/").count() {
-        let field = field.unwrap();
+    for field in Settings::nodes::<Path<String, '/'>>().exact_size() {
+        let (field, _node) = field.unwrap();
         s.set_json(&field, b"true").unwrap();
         let mut buf = [0; 32];
         let len = s.get_json(&field, &mut buf).unwrap();
@@ -65,38 +66,44 @@ fn array_iter() {
 #[test]
 fn short_iter() {
     assert_eq!(
-        PathIter::<Settings, 3, String, 1>::new("/")
-            .map(|p| p.unwrap())
+        NodeIter::<Settings, 3, Path<String, '/'>, 1>::default()
+            .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
         ["/b", "/c", "/d", "/a"]
     );
 
     assert_eq!(
-        PathIter::<Settings, 3, String, 0>::new("/").next(),
-        Some(Ok("".to_string()))
+        NodeIter::<Settings, 3, Path<String, '/'>, 0>::default()
+            .next()
+            .unwrap()
+            .unwrap()
+            .0
+            .into_inner(),
+        ""
     );
 }
 
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    PathIter::<Settings, 3, String, 1>::new("/").count();
+    NodeIter::<Settings, 3, Path<String, '/'>, 1>::default().exact_size();
 }
 
 #[test]
 #[should_panic]
 fn panic_started_iter() {
-    let mut it = Settings::iter_indices();
+    let mut it = Settings::nodes::<Indices<[_; 3]>>();
     it.next();
-    it.count();
+    it.exact_size();
 }
 
 #[test]
 fn root() {
-    let mut iter = Settings::iter_paths("/");
+    let mut iter = Settings::nodes::<Path<String, '/'>>();
     iter.root(["b"]).unwrap();
     assert_eq!(
-        iter.map(|p| p.unwrap()).collect::<Vec<String>>(),
+        iter.map(|p| p.unwrap().0.into_inner())
+            .collect::<Vec<String>>(),
         ["/b/0", "/b/1"]
     );
 }

@@ -8,7 +8,8 @@ use embedded_io_async::Write as AWrite;
 use heapless::String;
 
 use miniconf::{
-    JsonCoreSlash, Keys, Node, NodeIter, Packed, Path, Postcard, Transcode, Traversal, TreeKey,
+    Indices, JsonCoreSlash, Keys, Node, NodeIter, Packed, Path, Postcard, Transcode, Traversal,
+    TreeKey,
 };
 
 /// Wrapper to support core::fmt::Write for embedded_io::Write
@@ -103,7 +104,7 @@ where
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
-        let mut idx = [0; D];
+        let mut idx = Indices::<[usize; D]>::default();
         let node = idx.transcode::<M, Y, _>(self.key)?;
         if node.depth() < levels {
             Err(Traversal::TooShort(node.depth()))

@@ -6,7 +6,6 @@ use core::{
 };
 
 use serde::{Deserialize, Serialize};
-use slice_string::SliceString;
 
 use crate::{Error, IntoKeys, KeysIter, Packed, Traversal, TreeKey};
 
@@ -54,8 +53,24 @@ impl Node {
     }
 
     /// The node is a leaf node
-    pub fn is_leaf(&self) -> bool {
+    pub const fn is_leaf(&self) -> bool {
         self.typ.is_leaf()
+    }
+
+    /// Create a leaf node
+    pub const fn leaf(depth: usize) -> Self {
+        Self {
+            depth,
+            typ: NodeType::Leaf,
+        }
+    }
+
+    /// Create an inernal node
+    pub const fn internal(depth: usize) -> Self {
+        Self {
+            depth,
+            typ: NodeType::Internal,
+        }
     }
 }
 
@@ -72,7 +87,7 @@ pub trait Transcode {
 }
 
 /// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
-fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
+pub(crate) fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
     match ret {
         Ok(depth) => Ok(Node {
             depth,
@@ -103,24 +118,24 @@ impl Transcode for () {
     }
 }
 
-/// Takes the separator from the current content of the SliceString, clears it and
-/// then transcodes the keys.
-impl<'a> Transcode for SliceString<'a> {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        Self: Sized,
-        M: TreeKey<Y> + ?Sized,
-        K: IntoKeys,
-    {
-        let separator = self.chars().next().ok_or(Traversal::TooShort(0))?;
-        self.clear();
-        traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            self.write_char(separator).or(Err(()))?;
-            self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
-                .or(Err(()))
-        }))
-    }
-}
+// /// Takes the separator from the current content of the SliceString, clears it and
+// /// then transcodes the keys.
+// impl<'a> Transcode for slice_string::SliceString<'a> {
+//     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+//     where
+//         Self: Sized,
+//         M: TreeKey<Y> + ?Sized,
+//         K: IntoKeys,
+//     {
+//         let separator = self.chars().next().ok_or(Traversal::TooShort(0))?;
+//         self.clear();
+//         traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
+//             self.write_char(separator).or(Err(()))?;
+//             self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
+//                 .or(Err(()))
+//         }))
+//     }
+// }
 
 /// Path with named keys separated by a separator char
 ///
@@ -142,15 +157,8 @@ impl<T, const S: char> Path<T, S> {
     }
 }
 
-impl<T, const S: char> From<T> for Path<T, S> {
-    fn from(value: T) -> Self {
-        Path(value)
-    }
-}
-
 impl<T, const S: char> Deref for Path<T, S> {
     type Target = T;
-
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -159,6 +167,12 @@ impl<T, const S: char> Deref for Path<T, S> {
 impl<T, const S: char> DerefMut for Path<T, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl<T, const S: char> From<T> for Path<T, S> {
+    fn from(value: T) -> Self {
+        Path(value)
     }
 }
 
@@ -185,14 +199,51 @@ impl<T: Write, const S: char> Transcode for Path<T, S> {
     }
 }
 
-impl<const D: usize> Transcode for [usize; D] {
+/// Wrapper to have a Default impl for indices array
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct Indices<T>(pub T);
+
+impl<T> Deref for Indices<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for Indices<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<const D: usize> Default for Indices<[usize; D]> {
+    fn default() -> Self {
+        Self([0; D])
+    }
+}
+
+impl<T> Indices<T> {
+    /// Extract just the indices
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<const D: usize> From<Indices<[usize; D]>> for [usize; D] {
+    fn from(value: Indices<[usize; D]>) -> Self {
+        value.0
+    }
+}
+
+impl<T: AsMut<[usize]>> Transcode for Indices<T> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        let mut it = self.iter_mut();
+        let mut it = self.0.as_mut().iter_mut();
         traverse(M::traverse_by_key(
             keys.into_keys(),
             |index, _name, _len| {

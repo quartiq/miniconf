@@ -1,4 +1,4 @@
-use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
+use crate::{Error, IntoKeys, Path, TreeDeserialize, TreeSerialize};
 use serde_json_core::{de, ser};
 
 /// `TreeSerialize`/`TreeDeserialize` with "JSON and `/`".
@@ -71,11 +71,11 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize
     JsonCoreSlash<'de, Y> for T
 {
     fn set_json(&mut self, path: &str, data: &'de [u8]) -> Result<usize, Error<de::Error>> {
-        self.set_json_by_key(path.split('/').skip(1), data)
+        self.set_json_by_key(&Path::<_, '/'>::from(path), data)
     }
 
     fn get_json(&self, path: &str, data: &mut [u8]) -> Result<usize, Error<ser::Error>> {
-        self.get_json_by_key(path.split('/').skip(1), data)
+        self.get_json_by_key(&Path::<_, '/'>::from(path), data)
     }
 
     fn set_json_by_key<K: IntoKeys>(

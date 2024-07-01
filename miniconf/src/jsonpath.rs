@@ -1,4 +1,11 @@
+use core::{
+    fmt::Write,
+    ops::{Deref, DerefMut},
+};
+
 use serde::{Deserialize, Serialize};
+
+use crate::{traverse, IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 
 /// JSON style path notation
 ///
@@ -7,18 +14,18 @@ use serde::{Deserialize, Serialize};
 /// names enclosed by `'` as well as mixtures:
 ///
 /// ```
-/// use miniconf::JsonPath;
+/// use miniconf::JsonPathIter;
 /// let path = ["foo", "bar", "4", "baz", "5", "6"];
 /// for valid in [
 ///     ".foo.bar[4].baz[5][6]",
 ///     "['foo']['bar'][4]['baz'][5][6]",
 ///     ".foo['bar'].4.'baz'['5'].'6'",
 /// ] {
-///     assert_eq!(&path[..], JsonPath::from(valid).collect::<Vec<_>>());
+///     assert_eq!(&path[..], JsonPathIter::from(valid).collect::<Vec<_>>());
 /// }
 ///
 /// for short in ["'", "[", "['"] {
-///     assert!(JsonPath::from(short).next().is_none());
+///     assert!(JsonPathIter::from(short).next().is_none());
 /// }
 /// ```
 ///
@@ -30,9 +37,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct JsonPath<'a>(&'a str);
+pub struct JsonPathIter<'a>(&'a str);
 
-impl<'a, T> From<&'a T> for JsonPath<'a>
+impl<'a, T> From<&'a T> for JsonPathIter<'a>
 where
     T: AsRef<str> + ?Sized,
 {
@@ -41,13 +48,13 @@ where
     }
 }
 
-impl<'a> From<JsonPath<'a>> for &'a str {
-    fn from(value: JsonPath<'a>) -> Self {
+impl<'a> From<JsonPathIter<'a>> for &'a str {
+    fn from(value: JsonPathIter<'a>) -> Self {
         value.0
     }
 }
 
-impl<'a> Iterator for JsonPath<'a> {
+impl<'a> Iterator for JsonPathIter<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -69,5 +76,70 @@ impl<'a> Iterator for JsonPath<'a> {
             }
         }
         None
+    }
+}
+
+/// Wrapper to transcode into a normalized JSON path
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct JsonPath<T>(pub T);
+
+impl<T> From<T> for JsonPath<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T> JsonPath<T> {
+    /// Extract the inner value
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> Deref for JsonPath<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for JsonPath<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, T: AsRef<str>> IntoKeys for &'a JsonPath<T> {
+    type IntoKeys = KeysIter<JsonPathIter<'a>>;
+    fn into_keys(self) -> Self::IntoKeys {
+        JsonPathIter::from(self.0.as_ref()).into_keys()
+    }
+}
+
+impl<T: Write> Transcode for JsonPath<T> {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        Self: Sized,
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
+    {
+        traverse(M::traverse_by_key(
+            keys.into_keys(),
+            |index, name, _len| match name {
+                Some(name) => {
+                    self.0.write_char('.').or(Err(()))?;
+                    self.0.write_str(name).or(Err(()))
+                }
+                None => {
+                    self.0.write_char('[').or(Err(()))?;
+                    self.0
+                        .write_str(itoa::Buffer::new().format(index))
+                        .or(Err(()))?;
+                    self.0.write_char(']').or(Err(()))
+                }
+            },
+        ))
     }
 }

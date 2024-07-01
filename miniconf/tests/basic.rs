@@ -1,4 +1,4 @@
-use miniconf::{IntoKeys, Traversal, Tree, TreeKey};
+use miniconf::{Indices, IntoKeys, Node, Path, Traversal, Tree, TreeKey};
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -23,31 +23,38 @@ fn meta() {
 
 #[test]
 fn path() {
-    let mut s = String::new();
-    assert_eq!(Settings::path([1], &mut s, "/"), Ok(1));
-    assert_eq!(s, "/b");
-    s.clear();
-    assert_eq!(Settings::path([2, 0], &mut s, "/"), Ok(2));
-    assert_eq!(s, "/c/inner");
-    s.clear();
-    assert_eq!(Settings::path([2], &mut s, "/"), Ok(1));
-    assert_eq!(s, "/c");
-    s.clear();
-    assert_eq!(Option::<i8>::path([0; 0], &mut s, "/"), Ok(0));
-    assert_eq!(s, "");
+    for (keys, path, depth) in [
+        (&[1][..], "/b", Node::leaf(1)),
+        (&[2, 0][..], "/c/inner", Node::leaf(2)),
+        (&[2][..], "/c", Node::internal(1)),
+        (&[][..], "", Node::internal(0)),
+    ] {
+        let (s, node) = Settings::transcode::<Path<String, '/'>, _>(keys.iter().copied()).unwrap();
+        assert_eq!(node, depth);
+        assert_eq!(s.as_str(), path);
+    }
 }
 
 #[test]
 fn indices() {
-    assert_eq!(Settings::indices([""; 0]), Ok(([0, 0], 0)));
-    assert_eq!(Settings::indices(["b"]), Ok(([1, 0], 1)));
-    assert_eq!(Settings::indices(["c", "inner"]), Ok(([2, 0], 2)));
-    assert_eq!(Settings::indices(["c"]), Ok(([2, 0], 1)));
-    assert_eq!(Option::<i8>::indices([0; 0]), Ok(([0], 0)));
+    for (keys, idx, depth) in [
+        ("", [0, 0], Node::internal(0)),
+        ("/b", [1, 0], Node::leaf(1)),
+        ("/c/inner", [2, 0], Node::leaf(2)),
+        ("/c", [2, 0], Node::internal(1)),
+    ] {
+        let (indices, node) =
+            Settings::transcode::<Indices<_>, _>(&Path::<_, '/'>::from(keys)).unwrap();
+        assert_eq!(node, depth);
+        assert_eq!(indices.0, idx);
+    }
+    let (indices, node) = Option::<i8>::transcode::<Indices<_>, _>([0; 0]).unwrap();
+    assert_eq!(indices.0, [0]);
+    assert_eq!(node, Node::leaf(0));
 
     let mut it = [0; 4].into_iter();
     assert_eq!(
-        Settings::indices(&mut it),
+        Settings::transcode::<Indices<[_; 2]>, _>(&mut it),
         Err(Traversal::TooLong(1).into())
     );
     assert_eq!(it.count(), 2);

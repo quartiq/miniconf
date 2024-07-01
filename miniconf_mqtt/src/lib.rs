@@ -291,7 +291,7 @@ where
                 // If the topic is not present, we'll fail to serialize the setting into the
                 // payload and will never publish. The iterator has already incremented, so this is
                 // acceptable.
-                DeferredPublication::new(|buf| settings.get_json(&topic, buf))
+                DeferredPublication::new(|buf| settings.get_json_by_key(&topic, buf))
                     .topic(&prefixed_topic)
                     .finish()
                     .unwrap(),
