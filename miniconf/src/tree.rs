@@ -1,9 +1,6 @@
 use core::any::Any;
-use core::fmt::Write;
 
-use crate::{
-    Error, Indices, IntoKeys, JsonPath, Keys, Node, NodeIter, Packed, Path, Transcode, Traversal,
-};
+use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -342,6 +339,11 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Transcode keys to a new keys type representation
     ///
+    /// The keys can be
+    /// * too short: the internal node is returned
+    /// * matched length: the leaf node is returned
+    /// * too long: the leaf node is returned
+    ///
     /// ```
     /// use miniconf::{TreeKey, Path, Indices};
     /// #[derive(TreeKey)]
@@ -355,6 +357,83 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let idx: Indices<[usize; 2]> = S::transcode(&path).unwrap().0;
     /// assert_eq!(idx.0, [1, 1]);
     /// ```
+    ///
+    /// # Args
+    /// * `keys`: `IntoKeys` to identify the node.
+    ///
+    /// # Returns
+    /// Node depth and type on success
+    ///
+    /// ## [`Path`]
+    ///
+    /// `char`-separated `Write`
+    ///
+    /// ```
+    /// use miniconf::{TreeKey, Path};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>([1, 1]).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/1");
+    /// ```
+    ///
+    /// ## [`JsonPath`]
+    ///
+    /// Return the keys formatted as a normalized JSON path.
+    ///
+    /// * Named fields (struct) are encoded in dot notation.
+    /// * Indices (tuple struct, array) are encoded in index notation
+    ///
+    /// ```
+    /// use miniconf::{TreeKey, JsonPath, Indices};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let idx = [1, 1];
+    /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
+    /// assert_eq!(path.as_str(), ".bar[1]");
+    ///
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
+    /// assert_eq!(&indices[..node.depth()], idx);
+    /// ```
+    ///
+    /// ## [`Indices`]
+    ///
+    /// ```
+    /// use miniconf::{TreeKey, Indices};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 2],
+    /// };
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
+    /// assert_eq!(&indices[..node.depth()], [1, 1]);
+    /// ```
+    ///
+    /// ## [`Packed`]
+    ///
+    /// Convert keys to packed usize bitfield representation.
+    ///
+    /// ```
+    /// use miniconf::{TreeKey, Packed, Path};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: u32,
+    ///     #[tree(depth=1)]
+    ///     bar: [u16; 5],
+    /// };
+    /// let (p, _) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
+    /// assert_eq!(p.into_lsb().get(), 0b1_1_100);
+    /// let (s, _) = S::transcode::<Path<String, '/'>, _>(p).unwrap();
+    /// assert_eq!(s.as_str(), "/bar/4");
+    /// ```
     fn transcode<N, K>(keys: K) -> Result<(N, Node), Traversal>
     where
         K: IntoKeys,
@@ -367,6 +446,12 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Return an iterator over nodes of a given type
     ///
+    /// This is a walk of all leaf nodes.
+    /// The iterator will walk all paths, including those that may be absent at
+    /// runtime (see [`TreeKey#option`]).
+    /// An iterator with an exact and trusted `size_hint()` can be obtained from
+    /// this through [`NodeIter::exact_size()`].
+    ///
     /// ```
     /// use miniconf::{TreeKey, Path};
     /// #[derive(TreeKey)]
@@ -375,162 +460,14 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let paths = S::nodes::<Path<String, '/'>>().exact_size().map(|p| p.unwrap().0.into_inner()).collect::<Vec<_>>();
+    /// let paths = S::nodes::<Path<String, '/'>>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// ```
-    fn nodes<N>() -> NodeIter<Self, Y, N>
-    where
-        N: Transcode + Default,
-    {
-        NodeIter::default()
-    }
-
-    /// Convert keys to path.
     ///
-    /// The keys can be
-    /// * too short: the internal node is returned
-    /// * matched length: the leaf node is returned
-    /// * too long: the leaf node is returned
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let mut s = String::new();
-    /// S::path([1, 1], &mut s, "/").unwrap();
-    /// assert_eq!(s, "/bar/1");
-    /// ```
-    ///
-    /// # Args
-    /// * `keys`: `IntoKeys` to identify the node.
-    /// * `path`: A `Write` to write the separators and node names into.
-    ///   See also [TreeKey::metadata()] and [`Metadata::max_length()`] for upper bounds
-    ///   on path length.
-    /// * `separator`: The path hierarchy separator to be inserted before each name.
-    ///
-    /// # Returns
-    /// Node depth on success
-    #[deprecated(note = "use transcode::<Path<P, SEPARATOR>>()")]
-    fn path<K, P>(keys: K, path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
-    where
-        K: IntoKeys,
-        P: Write,
-    {
-        assert_eq!(separator, "/");
-        let mut p = Path::<P, '/'>::from(path);
-        match p.transcode::<Self, Y, _>(keys) {
-            Err(Traversal::TooShort(depth)) => Err(Error::Inner(depth, core::fmt::Error)),
-            Ok(node) => Ok(node.depth),
-            Err(err) => Err(err.into()),
-        }
-    }
-
-    /// Return the keys formatted as a normalized JSON path.
-    ///
-    /// * Named fields (struct) are encoded in dot notation.
-    /// * Indices (tuple struct, array) are encoded in index notation
-    ///
-    /// See also [`TreeKey::path()`].
-    ///
-    /// ```
-    /// use miniconf::{TreeKey, JsonPath};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let mut s = String::new();
-    /// let idx = [1, 1];
-    /// S::json_path(idx, &mut s).unwrap();
-    /// assert_eq!(s, ".bar[1]");
-    ///
-    /// let (indices, depth) = S::indices(&JsonPath::from(&s)).unwrap();
-    /// assert_eq!(&indices[..depth], idx);
-    /// ```
-    #[deprecated(note = "use transcode::<JsonPath<P>>()")]
-    fn json_path<K, P>(keys: K, path: P) -> Result<usize, Error<core::fmt::Error>>
-    where
-        K: IntoKeys,
-        P: Write,
-    {
-        let mut p = JsonPath::<P>::from(path);
-        match p.transcode::<Self, Y, _>(keys) {
-            Err(Traversal::TooShort(depth)) => Err(Error::Inner(depth, core::fmt::Error)),
-            Ok(node) => Ok(node.depth),
-            Err(err) => Err(err.into()),
-        }
-    }
-
-    /// Convert keys to `indices`.
-    ///
-    /// See also [`TreeKey::path()`].
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let (indices, depth) = S::indices(["bar", "1"]).unwrap();
-    /// assert_eq!(&indices[..depth], [1, 1]);
-    /// ```
-    ///
-    /// # Returns
-    /// Indices and depth on success
-    #[deprecated(note = "use transcode::()")]
-    fn indices<K>(keys: K) -> Result<([usize; Y], usize), Traversal>
-    where
-        K: IntoKeys,
-    {
-        Self::transcode::<Indices<[usize; Y]>, _>(keys)
-            .map(|(idx, node)| (idx.into(), node.depth()))
-    }
-
-    /// Convert keys to packed usize bitfield representation.
-    ///
-    /// See also [`Packed`] and [`TreeKey::path()`].
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 5],
-    /// };
-    /// let (p, _) = S::packed(["bar", "4"]).unwrap();
-    /// assert_eq!(p.into_lsb().get(), 0b1_1_100);
-    /// let mut s = String::new();
-    /// S::path(p, &mut s, "/").unwrap();
-    /// assert_eq!(s, "/bar/4");
-    /// ```
-    ///
-    /// # Returns
-    /// The packed indices representation and depth on success.
-    #[deprecated(note = "use transcode::<Packed, _>()")]
-    fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
-    where
-        K: IntoKeys,
-    {
-        Self::transcode(keys)
-            .map_err(Error::from)
-            .map(|(p, n)| (p, n.depth()))
-    }
-
-    /// Create an iterator of all possible leaf paths.
-    ///
-    /// This is a walk of all leaf nodes.
-    /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`TreeKey#option`]).
-    /// An iterator with an exact and trusted `size_hint()` can be obtained from
-    /// this through [`PathIter::count()`].
+    /// ## [`Path`]
     ///
     /// ```
     /// use miniconf::{TreeKey, Path};
@@ -547,48 +484,24 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// ```
     ///
-    /// # Generics
-    /// * `P`  - The type to hold the path.
-    ///
-    /// # Args
-    /// * `separator` - The path hierarchy separator
-    #[deprecated(note = "use nodes::<Path<_, SEPARATOR>>()")]
-    fn iter_paths<P: core::fmt::Write + Default>(
-        separator: &str,
-    ) -> impl Iterator<Item = Result<P, core::fmt::Error>> {
-        assert_eq!(separator, "/");
-        Self::nodes::<Path<P, '/'>>().exact_size().map(|p| {
-            p.map(|(p, _node)| p.into_inner())
-                .map_err(|_depth| core::fmt::Error)
-        })
-    }
-
-    /// Create an iterator of all possible leaf indices.
-    ///
-    /// See also [`TreeKey::iter_paths()`].
+    /// ## [`Indices`]
     ///
     /// ```
-    /// use miniconf::TreeKey;
+    /// use miniconf::{TreeKey, Indices};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let indices: Vec<_> = S::iter_indices().collect();
+    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>>().map(|p| {
+    ///     let (idx, node) = p.unwrap();
+    ///     (idx.into_inner(), node.depth)
+    /// }).collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
-    #[deprecated(note = "use nodes::<Indices<Y>>()")]
-    fn iter_indices() -> impl Iterator<Item = ([usize; Y], usize)> {
-        Self::nodes::<Indices<[usize; Y]>>().exact_size().map(|p| {
-            let (indices, node) = p.unwrap();
-            (indices.into(), node.depth())
-        })
-    }
-
-    /// Create an iterator of all packed leaf indices.
     ///
-    /// See also [`TreeKey::iter_paths()`].
+    /// ## [`Packed`]
     ///
     /// ```
     /// use miniconf::{TreeKey, Packed};
@@ -604,9 +517,11 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
-    #[deprecated(note = "use nodes::<Packed>()")]
-    fn iter_packed() -> impl Iterator<Item = Result<Packed, usize>> {
-        Self::nodes().exact_size().map(|p| p.map(|(p, _node)| p))
+    fn nodes<N>() -> NodeIter<Self, Y, N>
+    where
+        N: Transcode + Default,
+    {
+        NodeIter::default()
     }
 }
 
@@ -616,7 +531,7 @@ pub trait TreeKey<const Y: usize = 1> {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{TreeAny, TreeKey, JsonPath, IntoKeys};
+/// use miniconf::{TreeAny, TreeKey, JsonPath, IntoKeys, Indices};
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
@@ -625,8 +540,9 @@ pub trait TreeKey<const Y: usize = 1> {
 /// };
 /// let mut s = S::default();
 ///
-/// for (key, depth) in S::iter_indices() {
-///     let a = s.ref_any_by_key(key[..depth].iter().copied().into_keys()).unwrap();
+/// for node in S::nodes::<Indices<[_; 2]>>() {
+///     let (key, node) = node.unwrap();
+///     let a = s.ref_any_by_key(key[..node.depth()].iter().copied().into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///

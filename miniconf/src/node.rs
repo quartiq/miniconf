@@ -140,6 +140,12 @@ impl Transcode for () {
 /// Path with named keys separated by a separator char
 ///
 /// The path will either be empty or start with the separator.
+///
+/// * `path: T`: A `Write` to write the separators and node names into.
+///   See also [TreeKey::metadata()] and `Metadata::max_length()` for upper bounds
+///   on path length.
+/// * `separator: const char`: The path hierarchy separator to be inserted before each name.
+///
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]

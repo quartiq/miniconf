@@ -80,7 +80,9 @@ impl<'a> Iterator for JsonPathIter<'a> {
 }
 
 /// Wrapper to transcode into a normalized JSON path
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash,
+)]
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct JsonPath<T>(pub T);
