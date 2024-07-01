@@ -1,4 +1,4 @@
-use miniconf::{Indices, Node, Packed, Path, Transcode, Traversal, Tree, TreeKey, TreeSerialize};
+use miniconf::{Indices, Node, Packed, Path, Traversal, Tree, TreeKey, TreeSerialize};
 
 #[derive(Tree, Default)]
 struct Settings {
@@ -9,14 +9,11 @@ struct Settings {
 
 #[test]
 fn packed() {
-    let mut path = String::new();
-
     // Check empty being too short
     assert_eq!(
         Settings::transcode::<Path<String, '/'>, _>(Packed::EMPTY),
         Ok((Path::default(), Node::internal(0)))
     );
-    path.clear();
 
     // Check path-packed round trip.
     for (iter_path, _node) in Settings::nodes::<Path<String, '/'>>()
@@ -24,16 +21,13 @@ fn packed() {
         .map(Result::unwrap)
     {
         let (packed, node) = Settings::transcode::<Packed, _>(&iter_path).unwrap();
-        Path::<_, '/'>(&mut path)
-            .transcode::<Settings, 2, _>(packed)
-            .unwrap();
-        assert_eq!(path, iter_path.as_str());
+        let (path, _node) = Settings::transcode::<Path<String, '/'>, _>(packed).unwrap();
+        assert_eq!(path, iter_path);
         println!(
-            "{path} {iter_path:?}, {:#06b} {} {node:?}",
+            "{path:?} {iter_path:?}, {:#06b} {} {node:?}",
             packed.get() >> 60,
             packed.into_lsb().get()
         );
-        path.clear();
     }
     println!(
         "{:?}",
@@ -43,13 +37,10 @@ fn packed() {
     );
 
     // Check that Packed `marker + 0b0` is equivalent to `/a`
-    assert_eq!(
-        Path::<_, '/'>(&mut path)
-            .transcode::<Settings, 2, _>(Packed::from_lsb(0b10.try_into().unwrap())),
-        Ok(Node::leaf(1))
-    );
-    assert_eq!(path, "/a");
-    path.clear();
+    let a = Packed::from_lsb(0b10.try_into().unwrap());
+    let (path, node) = Settings::transcode::<Path<String, '/'>, _>(a).unwrap();
+    assert_eq!(node, Node::leaf(1));
+    assert_eq!(path.as_str(), "/a");
 }
 
 #[test]
