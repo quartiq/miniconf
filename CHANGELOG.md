@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * The key iterators now support limiting the iteration to a sub-tree by setting the iteration `root()`.
 
+### Changed
+* [breaking-python] The `Miniconf::create` method is no longer used. Instead, an `aiomqtt::Client`
+must be passed to Miniconf
+
 ## [0.11.0](https://github.com/quartiq/miniconf/compare/v0.10.1...v0.11.0) - 2024-04-30
 
 ### Changed
