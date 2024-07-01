@@ -9,7 +9,7 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::{debug, hprintln};
 
 use crosstrait::{register, Cast};
-use miniconf::{self, Tree, TreeAny};
+use miniconf::{self, Tree, TreeAny, IntoKeys};
 
 use core::ops::{AddAssign, SubAssign};
 register! { i32 => dyn AddAssign<i32> }
@@ -50,7 +50,7 @@ fn main() -> ! {
 
     // let key = miniconf::Packed::new_from_lsb(0b1_01_01_0).unwrap();
     let key = miniconf::JsonPath::from(".i[1].val");
-    let any = s.mut_any_by_key(key).unwrap();
+    let any = s.mut_any_by_key(key.into_keys()).unwrap();
 
     let val: &mut dyn AddAssign<i32> = any.cast().unwrap();
     *val += 5;

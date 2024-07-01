@@ -22,7 +22,7 @@ postcard = { version = "1.0.8", optional = true }
 # tinyvec = "1.6.1"
 
 [features]
-default = ["derive", "std"]
+default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive"]
