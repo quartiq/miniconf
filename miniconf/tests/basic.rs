@@ -30,10 +30,7 @@ fn path() {
     assert_eq!(Settings::path([2, 0], &mut s, "/"), Ok(2));
     assert_eq!(s, "/c/inner");
     s.clear();
-    assert_eq!(
-        Settings::path([2], &mut s, "/"),
-        Err(Traversal::TooShort(1).into())
-    );
+    assert_eq!(Settings::path([2], &mut s, "/"), Ok(1));
     assert_eq!(s, "/c");
     s.clear();
     assert_eq!(Option::<i8>::path([0; 0], &mut s, "/"), Ok(0));
@@ -44,7 +41,7 @@ fn path() {
 fn indices() {
     assert_eq!(Settings::indices(["b"]), Ok(([1, 0], 1)));
     assert_eq!(Settings::indices(["c", "inner"]), Ok(([2, 0], 2)));
-    assert_eq!(Settings::indices(["c"]), Err(Traversal::TooShort(1).into()));
+    assert_eq!(Settings::indices(["c"]), Ok(([2, 0], 1)));
     assert_eq!(Option::<i8>::indices([0; 0]), Ok(([0], 0)));
 }
 

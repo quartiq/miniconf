@@ -68,12 +68,13 @@ fn short_iter() {
         PathIter::<Settings, 3, String, 1>::new("/")
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
-        ["/a"]
+        ["/b", "/c", "/d", "/a"]
     );
 
-    assert!(PathIter::<Settings, 3, String, 0>::new("/")
-        .next()
-        .is_none());
+    assert_eq!(
+        PathIter::<Settings, 3, String, 0>::new("/").next(),
+        Some(Ok("".to_string()))
+    );
 }
 
 #[test]
@@ -88,4 +89,16 @@ fn panic_started_iter() {
     let mut it = Settings::iter_indices();
     it.next();
     it.count();
+}
+
+#[test]
+fn root() {
+    assert_eq!(
+        Settings::iter_paths("/")
+            .root(["b"])
+            .unwrap()
+            .map(|p| p.unwrap())
+            .collect::<Vec<String>>(),
+        ["/b/0", "/b/1"]
+    );
 }

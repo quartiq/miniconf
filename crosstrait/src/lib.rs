@@ -31,6 +31,10 @@ pub use linkme;
 /// The casting path is (conceptually) `Any::downcast::<Type>() as Target`.
 ///
 /// The intermediate concrete type must be consistent.
+///
+/// With `downcast_unchecked()` the fields would all be exactly the same code: storing
+/// the new vtable in the fat pointer. There would not be a `Caster<T>` generic struct
+/// and the registry would be a double map of `{type_id: {trait_id: vtable_addr}}`.
 #[doc(hidden)]
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Debug, PartialEq)]
@@ -140,7 +144,7 @@ macro_rules! caster {
 pub struct Registry<'a>(
     // TODO: fixed size map, ~6kB RAM
     // Note that each key is size_of([TypeId; 2]) = 32 bytes.
-    // Maybe risk type collisions and reduce key size.
+    // Maybe risk collisions and reduce key size, reduce hash size, or use LinearMap
     heapless::FnvIndexMap<[TypeId; 2], &'a (dyn Any + Send + Sync), { 1 << 7 }>,
 );
 
@@ -152,8 +156,15 @@ pub struct Registry<'a>(std::collections::HashMap<[TypeId; 2], &'a (dyn Any + Se
 impl<'a> Registry<'a> {
     /// Build a new registry from an iterator over key (`fn() -> [TypeId; 2]`)
     /// value (`&'a dyn Any + Send + Sync`) pairs.
-    pub fn new(it: impl IntoIterator<Item = Entry<'a>>) -> Self {
-        Self(it.into_iter().map(|(key, value)| (key(), value)).collect())
+    pub fn new<'b>(it: impl IntoIterator<Item = &'b Entry<'a>>) -> Self
+    where
+        'a: 'b,
+    {
+        Self(
+            it.into_iter()
+                .map(|(key, value)| ((*key)(), *value))
+                .collect(),
+        )
     }
 
     /// Obtain a `Caster` given the TypeId for the concrete type and a target trait `T`
@@ -213,8 +224,7 @@ impl<'a> Registry<'a> {
 }
 
 /// The global static type-trait registry
-pub static REGISTRY: Lazy<Registry<'static>> =
-    Lazy::new(|| Registry::new(REGISTRY_KV.iter().copied()));
+pub static REGISTRY: Lazy<Registry<'static>> = Lazy::new(|| Registry::new(REGISTRY_KV));
 
 /// Whether a `dyn Any` can be cast to a given trait object
 pub trait CastableRef {
@@ -248,14 +258,14 @@ pub trait Cast<T> {
     fn cast(self) -> Option<T>;
 }
 
-impl<'a, T: ?Sized + 'static> Cast<&'a T> for &'a dyn Any {
-    fn cast(self) -> Option<&'a T> {
+impl<'b, T: ?Sized + 'static> Cast<&'b T> for &'b dyn Any {
+    fn cast(self) -> Option<&'b T> {
         REGISTRY.cast_ref(self)
     }
 }
 
-impl<'a, T: ?Sized + 'static> Cast<&'a mut T> for &'a mut dyn Any {
-    fn cast(self) -> Option<&'a mut T> {
+impl<'b, T: ?Sized + 'static> Cast<&'b mut T> for &'b mut dyn Any {
+    fn cast(self) -> Option<&'b mut T> {
         REGISTRY.cast_mut(self)
     }
 }
