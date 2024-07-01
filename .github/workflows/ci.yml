@@ -66,7 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@${{ matrix.toolchain }}
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
           override: true
@@ -97,7 +97,9 @@ jobs:
           sudo apt-get install mosquitto
           sudo service mosquitto start
 
-      - uses: dtolnay/rust-toolchain@${{matrix.toolchain}}
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{matrix.toolchain}}
 
       - run: cargo test ${{matrix.args }}
 
