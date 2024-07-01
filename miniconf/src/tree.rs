@@ -2,7 +2,7 @@ use core::any::Any;
 use core::fmt::Write;
 
 use crate::{
-    Error, IndexIter, IntoKeys, Keys, Node, NodeIter, NodeLookup, Packed, PackedIter, PathIter,
+    Error, IndexIter, IntoKeys, Keys, Node, NodeIter, Packed, PackedIter, PathIter, Transcode,
     Traversal,
 };
 
@@ -341,28 +341,28 @@ pub trait TreeKey<const Y: usize = 1> {
         // would have worse performance (O(n^2) instead of O(n) for matching)
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>;
 
-    /// Lookup keys and convert to a new keys representation
+    /// Transcode keys to a new keys type representation
     ///
     /// ```
-    /// use miniconf::{TreeKey, Path, NodeLookup};
+    /// use miniconf::{TreeKey, Path, Transcode};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let path: Path<String, '/'> = S::lookup([1, 1]).unwrap().0;
+    /// let path: Path<String, '/'> = S::transcode([1, 1]).unwrap().0;
     /// assert_eq!(path.as_str(), "/bar/1");
-    /// let idx: [usize; 2] = S::lookup(&path).unwrap().0;
+    /// let idx: [usize; 2] = S::transcode(&path).unwrap().0;
     /// assert_eq!(idx, [1, 1]);
     /// ```
-    fn lookup<N, K>(keys: K) -> Result<(N, Node), Traversal>
+    fn transcode<N, K>(keys: K) -> Result<(N, Node), Traversal>
     where
         K: IntoKeys,
-        N: NodeLookup + Default,
+        N: Transcode + Default,
     {
         let mut path = N::default();
-        let node = path.lookup::<Self, Y, _>(keys)?;
+        let node = path.transcode::<Self, Y, _>(keys)?;
         Ok((path, node))
     }
 
@@ -381,7 +381,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// ```
     fn nodes<N>() -> NodeIter<Self, Y, N>
     where
-        N: NodeLookup + Default,
+        N: Transcode + Default,
     {
         NodeIter::default()
     }

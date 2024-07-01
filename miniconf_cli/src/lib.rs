@@ -8,7 +8,7 @@ use embedded_io_async::Write as AWrite;
 use heapless::String;
 
 use miniconf::{
-    JsonCoreSlash, Keys, Node, NodeIter, NodeLookup, Packed, Path, Postcard, Traversal, TreeKey,
+    JsonCoreSlash, Keys, Node, NodeIter, Packed, Path, Postcard, Transcode, Traversal, TreeKey,
 };
 
 /// Wrapper to support core::fmt::Write for embedded_io::Write
@@ -98,17 +98,17 @@ where
     }
 
     fn push(&self, path: &str) -> Result<(Self, Node), Traversal> {
-        let (key, node) = M::lookup(self.key.chain(path.split(SEPARATOR)))?;
+        let (key, node) = M::transcode(self.key.chain(path.split(SEPARATOR)))?;
         Ok((Self::new(key), node))
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
         let mut idx = [0; D];
-        let node = idx.lookup::<M, Y, _>(self.key)?;
+        let node = idx.transcode::<M, Y, _>(self.key)?;
         if node.depth() < levels {
             Err(Traversal::TooShort(node.depth()))
         } else {
-            let (key, node) = M::lookup(idx[..node.depth() - levels].iter().copied())?;
+            let (key, node) = M::transcode(idx[..node.depth() - levels].iter().copied())?;
             Ok((Self::new(key), node))
         }
     }
@@ -200,7 +200,7 @@ where
         let def = M::default();
         let bl = buf.len();
         let mut sl = &mut buf[..];
-        Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(self.key)?;
+        Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).transcode::<M, Y, _>(self.key)?;
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
@@ -225,7 +225,7 @@ where
             awrite(&mut write, "  ".as_bytes()).await?;
             let rl = rest.len();
             let mut sl = &mut rest[..];
-            Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).lookup::<M, Y, _>(keys)?;
+            Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).transcode::<M, Y, _>(keys)?;
             let path_len = rl - sl.len();
             awrite(&mut write, &rest[root_len..path_len]).await?;
             awrite(&mut write, ": ".as_bytes()).await?;

@@ -6,7 +6,7 @@ use serde_json_core::{de, ser};
 /// Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 /// as serialization/deserialization payload format.
 ///
-/// Paths used here are reciprocal to `TreeKey::path(..., "/")`/`TreeKey::iter_paths("/")`.
+/// Paths used here are reciprocal to `TreeKey::lookup::<Path<_, '/'>>(...)`/`TreeKey::nodes::<Path<_, '/'>>()`.
 ///
 /// ```
 /// use miniconf::{JsonCoreSlash, Tree};

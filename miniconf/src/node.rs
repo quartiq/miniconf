@@ -5,12 +5,13 @@ use core::{
     str::Split,
 };
 
+use serde::{Deserialize, Serialize};
 use slice_string::SliceString;
 
 use crate::{Error, IntoKeys, KeysIter, Packed, Traversal, TreeKey};
 
 /// Type of a node
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum NodeType {
     /// A leaf node
     ///
@@ -31,9 +32,14 @@ impl NodeType {
 }
 
 /// A node
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Node {
-    depth: usize,
-    typ: NodeType,
+    /// The node key depth
+    ///
+    /// This is the length of the key required to identify it.
+    pub depth: usize,
+    /// Leaf or internal
+    pub typ: NodeType,
 }
 
 impl Node {
@@ -53,16 +59,19 @@ impl Node {
     }
 }
 
-/// Look up an IntoKeys on a TreeKey and return a node of different Keys with node type info
-pub trait NodeLookup {
-    /// Perform the lookup
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+/// Look up an IntoKeys on a TreeKey and transcode the keys into self.
+pub trait Transcode {
+    /// Perform a lookup and transcode the keys into self
+    ///
+    /// Returns node type and depth info.
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys;
 }
 
+/// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
 fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
     match ret {
         Ok(depth) => Ok(Node {
@@ -79,8 +88,9 @@ fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
     }
 }
 
-impl NodeLookup for () {
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+/// Shim to provide the bare `Node` lookup without transcoding the keys
+impl Transcode for () {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,
@@ -93,8 +103,10 @@ impl NodeLookup for () {
     }
 }
 
-impl<'a> NodeLookup for SliceString<'a> {
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+/// Takes the separator from the current content of the SliceString, clears it and
+/// then transcodes the keys.
+impl<'a> Transcode for SliceString<'a> {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,
@@ -110,12 +122,13 @@ impl<'a> NodeLookup for SliceString<'a> {
     }
 }
 
-/// Path separated by a separator
+/// Path with named keys separated by a separator char
 ///
 /// The path will either be empty or start with the separator.
-#[derive(Debug, Default, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
-pub struct Path<T, const S: char>(T);
+#[serde(transparent)]
+pub struct Path<T, const S: char>(pub T);
 
 impl<T, const S: char> Path<T, S> {
     /// The path hierarchy separator
@@ -156,8 +169,8 @@ impl<'a, T: AsRef<str>, const S: char> IntoKeys for &'a Path<T, S> {
     }
 }
 
-impl<T: Write, const S: char> NodeLookup for Path<T, S> {
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+impl<T: Write, const S: char> Transcode for Path<T, S> {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,
@@ -172,8 +185,8 @@ impl<T: Write, const S: char> NodeLookup for Path<T, S> {
     }
 }
 
-impl<const D: usize> NodeLookup for [usize; D] {
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+impl<const D: usize> Transcode for [usize; D] {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,
@@ -191,8 +204,8 @@ impl<const D: usize> NodeLookup for [usize; D] {
     }
 }
 
-impl NodeLookup for Packed {
-    fn lookup<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+impl Transcode for Packed {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
         M: TreeKey<Y> + ?Sized,

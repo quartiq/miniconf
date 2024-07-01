@@ -1,5 +1,5 @@
 use crate::{
-    Error, IntoKeys, KeyLookup, Keys, KeysIter, Node, NodeLookup, Packed, Traversal, TreeKey,
+    Error, IntoKeys, KeyLookup, Keys, KeysIter, Node, Packed, Transcode, Traversal, TreeKey,
 };
 use core::{
     fmt::Write,
@@ -172,7 +172,7 @@ impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N,
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N, D> {
     /// Limit and start iteration to at and below the provided root key.
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<Node, Traversal> {
-        let node = self.state.lookup::<M, Y, _>(root)?;
+        let node = self.state.transcode::<M, Y, _>(root)?;
         self.root = node.depth();
         Ok(node)
     }
@@ -192,7 +192,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
 impl<M, const Y: usize, N, const D: usize> Iterator for NodeIter<M, Y, N, D>
 where
     M: TreeKey<Y> + ?Sized,
-    N: NodeLookup + Default,
+    N: Transcode + Default,
 {
     type Item = Result<(N, Node), usize>;
 
@@ -210,7 +210,7 @@ where
             }
             let keys = Consume(self.state.iter().copied().into_keys());
             let mut path = N::default();
-            return match path.lookup::<M, Y, _>(keys) {
+            return match path.transcode::<M, Y, _>(keys) {
                 Err(Traversal::NotFound(depth)) => {
                     // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
                     // Key lookup was performed and failed: depth is always >= 1
@@ -236,7 +236,7 @@ where
 impl<M, const Y: usize, N, const D: usize> core::iter::FusedIterator for NodeIter<M, Y, N, D>
 where
     M: TreeKey<Y> + ?Sized,
-    N: NodeLookup + Default,
+    N: Transcode + Default,
 {
 }
 
