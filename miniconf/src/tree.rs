@@ -2,8 +2,8 @@ use core::any::Any;
 use core::fmt::Write;
 
 use crate::{
-    Error, IndexIter, IntoKeys, Keys, Node, NodeIter, Packed, PackedIter, PathIter, Transcode,
-    Traversal,
+    Error, IndexIter, IntoKeys, Keys, Node, NodeIter, Packed, PackedIter, Path, PathIter,
+    Transcode, Traversal,
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -415,19 +415,20 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// Node depth on success
-    fn path<K, P>(keys: K, mut path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
+    #[deprecated(note = "use transcode()")]
+    fn path<K, P>(keys: K, path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
     where
         K: IntoKeys,
         P: Write,
     {
-        let func = |index, name: Option<_>, _len| {
-            path.write_str(separator)?;
-            path.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
-        };
-        match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(depth),
-            Err(err) => Err(err),
-        }
+        assert_eq!(separator, "/");
+        let mut p = Path::<P, '/'>(path);
+        let node = match p.transcode::<Self, Y, _>(keys) {
+            Err(Traversal::TooShort(depth)) => Err(Error::Inner(depth, core::fmt::Error)),
+            Ok(node) => Ok(node),
+            Err(err) => Err(err.into()),
+        }?;
+        Ok(node.depth())
     }
 
     /// Return the keys formatted as a normalized JSON path.
@@ -493,21 +494,14 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// Indices and depth on success
+    #[deprecated(note = "use transcode()")]
     fn indices<K>(keys: K) -> Result<([usize; Y], usize), Traversal>
     where
         K: IntoKeys,
     {
-        let mut indices = [0; Y];
-        let mut it = indices.iter_mut();
-        let func = |index, _name, _len| -> Result<(), ()> {
-            let idx = it.next().ok_or(())?;
-            *idx = index;
-            Ok(())
-        };
-        match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok((indices, depth)),
-            Err(err) => Err(Traversal::try_from(err).unwrap()),
-        }
+        let mut idx = [0; Y];
+        let node = idx.transcode::<Self, Y, _>(keys)?;
+        Ok((idx, node.depth))
     }
 
     /// Convert keys to packed usize bitfield representation.
@@ -531,21 +525,14 @@ pub trait TreeKey<const Y: usize = 1> {
     ///
     /// # Returns
     /// The packed indices representation and depth on success.
+    #[deprecated(note = "use transcode()")]
     fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
     where
         K: IntoKeys,
     {
-        let mut packed = Packed::default();
-        let func = |index, _name, len: usize| match packed
-            .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
-        {
-            None => Err(()),
-            Some(_) => Ok(()),
-        };
-        match Self::traverse_by_key(keys.into_keys(), func) {
-            Ok(depth) | Err(Error::Traversal(Traversal::TooShort(depth))) => Ok((packed, depth)),
-            Err(err) => Err(err),
-        }
+        Self::transcode(keys)
+            .map_err(Error::from)
+            .map(|(p, n)| (p, n.depth()))
     }
 
     /// Create an iterator of all possible leaf paths.
@@ -564,7 +551,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let paths: Vec<String> = S::iter_paths("/").count().map(|p| p.unwrap()).collect();
+    /// let paths: Vec<String> = S::iter_paths("/").map(|p| p.unwrap()).collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// ```
     ///
@@ -576,6 +563,15 @@ pub trait TreeKey<const Y: usize = 1> {
     fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P, Y> {
         PathIter::new(separator)
     }
+    // #[deprecated(note = "use nodes()")]
+    // fn iter_paths<P: core::fmt::Write + Default>(
+    //     separator: &str,
+    // ) -> impl Iterator<Item = Result<P, core::fmt::Error>> {
+    //     assert_eq!(separator, "/");
+    //     Self::nodes::<Path<P, '/'>>().count().map(|p| {
+    //         p.map(|(p, _node)| p.into_inner())
+    //             .map_err(|_depth| core::fmt::Error)
+    //     })
 
     /// Create an iterator of all possible leaf indices.
     ///
@@ -609,13 +605,13 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: [u16; 2],
     /// };
     /// let packed: Vec<_> = S::iter_packed()
-    ///     .count()
     ///     .map(|p| p.unwrap().into_lsb().get())
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
-    fn iter_packed() -> PackedIter<Self, Y, Y> {
-        PackedIter::default()
+    #[deprecated(note = "use nodes()")]
+    fn iter_packed() -> impl Iterator<Item = Result<Packed, usize>> {
+        Self::nodes().count().map(|p| p.map(|(p, _node)| p))
     }
 }
 

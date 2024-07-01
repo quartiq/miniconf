@@ -101,7 +101,7 @@ fn metadata() {
 
 #[test]
 fn empty() {
-    assert!(<[u32; 0]>::iter_paths::<String>("")
+    assert!(<[u32; 0]>::iter_paths::<String>("/")
         .count()
         .next()
         .is_none());
@@ -109,11 +109,11 @@ fn empty() {
     #[derive(Tree, Serialize, Deserialize)]
     struct S {}
 
-    assert!(<[S; 0] as TreeKey>::iter_paths::<String>("")
+    assert!(<[S; 0] as TreeKey>::iter_paths::<String>("/")
         .count()
         .next()
         .is_none());
-    assert!(<[[S; 0]; 0] as TreeKey>::iter_paths::<String>("")
+    assert!(<[[S; 0]; 0] as TreeKey>::iter_paths::<String>("/")
         .count()
         .next()
         .is_none());
@@ -125,5 +125,5 @@ fn empty() {
         #[tree(depth = 1)]
         b: [S; 0],
     }
-    assert!(Q::iter_paths::<String>("").count().next().is_none());
+    assert!(Q::iter_paths::<String>("/").count().next().is_none());
 }
