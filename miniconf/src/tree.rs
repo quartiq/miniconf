@@ -73,12 +73,12 @@ impl Metadata {
 /// # Keys
 ///
 /// The keys used to identify nodes can be iterators over `usize` indices or `&str` names or can
-/// be [`Packed`] compound indices.
+/// be [`crate::Packed`] compound indices.
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers.
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
 ///    some path hierarchy separator, e.g. `'/'`.
-/// * [`Packed`] is a variable bit-width compact compressed notation of hierarchical indices.
+/// * [`crate::Packed`] is a variable bit-width compact compressed notation of hierarchical indices.
 ///
 /// There is a one-to-one relationship between nodes and keys.
 ///
@@ -262,7 +262,7 @@ impl Metadata {
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
-/// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::iter_paths()`]) but attempts
+/// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::nodes()`]) but attempts
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
 /// [`TreeAny::ref_any_by_key()`], or [`TreeAny::mut_any_by_key()`])
 /// return the special [`Traversal::Absent`].
@@ -364,7 +364,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// # Returns
     /// Node depth and type on success
     ///
-    /// ## [`Path`]
+    /// ## [`crate::Path`]
     ///
     /// `char`-separated `Write`
     ///
@@ -380,7 +380,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(path.as_str(), "/bar/1");
     /// ```
     ///
-    /// ## [`JsonPath`]
+    /// ## [`crate::JsonPath`]
     ///
     /// Return the keys formatted as a normalized JSON path.
     ///
@@ -403,7 +403,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(&indices[..node.depth()], idx);
     /// ```
     ///
-    /// ## [`Indices`]
+    /// ## [`crate::Indices`]
     ///
     /// ```
     /// use miniconf::{TreeKey, Indices};
@@ -417,7 +417,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(&indices[..node.depth()], [1, 1]);
     /// ```
     ///
-    /// ## [`Packed`]
+    /// ## [`crate::Packed`]
     ///
     /// Convert keys to packed usize bitfield representation.
     ///
@@ -467,7 +467,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// ```
     ///
-    /// ## [`Path`]
+    /// ## [`crate::Path`]
     ///
     /// ```
     /// use miniconf::{TreeKey, Path};
@@ -484,7 +484,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     /// ```
     ///
-    /// ## [`Indices`]
+    /// ## [`crate::Indices`]
     ///
     /// ```
     /// use miniconf::{TreeKey, Indices};
@@ -501,7 +501,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     /// ```
     ///
-    /// ## [`Packed`]
+    /// ## [`crate::Packed`]
     ///
     /// ```
     /// use miniconf::{TreeKey, Packed};
