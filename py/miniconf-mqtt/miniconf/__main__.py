@@ -80,7 +80,7 @@ def main():
             else:
                 prefix = args.prefix
 
-            interface = await Miniconf.create(client, args.broker, prefix)
+            interface = Miniconf(client, args.broker, prefix)
 
             for arg in args.paths:
                 try:
@@ -94,7 +94,6 @@ def main():
                     print(f"Set {path}: OK")
 
             if args.list:
-                logging.info("Beginning list")
                 for path in await interface.list_paths():
                     value = await interface.get(path)
                     print(f"{path} = {value}")

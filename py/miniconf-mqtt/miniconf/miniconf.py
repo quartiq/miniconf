@@ -32,22 +32,13 @@ class MiniconfException(Exception):
 class Miniconf:
     """An asynchronous API for controlling Miniconf devices using MQTT."""
 
-    @classmethod
-    async def create(cls, client: Client, broker: str, prefix):
-        """Create a connection to the broker and a Miniconf device using it."""
-        miniconf = cls(client, broker, prefix)
-
-        return miniconf
-
-    def __init__(self, client: str | Client, broker: str, prefix: str):
+    def __init__(self, client: Client, broker: str, prefix: str):
         """Constructor.
 
         Args:
             client: A connected MQTT5 client.
             prefix: The MQTT toptic prefix of the device to control.
         """
-        if isinstance(client, str):
-            client = Client(client, protocol=MQTTv5, logger=LOGGER)
         self.client = client
         self.prefix = prefix
         self.broker = broker
@@ -56,19 +47,11 @@ class Miniconf:
         self._listening_task = asyncio.create_task(self.process_messages())
 
 
-    async def __aenter__(self):
-        self.client.__aenter__()
-        await self.subscriptions_complete()
-        return self
-
-    async def __aexit__(self, *args, **kwargs):
-        self.client.__aexit__(*args, **kwargs)
-
     async def process_messages(self):
         try:
             async with Client(self.broker, protocol=MQTTv5, logger=LOGGER) as client:
                 await client.subscribe(self.response_topic)
-                LOGGER.info("listener started")
+                LOGGER.info("MQTT listener started")
                 async for message in client.messages:
                     try:
                         properties = message.properties.json()
@@ -126,9 +109,9 @@ class Miniconf:
 
                     del self._inflight[request_id]
         except Exception as exc:
-            LOGGER.error(f"Listener exception: {exc}")
+            LOGGER.error(f"MQTT listener exception: {exc}")
             raise exc
-        LOGGER.warn("Listener exitting")
+        LOGGER.error("MQTT listener stopped")
 
     async def _do(self, topic: str, **kwargs):
         fut = asyncio.get_running_loop().create_future()
@@ -141,13 +124,12 @@ class Miniconf:
         props.ResponseTopic = self.response_topic
         props.CorrelationData = request_id
 
-        LOGGER.info(f"Publishing {topic}: {kwargs['payload']}, {props}")
+        LOGGER.info(f"Publishing {topic}: {kwargs['payload']}, [{props}]")
         await self.client.publish(
             topic,
             properties=props,
             **kwargs,
         )
-        LOGGER.info("Done")
 
         return await fut
 
