@@ -89,11 +89,11 @@ impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N,
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N, D> {
     /// Limit and start iteration to at and below the provided root key.
-    pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<Node, Traversal> {
+    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
         let node = self.state.transcode::<M, Y, _>(root)?;
         self.root = node.depth();
         self.depth = D + 1;
-        Ok(node)
+        Ok(self)
     }
 
     /// Wrap the iterator in an exact size counting iterator.

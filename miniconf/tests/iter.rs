@@ -99,10 +99,11 @@ fn panic_started_iter() {
 
 #[test]
 fn root() {
-    let mut iter = Settings::nodes::<Path<String, '/'>>();
-    iter.root(["b"]).unwrap();
     assert_eq!(
-        iter.map(|p| p.unwrap().0.into_inner())
+        Settings::nodes::<Path<String, '/'>>()
+            .root(["b"])
+            .unwrap()
+            .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<String>>(),
         ["/b/0", "/b/1"]
     );

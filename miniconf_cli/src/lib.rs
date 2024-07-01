@@ -6,6 +6,7 @@ use core::marker::PhantomData;
 use embedded_io::Write;
 use embedded_io_async::Write as AWrite;
 use heapless::String;
+use postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
 
 use miniconf::{
     Indices, JsonCoreSlash, Keys, Node, NodeIter, Packed, Path, Postcard, Transcode, Traversal,
@@ -128,9 +129,9 @@ where
     pub fn list<const S: usize>(
         &self,
     ) -> Result<impl Iterator<Item = Result<String<S>, usize>>, Traversal> {
-        let mut iter = NodeIter::<M, Y, Path<String<S>, SEPARATOR>, D>::default();
-        iter.root(self.key)?;
-        Ok(iter.map(|pn| pn.map(|(p, _n)| p.into_inner())))
+        Ok(NodeIter::<M, Y, Path<String<S>, SEPARATOR>, D>::default()
+            .root(self.key)?
+            .map(|pn| pn.map(|(p, _n)| p.into_inner())))
     }
 
     pub fn get(
@@ -164,14 +165,11 @@ where
         M: for<'de> Postcard<'de, Y> + Default,
     {
         let def = M::default();
-        let mut iter = M::nodes::<Packed>();
-        iter.root(self.key)?;
-        use postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
-        for keys in iter {
+        for keys in M::nodes::<Packed>().root(self.key)? {
             let (keys, node) =
                 keys.map_err(|depth| miniconf::Error::Traversal(Traversal::TooLong(depth)))?;
             debug_assert!(node.is_leaf());
-            let val = match def.get_postcard_by_key(keys, SerSlice::new(&mut buf[..])) {
+            let val = match def.get_postcard_by_key(keys, SerSlice::new(buf)) {
                 Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
                     continue;
                 }
@@ -204,9 +202,7 @@ where
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
-        let mut iter = NodeIter::<M, Y, Packed, D>::default();
-        iter.root(self.key)?;
-        for keys in iter {
+        for keys in NodeIter::<M, Y, Packed, D>::default().root(self.key)? {
             let (keys, node) = keys?;
             let (val, rest) = match instance.get_json_by_key(keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_))) => {
