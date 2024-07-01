@@ -6,7 +6,7 @@
 //! The Minimq MQTT client for `miniconf``.
 
 use heapless::{String, Vec};
-use miniconf::{Error, JsonCoreSlash, PathIter, Traversal, TreeKey};
+use miniconf::{Error, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
@@ -28,7 +28,7 @@ const MAX_CD_LENGTH: usize = 32;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M, const Y: usize> = PathIter<'static, M, Y, String<MAX_TOPIC_LENGTH>, Y>;
+type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, '/'>>;
 
 mod sm {
     use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
@@ -68,7 +68,7 @@ mod sm {
                 clock,
                 timeout: None,
                 // Skip redundant check (done comprehensively in `MqttClient::new()`)
-                republish_state: M::iter_paths("/"),
+                republish_state: M::nodes(),
             }
         }
 
@@ -91,7 +91,7 @@ mod sm {
 
         fn start_republish(&mut self) {
             // Skip redundant check (done comprehensively in `MqttClient::new()`)
-            self.republish_state = M::iter_paths("/");
+            self.republish_state = M::nodes();
         }
     }
 }
@@ -233,7 +233,7 @@ where
             // attempting this publish.
             let (code, path) = iter
                 .next()
-                .map(|path| (ResponseCode::Continue, path.unwrap()))
+                .map(|path| (ResponseCode::Continue, path.unwrap().0.into_inner()))
                 .unwrap_or((ResponseCode::Ok, String::new()));
 
             let props = [code.as_user_property()];
@@ -277,7 +277,7 @@ where
                 break;
             };
 
-            let topic = topic.unwrap();
+            let (topic, _node) = topic.unwrap();
 
             let mut prefixed_topic = self.prefix.clone();
             prefixed_topic
@@ -431,8 +431,7 @@ where
                             match handle_listing_request(properties) {
                                 Err(msg) => msg,
                                 Ok(cache) => {
-                                    self.listing_state
-                                        .replace((cache, Settings::iter_paths("/")));
+                                    self.listing_state.replace((cache, Settings::nodes()));
 
                                     // There is no positive response sent during list commands,
                                     // instead, the response is sent as a property of the listed
