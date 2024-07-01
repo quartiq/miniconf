@@ -8,10 +8,11 @@ import json
 
 from aiomqtt import Client
 import paho.mqtt
-MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 from .miniconf import Miniconf, MiniconfException
 from .discover import discover
+
+MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 def main():
     """Main program entry point."""
@@ -68,19 +69,22 @@ def main():
     # If a discovery was requested, try to find a device.
 
     async def run():
-        async with Client(args.broker, protocol=MQTTv5, logger=logging.getLogger(__name__)) as client:
+        async with Client(args.broker,
+                          protocol=MQTTv5,
+                          logger=logging.getLogger(__name__)) as client:
             if args.discover:
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
                     raise MiniconfException(
-                        f"No unique Miniconf device (found `{devices}`). Please specify a `--prefix`"
+                        f"No unique Miniconf device (found `{devices}`). "
+                        "Please specify a `--prefix`"
                     )
                 prefix = devices.pop()
                 logging.info("Found device prefix: %s", prefix)
             else:
                 prefix = args.prefix
 
-            interface = Miniconf(client, args.broker, prefix)
+            interface = Miniconf(client, prefix)
 
             for arg in args.paths:
                 try:

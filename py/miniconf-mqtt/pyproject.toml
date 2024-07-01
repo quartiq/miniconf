@@ -16,5 +16,5 @@ authors = [
     { name = "Robert Jördens", email = "rj@quartiq.de" },
 ]
 dependencies = [
-    "aiomqtt",
+    "aiomqtt@git+https://github.com/quartiq/aiomqtt",
 ]

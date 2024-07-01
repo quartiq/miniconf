@@ -32,7 +32,7 @@ class MiniconfException(Exception):
 class Miniconf:
     """An asynchronous API for controlling Miniconf devices using MQTT."""
 
-    def __init__(self, client: Client, broker: str, prefix: str):
+    def __init__(self, client: Client, prefix: str):
         """Constructor.
 
         Args:
@@ -41,79 +41,89 @@ class Miniconf:
         """
         self.client = client
         self.prefix = prefix
-        self.broker = broker
         self._inflight = {}
         self.response_topic = f"{prefix}/response"
-        self._listening_task = asyncio.create_task(self.process_messages())
+        self.subscribed = False
 
 
-    async def process_messages(self):
+    def process_message(self, message: Message):
+        """ Process a received MQTT message. """
         try:
-            async with Client(self.broker, protocol=MQTTv5, logger=LOGGER) as client:
-                await client.subscribe(self.response_topic)
-                LOGGER.info("MQTT listener started")
-                async for message in client.messages:
-                    try:
-                        properties = message.properties.json()
-                    except AttributeError:
-                        properties = {}
+            properties = message.properties.json()
+        except AttributeError:
+            properties = {}
 
-                    LOGGER.debug(f"Received {message.topic}: {message.payload} [{properties}]")
+        LOGGER.debug(f"Received {message.topic}: {message.payload} [{properties}]")
 
-                    # Extract request_id corrleation data from the properties
-                    try:
-                        request_id = bytes(bytearray.fromhex(properties["CorrelationData"]))
-                    except KeyError:
-                        LOGGER.info("Discarding message without CD")
-                        continue
+        # Extract request_id corrleation data from the properties
+        try:
+            request_id = bytes(bytearray.fromhex(properties["CorrelationData"]))
+        except KeyError:
+            LOGGER.info("Discarding message without CD")
+            return
 
-                    try:
-                        ret, fut = self._inflight[request_id]
-                    except KeyError:
-                        LOGGER.info("Discarding message with unexpected CD: %s", request_id)
-                        continue
+        try:
+            ret, fut = self._inflight[request_id]
+        except KeyError:
+            LOGGER.info("Discarding message with unexpected CD: %s", request_id)
+            return
 
-                    # When receiving data not on the specific response topic, the data is some partial
-                    # result of another response. Append it to the data collected for the request.
-                    if message.topic.value != self.response_topic:
-                        # Payloads for path values are JSON formatted.
-                        response = json.loads(message.payload)
+        # When receiving data not on the specific response topic, the data is some partial
+        # result of another response. Append it to the data collected for the request.
+        if message.topic.value != self.response_topic:
+            # Payloads for path values are JSON formatted.
+            response = json.loads(message.payload)
 
-                        # Handle get subscription data.
-                        ret.append(response)
-                        continue
+            # Handle get subscription data.
+            ret.append(response)
+            return
 
-                    # Payloads for generic responses are UTF8
-                    response = message.payload.decode("utf-8")
+        # Payloads for generic responses are UTF8
+        response = message.payload.decode("utf-8")
 
-                    try:
-                        code = dict(properties["UserProperty"])["code"]
-                    except KeyError:
-                        LOGGER.warning("Discarding message without response code user property")
-                        continue
+        try:
+            code = dict(properties["UserProperty"])["code"]
+        except KeyError:
+            LOGGER.warning("Discarding message without response code user property")
+            return
 
-                    # Otherwise, a request has completed with a result. Check the result code and handle it
-                    # appropriately.
-                    if code == "Continue":
-                        ret.append(response)
-                        continue
+        # Otherwise, a request has completed with a result. Check the result code and handle it
+        # appropriately.
+        if code == "Continue":
+            ret.append(response)
+            return
 
-                    if code == "Ok":
-                        if response:
-                            ret.append(response)
-                        fut.set_result(ret)
-                    else:
-                        fut.set_exception(
-                            MiniconfException(f"Received code: {code}, Message: {response}")
-                        )
+        if code == "Ok":
+            if response:
+                ret.append(response)
+            fut.set_result(ret)
+        else:
+            fut.set_exception(
+                MiniconfException(f"Received code: {code}, Message: {response}")
+            )
 
-                    del self._inflight[request_id]
-        except Exception as exc:
-            LOGGER.error(f"MQTT listener exception: {exc}")
-            raise exc
-        LOGGER.error("MQTT listener stopped")
+        del self._inflight[request_id]
+
+
+    async def _process_until_complete(self, fut):
+        """ Process received MQTT packets until the provided future completes. """
+        async def listen():
+            async for message in self.client.messages:
+                self.process_message(message)
+
+        listen_task = asyncio.create_task(listen())
+
+        done, _pending = await asyncio.wait([fut, listen_task], return_when=asyncio.FIRST_COMPLETED)
+        assert fut in done, "MQTT listener finished prematurely"
+        listen_task.cancel()
+        return fut.result()
+
 
     async def _do(self, topic: str, **kwargs):
+        if not self.subscribed:
+            await self.client.subscribe(self.response_topic)
+            self.subscribed = True
+
         fut = asyncio.get_running_loop().create_future()
 
         request_id = uuid.uuid1().hex.encode()
@@ -131,7 +141,7 @@ class Miniconf:
             **kwargs,
         )
 
-        return await fut
+        return await self._process_until_complete(fut)
 
 
     async def command(self, *args, **kwargs):
