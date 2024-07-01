@@ -1,13 +1,14 @@
 use core::{
     fmt::Write,
-    iter::Skip,
+    iter::{Copied, Skip},
     ops::{Deref, DerefMut},
+    slice::Iter,
     str::Split,
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, IntoKeys, KeysIter, Packed, Traversal, TreeKey};
+use crate::{Error, IntoKeys, KeysIter, Traversal, TreeKey};
 
 /// Type of a node
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -118,25 +119,6 @@ impl Transcode for () {
     }
 }
 
-// /// Takes the separator from the current content of the SliceString, clears it and
-// /// then transcodes the keys.
-// impl<'a> Transcode for slice_string::SliceString<'a> {
-//     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
-//     where
-//         Self: Sized,
-//         M: TreeKey<Y> + ?Sized,
-//         K: IntoKeys,
-//     {
-//         let separator = self.chars().next().ok_or(Traversal::TooShort(0))?;
-//         self.clear();
-//         traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-//             self.write_char(separator).or(Err(()))?;
-//             self.write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
-//                 .or(Err(()))
-//         }))
-//     }
-// }
-
 /// Path with named keys separated by a separator char
 ///
 /// The path will either be empty or start with the separator.
@@ -242,6 +224,13 @@ impl<const D: usize> From<Indices<[usize; D]>> for [usize; D] {
     }
 }
 
+impl<'a, T: AsRef<[usize]>> IntoKeys for &'a Indices<T> {
+    type IntoKeys = KeysIter<Copied<Iter<'a, usize>>>;
+    fn into_keys(self) -> Self::IntoKeys {
+        self.0.as_ref().iter().copied().into_keys()
+    }
+}
+
 impl<T: AsMut<[usize]>> Transcode for Indices<T> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
@@ -256,25 +245,6 @@ impl<T: AsMut<[usize]>> Transcode for Indices<T> {
                 let idx = it.next().ok_or(())?;
                 *idx = index;
                 Ok::<_, ()>(())
-            },
-        ))
-    }
-}
-
-impl Transcode for Packed {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        Self: Sized,
-        M: TreeKey<Y> + ?Sized,
-        K: IntoKeys,
-    {
-        traverse(M::traverse_by_key(
-            keys.into_keys(),
-            |index, _name, len: usize| match self
-                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
-            {
-                None => Err(()),
-                Some(_) => Ok(()),
             },
         ))
     }

@@ -104,8 +104,7 @@ where
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
-        let mut idx = Indices::<[usize; D]>::default();
-        let node = idx.transcode::<M, Y, _>(self.key)?;
+        let (idx, node) = M::transcode::<Indices<[_; D]>, _>(self.key)?;
         if node.depth() < levels {
             Err(Traversal::TooShort(node.depth()))
         } else {
@@ -218,6 +217,7 @@ where
                     continue;
                 }
                 ret => {
+                    debug_assert!(node.is_leaf());
                     let (val, rest) = buf.split_at_mut(ret?) as _;
                     (val as _, rest)
                 }

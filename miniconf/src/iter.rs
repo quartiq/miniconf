@@ -109,6 +109,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
     pub fn exact_size(self) -> ExactSize<Self> {
         assert!(self.depth > D);
         assert!(self.root == 0);
+        debug_assert_eq!(&self.state, &Indices::default());
         assert!(D >= Y);
         ExactSize::new(self, M::metadata().count)
     }
@@ -146,9 +147,12 @@ where
                     self.depth = node.depth();
                     Some(Ok((path, node)))
                 }
-                Err(Traversal::TooShort(depth)) => Some(Err(depth)),
+                Err(Traversal::TooShort(depth)) => {
+                    // Target type can not hold keys
+                    Some(Err(depth))
+                }
                 // TooLong: impossible due to Consume
-                // TooShort: Absent, Finalization, Invalid, Access: not returned by traverse_by_key()
+                // Absent, Finalization, Invalid, Access: not returned by traverse(traverse_by_key())
                 _ => unreachable!(),
             };
         }

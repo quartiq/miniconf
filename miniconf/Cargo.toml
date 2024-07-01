@@ -13,19 +13,17 @@ rust-version = "1.70.0" # keep in sync with CI and with other crates and with gi
 resolver = "2"
 
 [dependencies]
-serde = { version = "1.0.120", default-features = false } # , features = ["derive"]
+serde = { version = "1.0.120", default-features = false }
 miniconf_derive = { path = "../miniconf_derive", version = "0.11", optional = true }
 itoa = "1.0.4"
 serde-json-core = { version = "0.5.1", optional = true }
 postcard = { version = "1.0.8", optional = true }
-# slice-string = "0.7.0"
-# tinyvec = "1.6.1"
 
 [features]
 default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
-derive = ["dep:miniconf_derive"]
+derive = ["dep:miniconf_derive", "serde/derive"]
 std = []
 
 [package.metadata.docs.rs]
