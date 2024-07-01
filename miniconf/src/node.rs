@@ -190,8 +190,9 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
 }
 
 /// Wrapper to have a Default impl for indices array
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
+#[serde(transparent)]
 pub struct Indices<T: ?Sized>(pub T);
 
 impl<T: ?Sized> Deref for Indices<T> {

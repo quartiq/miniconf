@@ -80,6 +80,9 @@ impl<'a> Iterator for JsonPathIter<'a> {
 }
 
 /// Wrapper to transcode into a normalized JSON path
+///
+/// * Named fields (struct) are encoded in dot notation.
+/// * Indices (tuple struct, array) are encoded in index notation
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash,
 )]
