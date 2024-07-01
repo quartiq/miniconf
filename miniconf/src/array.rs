@@ -1,8 +1,8 @@
 use core::any::Any;
 
 use crate::{
-    digits, increment_result, Error, KeyLookup, Keys, Metadata, Traversal, TreeAny,
-    TreeDeserialize, TreeKey, TreeSerialize,
+    increment_result, Error, KeyLookup, Keys, Metadata, Traversal, TreeAny, TreeDeserialize,
+    TreeKey, TreeSerialize,
 };
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
@@ -49,7 +49,7 @@ macro_rules! depth {
             fn metadata() -> Metadata {
                 let mut meta = T::metadata();
 
-                meta.max_length += digits::<10>(N);
+                meta.max_length += N.checked_ilog10().unwrap_or_default() as usize + 1;
                 meta.max_depth += 1;
                 meta.count *= N;
 
@@ -126,7 +126,7 @@ impl<const N: usize, T> KeyLookup for [T; N] {
 impl<T, const N: usize> TreeKey for [T; N] {
     fn metadata() -> Metadata {
         Metadata {
-            max_length: digits::<10>(N),
+            max_length: N.checked_ilog10().unwrap_or_default() as usize + 1,
             max_depth: 1,
             count: N,
         }

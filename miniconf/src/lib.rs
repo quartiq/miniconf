@@ -6,24 +6,25 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "derive")]
-pub use miniconf_derive::*;
+mod error;
+pub use error::*;
+mod key;
+pub use key::*;
+mod node;
+pub use node::*;
+mod packed;
+pub use packed::*;
+mod jsonpath;
+pub use jsonpath::*;
 mod tree;
 pub use tree::*;
 mod array;
 mod iter;
-pub use iter::*;
 mod option;
-mod packed;
-pub use packed::*;
-mod key;
-pub use key::*;
-mod jsonpath;
-pub use jsonpath::*;
-mod error;
-pub use error::*;
-mod node;
-pub use node::*;
+pub use iter::*;
+
+#[cfg(feature = "derive")]
+pub use miniconf_derive::*;
 
 #[cfg(feature = "json-core")]
 mod json_core;
@@ -38,15 +39,3 @@ pub use crate::postcard::*;
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-/// Returns the number of digits required to format an integer less than `x`.
-pub const fn digits<const BASE: usize>(x: usize) -> usize {
-    let mut max = BASE;
-    let mut digits = 1;
-
-    while x > max {
-        max *= BASE;
-        digits += 1;
-    }
-    digits
-}

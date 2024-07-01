@@ -35,7 +35,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 } else {
                     None
                 }),
-                quote!(::miniconf::digits::<10>(index)),
+                quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
             )
         } else {
             let names = fields.iter().map(|field| {
