@@ -72,6 +72,8 @@ pub trait Keys {
 }
 
 /// Iterator wrapper
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[repr(transparent)]
 pub struct KeysIter<T: ?Sized>(T);
 
 impl<T> Keys for KeysIter<T>

@@ -85,7 +85,7 @@ impl<'a> Iterator for JsonPathIter<'a> {
 )]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct JsonPath<T>(pub T);
+pub struct JsonPath<T: ?Sized>(pub T);
 
 impl<T> From<T> for JsonPath<T> {
     fn from(value: T) -> Self {
@@ -100,27 +100,27 @@ impl<T> JsonPath<T> {
     }
 }
 
-impl<T> Deref for JsonPath<T> {
+impl<T: ?Sized> Deref for JsonPath<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T> DerefMut for JsonPath<T> {
+impl<T: ?Sized> DerefMut for JsonPath<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<'a, T: AsRef<str>> IntoKeys for &'a JsonPath<T> {
+impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
     type IntoKeys = KeysIter<JsonPathIter<'a>>;
     fn into_keys(self) -> Self::IntoKeys {
         JsonPathIter::from(self.0.as_ref()).into_keys()
     }
 }
 
-impl<T: Write> Transcode for JsonPath<T> {
+impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,

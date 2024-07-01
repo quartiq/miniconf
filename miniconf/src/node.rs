@@ -104,7 +104,7 @@ pub(crate) fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal>
     }
 }
 
-/// Shim to provide the bare `Node` lookup without transcoding the keys
+/// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
@@ -131,28 +131,30 @@ impl Transcode for () {
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Path<T, const S: char>(pub T);
+pub struct Path<T: ?Sized, const S: char>(pub T);
 
-impl<T, const S: char> Path<T, S> {
+impl<T: ?Sized, const S: char> Path<T, S> {
     /// The path hierarchy separator
     pub const fn separator(&self) -> char {
         S
     }
+}
 
+impl<T, const S: char> Path<T, S> {
     /// Extract just the path
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
-impl<T, const S: char> Deref for Path<T, S> {
+impl<T: ?Sized, const S: char> Deref for Path<T, S> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T, const S: char> DerefMut for Path<T, S> {
+impl<T: ?Sized, const S: char> DerefMut for Path<T, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -164,14 +166,14 @@ impl<T, const S: char> From<T> for Path<T, S> {
     }
 }
 
-impl<'a, T: AsRef<str>, const S: char> IntoKeys for &'a Path<T, S> {
+impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<Skip<Split<'a, char>>>;
     fn into_keys(self) -> Self::IntoKeys {
         self.0.as_ref().split(self.separator()).skip(1).into_keys()
     }
 }
 
-impl<T: Write, const S: char> Transcode for Path<T, S> {
+impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
@@ -190,16 +192,16 @@ impl<T: Write, const S: char> Transcode for Path<T, S> {
 /// Wrapper to have a Default impl for indices array
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct Indices<T>(pub T);
+pub struct Indices<T: ?Sized>(pub T);
 
-impl<T> Deref for Indices<T> {
+impl<T: ?Sized> Deref for Indices<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T> DerefMut for Indices<T> {
+impl<T: ?Sized> DerefMut for Indices<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -224,14 +226,14 @@ impl<const D: usize> From<Indices<[usize; D]>> for [usize; D] {
     }
 }
 
-impl<'a, T: AsRef<[usize]>> IntoKeys for &'a Indices<T> {
+impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
     type IntoKeys = KeysIter<Copied<Iter<'a, usize>>>;
     fn into_keys(self) -> Self::IntoKeys {
         self.0.as_ref().iter().copied().into_keys()
     }
 }
 
-impl<T: AsMut<[usize]>> Transcode for Indices<T> {
+impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,

@@ -1,11 +1,7 @@
-use crate::{Indices, IntoKeys, KeyLookup, Keys, KeysIter, Node, Transcode, Traversal, TreeKey};
-use core::{
-    iter::{Copied, FusedIterator},
-    marker::PhantomData,
-    slice::Iter,
-};
+use crate::{Indices, IntoKeys, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
+use core::marker::PhantomData;
 
-/// Counting wrapper for iterators with known size
+/// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExactSize<T> {
     iter: T,
@@ -23,14 +19,12 @@ impl<T: Iterator> Iterator for ExactSize<T> {
     type Item = T::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.count == 0 {
-            debug_assert!(self.iter.next().is_none());
-            None
-        } else if let Some(v) = self.iter.next() {
+        if let Some(v) = self.iter.next() {
             self.count -= 1; // checks for overflow in debug
             Some(v)
         } else {
-            unreachable!();
+            debug_assert!(self.count == 0);
+            None
         }
     }
 
@@ -43,22 +37,22 @@ impl<T: Iterator> Iterator for ExactSize<T> {
 // we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
 
-impl<T: FusedIterator> FusedIterator for ExactSize<T> {}
+impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
 
 /// A Keys wrapper that is is_empty()
-pub struct Consume<'a>(KeysIter<Copied<Iter<'a, usize>>>);
-impl<'a> Keys for Consume<'a> {
+struct Consume<T>(T);
+impl<T: Keys> Keys for Consume<T> {
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        Keys::next::<M>(&mut self.0)
+        self.0.next::<M>()
     }
 
     fn is_empty(&mut self) -> bool {
         true
     }
 }
-impl<'a> IntoKeys for Consume<'a> {
+impl<T: Keys> IntoKeys for Consume<T> {
     type IntoKeys = Self;
 
     fn into_keys(self) -> Self::IntoKeys {
@@ -70,8 +64,7 @@ impl<'a> IntoKeys for Consume<'a> {
 ///
 /// A managed indices state for iteration of nodes in a `TreeKey`.
 ///
-/// `D` is the depth limit. Keys that are `Traversal::TooShort` (internal nodes)
-/// will still be returned on iteration.
+/// `D` is the depth limit. Internal nodes will still be returned on iteration.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
     state: Indices<[usize; D]>,
@@ -99,6 +92,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
     pub fn root<K: IntoKeys>(&mut self, root: K) -> Result<Node, Traversal> {
         let node = self.state.transcode::<M, Y, _>(root)?;
         self.root = node.depth();
+        self.depth = D + 1;
         Ok(node)
     }
 
@@ -107,9 +101,9 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited.
     pub fn exact_size(self) -> ExactSize<Self> {
-        assert!(self.depth > D);
+        assert!(self.depth == D + 1);
         assert!(self.root == 0);
-        debug_assert_eq!(&self.state, &Indices::default());
+        debug_assert_eq!(&self.state, &Indices::default()); // ensured by depth = D + 1 marker
         assert!(D >= Y);
         ExactSize::new(self, M::metadata().count)
     }
@@ -134,7 +128,7 @@ where
                 // Not initial state: increment
                 self.state[self.depth - 1] += 1;
             }
-            return match M::transcode(Consume(self.state.iter().copied().into_keys())) {
+            return match M::transcode(Consume(self.state.into_keys())) {
                 Err(Traversal::NotFound(depth)) => {
                     // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
                     // Key lookup was performed and failed: depth is always >= 1
@@ -157,11 +151,4 @@ where
             };
         }
     }
-}
-
-impl<M, const Y: usize, N, const D: usize> core::iter::FusedIterator for NodeIter<M, Y, N, D>
-where
-    M: TreeKey<Y> + ?Sized,
-    N: Transcode + Default,
-{
 }
