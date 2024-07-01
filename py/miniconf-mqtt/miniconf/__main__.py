@@ -6,11 +6,12 @@ import argparse
 import logging
 import json
 
-from gmqtt import Client
+from aiomqtt import Client
+import paho.mqtt
+MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 from .miniconf import Miniconf, MiniconfException
 from .discover import discover
-
 
 def main():
     """Main program entry point."""
@@ -67,36 +68,36 @@ def main():
     # If a discovery was requested, try to find a device.
 
     async def run():
-        client = Client(client_id="")
-        await client.connect(args.broker)
-
-        if args.discover:
-            devices = await discover(client, args.prefix)
-            if len(devices) != 1:
-                raise MiniconfException(
-                    f"No unique Miniconf device (found `{devices}`). Please specify a `--prefix`"
-                )
-            prefix = devices.pop()
-            logging.info("Found device prefix: %s", prefix)
-        else:
-            prefix = args.prefix
-
-        interface = await Miniconf.create(client, prefix)
-
-        for arg in args.paths:
-            try:
-                path, value = arg.split("=", 1)
-            except ValueError:
-                value = await interface.get(arg)
-                print(f"{arg} = {value}")
+        async with Client(args.broker, protocol=MQTTv5, logger=logging.getLogger(__name__)) as client:
+            if args.discover:
+                devices = await discover(client, args.prefix)
+                if len(devices) != 1:
+                    raise MiniconfException(
+                        f"No unique Miniconf device (found `{devices}`). Please specify a `--prefix`"
+                    )
+                prefix = devices.pop()
+                logging.info("Found device prefix: %s", prefix)
             else:
-                await interface.set(path, json.loads(value), args.retain)
-                print(f"Set {path}: OK")
+                prefix = args.prefix
 
-        if args.list:
-            for path in await interface.list_paths():
-                value = await interface.get(path)
-                print(f"{path} = {value}")
+            interface = await Miniconf.create(client, args.broker, prefix)
+
+            for arg in args.paths:
+                try:
+                    path, value = arg.split("=", 1)
+                except ValueError:
+                    value = await interface.get(arg)
+                    print(f"{arg} = {value}")
+                else:
+                    print(f'Setting {arg} to {value}')
+                    await interface.set(path, json.loads(value), args.retain)
+                    print(f"Set {path}: OK")
+
+            if args.list:
+                logging.info("Beginning list")
+                for path in await interface.list_paths():
+                    value = await interface.get(path)
+                    print(f"{path} = {value}")
 
     loop.run_until_complete(run())
 
