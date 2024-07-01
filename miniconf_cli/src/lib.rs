@@ -9,8 +9,7 @@ use heapless::String;
 use postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
 
 use miniconf::{
-    Indices, JsonCoreSlash, Keys, Node, NodeIter, Packed, Path, Postcard, Transcode, Traversal,
-    TreeKey,
+    Indices, JsonCoreSlash, Keys, Node, Packed, Path, Postcard, Transcode, Traversal, TreeKey,
 };
 
 /// Wrapper to support core::fmt::Write for embedded_io::Write
@@ -79,7 +78,7 @@ where
     _m: PhantomData<M>,
 }
 
-impl<M, const Y: usize, const D: usize> Default for Menu<M, Y, D>
+impl<M, const Y: usize> Default for Menu<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
@@ -88,7 +87,7 @@ where
     }
 }
 
-impl<M, const Y: usize, const D: usize> Menu<M, Y, D>
+impl<M, const Y: usize> Menu<M, Y>
 where
     M: TreeKey<Y> + ?Sized,
 {
@@ -105,7 +104,7 @@ where
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
-        let (idx, node) = M::transcode::<Indices<[_; D]>, _>(self.key)?;
+        let (idx, node) = M::transcode::<Indices<[_; Y]>, _>(self.key)?;
         if node.depth() < levels {
             Err(Traversal::TooShort(node.depth()))
         } else {
@@ -129,7 +128,7 @@ where
     pub fn list<const S: usize>(
         &self,
     ) -> Result<impl Iterator<Item = Result<String<S>, usize>>, Traversal> {
-        Ok(NodeIter::<M, Y, Path<String<S>, SEPARATOR>, D>::default()
+        Ok(M::nodes::<Path<String<S>, SEPARATOR>>()
             .root(self.key)?
             .map(|pn| pn.map(|(p, _n)| p.into_inner())))
     }
@@ -202,7 +201,7 @@ where
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
-        for keys in NodeIter::<M, Y, Packed, D>::default().root(self.key)? {
+        for keys in M::nodes::<Packed>().root(self.key)? {
             let (keys, node) = keys?;
             let (val, rest) = match instance.get_json_by_key(keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_))) => {
@@ -291,7 +290,7 @@ mod tests {
         s.b[0] = 1234;
         s.f[1].e = 9;
         let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
-        let mut m = Menu::<Set, Y, 3>::default();
+        let mut m = Menu::<Set, Y>::default();
         m.dump(&s, &mut stdout, &mut buf).await.unwrap();
         m.enter("f").unwrap();
         m.dump(&s, &mut stdout, &mut buf).await.unwrap();
