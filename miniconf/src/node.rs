@@ -106,6 +106,9 @@ pub trait Transcode {
     /// Perform a lookup and transcode the keys into self
     ///
     /// Returns node type and depth info.
+    ///
+    /// `Err(Traversal::TooShort(depth))` indicates that `Self` does not have sufficient
+    /// capacity and failed to encode the key at the given depth.
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
