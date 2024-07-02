@@ -37,8 +37,10 @@ impl<T: Iterator> Iterator for ExactSize<T> {
 // we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
 
+// `Iterator` is sufficient to fuse
 impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 
+// https://github.com/rust-lang/rust/issues/37572
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
 
 /// A Keys wrapper that can always finalize()
@@ -62,9 +64,13 @@ impl<T: Keys> IntoKeys for Consume<T> {
 
 /// Node iterator
 ///
-/// A managed indices state for iteration of nodes in a `TreeKey`.
+/// A managed indices state for iteration of nodes `N` in a `TreeKey`.
 ///
-/// `D` is the depth limit. Internal nodes will still be returned on iteration.
+/// `D` is the depth limit. Internal nodes will be returned on iteration where
+/// the depth limit is exceeded.
+///
+/// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
+/// not have sufficient capacity and failed to encode the key at the given depth.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
     state: Indices<[usize; D]>,
@@ -89,6 +95,8 @@ impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N,
 
 impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N, D> {
     /// Limit and start iteration to at and below the provided root key.
+    ///
+    /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
         let node = self.state.transcode::<M, Y, _>(root)?;
         self.root = node.depth();
@@ -96,7 +104,8 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
         Ok(self)
     }
 
-    /// Wrap the iterator in an exact size counting iterator.
+    /// Wrap the iterator in an exact size counting iterator that is
+    /// `FusedIterator` and `ExactSizeIterator`.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited.
@@ -151,4 +160,10 @@ where
             };
         }
     }
+}
+
+/// Do not allow manipulation of `depth` other than through iteration .
+impl<M: TreeKey<Y> + ?Sized, const Y: usize, N: Transcode + Default, const D: usize>
+    core::iter::FusedIterator for NodeIter<M, Y, N, D>
+{
 }
