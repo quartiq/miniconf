@@ -10,10 +10,19 @@ import json
 import logging
 import uuid
 import warnings
+import sys
+import os
 
-from gmqtt import Client
+from aiomqtt import Client, Message
+from paho.mqtt.properties import Properties, PacketTypes
+import paho.mqtt
+MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 LOGGER = logging.getLogger(__name__)
+
+if sys.platform.lower() == "win32" or os.name.lower() == "nt":
+    from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
+    set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 
 class MiniconfException(Exception):
@@ -23,18 +32,7 @@ class MiniconfException(Exception):
 class Miniconf:
     """An asynchronous API for controlling Miniconf devices using MQTT."""
 
-    @classmethod
-    async def create(cls, client, prefix):
-        """Create a connection to the broker and a Miniconf device using it."""
-        if isinstance(client, str):
-            client_ = Client(client_id="")
-            await client_.connect(client)
-            client = client_
-        miniconf = cls(client, prefix)
-        await miniconf.subscriptions_complete()
-        return miniconf
-
-    def __init__(self, client, prefix):
+    def __init__(self, client: Client, prefix: str):
         """Constructor.
 
         Args:
@@ -44,41 +42,22 @@ class Miniconf:
         self.client = client
         self.prefix = prefix
         self._inflight = {}
-        self.client.on_message = self._on_message
-        self.client.on_subscribe = self._on_subscribe
         self.response_topic = f"{prefix}/response"
-        self._pending_subscriptions = {
-            self.client.subscribe(
-                self.response_topic
-            ): asyncio.get_running_loop().create_future(),
-        }
+        self.subscribed = False
 
-    async def subscriptions_complete(self):
-        """Wait for all pending subscriptions to complete."""
-        return await asyncio.gather(*self._pending_subscriptions.values())
 
-    def _on_subscribe(self, _client, mid, _qos, _props):
-        LOGGER.info("Handling subscription for %s", mid)
-        if mid not in self._pending_subscriptions:
-            LOGGER.warning("MID: %s, unexpected subscription", mid)
-            return
+    def process_message(self, message: Message):
+        """ Process a received MQTT message. """
+        try:
+            properties = message.properties.json()
+        except AttributeError:
+            properties = {}
 
-        self._pending_subscriptions[mid].set_result(True)
-        del self._pending_subscriptions[mid]
+        LOGGER.debug(f"Received {message.topic}: {message.payload} [{properties}]")
 
-    def _on_message(self, _client, topic, payload, _qos, properties):
-        """Callback function for when messages are received over MQTT.
-
-        Args:
-            _client: The MQTT client.
-            topic: The topic that the message was received on.
-            payload: The payload of the message.
-            _qos: The quality-of-service level of the received packet
-            properties: A dictionary of properties associated with the message.
-        """
         # Extract request_id corrleation data from the properties
         try:
-            request_id = properties["correlation_data"][0]
+            request_id = bytes(bytearray.fromhex(properties["CorrelationData"]))
         except KeyError:
             LOGGER.info("Discarding message without CD")
             return
@@ -89,21 +68,21 @@ class Miniconf:
             LOGGER.info("Discarding message with unexpected CD: %s", request_id)
             return
 
-        # When receiving data not on the specific response topic, the data is some partial result of
-        # another response. Append it to the data collected for the request.
-        if topic != self.response_topic:
+        # When receiving data not on the specific response topic, the data is some partial
+        # result of another response. Append it to the data collected for the request.
+        if message.topic.value != self.response_topic:
             # Payloads for path values are JSON formatted.
-            response = json.loads(payload)
+            response = json.loads(message.payload)
 
             # Handle get subscription data.
             ret.append(response)
             return
 
         # Payloads for generic responses are UTF8
-        response = payload.decode("utf-8")
+        response = message.payload.decode("utf-8")
 
         try:
-            code = dict(properties["user_property"])["code"]
+            code = dict(properties["UserProperty"])["code"]
         except KeyError:
             LOGGER.warning("Discarding message without response code user property")
             return
@@ -125,20 +104,45 @@ class Miniconf:
 
         del self._inflight[request_id]
 
-    async def _do(self, *args, **kwargs):
+
+    async def _process_until_complete(self, fut):
+        """ Process received MQTT packets until the provided future completes. """
+        async def listen():
+            async for message in self.client.messages:
+                self.process_message(message)
+
+        listen_task = asyncio.create_task(listen())
+
+        done, _pending = await asyncio.wait([fut, listen_task], return_when=asyncio.FIRST_COMPLETED)
+        assert fut in done, "MQTT listener finished prematurely"
+        listen_task.cancel()
+        return fut.result()
+
+
+    async def _do(self, topic: str, **kwargs):
+        if not self.subscribed:
+            await self.client.subscribe(self.response_topic)
+            self.subscribed = True
+
         fut = asyncio.get_running_loop().create_future()
 
         request_id = uuid.uuid1().hex.encode()
         assert request_id not in self._inflight
         self._inflight[request_id] = [], fut
 
-        self.client.publish(
-            *args,
-            response_topic=self.response_topic,
-            correlation_data=request_id,
+        props = Properties(PacketTypes.PUBLISH)
+        props.ResponseTopic = self.response_topic
+        props.CorrelationData = request_id
+
+        LOGGER.info(f"Publishing {topic}: {kwargs['payload']}, [{props}]")
+        await self.client.publish(
+            topic,
+            properties=props,
             **kwargs,
         )
-        return await fut
+
+        return await self._process_until_complete(fut)
+
 
     async def command(self, *args, **kwargs):
         """Refer to `set()` for more information."""
@@ -157,7 +161,7 @@ class Miniconf:
             retain: Retain the the setting on the broker.
         """
         ret = await self._do(
-            f"{self.prefix}/settings{path}",
+            topic=f"{self.prefix}/settings{path}",
             payload=json.dumps(value, separators=(",", ":")),
             retain=retain,
         )
@@ -166,7 +170,7 @@ class Miniconf:
 
     async def list_paths(self):
         """Get a list of all the paths available on the device."""
-        return await self._do(f"{self.prefix}/list", payload="")
+        return await self._do(topic=f"{self.prefix}/list", payload="")
 
     async def get(self, path):
         """Get the specific value of a given path.
@@ -174,7 +178,7 @@ class Miniconf:
         Args:
             path: The path to get.
         """
-        ret = await self._do(f"{self.prefix}/settings{path}", payload="")
+        ret = await self._do(topic=f"{self.prefix}/settings{path}", payload="")
         assert len(ret) == 1
         return ret[0]
 
