@@ -13,7 +13,7 @@ use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 // `TreeKey<{Y - 1}>`. The latter could be ameliorated with a `bounds` derive macro attribute.
 
 fn get<'a, T, K: Keys>(opt: &'a Option<T>, keys: &mut K, drain: bool) -> Result<&'a T, Traversal> {
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(0))
     } else {
         opt.as_ref().ok_or(Traversal::Absent(0))
@@ -25,7 +25,7 @@ fn get_mut<'a, T, K: Keys>(
     keys: &mut K,
     drain: bool,
 ) -> Result<&'a mut T, Traversal> {
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(0))
     } else {
         opt.as_mut().ok_or(Traversal::Absent(0))
@@ -106,7 +106,7 @@ impl<T> TreeKey for Option<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        if !keys.is_empty() {
+        if !keys.finalize() {
             Err(Traversal::TooLong(0).into())
         } else {
             Ok(0)

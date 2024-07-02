@@ -17,7 +17,7 @@ where
 {
     let index = keys.next::<[T; N]>()?;
     let item = arr.get(index).ok_or(Traversal::NotFound(1))?;
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
     } else {
         Ok(item)
@@ -35,7 +35,7 @@ where
 {
     let index = keys.next::<[T; N]>()?;
     let item = arr.get_mut(index).ok_or(Traversal::NotFound(1))?;
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
     } else {
         Ok(item)
@@ -142,7 +142,7 @@ impl<T, const N: usize> TreeKey for [T; N] {
             return Err(Traversal::NotFound(1).into());
         }
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-        if !keys.is_empty() {
+        if !keys.finalize() {
             Err(Traversal::TooLong(1).into())
         } else {
             Ok(1)

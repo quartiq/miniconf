@@ -249,7 +249,7 @@ impl Keys for Packed {
     }
 
     #[inline]
-    fn is_empty(&mut self) -> bool {
+    fn finalize(&mut self) -> bool {
         Packed::is_empty(self)
     }
 }

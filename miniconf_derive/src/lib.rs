@@ -78,7 +78,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 let index = ::miniconf::Keys::next::<Self>(keys)?;
                 let defer = DEFERS.get(index)
                     .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer && !keys.is_empty() {
+                if !defer && !keys.finalize() {
                     Err(::miniconf::Traversal::TooLong(1))
                 } else {
                     Ok(index)
@@ -135,7 +135,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
                     _ => {
-                        if !keys.is_empty() {
+                        if !keys.finalize() {
                             Err(::miniconf::Traversal::TooLong(0).into())
                         } else {
                             Ok(0)

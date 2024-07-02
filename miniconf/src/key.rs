@@ -60,7 +60,7 @@ pub trait Keys {
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
-    fn is_empty(&mut self) -> bool;
+    fn finalize(&mut self) -> bool;
 
     /// Chain another `Keys` to this one.
     fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
@@ -86,7 +86,7 @@ where
         key.find::<M>().ok_or(Traversal::NotFound(1))
     }
 
-    fn is_empty(&mut self) -> bool {
+    fn finalize(&mut self) -> bool {
         self.0.next().is_none()
     }
 }
@@ -99,8 +99,8 @@ where
         T::next::<M>(self)
     }
 
-    fn is_empty(&mut self) -> bool {
-        T::is_empty(self)
+    fn finalize(&mut self) -> bool {
+        T::finalize(self)
     }
 }
 
@@ -143,8 +143,8 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
         }
     }
 
-    fn is_empty(&mut self) -> bool {
-        self.0.is_empty() && self.1.is_empty()
+    fn finalize(&mut self) -> bool {
+        self.0.finalize() && self.1.finalize()
     }
 }
 

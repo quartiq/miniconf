@@ -41,14 +41,14 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 
 // unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
 
-/// A Keys wrapper that is is_empty()
+/// A Keys wrapper that can always finalize()
 struct Consume<T>(T);
 impl<T: Keys> Keys for Consume<T> {
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
         self.0.next::<M>()
     }
 
-    fn is_empty(&mut self) -> bool {
+    fn finalize(&mut self) -> bool {
         true
     }
 }
