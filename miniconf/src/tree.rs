@@ -395,6 +395,9 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(path.as_str(), "/bar/4");
     /// ```
     ///
+    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
+    /// an existing `&mut N`.
+    ///
     /// # Args
     /// * `keys`: `IntoKeys` to identify the node.
     ///
@@ -417,6 +420,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// runtime (see [`TreeKey#option`]).
     /// An iterator with an exact and trusted `size_hint()` can be obtained from
     /// this through [`NodeIter::exact_size()`].
+    /// The maximum key depth may be selected independently of `Y` through the `D`
+    /// const generic of [`NodeIter`].
     ///
     /// Possible [`Transcode`] targets:
     ///
