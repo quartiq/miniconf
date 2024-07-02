@@ -1,10 +1,11 @@
 use core::any::Any;
 
+use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
+
 use crate::{
     increment_result, Error, KeyLookup, Keys, Metadata, Traversal, TreeAny, TreeDeserialize,
     TreeKey, TreeSerialize,
 };
-use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 fn get<'a, const N: usize, K, T>(
     arr: &'a [T; N],

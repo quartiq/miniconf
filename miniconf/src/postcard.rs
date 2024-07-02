@@ -1,5 +1,6 @@
-use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
+
+use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 
 /// `TreeSerialize`/`TreeDeserialize` with `postcard`.
 ///

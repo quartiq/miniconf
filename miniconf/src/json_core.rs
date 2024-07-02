@@ -1,5 +1,6 @@
-use crate::{Error, IntoKeys, Path, TreeDeserialize, TreeSerialize};
 use serde_json_core::{de, ser};
+
+use crate::{Error, IntoKeys, Path, TreeDeserialize, TreeSerialize};
 
 /// `TreeSerialize`/`TreeDeserialize` with "JSON and `/`".
 ///

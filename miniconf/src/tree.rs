@@ -1,8 +1,8 @@
 use core::any::Any;
 
-use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
-
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
 
 /// Metadata about a `TreeKey` namespace.
 ///

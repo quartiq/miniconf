@@ -1,5 +1,6 @@
-use crate::{Indices, IntoKeys, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
 use core::marker::PhantomData;
+
+use crate::{Indices, IntoKeys, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]

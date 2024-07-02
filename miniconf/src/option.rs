@@ -1,7 +1,8 @@
 use core::any::Any;
 
-use crate::{Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::{Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
 // But it does add one Tree API layer between its `Tree<Y>` level
