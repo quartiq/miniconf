@@ -187,9 +187,12 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
         K: IntoKeys,
     {
         M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            self.0.write_char(self.separator()).or(Err(()))?;
             self.0
-                .write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
+                .write_char(self.separator())
+                .and_then(|()| match name {
+                    Some(name) => self.0.write_str(name),
+                    None => self.0.write_str(itoa::Buffer::new().format(index)),
+                })
                 .or(Err(()))
         })
         .try_into()
@@ -251,9 +254,9 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     {
         let mut it = self.0.as_mut().iter_mut();
         M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            let idx = it.next().ok_or(())?;
-            *idx = index;
-            Ok::<_, ()>(())
+            it.next().ok_or(()).map(|idx| {
+                *idx = index;
+            })
         })
         .try_into()
     }

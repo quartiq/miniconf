@@ -131,18 +131,16 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        M::traverse_by_key(keys.into_keys(), |index, name, _len| match name {
-            Some(name) => {
-                self.0.write_char('.').or(Err(()))?;
-                self.0.write_str(name).or(Err(()))
+        M::traverse_by_key(keys.into_keys(), |index, name, _len| {
+            match name {
+                Some(name) => self.0.write_char('.').and_then(|()| self.0.write_str(name)),
+                None => self
+                    .0
+                    .write_char('[')
+                    .and_then(|()| self.0.write_str(itoa::Buffer::new().format(index)))
+                    .and_then(|()| self.0.write_char(']')),
             }
-            None => {
-                self.0.write_char('[').or(Err(()))?;
-                self.0
-                    .write_str(itoa::Buffer::new().format(index))
-                    .or(Err(()))?;
-                self.0.write_char(']').or(Err(()))
-            }
+            .or(Err(()))
         })
         .try_into()
     }
