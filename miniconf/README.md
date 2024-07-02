@@ -61,7 +61,7 @@ See also the documentation of the [`TreeKey`] trait for a detailed description.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, JsonCoreSlash, JsonPath, Traversal, Tree, TreeKey, Packed};
+use miniconf::{Error, JsonCoreSlash, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node};
 
 #[derive(Deserialize, Serialize, Default)]
 enum Either {
@@ -122,13 +122,14 @@ settings.set_json("/array_tree/0", b"7")?;
 // ... or by index and then struct field name
 settings.set_json("/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-settings.set_json_by_key([7, 0, 1].into_iter(), b"8")?;
+settings.set_json_by_key([7, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, _depth) = Settings::packed([7, 1, 0]).unwrap();
+let (packed, node) = Settings::transcode::<Packed, _>([7, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_0111_1_0);
+assert_eq!(node, Node::leaf(3));
 settings.set_json_by_key(packed, b"9")?;
 // ... or by JSON path
-settings.set_json_by_key(JsonPath::from(".array_tree2[1].b"), b"10")?;
+settings.set_json_by_key(&JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(settings.set_json("/option_tree", b"13"), Err(Traversal::Absent(1).into()));
@@ -148,8 +149,9 @@ let len = settings.get_json("/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
-for path in Settings::iter_paths::<String>("/") {
-    let path = path.unwrap();
+for path in Settings::nodes::<Path<String, '/'>>() {
+    let (path, node) = path.unwrap();
+    assert!(node.is_leaf());
     // Serialize each
     match settings.get_json(&path, &mut buf) {
         // Full round-trip: deserialize and set again

@@ -1,4 +1,4 @@
-use miniconf::{Packed, Traversal, Tree, TreeKey, TreeSerialize};
+use miniconf::{Indices, Node, Packed, Path, Traversal, Tree, TreeKey, TreeSerialize};
 
 #[derive(Tree, Default)]
 struct Settings {
@@ -9,41 +9,38 @@ struct Settings {
 
 #[test]
 fn packed() {
-    let mut path = String::new();
-
     // Check empty being too short
-    assert_eq!(Settings::path(Packed::EMPTY, &mut path, "/"), Ok(0));
-    path.clear();
+    assert_eq!(
+        Settings::transcode::<Path<String, '/'>, _>(Packed::EMPTY),
+        Ok((Path::default(), Node::internal(0)))
+    );
 
     // Check path-packed round trip.
-    for iter_path in Settings::iter_paths::<String>("/")
-        .count()
+    for (iter_path, _node) in Settings::nodes::<Path<String, '/'>>()
+        .exact_size()
         .map(Result::unwrap)
     {
-        let (packed, _depth) = Settings::packed(iter_path.split("/").skip(1)).unwrap();
-        Settings::path(packed, &mut path, "/").unwrap();
+        let (packed, node) = Settings::transcode::<Packed, _>(&iter_path).unwrap();
+        let (path, _node) = Settings::transcode::<Path<String, '/'>, _>(packed).unwrap();
         assert_eq!(path, iter_path);
         println!(
-            "{path} {iter_path}, {:#06b} {} {_depth}",
+            "{path:?} {iter_path:?}, {:#06b} {} {node:?}",
             packed.get() >> 60,
             packed.into_lsb().get()
         );
-        path.clear();
     }
     println!(
         "{:?}",
-        Settings::iter_packed()
-            .map(|p| p.unwrap().into_lsb().get())
+        Settings::nodes::<Packed>()
+            .map(|p| p.unwrap().0.into_lsb().get())
             .collect::<Vec<_>>()
     );
 
     // Check that Packed `marker + 0b0` is equivalent to `/a`
-    assert_eq!(
-        Settings::path(Packed::from_lsb(0b10.try_into().unwrap()), &mut path, "/"),
-        Ok(1)
-    );
-    assert_eq!(path, "/a");
-    path.clear();
+    let a = Packed::from_lsb(0b10.try_into().unwrap());
+    let (path, node) = Settings::transcode::<Path<String, '/'>, _>(a).unwrap();
+    assert_eq!(node, Node::leaf(1));
+    assert_eq!(path.as_str(), "/a");
 }
 
 #[test]
@@ -55,17 +52,22 @@ fn top() {
         foo: i32,
     }
     assert_eq!(
-        S::iter_paths::<String>("/")
-            .map(Result::unwrap)
+        S::nodes::<Path<String, '/'>>()
+            .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
         ["/foo"]
     );
-    assert_eq!(S::iter_indices().collect::<Vec<_>>(), [([1, 0], 1)]);
-    let (p, depth) = S::packed([1]).unwrap();
-    assert_eq!((p.into_lsb().get(), depth), (0b11, 1));
     assert_eq!(
-        S::iter_packed()
-            .map(|p| p.unwrap().into_lsb().get())
+        S::nodes::<Indices<_>>()
+            .map(|p| p.unwrap())
+            .collect::<Vec<_>>(),
+        [(Indices([1, 0]), Node::leaf(1))]
+    );
+    let (p, node) = S::transcode::<Packed, _>([1]).unwrap();
+    assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
+    assert_eq!(
+        S::nodes::<Packed>()
+            .map(|p| p.unwrap().0.into_lsb().get())
             .collect::<Vec<_>>(),
         [0b11]
     );
@@ -74,20 +76,22 @@ fn top() {
 #[test]
 fn zero_key() {
     assert_eq!(
-        Option::<()>::iter_packed()
+        Option::<()>::nodes::<Packed>()
             .next()
             .unwrap()
             .unwrap()
+            .0
             .into_lsb()
             .get(),
         0b1
     );
 
     assert_eq!(
-        <[usize; 1]>::iter_packed()
+        <[usize; 1]>::nodes::<Packed>()
             .next()
             .unwrap()
             .unwrap()
+            .0
             .into_lsb()
             .get(),
         0b10

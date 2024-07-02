@@ -1,4 +1,4 @@
-use miniconf::{Traversal, Tree, TreeKey};
+use miniconf::{Node, Path, Traversal, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -21,13 +21,12 @@ fn meta() {
 
 #[test]
 fn path() {
-    let mut s = String::new();
-    assert_eq!(Settings::path([0], &mut s, "/"), Ok(1));
-    assert_eq!(s, "/value");
-    s.clear();
     assert_eq!(
-        Settings::path([1], &mut s, "/"),
-        Err(Traversal::NotFound(1).into())
+        Settings::transcode::<Path<String, '/'>, _>([0]),
+        Ok((Path("/value".to_owned()), Node::leaf(1)))
     );
-    assert_eq!(s, "");
+    assert_eq!(
+        Settings::transcode::<Path<String, '/'>, _>([1]),
+        Err(Traversal::NotFound(1))
+    );
 }

@@ -35,10 +35,11 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 } else {
                     None
                 }),
-                quote!(::miniconf::digits::<10>(index)),
+                quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
             )
         } else {
             let names = fields.iter().map(|field| {
+                // ident is Some
                 let name = field.name().unwrap();
                 quote! { stringify!(#name) }
             });
@@ -78,7 +79,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 let index = ::miniconf::Keys::next::<Self>(keys)?;
                 let defer = DEFERS.get(index)
                     .ok_or(::miniconf::Traversal::NotFound(1))?;
-                if !defer && !keys.is_empty() {
+                if !defer && !keys.finalize() {
                     Err(::miniconf::Traversal::TooLong(1))
                 } else {
                     Ok(index)
@@ -134,7 +135,13 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 ::miniconf::increment_result(match index {
                     #(#traverse_by_key_arms ,)*
-                    _ => Ok(0),
+                    _ => {
+                        if !keys.finalize() {
+                            Err(::miniconf::Traversal::TooLong(0).into())
+                        } else {
+                            Ok(0)
+                        }
+                    }
                 })
             }
         }

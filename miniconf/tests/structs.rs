@@ -1,5 +1,5 @@
 use miniconf::{
-    Deserialize, JsonCoreSlash, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+    Deserialize, JsonCoreSlash, Path, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
 };
 
 #[test]
@@ -81,7 +81,10 @@ fn recursive_struct() {
 fn empty_struct() {
     #[derive(Tree, Default)]
     struct Settings {}
-    assert!(Settings::iter_paths::<String>("/").count().next().is_none());
+    assert!(Settings::nodes::<Path<String, '/'>>()
+        .exact_size()
+        .next()
+        .is_none());
 }
 
 #[test]
@@ -113,9 +116,9 @@ fn tuple_struct() {
     s.set_json("/foo", b"3.0").unwrap_err();
 
     assert_eq!(
-        Settings::iter_paths::<String>("/")
-            .count()
-            .map(Result::unwrap)
+        Settings::nodes::<Path<String, '/'>>()
+            .exact_size()
+            .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
         vec!["/0", "/1"]
     );

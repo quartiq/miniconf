@@ -50,7 +50,6 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.70.0  # keep in sync with manifest MSRV
 
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +71,6 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.70.0  # keep in sync with manifest MSRV
         args:
           - ""
           - --no-default-features
@@ -106,12 +104,12 @@ jobs:
       - run: cargo run --release
         env:
           RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
-        working-directory: crosstrait/tests/embedded
+        working-directory: miniconf/tests/embedded
         continue-on-error: true
       - run: cargo run --release --features used_linker
         env:
           RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
-        working-directory: crosstrait/tests/embedded
+        working-directory: miniconf/tests/embedded
 
   examples:
     runs-on: ubuntu-latest

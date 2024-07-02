@@ -1,5 +1,6 @@
-use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
+
+use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 
 /// `TreeSerialize`/`TreeDeserialize` with `postcard`.
 ///
@@ -15,8 +16,8 @@ use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 /// };
 ///
 /// let source = S { foo: 9, bar: [7, 11] };
-/// let kv: Vec<_> = S::iter_packed().map(|p| {
-///     let p = p.unwrap();
+/// let kv: Vec<_> = S::nodes::<Packed>().map(|p| {
+///     let (p, _node) = p.unwrap();
 ///     let v = source.get_postcard_by_key(p, AllocVec::new()).unwrap();
 ///     (p.into_lsb().get(), v)
 /// }).collect();
