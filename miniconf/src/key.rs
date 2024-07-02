@@ -1,6 +1,6 @@
 use crate::Traversal;
 
-/// The capability to look up top level field names and convert to indices
+/// Look up top level field names and convert to indices
 ///
 /// This trait is derived together with [`crate::TreeKey`].
 ///
@@ -34,7 +34,7 @@ pub trait KeyLookup {
     fn name_to_index(value: &str) -> Option<usize>;
 }
 
-/// Capability to convert a key into a node index for a given `M: TreeKey`
+/// Convert a `&str` key into a node index on a `TreeKey`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
     fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize>;
@@ -54,7 +54,7 @@ impl Key for &str {
     }
 }
 
-/// Capability to yield [`Key`]s
+/// Capability to yield and look up [`Key`]s
 pub trait Keys {
     /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal>;
@@ -71,7 +71,7 @@ pub trait Keys {
     }
 }
 
-/// Iterator wrapper
+/// [`Keys`]/[`IntoKeys`] for Iterators of [`Key`]
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct KeysIter<T: ?Sized>(T);
@@ -104,7 +104,7 @@ where
     }
 }
 
-/// Capability to be converted into a [`Keys`]
+/// Be converted into a `Keys`
 pub trait IntoKeys {
     /// The specific [`Keys`] implementor.
     type IntoKeys: Keys;
@@ -125,7 +125,7 @@ where
     }
 }
 
-/// Concatenate two [`Keys`] of different types.
+/// Concatenate two `Keys` of different types
 pub struct Chain<T, U>(T, U);
 
 impl<T, U> Chain<T, U> {

@@ -146,7 +146,7 @@ impl<E> From<Traversal> for Error<E> {
 }
 
 impl<E> Error<E> {
-    /// Pass an [`Error`] up one hierarchy depth level, incrementing its usize depth field by one.
+    /// Pass an `Error<E>` up one hierarchy depth level, incrementing its usize depth field by one.
     pub fn increment(self) -> Self {
         match self {
             Self::Traversal(t) => Self::Traversal(t.increment()),
@@ -156,7 +156,7 @@ impl<E> Error<E> {
     }
 }
 
-/// Pass a [`Result`] up one hierarchy depth level, incrementing its usize depth field by one.
+/// Pass a `Result<usize, Error<E>>` up one hierarchy depth level, incrementing its usize depth field by one.
 pub fn increment_result<E>(result: Result<usize, Error<E>>) -> Result<usize, Error<E>> {
     match result {
         Ok(i) => Ok(i + 1),

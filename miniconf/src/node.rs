@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Error, IntoKeys, KeysIter, Traversal, TreeKey};
 
-/// Type of a node
+/// Type of a node: leaf or internal
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum NodeType {
     /// A leaf node
@@ -32,10 +32,10 @@ impl NodeType {
     }
 }
 
-/// A node
+/// Type and depth of a node in a `TreeKey`
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Node {
-    /// The node key depth
+    /// The node depth
     ///
     /// This is the length of the key required to identify it.
     pub depth: usize,
@@ -50,7 +50,7 @@ impl Node {
         self.depth
     }
 
-    /// The NodeType
+    /// The node type
     #[inline]
     pub const fn typ(&self) -> NodeType {
         self.typ
@@ -81,7 +81,7 @@ impl Node {
     }
 }
 
-/// Look up an IntoKeys on a TreeKey and transcode the keys into self.
+/// Look up an `IntoKeys` in a `TreeKey` and transcode into `Self`.
 pub trait Transcode {
     /// Perform a lookup and transcode the keys into self
     ///
@@ -130,11 +130,11 @@ impl Transcode for () {
 ///
 /// The path will either be empty or start with the separator.
 ///
-/// * `path: T`: A `Write` to write the separators and node names into.
+/// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
 ///   See also [TreeKey::metadata()] and `Metadata::max_length()` for upper bounds
-///   on path length.
-/// * `separator: const char`: The path hierarchy separator to be inserted before each name.
-///
+///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`KeysIter`]).
+/// * `const S: char`: The path hierarchy separator to be inserted before each name,
+///   e.g. `'/'`.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -196,7 +196,9 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
     }
 }
 
-/// Wrapper to have a Default impl for indices array
+/// Indices of `usize` to identify a node in a `TreeKey`
+///
+/// `T` can be `[usize; D]` for `Transcode` or `AsRef<[usize]>` for `IntoKeys` (see [`KeysIter`]).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]

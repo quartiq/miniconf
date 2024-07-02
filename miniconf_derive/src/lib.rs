@@ -39,6 +39,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
             )
         } else {
             let names = fields.iter().map(|field| {
+                // ident is Some
                 let name = field.name().unwrap();
                 quote! { stringify!(#name) }
             });

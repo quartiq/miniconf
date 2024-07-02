@@ -4,7 +4,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Metadata about a [TreeKey] namespace.
+/// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`Traversal::Absent`] at runtime.
 #[non_exhaustive]
@@ -33,7 +33,7 @@ impl Metadata {
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
     #[inline]
-    pub fn max_length(self, separator: &str) -> usize {
+    pub fn max_length(&self, separator: &str) -> usize {
         self.max_length + self.max_depth * separator.len()
     }
 }
@@ -72,15 +72,17 @@ impl Metadata {
 ///
 /// # Keys
 ///
-/// The keys used to identify nodes can be iterators over `usize` indices or `&str` names or can
-/// be [`crate::Packed`] compound indices.
-///
-/// * `usize` is modelled after ASN.1 Object Identifiers.
-/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
-///    some path hierarchy separator, e.g. `'/'`.
-/// * [`crate::Packed`] is a variable bit-width compact compressed notation of hierarchical indices.
-///
 /// There is a one-to-one relationship between nodes and keys.
+/// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
+/// obtained from other [`IntoKeys`] through [`Transcode`]/[`TreeKey::transcode()`].
+/// An iterator of keys for the nodes is available through [`TreeKey::nodes()`]/[`NodeIter`].
+///
+/// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
+/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
+///    some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
+///    complex notation, see [`crate::JsonPath`].
+/// * [`crate::Packed`] is a variable bit-width compact compressed notation of
+///   hierarchical compound indices.
 ///
 /// # Derive macros
 ///
@@ -93,22 +95,32 @@ impl Metadata {
 ///
 /// ## Depth
 ///
-/// For each field, the recursion depth is configured through the `#[tree(depth=Y)]`
+/// For each field, the recursion depth is configured through the `depth`
 /// attribute, with `Y = 0` being the implied default.
 /// If `Y = 0`, the field is a leaf and accessed only through its
 /// [`Serialize`]/[`Deserialize`]/[`Any`] implementation.
 /// With `Y > 0` the field is accessed through its `TreeKey<Y>` implementation with the given
-/// remaining recursion depth.
+/// recursion depth.
 ///
 /// ## Rename
 ///
 /// The key for named struct fields may be changed from the default field ident using the `rename`
-/// derive macro attribute (`#[tree(rename="otherName")]`).
+/// derive macro attribute.
+///
+/// ```
+/// use miniconf::{Tree, TreeKey, Path};
+/// #[derive(Tree, Default)]
+/// struct S {
+///     #[tree(rename="OTHER")]
+///     a: f32,
+/// };
+/// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0]).unwrap();
+/// assert_eq!(name.as_str(), "/OTHER");
+/// ```
 ///
 /// ## Skip
 ///
-/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
-/// (`#[tree(skip)]`).
+/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute.
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```compile_fail
@@ -240,7 +252,7 @@ impl Metadata {
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
 /// up to recursion depth `Y = 16`.
 ///
-/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
+/// When a `[T; N]` is used through `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
 /// For `Y = 1` each index of the array is is instead accessed as
 /// an atomic value.
@@ -271,7 +283,7 @@ impl Metadata {
 /// the nodes will not be exposed for serialization/deserialization.
 ///
 /// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
-/// the `Option` can be used to access within the inner type using its `TreeKey` trait.
+/// the `Option` can be used to access the inner type using its `TreeKey<{Y - 1}>` trait.
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
 ///
@@ -407,6 +419,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// this through [`NodeIter::exact_size()`].
     ///
     /// Possible [`Transcode`] targets:
+    ///
     /// * [`crate::Path`]
     /// * [`crate::Indices`]
     /// * [`crate::Packed`]

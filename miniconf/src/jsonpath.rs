@@ -11,7 +11,7 @@ use crate::{traverse, IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 ///
 /// This is only styled after JSON notation, it does not adhere to it.
 /// Supported are both dot and key notation with and without
-/// names enclosed by `'` as well as mixtures:
+/// names enclosed by `'` as well as various mixtures:
 ///
 /// ```
 /// use miniconf::JsonPathIter;
@@ -31,9 +31,8 @@ use crate::{traverse, IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 ///
 /// # Limitations
 ///
-/// * No attempt at validating conformance.
-/// * It does not support any escaping.
-///
+/// * No attempt at validating conformance
+/// * Does not support any escaping
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -79,10 +78,13 @@ impl<'a> Iterator for JsonPathIter<'a> {
     }
 }
 
-/// Wrapper to transcode into a normalized JSON path
+/// JSON style path notation
 ///
+/// `T` can be `Write` for `Transcode` with the following behavior:
 /// * Named fields (struct) are encoded in dot notation.
 /// * Indices (tuple struct, array) are encoded in index notation
+///
+/// `T` can be `AsRef<str>` for `IntoKeys` with the behavior described in [`JsonPathIter`].
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash,
 )]
