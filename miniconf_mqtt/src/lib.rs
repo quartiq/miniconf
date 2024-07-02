@@ -67,7 +67,6 @@ mod sm {
             Self {
                 clock,
                 timeout: None,
-                // Skip redundant check (done comprehensively in `MqttClient::new()`)
                 republish_state: M::nodes(),
             }
         }
@@ -90,7 +89,6 @@ mod sm {
         }
 
         fn start_republish(&mut self) {
-            // Skip redundant check (done comprehensively in `MqttClient::new()`)
             self.republish_state = M::nodes();
         }
     }
