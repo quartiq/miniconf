@@ -5,7 +5,7 @@ use core::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{traverse, IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
+use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 
 /// JSON style path notation
 ///
@@ -132,21 +132,19 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        traverse(M::traverse_by_key(
-            keys.into_keys(),
-            |index, name, _len| match name {
-                Some(name) => {
-                    self.0.write_char('.').or(Err(()))?;
-                    self.0.write_str(name).or(Err(()))
-                }
-                None => {
-                    self.0.write_char('[').or(Err(()))?;
-                    self.0
-                        .write_str(itoa::Buffer::new().format(index))
-                        .or(Err(()))?;
-                    self.0.write_char(']').or(Err(()))
-                }
-            },
-        ))
+        M::traverse_by_key(keys.into_keys(), |index, name, _len| match name {
+            Some(name) => {
+                self.0.write_char('.').or(Err(()))?;
+                self.0.write_str(name).or(Err(()))
+            }
+            None => {
+                self.0.write_char('[').or(Err(()))?;
+                self.0
+                    .write_str(itoa::Buffer::new().format(index))
+                    .or(Err(()))?;
+                self.0.write_char(']').or(Err(()))
+            }
+        })
+        .try_into()
     }
 }

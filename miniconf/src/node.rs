@@ -81,6 +81,26 @@ impl Node {
     }
 }
 
+/// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
+impl TryFrom<Result<usize, Error<()>>> for Node {
+    type Error = Traversal;
+    fn try_from(value: Result<usize, Error<()>>) -> Result<Self, Traversal> {
+        match value {
+            Ok(depth) => Ok(Node {
+                depth,
+                typ: NodeType::Leaf,
+            }),
+            Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(Node {
+                depth,
+                typ: NodeType::Internal,
+            }),
+            Err(Error::Inner(depth, _err)) => Err(Traversal::TooShort(depth)),
+            Err(Error::Traversal(err)) => Err(err),
+            Err(Error::Finalization(_)) => unreachable!(),
+        }
+    }
+}
+
 /// Look up an `IntoKeys` in a `TreeKey` and transcode into `Self`.
 pub trait Transcode {
     /// Perform a lookup and transcode the keys into self
@@ -93,24 +113,6 @@ pub trait Transcode {
         K: IntoKeys;
 }
 
-/// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
-#[inline]
-pub(crate) fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
-    match ret {
-        Ok(depth) => Ok(Node {
-            depth,
-            typ: NodeType::Leaf,
-        }),
-        Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(Node {
-            depth,
-            typ: NodeType::Internal,
-        }),
-        Err(Error::Inner(depth, _err)) => Err(Traversal::TooShort(depth)),
-        Err(Error::Traversal(err)) => Err(err),
-        Err(Error::Finalization(_)) => unreachable!(),
-    }
-}
-
 /// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
@@ -119,10 +121,7 @@ impl Transcode for () {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        traverse(M::traverse_by_key(
-            keys.into_keys(),
-            |_index, _name, _len| Ok::<_, ()>(()),
-        ))
+        M::traverse_by_key(keys.into_keys(), |_index, _name, _len| Ok::<_, ()>(())).try_into()
     }
 }
 
@@ -187,12 +186,13 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        traverse(M::traverse_by_key(keys.into_keys(), |index, name, _len| {
+        M::traverse_by_key(keys.into_keys(), |index, name, _len| {
             self.0.write_char(self.separator()).or(Err(()))?;
             self.0
                 .write_str(name.unwrap_or(itoa::Buffer::new().format(index)))
                 .or(Err(()))
-        }))
+        })
+        .try_into()
     }
 }
 
@@ -251,13 +251,11 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
         K: IntoKeys,
     {
         let mut it = self.0.as_mut().iter_mut();
-        traverse(M::traverse_by_key(
-            keys.into_keys(),
-            |index, _name, _len| {
-                let idx = it.next().ok_or(())?;
-                *idx = index;
-                Ok::<_, ()>(())
-            },
-        ))
+        M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
+            let idx = it.next().ok_or(())?;
+            *idx = index;
+            Ok::<_, ()>(())
+        })
+        .try_into()
     }
 }

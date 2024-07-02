@@ -1,4 +1,4 @@
-use crate::{traverse, IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
+use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
@@ -270,15 +270,13 @@ impl Transcode for Packed {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        traverse(M::traverse_by_key(
-            keys.into_keys(),
-            |index, _name, len: usize| match self
-                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
-            {
+        M::traverse_by_key(keys.into_keys(), |index, _name, len: usize| {
+            match self.push_lsb(Packed::bits_for(len.saturating_sub(1)), index) {
                 None => Err(()),
                 Some(_) => Ok(()),
-            },
-        ))
+            }
+        })
+        .try_into()
     }
 }
 
