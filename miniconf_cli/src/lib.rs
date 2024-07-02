@@ -272,10 +272,10 @@ mod tests {
         g: [[[Inner; 1]; 1]; 1],
     }
     const Y: usize = 5;
+    const S: usize = 128;
 
     #[test]
     fn new() {
-        const S: usize = 128;
         let m = Menu::<Set, Y>::default();
         for p in m.list::<S>().unwrap() {
             println!("{}", p.unwrap());
@@ -283,21 +283,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dump() {
+    async fn all() {
         let mut buf = [0; 1024];
         let mut s = Set::default();
-        s.c = Some(8);
-        s.b[0] = 1234;
-        s.f[1].e = 9;
         let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
-        let mut m = Menu::<Set, Y>::default();
-        m.dump(&s, &mut stdout, &mut buf).await.unwrap();
-        m.enter("f").unwrap();
-        m.dump(&s, &mut stdout, &mut buf).await.unwrap();
-        m.exit(1).unwrap();
-
-        m.push("c").unwrap().0.reset(&mut s, &mut buf).unwrap();
-        m.push("b").unwrap().0.reset(&mut s, &mut buf).unwrap();
-        m.dump(&s, &mut stdout, &mut buf).await.unwrap();
+        let mut menu = Menu::<Set, Y>::default();
+        s.c = Some(8);
+        menu.enter("b/0").unwrap();
+        menu.set(&mut s, b"1234").unwrap();
+        menu.exit(2).unwrap();
+        menu.push("f/1/e").unwrap().0.set(&mut s, b"9").unwrap();
+        let paths: Vec<String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
+        stdout
+            .write_all(format!("{:?}\n", paths).as_bytes())
+            .await
+            .unwrap();
+        menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
+        menu.enter("f").unwrap();
+        menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
+        menu.exit(1).unwrap();
+        menu.push("c").unwrap().0.reset(&mut s, &mut buf).unwrap();
+        menu.push("b").unwrap().0.reset(&mut s, &mut buf).unwrap();
+        menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
     }
 }
