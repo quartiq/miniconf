@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/quartiq/miniconf"
 authors = ["Robert Jördens <rj@quartiq.de>"]
-description = "CLI library for Miniconf"
+description = "Menu/CLI for Miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
 
