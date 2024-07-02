@@ -16,5 +16,5 @@ authors = [
     { name = "Robert Jördens", email = "rj@quartiq.de" },
 ]
 dependencies = [
-    "aiomqtt@git+https://github.com/sbtinstruments/aiomqtt",
+    "aiomqtt >= 2.2.0",
 ]
