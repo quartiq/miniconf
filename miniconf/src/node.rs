@@ -81,22 +81,22 @@ impl Node {
     }
 }
 
+impl From<Node> for usize {
+    fn from(value: Node) -> Self {
+        value.depth
+    }
+}
+
 /// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
 impl TryFrom<Result<usize, Error<()>>> for Node {
     type Error = Traversal;
     fn try_from(value: Result<usize, Error<()>>) -> Result<Self, Traversal> {
         match value {
-            Ok(depth) => Ok(Node {
-                depth,
-                typ: NodeType::Leaf,
-            }),
-            Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(Node {
-                depth,
-                typ: NodeType::Internal,
-            }),
-            Err(Error::Inner(depth, _err)) => Err(Traversal::TooShort(depth)),
+            Ok(depth) => Ok(Node::leaf(depth)),
+            Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(Node::internal(depth)),
+            Err(Error::Inner(depth, ())) => Err(Traversal::TooShort(depth)),
             Err(Error::Traversal(err)) => Err(err),
-            Err(Error::Finalization(_)) => unreachable!(),
+            Err(Error::Finalization(())) => unreachable!(),
         }
     }
 }
@@ -111,7 +111,6 @@ pub trait Transcode {
     /// capacity and failed to encode the key at the given depth.
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys;
 }
@@ -120,7 +119,6 @@ pub trait Transcode {
 impl Transcode for () {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
@@ -185,7 +183,6 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
@@ -249,7 +246,6 @@ impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {

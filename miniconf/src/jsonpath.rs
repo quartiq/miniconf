@@ -128,7 +128,6 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
 impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        Self: Sized,
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
