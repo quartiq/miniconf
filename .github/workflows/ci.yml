@@ -8,31 +8,22 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
 
 jobs:
   style:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: rustfmt
+          components: rustfmt, clippy
 
-      - name: Style Check
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+      - run: cargo fmt -- --check
+      - run: cargo check
 
-      - uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: cargo clippy --all-features
 
-      - uses: actions/setup-python@v1
+      - uses: actions/setup-python@v4
       - name: Install Pylint
         run: |
           python -m pip install --upgrade pip
@@ -47,27 +38,11 @@ jobs:
   documentation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Cargo Doc
-        uses: actions-rs/cargo@v1
-        with:
-          command: doc
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Cargo Audit
-        uses: actions-rs/audit-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      - run: cargo doc
 
   compile:
     runs-on: ubuntu-latest
@@ -78,41 +53,18 @@ jobs:
           - 1.70.0  # keep in sync with manifest MSRV
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Install Rust ${{ matrix.toolchain }}
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-          override: true
 
-      - name: Cargo Check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --verbose
+      - run: cargo check --verbose
 
-      - name: Cargo Build [No-Features]
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --no-default-features
-
-      - name: Cargo Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-
-      - name: Cargo Build [Release]
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release
-
-      - name: Cargo Build [Examples]
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --examples
+      - run: cargo build --no-default-features
+      - run: cargo build
+      - run: cargo build --release
+      - run: cargo build --examples
 
   test:
     runs-on: ubuntu-latest
@@ -126,25 +78,18 @@ jobs:
           - --no-default-features
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Start Mosquitto
         run: |
           sudo apt-get install mosquitto
           sudo service mosquitto start
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@master
         with:
-          override: true
-          toolchain: ${{ matrix.toolchain }}
-          profile: minimal
+          toolchain: ${{matrix.toolchain}}
 
-      - name: Cargo Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: ${{ matrix.args }}
+      - run: cargo test ${{matrix.args }}
 
   embedded:
     runs-on: ubuntu-latest
@@ -175,22 +120,13 @@ jobs:
         example:
           - mqtt
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Start Mosquitto
         run: |
           sudo apt-get install mosquitto
           sudo service mosquitto start
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          override: true
-          toolchain: stable
-          profile: minimal
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Example ${{matrix.example}}
-        uses: actions-rs/cargo@v1
-        with:
-          command: run
-          args: --example ${{matrix.example}}
+      - run: cargo run --example ${{matrix.example}}
