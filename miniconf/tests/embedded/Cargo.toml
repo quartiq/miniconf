@@ -11,7 +11,7 @@ cortex-m-semihosting = "0.5"
 panic-semihosting = { version = "0.6", features = ["exit"] }
 
 crosstrait = { version = "0.1", default-features = false }
-miniconf = { version = "0.11", path = "../../../miniconf", features = ["json-core", "postcard", "derive"], default-features = false }
+miniconf = { path = "../../../miniconf", features = ["json-core", "postcard", "derive"], default-features = false }
 
 [features]
 used_linker = ["crosstrait/used_linker"]
