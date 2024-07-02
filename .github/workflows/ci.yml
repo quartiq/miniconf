@@ -75,7 +75,6 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.70.0  # keep in sync with manifest MSRV
 
     steps:
       - uses: actions/checkout@v2
@@ -120,7 +119,6 @@ jobs:
       matrix:
         toolchain:
           - stable
-          - 1.70.0  # keep in sync with manifest MSRV
         args:
           - ""
           - --no-default-features

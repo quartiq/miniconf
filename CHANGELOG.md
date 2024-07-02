@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 * `digits()` gone in favor of using `usize::checked_ilog10()`
+* `rust_version` and `MSRV`: these crates aim to support the latest stable version of rust
 
 ## [0.11.0](https://github.com/quartiq/miniconf/compare/v0.10.1...v0.11.0) - 2024-04-30
 

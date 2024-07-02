@@ -9,7 +9,6 @@ description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["config", "serde", "no_std", "reflection", "graph"]
 categories = ["no_std", "config", "data-structures", "parsing"]
-rust-version = "1.70.0" # keep in sync with CI and with other crates and with github branch protection
 resolver = "2"
 
 [dependencies]
