@@ -3,8 +3,7 @@ use core::any::Any;
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    increment_result, Error, KeyLookup, Keys, Metadata, Traversal, TreeAny, TreeDeserialize,
-    TreeKey, TreeSerialize,
+    Error, KeyLookup, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
 };
 
 fn get<'a, const N: usize, K, T>(
@@ -67,7 +66,7 @@ macro_rules! depth {
                     return Err(Traversal::NotFound(1).into());
                 }
                 func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-                increment_result(T::traverse_by_key(keys, func))
+                Error::increment_result(T::traverse_by_key(keys, func))
             }
         }
 
@@ -78,7 +77,7 @@ macro_rules! depth {
                 S: Serializer,
             {
                 let item = get(self, &mut keys, false)?;
-                increment_result(item.serialize_by_key(keys, ser))
+                Error::increment_result(item.serialize_by_key(keys, ser))
             }
         }
 
@@ -89,7 +88,7 @@ macro_rules! depth {
                 D: Deserializer<'de>,
             {
                 let item = get_mut(self, &mut keys, false)?;
-                increment_result(item.deserialize_by_key(keys, de))
+                Error::increment_result(item.deserialize_by_key(keys, de))
             }
         }
 
