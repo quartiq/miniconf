@@ -67,6 +67,7 @@ impl Display for Traversal {
 
 impl Traversal {
     /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
+    #[inline]
     pub fn increment(self) -> Self {
         match self {
             Self::Absent(i) => Self::Absent(i + 1),
@@ -79,6 +80,7 @@ impl Traversal {
     }
 
     /// Return the traversal depth
+    #[inline]
     pub fn depth(&self) -> &usize {
         match self {
             Self::Absent(i)
