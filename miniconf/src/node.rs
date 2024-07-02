@@ -26,6 +26,7 @@ pub enum NodeType {
 
 impl NodeType {
     /// Whether this node is a leaf
+    #[inline]
     pub const fn is_leaf(&self) -> bool {
         matches!(self, Self::Leaf)
     }
@@ -44,21 +45,25 @@ pub struct Node {
 
 impl Node {
     /// The depth
+    #[inline]
     pub const fn depth(&self) -> usize {
         self.depth
     }
 
     /// The NodeType
+    #[inline]
     pub const fn typ(&self) -> NodeType {
         self.typ
     }
 
     /// The node is a leaf node
+    #[inline]
     pub const fn is_leaf(&self) -> bool {
         self.typ.is_leaf()
     }
 
     /// Create a leaf node
+    #[inline]
     pub const fn leaf(depth: usize) -> Self {
         Self {
             depth,
@@ -67,6 +72,7 @@ impl Node {
     }
 
     /// Create an inernal node
+    #[inline]
     pub const fn internal(depth: usize) -> Self {
         Self {
             depth,
@@ -88,6 +94,7 @@ pub trait Transcode {
 }
 
 /// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
+#[inline]
 pub(crate) fn traverse(ret: Result<usize, Error<()>>) -> Result<Node, Traversal> {
     match ret {
         Ok(depth) => Ok(Node {
