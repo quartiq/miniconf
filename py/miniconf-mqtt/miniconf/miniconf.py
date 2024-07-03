@@ -53,7 +53,7 @@ class Miniconf:
         except AttributeError:
             properties = {}
 
-        LOGGER.debug(f"Received {message.topic}: {message.payload} [{properties}]")
+        LOGGER.debug("Received %s: %s [%s]", message.topic, message.payload, properties)
 
         # Extract request_id corrleation data from the properties
         try:
