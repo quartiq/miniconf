@@ -1,11 +1,10 @@
 use core::any::Any;
-use core::fmt::Write;
-
-use crate::{Error, IndexIter, IntoKeys, Keys, Packed, PackedIter, PathIter, Traversal};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Metadata about a [TreeKey] namespace.
+use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
+
+/// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`Traversal::Absent`] at runtime.
 #[non_exhaustive]
@@ -34,7 +33,7 @@ impl Metadata {
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
     #[inline]
-    pub fn max_length(self, separator: &str) -> usize {
+    pub fn max_length(&self, separator: &str) -> usize {
         self.max_length + self.max_depth * separator.len()
     }
 }
@@ -73,15 +72,17 @@ impl Metadata {
 ///
 /// # Keys
 ///
-/// The keys used to identify nodes can be iterators over `usize` indices or `&str` names or can
-/// be [`Packed`] compound indices.
-///
-/// * `usize` is modelled after ASN.1 Object Identifiers.
-/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
-///    some path hierarchy separator, e.g. `'/'`.
-/// * [`Packed`] is a variable bit-width compact compressed notation of hierarchical indices.
-///
 /// There is a one-to-one relationship between nodes and keys.
+/// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
+/// obtained from other [`IntoKeys`] through [`Transcode`]/[`TreeKey::transcode()`].
+/// An iterator of keys for the nodes is available through [`TreeKey::nodes()`]/[`NodeIter`].
+///
+/// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
+/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
+///    some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
+///    complex notation, see [`crate::JsonPath`].
+/// * [`crate::Packed`] is a variable bit-width compact compressed notation of
+///   hierarchical compound indices.
 ///
 /// # Derive macros
 ///
@@ -94,22 +95,32 @@ impl Metadata {
 ///
 /// ## Depth
 ///
-/// For each field, the recursion depth is configured through the `#[tree(depth=Y)]`
+/// For each field, the recursion depth is configured through the `depth`
 /// attribute, with `Y = 0` being the implied default.
 /// If `Y = 0`, the field is a leaf and accessed only through its
 /// [`Serialize`]/[`Deserialize`]/[`Any`] implementation.
 /// With `Y > 0` the field is accessed through its `TreeKey<Y>` implementation with the given
-/// remaining recursion depth.
+/// recursion depth.
 ///
 /// ## Rename
 ///
 /// The key for named struct fields may be changed from the default field ident using the `rename`
-/// derive macro attribute (`#[tree(rename="otherName")]`).
+/// derive macro attribute.
+///
+/// ```
+/// use miniconf::{Tree, TreeKey, Path};
+/// #[derive(Tree, Default)]
+/// struct S {
+///     #[tree(rename="OTHER")]
+///     a: f32,
+/// };
+/// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0]).unwrap();
+/// assert_eq!(name.as_str(), "/OTHER");
+/// ```
 ///
 /// ## Skip
 ///
-/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute
-/// (`#[tree(skip)]`).
+/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute.
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```compile_fail
@@ -241,7 +252,7 @@ impl Metadata {
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
 /// up to recursion depth `Y = 16`.
 ///
-/// When a [`[T; N]`](core::array) is used as `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
+/// When a `[T; N]` is used through `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
 /// For `Y = 1` each index of the array is is instead accessed as
 /// an atomic value.
@@ -263,7 +274,7 @@ impl Metadata {
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
-/// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::iter_paths()`]) but attempts
+/// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::nodes()`]) but attempts
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
 /// [`TreeAny::ref_any_by_key()`], or [`TreeAny::mut_any_by_key()`])
 /// return the special [`Traversal::Absent`].
@@ -272,7 +283,7 @@ impl Metadata {
 /// the nodes will not be exposed for serialization/deserialization.
 ///
 /// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
-/// the `Option` can be used to access within the inner type using its `TreeKey` trait.
+/// the `Option` can be used to access the inner type using its `TreeKey<{Y - 1}>` trait.
 /// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
 /// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
 ///
@@ -300,14 +311,15 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Traversal is aborted once `func` returns an `Err(E)`.
     ///
     /// This may not exhaust `keys` if a leaf is found early. i.e. `keys`
-    /// may be longer than required: `Traversal(TooLong)` is not returned.
+    /// may be longer than required: `Traversal(TooLong)` is never returned.
+    /// This is to optimize path iteration (downward probe).
     /// If `Self` is a leaf, nothing will be consumed from `keys`
     /// and `Ok(0)` will be returned.
-    /// If `Self` is non-leaf (internal node) and `Keys` is exhausted (empty),
-    /// `Err(Traversal(TooShort(0))` will be returned.
+    /// If `keys` is exhausted before reaching a leaf node,
+    /// `Err(Traversal(TooShort(depth)))` is returned.
     ///
     /// ```
-    /// use miniconf::TreeKey;
+    /// use miniconf::{TreeKey, IntoKeys};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -319,7 +331,7 @@ pub trait TreeKey<const Y: usize = 1> {
     ///         assert_eq!(ret.next().unwrap(), (index, name, len));
     ///         Ok(())
     /// };
-    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_iter(), func), Ok(2));
+    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
     /// ```
     ///
     /// # Args
@@ -337,247 +349,128 @@ pub trait TreeKey<const Y: usize = 1> {
         // would have worse performance (O(n^2) instead of O(n) for matching)
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>;
 
-    /// Convert keys to path.
+    /// Transcode keys to a new keys type representation
     ///
-    /// `keys` may be longer than required. Extra items are ignored. `Traversal::TooLong` or `Traversal::TooShort`
-    /// is not returned.
+    /// The keys can be
+    /// * too short: the internal node is returned
+    /// * matched length: the leaf node is returned
+    /// * too long: the leaf node is returned
     ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let mut s = String::new();
-    /// S::path([1, 1], &mut s, "/").unwrap();
-    /// assert_eq!(s, "/bar/1");
-    /// ```
+    /// Possible [`Transcode`] targets:
     ///
-    /// # Args
-    /// * `keys`: `IntoKeys` to identify the node.
-    /// * `path`: A `Write` to write the separators and node names into.
-    ///   See also [TreeKey::metadata()] and [`Metadata::max_length()`] for upper bounds
-    ///   on path length.
-    /// * `separator`: The path hierarchy separator to be inserted before each name.
-    ///
-    /// # Returns
-    /// Node depth on success
-    fn path<K, P>(keys: K, mut path: P, separator: &str) -> Result<usize, Error<core::fmt::Error>>
-    where
-        K: IntoKeys,
-        P: Write,
-    {
-        let func = |index, name: Option<_>, _len| {
-            path.write_str(separator)
-                .and_then(|_| path.write_str(name.unwrap_or(itoa::Buffer::new().format(index))))
-        };
-        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| {
-            if let Error::Traversal(Traversal::TooShort(depth)) = err {
-                Ok(depth)
-            } else {
-                Err(err)
-            }
-        })
-    }
-
-    /// Return the keys formatted as a normalized JSON path.
-    ///
-    /// * Named fields (struct) are encoded in dot notation.
-    /// * Indices (tuple struct, array) are encoded in index notation
-    ///
-    /// See also [`TreeKey::path()`].
+    /// * [`crate::Path`]: `char`-separated `Write`
+    /// * [`crate::JsonPath`]: normalized JSON path
+    /// * [`crate::Indices`]
+    /// * [`crate::Packed`]: Packed usize bitfield representation
     ///
     /// ```
-    /// use miniconf::{TreeKey, JsonPath};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let mut s = String::new();
-    /// let idx = [1, 1];
-    /// S::json_path(idx, &mut s).unwrap();
-    /// assert_eq!(s, ".bar[1]");
-    ///
-    /// let (indices, depth) = S::indices(JsonPath::from(&s)).unwrap();
-    /// assert_eq!(&indices[..depth], idx);
-    /// ```
-    fn json_path<K, P>(keys: K, mut path: P) -> Result<usize, Error<core::fmt::Error>>
-    where
-        K: IntoKeys,
-        P: Write,
-    {
-        let func = |index, name, _len| match name {
-            Some(name) => path.write_char('.').and_then(|_| path.write_str(name)),
-            None => path
-                .write_char('[')
-                .and_then(|_| path.write_str(itoa::Buffer::new().format(index)))
-                .and_then(|_| path.write_char(']')),
-        };
-        Self::traverse_by_key(keys.into_keys(), func).or_else(|err| {
-            if let Error::Traversal(Traversal::TooShort(depth)) = err {
-                Ok(depth)
-            } else {
-                Err(err)
-            }
-        })
-    }
-
-    /// Convert keys to `indices`.
-    ///
-    /// See also [`TreeKey::path()`].
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let (indices, depth) = S::indices(["bar", "1"]).unwrap();
-    /// assert_eq!(&indices[..depth], [1, 1]);
-    /// ```
-    ///
-    /// # Returns
-    /// Indices and depth on success
-    fn indices<K>(keys: K) -> Result<([usize; Y], usize), Traversal>
-    where
-        K: IntoKeys,
-    {
-        let mut indices = [0; Y];
-        let mut it = indices.iter_mut();
-        let func = |index, _name, _len| -> Result<(), ()> {
-            let idx = it.next().unwrap();
-            *idx = index;
-            Ok(())
-        };
-        Self::traverse_by_key(keys.into_keys(), func)
-            .or_else(|err| {
-                let err = err.try_into().unwrap();
-                if let Traversal::TooShort(depth) = err {
-                    Ok(depth)
-                } else {
-                    Err(err)
-                }
-            })
-            .map(|depth| (indices, depth))
-    }
-
-    /// Convert keys to packed usize bitfield representation.
-    ///
-    /// See also [`Packed`] and [`TreeKey::path()`].
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
+    /// use miniconf::{TreeKey, Path, Indices, JsonPath, Packed};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth=1)]
     ///     bar: [u16; 5],
     /// };
-    /// let (p, _) = S::packed(["bar", "4"]).unwrap();
-    /// assert_eq!(p.into_lsb().get(), 0b1_1_100);
-    /// let mut s = String::new();
-    /// S::path(p, &mut s, "/").unwrap();
-    /// assert_eq!(s, "/bar/4");
+    /// let path: Path<String, '/'> = S::transcode([1, 1]).unwrap().0;
+    /// assert_eq!(path.as_str(), "/bar/1");
+    /// let idx: Indices<[usize; 2]> = S::transcode(&path).unwrap().0;
+    /// assert_eq!(idx.0, [1, 1]);
+    ///
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>([1, 1]).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/1");
+    ///
+    /// let idx = [1, 1];
+    /// let (path, node) = S::transcode::<JsonPath<String>, _>([1, 1]).unwrap();
+    /// assert_eq!(path.as_str(), ".bar[1]");
+    ///
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
+    /// assert_eq!(&indices[..node.depth()], idx);
+    ///
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
+    /// assert_eq!(&indices[..node.depth()], [1, 1]);
+    ///
+    /// let (packed, node) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
+    /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/4");
     /// ```
     ///
+    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
+    /// an existing `&mut N`.
+    ///
+    /// # Args
+    /// * `keys`: `IntoKeys` to identify the node.
+    ///
     /// # Returns
-    /// The packed indices representation and depth on success.
-    fn packed<K>(keys: K) -> Result<(Packed, usize), Error<()>>
+    /// Node depth and type on success
+    fn transcode<N, K>(keys: K) -> Result<(N, Node), Traversal>
     where
         K: IntoKeys,
+        N: Transcode + Default,
     {
-        let mut packed = Packed::default();
-        let func = |index, _name, len: usize| {
-            packed
-                .push_lsb(Packed::bits_for(len.saturating_sub(1)), index)
-                .ok_or(())
-                .and(Ok(()))
-        };
-        Self::traverse_by_key(keys.into_keys(), func)
-            .or_else(|err| {
-                if let Error::Traversal(Traversal::TooShort(depth)) = err {
-                    Ok(depth)
-                } else {
-                    Err(err)
-                }
-            })
-            .map(|depth| (packed, depth))
+        let mut path = N::default();
+        let node = path.transcode::<Self, Y, _>(keys)?;
+        Ok((path, node))
     }
 
-    /// Create an iterator of all possible leaf paths.
+    /// Return an iterator over nodes of a given type
     ///
     /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
     /// runtime (see [`TreeKey#option`]).
     /// An iterator with an exact and trusted `size_hint()` can be obtained from
-    /// this through [`PathIter::count()`].
+    /// this through [`NodeIter::exact_size()`].
+    /// The maximum key depth may be selected independently of `Y` through the `D`
+    /// const generic of [`NodeIter`].
+    ///
+    /// Possible [`Transcode`] targets:
+    ///
+    /// * [`crate::Path`]
+    /// * [`crate::Indices`]
+    /// * [`crate::Packed`]
+    /// * [`crate::JsonPath`]
     ///
     /// ```
-    /// use miniconf::TreeKey;
+    /// use miniconf::{TreeKey, Path, Packed, Indices, JsonPath};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth=1)]
     ///     bar: [u16; 2],
     /// };
-    /// let paths: Vec<String> = S::iter_paths("/").count().map(|p| p.unwrap()).collect();
+    ///
+    /// let paths = S::nodes::<Path<String, '/'>>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
-    /// ```
     ///
-    /// # Generics
-    /// * `P`  - The type to hold the path.
+    /// let paths = S::nodes::<JsonPath<String>>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect::<Vec<_>>();
+    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
     ///
-    /// # Args
-    /// * `separator` - The path hierarchy separator
-    fn iter_paths<P: core::fmt::Write + Default>(separator: &str) -> PathIter<'_, Self, Y, P, Y> {
-        PathIter::new(separator)
-    }
-
-    /// Create an iterator of all possible leaf indices.
-    ///
-    /// See also [`TreeKey::iter_paths()`].
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let indices: Vec<_> = S::iter_indices().count().collect();
+    /// let indices = S::nodes::<Indices<[_; 2]>>()
+    ///     .exact_size()
+    ///     .map(|p| {
+    ///         let (idx, node) = p.unwrap();
+    ///         (idx.into_inner(), node.depth)
+    ///     })
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
-    /// ```
-    fn iter_indices() -> IndexIter<Self, Y, Y> {
-        IndexIter::default()
-    }
-
-    /// Create an iterator of all packed leaf indices.
     ///
-    /// See also [`TreeKey::iter_paths()`].
-    ///
-    /// ```
-    /// use miniconf::TreeKey;
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: u32,
-    ///     #[tree(depth=1)]
-    ///     bar: [u16; 2],
-    /// };
-    /// let packed: Vec<_> = S::iter_packed()
-    ///     .count()
-    ///     .map(|p| p.unwrap().into_lsb().get())
-    ///     .collect();
+    /// let packed = S::nodes::<Packed>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_lsb().get())
+    ///     .collect::<Vec<_>>();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     /// ```
-    fn iter_packed() -> PackedIter<Self, Y, Y> {
-        PackedIter::default()
+    fn nodes<N>() -> NodeIter<Self, Y, N>
+    where
+        N: Transcode + Default,
+    {
+        NodeIter::default()
     }
 }
 
@@ -587,7 +480,7 @@ pub trait TreeKey<const Y: usize = 1> {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{TreeAny, TreeKey, JsonPath};
+/// use miniconf::{TreeAny, TreeKey, JsonPath, IntoKeys, Indices};
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
@@ -596,16 +489,17 @@ pub trait TreeKey<const Y: usize = 1> {
 /// };
 /// let mut s = S::default();
 ///
-/// for (key, depth) in S::iter_indices() {
-///     let a = s.ref_any_by_key(key[..depth].iter().copied()).unwrap();
+/// for node in S::nodes::<Indices<[_; 2]>>() {
+///     let (key, node) = node.unwrap();
+///     let a = s.ref_any_by_key(key[..node.depth()].iter().copied().into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
-/// let val: &mut u16 = s.mut_by_key(JsonPath::from(".bar[1]")).unwrap();
+/// let val: &mut u16 = s.mut_by_key(&JsonPath::from(".bar[1]")).unwrap();
 /// *val = 3;
 /// assert_eq!(s.bar[1], 3);
 ///
-/// let val: &u16 = s.ref_by_key(JsonPath::from(".bar[1]")).unwrap();
+/// let val: &u16 = s.ref_by_key(&JsonPath::from(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// ```
 pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
@@ -654,7 +548,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{TreeSerialize, TreeKey};
+    /// use miniconf::{TreeSerialize, TreeKey, IntoKeys};
     /// #[derive(TreeKey, TreeSerialize)]
     /// struct S {
     ///     foo: u32,
@@ -664,7 +558,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     /// let s = S { foo: 9, bar: [11, 3] };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["bar", "0"].into_iter(), &mut ser).unwrap();
+    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser).unwrap();
     /// let len = ser.end();
     /// assert_eq!(&buf[..len], b"11");
     /// # }
@@ -695,7 +589,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{TreeDeserialize, TreeKey};
+    /// use miniconf::{TreeDeserialize, TreeKey, IntoKeys};
     /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
     ///     foo: u32,
@@ -704,7 +598,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json_core::de::Deserializer::new(b"7");
-    /// s.deserialize_by_key(["bar", "0"].into_iter(), &mut de).unwrap();
+    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.bar[0], 7);
     /// # }

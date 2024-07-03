@@ -1,7 +1,8 @@
 use core::any::Any;
 
-use crate::{Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::{Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
 // But it does add one Tree API layer between its `Tree<Y>` level
@@ -13,7 +14,7 @@ use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 // `TreeKey<{Y - 1}>`. The latter could be ameliorated with a `bounds` derive macro attribute.
 
 fn get<'a, T, K: Keys>(opt: &'a Option<T>, keys: &mut K, drain: bool) -> Result<&'a T, Traversal> {
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(0))
     } else {
         opt.as_ref().ok_or(Traversal::Absent(0))
@@ -25,7 +26,7 @@ fn get_mut<'a, T, K: Keys>(
     keys: &mut K,
     drain: bool,
 ) -> Result<&'a mut T, Traversal> {
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(0))
     } else {
         opt.as_mut().ok_or(Traversal::Absent(0))
@@ -101,12 +102,16 @@ impl<T> TreeKey for Option<T> {
         }
     }
 
-    fn traverse_by_key<K, F, E>(_keys: K, _func: F) -> Result<usize, Error<E>>
+    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        Ok(0)
+        if !keys.finalize() {
+            Err(Traversal::TooLong(0).into())
+        } else {
+            Ok(0)
+        }
     }
 }
 
