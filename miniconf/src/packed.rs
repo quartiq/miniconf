@@ -1,9 +1,11 @@
-use crate::{IntoKeys, Key, KeyLookup, Keys, Traversal};
 use core::{
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
 };
+
 use serde::{Deserialize, Serialize};
+
+use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
 
 /// A bit-packed representation of multiple indices.
 ///
@@ -249,7 +251,7 @@ impl Keys for Packed {
     }
 
     #[inline]
-    fn is_empty(&mut self) -> bool {
+    fn finalize(&mut self) -> bool {
         Packed::is_empty(self)
     }
 }
@@ -260,6 +262,23 @@ impl IntoKeys for Packed {
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
+    }
+}
+
+impl Transcode for Packed {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        Self: Sized,
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
+    {
+        M::traverse_by_key(keys.into_keys(), |index, _name, len: usize| {
+            match self.push_lsb(Packed::bits_for(len.saturating_sub(1)), index) {
+                None => Err(()),
+                Some(_) => Ok(()),
+            }
+        })
+        .try_into()
     }
 }
 

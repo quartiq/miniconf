@@ -8,9 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.11.0...HEAD) - DATE
 
+### Changed
+
+* `{Path,Indices,Packed}Iter` -> `NodeIter`
+* `TreeKey::iter_{paths,indices,packed}` -> `TreeKey::nodes`
+* `TreeKey::{path,indices,packed,json_path}` -> `TreeKey::transcode`/`Transcode::transcode`
+* `crosstrait` now has its [own repository](https://github.com/quartiq/crosstrait)
+* `Keys::is_empty()` -> `Keys::finalize()`
+* `traverse_by_key` ensures `Keys::finalize()`
+* `NodeIter::count()` -> `NodeIter::exact_size()` to disambiguate from `Iterator::count()`
+
 ### Added
 
-* The key iterators now support limiting the iteration to a sub-tree by setting the iteration `root()`.
+* Node iteration now supports limiting the iteration to a sub-tree by setting the iteration `root()`.
+* `Transcode` trait for Keys transcoding and node lookup.
+* `Transcode` and `NodeIter` now return `Node` with `NodeType` information (leaf or internal).
+* `Keys::chain` and `Chain` to concatenate two `Keys` of different type.
+* `miniconf_cli`: a menu/command line interface
+* `Path`, `JsonPath`/`JsonPathIter`, `Indices`, `KeysIter` wrapper types for more ergonomic/succinct
+  `Transcode`/`IntoKeys`/`Keys` handling
+
+### Removed
+
+* `digits()` gone in favor of using `usize::checked_ilog10()`
+* `rust_version` and `MSRV`: these crates aim to support the latest stable version of rust
 
 ## [0.11.0](https://github.com/quartiq/miniconf/compare/v0.10.1...v0.11.0) - 2024-04-30
 

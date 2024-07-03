@@ -1,10 +1,10 @@
 use core::any::Any;
 
-use crate::{
-    digits, increment_result, Error, KeyLookup, Keys, Metadata, Traversal, TreeAny,
-    TreeDeserialize, TreeKey, TreeSerialize,
-};
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::{
+    Error, KeyLookup, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+};
 
 fn get<'a, const N: usize, K, T>(
     arr: &'a [T; N],
@@ -17,7 +17,7 @@ where
 {
     let index = keys.next::<[T; N]>()?;
     let item = arr.get(index).ok_or(Traversal::NotFound(1))?;
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
     } else {
         Ok(item)
@@ -35,7 +35,7 @@ where
 {
     let index = keys.next::<[T; N]>()?;
     let item = arr.get_mut(index).ok_or(Traversal::NotFound(1))?;
-    if drain && !keys.is_empty() {
+    if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
     } else {
         Ok(item)
@@ -49,7 +49,7 @@ macro_rules! depth {
             fn metadata() -> Metadata {
                 let mut meta = T::metadata();
 
-                meta.max_length += digits::<10>(N);
+                meta.max_length += N.checked_ilog10().unwrap_or_default() as usize + 1;
                 meta.max_depth += 1;
                 meta.count *= N;
 
@@ -63,10 +63,10 @@ macro_rules! depth {
             {
                 let index = keys.next::<Self>()?;
                 if index >= N {
-                    Err(Traversal::NotFound(1))?
+                    return Err(Traversal::NotFound(1).into());
                 }
                 func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-                increment_result(T::traverse_by_key(keys, func))
+                Error::increment_result(T::traverse_by_key(keys, func))
             }
         }
 
@@ -77,7 +77,7 @@ macro_rules! depth {
                 S: Serializer,
             {
                 let item = get(self, &mut keys, false)?;
-                increment_result(item.serialize_by_key(keys, ser))
+                Error::increment_result(item.serialize_by_key(keys, ser))
             }
         }
 
@@ -88,7 +88,7 @@ macro_rules! depth {
                 D: Deserializer<'de>,
             {
                 let item = get_mut(self, &mut keys, false)?;
-                increment_result(item.deserialize_by_key(keys, de))
+                Error::increment_result(item.deserialize_by_key(keys, de))
             }
         }
 
@@ -126,7 +126,7 @@ impl<const N: usize, T> KeyLookup for [T; N] {
 impl<T, const N: usize> TreeKey for [T; N] {
     fn metadata() -> Metadata {
         Metadata {
-            max_length: digits::<10>(N),
+            max_length: N.checked_ilog10().unwrap_or_default() as usize + 1,
             max_depth: 1,
             count: N,
         }
@@ -139,10 +139,14 @@ impl<T, const N: usize> TreeKey for [T; N] {
     {
         let index = keys.next::<Self>()?;
         if index >= N {
-            Err(Traversal::NotFound(1))?
+            return Err(Traversal::NotFound(1).into());
         }
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
-        Ok(1)
+        if !keys.finalize() {
+            Err(Traversal::TooLong(1).into())
+        } else {
+            Ok(1)
+        }
     }
 }
 
