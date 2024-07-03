@@ -47,7 +47,7 @@ class Miniconf:
 
 
     def process_message(self, message: Message):
-        """ Process a received MQTT message. """
+        """Process a received MQTT message."""
         try:
             properties = message.properties.json()
         except AttributeError:
@@ -106,7 +106,7 @@ class Miniconf:
 
 
     async def _process_until_complete(self, fut):
-        """ Process received MQTT packets until the provided future completes. """
+        """Process received MQTT packets until the provided future completes."""
         async def listen():
             async for message in self.client.messages:
                 self.process_message(message)

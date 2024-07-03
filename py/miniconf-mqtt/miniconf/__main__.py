@@ -93,9 +93,8 @@ def main():
                     value = await interface.get(arg)
                     print(f"{arg} = {value}")
                 else:
-                    print(f'Setting {arg} to {value}')
                     await interface.set(path, json.loads(value), args.retain)
-                    print(f"Set {path}: OK")
+                    print(f"Set {path} to {value}: OK")
 
             if args.list:
                 for path in await interface.list_paths():

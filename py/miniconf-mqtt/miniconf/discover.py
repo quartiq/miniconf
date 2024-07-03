@@ -43,7 +43,7 @@ async def discover(
 async def do_discovery(
         client: Client, prefix: str, rel_timeout: float, abs_timeout: float
     ) -> List[str]:
-    """ Do the discovery operation. Refer to `discover` doc strings for parameters. """
+    """Do the discovery operation. Refer to `discover` doc strings for parameters."""
     discovered = []
     suffix = "/alive"
 
@@ -65,7 +65,7 @@ async def do_discovery(
     try:
         await asyncio.wait_for(listen_task, timeout=rel_timeout * t_subscribe + abs_timeout)
     except asyncio.TimeoutError:
-        listen_task.cancel()
+        pass
     logging.info(f"Discovery complete: {discovered}")
 
     await client.unsubscribe(f"{prefix}{suffix}")
