@@ -186,6 +186,8 @@ impl<'a, const S: char> PathIter<'a, S> {
         // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
         // This is relevant in the case of e.g. `Option` and newtypes.
         // See the corresponding unittests (`just_option`).
+        // It implies that Paths start with the separator
+        // or are empty. Everything before the first separator is ignored.
         s.next();
         s
     }
@@ -303,10 +305,10 @@ mod test {
 
     #[test]
     fn strsplit() {
-        for p in ["/d/1", "/a/bccc//d/e/"] {
-            let a: Vec<_> = PathIter::<'_, '/'>(Some(p)).collect();
+        for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
+            let a: Vec<_> = PathIter::<'_, '/'>::new(p).collect();
             println!("{p} {:?}", a);
-            let b: Vec<_> = p.split('/').collect();
+            let b: Vec<_> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }
     }
