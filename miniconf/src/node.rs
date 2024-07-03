@@ -100,14 +100,15 @@ impl TryFrom<Result<usize, Error<()>>> for Node {
     }
 }
 
-/// Look up an `IntoKeys` in a `TreeKey` and transcode into `Self`.
+/// Look up an `IntoKeys` in a `TreeKey` and transcode it.
 pub trait Transcode {
-    /// Perform a lookup and transcode the keys into self
+    /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeKey<Y>` and transcode it.
     ///
-    /// Returns node type and depth info.
+    /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
+    /// It returns a `Node` with node type and depth information.
     ///
-    /// `Err(Traversal::TooShort(depth))` indicates that `Self` does not have sufficient
-    /// capacity and failed to encode the key at the given depth.
+    /// Returning `Err(Traversal::TooShort(depth))` indicates that there was insufficient
+    /// capacity and a key could not be encoded at the given depth.
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         M: TreeKey<Y> + ?Sized,
