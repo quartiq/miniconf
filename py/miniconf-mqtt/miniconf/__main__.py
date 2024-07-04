@@ -5,6 +5,8 @@ import asyncio
 import argparse
 import logging
 import json
+import sys
+import os
 
 from aiomqtt import Client
 import paho.mqtt
@@ -13,6 +15,11 @@ from .miniconf import Miniconf, MiniconfException
 from .discover import discover
 
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
+
+if sys.platform.lower() == "win32" or os.name.lower() == "nt":
+    from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
+
+    set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 
 def main():
@@ -84,14 +91,20 @@ def main():
             interface = Miniconf(client, prefix)
 
             for arg in args.paths:
+                assert (not arg) or arg.startswith("/")
                 try:
                     path, value = arg.split("=", 1)
                 except ValueError:
                     value = await interface.get(arg)
                     print(f"{arg} = {value}")
                 else:
-                    await interface.set(path, json.loads(value), args.retain)
-                    print(f"Set {path} to {value}: OK")
+                    if not value:
+                        await interface.clear(path)
+                        print(f"Cleared retained {path}: OK")
+
+                    else:
+                        await interface.set(path, json.loads(value), args.retain)
+                        print(f"Set {path} to {value}: OK")
 
             if args.list:
                 for path in await interface.list_paths():

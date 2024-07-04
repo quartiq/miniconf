@@ -9,20 +9,14 @@ import asyncio
 import json
 import logging
 import uuid
-import warnings
-import sys
-import os
 
-from aiomqtt import Client, Message
+from aiomqtt import Client, Message, MqttError
 from paho.mqtt.properties import Properties, PacketTypes
 import paho.mqtt
+
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 LOGGER = logging.getLogger(__name__)
-
-if sys.platform.lower() == "win32" or os.name.lower() == "nt":
-    from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
-    set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 
 class MiniconfException(Exception):
@@ -43,43 +37,51 @@ class Miniconf:
         self.prefix = prefix
         self._inflight = {}
         self.response_topic = f"{prefix}/response"
-        self.subscribed = False
+        self.listener = asyncio.create_task(self._listen())
+        self.subscribed = asyncio.Event()
 
+    async def _listen(self):
+        await self.client.subscribe(self.response_topic)
+        LOGGER.info(f"Subscribed to {self.response_topic}")
+        self.subscribed.set()
+        try:
+            async for message in self.client.messages:
+                self._dispatch(message)
+        except (asyncio.CancelledError, MqttError):
+            pass
+        finally:
+            try:
+                await self.client.unsubscribe(self.response_topic)
+                LOGGER.info(f"Unsubscribed from {self.response_topic}")
+            except MqttError:
+                pass
 
-    def process_message(self, message: Message):
-        """Process a received MQTT message."""
+    def _dispatch(self, message):
+        if message.topic.value != self.response_topic:
+            LOGGER.warning(
+                "Discarding message with unexpected topic: %s", message.topic.value
+            )
+            return
+
         try:
             properties = message.properties.json()
         except AttributeError:
             properties = {}
-
+        # lazy formatting
         LOGGER.debug("Received %s: %s [%s]", message.topic, message.payload, properties)
 
-        # Extract request_id corrleation data from the properties
         try:
-            request_id = bytes(bytearray.fromhex(properties["CorrelationData"]))
+            response_id = bytes.fromhex(properties["CorrelationData"])
         except KeyError:
-            LOGGER.info("Discarding message without CD")
+            LOGGER.info("Discarding message without CorrelationData")
             return
-
         try:
-            ret, fut = self._inflight[request_id]
+            fut, ret = self._inflight[response_id]
         except KeyError:
-            LOGGER.info("Discarding message with unexpected CD: %s", request_id)
+            LOGGER.info(
+                f"Discarding message with unexpected CorrelationData: {response_id}"
+            )
             return
-
-        # When receiving data not on the specific response topic, the data is some partial
-        # result of another response. Append it to the data collected for the request.
-        if message.topic.value != self.response_topic:
-            # Payloads for path values are JSON formatted.
-            response = json.loads(message.payload)
-
-            # Handle get subscription data.
-            ret.append(response)
-            return
-
-        # Payloads for generic responses are UTF8
-        response = message.payload.decode("utf-8")
 
         try:
             code = dict(properties["UserProperty"])["code"]
@@ -87,13 +89,11 @@ class Miniconf:
             LOGGER.warning("Discarding message without response code user property")
             return
 
-        # Otherwise, a request has completed with a result. Check the result code and handle it
-        # appropriately.
+        response = message.payload.decode("utf-8")
         if code == "Continue":
             ret.append(response)
             return
-
-        if code == "Ok":
+        elif code == "Ok":
             if response:
                 ret.append(response)
             fut.set_result(ret)
@@ -101,56 +101,26 @@ class Miniconf:
             fut.set_exception(
                 MiniconfException(f"Received code: {code}, Message: {response}")
             )
-
-        del self._inflight[request_id]
-
-
-    async def _process_until_complete(self, fut):
-        """Process received MQTT packets until the provided future completes."""
-        async def listen():
-            async for message in self.client.messages:
-                self.process_message(message)
-
-        listen_task = asyncio.create_task(listen())
-
-        done, _pending = await asyncio.wait([fut, listen_task], return_when=asyncio.FIRST_COMPLETED)
-        assert fut in done, "MQTT listener finished prematurely"
-        listen_task.cancel()
-        return fut.result()
-
+        del self._inflight[response_id]
 
     async def _do(self, topic: str, **kwargs):
-        if not self.subscribed:
-            await self.client.subscribe(self.response_topic)
-            self.subscribed = True
+        await self.subscribed.wait()
 
-        fut = asyncio.get_running_loop().create_future()
-
-        request_id = uuid.uuid1().hex.encode()
+        request_id = uuid.uuid1().bytes
         assert request_id not in self._inflight
-        self._inflight[request_id] = [], fut
+        fut = asyncio.get_event_loop().create_future()
+        self._inflight[request_id] = fut, []
 
         props = Properties(PacketTypes.PUBLISH)
         props.ResponseTopic = self.response_topic
         props.CorrelationData = request_id
-
         LOGGER.info(f"Publishing {topic}: {kwargs['payload']}, [{props}]")
         await self.client.publish(
             topic,
             properties=props,
             **kwargs,
         )
-
-        return await self._process_until_complete(fut)
-
-
-    async def command(self, *args, **kwargs):
-        """Refer to `set()` for more information."""
-        warnings.warn(
-            "The `command` API function is deprecated in favor of `set()`",
-            DeprecationWarning,
-        )
-        return await self.set(*args, **kwargs)
+        return await fut
 
     async def set(self, path, value, retain=False):
         """Write the provided data to the specified path.
@@ -188,4 +158,6 @@ class Miniconf:
         Args:
             path: The path to get.
         """
-        await self._do(f"{self.prefix}/settings{path}", payload="", retain=True)
+        ret = await self._do(f"{self.prefix}/settings{path}", payload="", retain=True)
+        assert len(ret) == 1
+        return ret[0]

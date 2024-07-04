@@ -33,41 +33,30 @@ async def discover(
     Returns:
         A list of discovered client prefixes that match the provided filter.
     """
-    if isinstance(client, str):
-        async with Client(client, protocol=MQTTv5) as mqtt_client:
-            return await do_discovery(mqtt_client, prefix, rel_timeout, abs_timeout)
-    else:
-        return await do_discovery(client, prefix, rel_timeout, abs_timeout)
-
-
-async def do_discovery(
-    client: Client, prefix: str, rel_timeout: float, abs_timeout: float
-) -> List[str]:
-    """Do the discovery operation. Refer to `discover` doc strings for parameters."""
     discovered = []
     suffix = "/alive"
+    topic = f"{prefix}{suffix}"
 
     t_start = asyncio.get_running_loop().time()
-    await client.subscribe(f"{prefix}{suffix}")
+    await client.subscribe(topic)
     t_subscribe = asyncio.get_running_loop().time() - t_start
 
     async def listen():
         async for message in client.messages:
             logging.debug(f"Got message from {message.topic}: {message.payload}")
+            peer = message.topic.value.removesuffix(suffix)
             if json.loads(message.payload) == 1:
-                peer = message.topic.value[: -len(suffix)]
                 logging.info(f"Discovered {peer} alive")
                 discovered.append(peer)
             else:
-                logging.info(f"Ignoring not alive: {message.topic}")
+                logging.info(f"Ignoring {peer} not alive")
 
-    listen_task = asyncio.create_task(listen())
     try:
         await asyncio.wait_for(
-            listen_task, timeout=rel_timeout * t_subscribe + abs_timeout
+            listen(), timeout=rel_timeout * t_subscribe + abs_timeout
         )
     except asyncio.TimeoutError:
         pass
 
-    await client.unsubscribe(f"{prefix}{suffix}")
+    await client.unsubscribe(topic)
     return discovered
