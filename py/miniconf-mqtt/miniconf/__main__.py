@@ -14,6 +14,7 @@ from .discover import discover
 
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
+
 def main():
     """Main program entry point."""
     parser = argparse.ArgumentParser(
@@ -64,14 +65,10 @@ def main():
         level=logging.WARN - 10 * args.verbose,
     )
 
-    loop = asyncio.get_event_loop()
-
-    # If a discovery was requested, try to find a device.
-
     async def run():
-        async with Client(args.broker,
-                          protocol=MQTTv5,
-                          logger=logging.getLogger(__name__)) as client:
+        async with Client(
+            args.broker, protocol=MQTTv5, logger=logging.getLogger(__name__)
+        ) as client:
             if args.discover:
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
@@ -101,7 +98,7 @@ def main():
                     value = await interface.get(path)
                     print(f"{path} = {value}")
 
-    loop.run_until_complete(run())
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

@@ -9,8 +9,8 @@ from typing import List, Union
 
 from aiomqtt import Client
 import paho.mqtt
-MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
+MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 
 async def discover(
@@ -41,8 +41,8 @@ async def discover(
 
 
 async def do_discovery(
-        client: Client, prefix: str, rel_timeout: float, abs_timeout: float
-    ) -> List[str]:
+    client: Client, prefix: str, rel_timeout: float, abs_timeout: float
+) -> List[str]:
     """Do the discovery operation. Refer to `discover` doc strings for parameters."""
     discovered = []
     suffix = "/alive"
@@ -53,20 +53,21 @@ async def do_discovery(
 
     async def listen():
         async for message in client.messages:
-            logging.info(f"Got message from {message.topic}: {message.payload}")
-            if json.loads(message.payload):
+            logging.debug(f"Got message from {message.topic}: {message.payload}")
+            if json.loads(message.payload) == 1:
                 peer = message.topic.value[: -len(suffix)]
-                logging.info(f"Adding {peer} to discovered list")
+                logging.info(f"Discovered {peer} alive")
                 discovered.append(peer)
             else:
-                logging.info(f"Ignoring {message.topic}")
+                logging.info(f"Ignoring not alive: {message.topic}")
 
     listen_task = asyncio.create_task(listen())
     try:
-        await asyncio.wait_for(listen_task, timeout=rel_timeout * t_subscribe + abs_timeout)
+        await asyncio.wait_for(
+            listen_task, timeout=rel_timeout * t_subscribe + abs_timeout
+        )
     except asyncio.TimeoutError:
         pass
-    logging.info(f"Discovery complete: {discovered}")
 
     await client.unsubscribe(f"{prefix}{suffix}")
     return discovered
