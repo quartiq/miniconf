@@ -7,13 +7,13 @@
 
 use heapless::{String, Vec};
 use log::{error, info, warn};
-use miniconf::{Error, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
+use miniconf::{IntoKeys, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{SubscriptionOptions, TopicFilter},
-    DeferredPublication, Publication, QoS,
+    ConfigBuilder, DeferredPublication, ProtocolError, Publication, QoS,
 };
 
 use embedded_io::Write;
@@ -29,31 +29,62 @@ const MAX_CD_LENGTH: usize = 32;
 // republished.
 const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 
-type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, '/'>>;
+const SEPARATOR: char = '/';
+
+type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>>;
+
+pub enum Error<E> {
+    Miniconf(miniconf::Error<()>),
+    State(sm::Error),
+    Minimq(minimq::Error<E>),
+}
+
+impl<E> From<sm::Error> for Error<E> {
+    fn from(value: sm::Error) -> Self {
+        Self::State(value)
+    }
+}
+
+impl<E, F> From<miniconf::Error<F>> for Error<E> {
+    fn from(value: miniconf::Error<F>) -> Self {
+        Self::Miniconf(match value {
+            miniconf::Error::Finalization(_) => miniconf::Error::Finalization(()),
+            miniconf::Error::Inner(depth, _) => miniconf::Error::Inner(depth, ()),
+            miniconf::Error::Traversal(t) => miniconf::Error::Traversal(t),
+            _ => unimplemented!(),
+        })
+    }
+}
+
+impl<E> From<miniconf::Traversal> for Error<E> {
+    fn from(value: miniconf::Traversal) -> Self {
+        Self::Miniconf(value.into())
+    }
+}
+
+impl<E> From<minimq::Error<E>> for Error<E> {
+    fn from(value: minimq::Error<E>) -> Self {
+        Self::Minimq(value)
+    }
+}
 
 mod sm {
-    use super::{TreeKey, REPUBLISH_TIMEOUT_SECONDS};
+    use super::REPUBLISH_TIMEOUT_SECONDS;
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
     statemachine! {
         transitions: {
-            *Initial + Connected = ConnectedToBroker,
-            ConnectedToBroker + IndicatedLife = PendingSubscribe,
+            *Connect + Connect = Alive,
+            Alive + Alive = Subscribe,
+            Subscribe + Subscribe / start_timeout = Wait,
+            Wait + Tick [timed_out] = Init,
+            Init + Init = Multipart,
 
-            // After initial subscriptions, we start a timeout to republish all settings.
-            PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
+            Multipart + Complete = Single,
+            Single + Multipart = Multipart,
 
-            // Settings republish can be completed any time after subscription.
-            PendingRepublish + StartRepublish = RepublishingSettings,
-            RepublishingSettings + StartRepublish = RepublishingSettings,
-            Active + StartRepublish = RepublishingSettings,
-
-            // After republishing settings, we are in an idle "active" state.
-            RepublishingSettings + Complete = Active,
-
-            // All states transition back to `initial` on reset.
-            _ + Reset = Initial,
+            _ + Reset = Connect,
         }
     }
 
@@ -69,20 +100,20 @@ mod sm {
                 timeout: None,
             }
         }
-
-        pub fn republish_has_timed_out(&self) -> bool {
-            if let Some(timeout) = self.timeout {
-                self.clock.try_now().unwrap() > timeout
-            } else {
-                false
-            }
-        }
     }
 
     impl<C: embedded_time::Clock> StateMachineContext for Context<C> {
-        fn start_republish_timeout(&mut self) {
+        fn timed_out(&self) -> Result<bool, ()> {
+            Ok(self
+                .timeout
+                .map(|t| self.clock.try_now().unwrap() >= t)
+                .unwrap_or_default())
+        }
+
+        fn start_timeout(&mut self) -> Result<(), ()> {
             self.timeout
                 .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
+            Ok(())
         }
     }
 }
@@ -110,19 +141,37 @@ impl<'a> Command<'a> {
 }
 
 /// Cache correlation data and topic for multi-part responses.
-struct ResponseCache {
-    topic: String<MAX_TOPIC_LENGTH>,
+struct Multipart<M: TreeKey<Y>, const Y: usize> {
+    iter: Iter<M, Y>,
+    topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
-impl TryFrom<&minimq::types::Properties<'_>> for ResponseCache {
+impl<M: TreeKey<Y>, const Y: usize> Default for Multipart<M, Y> {
+    fn default() -> Self {
+        Self {
+            iter: M::nodes(),
+            topic: None,
+            correlation_data: None,
+        }
+    }
+}
+
+impl<M: TreeKey<Y>, const Y: usize> Multipart<M, Y> {
+    fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::Traversal> {
+        self.iter = self.iter.root(keys)?;
+        Ok(self)
+    }
+}
+
+impl<M: TreeKey<Y>, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
     type Error = &'static str;
     fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
         let topic = value
             .into_iter()
             .response_topic()
-            .ok_or("No response topic")?
-            .try_into()
+            .map(TryInto::try_into)
+            .transpose()
             .or(Err("Response topic too long"))?;
         let correlation_data = value
             .into_iter()
@@ -136,9 +185,32 @@ impl TryFrom<&minimq::types::Properties<'_>> for ResponseCache {
             .transpose()
             .or(Err("Correlation data too long"))?;
         Ok(Self {
+            iter: M::nodes(),
             topic,
             correlation_data,
         })
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum ResponseCode {
+    Ok,
+    Continue,
+    Error,
+}
+
+impl From<ResponseCode> for minimq::Property<'static> {
+    fn from(value: ResponseCode) -> Self {
+        let string = match value {
+            ResponseCode::Ok => "Ok",
+            ResponseCode::Continue => "Continue",
+            ResponseCode::Error => "Error",
+        };
+
+        minimq::Property::UserProperty(
+            minimq::types::Utf8String("code"),
+            minimq::types::Utf8String(string),
+        )
     }
 }
 
@@ -190,8 +262,7 @@ where
     mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
     state: sm::StateMachine<sm::Context<Clock>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    iter: Iter<Settings, Y>,
-    listing: Option<ResponseCache>,
+    pending: Multipart<Settings, Y>,
 }
 
 impl<'buf, Settings, Stack, Clock, Broker, const Y: usize>
@@ -213,34 +284,115 @@ where
         stack: Stack,
         prefix: &str,
         clock: Clock,
-        config: minimq::ConfigBuilder<'buf, Broker>,
-    ) -> Result<Self, minimq::ProtocolError> {
+        config: ConfigBuilder<'buf, Broker>,
+    ) -> Result<Self, ProtocolError> {
+        assert!(
+            prefix.len() + "/settings".len() + Settings::metadata().max_length("/")
+                <= MAX_TOPIC_LENGTH
+        );
+
         // Configure a will so that we can indicate whether or not we are connected.
         let prefix = String::try_from(prefix).unwrap();
-        let mut connection_topic = prefix.clone();
-        connection_topic.push_str("/alive").unwrap();
-        let will = minimq::Will::new(&connection_topic, b"0", &[])?
+        let mut alive = prefix.clone();
+        alive.push_str("/alive").unwrap();
+        let will = minimq::Will::new(&alive, b"0", &[])?
             .retained()
             .qos(QoS::AtMostOnce);
-
         let config = config.autodowngrade_qos().will(will)?;
 
-        let mqtt = minimq::Minimq::new(stack, clock.clone(), config);
-
-        let max_length = Settings::metadata().max_length("/");
-        assert!(prefix.len() + "/settings".len() + max_length <= MAX_TOPIC_LENGTH);
-
         Ok(Self {
-            mqtt,
+            mqtt: minimq::Minimq::new(stack, clock.clone(), config),
             state: sm::StateMachine::new(sm::Context::new(clock)),
-            iter: Settings::nodes(),
             prefix,
-            listing: None,
+            pending: Multipart::default(),
         })
     }
 
+    /// Update the MQTT interface and service the network.
+    ///
+    /// # Returns
+    /// True if the settings changed. False otherwise.
+    pub fn update(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
+        if !self.mqtt.client().is_connected() {
+            // Note(unwrap): It's always safe to reset.
+            self.state.process_event(sm::Events::Reset).unwrap();
+        }
+
+        match self.state.state() {
+            sm::States::Connect => {
+                if self.mqtt.client().is_connected() {
+                    self.state.process_event(sm::Events::Connect).unwrap();
+                }
+            }
+            sm::States::Alive => {
+                if self.alive() {
+                    self.state.process_event(sm::Events::Alive).unwrap();
+                }
+            }
+            sm::States::Subscribe => {
+                if self.subscribe() {
+                    self.state.process_event(sm::Events::Subscribe).unwrap();
+                }
+            }
+            sm::States::Wait => {
+                self.state.process_event(sm::Events::Tick).unwrap();
+            }
+            sm::States::Init => {
+                self.pending = Multipart::default();
+                self.state.process_event(sm::Events::Init).unwrap();
+            }
+            sm::States::Multipart => self.multipart(settings),
+            sm::States::Single => { // handled in poll()
+            }
+        }
+        // All states must handle MQTT traffic.
+        self.poll(settings)
+    }
+
+    /// Force republication of the current settings.
+    ///
+    /// # Note
+    /// This is intended to be used if modification of a setting had side effects that affected
+    /// another setting.
+    pub fn republish(&mut self, path: &str) -> Result<(), Error<Stack::Error>> {
+        self.pending = Multipart::default().root(&Path::<_, SEPARATOR>::from(path))?;
+        self.state.process_event(sm::Events::Multipart)?;
+        Ok(())
+    }
+
+    fn alive(&mut self) -> bool {
+        // Publish a connection status message.
+        let mut alive = self.prefix.clone();
+        alive.push_str("/alive").unwrap();
+        let msg = Publication::new(b"1")
+            .topic(&alive)
+            .retain()
+            .finish()
+            .unwrap();
+
+        self.mqtt.client().publish(msg).is_ok()
+    }
+
+    fn subscribe(&mut self) -> bool {
+        info!("MQTT connected, subscribing to settings");
+
+        // Note(unwrap): We construct a string with two more characters than the prefix
+        // structure, so we are guaranteed to have space for storage.
+        let mut settings = self.prefix.clone();
+        settings.push_str("/settings/#").unwrap();
+        let mut list = self.prefix.clone();
+        list.push_str("/list").unwrap();
+        let opts = SubscriptionOptions::default().ignore_local_messages();
+        let topics = [
+            TopicFilter::new(&settings).options(opts),
+            TopicFilter::new(&list).options(opts),
+        ];
+
+        self.mqtt.client().subscribe(&topics, &[]).is_ok()
+    }
+
     fn handle_listing(&mut self) {
-        let Some(cache) = &mut self.listing else {
+        let Some(cache) = &mut self.pending else {
             return;
         };
 
@@ -267,7 +419,7 @@ where
                 Err(e) => {
                     // Something went wrong. Abort the listing.
                     error!("Listing failed to build response: {e:?}");
-                    self.listing.take();
+                    self.pending.take();
                     return;
                 }
             };
@@ -277,14 +429,14 @@ where
 
             // If we're done with listing, bail out of the loop.
             if code != ResponseCode::Continue {
-                self.listing.take();
+                self.pending.take();
                 break;
             }
         }
     }
 
-    fn handle_republish(&mut self, settings: &Settings) {
-        if self.listing.is_some() {
+    fn multipart(&mut self, settings: &Settings) {
+        if self.pending.is_some() {
             return;
         }
 
@@ -338,89 +490,7 @@ where
         }
     }
 
-    fn handle_subscription(&mut self) {
-        info!("MQTT connected, subscribing to settings");
-
-        // Note(unwrap): We construct a string with two more characters than the prefix
-        // structure, so we are guaranteed to have space for storage.
-        let mut settings_topic = self.prefix.clone();
-        settings_topic.push_str("/settings/#").unwrap();
-        let mut list_topic = self.prefix.clone();
-        list_topic.push_str("/list").unwrap();
-
-        let opts = SubscriptionOptions::default().ignore_local_messages();
-        let topics = [
-            TopicFilter::new(&settings_topic).options(opts),
-            TopicFilter::new(&list_topic).options(opts),
-        ];
-
-        if self.mqtt.client().subscribe(&topics, &[]).is_ok() {
-            self.state.process_event(sm::Events::Subscribed).unwrap();
-        }
-    }
-
-    fn handle_indicating_alive(&mut self) {
-        // Publish a connection status message.
-        let mut connection_topic = self.prefix.clone();
-        connection_topic.push_str("/alive").unwrap();
-
-        if self
-            .mqtt
-            .client()
-            .publish(
-                Publication::new(b"1")
-                    .topic(&connection_topic)
-                    .retain()
-                    .finish()
-                    .unwrap(),
-            )
-            .is_ok()
-        {
-            self.state.process_event(sm::Events::IndicatedLife).unwrap();
-        }
-    }
-
-    /// Update the MQTT interface and service the network.
-    ///
-    /// # Returns
-    /// True if the settings changed. False otherwise.
-    pub fn update(&mut self, settings: &mut Settings) -> Result<bool, minimq::Error<Stack::Error>> {
-        if !self.mqtt.client().is_connected() {
-            // Note(unwrap): It's always safe to reset.
-            self.state.process_event(sm::Events::Reset).unwrap();
-        }
-
-        match *self.state.state() {
-            sm::States::Initial => {
-                if self.mqtt.client().is_connected() {
-                    self.state.process_event(sm::Events::Connected).unwrap();
-                }
-            }
-            sm::States::ConnectedToBroker => self.handle_indicating_alive(),
-            sm::States::PendingSubscribe => self.handle_subscription(),
-            sm::States::PendingRepublish => {
-                if self.state.context().republish_has_timed_out() {
-                    self.state
-                        .process_event(sm::Events::StartRepublish)
-                        .unwrap();
-                }
-            }
-            sm::States::RepublishingSettings => self.handle_republish(settings),
-
-            // Nothing to do in the active state.
-            sm::States::Active => {}
-        }
-
-        self.handle_listing();
-
-        // All states must handle MQTT traffic.
-        self.handle_mqtt_traffic(settings)
-    }
-
-    fn handle_mqtt_traffic(
-        &mut self,
-        settings: &mut Settings,
-    ) -> Result<bool, minimq::Error<Stack::Error>> {
+    fn poll(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
         let mut updated = false;
         let poll = self.mqtt.poll(|client, topic, payload, properties| {
             let Some(topic) = topic.strip_prefix(self.prefix.as_str()) else {
@@ -443,15 +513,15 @@ where
                         return;
                     }
 
-                    let response = if self.listing.is_some() {
+                    let response = if self.pending.is_some() {
                         "`List` already in progress"
                     } else {
-                        match ResponseCache::try_from(properties) {
+                        match Multipart::try_from(properties) {
                             Err(msg) => msg,
                             Ok(cache) => {
-                                self.listing.replace(cache);
+                                self.pending.replace(cache);
                                 self.iter =
-                                    Settings::nodes().root(&Path::<_, '/'>::from(path)).unwrap();
+                                    Settings::nodes().root(&Path::<_, SEPARATOR>::from(path)).unwrap();
 
                                 // There is no positive response sent during list commands,
                                 // instead, the response is sent as a property of the listed
@@ -550,38 +620,7 @@ where
                 self.state.process_event(sm::Events::Reset).unwrap();
                 Ok(false)
             }
-            Err(other) => Err(other),
+            Err(other) => Err(other.into()),
         }
-    }
-
-    /// Force republication of the current settings.
-    ///
-    /// # Note
-    /// This is intended to be used if modification of a setting had side effects that affected
-    /// another setting.
-    pub fn force_republish(&mut self) {
-        self.state.process_event(sm::Events::StartRepublish).ok();
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-enum ResponseCode {
-    Ok,
-    Continue,
-    Error,
-}
-
-impl From<ResponseCode> for minimq::Property<'static> {
-    fn from(value: ResponseCode) -> Self {
-        let string = match value {
-            ResponseCode::Ok => "Ok",
-            ResponseCode::Continue => "Continue",
-            ResponseCode::Error => "Error",
-        };
-
-        minimq::Property::UserProperty(
-            minimq::types::Utf8String("code"),
-            minimq::types::Utf8String(string),
-        )
     }
 }

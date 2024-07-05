@@ -19,7 +19,7 @@ miniconf = { version = "0.11.0", path = "../miniconf", features = [
 ] }
 postcard = "1.0.8"
 serde-json-core = "0.5.1"
-yafnv = "1.0.0"
+yafnv = "2.0.0"
 
 [features]
 std = []
