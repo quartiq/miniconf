@@ -5,13 +5,16 @@ import asyncio
 import json
 import logging
 
-from typing import List, Union
+from typing import List
 
-from gmqtt import Client
+from aiomqtt import Client
+import paho.mqtt
+
+MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 
 async def discover(
-    client: Union[str, Client],
+    client: Client,
     prefix: str,
     rel_timeout: float = 3.0,
     abs_timeout: float = 0.1,
@@ -30,35 +33,30 @@ async def discover(
     Returns:
         A list of discovered client prefixes that match the provided filter.
     """
-    suffix = "/alive"
-
-    sub = {}
-
-    def on_subscribe(_client, mid, _qos, _props):
-        sub[mid].set_result(True)
-
     discovered = []
+    suffix = "/alive"
+    topic = f"{prefix}{suffix}"
 
-    def on_message(_client, topic, payload, _qos, _properties):
-        logging.debug("Got message from %s: %s", topic, payload)
-        if json.loads(payload):
-            discovered.append(topic[: -len(suffix)])
-
-    if isinstance(client, str):
-        client_ = Client(client_id="")
-        await client_.connect(client)
-        client = client_
-    client.on_subscribe = on_subscribe
-    client.on_message = on_message
-
-    fut = asyncio.get_running_loop().create_future()
     t_start = asyncio.get_running_loop().time()
-    sub[client.subscribe(f"{prefix}{suffix}")] = fut
-    await fut
-    t_rtt = asyncio.get_running_loop().time() - t_start
-    await asyncio.sleep(rel_timeout * t_rtt + abs_timeout)
+    await client.subscribe(topic)
+    t_subscribe = asyncio.get_running_loop().time() - t_start
 
-    client.unsubscribe(f"{prefix}{suffix}")
-    client.on_subscribe = lambda *_a, **_k: None
-    client.on_message = lambda *_a, **_k: None
+    async def listen():
+        async for message in client.messages:
+            logging.debug(f"Got message from {message.topic}: {message.payload}")
+            peer = message.topic.value.removesuffix(suffix)
+            if json.loads(message.payload) == 1:
+                logging.info(f"Discovered {peer} alive")
+                discovered.append(peer)
+            else:
+                logging.info(f"Ignoring {peer} not alive")
+
+    try:
+        await asyncio.wait_for(
+            listen(), timeout=rel_timeout * t_subscribe + abs_timeout
+        )
+    except asyncio.TimeoutError:
+        pass
+
+    await client.unsubscribe(topic)
     return discovered

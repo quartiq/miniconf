@@ -5,11 +5,21 @@ import asyncio
 import argparse
 import logging
 import json
+import sys
+import os
 
-from gmqtt import Client
+from aiomqtt import Client
+import paho.mqtt
 
 from .miniconf import Miniconf, MiniconfException
 from .discover import discover
+
+MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
+
+if sys.platform.lower() == "win32" or os.name.lower() == "nt":
+    from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
+
+    set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 
 def main():
@@ -18,7 +28,10 @@ def main():
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-%(prog)s -d dt/sinara/dual-iir/+ 'stream_target={"ip":[192, 168, 0, 1],"port":1000}'
+%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream_target="192.0.2.16:9293"'
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G1"'  # SET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
 """,
     )
     parser.add_argument(
@@ -32,7 +45,7 @@ def main():
         "-r",
         default=False,
         action="store_true",
-        help="Retain the affected settings",
+        help="Retain the settings that are being set",
     )
     parser.add_argument(
         "--discover", "-d", action="store_true", help="Detect and list device prefixes"
@@ -46,14 +59,15 @@ def main():
     parser.add_argument(
         "prefix",
         type=str,
-        help="The MQTT topic prefix of the target (or a prefix filter in the case "
-        "of discovery)",
+        help="The MQTT topic prefix of the target or a prefix filter for discovery",
     )
     parser.add_argument(
         "paths",
-        metavar="PATH/PATH=VALUE",
+        metavar="CMD",
         nargs="*",
-        help="Path to get or path and JSON encoded value to set.",
+        help="Path to get ('PATH') or path and JSON encoded value to set "
+            "('PATH=VALUE') or path to clear ('PATH='). "
+            "Use sufficient shell escaping.",
     )
     args = parser.parse_args()
 
@@ -62,43 +76,46 @@ def main():
         level=logging.WARN - 10 * args.verbose,
     )
 
-    loop = asyncio.get_event_loop()
-
-    # If a discovery was requested, try to find a device.
-
     async def run():
-        client = Client(client_id="")
-        await client.connect(args.broker)
-
-        if args.discover:
-            devices = await discover(client, args.prefix)
-            if len(devices) != 1:
-                raise MiniconfException(
-                    f"No unique Miniconf device (found `{devices}`). Please specify a `--prefix`"
-                )
-            prefix = devices.pop()
-            logging.info("Found device prefix: %s", prefix)
-        else:
-            prefix = args.prefix
-
-        interface = await Miniconf.create(client, prefix)
-
-        for arg in args.paths:
-            try:
-                path, value = arg.split("=", 1)
-            except ValueError:
-                value = await interface.get(arg)
-                print(f"{arg} = {value}")
+        async with Client(
+            args.broker, protocol=MQTTv5, logger=logging.getLogger(__name__)
+        ) as client:
+            if args.discover:
+                devices = await discover(client, args.prefix)
+                if len(devices) != 1:
+                    raise MiniconfException(
+                        f"No unique Miniconf device (found `{devices}`). "
+                        "Please specify a `--prefix`"
+                    )
+                prefix = devices.pop()
+                logging.info("Found device prefix: %s", prefix)
             else:
-                await interface.set(path, json.loads(value), args.retain)
-                print(f"Set {path}: OK")
+                prefix = args.prefix
 
-        if args.list:
-            for path in await interface.list_paths():
-                value = await interface.get(path)
-                print(f"{path} = {value}")
+            interface = Miniconf(client, prefix)
 
-    loop.run_until_complete(run())
+            for arg in args.paths:
+                assert (not arg) or arg.startswith("/")
+                try:
+                    path, value = arg.split("=", 1)
+                except ValueError:
+                    value = await interface.get(arg)
+                    print(f"{arg} = {value}")
+                else:
+                    if not value:
+                        await interface.clear(path)
+                        print(f"Cleared retained {path}: OK")
+
+                    else:
+                        await interface.set(path, json.loads(value), args.retain)
+                        print(f"Set {path} to {value}: OK")
+
+            if args.list:
+                for path in await interface.list_paths():
+                    value = await interface.get(path)
+                    print(f"{path} = {value}")
+
+    asyncio.run(run())
 
 
 if __name__ == "__main__":

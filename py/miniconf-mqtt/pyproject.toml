@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[license]
+text = "MIT"
+
+[project]
+name = "miniconf-mqtt"
+# Note: keep this in sync with Cargo.toml
+version = "0.11.0"
+description = "Utilities for configuring Miniconf-configurable devices"
+authors = [
+    { name = "Ryan Summers", email = "ryan.summers@vertigo-designs.com" },
+    { name = "Robert Jördens", email = "rj@quartiq.de" },
+]
+dependencies = [
+    "aiomqtt >= 2.2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/quartiq/miniconf"
+Issues = "https://github.com/quartiq/miniconf/issues"
+Repository = "https://github.com/quartiq/miniconf/tree/main/py/miniconf-mqtt"
+Changelog = "https://github.com/quartiq/miniconf/blob/main/CHANGELOG.md"

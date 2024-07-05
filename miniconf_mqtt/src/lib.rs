@@ -229,22 +229,20 @@ where
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
             // attempting this publish.
-            let (code, path) = iter
-                .next()
-                .map(|path| (ResponseCode::Continue, path.unwrap().0.into_inner()))
-                .unwrap_or((ResponseCode::Ok, String::new()));
+            let (code, path) = match iter.next() {
+                Some(path) => (ResponseCode::Continue, path.unwrap().0.into_inner()),
+                None => (ResponseCode::Ok, String::new()),
+            };
 
             let props = [code.as_user_property()];
-            let outgoing = Publication::new(path.as_bytes())
+            let mut outgoing = Publication::new(path.as_bytes())
                 .topic(&cache.topic)
                 .properties(&props)
                 .qos(QoS::AtLeastOnce);
 
-            let outgoing = if let Some(cd) = &cache.correlation_data {
-                outgoing.correlate(cd)
-            } else {
-                outgoing
-            };
+            if let Some(cd) = &cache.correlation_data {
+                outgoing = outgoing.correlate(cd);
+            }
 
             let publication = match outgoing.finish() {
                 Ok(response) => response,
@@ -269,31 +267,31 @@ where
 
     fn handle_republish(&mut self, settings: &Settings) {
         while self.mqtt.client().can_publish(QoS::AtMostOnce) {
-            let Some(topic) = self.state.context_mut().republish_state.next() else {
+            let Some(path) = self.state.context_mut().republish_state.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
                 self.state.process_event(sm::Events::Complete).unwrap();
                 break;
             };
 
-            let (topic, _node) = topic.unwrap();
+            let (path, _node) = path.unwrap();
 
             let mut prefixed_topic = self.prefix.clone();
             prefixed_topic
                 .push_str("/settings")
-                .and_then(|_| prefixed_topic.push_str(&topic))
+                .and_then(|_| prefixed_topic.push_str(&path))
+                .unwrap();
+
+            // If the topic is not present, we'll fail to serialize the setting into the
+            // payload and will never publish. The iterator has already incremented, so this is
+            // acceptable.
+            let response = DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
+                .topic(&prefixed_topic)
+                .finish()
                 .unwrap();
 
             // Note(unwrap): This should not fail because `can_publish()` was checked before
             // attempting this publish.
-            match self.mqtt.client().publish(
-                // If the topic is not present, we'll fail to serialize the setting into the
-                // payload and will never publish. The iterator has already incremented, so this is
-                // acceptable.
-                DeferredPublication::new(|buf| settings.get_json_by_key(&topic, buf))
-                    .topic(&prefixed_topic)
-                    .finish()
-                    .unwrap(),
-            ) {
+            match self.mqtt.client().publish(response) {
                 Err(minimq::PubError::Serialization(Error::Traversal(Traversal::Absent(_)))) => {}
 
                 // If the value is too large to serialize, print an error to the topic instead
