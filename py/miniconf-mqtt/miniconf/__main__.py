@@ -28,7 +28,10 @@ def main():
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-%(prog)s -d dt/sinara/dual-iir/+ 'stream_target={"ip":[192, 168, 0, 1],"port":1000}'
+%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream_target="192.0.2.16:9293"'
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G1"'  # SET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
 """,
     )
     parser.add_argument(
@@ -42,7 +45,7 @@ def main():
         "-r",
         default=False,
         action="store_true",
-        help="Retain the affected settings",
+        help="Retain the settings that are being set",
     )
     parser.add_argument(
         "--discover", "-d", action="store_true", help="Detect and list device prefixes"
@@ -56,14 +59,15 @@ def main():
     parser.add_argument(
         "prefix",
         type=str,
-        help="The MQTT topic prefix of the target (or a prefix filter in the case "
-        "of discovery)",
+        help="The MQTT topic prefix of the target or a prefix filter for discovery",
     )
     parser.add_argument(
         "paths",
-        metavar="PATH/PATH=VALUE",
+        metavar="CMD",
         nargs="*",
-        help="Path to get or path and JSON encoded value to set.",
+        help="Path to get ('PATH') or path and JSON encoded value to set "
+            "('PATH=VALUE') or path to clear ('PATH='). "
+            "Use sufficient shell escaping.",
     )
     args = parser.parse_args()
 
