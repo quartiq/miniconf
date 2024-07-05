@@ -217,7 +217,7 @@ where
                     (val as _, rest)
                 }
             };
-            let check: u32 = yafnv::fnv1a(val.iter().copied());
+            let check: u32 = yafnv::fnv1a(val);
             awrite(&mut write, "  ".as_bytes()).await?;
             let rl = rest.len();
             let mut sl = &mut rest[..];
@@ -234,7 +234,7 @@ where
                 Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "absent".as_bytes(),
                 ret => &buf[..ret?],
             };
-            if yafnv::fnv1a::<u32, _>(def.iter().copied()) == check {
+            if yafnv::fnv1a::<u32, _>(def) == check {
                 awrite(&mut write, " (default)\n".as_bytes()).await?;
             } else {
                 awrite(&mut write, " (default: ".as_bytes()).await?;
