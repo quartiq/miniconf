@@ -35,6 +35,9 @@ class Miniconf:
         """
         self.client = client
         self.prefix = prefix
+        # A dispatcher is required since mqtt does not guarantee in-order processing
+        # across topics (within a topic processing is mostly in-order).
+        # Responses to requests on different topics may arrive out-of-order.
         self._inflight = {}
         self.response_topic = f"{prefix}/response"
         self.listener = asyncio.create_task(self._listen())
@@ -107,8 +110,8 @@ class Miniconf:
         await self.subscribed.wait()
 
         request_id = uuid.uuid1().bytes
-        assert request_id not in self._inflight
         fut = asyncio.get_event_loop().create_future()
+        assert request_id not in self._inflight
         self._inflight[request_id] = fut, []
 
         props = Properties(PacketTypes.PUBLISH)
