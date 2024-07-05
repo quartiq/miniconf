@@ -6,6 +6,7 @@
 //! The Minimq MQTT client for `miniconf``.
 
 use heapless::{String, Vec};
+use log::{error, info, warn};
 use miniconf::{Error, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
@@ -31,7 +32,7 @@ const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
 type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, '/'>>;
 
 mod sm {
-    use super::{Iter, TreeKey, REPUBLISH_TIMEOUT_SECONDS};
+    use super::{TreeKey, REPUBLISH_TIMEOUT_SECONDS};
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -44,9 +45,9 @@ mod sm {
             PendingSubscribe + Subscribed / start_republish_timeout = PendingRepublish,
 
             // Settings republish can be completed any time after subscription.
-            PendingRepublish + StartRepublish / start_republish = RepublishingSettings,
-            RepublishingSettings + StartRepublish / start_republish = RepublishingSettings,
-            Active + StartRepublish / start_republish = RepublishingSettings,
+            PendingRepublish + StartRepublish = RepublishingSettings,
+            RepublishingSettings + StartRepublish = RepublishingSettings,
+            Active + StartRepublish = RepublishingSettings,
 
             // After republishing settings, we are in an idle "active" state.
             RepublishingSettings + Complete = Active,
@@ -56,18 +57,16 @@ mod sm {
         }
     }
 
-    pub struct Context<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> {
+    pub struct Context<C: embedded_time::Clock> {
         clock: C,
         timeout: Option<Instant<C>>,
-        pub republish_state: Iter<M, Y>,
     }
 
-    impl<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> Context<C, M, Y> {
+    impl<C: embedded_time::Clock> Context<C> {
         pub fn new(clock: C) -> Self {
             Self {
                 clock,
                 timeout: None,
-                republish_state: M::nodes(),
             }
         }
 
@@ -80,50 +79,67 @@ mod sm {
         }
     }
 
-    impl<C: embedded_time::Clock, M: TreeKey<Y>, const Y: usize> StateMachineContext
-        for Context<C, M, Y>
-    {
+    impl<C: embedded_time::Clock> StateMachineContext for Context<C> {
         fn start_republish_timeout(&mut self) {
             self.timeout
                 .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
-        }
-
-        fn start_republish(&mut self) {
-            self.republish_state = M::nodes();
         }
     }
 }
 
 enum Command<'a> {
-    List,
+    List { path: &'a str },
     Get { path: &'a str },
     Set { path: &'a str, value: &'a [u8] },
 }
 
 impl<'a> Command<'a> {
-    fn from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
-        let path = topic.strip_prefix('/').unwrap_or(topic);
-
-        if path == "list" {
-            Ok(Command::List)
+    fn try_from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
+        if topic == "/list" {
+            let path = core::str::from_utf8(value).or(Err(()))?;
+            Ok(Command::List { path })
         } else {
-            match path.strip_prefix("settings") {
-                Some(path) => {
-                    if value.is_empty() {
-                        Ok(Command::Get { path })
-                    } else {
-                        Ok(Command::Set { path, value })
-                    }
-                }
-                _ => Err(()),
+            let path = topic.strip_prefix("/settings").ok_or(())?;
+            if value.is_empty() {
+                Ok(Command::Get { path })
+            } else {
+                Ok(Command::Set { path, value })
             }
         }
     }
 }
 
-struct ListCache {
+/// Cache correlation data and topic for multi-part responses.
+struct ResponseCache {
     topic: String<MAX_TOPIC_LENGTH>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
+}
+
+impl TryFrom<&minimq::types::Properties<'_>> for ResponseCache {
+    type Error = &'static str;
+    fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
+        let topic = value
+            .into_iter()
+            .response_topic()
+            .ok_or("No response topic")?
+            .try_into()
+            .or(Err("Response topic too long"))?;
+        let correlation_data = value
+            .into_iter()
+            .find_map(|prop| {
+                if let Ok(minimq::Property::CorrelationData(cd)) = prop {
+                    Some(Vec::try_from(cd.0))
+                } else {
+                    None
+                }
+            })
+            .transpose()
+            .or(Err("Correlation data too long"))?;
+        Ok(Self {
+            topic,
+            correlation_data,
+        })
+    }
 }
 
 /// MQTT settings interface.
@@ -172,9 +188,10 @@ where
     Broker: minimq::Broker,
 {
     mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
-    state: sm::StateMachine<sm::Context<Clock, Settings, Y>>,
+    state: sm::StateMachine<sm::Context<Clock>>,
     prefix: String<MAX_TOPIC_LENGTH>,
-    listing_state: Option<(ListCache, Iter<Settings, Y>)>,
+    iter: Iter<Settings, Y>,
+    listing: Option<ResponseCache>,
 }
 
 impl<'buf, Settings, Stack, Clock, Broker, const Y: usize>
@@ -216,25 +233,26 @@ where
         Ok(Self {
             mqtt,
             state: sm::StateMachine::new(sm::Context::new(clock)),
+            iter: Settings::nodes(),
             prefix,
-            listing_state: None,
+            listing: None,
         })
     }
 
     fn handle_listing(&mut self) {
-        let Some((cache, iter)) = &mut self.listing_state else {
+        let Some(cache) = &mut self.listing else {
             return;
         };
 
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
             // attempting this publish.
-            let (code, path) = match iter.next() {
+            let (code, path) = match self.iter.next() {
                 Some(path) => (ResponseCode::Continue, path.unwrap().0.into_inner()),
                 None => (ResponseCode::Ok, String::new()),
             };
 
-            let props = [code.as_user_property()];
+            let props = [code.into()];
             let mut outgoing = Publication::new(path.as_bytes())
                 .topic(&cache.topic)
                 .properties(&props)
@@ -248,8 +266,8 @@ where
                 Ok(response) => response,
                 Err(e) => {
                     // Something went wrong. Abort the listing.
-                    log::error!("Listing failed to build response: {e:?}");
-                    self.listing_state.take();
+                    error!("Listing failed to build response: {e:?}");
+                    self.listing.take();
                     return;
                 }
             };
@@ -259,15 +277,19 @@ where
 
             // If we're done with listing, bail out of the loop.
             if code != ResponseCode::Continue {
-                self.listing_state.take();
+                self.listing.take();
                 break;
             }
         }
     }
 
     fn handle_republish(&mut self, settings: &Settings) {
+        if self.listing.is_some() {
+            return;
+        }
+
         while self.mqtt.client().can_publish(QoS::AtMostOnce) {
-            let Some(path) = self.state.context_mut().republish_state.next() else {
+            let Some(path) = self.iter.next() else {
                 // If we got here, we completed iterating over the topics and published them all.
                 self.state.process_event(sm::Events::Complete).unwrap();
                 break;
@@ -305,7 +327,7 @@ where
                         .publish(
                             Publication::new(b"<error: serialization too large>")
                                 .topic(&prefixed_topic)
-                                .properties(&[ResponseCode::Error.as_user_property()])
+                                .properties(&[ResponseCode::Error.into()])
                                 .finish()
                                 .unwrap(),
                         )
@@ -317,7 +339,7 @@ where
     }
 
     fn handle_subscription(&mut self) {
-        log::info!("MQTT connected, subscribing to settings");
+        info!("MQTT connected, subscribing to settings");
 
         // Note(unwrap): We construct a string with two more characters than the prefix
         // structure, so we are guaranteed to have space for storage.
@@ -400,46 +422,47 @@ where
         settings: &mut Settings,
     ) -> Result<bool, minimq::Error<Stack::Error>> {
         let mut updated = false;
-        let poll = self.mqtt.poll(|client, topic, message, properties| {
-            let Some(path) = topic.strip_prefix(self.prefix.as_str()) else {
-                log::info!("Unexpected topic prefix: {topic}");
+        let poll = self.mqtt.poll(|client, topic, payload, properties| {
+            let Some(topic) = topic.strip_prefix(self.prefix.as_str()) else {
+                info!("Unexpected topic prefix: {topic}");
                 return;
             };
 
-            let Ok(command) = Command::from_message(path, message) else {
-                log::info!("Unknown miniconf command: {path}");
+            let Ok(command) = Command::try_from_message(topic, payload) else {
+                info!("Unknown miniconf command: {topic}");
                 return;
             };
 
             match command {
-                Command::List => {
+                Command::List { path } => {
                     if !properties
                         .into_iter()
                         .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
                     {
-                        log::info!("Discarding `List` without `ResponseTopic`");
+                        info!("Discarding `List` without `ResponseTopic`");
                         return;
                     }
 
-                    let response = match self.listing_state {
-                        Some(_) => "`List` already in progress",
-                        None => {
-                            match handle_listing_request(properties) {
-                                Err(msg) => msg,
-                                Ok(cache) => {
-                                    self.listing_state.replace((cache, Settings::nodes()));
+                    let response = if self.listing.is_some() {
+                        "`List` already in progress"
+                    } else {
+                        match ResponseCache::try_from(properties) {
+                            Err(msg) => msg,
+                            Ok(cache) => {
+                                self.listing.replace(cache);
+                                self.iter =
+                                    Settings::nodes().root(&Path::<_, '/'>::from(path)).unwrap();
 
-                                    // There is no positive response sent during list commands,
-                                    // instead, the response is sent as a property of the listed
-                                    // elements. As such, we are now finished processing a list
-                                    // command.
-                                    return;
-                                }
+                                // There is no positive response sent during list commands,
+                                // instead, the response is sent as a property of the listed
+                                // elements. As such, we are now finished processing a list
+                                // command.
+                                return;
                             }
                         }
                     };
 
-                    let props = [ResponseCode::Error.as_user_property()];
+                    let props = [ResponseCode::Error.into()];
                     if let Ok(response) = minimq::Publication::new(response.as_bytes())
                         .reply(properties)
                         .properties(&props)
@@ -451,7 +474,7 @@ where
                 }
 
                 Command::Get { path } => {
-                    let props = [ResponseCode::Ok.as_user_property()];
+                    let props = [ResponseCode::Ok.into()];
                     let Ok(message) = DeferredPublication::new(|buf| settings.get_json(path, buf))
                         .properties(&props)
                         .reply(properties)
@@ -465,20 +488,30 @@ where
                         return;
                     };
 
-                    if let Err(minimq::PubError::Serialization(err)) = client.publish(message) {
-                        if let Ok(message) = DeferredPublication::new(|mut buf| {
-                            let start = buf.len();
-                            write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
-                        })
-                        .properties(&[ResponseCode::Error.as_user_property()])
-                        .reply(properties)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        {
-                            // Try to send the error as a best-effort. If we don't have enough
-                            // buffer space to encode the error, there's nothing more we can do.
-                            client.publish(message).ok();
-                        };
+                    match client.publish(message) {
+                        Ok(()) => {}
+                        Err(err) => {}
+                        Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
+                            Traversal::TooShort(depth),
+                        ))) => {
+                            // Internal node
+                            // TODO: iter update
+                        }
+                        Err(minimq::PubError::Serialization(err)) => {
+                            if let Ok(message) = DeferredPublication::new(|mut buf| {
+                                let start = buf.len();
+                                write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
+                            })
+                            .properties(&[ResponseCode::Error.into()])
+                            .reply(properties)
+                            .qos(QoS::AtLeastOnce)
+                            .finish()
+                            {
+                                // Try to send the error as a best-effort. If we don't have enough
+                                // buffer space to encode the error, there's nothing more we can do.
+                                client.publish(message).ok();
+                            };
+                        }
                     }
                 }
 
@@ -486,7 +519,7 @@ where
                     Ok(_depth) => {
                         updated = true;
                         if let Ok(response) = Publication::new("OK".as_bytes())
-                            .properties(&[ResponseCode::Ok.as_user_property()])
+                            .properties(&[ResponseCode::Ok.into()])
                             .reply(properties)
                             .qos(QoS::AtLeastOnce)
                             .finish()
@@ -499,7 +532,7 @@ where
                             let start = buf.len();
                             write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
                         })
-                        .properties(&[ResponseCode::Error.as_user_property()])
+                        .properties(&[ResponseCode::Error.into()])
                         .reply(properties)
                         .qos(QoS::AtLeastOnce)
                         .finish()
@@ -513,7 +546,7 @@ where
         match poll {
             Ok(_) => Ok(updated),
             Err(minimq::Error::SessionReset) => {
-                log::warn!("Session reset");
+                warn!("Session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
                 Ok(false)
             }
@@ -538,9 +571,9 @@ enum ResponseCode {
     Error,
 }
 
-impl ResponseCode {
-    const fn as_user_property(self) -> minimq::Property<'static> {
-        let string = match self {
+impl From<ResponseCode> for minimq::Property<'static> {
+    fn from(value: ResponseCode) -> Self {
+        let string = match value {
             ResponseCode::Ok => "Ok",
             ResponseCode::Continue => "Continue",
             ResponseCode::Error => "Error",
@@ -551,29 +584,4 @@ impl ResponseCode {
             minimq::types::Utf8String(string),
         )
     }
-}
-
-fn handle_listing_request(
-    properties: &minimq::types::Properties<'_>,
-) -> Result<ListCache, &'static str> {
-    // If the response topic is too long, send an error
-    let response_topic = properties.into_iter().response_topic().unwrap();
-
-    // If there is a CD and it's too long, send an error response.
-    let correlation_data = if let Some(cd) = properties.into_iter().find_map(|prop| {
-        if let Ok(minimq::Property::CorrelationData(cd)) = prop {
-            Some(cd.0)
-        } else {
-            None
-        }
-    }) {
-        Some(Vec::try_from(cd).map_err(|_| "Correlation data too long")?)
-    } else {
-        None
-    };
-
-    Ok(ListCache {
-        topic: String::try_from(response_topic).map_err(|_| "Response topic too long")?,
-        correlation_data,
-    })
 }
