@@ -1,9 +1,8 @@
 use core::{
     fmt::Write,
-    iter::{Copied, Skip},
+    iter::Copied,
     ops::{Deref, DerefMut},
     slice::Iter,
-    str::Split,
 };
 
 use serde::{Deserialize, Serialize};
@@ -101,14 +100,15 @@ impl TryFrom<Result<usize, Error<()>>> for Node {
     }
 }
 
-/// Look up an `IntoKeys` in a `TreeKey` and transcode into `Self`.
+/// Look up an `IntoKeys` in a `TreeKey` and transcode it.
 pub trait Transcode {
-    /// Perform a lookup and transcode the keys into self
+    /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeKey<Y>` and transcode it.
     ///
-    /// Returns node type and depth info.
+    /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
+    /// It returns a `Node` with node type and depth information.
     ///
-    /// `Err(Traversal::TooShort(depth))` indicates that `Self` does not have sufficient
-    /// capacity and failed to encode the key at the given depth.
+    /// Returning `Err(Traversal::TooShort(depth))` indicates that there was insufficient
+    /// capacity and a key could not be encoded at the given depth.
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         M: TreeKey<Y> + ?Sized,
@@ -173,10 +173,47 @@ impl<T, const S: char> From<T> for Path<T, S> {
     }
 }
 
+/// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
+#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct PathIter<'a, const S: char>(Option<&'a str>);
+
+impl<'a, const S: char> PathIter<'a, S> {
+    #[inline]
+    fn new(s: &'a str) -> Self {
+        let mut s = Self(Some(s));
+        // Skip the first part to disambiguate between
+        // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
+        // This is relevant in the case of e.g. `Option` and newtypes.
+        // See the corresponding unittests (`just_option`).
+        // It implies that Paths start with the separator
+        // or are empty. Everything before the first separator is ignored.
+        s.next();
+        s
+    }
+}
+
+impl<'a, const S: char> Iterator for PathIter<'a, S> {
+    type Item = &'a str;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.map(|s| {
+            let pos = s
+                .chars()
+                .map_while(|c| (c != S).then_some(c.len_utf8()))
+                .sum();
+            let (left, right) = s.split_at(pos);
+            self.0 = right.get(S.len_utf8()..);
+            left
+        })
+    }
+}
+
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
-    type IntoKeys = KeysIter<Skip<Split<'a, char>>>;
+    type IntoKeys = KeysIter<PathIter<'a, S>>;
     fn into_keys(self) -> Self::IntoKeys {
-        self.0.as_ref().split(self.separator()).skip(1).into_keys()
+        PathIter::<'a, S>::new(self.0.as_ref()).into_keys()
     }
 }
 
@@ -259,5 +296,20 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
             })
         })
         .try_into()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn strsplit() {
+        for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
+            let a: Vec<_> = PathIter::<'_, '/'>::new(p).collect();
+            println!("{p} {:?}", a);
+            let b: Vec<_> = p.split('/').skip(1).collect();
+            assert_eq!(a, b);
+        }
     }
 }

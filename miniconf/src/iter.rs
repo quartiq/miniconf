@@ -74,6 +74,9 @@ impl<T: Keys> IntoKeys for Consume<T> {
 /// not have sufficient capacity and failed to encode the key at the given depth.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
+    // We can't use Packed as state since we need to be able to modify the
+    // indices directly. Packed erases knowledge of the bit widths of the individual
+    // indices.
     state: Indices<[usize; D]>,
     root: usize,
     depth: usize,
