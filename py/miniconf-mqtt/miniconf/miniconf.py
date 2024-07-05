@@ -59,7 +59,7 @@ class Miniconf:
             except MqttError:
                 pass
 
-    def _dispatch(self, message):
+    def _dispatch(self, message: Message):
         if message.topic.value != self.response_topic:
             LOGGER.warning(
                 "Discarding message with unexpected topic: %s", message.topic.value
@@ -96,7 +96,8 @@ class Miniconf:
         if code == "Continue":
             ret.append(response)
             return
-        elif code == "Ok":
+
+        if code == "Ok":
             if response:
                 ret.append(response)
             fut.set_result(ret)
