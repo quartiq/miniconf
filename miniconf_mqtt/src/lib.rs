@@ -324,7 +324,7 @@ where
             }
             sm::States::Init => {
                 info!("Republishing");
-                self.publish("").unwrap();
+                self.publish("").ok();
             }
             sm::States::Multipart => {
                 if self.pending.response_topic.is_some() {
@@ -512,11 +512,6 @@ where
                 return Changed::Unchanged;
             };
 
-            if !matches!(&state.state(), sm::States::Multipart | sm::States::Single) {
-                Self::respond("Not ready", ResponseCode::Ok, properties, client).ok();
-                return Changed::Unchanged;
-            }
-
             if payload.is_empty() {
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
@@ -534,7 +529,7 @@ where
                             Traversal::TooShort(_depth),
                         )) => {
                             // Internal node: try Dump or List
-                            (state.state() != &sm::States::Multipart)
+                            (state.state() == &sm::States::Single)
                                 .then_some(())
                                 .ok_or("Pending multipart response")
                                 .and_then(|()| Multipart::<Settings, Y>::try_from(properties))
