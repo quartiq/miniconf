@@ -7,7 +7,7 @@ python -m venv .venv
 . .venv/bin/activate
 python -m pip install -e py/miniconf-mqtt
 
-cargo build -p miniconf_mqtt --example mqtt &
+cargo build -p miniconf_mqtt --example mqtt
 cargo run -p miniconf_mqtt --example mqtt &
 sleep 3 # > REPUBLISH_TIMEOUT_SECONDS
 
