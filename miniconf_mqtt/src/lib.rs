@@ -150,7 +150,7 @@ impl<M: TreeKey<Y>, const Y: usize> Multipart<M, Y> {
 impl<M: TreeKey<Y>, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
     type Error = &'static str;
     fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
-        let topic = value
+        let response_topic = value
             .into_iter()
             .response_topic()
             .map(TryInto::try_into)
@@ -169,7 +169,7 @@ impl<M: TreeKey<Y>, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for 
             .or(Err("Correlation data too long"))?;
         Ok(Self {
             iter: M::nodes(),
-            response_topic: topic,
+            response_topic,
             correlation_data,
         })
     }
