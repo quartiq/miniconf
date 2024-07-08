@@ -17,10 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Keys::is_empty()` -> `Keys::finalize()`
 * `traverse_by_key` ensures `Keys::finalize()`
 * `NodeIter::count()` -> `NodeIter::exact_size()` to disambiguate from `Iterator::count()`
-* The MQTT client performs path listings by publishing an empty payload to an internal node
-  with a response topic
+* [MQTT] path listing are done by publishing an empty payload to an internal node path
+  with a response topic (not to the `/list` topic anymore)
 * [MQTT, Python] The `Miniconf::create` method is no longer used. Instead, an `aiomqtt::Client`
-must be passed to Miniconf
+  must be passed to Miniconf
+* [MQTT, Python] `--list` option removed in favor of `PATH?`
 
 ### Added
 
@@ -32,8 +33,8 @@ must be passed to Miniconf
 * `Path`, `JsonPath`/`JsonPathIter`, `Indices`, `KeysIter` wrapper types for more ergonomic/succinct
   `Transcode`/`IntoKeys`/`Keys` handling
 * [MQTT] support on-demand and partial dump (previously called repubish and executed only once) by posting
-  the empty payload to an internal node without a response topic
-* [MQTT] support partial listing
+  the empty payload to an internal node without a response topic: `PATH!`
+* [MQTT] support partial listing: `PATH?`
 
 ### Removed
 

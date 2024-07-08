@@ -32,6 +32,8 @@ def main():
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G1"'  # SET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
+%(prog)s -d dt/sinara/dual-iir/+ '/afe?' '?'    # DUMP
+%(prog)s -d dt/sinara/dual-iir/+ '/afe!' '!'    # LIST-GET
 """,
     )
     parser.add_argument(
@@ -51,12 +53,6 @@ def main():
         "--discover", "-d", action="store_true", help="Detect and list device prefixes"
     )
     parser.add_argument(
-        "--list",
-        "-l",
-        action="store_true",
-        help="List all active settings after modification",
-    )
-    parser.add_argument(
         "prefix",
         type=str,
         help="The MQTT topic prefix of the target or a prefix filter for discovery",
@@ -66,8 +62,8 @@ def main():
         metavar="CMD",
         nargs="*",
         help="Path to get ('PATH') or path and JSON encoded value to set "
-            "('PATH=VALUE') or path to clear ('PATH='). "
-            "Use sufficient shell escaping.",
+        "('PATH=VALUE') or path to clear ('PATH='). "
+        "Use sufficient shell escaping.",
     )
     args = parser.parse_args()
 
@@ -95,30 +91,31 @@ def main():
             interface = Miniconf(client, prefix)
 
             for arg in args.paths:
-                assert arg.startswith("/") or arg in ["", "?", "="]
-
                 if arg.endswith("?"):
-                    await interface.dump(arg[:-1])
-                    print(f"Dumped {arg}")
-                    continue
-
-                try:
+                    path = arg.removesuffix("?")
+                    assert path.startswith("/") or not path
+                    for p in await interface.list_paths(path):
+                        value = await interface.get(p)
+                        print(f"List `{p}` = `{value}`")
+                elif arg.endswith("!"):
+                    path = arg.removesuffix("!")
+                    assert path.startswith("/") or not path
+                    await interface.dump(path)
+                    print(f"Dumped `{path}` into namespace")
+                elif "=" in arg:
                     path, value = arg.split("=", 1)
-                except ValueError:
-                    value = await interface.get(arg)
-                    print(f"{arg} = {value}")
-                else:
+                    assert path.startswith("/") or not path
                     if not value:
                         await interface.clear(path)
-                        print(f"Cleared retained {path}: OK")
+                        print(f"Cleared retained `{path}`")
                     else:
                         await interface.set(path, json.loads(value), args.retain)
-                        print(f"Set {path} to {value}: OK")
-
-            if args.list:
-                for path in await interface.list_paths():
+                        print(f"Set `{path}` = `{value}`")
+                else:
+                    path = arg
+                    assert path.startswith("/") or not path
                     value = await interface.get(path)
-                    print(f"{path} = {value}")
+                    print(f"Get `{path}` = `{value}`")
 
     asyncio.run(run())
 

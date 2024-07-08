@@ -141,16 +141,28 @@ class Miniconf:
             payload=json.dumps(value, separators=(",", ":")),
             retain=retain,
         )
-        assert len(ret) == 1
+        assert len(ret) == 1, ret
         return ret[0]
 
     async def list_paths(self, root=""):
-        """Get a list of all the paths below a given root."""
+        """Get a list of all the paths below a given root.
+
+        Args:
+            root: Path to the root node to list.
+        """
         return await self._do(topic=f"{self.prefix}/settings{root}", payload="")
 
     async def dump(self, root=""):
-        """Dump all the paths at or below a given root into the namespace."""
-        return await self._do(
+        """Dump all the paths at or below a given root into the settings namespace.
+
+        Note that the target Miniconf client may be unable to
+        responde to messages when a multipart operation (list or dump) is in progress.
+        This method does not wait for the completion of the dump.
+
+        Args:
+            root: Path to the root node to dump.
+        """
+        await self._do(
             topic=f"{self.prefix}/settings{root}", payload="", response=False
         )
 
@@ -161,7 +173,7 @@ class Miniconf:
             path: The path to get.
         """
         ret = await self._do(topic=f"{self.prefix}/settings{path}", payload="")
-        assert len(ret) == 1
+        assert len(ret) == 1, ret
         return ret[0]
 
     async def clear(self, path):
@@ -171,5 +183,5 @@ class Miniconf:
             path: The path to get.
         """
         ret = await self._do(f"{self.prefix}/settings{path}", payload="", retain=True)
-        assert len(ret) == 1
+        assert len(ret) == 1, ret
         return ret[0]
