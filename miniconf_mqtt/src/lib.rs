@@ -304,6 +304,7 @@ where
         match self.state.state() {
             sm::States::Connect => {
                 if self.mqtt.client().is_connected() {
+                    info!("Connected");
                     self.state.process_event(sm::Events::Connect).unwrap();
                 }
             }
@@ -314,6 +315,7 @@ where
             }
             sm::States::Subscribe => {
                 if self.subscribe() {
+                    info!("Subscribed");
                     self.state.process_event(sm::Events::Subscribe).unwrap();
                 }
             }
@@ -321,6 +323,7 @@ where
                 self.state.process_event(sm::Events::Tick).ok();
             }
             sm::States::Init => {
+                info!("Republishing");
                 self.publish("").unwrap();
             }
             sm::States::Multipart => {
@@ -334,7 +337,7 @@ where
             }
         }
         // All states must handle MQTT traffic.
-        self.poll(settings)
+        self.poll(settings).map(|c| c == Changed::Changed)
     }
 
     fn alive(&mut self) -> bool {
@@ -346,16 +349,12 @@ where
             .qos(QoS::AtLeastOnce)
             .retain()
             .finish()
-            .unwrap();
+            .unwrap(); // Note(unwrap): has topic
 
         self.mqtt.client().publish(msg).is_ok()
     }
 
     fn subscribe(&mut self) -> bool {
-        info!("MQTT connected, subscribing to settings");
-
-        // Note(unwrap): We construct a string with two more characters than the prefix
-        // structure, so we are guaranteed to have space for storage.
         let mut settings = self.prefix.clone();
         settings.push_str("/settings/#").unwrap();
         let mut list = self.prefix.clone();
@@ -382,14 +381,16 @@ where
 
     fn iter_list(&mut self) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            let (code, path) = match self.pending.iter.next() {
-                Some(path) => {
+            let (code, path) = self
+                .pending
+                .iter
+                .next()
+                .map(|path| {
                     let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
-                    assert!(node.is_leaf());
+                    assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
                     (ResponseCode::Continue, path.into_inner())
-                }
-                None => (ResponseCode::Ok, String::new()),
-            };
+                })
+                .unwrap_or((ResponseCode::Ok, String::new()));
 
             let props = [code.into()];
             let mut response = Publication::new(path.as_bytes())
@@ -420,8 +421,8 @@ where
                 break;
             };
 
-            let (path, node) = path.unwrap();
-            assert!(node.is_leaf());
+            let (path, node) = path.unwrap(); // Note(unwraped): checked capacity
+            assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
 
             let mut topic = self.prefix.clone();
             topic
@@ -449,7 +450,7 @@ where
                     )),
                 ))) => {
                     let props = [ResponseCode::Error.into()];
-                    let mut response = Publication::new(b"<error: serialized value too large>")
+                    let mut response = Publication::new(b"Serialized value too large")
                         .topic(&topic)
                         .properties(&props)
                         .qos(QoS::AtLeastOnce);
@@ -461,10 +462,9 @@ where
                     self.mqtt
                         .client()
                         .publish(response.finish().unwrap()) // Note(unwrap): has topic
-                        .map_err(|err| info!("Dump reply failed: {err:?}"))
-                        .ok();
+                        .unwrap(); // Note(unwrap): checked can_publish, error message is short
                 }
-                other => other.unwrap(), // Note(unwrap): checked can_publish
+                other => other.unwrap(),
             }
         }
     }
@@ -482,7 +482,7 @@ where
             .publish(
                 DeferredPublication::new(|mut buf| {
                     let start = buf.len();
-                    write!(buf, "<error: {}>", response).and_then(|_| Ok(start - buf.len()))
+                    write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
                 })
                 .reply(request)
                 .properties(&[code.into()])
@@ -491,28 +491,28 @@ where
                 .map_err(minimq::Error::from)?,
             )
             .map_err(|err| {
-                info!("Response failure: {err:?}");
+                debug!("Response failure: {err:?}");
                 err
             })
     }
 
-    fn poll(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
+    fn poll(&mut self, settings: &mut Settings) -> Result<Changed, Error<Stack::Error>> {
         let Self {
             mqtt,
             state,
             prefix,
             pending,
         } = self;
-        mqtt.poll(|client, topic, payload, properties| -> bool {
+        mqtt.poll(|client, topic, payload, properties| {
             let Some(path) = topic
                 .strip_prefix(prefix.as_str())
                 .and_then(|p| p.strip_prefix("/settings"))
             else {
                 info!("Unexpected topic: {topic}");
-                return false;
+                return Changed::Unchanged;
             };
             if payload.is_empty() {
-                // Get, Dump, List
+                // Get, Dump, or List
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     DeferredPublication::new(|buf| settings.get_json(path, buf))
@@ -538,37 +538,35 @@ where
                                         "Root not found"
                                     })
                                 })
-                                .map(|m| {
-                                    *pending = m;
-                                    state.process_event(sm::Events::Multipart).unwrap();
-                                })
-                                .map_err(|response| {
-                                    Self::respond(
-                                        response,
-                                        ResponseCode::Error,
-                                        properties,
-                                        client,
-                                    )
-                                    .ok();
-                                })
-                                .ok();
+                                .map_or_else(
+                                    |err| {
+                                        Self::respond(err, ResponseCode::Error, properties, client)
+                                            .ok();
+                                    },
+                                    |m| {
+                                        *pending = m;
+                                        state.process_event(sm::Events::Multipart).unwrap();
+                                        // Response comes through iter_list/iter_dump
+                                    },
+                                );
                         }
                         minimq::PubError::Serialization(err) => {
                             Self::respond(err, ResponseCode::Error, properties, client).ok();
                         }
                         minimq::PubError::Error(err) => {
-                            error!("Get error failure: {err:?}");
+                            error!("Get failure: {err:?}");
                         }
                     }
                 }
-                false
+                Changed::Unchanged
             } else {
                 // Set
                 settings
                     .set_json(path, payload)
-                    .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
                     .map_err(|err| Self::respond(err, ResponseCode::Error, properties, client).ok())
+                    .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
                     .is_ok()
+                    .into()
             }
         })
         .map(Option::unwrap_or_default)
@@ -576,9 +574,26 @@ where
             minimq::Error::SessionReset => {
                 warn!("Session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
-                Ok(false)
+                Ok(Changed::Unchanged)
             }
             other => Err(other.into()),
         })
+    }
+}
+
+#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
+enum Changed {
+    #[default]
+    Unchanged,
+    Changed,
+}
+
+impl From<bool> for Changed {
+    fn from(value: bool) -> Self {
+        if value {
+            Self::Changed
+        } else {
+            Self::Unchanged
+        }
     }
 }
