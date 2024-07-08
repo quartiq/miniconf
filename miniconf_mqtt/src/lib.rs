@@ -357,14 +357,8 @@ where
     fn subscribe(&mut self) -> bool {
         let mut settings = self.prefix.clone();
         settings.push_str("/settings/#").unwrap();
-        let mut list = self.prefix.clone();
-        list.push_str("/list").unwrap();
         let opts = SubscriptionOptions::default().ignore_local_messages();
-        let topics = [
-            TopicFilter::new(&settings).options(opts),
-            TopicFilter::new(&list).options(opts),
-        ];
-
+        let topics = [TopicFilter::new(&settings).options(opts)];
         self.mqtt.client().subscribe(&topics, &[]).is_ok()
     }
 
