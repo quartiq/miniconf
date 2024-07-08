@@ -469,7 +469,7 @@ where
         }
     }
 
-    fn response<'a, T: Display>(
+    fn respond<'a, T: Display>(
         response: T,
         code: ResponseCode,
         request: &Properties<'a>,
@@ -512,7 +512,8 @@ where
                 return false;
             };
             if payload.is_empty() {
-                // Try Get assuming Leaf node
+                // Get, Dump, List
+                // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     DeferredPublication::new(|buf| settings.get_json(path, buf))
                         .topic(topic)
@@ -526,31 +527,34 @@ where
                         minimq::PubError::Serialization(miniconf::Error::Traversal(
                             Traversal::TooShort(_depth),
                         )) => {
-                            // Internal node: Dump or List
-                            if let Some(response) = if state.state() == &sm::States::Multipart {
-                                Some("Pending multipart response")
-                            } else {
-                                match Multipart::<Settings, Y>::try_from(properties).and_then(|m| {
+                            // Internal node: try Dump or List
+                            (state.state() != &sm::States::Multipart)
+                                .then_some(())
+                                .ok_or("Pending multipart response")
+                                .and_then(|()| Multipart::<Settings, Y>::try_from(properties))
+                                .and_then(|m| {
                                     m.root(&Path::<_, '/'>::from(path)).map_err(|err| {
                                         debug!("List/Pub root: {err}");
                                         "Root not found"
                                     })
-                                }) {
-                                    Err(msg) => Some(msg),
-                                    Ok(m) => {
-                                        *pending = m;
-                                        state.process_event(sm::Events::Multipart).unwrap();
-                                        None
-                                    }
-                                }
-                            } {
-                                Self::response(response, ResponseCode::Error, properties, client)
+                                })
+                                .map(|m| {
+                                    *pending = m;
+                                    state.process_event(sm::Events::Multipart).unwrap();
+                                })
+                                .map_err(|response| {
+                                    Self::respond(
+                                        response,
+                                        ResponseCode::Error,
+                                        properties,
+                                        client,
+                                    )
                                     .ok();
-                            }
+                                })
+                                .ok();
                         }
                         minimq::PubError::Serialization(err) => {
-                            // Get serialization error
-                            Self::response(err, ResponseCode::Error, properties, client).ok();
+                            Self::respond(err, ResponseCode::Error, properties, client).ok();
                         }
                         minimq::PubError::Error(err) => {
                             error!("Get error failure: {err:?}");
@@ -562,10 +566,8 @@ where
                 // Set
                 settings
                     .set_json(path, payload)
-                    .map(|_depth| Self::response("OK", ResponseCode::Ok, properties, client).ok())
-                    .map_err(|err| {
-                        Self::response(err, ResponseCode::Error, properties, client).ok()
-                    })
+                    .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
+                    .map_err(|err| Self::respond(err, ResponseCode::Error, properties, client).ok())
                     .is_ok()
             }
         })
