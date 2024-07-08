@@ -469,24 +469,8 @@ where
         }
     }
 
-    fn response<'a>(
-        response: &str,
-        code: ResponseCode,
-        request: &Properties<'a>,
-        client: &mut minimq::mqtt_client::MqttClient<'buf, Stack, Clock, Broker>,
-    ) -> Result<(), minimq::PubError<Stack::Error, ()>> {
-        client.publish(
-            minimq::Publication::new(response.as_bytes())
-                .reply(request)
-                .properties(&[code.into()])
-                .qos(QoS::AtLeastOnce)
-                .finish()
-                .map_err(minimq::Error::from)?,
-        )
-    }
-
-    fn deferred_response<'a, T: Display>(
-        response: &T,
+    fn response<'a, T: Display>(
+        response: T,
         code: ResponseCode,
         request: &Properties<'a>,
         client: &mut minimq::mqtt_client::MqttClient<'buf, Stack, Clock, Broker>,
@@ -494,17 +478,22 @@ where
         (),
         minimq::PubError<Stack::Error, embedded_io::WriteFmtError<embedded_io::SliceWriteError>>,
     > {
-        client.publish(
-            DeferredPublication::new(|mut buf| {
-                let start = buf.len();
-                write!(buf, "<error: {}>", response).and_then(|_| Ok(start - buf.len()))
+        client
+            .publish(
+                DeferredPublication::new(|mut buf| {
+                    let start = buf.len();
+                    write!(buf, "<error: {}>", response).and_then(|_| Ok(start - buf.len()))
+                })
+                .reply(request)
+                .properties(&[code.into()])
+                .qos(QoS::AtLeastOnce)
+                .finish()
+                .map_err(minimq::Error::from)?,
+            )
+            .map_err(|err| {
+                info!("Response failure: {err:?}");
+                err
             })
-            .reply(request)
-            .properties(&[code.into()])
-            .qos(QoS::AtLeastOnce)
-            .finish()
-            .map_err(minimq::Error::from)?,
-        )
     }
 
     fn poll(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
@@ -539,12 +528,12 @@ where
                         )) => {
                             // Internal node: Dump or List
                             if let Some(response) = if state.state() == &sm::States::Multipart {
-                                Some("<error: pending multipart response>")
+                                Some("Pending multipart response")
                             } else {
                                 match Multipart::<Settings, Y>::try_from(properties).and_then(|m| {
                                     m.root(&Path::<_, '/'>::from(path)).map_err(|err| {
                                         debug!("List/Pub root: {err}");
-                                        "<error: root not found>"
+                                        "Root not found"
                                     })
                                 }) {
                                     Err(msg) => Some(msg),
@@ -556,15 +545,12 @@ where
                                 }
                             } {
                                 Self::response(response, ResponseCode::Error, properties, client)
-                                    .map_err(|err| info!("Dump/List error failure: {err:?}"))
                                     .ok();
                             }
                         }
                         minimq::PubError::Serialization(err) => {
                             // Get serialization error
-                            Self::deferred_response(&err, ResponseCode::Error, properties, client)
-                                .map_err(|err| info!("Serialization error failure: {err:?}"))
-                                .ok();
+                            Self::response(err, ResponseCode::Error, properties, client).ok();
                         }
                         minimq::PubError::Error(err) => {
                             error!("Get error failure: {err:?}");
@@ -576,15 +562,9 @@ where
                 // Set
                 settings
                     .set_json(path, payload)
-                    .map(|_depth| {
-                        Self::response("OK", ResponseCode::Ok, properties, client)
-                            .map_err(|err| info!("Set OK response: {err:?}"))
-                            .ok()
-                    })
+                    .map(|_depth| Self::response("OK", ResponseCode::Ok, properties, client).ok())
                     .map_err(|err| {
-                        Self::deferred_response(&err, ResponseCode::Error, properties, client)
-                            .map_err(|err| info!("Set error response: {err:?}"))
-                            .ok()
+                        Self::response(err, ResponseCode::Error, properties, client).ok()
                     })
                     .is_ok()
             }

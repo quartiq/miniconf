@@ -144,14 +144,14 @@ class Miniconf:
         assert len(ret) == 1
         return ret[0]
 
-    async def list_paths(self, path=""):
-        """Get a list of all the paths available on the device."""
-        return await self._do(topic=f"{self.prefix}/settings{path}", payload="")
+    async def list_paths(self, root=""):
+        """Get a list of all the paths below a given root."""
+        return await self._do(topic=f"{self.prefix}/settings{root}", payload="")
 
-    async def dump(self, path=""):
-        """Get a list of all the paths available on the device."""
+    async def dump(self, root=""):
+        """Dump all the paths at or below a given root into the namespace."""
         return await self._do(
-            topic=f"{self.prefix}/settings{path}", payload="", response=False
+            topic=f"{self.prefix}/settings{root}", payload="", response=False
         )
 
     async def get(self, path):
