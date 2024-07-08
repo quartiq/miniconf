@@ -57,9 +57,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
-
       - run: cargo check --verbose
-
       - run: cargo build --no-default-features
       - run: cargo build
       - run: cargo build --release
@@ -74,19 +72,15 @@ jobs:
         args:
           - ""
           - --no-default-features
-
     steps:
       - uses: actions/checkout@v4
-
-      - name: Start Mosquitto
+      - name: Start Broker
         run: |
           sudo apt-get install mosquitto
           sudo service mosquitto start
-
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{matrix.toolchain}}
-
       - run: cargo test ${{matrix.args }}
 
   embedded:
@@ -119,12 +113,9 @@ jobs:
           - mqtt
     steps:
       - uses: actions/checkout@v4
-
-      - name: Start Mosquitto
+      - name: Start Broker
         run: |
           sudo apt-get install mosquitto
           sudo service mosquitto start
-
       - uses: dtolnay/rust-toolchain@stable
-
-      - run: cargo run --example ${{matrix.example}}
+      - run: sh py/test.sh

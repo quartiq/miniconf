@@ -511,6 +511,12 @@ where
                 info!("Unexpected topic: {topic}");
                 return Changed::Unchanged;
             };
+
+            if !matches!(&state.state(), sm::States::Multipart | sm::States::Single) {
+                Self::respond("Not ready", ResponseCode::Ok, properties, client).ok();
+                return Changed::Unchanged;
+            }
+
             if payload.is_empty() {
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
