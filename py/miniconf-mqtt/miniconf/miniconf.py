@@ -115,15 +115,15 @@ class Miniconf:
     async def _do(self, topic: str, *, response=True, **kwargs):
         await self.subscribed.wait()
 
-        request_id = uuid.uuid1().bytes
-        fut = asyncio.get_event_loop().create_future()
-        assert request_id not in self._inflight
-        self._inflight[request_id] = fut, []
-
         props = Properties(PacketTypes.PUBLISH)
-        if response:
-            props.ResponseTopic = self.response_topic
+        request_id = uuid.uuid1().bytes
         props.CorrelationData = request_id
+        if response:
+            fut = asyncio.get_event_loop().create_future()
+            assert request_id not in self._inflight
+            self._inflight[request_id] = fut, []
+            props.ResponseTopic = self.response_topic
+
         LOGGER.info(f"Publishing {topic}: {kwargs['payload']}, [{props}]")
         await self.client.publish(
             topic,
