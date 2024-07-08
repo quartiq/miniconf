@@ -80,6 +80,7 @@ def main():
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
                     raise MiniconfException(
+                        "Discover"
                         f"No unique Miniconf device (found `{devices}`). "
                         "Please specify a `--prefix`"
                     )
