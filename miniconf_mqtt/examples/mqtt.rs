@@ -1,4 +1,6 @@
+use heapless::String;
 use miniconf::Tree;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -8,8 +10,19 @@ struct Inner {
     frame_rate: u32,
 }
 
+#[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
+enum Gain {
+    #[default]
+    G1,
+    G10,
+    G100,
+}
+
 #[derive(Clone, Default, Tree, Debug)]
 struct Settings {
+    stream: String<32>,
+    #[tree(depth = 1)]
+    afe: [Gain; 2],
     #[tree(depth = 1)]
     inner: Inner,
     #[tree(depth = 1)]
@@ -30,7 +43,7 @@ async fn main() {
     // Construct a settings configuration interface.
     let mut client = miniconf_mqtt::MqttClient::new(
         Stack,
-        "sample/prefix",
+        "dt/sinara/dual-iir/01-02-03-04-05-06",
         StandardClock::default(),
         minimq::ConfigBuilder::<'_, minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
             .keepalive_interval(60),

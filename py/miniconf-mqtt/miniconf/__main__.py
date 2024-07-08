@@ -28,12 +28,12 @@ def main():
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream_target="192.0.2.16:9293"'
+%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream="192.0.2.16:9293"'
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G1"'  # SET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
-%(prog)s -d dt/sinara/dual-iir/+ '/afe?' '?'    # DUMP
-%(prog)s -d dt/sinara/dual-iir/+ '/afe!' '!'    # LIST-GET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe?' '?'    # LIST-GET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe!'        # DUMP
 """,
     )
     parser.add_argument(
@@ -58,11 +58,12 @@ def main():
         help="The MQTT topic prefix of the target or a prefix filter for discovery",
     )
     parser.add_argument(
-        "paths",
+        "commands",
         metavar="CMD",
         nargs="*",
         help="Path to get ('PATH') or path and JSON encoded value to set "
-        "('PATH=VALUE') or path to clear ('PATH='). "
+        "('PATH=VALUE') or path to clear ('PATH=') or path to list (`PATH?`) or "
+        "path to dump (`PATH!`). "
         "Use sufficient shell escaping.",
     )
     args = parser.parse_args()
@@ -81,8 +82,7 @@ def main():
                 if len(devices) != 1:
                     raise MiniconfException(
                         "Discover",
-                        f"No unique Miniconf device (found `{devices}`). "
-                        "Please specify a `--prefix`",
+                        f"No unique Miniconf device (found `{devices}`)."
                     )
                 prefix = devices.pop()
                 logging.info("Found device prefix: %s", prefix)
@@ -91,7 +91,7 @@ def main():
 
             interface = Miniconf(client, prefix)
 
-            for arg in args.paths:
+            for arg in args.commands:
                 if arg.endswith("?"):
                     path = arg.removesuffix("?")
                     assert path.startswith("/") or not path

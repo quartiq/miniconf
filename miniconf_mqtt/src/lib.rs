@@ -430,8 +430,10 @@ where
                 .and_then(|_| topic.push_str(&path))
                 .unwrap();
 
+            let props = [ResponseCode::Ok.into()];
             let mut response = DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
                 .topic(&topic)
+                .properties(&props)
                 .qos(QoS::AtLeastOnce);
 
             if let Some(cd) = &self.pending.correlation_data {
