@@ -107,7 +107,7 @@ class Miniconf:
             )
         del self._inflight[response_id]
 
-    async def _do(self, topic: str, **kwargs):
+    async def _do(self, topic: str, *, response=True, **kwargs):
         await self.subscribed.wait()
 
         request_id = uuid.uuid1().bytes
@@ -116,7 +116,8 @@ class Miniconf:
         self._inflight[request_id] = fut, []
 
         props = Properties(PacketTypes.PUBLISH)
-        props.ResponseTopic = self.response_topic
+        if response:
+            props.ResponseTopic = self.response_topic
         props.CorrelationData = request_id
         LOGGER.info(f"Publishing {topic}: {kwargs['payload']}, [{props}]")
         await self.client.publish(
@@ -124,7 +125,8 @@ class Miniconf:
             properties=props,
             **kwargs,
         )
-        return await fut
+        if response:
+            return await fut
 
     async def set(self, path, value, retain=False):
         """Write the provided data to the specified path.
@@ -142,9 +144,15 @@ class Miniconf:
         assert len(ret) == 1
         return ret[0]
 
-    async def list_paths(self):
+    async def list_paths(self, path=""):
         """Get a list of all the paths available on the device."""
-        return await self._do(topic=f"{self.prefix}/list", payload="")
+        return await self._do(topic=f"{self.prefix}/settings{path}", payload="")
+
+    async def dump(self, path=""):
+        """Get a list of all the paths available on the device."""
+        return await self._do(
+            topic=f"{self.prefix}/settings{path}", payload="", response=False
+        )
 
     async def get(self, path):
         """Get the specific value of a given path.

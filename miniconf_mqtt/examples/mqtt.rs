@@ -106,7 +106,7 @@ async fn main() {
         }
 
         if settings.exit {
-            break;
+            // break;
         }
 
         tokio::time::sleep(Duration::from_millis(10)).await;

@@ -95,7 +95,13 @@ def main():
             interface = Miniconf(client, prefix)
 
             for arg in args.paths:
-                assert (not arg) or arg.startswith("/")
+                assert arg.startswith("/") or arg in ["", "?", "="]
+
+                if arg.endswith("?"):
+                    await interface.dump(arg[:-1])
+                    print(f"Dumped {arg}")
+                    continue
+
                 try:
                     path, value = arg.split("=", 1)
                 except ValueError:
@@ -105,7 +111,6 @@ def main():
                     if not value:
                         await interface.clear(path)
                         print(f"Cleared retained {path}: OK")
-
                     else:
                         await interface.set(path, json.loads(value), args.retain)
                         print(f"Set {path} to {value}: OK")

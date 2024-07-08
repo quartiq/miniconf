@@ -5,20 +5,22 @@
 #![forbid(unsafe_code)]
 //! The Minimq MQTT client for `miniconf``.
 
+use core::fmt::Display;
+
 use heapless::{String, Vec};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use miniconf::{IntoKeys, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
-    types::{SubscriptionOptions, TopicFilter},
+    types::{Properties, SubscriptionOptions, TopicFilter},
     ConfigBuilder, DeferredPublication, ProtocolError, Publication, QoS,
 };
 
 use embedded_io::Write;
 
-// The maximum topic length of any settings path.
+// The maximum topic length of any topic (prefix + "/settings" + miniconf path).
 const MAX_TOPIC_LENGTH: usize = 128;
 
 // The maximum amount of correlation data that will be cached for listing. This is set to function
@@ -33,9 +35,14 @@ const SEPARATOR: char = '/';
 
 type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>>;
 
+/// Miniconf MQTT joint error type
+#[derive(Debug, PartialEq)]
 pub enum Error<E> {
+    /// Miniconf
     Miniconf(miniconf::Error<()>),
+    /// State machine
     State(sm::Error),
+    /// Minimq
     Minimq(minimq::Error<E>),
 }
 
@@ -79,11 +86,9 @@ mod sm {
             Alive + Alive = Subscribe,
             Subscribe + Subscribe / start_timeout = Wait,
             Wait + Tick [timed_out] = Init,
-            Init + Init = Multipart,
-
+            Init + Multipart = Multipart,
             Multipart + Complete = Single,
             Single + Multipart = Multipart,
-
             _ + Reset = Connect,
         }
     }
@@ -118,32 +123,10 @@ mod sm {
     }
 }
 
-enum Command<'a> {
-    List { path: &'a str },
-    Get { path: &'a str },
-    Set { path: &'a str, value: &'a [u8] },
-}
-
-impl<'a> Command<'a> {
-    fn try_from_message(topic: &'a str, value: &'a [u8]) -> Result<Self, ()> {
-        if topic == "/list" {
-            let path = core::str::from_utf8(value).or(Err(()))?;
-            Ok(Command::List { path })
-        } else {
-            let path = topic.strip_prefix("/settings").ok_or(())?;
-            if value.is_empty() {
-                Ok(Command::Get { path })
-            } else {
-                Ok(Command::Set { path, value })
-            }
-        }
-    }
-}
-
 /// Cache correlation data and topic for multi-part responses.
 struct Multipart<M: TreeKey<Y>, const Y: usize> {
     iter: Iter<M, Y>,
-    topic: Option<String<MAX_TOPIC_LENGTH>>,
+    response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
@@ -151,7 +134,7 @@ impl<M: TreeKey<Y>, const Y: usize> Default for Multipart<M, Y> {
     fn default() -> Self {
         Self {
             iter: M::nodes(),
-            topic: None,
+            response_topic: None,
             correlation_data: None,
         }
     }
@@ -186,7 +169,7 @@ impl<M: TreeKey<Y>, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for 
             .or(Err("Correlation data too long"))?;
         Ok(Self {
             iter: M::nodes(),
-            topic,
+            response_topic: topic,
             correlation_data,
         })
     }
@@ -335,29 +318,23 @@ where
                 }
             }
             sm::States::Wait => {
-                self.state.process_event(sm::Events::Tick).unwrap();
+                self.state.process_event(sm::Events::Tick).ok();
             }
             sm::States::Init => {
-                self.pending = Multipart::default();
-                self.state.process_event(sm::Events::Init).unwrap();
+                self.publish("").unwrap();
             }
-            sm::States::Multipart => self.multipart(settings),
+            sm::States::Multipart => {
+                if self.pending.response_topic.is_some() {
+                    self.iter_list();
+                } else {
+                    self.iter_dump(settings);
+                }
+            }
             sm::States::Single => { // handled in poll()
             }
         }
         // All states must handle MQTT traffic.
         self.poll(settings)
-    }
-
-    /// Force republication of the current settings.
-    ///
-    /// # Note
-    /// This is intended to be used if modification of a setting had side effects that affected
-    /// another setting.
-    pub fn republish(&mut self, path: &str) -> Result<(), Error<Stack::Error>> {
-        self.pending = Multipart::default().root(&Path::<_, SEPARATOR>::from(path))?;
-        self.state.process_event(sm::Events::Multipart)?;
-        Ok(())
     }
 
     fn alive(&mut self) -> bool {
@@ -366,6 +343,7 @@ where
         alive.push_str("/alive").unwrap();
         let msg = Publication::new(b"1")
             .topic(&alive)
+            .qos(QoS::AtLeastOnce)
             .retain()
             .finish()
             .unwrap();
@@ -391,236 +369,234 @@ where
         self.mqtt.client().subscribe(&topics, &[]).is_ok()
     }
 
-    fn handle_listing(&mut self) {
-        let Some(cache) = &mut self.pending else {
-            return;
-        };
+    /// Force republication of the current settings.
+    ///
+    /// # Note
+    /// This is intended to be used if modification of a setting had side effects that affected
+    /// another setting.
+    pub fn publish(&mut self, path: &str) -> Result<(), Error<Stack::Error>> {
+        self.pending = Multipart::default().root(&Path::<_, SEPARATOR>::from(path))?;
+        self.state.process_event(sm::Events::Multipart)?;
+        Ok(())
+    }
 
+    fn iter_list(&mut self) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            // Note(unwrap): Publishing should not fail because `can_publish()` was checked before
-            // attempting this publish.
-            let (code, path) = match self.iter.next() {
-                Some(path) => (ResponseCode::Continue, path.unwrap().0.into_inner()),
+            let (code, path) = match self.pending.iter.next() {
+                Some(path) => {
+                    let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
+                    assert!(node.is_leaf());
+                    (ResponseCode::Continue, path.into_inner())
+                }
                 None => (ResponseCode::Ok, String::new()),
             };
 
             let props = [code.into()];
-            let mut outgoing = Publication::new(path.as_bytes())
-                .topic(&cache.topic)
+            let mut response = Publication::new(path.as_bytes())
+                .topic(self.pending.response_topic.as_ref().unwrap()) // Note(unwrap) checked in update()
                 .properties(&props)
                 .qos(QoS::AtLeastOnce);
 
-            if let Some(cd) = &cache.correlation_data {
-                outgoing = outgoing.correlate(cd);
+            if let Some(cd) = &self.pending.correlation_data {
+                response = response.correlate(cd);
             }
 
-            let publication = match outgoing.finish() {
-                Ok(response) => response,
-                Err(e) => {
-                    // Something went wrong. Abort the listing.
-                    error!("Listing failed to build response: {e:?}");
-                    self.pending.take();
-                    return;
-                }
-            };
+            self.mqtt
+                .client()
+                .publish(response.finish().unwrap()) // Note(unwrap): has topic
+                .unwrap(); // Note(unwrap) checked can_publish()
 
-            // Note(unwrap) We already checked that we can publish earlier.
-            self.mqtt.client().publish(publication).unwrap();
-
-            // If we're done with listing, bail out of the loop.
             if code != ResponseCode::Continue {
-                self.pending.take();
+                self.state.process_event(sm::Events::Complete).unwrap();
                 break;
             }
         }
     }
 
-    fn multipart(&mut self, settings: &Settings) {
-        if self.pending.is_some() {
-            return;
-        }
-
-        while self.mqtt.client().can_publish(QoS::AtMostOnce) {
-            let Some(path) = self.iter.next() else {
-                // If we got here, we completed iterating over the topics and published them all.
+    fn iter_dump(&mut self, settings: &Settings) {
+        while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
+            let Some(path) = self.pending.iter.next() else {
                 self.state.process_event(sm::Events::Complete).unwrap();
                 break;
             };
 
-            let (path, _node) = path.unwrap();
+            let (path, node) = path.unwrap();
+            assert!(node.is_leaf());
 
-            let mut prefixed_topic = self.prefix.clone();
-            prefixed_topic
+            let mut topic = self.prefix.clone();
+            topic
                 .push_str("/settings")
-                .and_then(|_| prefixed_topic.push_str(&path))
+                .and_then(|_| topic.push_str(&path))
                 .unwrap();
 
-            // If the topic is not present, we'll fail to serialize the setting into the
-            // payload and will never publish. The iterator has already incremented, so this is
-            // acceptable.
-            let response = DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
-                .topic(&prefixed_topic)
-                .finish()
-                .unwrap();
+            let mut response = DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
+                .topic(&topic)
+                .qos(QoS::AtLeastOnce);
 
-            // Note(unwrap): This should not fail because `can_publish()` was checked before
-            // attempting this publish.
-            match self.mqtt.client().publish(response) {
-                Err(minimq::PubError::Serialization(Error::Traversal(Traversal::Absent(_)))) => {}
+            if let Some(cd) = &self.pending.correlation_data {
+                response = response.correlate(cd);
+            }
 
-                // If the value is too large to serialize, print an error to the topic instead
+            // Note(unwrap): has topic
+            match self.mqtt.client().publish(response.finish().unwrap()) {
+                Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
+                    Traversal::Absent(_),
+                ))) => {}
+
                 Err(minimq::PubError::Error(minimq::Error::Minimq(
                     minimq::MinimqError::Protocol(minimq::ProtocolError::Serialization(
                         minimq::SerError::InsufficientMemory,
                     )),
                 ))) => {
+                    let props = [ResponseCode::Error.into()];
+                    let mut response = Publication::new(b"<error: serialized value too large>")
+                        .topic(&topic)
+                        .properties(&props)
+                        .qos(QoS::AtLeastOnce);
+
+                    if let Some(cd) = &self.pending.correlation_data {
+                        response = response.correlate(cd);
+                    }
+
                     self.mqtt
                         .client()
-                        .publish(
-                            Publication::new(b"<error: serialization too large>")
-                                .topic(&prefixed_topic)
-                                .properties(&[ResponseCode::Error.into()])
-                                .finish()
-                                .unwrap(),
-                        )
-                        .unwrap();
+                        .publish(response.finish().unwrap()) // Note(unwrap): has topic
+                        .map_err(|err| info!("Dump reply failed: {err:?}"))
+                        .ok();
                 }
-                other => other.unwrap(),
+                other => other.unwrap(), // Note(unwrap): checked can_publish
             }
         }
     }
 
+    fn response<'a>(
+        response: &str,
+        code: ResponseCode,
+        request: &Properties<'a>,
+        client: &mut minimq::mqtt_client::MqttClient<'buf, Stack, Clock, Broker>,
+    ) -> Result<(), minimq::PubError<Stack::Error, ()>> {
+        client.publish(
+            minimq::Publication::new(response.as_bytes())
+                .reply(request)
+                .properties(&[code.into()])
+                .qos(QoS::AtLeastOnce)
+                .finish()
+                .map_err(minimq::Error::from)?,
+        )
+    }
+
+    fn deferred_response<'a, T: Display>(
+        response: &T,
+        code: ResponseCode,
+        request: &Properties<'a>,
+        client: &mut minimq::mqtt_client::MqttClient<'buf, Stack, Clock, Broker>,
+    ) -> Result<
+        (),
+        minimq::PubError<Stack::Error, embedded_io::WriteFmtError<embedded_io::SliceWriteError>>,
+    > {
+        client.publish(
+            DeferredPublication::new(|mut buf| {
+                let start = buf.len();
+                write!(buf, "<error: {}>", response).and_then(|_| Ok(start - buf.len()))
+            })
+            .reply(request)
+            .properties(&[code.into()])
+            .qos(QoS::AtLeastOnce)
+            .finish()
+            .map_err(minimq::Error::from)?,
+        )
+    }
+
     fn poll(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
-        let mut updated = false;
-        let poll = self.mqtt.poll(|client, topic, payload, properties| {
-            let Some(topic) = topic.strip_prefix(self.prefix.as_str()) else {
-                info!("Unexpected topic prefix: {topic}");
-                return;
+        let Self {
+            mqtt,
+            state,
+            prefix,
+            pending,
+        } = self;
+        mqtt.poll(|client, topic, payload, properties| -> bool {
+            let Some(path) = topic
+                .strip_prefix(prefix.as_str())
+                .and_then(|p| p.strip_prefix("/settings"))
+            else {
+                info!("Unexpected topic: {topic}");
+                return false;
             };
-
-            let Ok(command) = Command::try_from_message(topic, payload) else {
-                info!("Unknown miniconf command: {topic}");
-                return;
-            };
-
-            match command {
-                Command::List { path } => {
-                    if !properties
-                        .into_iter()
-                        .any(|prop| matches!(prop, Ok(minimq::Property::ResponseTopic(_))))
-                    {
-                        info!("Discarding `List` without `ResponseTopic`");
-                        return;
-                    }
-
-                    let response = if self.pending.is_some() {
-                        "`List` already in progress"
-                    } else {
-                        match Multipart::try_from(properties) {
-                            Err(msg) => msg,
-                            Ok(cache) => {
-                                self.pending.replace(cache);
-                                self.iter =
-                                    Settings::nodes().root(&Path::<_, SEPARATOR>::from(path)).unwrap();
-
-                                // There is no positive response sent during list commands,
-                                // instead, the response is sent as a property of the listed
-                                // elements. As such, we are now finished processing a list
-                                // command.
-                                return;
+            if payload.is_empty() {
+                // Try Get assuming Leaf node
+                if let Err(err) = client.publish(
+                    DeferredPublication::new(|buf| settings.get_json(path, buf))
+                        .topic(topic)
+                        .reply(properties)
+                        .properties(&[ResponseCode::Ok.into()])
+                        .qos(QoS::AtLeastOnce)
+                        .finish()
+                        .unwrap(), // Note(unwrap): has topic
+                ) {
+                    match err {
+                        minimq::PubError::Serialization(miniconf::Error::Traversal(
+                            Traversal::TooShort(_depth),
+                        )) => {
+                            // Internal node: Dump or List
+                            if let Some(response) = if state.state() == &sm::States::Multipart {
+                                Some("<error: pending multipart response>")
+                            } else {
+                                match Multipart::<Settings, Y>::try_from(properties).and_then(|m| {
+                                    m.root(&Path::<_, '/'>::from(path)).map_err(|err| {
+                                        debug!("List/Pub root: {err}");
+                                        "<error: root not found>"
+                                    })
+                                }) {
+                                    Err(msg) => Some(msg),
+                                    Ok(m) => {
+                                        *pending = m;
+                                        state.process_event(sm::Events::Multipart).unwrap();
+                                        None
+                                    }
+                                }
+                            } {
+                                Self::response(response, ResponseCode::Error, properties, client)
+                                    .map_err(|err| info!("Dump/List error failure: {err:?}"))
+                                    .ok();
                             }
                         }
-                    };
-
-                    let props = [ResponseCode::Error.into()];
-                    if let Ok(response) = minimq::Publication::new(response.as_bytes())
-                        .reply(properties)
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                    {
-                        client.publish(response).ok();
-                    }
-                }
-
-                Command::Get { path } => {
-                    let props = [ResponseCode::Ok.into()];
-                    let Ok(message) = DeferredPublication::new(|buf| settings.get_json(path, buf))
-                        .properties(&props)
-                        .reply(properties)
-                        // Override the response topic with the path.
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                    else {
-                        // If we can't create the publication, it's because there's no way to reply
-                        // to the message. Since we don't know where to send things, abort now and
-                        // complete handling of the `Get` request.
-                        return;
-                    };
-
-                    match client.publish(message) {
-                        Ok(()) => {}
-                        Err(err) => {}
-                        Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
-                            Traversal::TooShort(depth),
-                        ))) => {
-                            // Internal node
-                            // TODO: iter update
+                        minimq::PubError::Serialization(err) => {
+                            // Get serialization error
+                            Self::deferred_response(&err, ResponseCode::Error, properties, client)
+                                .map_err(|err| info!("Serialization error failure: {err:?}"))
+                                .ok();
                         }
-                        Err(minimq::PubError::Serialization(err)) => {
-                            if let Ok(message) = DeferredPublication::new(|mut buf| {
-                                let start = buf.len();
-                                write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
-                            })
-                            .properties(&[ResponseCode::Error.into()])
-                            .reply(properties)
-                            .qos(QoS::AtLeastOnce)
-                            .finish()
-                            {
-                                // Try to send the error as a best-effort. If we don't have enough
-                                // buffer space to encode the error, there's nothing more we can do.
-                                client.publish(message).ok();
-                            };
+                        minimq::PubError::Error(err) => {
+                            error!("Get error failure: {err:?}");
                         }
                     }
                 }
-
-                Command::Set { path, value } => match settings.set_json(path, value) {
-                    Ok(_depth) => {
-                        updated = true;
-                        if let Ok(response) = Publication::new("OK".as_bytes())
-                            .properties(&[ResponseCode::Ok.into()])
-                            .reply(properties)
-                            .qos(QoS::AtLeastOnce)
-                            .finish()
-                        {
-                            client.publish(response).ok();
-                        }
-                    }
-                    Err(err) => {
-                        if let Ok(response) = DeferredPublication::new(|mut buf| {
-                            let start = buf.len();
-                            write!(buf, "{}", err).and_then(|_| Ok(start - buf.len()))
-                        })
-                        .properties(&[ResponseCode::Error.into()])
-                        .reply(properties)
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        {
-                            client.publish(response).ok();
-                        }
-                    }
-                },
+                false
+            } else {
+                // Set
+                settings
+                    .set_json(path, payload)
+                    .map(|_depth| {
+                        Self::response("OK", ResponseCode::Ok, properties, client)
+                            .map_err(|err| info!("Set OK response: {err:?}"))
+                            .ok()
+                    })
+                    .map_err(|err| {
+                        Self::deferred_response(&err, ResponseCode::Error, properties, client)
+                            .map_err(|err| info!("Set error response: {err:?}"))
+                            .ok()
+                    })
+                    .is_ok()
             }
-        });
-        match poll {
-            Ok(_) => Ok(updated),
-            Err(minimq::Error::SessionReset) => {
+        })
+        .map(Option::unwrap_or_default)
+        .or_else(|err| match err {
+            minimq::Error::SessionReset => {
                 warn!("Session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
                 Ok(false)
             }
-            Err(other) => Err(other.into()),
-        }
+            other => Err(other.into()),
+        })
     }
 }
