@@ -15,6 +15,8 @@ struct Settings {
     #[tree(depth = 1)]
     amplitude: [f32; 2],
     array: [i32; 4],
+    #[tree(depth = 1)]
+    opt: Option<i32>,
     exit: bool,
 }
 
@@ -42,4 +44,5 @@ async fn main() {
             println!("Settings updated: {:?}", settings);
         }
     }
+    println!("Exiting on request");
 }

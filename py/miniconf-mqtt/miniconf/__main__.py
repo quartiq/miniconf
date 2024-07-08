@@ -95,8 +95,11 @@ def main():
                     path = arg.removesuffix("?")
                     assert path.startswith("/") or not path
                     for p in await interface.list_paths(path):
-                        value = await interface.get(p)
-                        print(f"List `{p}` = `{value}`")
+                        try:
+                            value = await interface.get(p)
+                            print(f"List `{p}` = `{value}`")
+                        except MiniconfException as err:
+                            print(f"List `{path}`: {repr(err)}")
                 elif arg.endswith("!"):
                     path = arg.removesuffix("!")
                     assert path.startswith("/") or not path

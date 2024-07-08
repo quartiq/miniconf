@@ -8,7 +8,7 @@ python -m venv .venv
 python -m pip install -e py/miniconf-mqtt
 
 cargo run -p miniconf_mqtt --example mqtt &
-sleep 3
+sleep 3 # > REPUBLISH_TIMEOUT_SECONDS
 
 python -m miniconf -b localhost -d 'sample/+' '!' # DUMP
 sleep 1  # dump is asynchronous
