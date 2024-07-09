@@ -55,7 +55,7 @@ async fn main() {
     // Construct a settings configuration interface.
     let mut client = miniconf_mqtt::MqttClient::new(
         Stack,
-        "dt/sinara/dual-iir/01-02-03-04-05-06",
+        "test/id",
         StandardClock::default(),
         minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
             .keepalive_interval(60),
