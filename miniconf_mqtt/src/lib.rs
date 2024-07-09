@@ -529,7 +529,7 @@ where
                                     |m| {
                                         *pending = m.root(&path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
-                                        // Responses comes through iter_list/iter_dump
+                                        // Responses come through iter_list/iter_dump
                                     },
                                 );
                         }
