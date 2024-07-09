@@ -32,9 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_cli`: a menu/command line interface
 * `Path`, `JsonPath`/`JsonPathIter`, `Indices`, `KeysIter` wrapper types for more ergonomic/succinct
   `Transcode`/`IntoKeys`/`Keys` handling
-* [miniconf_mqtt] support on-demand and partial tree dump by posting
-  the empty payload to an internal node without a response topic
-* [py/miniconf-mqtt] support partial list (`PATH?`) and partial on-demand dum (`PATH!`)
+* [miniconf_mqtt] support on-demand and partial tree dump/list by posting
+  the empty payload to an internal node without/with a response topic
+* [py/miniconf-mqtt] support partial list (`PATH?`) and partial on-demand dump (`PATH!`)
 
 ### Removed
 
