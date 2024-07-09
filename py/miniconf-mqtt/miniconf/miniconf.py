@@ -50,21 +50,6 @@ class Miniconf:
         self.listener = asyncio.create_task(self._listen())
         self.subscribed = asyncio.Event()
 
-    @staticmethod
-    def client(broker: str):
-        """Create a aiomqtt client.
-
-        Use this like:
-        ```
-        with Miniconf.client("mqtt") as client:
-            device = Miniconf(client)
-            # ... your code
-        ```
-        """
-        return Client(
-            broker, protocol=MQTTv5, logger=logging.getLogger("aiomqtt-client")
-        )
-
     async def _listen(self):
         await self.client.subscribe(self.response_topic)
         LOGGER.info(f"Subscribed to {self.response_topic}")

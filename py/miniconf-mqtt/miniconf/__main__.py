@@ -8,7 +8,7 @@ import json
 import sys
 import os
 
-from .miniconf import Miniconf, MiniconfException
+from .miniconf import Miniconf, MiniconfException, Client, MQTTv5
 from .discover import discover
 
 if sys.platform.lower() == "win32" or os.name.lower() == "nt":
@@ -69,7 +69,9 @@ def main():
     )
 
     async def run():
-        async with Miniconf.client(args.broker) as client:
+        async with Client(
+            args.broker, protocol=MQTTv5, logger=logging.getLogger("aiomqtt-client")
+        ) as client:
             if args.discover:
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
