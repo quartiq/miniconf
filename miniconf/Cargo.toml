@@ -8,7 +8,7 @@ license = "MIT"
 description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["config", "serde", "no_std", "reflection", "graph"]
-categories = ["no_std", "config", "data-structures", "parsing"]
+categories = ["embedded", "config", "data-structures", "parsing"]
 resolver = "2"
 
 [dependencies]
