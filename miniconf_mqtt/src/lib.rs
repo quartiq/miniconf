@@ -216,7 +216,6 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// # Example
 /// ```
 /// use miniconf::Tree;
-/// use miniconf_mqtt::MqttClient;
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
@@ -225,11 +224,11 @@ impl From<ResponseCode> for minimq::Property<'static> {
 ///
 /// let mut buffer = [0u8; 1024];
 /// let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
-/// let mut client: MqttClient<'_, _, _, _, minimq::broker::IpBroker, 1> = MqttClient::new(
+/// let mut client = miniconf_mqtt::MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),
-///     minimq::ConfigBuilder::new(localhost.into(), &mut buffer),
+///     minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer),
 /// )
 /// .unwrap();
 /// let mut settings = Settings::default();
@@ -324,7 +323,7 @@ where
             }
             sm::States::Init => {
                 info!("Republishing");
-                self.publish("").ok();
+                self.publish(None).ok();
             }
             sm::States::Multipart => {
                 if self.pending.response_topic.is_some() {
@@ -350,7 +349,6 @@ where
             .retain()
             .finish()
             .unwrap(); // Note(unwrap): has topic
-
         self.mqtt.client().publish(msg).is_ok()
     }
 
@@ -367,9 +365,13 @@ where
     /// # Note
     /// This is intended to be used if modification of a setting had side effects that affected
     /// another setting.
-    pub fn publish(&mut self, path: &str) -> Result<(), Error<Stack::Error>> {
-        self.pending = Multipart::default().root(&Path::<_, SEPARATOR>::from(path))?;
+    pub fn publish(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
+        let mut m = Multipart::default();
+        if let Some(path) = path {
+            m = m.root(&Path::<_, SEPARATOR>::from(path))?;
+        }
         self.state.process_event(sm::Events::Multipart)?;
+        self.pending = m;
         Ok(())
     }
 
@@ -529,7 +531,7 @@ where
                             (state.state() == &sm::States::Single)
                                 .then_some(())
                                 .ok_or("Pending multipart response")
-                                .and_then(|()| Multipart::<Settings, Y>::try_from(properties))
+                                .and_then(|()| Multipart::try_from(properties))
                                 .map_or_else(
                                     |err| {
                                         Self::respond(err, ResponseCode::Error, properties, client)
@@ -538,7 +540,7 @@ where
                                     |m| {
                                         *pending = m.root(&path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
-                                        // Response comes through iter_list/iter_dump
+                                        // Responses comes through iter_list/iter_dump
                                     },
                                 );
                         }
