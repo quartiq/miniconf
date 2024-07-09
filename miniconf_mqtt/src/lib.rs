@@ -39,7 +39,7 @@ type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, SEP
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
     /// Miniconf
-    Miniconf(miniconf::Error<()>),
+    Miniconf(miniconf::Traversal),
     /// State machine
     State(sm::Error),
     /// Minimq
@@ -52,20 +52,9 @@ impl<E> From<sm::Error> for Error<E> {
     }
 }
 
-impl<E, F> From<miniconf::Error<F>> for Error<E> {
-    fn from(value: miniconf::Error<F>) -> Self {
-        Self::Miniconf(match value {
-            miniconf::Error::Finalization(_) => miniconf::Error::Finalization(()),
-            miniconf::Error::Inner(depth, _) => miniconf::Error::Inner(depth, ()),
-            miniconf::Error::Traversal(t) => miniconf::Error::Traversal(t),
-            _ => unimplemented!(),
-        })
-    }
-}
-
 impl<E> From<miniconf::Traversal> for Error<E> {
     fn from(value: miniconf::Traversal) -> Self {
-        Self::Miniconf(value.into())
+        Self::Miniconf(value)
     }
 }
 
