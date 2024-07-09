@@ -8,13 +8,8 @@ import json
 import sys
 import os
 
-from aiomqtt import Client
-import paho.mqtt
-
 from .miniconf import Miniconf, MiniconfException
 from .discover import discover
-
-MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 if sys.platform.lower() == "win32" or os.name.lower() == "nt":
     from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
@@ -74,15 +69,12 @@ def main():
     )
 
     async def run():
-        async with Client(
-            args.broker, protocol=MQTTv5, logger=logging.getLogger(__name__)
-        ) as client:
+        async with Miniconf.client(args.broker) as client:
             if args.discover:
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
                     raise MiniconfException(
-                        "Discover",
-                        f"No unique Miniconf device (found `{devices}`)."
+                        "Discover", f"No unique Miniconf device (found `{devices}`)."
                     )
                 prefix = devices.pop()
                 logging.info("Found device prefix: %s", prefix)
@@ -95,7 +87,7 @@ def main():
                 if arg.endswith("?"):
                     path = arg.removesuffix("?")
                     assert path.startswith("/") or not path
-                    for p in await interface.list_paths(path):
+                    for p in await interface.list(path):
                         try:
                             value = await interface.get(p)
                             print(f"List `{p}` = `{value}`")
