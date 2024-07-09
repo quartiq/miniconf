@@ -23,6 +23,10 @@ DUT_PID=$!
 REPUB=$(timeout --foreground 3 mosquitto_sub -t "$PREFIX/+/settings/#" -h localhost | wc -l)
 test $REPUB != 9 && exit 1
 
+# test alive-ness
+ALIVE=$(timeout --foreground 1 mosquitto_sub -t "$PREFIX/+/alive" -h localhost -F '%p' || true)
+test $ALIVE != 1 && exit 1
+
 # no discover SET
 python -m miniconf -b localhost $PREFIX/id '/stream="192.0.2.16:9293"'
 # discover miniconf command
