@@ -161,7 +161,7 @@ class Miniconf:
         """Dump all the paths at or below a given root into the settings namespace.
 
         Note that the target Miniconf client may be unable to
-        responde to messages when a multipart operation (list or dump) is in progress.
+        respond to messages when a multipart operation (list or dump) is in progress.
         This method does not wait for the completion of the dump.
 
         Args:
