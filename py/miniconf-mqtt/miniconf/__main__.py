@@ -8,13 +8,8 @@ import json
 import sys
 import os
 
-from aiomqtt import Client
-import paho.mqtt
-
-from .miniconf import Miniconf, MiniconfException
+from .miniconf import Miniconf, MiniconfException, Client, MQTTv5
 from .discover import discover
-
-MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 if sys.platform.lower() == "win32" or os.name.lower() == "nt":
     from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
@@ -28,12 +23,12 @@ def main():
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream="192.0.2.16:9293"'
-%(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
-%(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G10"' # SET
-%(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
-%(prog)s -d dt/sinara/dual-iir/+ '/afe?' '?'    # LIST-GET
-%(prog)s -d dt/sinara/dual-iir/+ '/afe!'        # DUMP
+%(prog)s test/id '/stream="192.0.2.16:9293"'
+%(prog)s -d test/+ '/afe/0'       # GET
+%(prog)s -d test/+ '/afe/0="G10"' # SET
+%(prog)s -d test/+ '/afe/0='      # CLEAR
+%(prog)s -d test/+ '/afe?' '?'    # LIST-GET
+%(prog)s -d test/+ '/afe!'        # DUMP
 """,
     )
     parser.add_argument(
@@ -75,14 +70,13 @@ def main():
 
     async def run():
         async with Client(
-            args.broker, protocol=MQTTv5, logger=logging.getLogger(__name__)
+            args.broker, protocol=MQTTv5, logger=logging.getLogger("aiomqtt-client")
         ) as client:
             if args.discover:
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
                     raise MiniconfException(
-                        "Discover",
-                        f"No unique Miniconf device (found `{devices}`)."
+                        "Discover", f"No unique Miniconf device (found `{devices}`)."
                     )
                 prefix = devices.pop()
                 logging.info("Found device prefix: %s", prefix)
@@ -95,7 +89,7 @@ def main():
                 if arg.endswith("?"):
                     path = arg.removesuffix("?")
                     assert path.startswith("/") or not path
-                    for p in await interface.list_paths(path):
+                    for p in await interface.list(path):
                         try:
                             value = await interface.get(p)
                             print(f"List `{p}` = `{value}`")

@@ -112,7 +112,7 @@ class Miniconf:
             fut.set_exception(MiniconfException(code, response))
         del self._inflight[response_id]
 
-    async def _do(self, topic: str, *, response=True, **kwargs):
+    async def _do(self, topic: str, *, response: bool = True, **kwargs):
         await self.subscribed.wait()
 
         props = Properties(PacketTypes.PUBLISH)
@@ -133,7 +133,7 @@ class Miniconf:
         if response:
             return await fut
 
-    async def set(self, path, value, retain=False):
+    async def set(self, path: str, value, retain=False):
         """Write the provided data to the specified path.
 
         Args:
@@ -149,7 +149,7 @@ class Miniconf:
         assert len(ret) == 1, ret
         return ret[0]
 
-    async def list_paths(self, root=""):
+    async def list(self, root: str = ""):
         """Get a list of all the paths below a given root.
 
         Args:
@@ -157,7 +157,7 @@ class Miniconf:
         """
         return await self._do(topic=f"{self.prefix}/settings{root}", payload="")
 
-    async def dump(self, root=""):
+    async def dump(self, root: str = ""):
         """Dump all the paths at or below a given root into the settings namespace.
 
         Note that the target Miniconf client may be unable to
@@ -171,7 +171,7 @@ class Miniconf:
             topic=f"{self.prefix}/settings{root}", payload="", response=False
         )
 
-    async def get(self, path):
+    async def get(self, path: str):
         """Get the specific value of a given path.
 
         Args:
@@ -181,7 +181,7 @@ class Miniconf:
         assert len(ret) == 1, ret
         return ret[0]
 
-    async def clear(self, path):
+    async def clear(self, path: str):
         """Clear retained value from a path.
 
         Args:

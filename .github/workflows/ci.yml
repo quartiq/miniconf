@@ -76,7 +76,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Start Broker
         run: |
-          sudo apt-get install mosquitto
+          sudo apt-get install mosquitto mosquitto-clients
           sudo service mosquitto start
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -105,7 +105,7 @@ jobs:
           RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
         working-directory: miniconf/tests/embedded
 
-  examples:
+  test-mqtt:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -115,7 +115,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Start Broker
         run: |
-          sudo apt-get install mosquitto
+          sudo apt-get install mosquitto mosquitto-clients
           sudo service mosquitto start
       - uses: dtolnay/rust-toolchain@stable
       - run: sh py/test.sh

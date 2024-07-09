@@ -8,9 +8,6 @@ import logging
 from typing import List
 
 from aiomqtt import Client
-import paho.mqtt
-
-MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 
 async def discover(
