@@ -45,7 +45,7 @@ async fn main() {
         Stack,
         "dt/sinara/dual-iir/01-02-03-04-05-06",
         StandardClock::default(),
-        minimq::ConfigBuilder::<'_, minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
+        minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
             .keepalive_interval(60),
     )
     .unwrap();
