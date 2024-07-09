@@ -1,19 +1,19 @@
 [package]
 name = "miniconf"
 # Sync all crate versions and the py client
-version = "0.11.0"
+version = "0.12.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
 description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["config", "serde", "no_std", "reflection", "graph"]
-categories = ["no_std", "config", "data-structures", "parsing"]
+categories = ["embedded", "config", "data-structures", "parsing"]
 resolver = "2"
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
-miniconf_derive = { path = "../miniconf_derive", version = "0.11", optional = true }
+miniconf_derive = { path = "../miniconf_derive", version = "0.12", optional = true }
 itoa = "1.0.4"
 serde-json-core = { version = "0.5.1", optional = true }
 postcard = { version = "1.0.8", optional = true }
