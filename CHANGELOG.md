@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Keys::is_empty()` -> `Keys::finalize()`
 * `traverse_by_key` ensures `Keys::finalize()`
 * `NodeIter::count()` -> `NodeIter::exact_size()` to disambiguate from `Iterator::count()`
+* [MQTT] path listing are done by publishing an empty payload to an internal node path
+  with a response topic (not to the `/list` topic anymore)
+* [MQTT, Python] The `Miniconf::create` method is no longer used. Instead, an `aiomqtt::Client`
+  must be passed to Miniconf
+* [MQTT, Python] `--list` option removed in favor of `PATH?`
 
 ### Added
 
@@ -27,15 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_cli`: a menu/command line interface
 * `Path`, `JsonPath`/`JsonPathIter`, `Indices`, `KeysIter` wrapper types for more ergonomic/succinct
   `Transcode`/`IntoKeys`/`Keys` handling
+* [MQTT] support on-demand and partial dump (previously called repubish and executed only once) by posting
+  the empty payload to an internal node without a response topic: `PATH!`
+* [MQTT] support partial listing: `PATH?`
 
 ### Removed
 
 * `digits()` gone in favor of using `usize::checked_ilog10()`
 * `rust_version` and `MSRV`: these crates aim to support the latest stable version of rust
-
-### Changed
-* [breaking-python] The `Miniconf::create` method is no longer used. Instead, an `aiomqtt::Client`
-must be passed to Miniconf
 
 ## [0.11.0](https://github.com/quartiq/miniconf/compare/v0.10.1...v0.11.0) - 2024-04-30
 

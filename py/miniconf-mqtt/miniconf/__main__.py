@@ -28,10 +28,12 @@ def main():
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples:
-%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream_target="192.0.2.16:9293"'
+%(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream="192.0.2.16:9293"'
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G1"'  # SET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
+%(prog)s -d dt/sinara/dual-iir/+ '/afe?' '?'    # LIST-GET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe!'        # DUMP
 """,
     )
     parser.add_argument(
@@ -51,23 +53,18 @@ def main():
         "--discover", "-d", action="store_true", help="Detect and list device prefixes"
     )
     parser.add_argument(
-        "--list",
-        "-l",
-        action="store_true",
-        help="List all active settings after modification",
-    )
-    parser.add_argument(
         "prefix",
         type=str,
         help="The MQTT topic prefix of the target or a prefix filter for discovery",
     )
     parser.add_argument(
-        "paths",
+        "commands",
         metavar="CMD",
         nargs="*",
         help="Path to get ('PATH') or path and JSON encoded value to set "
-            "('PATH=VALUE') or path to clear ('PATH='). "
-            "Use sufficient shell escaping.",
+        "('PATH=VALUE') or path to clear ('PATH=') or path to list (`PATH?`) or "
+        "path to dump (`PATH!`). "
+        "Use sufficient shell escaping.",
     )
     args = parser.parse_args()
 
@@ -84,8 +81,8 @@ def main():
                 devices = await discover(client, args.prefix)
                 if len(devices) != 1:
                     raise MiniconfException(
-                        f"No unique Miniconf device (found `{devices}`). "
-                        "Please specify a `--prefix`"
+                        "Discover",
+                        f"No unique Miniconf device (found `{devices}`)."
                     )
                 prefix = devices.pop()
                 logging.info("Found device prefix: %s", prefix)
@@ -94,26 +91,35 @@ def main():
 
             interface = Miniconf(client, prefix)
 
-            for arg in args.paths:
-                assert (not arg) or arg.startswith("/")
-                try:
+            for arg in args.commands:
+                if arg.endswith("?"):
+                    path = arg.removesuffix("?")
+                    assert path.startswith("/") or not path
+                    for p in await interface.list_paths(path):
+                        try:
+                            value = await interface.get(p)
+                            print(f"List `{p}` = `{value}`")
+                        except MiniconfException as err:
+                            print(f"List `{p}`: {repr(err)}")
+                elif arg.endswith("!"):
+                    path = arg.removesuffix("!")
+                    assert path.startswith("/") or not path
+                    await interface.dump(path)
+                    print(f"Dumped `{path}` into namespace")
+                elif "=" in arg:
                     path, value = arg.split("=", 1)
-                except ValueError:
-                    value = await interface.get(arg)
-                    print(f"{arg} = {value}")
-                else:
+                    assert path.startswith("/") or not path
                     if not value:
                         await interface.clear(path)
-                        print(f"Cleared retained {path}: OK")
-
+                        print(f"Cleared retained `{path}`")
                     else:
                         await interface.set(path, json.loads(value), args.retain)
-                        print(f"Set {path} to {value}: OK")
-
-            if args.list:
-                for path in await interface.list_paths():
+                        print(f"Set `{path}` = `{value}`")
+                else:
+                    path = arg
+                    assert path.startswith("/") or not path
                     value = await interface.get(path)
-                    print(f"{path} = {value}")
+                    print(f"Get `{path}` = `{value}`")
 
     asyncio.run(run())
 

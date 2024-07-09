@@ -1,6 +1,6 @@
 use core::{
     fmt::Write,
-    ops::{Deref, DerefMut},
+    ops::{ControlFlow::*, Deref, DerefMut},
 };
 
 use serde::{Deserialize, Serialize};
@@ -57,17 +57,16 @@ impl<'a> Iterator for JsonPathIter<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        // Reappropriation of `Result` as `Either`
         for (open, close) in [
-            (".'", Ok("'")),             // "'" inclusive
-            (".", Err(&['.', '['][..])), // '.' or '[' exclusive
-            ("['", Ok("']")),            // "']" inclusive
-            ("[", Ok("]")),              // "]" inclusive
+            (".'", Continue("'")),         // "'" inclusive
+            (".", Break(&['.', '['][..])), // '.' or '[' exclusive
+            ("['", Continue("']")),        // "']" inclusive
+            ("[", Continue("]")),          // "]" inclusive
         ] {
             if let Some(rest) = self.0.strip_prefix(open) {
                 let (end, sep) = match close {
-                    Err(close) => (rest.find(close).unwrap_or(rest.len()), 0),
-                    Ok(close) => (rest.find(close)?, close.len()),
+                    Break(close) => (rest.find(close).unwrap_or(rest.len()), 0),
+                    Continue(close) => (rest.find(close)?, close.len()),
                 };
                 let (next, rest) = rest.split_at(end);
                 self.0 = &rest[sep..];
