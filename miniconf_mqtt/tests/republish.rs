@@ -1,5 +1,5 @@
 use miniconf::Tree;
-use minimq::{self, types::TopicFilter};
+use minimq;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
 
@@ -19,10 +19,10 @@ async fn verify_settings() {
     // Construct a Minimq client to the broker for publishing requests.
     let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
-    let mut mqtt: minimq::Minimq<'_, _, _, minimq::broker::IpBroker> = minimq::Minimq::new(
+    let mut mqtt = minimq::Minimq::new(
         Stack,
         StandardClock::default(),
-        minimq::ConfigBuilder::new(localhost.into(), &mut buffer)
+        minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
             .client_id("tester")
             .unwrap()
             .keepalive_interval(60),
@@ -37,20 +37,25 @@ async fn verify_settings() {
 
     // Subscribe to the settings topic.
     mqtt.client()
-        .subscribe(&[TopicFilter::new("republish/device/settings/#")], &[])
+        .subscribe(
+            &[minimq::types::TopicFilter::new(
+                "republish/device/settings/#",
+            )],
+            &[],
+        )
         .unwrap();
 
     // Make sure the device republished all available settings.
     let mut received_settings = std::collections::HashMap::from([
-        ("republish/device/settings/data".to_string(), 0),
-        ("republish/device/settings/more/inner".to_string(), 0),
+        ("republish/device/settings/data", 0),
+        ("republish/device/settings/more/inner", 0),
     ]);
 
     for _ in 0..300 {
         // 3 seconds
         mqtt.poll(|_, topic, value, _properties| {
-            log::info!("{}: {:?}", &topic, value);
-            let element = received_settings.get_mut(&topic.to_string()).unwrap();
+            log::info!("{}: {:?}", topic, value);
+            let element = received_settings.get_mut(topic).unwrap();
             *element += 1;
         })
         .unwrap();
@@ -70,27 +75,24 @@ async fn verify_settings() {
 async fn main() {
     env_logger::init();
 
-    // Spawn a task to send MQTT messages.
-    let task = tokio::task::spawn(async move { verify_settings().await });
+    let task = tokio::task::spawn(verify_settings());
 
     let mut buffer = [0u8; 1024];
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 
-    // Construct a settings configuration interface.
-    let mut interface: miniconf_mqtt::MqttClient<'_, _, _, _, minimq::broker::IpBroker, 2> =
-        miniconf_mqtt::MqttClient::new(
-            Stack,
-            "republish/device",
-            StandardClock::default(),
-            minimq::ConfigBuilder::new(localhost.into(), &mut buffer).keepalive_interval(60),
-        )
-        .unwrap();
+    let mut interface = miniconf_mqtt::MqttClient::new(
+        Stack,
+        "republish/device",
+        StandardClock::default(),
+        minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
+            .keepalive_interval(60),
+    )
+    .unwrap();
 
     let mut settings = Settings::default();
 
-    // Poll the client for 5 seconds. This should be enough time for the miniconf client to publish
-    // all settings values.
     for _ in 0..300 {
+        // 3 s > REPUBLISH_TIMEOUT_SECONDS
         // The interface should never indicate a settings update during the republish process.
         assert!(!interface.update(&mut settings).unwrap());
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;

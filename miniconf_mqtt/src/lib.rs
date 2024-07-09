@@ -503,6 +503,7 @@ where
             let Some(path) = topic
                 .strip_prefix(prefix.as_str())
                 .and_then(|p| p.strip_prefix("/settings"))
+                .map(Path::<_, SEPARATOR>::from)
             else {
                 info!("Unexpected topic: {topic}");
                 return Changed::Unchanged;
@@ -512,7 +513,7 @@ where
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
-                    DeferredPublication::new(|buf| settings.get_json(path, buf))
+                    DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
                         .topic(topic)
                         .reply(properties)
                         .properties(&[ResponseCode::Ok.into()])
@@ -524,24 +525,18 @@ where
                         minimq::PubError::Serialization(miniconf::Error::Traversal(
                             Traversal::TooShort(_depth),
                         )) => {
-                            // Internal node: try Dump or List
+                            // Internal node: Dump or List
                             (state.state() == &sm::States::Single)
                                 .then_some(())
                                 .ok_or("Pending multipart response")
                                 .and_then(|()| Multipart::<Settings, Y>::try_from(properties))
-                                .and_then(|m| {
-                                    m.root(&Path::<_, '/'>::from(path)).map_err(|err| {
-                                        debug!("List/Pub root: {err}");
-                                        "Root not found"
-                                    })
-                                })
                                 .map_or_else(
                                     |err| {
                                         Self::respond(err, ResponseCode::Error, properties, client)
                                             .ok();
                                     },
                                     |m| {
-                                        *pending = m;
+                                        *pending = m.root(&path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
                                         // Response comes through iter_list/iter_dump
                                     },
@@ -559,7 +554,7 @@ where
             } else {
                 // Set
                 settings
-                    .set_json(path, payload)
+                    .set_json_by_key(&path, payload)
                     .map_err(|err| Self::respond(err, ResponseCode::Error, properties, client).ok())
                     .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
                     .is_ok()

@@ -30,7 +30,7 @@ def main():
         epilog="""Examples:
 %(prog)s dt/sinara/dual-iir/01-02-03-04-05-06 '/stream="192.0.2.16:9293"'
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0'       # GET
-%(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G1"'  # SET
+%(prog)s -d dt/sinara/dual-iir/+ '/afe/0="G10"' # SET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe/0='      # CLEAR
 %(prog)s -d dt/sinara/dual-iir/+ '/afe?' '?'    # LIST-GET
 %(prog)s -d dt/sinara/dual-iir/+ '/afe!'        # DUMP
