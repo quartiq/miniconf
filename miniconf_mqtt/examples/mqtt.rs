@@ -7,7 +7,7 @@ use std_embedded_time::StandardClock;
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Inner {
-    frame_rate: u32,
+    a: u32,
 }
 
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
@@ -26,11 +26,23 @@ struct Settings {
     #[tree(depth = 1)]
     inner: Inner,
     #[tree(depth = 1)]
-    amplitude: [f32; 2],
+    values: [f32; 2],
     array: [i32; 4],
     #[tree(depth = 1)]
     opt: Option<i32>,
+    #[tree(validate=Self::validate_four)]
+    four: f32,
     exit: bool,
+}
+
+impl Settings {
+    fn validate_four(&mut self, new: f32) -> Result<f32, &'static str> {
+        if new < 4.0 {
+            Err("Less than four")
+        } else {
+            Ok(new)
+        }
+    }
 }
 
 #[tokio::main]
