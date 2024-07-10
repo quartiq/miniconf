@@ -213,7 +213,6 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// let mut client = miniconf_mqtt::MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
-///     "1", // alive
 ///     std_embedded_time::StandardClock::default(),
 ///     minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer),
 /// )
@@ -247,13 +246,12 @@ where
     ///
     /// # Args
     /// * `stack` - The network stack to use for communication.
-    /// * `prefix` - The MQTT device prefix to use for this device.
+    /// * `prefix` - The MQTT device prefix to use for this device
     /// * `clock` - The clock for managing the MQTT connection.
     /// * `config` - The configuration of the MQTT client.
     pub fn new(
         stack: Stack,
         prefix: &str,
-        alive: &'buf str,
         clock: Clock,
         config: ConfigBuilder<'buf, Broker>,
     ) -> Result<Self, ProtocolError> {
@@ -276,9 +274,18 @@ where
             mqtt: minimq::Minimq::new(stack, clock.clone(), config),
             state: sm::StateMachine::new(sm::Context::new(clock)),
             prefix,
-            alive,
+            alive: "1",
             pending: Multipart::default(),
         })
+    }
+
+    /// Set the payload published on the `/alive` topic when connected to the broker.
+    ///
+    /// The default is to publish `1`.
+    /// The message is retained by the broker.
+    /// On disconnect the message is cleared retained through an MQTT will.
+    pub fn set_alive(&mut self, alive: &'buf str) {
+        self.alive = alive;
     }
 
     /// Update the MQTT interface and service the network.

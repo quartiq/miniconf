@@ -56,12 +56,12 @@ async fn main() {
     let mut client = miniconf_mqtt::MqttClient::new(
         Stack,
         "test/id",
-        "hello",
         StandardClock::default(),
         minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
             .keepalive_interval(60),
     )
     .unwrap();
+    client.set_alive("hello");
 
     let mut settings = Settings::default();
     while !settings.exit {
