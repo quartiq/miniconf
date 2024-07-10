@@ -20,7 +20,7 @@ DUT_PID=$!
 
 # check initial dump (9 settings)
 # 3 > DUMP_TIMEOUT_SECONDS
-DUMP=$(timeout --foreground 3 mosquitto_sub -t "$PREFIX/+/settings/#" -h localhost | wc -l)
+DUMP=$(timeout --foreground 3 mosquitto_sub -t "$PREFIX/+/settings/#" -h localhost -F '%t' | wc -l)
 test $DUMP = 9
 
 # test alive-ness
