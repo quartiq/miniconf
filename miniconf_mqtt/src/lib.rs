@@ -28,8 +28,8 @@ const MAX_TOPIC_LENGTH: usize = 128;
 const MAX_CD_LENGTH: usize = 32;
 
 // The delay after not receiving messages after initial connection that settings will be
-// republished.
-const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
+// dumped.
+const DUMP_TIMEOUT_SECONDS: u32 = 2;
 
 const SEPARATOR: char = '/';
 
@@ -65,7 +65,7 @@ impl<E> From<minimq::Error<E>> for Error<E> {
 }
 
 mod sm {
-    use super::REPUBLISH_TIMEOUT_SECONDS;
+    use super::DUMP_TIMEOUT_SECONDS;
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -106,14 +106,14 @@ mod sm {
 
         fn start_timeout(&mut self) -> Result<(), ()> {
             self.timeout
-                .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
+                .replace(self.clock.try_now().unwrap() + DUMP_TIMEOUT_SECONDS.seconds());
             Ok(())
         }
     }
 }
 
 /// Cache correlation data and topic for multi-part responses.
-struct Multipart<M: TreeKey<Y>, const Y: usize> {
+struct Multipart<M, const Y: usize> {
     iter: Iter<M, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
@@ -196,11 +196,8 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// it is disconnected.
 ///
 /// # Limitations
-/// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
-/// connect to it when errors occur.
-///
 /// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
-/// Re-publication timeout is fixed to `REPUBLISH_TIMEOUT_SECONDS = 2` seconds.
+/// Re-publication timeout is fixed to `DUMP_TIMEOUT_SECONDS = 2` seconds.
 ///
 /// # Example
 /// ```
@@ -225,7 +222,6 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// ```
 pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
 where
-    Settings: TreeKey<Y>,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
     Broker: minimq::Broker,
@@ -233,6 +229,7 @@ where
     mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
     state: sm::StateMachine<sm::Context<Clock>>,
     prefix: String<MAX_TOPIC_LENGTH>,
+    alive: &'buf str,
     pending: Multipart<Settings, Y>,
 }
 
@@ -248,7 +245,7 @@ where
     ///
     /// # Args
     /// * `stack` - The network stack to use for communication.
-    /// * `prefix` - The MQTT device prefix to use for this device.
+    /// * `prefix` - The MQTT device prefix to use for this device
     /// * `clock` - The clock for managing the MQTT connection.
     /// * `config` - The configuration of the MQTT client.
     pub fn new(
@@ -264,9 +261,10 @@ where
 
         // Configure a will so that we can indicate whether or not we are connected.
         let prefix = String::try_from(prefix).unwrap();
-        let mut alive = prefix.clone();
-        alive.push_str("/alive").unwrap();
-        let will = minimq::Will::new(&alive, b"0", &[])?
+        let mut will = prefix.clone();
+        will.push_str("/alive").unwrap();
+        // Retained empty payload amounts to clearing the retained value (see MQTT spec).
+        let will = minimq::Will::new(&will, b"", &[])?
             .retained()
             .qos(QoS::AtMostOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -275,8 +273,27 @@ where
             mqtt: minimq::Minimq::new(stack, clock.clone(), config),
             state: sm::StateMachine::new(sm::Context::new(clock)),
             prefix,
+            alive: "1",
             pending: Multipart::default(),
         })
+    }
+
+    /// Set the payload published on the `/alive` topic when connected to the broker.
+    ///
+    /// The default is to publish `1`.
+    /// The message is retained by the broker.
+    /// On disconnect the message is cleared retained through an MQTT will.
+    pub fn set_alive(&mut self, alive: &'buf str) {
+        self.alive = alive;
+    }
+
+    /// Reset and restart state machine.
+    ///
+    /// This rests the state machine to start from the `Connect` state.
+    /// This will connect (if not connected), send the alive message, subscribe,
+    /// and perform the initial settings dump.
+    pub fn reset(&mut self) {
+        self.state.process_event(sm::Events::Reset).unwrap();
     }
 
     /// Update the MQTT interface and service the network.
@@ -297,12 +314,12 @@ where
                 }
             }
             sm::States::Alive => {
-                if self.alive() {
+                if self.alive().is_ok() {
                     self.state.process_event(sm::Events::Alive).unwrap();
                 }
             }
             sm::States::Subscribe => {
-                if self.subscribe() {
+                if self.subscribe().is_ok() {
                     info!("Subscribed");
                     self.state.process_event(sm::Events::Subscribe).unwrap();
                 }
@@ -311,8 +328,8 @@ where
                 self.state.process_event(sm::Events::Tick).ok();
             }
             sm::States::Init => {
-                info!("Republishing");
-                self.publish(None).ok();
+                info!("Dumping");
+                self.dump(None).ok();
             }
             sm::States::Multipart => {
                 if self.pending.response_topic.is_some() {
@@ -328,33 +345,33 @@ where
         self.poll(settings).map(|c| c == Changed::Changed)
     }
 
-    fn alive(&mut self) -> bool {
+    fn alive(&mut self) -> Result<(), minimq::PubError<Stack::Error, ()>> {
         // Publish a connection status message.
-        let mut alive = self.prefix.clone();
-        alive.push_str("/alive").unwrap();
-        let msg = Publication::new(b"1")
-            .topic(&alive)
+        let mut topic = self.prefix.clone();
+        topic.push_str("/alive").unwrap();
+        let msg = Publication::new(self.alive.as_bytes())
+            .topic(&topic)
             .qos(QoS::AtLeastOnce)
             .retain()
             .finish()
             .unwrap(); // Note(unwrap): has topic
-        self.mqtt.client().publish(msg).is_ok()
+        self.mqtt.client().publish(msg)
     }
 
-    fn subscribe(&mut self) -> bool {
+    fn subscribe(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
         let mut settings = self.prefix.clone();
         settings.push_str("/settings/#").unwrap();
         let opts = SubscriptionOptions::default().ignore_local_messages();
         let topics = [TopicFilter::new(&settings).options(opts)];
-        self.mqtt.client().subscribe(&topics, &[]).is_ok()
+        self.mqtt.client().subscribe(&topics, &[])
     }
 
-    /// Force republication of the current settings.
+    /// Dump the current settings.
     ///
     /// # Note
     /// This is intended to be used if modification of a setting had side effects that affected
     /// another setting.
-    pub fn publish(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
+    pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
         let mut m = Multipart::default();
         if let Some(path) = path {
             m = m.root(&Path::<_, SEPARATOR>::from(path))?;
@@ -437,7 +454,7 @@ where
                     )),
                 ))) => {
                     let props = [ResponseCode::Error.into()];
-                    let mut response = Publication::new(b"Serialized value too large")
+                    let mut response = Publication::new("Serialized value too large".as_bytes())
                         .topic(&topic)
                         .properties(&props)
                         .qos(QoS::AtLeastOnce);
@@ -489,6 +506,7 @@ where
             state,
             prefix,
             pending,
+            ..
         } = self;
         mqtt.poll(|client, topic, payload, properties| {
             let Some(path) = topic
@@ -535,6 +553,9 @@ where
                         }
                         minimq::PubError::Serialization(err) => {
                             Self::respond(err, ResponseCode::Error, properties, client).ok();
+                        }
+                        minimq::PubError::Error(minimq::Error::NotReady) => {
+                            warn!("Not ready during Get.");
                         }
                         minimq::PubError::Error(err) => {
                             error!("Get failure: {err:?}");
