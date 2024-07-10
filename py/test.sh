@@ -18,10 +18,10 @@ cargo build -p miniconf_mqtt --example mqtt
 cargo run -p miniconf_mqtt --example mqtt &
 DUT_PID=$!
 
-# check republishcation dump (9 settings)
-# 3 > REPUBLISH_TIMEOUT_SECONDS
-REPUB=$(timeout --foreground 3 mosquitto_sub -t "$PREFIX/+/settings/#" -h localhost | wc -l)
-test $REPUB = 9
+# check initial dump (9 settings)
+# 3 > DUMP_TIMEOUT_SECONDS
+DUMP=$(timeout --foreground 3 mosquitto_sub -t "$PREFIX/+/settings/#" -h localhost | wc -l)
+test $DUMP = 9
 
 # test alive-ness
 ALIVE=$(timeout --foreground 1 mosquitto_sub -t "$PREFIX/+/alive" -h localhost -F '%p' || true)

@@ -28,8 +28,8 @@ const MAX_TOPIC_LENGTH: usize = 128;
 const MAX_CD_LENGTH: usize = 32;
 
 // The delay after not receiving messages after initial connection that settings will be
-// republished.
-const REPUBLISH_TIMEOUT_SECONDS: u32 = 2;
+// dumped.
+const DUMP_TIMEOUT_SECONDS: u32 = 2;
 
 const SEPARATOR: char = '/';
 
@@ -65,7 +65,7 @@ impl<E> From<minimq::Error<E>> for Error<E> {
 }
 
 mod sm {
-    use super::REPUBLISH_TIMEOUT_SECONDS;
+    use super::DUMP_TIMEOUT_SECONDS;
     use minimq::embedded_time::{self, duration::Extensions, Instant};
     use smlang::statemachine;
 
@@ -106,14 +106,14 @@ mod sm {
 
         fn start_timeout(&mut self) -> Result<(), ()> {
             self.timeout
-                .replace(self.clock.try_now().unwrap() + REPUBLISH_TIMEOUT_SECONDS.seconds());
+                .replace(self.clock.try_now().unwrap() + DUMP_TIMEOUT_SECONDS.seconds());
             Ok(())
         }
     }
 }
 
 /// Cache correlation data and topic for multi-part responses.
-struct Multipart<M: TreeKey<Y>, const Y: usize> {
+struct Multipart<M, const Y: usize> {
     iter: Iter<M, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
@@ -197,7 +197,7 @@ impl From<ResponseCode> for minimq::Property<'static> {
 ///
 /// # Limitations
 /// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
-/// Re-publication timeout is fixed to `REPUBLISH_TIMEOUT_SECONDS = 2` seconds.
+/// Re-publication timeout is fixed to `DUMP_TIMEOUT_SECONDS = 2` seconds.
 ///
 /// # Example
 /// ```
@@ -222,7 +222,6 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// ```
 pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
 where
-    Settings: TreeKey<Y>,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
     Broker: minimq::Broker,
@@ -329,8 +328,8 @@ where
                 self.state.process_event(sm::Events::Tick).ok();
             }
             sm::States::Init => {
-                info!("Republishing");
-                self.publish(None).ok();
+                info!("Dumping");
+                self.dump(None).ok();
             }
             sm::States::Multipart => {
                 if self.pending.response_topic.is_some() {
@@ -367,12 +366,12 @@ where
         self.mqtt.client().subscribe(&topics, &[])
     }
 
-    /// Force republication of the current settings.
+    /// Dump the current settings.
     ///
     /// # Note
     /// This is intended to be used if modification of a setting had side effects that affected
     /// another setting.
-    pub fn publish(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
+    pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
         let mut m = Multipart::default();
         if let Some(path) = path {
             m = m.root(&Path::<_, SEPARATOR>::from(path))?;
@@ -554,6 +553,9 @@ where
                         }
                         minimq::PubError::Serialization(err) => {
                             Self::respond(err, ResponseCode::Error, properties, client).ok();
+                        }
+                        minimq::PubError::Error(minimq::Error::NotReady) => {
+                            warn!("Not ready during Get.");
                         }
                         minimq::PubError::Error(err) => {
                             error!("Get failure: {err:?}");
