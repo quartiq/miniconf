@@ -11,7 +11,7 @@ PREFIX=test
 
 # test no residual DUTs alive
 ALIVE=$(timeout --foreground 1 mosquitto_sub -t "$PREFIX/+/alive" -h localhost -F '%p' || true)
-test $ALIVE != "" && test $ALIVE != 0 && exit 1
+test "$ALIVE" != "" && "$ALIVE" != "0" && exit 1
 
 # build and start DUT
 cargo build -p miniconf_mqtt --example mqtt
@@ -25,7 +25,7 @@ test $REPUB != 9 && exit 1
 
 # test alive-ness
 ALIVE=$(timeout --foreground 1 mosquitto_sub -t "$PREFIX/+/alive" -h localhost -F '%p' || true)
-test $ALIVE != 1 && exit 1
+test "$ALIVE" != "hello" && exit 1
 
 # no discover SET
 python -m miniconf -b localhost $PREFIX/id '/stream="192.0.2.16:9293"'
@@ -43,3 +43,6 @@ $MC '/four=2' && exit 1
 # request exit
 $MC '/exit=true'
 wait $DUT_PID
+
+ALIVE=$(timeout --foreground 1 mosquitto_sub -t "$PREFIX/+/alive" -h localhost -F '%p' || true)
+test "$ALIVE" != "" && exit 1

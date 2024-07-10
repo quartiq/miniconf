@@ -42,7 +42,7 @@ async def discover(
         async for message in client.messages:
             logging.debug(f"Got message from {message.topic}: {message.payload}")
             peer = message.topic.value.removesuffix(suffix)
-            if json.loads(message.payload) == 1:
+            if message.payload:
                 logging.info(f"Discovered {peer} alive")
                 discovered.append(peer)
             else:

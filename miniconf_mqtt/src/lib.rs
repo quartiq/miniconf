@@ -196,9 +196,6 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// it is disconnected.
 ///
 /// # Limitations
-/// The MQTT client logs failures to subscribe to the settings topic, but does not re-attempt to
-/// connect to it when errors occur.
-///
 /// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
 /// Re-publication timeout is fixed to `REPUBLISH_TIMEOUT_SECONDS = 2` seconds.
 ///
@@ -216,6 +213,7 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// let mut client = miniconf_mqtt::MqttClient::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
+///     "1", // alive
 ///     std_embedded_time::StandardClock::default(),
 ///     minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer),
 /// )
@@ -233,6 +231,7 @@ where
     mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
     state: sm::StateMachine<sm::Context<Clock>>,
     prefix: String<MAX_TOPIC_LENGTH>,
+    alive: &'buf str,
     pending: Multipart<Settings, Y>,
 }
 
@@ -254,6 +253,7 @@ where
     pub fn new(
         stack: Stack,
         prefix: &str,
+        alive: &'buf str,
         clock: Clock,
         config: ConfigBuilder<'buf, Broker>,
     ) -> Result<Self, ProtocolError> {
@@ -264,9 +264,10 @@ where
 
         // Configure a will so that we can indicate whether or not we are connected.
         let prefix = String::try_from(prefix).unwrap();
-        let mut alive = prefix.clone();
-        alive.push_str("/alive").unwrap();
-        let will = minimq::Will::new(&alive, b"0", &[])?
+        let mut will = prefix.clone();
+        will.push_str("/alive").unwrap();
+        // Retained empty payload amounts to clearing the retained value (see MQTT spec).
+        let will = minimq::Will::new(&will, b"", &[])?
             .retained()
             .qos(QoS::AtMostOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -275,6 +276,7 @@ where
             mqtt: minimq::Minimq::new(stack, clock.clone(), config),
             state: sm::StateMachine::new(sm::Context::new(clock)),
             prefix,
+            alive,
             pending: Multipart::default(),
         })
     }
@@ -332,7 +334,7 @@ where
         // Publish a connection status message.
         let mut alive = self.prefix.clone();
         alive.push_str("/alive").unwrap();
-        let msg = Publication::new(b"1")
+        let msg = Publication::new(self.alive.as_bytes())
             .topic(&alive)
             .qos(QoS::AtLeastOnce)
             .retain()
@@ -437,7 +439,7 @@ where
                     )),
                 ))) => {
                     let props = [ResponseCode::Error.into()];
-                    let mut response = Publication::new(b"Serialized value too large")
+                    let mut response = Publication::new("Serialized value too large".as_bytes())
                         .topic(&topic)
                         .properties(&props)
                         .qos(QoS::AtLeastOnce);
@@ -489,6 +491,7 @@ where
             state,
             prefix,
             pending,
+            ..
         } = self;
         mqtt.poll(|client, topic, payload, properties| {
             let Some(path) = topic
