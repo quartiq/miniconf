@@ -289,7 +289,8 @@ impl Metadata {
 ///
 /// # Examples
 ///
-/// See the [`crate`] documentation for a longer example showing how the traits and the derive macros work.
+/// See the [`crate`] documentation for a longer example showing how the traits and the derive
+/// macros work.
 pub trait TreeKey<const Y: usize = 1> {
     /// Compute metadata about all paths.
     ///
@@ -308,13 +309,8 @@ pub trait TreeKey<const Y: usize = 1> {
 
     /// Traverse from the root to a leaf and call a function for each node.
     ///
-    /// Traversal is aborted once `func` returns an `Err(E)`.
-    ///
-    /// This may not exhaust `keys` if a leaf is found early. i.e. `keys`
-    /// may be longer than required: `Traversal(TooLong)` is never returned.
-    /// This is to optimize path iteration (downward probe).
-    /// If `Self` is a leaf, nothing will be consumed from `keys`
-    /// and `Ok(0)` will be returned.
+    /// If a leaf is found early (`keys` being longer than required)
+    /// `Err(Traversal(TooLong(depth)))` is returned.
     /// If `keys` is exhausted before reaching a leaf node,
     /// `Err(Traversal(TooShort(depth)))` is returned.
     ///
@@ -338,10 +334,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `keys`: An `Iterator` of `Key`s identifying the node.
     /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
     ///   Its arguments are the index and the optional name of the node and the number
-    ///   of top-level nodes at the given depth. Returning `Err()` aborts the traversal.
+    ///   of top-level nodes at the given depth. Returning `Err(E)` aborts the traversal.
+    ///   Returning `Ok(())` continues the downward traversal.
     ///
     /// # Returns
-    /// Final node depth on success (the number of keys consumed, number of calls to `func`)
+    /// Node depth on success (number of keys consumed/number of calls to `func`)
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -354,27 +351,27 @@ pub trait TreeKey<const Y: usize = 1> {
     /// The keys can be
     /// * too short: the internal node is returned
     /// * matched length: the leaf node is returned
-    /// * too long: the leaf node is returned
+    /// * too long: Err(TooLong(depth)) is returned
     ///
-    /// Possible [`Transcode`] targets:
+    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
+    /// an existing `&mut N`.
+    ///
+    /// Potential [`Transcode`] targets:
     ///
     /// * [`crate::Path`]: `char`-separated `Write`
     /// * [`crate::JsonPath`]: normalized JSON path
-    /// * [`crate::Indices`]
-    /// * [`crate::Packed`]: Packed usize bitfield representation
+    /// * [`crate::Indices`]: `usize` indices array
+    /// * [`crate::Packed`]: Packed `usize`` bitfield representation
+    /// * [`core::unit`]: Obtain just the [`Node`] information.
     ///
     /// ```
-    /// use miniconf::{TreeKey, Path, Indices, JsonPath, Packed};
+    /// use miniconf::{TreeKey, Path, Indices, JsonPath, Packed, Node};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth=1)]
     ///     bar: [u16; 5],
     /// };
-    /// let path: Path<String, '/'> = S::transcode([1, 1]).unwrap().0;
-    /// assert_eq!(path.as_str(), "/bar/1");
-    /// let idx: Indices<[usize; 2]> = S::transcode(&path).unwrap().0;
-    /// assert_eq!(idx.0, [1, 1]);
     ///
     /// let (path, node) = S::transcode::<Path<String, '/'>, _>([1, 1]).unwrap();
     /// assert_eq!(path.as_str(), "/bar/1");
@@ -393,24 +390,24 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
     /// assert_eq!(path.as_str(), "/bar/4");
-    /// ```
     ///
-    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
-    /// an existing `&mut N`.
+    /// let ((), node) = S::transcode(&path).unwrap();
+    /// assert_eq!(node, Node::leaf(2));
+    /// ```
     ///
     /// # Args
     /// * `keys`: `IntoKeys` to identify the node.
     ///
     /// # Returns
-    /// Node depth and type on success
+    /// Transcoded target and node information on success
     fn transcode<N, K>(keys: K) -> Result<(N, Node), Traversal>
     where
         K: IntoKeys,
         N: Transcode + Default,
     {
-        let mut path = N::default();
-        let node = path.transcode::<Self, Y, _>(keys)?;
-        Ok((path, node))
+        let mut target = N::default();
+        let node = target.transcode::<Self, Y, _>(keys)?;
+        Ok((target, node))
     }
 
     /// Return an iterator over nodes of a given type
@@ -423,15 +420,16 @@ pub trait TreeKey<const Y: usize = 1> {
     /// The maximum key depth may be selected independently of `Y` through the `D`
     /// const generic of [`NodeIter`].
     ///
-    /// Possible [`Transcode`] targets:
+    /// Potential [`Transcode`] targets:
     ///
     /// * [`crate::Path`]
     /// * [`crate::Indices`]
     /// * [`crate::Packed`]
     /// * [`crate::JsonPath`]
+    /// * [`core::unit`]
     ///
     /// ```
-    /// use miniconf::{TreeKey, Path, Packed, Indices, JsonPath};
+    /// use miniconf::{TreeKey, Path, Packed, Indices, JsonPath, Node};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
@@ -465,6 +463,12 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     .map(|p| p.unwrap().0.into_lsb().get())
     ///     .collect::<Vec<_>>();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
+    ///
+    /// let nodes = S::nodes::<()>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().1)
+    ///     .collect::<Vec<_>>();
+    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
     /// ```
     fn nodes<N>() -> NodeIter<Self, Y, N>
     where
@@ -491,7 +495,7 @@ pub trait TreeKey<const Y: usize = 1> {
 ///
 /// for node in S::nodes::<Indices<[_; 2]>>() {
 ///     let (key, node) = node.unwrap();
-///     let a = s.ref_any_by_key(key[..node.depth()].iter().copied().into_keys()).unwrap();
+///     let a = s.ref_any_by_key(key.into_iter().take(node.depth()).into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
