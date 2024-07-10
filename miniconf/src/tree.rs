@@ -541,7 +541,7 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
 /// Serialize a leaf node by its keys.
 ///
 /// See also [`crate::JsonCoreSlash`] or `Postcard` for convenient
-/// super traits with blanket implementations using this trait.
+/// subtraits with blanket implementations using this trait.
 ///
 /// # Derive macro
 ///

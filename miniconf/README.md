@@ -8,56 +8,14 @@
 `miniconf` enables lightweight (`no_std`/no alloc) serialization, deserialization,
 and access within a tree of heretogeneous types by keys.
 
-## Reflection
-
-`miniconf` enables certain kinds of reflective access to heterogeneous trees.
-Let's compare it to [`bevy_reflect`](https://crates.io/crates/bevy_reflect)
-which is a comprehensive and mature reflection crate:
-
-`bevy_reflect` is thoroughly `std` while `miniconf` aims at `no_std`.
-`bevy_reflect` uses its `Reflect` trait to operate on and pass nodes as trait objects.
-`miniconf` uses serialized data or `Any` to access leaf nodes and pure "code" to traverse through internal nodes.
-The `Tree*` traits like `Reflect` thus give access to nodes but unlike `Reflect` they are all decidedly not object-safe
-and can not be used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
-(only for `TreeAny` the leaf nodes need to be `'static`)
-while `bevy_reflect` requires `'static` for `Reflect` types.
-
-`miniconf`supports at least the following reflection features mentioned in the `bevy_reflect` README:
-
-* ➕ Derive the traits: `miniconf` has `Tree*` derive macros and blanket implementations for arrays and Options.
-  Leaf nodes just need some impls of `Serialize/Deserialize/Any` where desired.
-* ➕ Interact with fields using their names
-* ➖ "Patch" your types with new values: `miniconf` only supports limited changes to the tree structure at runtime
-  (`Option` and custom accessors) while `bevy_reflect` has powerful dynamic typing tools.
-* ➕ Look up nested fields using "path strings": In addition to a superset of JSON path style
-  "path strings" `miniconf` supports hierarchical indices and bit-packed ordered keys.
-* ➕ Iterate over struct fields: `miniconf` Supports recursive iteration over node keys.
-* ➕ Automatically serialize and deserialize via Serde without explicit serde impls:
-  `miniconf` supports automatic serializing/deserializing into key-value pairs without an explicit container serde impls.
-* ➕ Trait "reflection": Together with [`crosstrait`](https://crates.io/crates/crosstrait) supports building the
-  type registry and enables casting from `dyn Any` returned by `TreeAny` to desired trait objects.
-  Together with [`erased-serde`](https://crates.io/crates/erased-serde) it can be used to implement node serialization/deserialization
-  using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize` similar to `bevy_reflect`.
-
-Some tangential crates:
-
-* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract schemata from serde impls
-* [`typetag`](https://crates.io/crates/typetag): "derive serde for trait objects" (local traits and impls)
-* [`deflect`](https://crates.io/crates/deflect): reflection on trait objects using adjacent DWARF debug info as the type registry
-* [`intertrait`](https://crates.io/crates/intertrait): inspiration and source of ideas for `crosstrait`
-
-## Functional Programming, Polymorphism
-
-The type-heterogeneity of `miniconf` also borders on functional programming features. For that crates like the
-following may also be relevant:
-
-* [`frunk`](https://crates.io/crates/frunk)
-* [`lens-rs`](https://crates.io/crates/lens-rs)/[`rovv`](https://crates.io/crates/rovv)
-
 ## Example
 
 See below for an example showing some of the features of the `Tree*` traits.
-See also the documentation of the [`TreeKey`] trait for a detailed description.
+See also the documentation and doctests of the [`TreeKey`] trait for a detailed description.
+
+Note that the example below focuses on JSON and slash-separated paths while in fact
+any `serde` backend (or `dyn Any` trait objects) and many different `Keys`/`Transcode`
+providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -171,19 +129,19 @@ One possible use of `miniconf` is a backend for run-time settings management in 
 
 It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
 payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a MQTT settings management
-client and a Python reference implementation to interact with it. Now it is agnostic of
-`serde` backend/format, hierarchy separator, and transport/protocol.
+client in the `miniconf_mqtt` crate and a Python reference implementation to interact with it.
+Miniconf is agnostic of the `serde` backend/format, hierarchy separator, and transport/protocol.
 
 ## Formats
 
 `miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, and key format.
 
-Currently support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
-through the [`JsonCoreSlash`] super trait.
+Support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
+through the [`JsonCoreSlash`] subtrait.
 
-The `Postcard` super trait supports the `postcard` wire format with any `postcard` flavor and
+The `Postcard` subtrait supports the `postcard` wire format with any `postcard` flavor and
 any [`Keys`] type. Combined with the [`Packed`] key representation, this is a very
-space-efficient key-serde API.
+space-efficient serde-by-key API.
 
 Blanket implementations are provided for all
 `TreeSerialize`+`TreeDeserialize` types for all formats.
@@ -241,3 +199,49 @@ Many `std` smart pointers are not supported or handled in any special way: `Box`
 * `postcard`: Enable the `Postcard` implementation of serializing from and
   into the postcard compact binary format (using the `postcard` crate).
 * `derive`: Enable the derive macros in `miniconf_derive`. Enabled by default.
+
+## Reflection
+
+`miniconf` enables certain kinds of reflective access to heterogeneous trees.
+Let's compare it to [`bevy_reflect`](https://crates.io/crates/bevy_reflect)
+which is a comprehensive and mature reflection crate:
+
+`bevy_reflect` is thoroughly `std` while `miniconf` aims at `no_std`.
+`bevy_reflect` uses its `Reflect` trait to operate on and pass nodes as trait objects.
+`miniconf` uses serialized data or `Any` to access leaf nodes and pure "code" to traverse through internal nodes.
+The `Tree*` traits like `Reflect` thus give access to nodes but unlike `Reflect` they are all decidedly not object-safe
+and can not be used as trait objects. This allows `miniconf` to support non-`'static` borrowed data
+(only for `TreeAny` the leaf nodes need to be `'static`)
+while `bevy_reflect` requires `'static` for `Reflect` types.
+
+`miniconf`supports at least the following reflection features mentioned in the `bevy_reflect` README:
+
+* ➕ Derive the traits: `miniconf` has `Tree*` derive macros and blanket implementations for arrays and Options.
+  Leaf nodes just need some impls of `Serialize/Deserialize/Any` where desired.
+* ➕ Interact with fields using their names
+* ➖ "Patch" your types with new values: `miniconf` only supports limited changes to the tree structure at runtime
+  (`Option` and custom accessors) while `bevy_reflect` has powerful dynamic typing tools.
+* ➕ Look up nested fields using "path strings": In addition to a superset of JSON path style
+  "path strings" `miniconf` supports hierarchical indices and bit-packed ordered keys.
+* ➕ Iterate over struct fields: `miniconf` Supports recursive iteration over node keys.
+* ➕ Automatically serialize and deserialize via Serde without explicit serde impls:
+  `miniconf` supports automatic serializing/deserializing into key-value pairs without an explicit container serde impls.
+* ➕ Trait "reflection": Together with [`crosstrait`](https://crates.io/crates/crosstrait) supports building the
+  type registry and enables casting from `dyn Any` returned by `TreeAny` to other desired trait objects.
+  Together with [`erased-serde`](https://crates.io/crates/erased-serde) it can be used to implement node serialization/deserialization
+  using `miniconf`'s `TreeAny` without using `TreeSerialize`/`TreeDeserialize` similar to `bevy_reflect`.
+
+Some tangential crates:
+
+* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract schemata from serde impls
+* [`typetag`](https://crates.io/crates/typetag): "derive serde for trait objects" (local traits and impls)
+* [`deflect`](https://crates.io/crates/deflect): reflection on trait objects using adjacent DWARF debug info as the type registry
+* [`intertrait`](https://crates.io/crates/intertrait): inspiration and source of ideas for `crosstrait`
+
+## Functional Programming, Polymorphism
+
+The type-heterogeneity of `miniconf` also borders on functional programming features. For that crates like the
+following may also be relevant:
+
+* [`frunk`](https://crates.io/crates/frunk)
+* [`lens-rs`](https://crates.io/crates/lens-rs)/[`rovv`](https://crates.io/crates/rovv)
