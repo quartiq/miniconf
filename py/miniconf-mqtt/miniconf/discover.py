@@ -73,12 +73,12 @@ async def discover_one(
 
     See `discover()` for arguments.
     """
-    devices = await discover(client, prefix)
+    devices = await discover(client, prefix, rel_timeout, abs_timeout)
     try:
         (device,) = devices.items()
-    except ValueError:
+    except ValueError as exc:
         raise MiniconfException(
             "Discover", f"No unique Miniconf device (found `{devices}`)."
-        )
+        ) from exc
     logging.info("Found device: %s", device)
     return device

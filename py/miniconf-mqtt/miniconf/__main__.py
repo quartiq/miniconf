@@ -73,7 +73,7 @@ def main():
             args.broker, protocol=MQTTv5, logger=logging.getLogger("aiomqtt-client")
         ) as client:
             if args.discover:
-                prefix, alive = await discover_one(client, args.prefix)
+                prefix, _alive = await discover_one(client, args.prefix)
             else:
                 prefix = args.prefix
 
