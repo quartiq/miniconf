@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * [miniconf_mqtt] the `/alive` message is now configurable
 * [py/miniconf-mqtt] `discover()` returns the prefix and the alive payload
+* [miniconf_mqtt] the prefix `&str` must now outlive the miniconf client
 
 ### Added
 

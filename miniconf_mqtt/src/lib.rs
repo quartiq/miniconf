@@ -220,21 +220,21 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// let mut settings = Settings::default();
 /// client.update(&mut settings).unwrap();
 /// ```
-pub struct MqttClient<'buf, Settings, Stack, Clock, Broker, const Y: usize>
+pub struct MqttClient<'a, Settings, Stack, Clock, Broker, const Y: usize>
 where
     Stack: TcpClientStack,
     Clock: embedded_time::Clock,
     Broker: minimq::Broker,
 {
-    mqtt: minimq::Minimq<'buf, Stack, Clock, Broker>,
+    mqtt: minimq::Minimq<'a, Stack, Clock, Broker>,
     state: sm::StateMachine<sm::Context<Clock>>,
-    prefix: String<MAX_TOPIC_LENGTH>,
-    alive: &'buf str,
+    prefix: &'a str,
+    alive: &'a str,
     pending: Multipart<Settings, Y>,
 }
 
-impl<'buf, Settings, Stack, Clock, Broker, const Y: usize>
-    MqttClient<'buf, Settings, Stack, Clock, Broker, Y>
+impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
+    MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
     for<'de> Settings: JsonCoreSlash<'de, Y> + Clone,
     Stack: TcpClientStack,
@@ -250,9 +250,9 @@ where
     /// * `config` - The configuration of the MQTT client.
     pub fn new(
         stack: Stack,
-        prefix: &str,
+        prefix: &'a str,
         clock: Clock,
-        config: ConfigBuilder<'buf, Broker>,
+        config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert!(
             prefix.len() + "/settings".len() + Settings::metadata().max_length("/")
@@ -260,8 +260,7 @@ where
         );
 
         // Configure a will so that we can indicate whether or not we are connected.
-        let prefix = String::try_from(prefix).unwrap();
-        let mut will = prefix.clone();
+        let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
         will.push_str("/alive").unwrap();
         // Retained empty payload amounts to clearing the retained value (see MQTT spec).
         let will = minimq::Will::new(&will, b"", &[])?
@@ -283,7 +282,7 @@ where
     /// The default is to publish `1`.
     /// The message is retained by the broker.
     /// On disconnect the message is cleared retained through an MQTT will.
-    pub fn set_alive(&mut self, alive: &'buf str) {
+    pub fn set_alive(&mut self, alive: &'a str) {
         self.alive = alive;
     }
 
@@ -347,7 +346,7 @@ where
 
     fn alive(&mut self) -> Result<(), minimq::PubError<Stack::Error, ()>> {
         // Publish a connection status message.
-        let mut topic = self.prefix.clone();
+        let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
         topic.push_str("/alive").unwrap();
         let msg = Publication::new(self.alive.as_bytes())
             .topic(&topic)
@@ -359,7 +358,7 @@ where
     }
 
     fn subscribe(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
-        let mut settings = self.prefix.clone();
+        let mut settings: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
         settings.push_str("/settings/#").unwrap();
         let opts = SubscriptionOptions::default().ignore_local_messages();
         let topics = [TopicFilter::new(&settings).options(opts)];
@@ -426,7 +425,7 @@ where
             let (path, node) = path.unwrap(); // Note(unwraped): checked capacity
             assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
 
-            let mut topic = self.prefix.clone();
+            let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic
                 .push_str("/settings")
                 .and_then(|_| topic.push_str(&path))
@@ -473,11 +472,11 @@ where
         }
     }
 
-    fn respond<'a, T: Display>(
+    fn respond<'b, T: Display>(
         response: T,
         code: ResponseCode,
-        request: &Properties<'a>,
-        client: &mut minimq::mqtt_client::MqttClient<'buf, Stack, Clock, Broker>,
+        request: &Properties<'b>,
+        client: &mut minimq::mqtt_client::MqttClient<'a, Stack, Clock, Broker>,
     ) -> Result<
         (),
         minimq::PubError<Stack::Error, embedded_io::WriteFmtError<embedded_io::SliceWriteError>>,
@@ -495,7 +494,7 @@ where
                 .map_err(minimq::Error::from)?,
             )
             .map_err(|err| {
-                debug!("Response failure: {err:?}");
+                info!("Response failure: {err:?}");
                 err
             })
     }
@@ -510,7 +509,7 @@ where
         } = self;
         mqtt.poll(|client, topic, payload, properties| {
             let Some(path) = topic
-                .strip_prefix(prefix.as_str())
+                .strip_prefix(*prefix)
                 .and_then(|p| p.strip_prefix("/settings"))
                 .map(Path::<_, SEPARATOR>::from)
             else {
@@ -555,7 +554,7 @@ where
                             Self::respond(err, ResponseCode::Error, properties, client).ok();
                         }
                         minimq::PubError::Error(minimq::Error::NotReady) => {
-                            warn!("Not ready during Get.");
+                            warn!("Not ready during Get. Discarding.");
                         }
                         minimq::PubError::Error(err) => {
                             error!("Get failure: {err:?}");
