@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/quartiq/miniconf"
@@ -13,7 +13,7 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 embedded-io = "0.6.1"
 embedded-io-async = "0.6.1"
 heapless = "0.8.0"
-miniconf = { version = "0.12.0", path = "../miniconf", features = [
+miniconf = { version = "0.13.0", path = "../miniconf", features = [
     "json-core",
     "postcard",
 ] }

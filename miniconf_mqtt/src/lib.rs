@@ -8,7 +8,7 @@
 use core::fmt::Display;
 
 use heapless::{String, Vec};
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 use miniconf::{IntoKeys, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
 pub use minimq;
 use minimq::{
