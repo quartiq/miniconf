@@ -9,7 +9,7 @@ import sys
 import os
 
 from .miniconf import Miniconf, MiniconfException, Client, MQTTv5
-from .discover import discover
+from .discover import discover_one
 
 if sys.platform.lower() == "win32" or os.name.lower() == "nt":
     from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
@@ -73,13 +73,7 @@ def main():
             args.broker, protocol=MQTTv5, logger=logging.getLogger("aiomqtt-client")
         ) as client:
             if args.discover:
-                devices = await discover(client, args.prefix)
-                if len(devices) != 1:
-                    raise MiniconfException(
-                        "Discover", f"No unique Miniconf device (found `{devices}`)."
-                    )
-                prefix = devices.pop()
-                logging.info("Found device prefix: %s", prefix)
+                prefix, alive = await discover_one(client, args.prefix)
             else:
                 prefix = args.prefix
 

@@ -61,7 +61,7 @@ async fn main() {
             .keepalive_interval(60),
     )
     .unwrap();
-    client.set_alive("hello");
+    client.set_alive("\"hello\"");
 
     let mut settings = Settings::default();
     while !settings.exit {
