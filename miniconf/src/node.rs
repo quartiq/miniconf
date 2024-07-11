@@ -276,6 +276,12 @@ impl<const D: usize> From<Indices<[usize; D]>> for [usize; D] {
     }
 }
 
+impl<T> From<T> for Indices<T> {
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
 impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
     type IntoKeys = KeysIter<Copied<Iter<'a, usize>>>;
     fn into_keys(self) -> Self::IntoKeys {
