@@ -16,18 +16,8 @@ use miniconf::{
 struct WriteWrap<T>(T);
 
 impl<T: Write> fmt::Write for WriteWrap<T> {
-    fn write_char(&mut self, c: char) -> fmt::Result {
-        let mut buf = [0; 4];
-        self.write_str(c.encode_utf8(&mut buf))
-    }
-
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.0.write_all(s.as_bytes()).or(Err(fmt::Error))?;
-        Ok(())
-    }
-
-    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
-        self.0.write_fmt(args).or(Err(fmt::Error))?;
         Ok(())
     }
 }
