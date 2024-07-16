@@ -619,3 +619,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
         K: Keys,
         D: Deserializer<'de>;
 }
+
+/// Shorthand for owned deserialization through [`TreeDeserialize`].
+pub trait TreeDeserializeOwned<const Y: usize = 1>: for<'de> TreeDeserialize<'de, Y> {}
+impl<T, const Y: usize> TreeDeserializeOwned<Y> for T where T: for<'de> TreeDeserialize<'de, Y> {}
