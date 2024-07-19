@@ -16,18 +16,8 @@ use miniconf::{
 struct WriteWrap<T>(T);
 
 impl<T: Write> fmt::Write for WriteWrap<T> {
-    fn write_char(&mut self, c: char) -> fmt::Result {
-        let mut buf = [0; 4];
-        self.write_str(c.encode_utf8(&mut buf))
-    }
-
     fn write_str(&mut self, s: &str) -> fmt::Result {
         self.0.write_all(s.as_bytes()).or(Err(fmt::Error))?;
-        Ok(())
-    }
-
-    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
-        self.0.write_fmt(args).or(Err(fmt::Error))?;
         Ok(())
     }
 }
@@ -40,7 +30,7 @@ async fn awrite<W: AWrite>(mut write: W, buf: &[u8]) -> Result<(), Error<W::Erro
 pub enum Error<I> {
     Fmt(core::fmt::Error),
     Traversal(miniconf::Traversal),
-    Serialize(serde_json_core::ser::Error),
+    Serialize(usize, serde_json_core::ser::Error),
     Io(I),
 }
 
@@ -53,9 +43,9 @@ impl<I> From<Traversal> for Error<I> {
 impl<I> From<miniconf::Error<serde_json_core::ser::Error>> for Error<I> {
     fn from(value: miniconf::Error<serde_json_core::ser::Error>) -> Self {
         match value {
-            miniconf::Error::Inner(_depth, e) => Self::Serialize(e),
+            miniconf::Error::Inner(depth, e) => Self::Serialize(depth, e),
             miniconf::Error::Traversal(e) => Self::Traversal(e),
-            miniconf::Error::Finalization(_) => unreachable!(),
+            miniconf::Error::Finalization(e) => Self::Serialize(0, e),
             _ => unimplemented!(),
         }
     }
@@ -99,17 +89,17 @@ where
     }
 
     fn push(&self, path: &str) -> Result<(Self, Node), Traversal> {
-        let (key, node) = M::transcode(self.key.chain(path.split(SEPARATOR)))?;
+        let (key, node) = M::transcode(self.key.chain(&Path::<_, SEPARATOR>::from(path)))?;
         Ok((Self::new(key), node))
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
         let (idx, node) = M::transcode::<Indices<[_; Y]>, _>(self.key)?;
-        if node.depth() < levels {
-            Err(Traversal::TooShort(node.depth()))
-        } else {
-            let (key, node) = M::transcode(idx[..node.depth() - levels].iter().copied())?;
+        if let Some(idx) = idx.get(..node.depth() - levels) {
+            let (key, node) = M::transcode(&Indices::from(idx))?;
             Ok((Self::new(key), node))
+        } else {
+            Err(Traversal::TooShort(node.depth()))
         }
     }
 
@@ -165,6 +155,7 @@ where
     {
         let def = M::default();
         for keys in M::nodes::<Packed>().root(self.key)? {
+            // Slight abuse of TooLong for "keys to long for packed"
             let (keys, node) =
                 keys.map_err(|depth| miniconf::Error::Traversal(Traversal::TooLong(depth)))?;
             debug_assert!(node.is_leaf());
@@ -235,11 +226,11 @@ where
                 ret => &buf[..ret?],
             };
             if yafnv::fnv1a::<u32, _>(def) == check {
-                awrite(&mut write, " (default)\n".as_bytes()).await?;
+                awrite(&mut write, " [default]\n".as_bytes()).await?;
             } else {
-                awrite(&mut write, " (default: ".as_bytes()).await?;
+                awrite(&mut write, " [default: ".as_bytes()).await?;
                 awrite(&mut write, def).await?;
-                awrite(&mut write, ")\n".as_bytes()).await?;
+                awrite(&mut write, "]\n".as_bytes()).await?;
             }
         }
         Ok(())
@@ -289,21 +280,22 @@ mod tests {
         let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
         let mut menu = Menu::<Set, Y>::default();
         s.c = Some(8);
-        menu.enter("b/0").unwrap();
+        menu.enter("/b").unwrap();
+        menu.enter("/0").unwrap();
         menu.set(&mut s, b"1234").unwrap();
         menu.exit(2).unwrap();
-        menu.push("f/1/e").unwrap().0.set(&mut s, b"9").unwrap();
+        menu.push("/f/1/e").unwrap().0.set(&mut s, b"9").unwrap();
         let paths: Vec<String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
         stdout
             .write_all(format!("{:?}\n", paths).as_bytes())
             .await
             .unwrap();
         menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
-        menu.enter("f").unwrap();
+        menu.enter("/f").unwrap();
         menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
         menu.exit(1).unwrap();
-        menu.push("c").unwrap().0.reset(&mut s, &mut buf).unwrap();
-        menu.push("b").unwrap().0.reset(&mut s, &mut buf).unwrap();
+        menu.push("/c").unwrap().0.reset(&mut s, &mut buf).unwrap();
+        menu.push("/b").unwrap().0.reset(&mut s, &mut buf).unwrap();
         menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
     }
 }

@@ -69,3 +69,7 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize
         ser.output.finalize().map_err(Error::Finalization)
     }
 }
+
+/// Shorthand for owned [`Postcard`].
+pub trait PostcardOwned<const Y: usize = 1>: for<'de> Postcard<'de, Y> {}
+impl<T, const Y: usize> PostcardOwned<Y> for T where T: for<'de> Postcard<'de, Y> {}

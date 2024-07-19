@@ -100,3 +100,7 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize
         Ok(ser.end())
     }
 }
+
+/// Shorthand for owned deserialization through [`JsonCoreSlash`].
+pub trait JsonCoreSlashOwned<const Y: usize = 1>: for<'de> JsonCoreSlash<'de, Y> {}
+impl<T, const Y: usize> JsonCoreSlashOwned<Y> for T where T: for<'de> JsonCoreSlash<'de, Y> {}
