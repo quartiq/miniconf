@@ -85,7 +85,7 @@ impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize
         keys: K,
         data: &'de [u8],
     ) -> Result<usize, Error<de::Error>> {
-        let mut de: de::Deserializer<'_> = de::Deserializer::new(data);
+        let mut de: de::Deserializer<'_, '_> = de::Deserializer::new(data, None);
         self.deserialize_by_key(keys.into_keys(), &mut de)?;
         de.end().map_err(Error::Finalization)
     }
