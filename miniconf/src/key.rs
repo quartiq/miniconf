@@ -12,7 +12,6 @@ use crate::Traversal;
 ///     bar: [u16; 2],
 /// }
 /// assert_eq!(S::LEN, 2);
-/// assert_eq!(S::NAMES[1], "bar");
 /// assert_eq!(S::name_to_index("bar").unwrap(), 1);
 /// ```
 pub trait KeyLookup {
@@ -20,11 +19,6 @@ pub trait KeyLookup {
     ///
     /// This is used by `impl Keys for Packed`.
     const LEN: usize;
-
-    /// Field names.
-    ///
-    /// May be empty if `Self` computes and parses names.
-    const NAMES: &'static [&'static str];
 
     /// Convert a top level node name to a node index.
     ///

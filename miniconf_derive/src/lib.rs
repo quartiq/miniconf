@@ -28,7 +28,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     let (names, name_to_index, index_to_name, index_len) =
         if fields.iter().all(|f| f.ident.is_none()) {
             (
-                quote!(&[]),
+                None,
                 quote!(str::parse(value).ok()),
                 quote!(if index >= #fields_len {
                     Err(::miniconf::Traversal::NotFound(1))?
@@ -44,16 +44,16 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                 quote! { stringify!(#name) }
             });
             (
-                quote!(&[#(#names ,)*]),
-                quote!(<Self as ::miniconf::KeyLookup>::NAMES
-                    .iter()
-                    .position(|&n| n == value)),
+                Some(quote!(
+                    const __MINICONF_NAMES: &'static [&'static str] = &[#(#names ,)*];
+                )),
+                quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
                 quote!(Some(
-                    *<Self as ::miniconf::KeyLookup>::NAMES
+                    *Self::__MINICONF_NAMES
                         .get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?
                 )),
-                quote!(<Self as ::miniconf::KeyLookup>::NAMES[index].len()),
+                quote!(Self::__MINICONF_NAMES[index].len()),
             )
         };
 
@@ -85,11 +85,12 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
                     Ok(index)
                 }
             }
+
+            #names
         }
 
         impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
             const LEN: usize = #fields_len;
-            const NAMES: &'static [&'static str] = #names;
 
             #[inline]
             fn name_to_index(value: &str) -> Option<usize> {

@@ -225,7 +225,7 @@ where
                 Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "absent".as_bytes(),
                 ret => &buf[..ret?],
             };
-            if yafnv::fnv1a::<u32, _>(def) == check {
+            if yafnv::fnv1a::<u32>(def) == check {
                 awrite(&mut write, " [default]\n".as_bytes()).await?;
             } else {
                 awrite(&mut write, " [default: ".as_bytes()).await?;

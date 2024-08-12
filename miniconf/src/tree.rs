@@ -601,7 +601,7 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     ///     bar: [u16; 2],
     /// };
     /// let mut s = S::default();
-    /// let mut de = serde_json_core::de::Deserializer::new(b"7");
+    /// let mut de = serde_json_core::de::Deserializer::new(b"7", None);
     /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.bar[0], 7);
