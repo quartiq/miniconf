@@ -6,7 +6,7 @@ use darling::{
 use proc_macro2::TokenStream;
 use quote::quote;
 
-#[derive(Debug, FromField)]
+#[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree))]
 pub struct TreeField {
     pub ident: Option<syn::Ident>,
@@ -182,7 +182,7 @@ impl TreeField {
     }
 }
 
-#[derive(Debug, FromDeriveInput)]
+#[derive(Debug, FromDeriveInput, Clone)]
 #[darling(attributes(tree))]
 #[darling(supports(struct_any))]
 pub struct Tree {
