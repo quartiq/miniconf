@@ -166,3 +166,33 @@ fn locked() {
     assert_eq!(s.val, 1);
     s.set_json("/val", b"1").unwrap_err();
 }
+
+#[test]
+fn write_only() {
+    #[derive(Default, Tree)]
+    struct S {
+        #[tree(typ="[i32; 0]", get=Self::get, get_mut=Self::get_mut, validate=Self::validate)]
+        v: (),
+    }
+
+    impl S {
+        fn get(&self) -> Result<&(), &'static str> {
+            Ok(&())
+        }
+
+        fn get_mut(&mut self) -> Result<&mut (), &'static str> {
+            Ok(&mut self.v)
+        }
+
+        fn validate(&mut self, val: &str) -> Result<(), &'static str> {
+            assert_eq!(val, "foo");
+            Ok(())
+        }
+    }
+
+    let mut s = S::default();
+    s.set_json("/v", b"\"foo\"").unwrap();
+    let mut buf = [0u8; 10];
+    let len = s.get_json("/v", &mut buf[..]).unwrap();
+    assert_eq!(&buf[..len], b"null");
+}
