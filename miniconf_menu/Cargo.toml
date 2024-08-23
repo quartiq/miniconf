@@ -1,11 +1,11 @@
 [package]
-name = "miniconf_cli"
+name = "miniconf_menu"
 version = "0.2.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/quartiq/miniconf"
 authors = ["Robert Jördens <rj@quartiq.de>"]
-description = "Menu/CLI for Miniconf"
+description = "Menu for Miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
 
