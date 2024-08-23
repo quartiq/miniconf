@@ -6,6 +6,7 @@ use common::Settings;
 
 fn main() -> Result<()> {
     let mut settings = Settings::default();
+    settings.enable();
 
     // Parse args
     let mut args = std::env::args().skip(1);

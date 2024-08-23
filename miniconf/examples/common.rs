@@ -42,3 +42,11 @@ pub struct Settings {
     #[tree(depth = 3)]
     array_option_tree: [Option<Inner>; 2],
 }
+
+impl Settings {
+    pub fn enable(&mut self) {
+        self.option_tree = Some(8);
+        self.option_tree2 = Some(Default::default());
+        self.array_option_tree[1] = Some(Default::default());
+    }
+}

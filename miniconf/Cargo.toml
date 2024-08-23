@@ -31,6 +31,12 @@ all-features = true
 [dev-dependencies]
 anyhow = "1.0.86"
 postcard = { version = "1.0.8", features = ["use-std"] }
+embedded-io = "0.6.1"
+embedded-io-async = "0.6.1"
+embedded-io-adapters = { version = "0.6.1", features = ["tokio-1"] }
+heapless = "0.8.0"
+yafnv = "3.0.0"
+tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 
 [[test]]
 name = "arrays"
@@ -75,3 +81,7 @@ required-features = ["json-core", "derive"]
 [[example]]
 name = "cli"
 required-features = ["json-core", "derive"]
+
+[[example]]
+name = "menu"
+required-features = ["json-core", "derive", "postcard"]

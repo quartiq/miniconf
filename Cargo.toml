@@ -3,6 +3,5 @@ members = [
     "miniconf_derive",
     "miniconf",
     "miniconf_mqtt",
-    "miniconf_menu",
 ]
 resolver = "2"
