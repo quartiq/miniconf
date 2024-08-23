@@ -79,6 +79,10 @@ name = "validate"
 required-features = ["json-core", "derive"]
 
 [[example]]
+name = "common"
+crate-type = ["lib"]
+
+[[example]]
 name = "cli"
 required-features = ["json-core", "derive"]
 

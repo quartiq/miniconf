@@ -44,6 +44,7 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Fill some of the Options
     pub fn enable(&mut self) {
         self.option_tree = Some(8);
         self.option_tree2 = Some(Default::default());

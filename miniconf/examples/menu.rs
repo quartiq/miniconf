@@ -296,39 +296,8 @@ async fn main() -> Result<()> {
     s.enable();
 
     let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
-    let mut menu = Menu::default();
-
-    menu.enter("/option_tree2").unwrap();
-    menu.enter("/b").unwrap();
-    menu.set(&mut s, b"1234").unwrap();
-    menu.exit(2).unwrap();
-    menu.push("/array_option_tree/1/a")
-        .unwrap()
-        .0
-        .set(&mut s, b"9")
-        .unwrap();
-    let paths: Vec<heapless::String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
-    stdout
-        .write_all(format!("{:?}\n", paths).as_bytes())
-        .await
-        .unwrap();
-    menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
-    menu.enter("/struct_tree").unwrap();
-    menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
-    menu.exit(1).unwrap();
-    menu.push("/struct_")
-        .unwrap()
-        .0
-        .reset(&mut s, &mut buf)
-        .unwrap();
-    menu.push("/option_tree2")
-        .unwrap()
-        .0
-        .reset(&mut s, &mut buf)
-        .unwrap();
-    menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
-
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let mut menu = Menu::default();
 
     while let Some(line) = stdin.next_line().await? {
         let ret = menu
@@ -341,4 +310,49 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test() {
+        let mut buf = vec![0; 1024];
+        let mut s = common::Settings::default();
+        s.enable();
+
+        let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
+        let mut menu = Menu::default();
+
+        menu.enter("/option_tree2").unwrap();
+        menu.enter("/b").unwrap();
+        menu.set(&mut s, b"1234").unwrap();
+        menu.exit(2).unwrap();
+        menu.push("/array_option_tree/1/a")
+            .unwrap()
+            .0
+            .set(&mut s, b"9")
+            .unwrap();
+        let paths: Vec<heapless::String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
+        stdout
+            .write_all(format!("{:?}\n", paths).as_bytes())
+            .await
+            .unwrap();
+        menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
+        menu.enter("/struct_tree").unwrap();
+        menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
+        menu.exit(1).unwrap();
+        menu.push("/struct_")
+            .unwrap()
+            .0
+            .reset(&mut s, &mut buf)
+            .unwrap();
+        menu.push("/option_tree2")
+            .unwrap()
+            .0
+            .reset(&mut s, &mut buf)
+            .unwrap();
+        menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
+    }
 }
