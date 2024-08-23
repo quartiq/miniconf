@@ -42,8 +42,8 @@ struct Settings {
     array: [i32; 2],
     option: Option<i32>,
 
-    // Skipping (`()` is not Deserialize/Serialize)
     #[tree(skip)]
+    #[allow(unused)]
     skipped: (),
 
     #[tree(depth=1)]

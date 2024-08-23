@@ -29,6 +29,7 @@ std = []
 all-features = true
 
 [dev-dependencies]
+anyhow = "1.0.86"
 postcard = { version = "1.0.8", features = ["use-std"] }
 
 [[test]]
@@ -69,4 +70,8 @@ required-features = ["json-core", "derive"]
 
 [[test]]
 name = "validate"
+required-features = ["json-core", "derive"]
+
+[[example]]
+name = "cli"
 required-features = ["json-core", "derive"]
