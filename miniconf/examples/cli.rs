@@ -1,52 +1,11 @@
 use anyhow::{Context, Result};
-use miniconf::{Error, JsonCoreSlash, Path, Traversal, Tree, TreeKey};
-use serde::{Deserialize, Serialize};
+use miniconf::{Error, JsonCoreSlash, Path, Traversal, TreeKey};
 
-// Either/Inner/Settings are straight from README.md
-
-#[derive(Deserialize, Serialize, Default)]
-enum Either {
-    #[default]
-    Bad,
-    Good,
-}
-
-#[derive(Deserialize, Serialize, Default, Tree)]
-struct Inner {
-    a: i32,
-    b: i32,
-}
-
-#[derive(Tree, Default)]
-struct Settings {
-    foo: bool,
-    enum_: Either,
-    struct_: Inner,
-    array: [i32; 2],
-    option: Option<i32>,
-
-    #[tree(skip)]
-    #[allow(unused)]
-    skipped: (),
-
-    #[tree(depth = 1)]
-    struct_tree: Inner,
-    #[tree(depth = 1)]
-    array_tree: [i32; 2],
-    #[tree(depth = 2)]
-    array_tree2: [Inner; 2],
-
-    #[tree(depth = 1)]
-    option_tree: Option<i32>,
-    #[tree(depth = 2)]
-    option_tree2: Option<Inner>,
-    #[tree(depth = 3)]
-    array_option_tree: [Option<Inner>; 2],
-}
+mod common;
+use common::Settings;
 
 fn main() -> Result<()> {
     let mut settings = Settings::default();
-    settings.array_option_tree[1] = Some(Default::default());
 
     // Parse args
     let mut args = std::env::args().skip(1);
