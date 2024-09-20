@@ -57,9 +57,9 @@ fn do_derive_tree_key(mut tree: field::Tree) -> TokenStream {
         .enumerate()
         .filter_map(|(i, field)| field.metadata(i));
     let defers = fields.iter().map(|field| field.depth > 0);
+
     let depth = tree.depth();
     let ident = &tree.ident;
-
     let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
 
     quote! {
@@ -150,15 +150,15 @@ fn do_derive_tree_serialize(mut tree: field::Tree) -> TokenStream {
         }
     });
 
+    let depth = tree.depth();
+    let ident = &tree.ident;
+    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
+
     let serialize_by_key_arms = tree
         .fields()
         .iter()
         .enumerate()
         .map(|(i, field)| field.serialize_by_key(i));
-    let depth = tree.depth();
-    let ident = &tree.ident;
-
-    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
 
     quote! {
         impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
@@ -238,6 +238,10 @@ fn do_derive_tree_any(mut tree: field::Tree) -> TokenStream {
         }
     });
 
+    let depth = tree.depth();
+    let ident = &tree.ident;
+    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
+
     let ref_any_by_key_arms = tree
         .fields()
         .iter()
@@ -248,10 +252,6 @@ fn do_derive_tree_any(mut tree: field::Tree) -> TokenStream {
         .iter()
         .enumerate()
         .map(|(i, field)| field.mut_any_by_key(i));
-    let depth = tree.depth();
-    let ident = &tree.ident;
-
-    let (impl_generics, ty_generics, where_clause) = tree.generics.split_for_impl();
 
     quote! {
         impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {

@@ -1,6 +1,6 @@
 use darling::{
     ast::{self, Data},
-    util::Flag,
+    util::{Flag, SpannedValue},
     Error, FromDeriveInput, FromField, FromVariant,
 };
 use proc_macro2::TokenStream;
@@ -200,6 +200,7 @@ pub struct Tree {
     // pub vis: syn::Visibility,
     pub data: ast::Data<TreeVariant, TreeField>,
     // attrs: Vec<syn::Attribute>,
+    pub tag: Option<SpannedValue<syn::Path>>, // FIXME: implement
 }
 
 impl Tree {
@@ -211,18 +212,28 @@ impl Tree {
     }
 
     pub(crate) fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
-        let mut t = Self::from_derive_input(input)?;
+        let mut tree = Self::from_derive_input(input)?;
 
-        match &mut t.data {
-            Data::Struct(fields) => remove_skipped(&mut fields.fields),
+        match &mut tree.data {
+            Data::Struct(fields) => {
+                if let Some(tag) = &tree.tag {
+                    return Err(Error::custom("No `tag` for structs").with_span(&tag.span()));
+                }
+                remove_skipped(&mut fields.fields)?;
+            }
             Data::Enum(variants) => {
+                if let Some(tag) = &tree.tag {
+                    return Err(
+                        Error::custom("`tag` for enums unimplemented").with_span(&tag.span())
+                    );
+                }
                 variants.retain(|v| !v.skip.is_present());
                 for v in variants.iter_mut() {
-                    remove_skipped(&mut v.fields.fields);
+                    remove_skipped(&mut v.fields.fields)?;
                 }
             }
         }
-        Ok(t)
+        Ok(tree)
     }
 
     pub(crate) fn fields(&self) -> &Vec<TreeField> {
@@ -253,21 +264,24 @@ fn depth<'a>(fields: impl IntoIterator<Item = &'a TreeField>) -> usize {
     fields.into_iter().fold(0, |d, field| d.max(field.depth))
 }
 
-fn remove_skipped(fields: &mut Vec<TreeField>) {
+fn remove_skipped(fields: &mut Vec<TreeField>) -> Result<(), Error> {
     // unnamed fields can only be skipped if they are terminal
     while fields
         .last()
-        .map(|f| f.skip.is_present())
+        .map(|f| f.ident.is_none() && f.skip.is_present())
         .unwrap_or_default()
     {
         fields.pop();
     }
-    fields.retain(|f| {
-        if f.skip.is_present() {
-            assert!(f.ident.is_some());
-        }
-        !f.skip.is_present()
-    });
+    fields.retain(|f| f.ident.is_some() && !f.skip.is_present());
+    if let Some(f) = fields.iter().filter(|f| f.skip.is_present()).next() {
+        Err(
+            Error::custom("Can not `skip` non-terminal tuple struct fields")
+                .with_span(&f.skip.span()),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 fn walk_type_params<F>(typ: &syn::Type, func: &mut F, depth: usize, generics: &mut syn::Generics)
