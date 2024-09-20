@@ -4,7 +4,7 @@ use syn::{parse_macro_input, parse_quote, DeriveInput};
 
 mod field;
 
-fn do_derive_tree_key(mut tree: field::Tree) -> TokenStream {
+fn do_derive_tree_key(tree: &mut field::Tree) -> TokenStream {
     tree.bound_generics(&mut |depth| {
         if depth > 0 {
             Some(parse_quote!(::miniconf::TreeKey<#depth>))
@@ -141,7 +141,7 @@ fn do_derive_tree_key(mut tree: field::Tree) -> TokenStream {
     .into()
 }
 
-fn do_derive_tree_serialize(mut tree: field::Tree) -> TokenStream {
+fn do_derive_tree_serialize(tree: &mut field::Tree) -> TokenStream {
     tree.bound_generics(&mut |depth| {
         if depth > 0 {
             Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
@@ -179,7 +179,7 @@ fn do_derive_tree_serialize(mut tree: field::Tree) -> TokenStream {
     }.into()
 }
 
-fn do_derive_tree_deserialize(mut tree: field::Tree) -> TokenStream {
+fn do_derive_tree_deserialize(tree: &mut field::Tree) -> TokenStream {
     tree.bound_generics(&mut |depth| {
         if depth > 0 {
             Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
@@ -229,7 +229,7 @@ fn do_derive_tree_deserialize(mut tree: field::Tree) -> TokenStream {
     }.into()
 }
 
-fn do_derive_tree_any(mut tree: field::Tree) -> TokenStream {
+fn do_derive_tree_any(tree: &mut field::Tree) -> TokenStream {
     tree.bound_generics(&mut |depth| {
         if depth > 0 {
             Some(parse_quote!(::miniconf::TreeAny<#depth>))
@@ -294,7 +294,7 @@ fn do_derive_tree_any(mut tree: field::Tree) -> TokenStream {
 #[proc_macro_derive(TreeKey, attributes(tree))]
 pub fn derive_tree_key(input: TokenStream) -> TokenStream {
     match field::Tree::parse(&parse_macro_input!(input as DeriveInput)) {
-        Ok(t) => do_derive_tree_key(t),
+        Ok(mut t) => do_derive_tree_key(&mut t),
         Err(e) => e.write_errors().into(),
     }
 }
@@ -303,7 +303,7 @@ pub fn derive_tree_key(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(TreeSerialize, attributes(tree))]
 pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
     match field::Tree::parse(&parse_macro_input!(input as DeriveInput)) {
-        Ok(t) => do_derive_tree_serialize(t),
+        Ok(mut t) => do_derive_tree_serialize(&mut t),
         Err(e) => e.write_errors().into(),
     }
 }
@@ -312,7 +312,7 @@ pub fn derive_tree_serialize(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(TreeDeserialize, attributes(tree))]
 pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
     match field::Tree::parse(&parse_macro_input!(input as DeriveInput)) {
-        Ok(t) => do_derive_tree_deserialize(t),
+        Ok(mut t) => do_derive_tree_deserialize(&mut t),
         Err(e) => e.write_errors().into(),
     }
 }
@@ -321,7 +321,7 @@ pub fn derive_tree_deserialize(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(TreeAny, attributes(tree))]
 pub fn derive_tree_any(input: TokenStream) -> TokenStream {
     match field::Tree::parse(&parse_macro_input!(input as DeriveInput)) {
-        Ok(t) => do_derive_tree_any(t),
+        Ok(mut t) => do_derive_tree_any(&mut t),
         Err(e) => e.write_errors().into(),
     }
 }
@@ -330,11 +330,11 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(Tree, attributes(tree))]
 pub fn derive_tree(input: TokenStream) -> TokenStream {
     match field::Tree::parse(&parse_macro_input!(input as DeriveInput)) {
-        Ok(t) => {
-            let mut ts = do_derive_tree_key(t.clone());
-            ts.extend(do_derive_tree_any(t.clone()));
-            ts.extend(do_derive_tree_serialize(t.clone()));
-            ts.extend(do_derive_tree_deserialize(t));
+        Ok(mut t) => {
+            let mut ts = do_derive_tree_key(&mut t);
+            ts.extend(do_derive_tree_any(&mut t));
+            ts.extend(do_derive_tree_serialize(&mut t));
+            ts.extend(do_derive_tree_deserialize(&mut t));
             ts
         }
         Err(e) => e.write_errors().into(),
