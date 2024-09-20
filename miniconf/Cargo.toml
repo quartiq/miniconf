@@ -75,6 +75,10 @@ name = "structs"
 required-features = ["json-core", "derive"]
 
 [[test]]
+name = "enum"
+required-features = ["json-core", "derive"]
+
+[[test]]
 name = "validate"
 required-features = ["json-core", "derive"]
 
