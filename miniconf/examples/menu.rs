@@ -1,16 +1,18 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-
-use core::fmt::{self};
+use core::fmt;
 use core::marker::PhantomData;
 
+use anyhow::{Context, Result};
 use embedded_io::Write;
 use embedded_io_async::Write as AWrite;
-use heapless::String;
 use postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
+use tokio::io::AsyncBufReadExt;
 
 use miniconf::{
-    Indices, JsonCoreSlash, Keys, Node, Packed, Path, Postcard, Transcode, Traversal, TreeKey,
+    Indices, JsonCoreSlashOwned, Keys, Node, Packed, Path, PostcardOwned, Transcode, Traversal,
+    TreeKey,
 };
+
+mod common;
 
 /// Wrapper to support core::fmt::Write for embedded_io::Write
 struct WriteWrap<T>(T);
@@ -95,7 +97,12 @@ where
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
         let (idx, node) = M::transcode::<Indices<[_; Y]>, _>(self.key)?;
-        if let Some(idx) = idx.get(..node.depth() - levels) {
+        if let Some(idx) = idx.get(
+            ..node
+                .depth()
+                .checked_sub(levels)
+                .ok_or(Traversal::TooLong(0))?,
+        ) {
             let (key, node) = M::transcode(&Indices::from(idx))?;
             Ok((Self::new(key), node))
         } else {
@@ -115,10 +122,10 @@ where
         Ok(node)
     }
 
-    pub fn list<const S: usize>(
+    pub fn list<S: core::fmt::Write + Default>(
         &self,
-    ) -> Result<impl Iterator<Item = Result<String<S>, usize>>, Traversal> {
-        Ok(M::nodes::<Path<String<S>, SEPARATOR>>()
+    ) -> Result<impl Iterator<Item = Result<S, usize>>, Traversal> {
+        Ok(M::nodes::<Path<S, SEPARATOR>>()
             .root(self.key)?
             .map(|pn| pn.map(|(p, _n)| p.into_inner())))
     }
@@ -129,7 +136,7 @@ where
         buf: &mut [u8],
     ) -> Result<usize, miniconf::Error<serde_json_core::ser::Error>>
     where
-        M: for<'de> JsonCoreSlash<'de, Y>,
+        M: JsonCoreSlashOwned<Y>,
     {
         instance.get_json_by_key(self.key, buf)
     }
@@ -140,7 +147,7 @@ where
         buf: &[u8],
     ) -> Result<usize, miniconf::Error<serde_json_core::de::Error>>
     where
-        M: for<'de> JsonCoreSlash<'de, Y>,
+        M: JsonCoreSlashOwned<Y>,
     {
         instance.set_json_by_key(self.key, buf)
     }
@@ -151,7 +158,7 @@ where
         buf: &mut [u8],
     ) -> Result<(), miniconf::Error<postcard::Error>>
     where
-        M: for<'de> Postcard<'de, Y> + Default,
+        M: PostcardOwned<Y> + Default,
     {
         let def = M::default();
         for keys in M::nodes::<Packed>().root(self.key)? {
@@ -183,7 +190,7 @@ where
     ) -> Result<(), Error<W::Error>>
     where
         W: AWrite,
-        M: for<'de> JsonCoreSlash<'de, Y> + Default,
+        M: JsonCoreSlashOwned<Y> + Default,
     {
         let def = M::default();
         let bl = buf.len();
@@ -235,67 +242,117 @@ where
         }
         Ok(())
     }
+
+    async fn handle_cmd(
+        &mut self,
+        line: &str,
+        mut stdout: impl AWrite,
+        buf: &mut [u8],
+        instance: &mut M,
+    ) -> anyhow::Result<String>
+    where
+        M: JsonCoreSlashOwned<Y> + Default,
+    {
+        let mut args = line.splitn(2, ' ');
+        Ok(match args.next().context("command")? {
+            "enter" => {
+                let path = args.next().context("path")?;
+                self.enter(path)
+                    .map_err(anyhow::Error::msg)
+                    .map(|node| format!("{node:?}"))?
+            }
+            "exit" => {
+                let levels = args.next().and_then(|v| str::parse(v).ok()).unwrap_or(1);
+                self.exit(levels)
+                    .map_err(anyhow::Error::msg)
+                    .map(|node| format!("{node:?}"))?
+            }
+            "get" => self
+                .get(instance, &mut buf[..])
+                .map_err(anyhow::Error::msg)
+                .map(|len| String::from_utf8(buf[..len].to_owned()).unwrap())?,
+            "set" => self
+                .set(instance, args.next().context("value")?.as_bytes())
+                .map_err(anyhow::Error::msg)
+                .and(Ok("".to_owned()))?,
+            "dump" => self
+                .dump(instance, &mut stdout, buf)
+                .await
+                .map_err(|err| anyhow::Error::msg(format!("{err:?}")))
+                .and(Ok("".to_owned()))?,
+            "reset" => self
+                .reset(instance, buf)
+                .map_err(anyhow::Error::msg)
+                .and(Ok("".to_owned()))?,
+            cmd => format!("no such command: {cmd}"),
+        })
+    }
 }
 
-#[cfg(all(test, feature = "std"))]
-mod tests {
-    use miniconf::Tree;
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<()> {
+    let mut buf = vec![0; 1024];
+    let mut s = common::Settings::default();
+    s.enable();
 
+    let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
+    let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    let mut menu = Menu::default();
+
+    while let Some(line) = stdin.next_line().await? {
+        let ret = menu
+            .handle_cmd(line.as_str(), &mut stdout, &mut buf[..], &mut s)
+            .await;
+        awrite(&mut stdout, format!("{:?}", ret).as_bytes())
+            .await
+            .unwrap();
+        awrite(&mut stdout, "\n".as_bytes()).await.unwrap();
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod test {
     use super::*;
 
-    #[derive(Tree, Default)]
-    struct Inner {
-        e: i32,
-    }
-
-    #[derive(Tree, Default)]
-    struct Set {
-        a: i32,
-        #[tree(depth = 1)]
-        b: [i32; 3],
-        #[tree(depth = 1)]
-        c: Option<i32>,
-        #[tree(depth = 1)]
-        d: Inner,
-        #[tree(depth = 2)]
-        f: [Inner; 2],
-        #[tree(depth = 4)]
-        g: [[[Inner; 1]; 1]; 1],
-    }
-    const Y: usize = 5;
-    const S: usize = 128;
-
-    #[test]
-    fn new() {
-        let m = Menu::<Set, Y>::default();
-        for p in m.list::<S>().unwrap() {
-            println!("{}", p.unwrap());
-        }
-    }
-
     #[tokio::test]
-    async fn all() {
-        let mut buf = [0; 1024];
-        let mut s = Set::default();
+    async fn test() {
+        let mut buf = vec![0; 1024];
+        let mut s = common::Settings::default();
+        s.enable();
+
         let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
-        let mut menu = Menu::<Set, Y>::default();
-        s.c = Some(8);
+        let mut menu = Menu::default();
+
+        menu.enter("/option_tree2").unwrap();
         menu.enter("/b").unwrap();
-        menu.enter("/0").unwrap();
         menu.set(&mut s, b"1234").unwrap();
         menu.exit(2).unwrap();
-        menu.push("/f/1/e").unwrap().0.set(&mut s, b"9").unwrap();
-        let paths: Vec<String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
+        menu.push("/array_option_tree/1/a")
+            .unwrap()
+            .0
+            .set(&mut s, b"9")
+            .unwrap();
+        let paths: Vec<heapless::String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
         stdout
             .write_all(format!("{:?}\n", paths).as_bytes())
             .await
             .unwrap();
         menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
-        menu.enter("/f").unwrap();
+        menu.enter("/struct_tree").unwrap();
         menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
         menu.exit(1).unwrap();
-        menu.push("/c").unwrap().0.reset(&mut s, &mut buf).unwrap();
-        menu.push("/b").unwrap().0.reset(&mut s, &mut buf).unwrap();
+        menu.push("/struct_")
+            .unwrap()
+            .0
+            .reset(&mut s, &mut buf)
+            .unwrap();
+        menu.push("/option_tree2")
+            .unwrap()
+            .0
+            .reset(&mut s, &mut buf)
+            .unwrap();
         menu.dump(&s, &mut stdout, &mut buf).await.unwrap();
     }
 }

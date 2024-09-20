@@ -6,7 +6,7 @@ use darling::{
 use proc_macro2::TokenStream;
 use quote::quote;
 
-#[derive(Debug, FromField)]
+#[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree))]
 pub struct TreeField {
     pub ident: Option<syn::Ident>,
@@ -46,9 +46,9 @@ impl TreeField {
         // Quote context is a match of the field index with `traverse_by_key()` args available.
         let depth = self.depth;
         if depth > 0 {
-            let field_type = self.typ();
+            let typ = self.typ();
             Some(quote! {
-                #i => <#field_type as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
+                #i => <#typ as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
             })
         } else {
             None
@@ -59,9 +59,9 @@ impl TreeField {
         // Quote context is a match of the field index with `metadata()` args available.
         let depth = self.depth;
         if depth > 0 {
-            let field_type = self.typ();
+            let typ = self.typ();
             Some(quote! {
-                #i => <#field_type as ::miniconf::TreeKey<#depth>>::metadata()
+                #i => <#typ as ::miniconf::TreeKey<#depth>>::metadata()
             })
         } else {
             None
@@ -90,10 +90,12 @@ impl TreeField {
 
     fn validator(&self) -> TokenStream {
         match &self.validate {
-            Some(validate) => quote! { |value|
-                #validate(self, value).map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
+            Some(validate) => quote! {
+                .and_then(|value| #validate(self, value)
+                    .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
+                )
             },
-            None => quote! { |value| Ok(value) },
+            None => quote! {},
         }
     }
 
@@ -130,13 +132,13 @@ impl TreeField {
                     .and_then(|item|
                         ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(item, keys, de)
                     )
-                    .and_then(#validator)
+                    #validator
             }
         } else {
             quote! {
                 #i => ::miniconf::Deserialize::deserialize(de)
                     .map_err(|err| ::miniconf::Error::Inner(0, err))
-                    .and_then(#validator)
+                    #validator
                     .and_then(|value|
                         #getter_mut.and_then(|item| {
                             *item = value;
@@ -180,7 +182,7 @@ impl TreeField {
     }
 }
 
-#[derive(Debug, FromDeriveInput)]
+#[derive(Debug, FromDeriveInput, Clone)]
 #[darling(attributes(tree))]
 #[darling(supports(struct_any))]
 pub struct Tree {
