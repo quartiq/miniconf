@@ -1,7 +1,7 @@
 use darling::{
     ast::{self, Data},
     util::Flag,
-    Error, FromDeriveInput, FromField,
+    Error, FromDeriveInput, FromField, FromVariant,
 };
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -182,42 +182,46 @@ impl TreeField {
     }
 }
 
+#[derive(Debug, FromVariant, Clone)]
+#[darling(attributes(tree))]
+pub struct TreeVariant {
+    pub ident: syn::Ident,
+    pub rename: Option<syn::Ident>,
+    pub skip: Flag,
+    pub fields: ast::Fields<TreeField>,
+}
+
 #[derive(Debug, FromDeriveInput, Clone)]
 #[darling(attributes(tree))]
-#[darling(supports(struct_any))]
+#[darling(supports(any))]
 pub struct Tree {
     pub ident: syn::Ident,
     pub generics: syn::Generics,
     // pub vis: syn::Visibility,
-    pub data: ast::Data<(), TreeField>,
+    pub data: ast::Data<TreeVariant, TreeField>,
     // attrs: Vec<syn::Attribute>,
 }
 
 impl Tree {
     pub(crate) fn depth(&self) -> usize {
-        self.fields()
-            .iter()
-            .fold(0usize, |d, field| d.max(field.depth))
-            + 1
+        match &self.data {
+            Data::Struct(fields) => depth(&fields.fields) + 1,
+            Data::Enum(variants) => depth(variants.iter().flat_map(|v| v.fields.fields.iter())) + 2,
+        }
     }
 
     pub(crate) fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
         let mut t = Self::from_derive_input(input)?;
-        let fields = t.fields_mut();
-        // unnamed fields can only be skipped if they are terminal
-        while fields
-            .last()
-            .map(|f| f.skip.is_present())
-            .unwrap_or_default()
-        {
-            fields.pop();
-        }
-        fields.retain(|f| {
-            if f.skip.is_present() {
-                assert!(f.ident.is_some());
+
+        match &mut t.data {
+            Data::Struct(fields) => remove_skipped(&mut fields.fields),
+            Data::Enum(variants) => {
+                variants.retain(|v| !v.skip.is_present());
+                for v in variants.iter_mut() {
+                    remove_skipped(&mut v.fields.fields);
+                }
             }
-            !f.skip.is_present()
-        });
+        }
         Ok(t)
     }
 
@@ -228,29 +232,42 @@ impl Tree {
         &fields.fields
     }
 
-    pub(crate) fn fields_mut(&mut self) -> &mut Vec<TreeField> {
-        let Data::Struct(fields) = &mut self.data else {
-            unreachable!()
-        };
-        &mut fields.fields
-    }
-
     pub(crate) fn bound_generics<F>(&mut self, func: &mut F)
     where
         F: FnMut(usize) -> Option<syn::TypeParamBound>,
     {
-        let Self {
-            ref mut generics,
-            data: Data::Struct(ref fields),
-            ..
-        } = self
-        else {
-            unreachable!()
-        };
-        for f in fields.fields.iter() {
-            walk_type_params(f.typ(), func, f.depth, generics)
+        match &self.data {
+            Data::Struct(fields) => fields
+                .fields
+                .iter()
+                .for_each(|f| walk_type_params(f.typ(), func, f.depth, &mut self.generics)),
+            Data::Enum(variants) => variants
+                .iter()
+                .flat_map(|v| v.fields.fields.iter())
+                .for_each(|f| walk_type_params(f.typ(), func, f.depth, &mut self.generics)),
         }
     }
+}
+
+fn depth<'a>(fields: impl IntoIterator<Item = &'a TreeField>) -> usize {
+    fields.into_iter().fold(0, |d, field| d.max(field.depth))
+}
+
+fn remove_skipped(fields: &mut Vec<TreeField>) {
+    // unnamed fields can only be skipped if they are terminal
+    while fields
+        .last()
+        .map(|f| f.skip.is_present())
+        .unwrap_or_default()
+    {
+        fields.pop();
+    }
+    fields.retain(|f| {
+        if f.skip.is_present() {
+            assert!(f.ident.is_some());
+        }
+        !f.skip.is_present()
+    });
 }
 
 fn walk_type_params<F>(typ: &syn::Type, func: &mut F, depth: usize, generics: &mut syn::Generics)
