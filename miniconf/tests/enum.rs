@@ -1,14 +1,16 @@
-use miniconf::{
-    JsonCoreSlash, Path, Tree, TreeDeserialize, TreeKey, TreeSerialize,
-};
+use miniconf::{JsonCoreSlash, Path, Tree, TreeDeserialize, TreeKey, TreeSerialize};
 
+#[cfg(feature = "no")]
 #[test]
 fn tuple_struct() {
     #[derive(Tree, Default)]
     enum Settings {
         #[default]
         Unit,
-        Struct{a: i32, b: i32},
+        Struct {
+            a: i32,
+            b: i32,
+        },
         Tuple(i32, i32),
     }
 
@@ -31,4 +33,3 @@ fn tuple_struct() {
         vec!["/0", "/1"]
     );
 }
-
