@@ -6,13 +6,10 @@ use quote::quote;
 #[darling(attributes(tree))]
 pub struct TreeField {
     pub ident: Option<syn::Ident>,
-    // pub vis: syn::Visibility,
     pub ty: syn::Type,
-    // attrs: Vec<syn::Attribute>,
-    #[darling(skip)]
-    pub variant: bool,
     #[darling(default)]
     pub depth: usize,
+    // pub flatten: Flag, // FIXME: implement
     pub skip: Flag,
     pub typ: Option<syn::Type>,
     pub validate: Option<syn::Path>,
@@ -72,13 +69,7 @@ impl TreeField {
             Some(get) => quote! {
                 #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             },
-            None => {
-                if self.variant {
-                    quote! { Ok(#ident) }
-                } else {
-                    quote! { Ok(&self.#ident) }
-                }
-            }
+            None => quote! { Ok(&self.#ident) },
         }
     }
 
@@ -88,13 +79,7 @@ impl TreeField {
             Some(get_mut) => quote!(
                 #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             ),
-            None => {
-                if self.variant {
-                    quote! { Ok(#ident) }
-                } else {
-                    quote! { Ok(&mut self.#ident) }
-                }
-            }
+            None => quote! { Ok(&mut self.#ident) },
         }
     }
 

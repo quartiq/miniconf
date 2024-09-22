@@ -1,6 +1,6 @@
 use darling::{
     ast::{self, Data},
-    util::{Flag, SpannedValue},
+    util::Flag,
     Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
@@ -13,7 +13,10 @@ use crate::field::TreeField;
 #[darling(attributes(tree))]
 pub struct TreeVariant {
     pub ident: syn::Ident,
-    pub rename: Option<syn::Ident>,
+    pub rename: Option<syn::Ident>, // FIXME: implement
+    // pub flatten: Flag, // FIXME: implement
+    #[darling(default)]
+    pub depth: usize,
     pub skip: Flag,
     pub fields: ast::Fields<TreeField>,
 }
@@ -24,17 +27,14 @@ pub struct TreeVariant {
 pub struct Tree {
     pub ident: syn::Ident,
     pub generics: syn::Generics,
-    // pub vis: syn::Visibility,
     pub data: ast::Data<TreeVariant, TreeField>,
-    // attrs: Vec<syn::Attribute>,
-    pub tag: Option<SpannedValue<syn::Path>>, // FIXME: implement
 }
 
 impl Tree {
     pub(crate) fn depth(&self) -> usize {
         match &self.data {
             Data::Struct(fields) => depth(&fields.fields) + 1,
-            Data::Enum(variants) => depth(variants.iter().flat_map(|v| &v.fields.fields)) + 2,
+            Data::Enum(variants) => depth(variants.iter().flat_map(|v| &v.fields.fields)) + 1,
         }
     }
 
@@ -43,20 +43,16 @@ impl Tree {
 
         match &mut tree.data {
             Data::Struct(fields) => {
-                if let Some(tag) = &tree.tag {
-                    return Err(Error::custom("No `tag` for structs").with_span(&tag.span()));
-                }
                 remove_skipped(&mut fields.fields)?;
             }
             Data::Enum(variants) => {
-                if tree.tag.is_some() {
-                    unimplemented!();
-                }
                 variants.retain(|v| !v.skip.is_present());
                 for v in variants.iter_mut() {
-                    remove_skipped(&mut v.fields.fields)?;
-                    for f in v.fields.fields.iter_mut() {
-                        f.variant = true;
+                    if !(v.fields.is_newtype() || v.fields.is_unit()) {
+                        // Note(design) For tuple or named struct variants we'd have to create proxy
+                        // structs anyway to support KeyLookup on that level.
+                        return Err(Error::custom("Only newtype or unit variants are supported")
+                            .with_span(&v.ident.span())); // FIXME: Fields.span is not pub, no span()
                     }
                 }
             }
@@ -93,11 +89,7 @@ impl Tree {
         let depth = self.depth();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeKey<#depth>))
-            } else {
-                None
-            }
+            (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
         });
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
@@ -240,15 +232,15 @@ fn remove_skipped(fields: &mut Vec<TreeField>) -> Result<(), Error> {
     // unnamed fields can only be skipped if they are terminal
     while fields
         .last()
-        .map(|f| f.ident.is_none() && f.skip.is_present())
+        .map(|f| f.skip.is_present())
         .unwrap_or_default()
     {
         fields.pop();
     }
-    fields.retain(|f| f.ident.is_some() && !f.skip.is_present());
-    if let Some(f) = fields.iter().filter(|f| f.skip.is_present()).next() {
+    fields.retain(|f| f.ident.is_none() || !f.skip.is_present());
+    if let Some(f) = fields.iter().find(|f| f.skip.is_present()) {
         Err(
-            Error::custom("Can not `skip` non-terminal tuple struct fields")
+            Error::custom("Can only `skip` terminal tuple struct fields")
                 .with_span(&f.skip.span()),
         )
     } else {
