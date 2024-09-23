@@ -15,10 +15,45 @@ pub struct TreeVariant {
     pub ident: syn::Ident,
     pub rename: Option<syn::Ident>, // FIXME: implement
     // pub flatten: Flag, // FIXME: implement
-    #[darling(default)]
-    pub depth: usize,
     pub skip: Flag,
     pub fields: ast::Fields<TreeField>,
+}
+
+impl TreeVariant {
+    pub(crate) fn field(&self) -> &TreeField {
+        assert!(self.fields.len() == 1);
+        self.fields.fields.first().unwrap()
+    }
+
+    pub(crate) fn name(&self) -> &syn::Ident {
+        self.rename.as_ref().unwrap_or(&self.ident)
+    }
+
+    pub(crate) fn traverse_by_key(&self, i: usize) -> Option<TokenStream> {
+        // Quote context is a match of the field index with `traverse_by_key()` args available.
+        let depth = self.field().depth;
+        if depth > 0 {
+            let typ = self.field().typ();
+            Some(quote! {
+                #i => <#typ as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
+            })
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn metadata(&self, i: usize) -> Option<TokenStream> {
+        // Quote context is a match of the field index with `metadata()` args available.
+        let depth = self.field().depth;
+        if depth > 0 {
+            let typ = self.field().typ();
+            Some(quote! {
+                #i => <#typ as ::miniconf::TreeKey<#depth>>::metadata()
+            })
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
@@ -33,8 +68,14 @@ pub struct Tree {
 impl Tree {
     pub(crate) fn depth(&self) -> usize {
         match &self.data {
-            Data::Struct(fields) => depth(&fields.fields) + 1,
-            Data::Enum(variants) => depth(variants.iter().flat_map(|v| &v.fields.fields)) + 1,
+            Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)) + 1,
+            Data::Enum(variants) => {
+                variants
+                    .iter()
+                    .flat_map(|v| &v.fields.fields)
+                    .fold(0, |d, field| d.max(field.depth))
+                    + 1
+            }
         }
     }
 
@@ -43,7 +84,24 @@ impl Tree {
 
         match &mut tree.data {
             Data::Struct(fields) => {
-                remove_skipped(&mut fields.fields)?;
+                // unnamed fields can only be skipped if they are terminal
+                while fields
+                    .fields
+                    .last()
+                    .map(|f| f.skip.is_present())
+                    .unwrap_or_default()
+                {
+                    fields.fields.pop();
+                }
+                fields
+                    .fields
+                    .retain(|f| f.ident.is_none() || !f.skip.is_present());
+                if let Some(f) = fields.fields.iter().find(|f| f.skip.is_present()) {
+                    return Err(
+                        Error::custom("Can only `skip` terminal tuple struct fields")
+                            .with_span(&f.skip.span()),
+                    );
+                }
             }
             Data::Enum(variants) => {
                 variants.retain(|v| !v.skip.is_present());
@@ -54,7 +112,9 @@ impl Tree {
                         return Err(Error::custom("Only newtype or unit variants are supported")
                             .with_span(&v.ident.span())); // FIXME: Fields.span is not pub, no span()
                     }
+                    assert!(v.fields.len() <= 1);
                 }
+                variants.retain(|v| v.fields.is_newtype());
             }
         }
         Ok(tree)
@@ -218,33 +278,102 @@ impl Tree {
                 }
             }
             Data::Enum(variants) => {
-                unimplemented!()
+                let variants_len = variants.len();
+                let names = variants.iter().map(|v| {
+                    let name = v.name();
+                    quote! { stringify!(#name) }
+                });
+                let defers = variants.iter().map(|v| v.field().depth > 0);
+
+                let metadata_arms = variants
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, variant)| variant.metadata(i));
+                let traverse_by_key_arms = variants
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, variant)| variant.traverse_by_key(i));
+
+                quote! {
+                    impl #impl_generics #ident #ty_generics #where_clause {
+                        // TODO: can these be hidden and disambiguated w.r.t. collision?
+                        fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
+                            const DEFERS: [bool; #variants_len] = [#(#defers ,)*];
+                            let index = ::miniconf::Keys::next::<Self>(keys)?;
+                            let defer = DEFERS.get(index)
+                                .ok_or(::miniconf::Traversal::NotFound(1))?;
+                            if !defer && !keys.finalize() {
+                                Err(::miniconf::Traversal::TooLong(1))
+                            } else {
+                                Ok(index)
+                            }
+                        }
+
+                        const __MINICONF_NAMES: [&'static str; #variants_len] = [#(#names ,)*];
+                    }
+
+                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
+                        const LEN: usize = #variants_len;
+
+                        #[inline]
+                        fn name_to_index(value: &str) -> Option<usize> {
+                            Self::__MINICONF_NAMES.iter().position(|&n| n == value)
+                        }
+                    }
+
+                    impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
+                        fn metadata() -> ::miniconf::Metadata {
+                            let mut meta = ::miniconf::Metadata::default();
+                            for index in 0..#variants_len {
+                                let item_meta: ::miniconf::Metadata = match index {
+                                    #(#metadata_arms ,)*
+                                    _ => {
+                                        let mut m = ::miniconf::Metadata::default();
+                                        m.count = 1;
+                                        m
+                                    }
+                                };
+                                meta.max_length = meta.max_length.max(
+                                    Self::__MINICONF_NAMES[index].len() +
+                                    item_meta.max_length
+                                );
+                                meta.max_depth = meta.max_depth.max(
+                                    item_meta.max_depth
+                                );
+                                meta.count += item_meta.count;
+                            }
+                            meta.max_depth += 1;
+                            meta
+                        }
+
+                        fn traverse_by_key<K, F, E>(
+                            mut keys: K,
+                            mut func: F,
+                        ) -> Result<usize, ::miniconf::Error<E>>
+                        where
+                            K: ::miniconf::Keys,
+                            F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+                        {
+                            let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
+                            let name = Some(*Self::__MINICONF_NAMES
+                                .get(index)
+                                .ok_or(::miniconf::Traversal::NotFound(1))?);
+                            func(index, name, #variants_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                            ::miniconf::Error::increment_result(match index {
+                                #(#traverse_by_key_arms ,)*
+                                _ => {
+                                    if !keys.finalize() {
+                                        Err(::miniconf::Traversal::TooLong(0).into())
+                                    } else {
+                                        Ok(0)
+                                    }
+                                }
+                            })
+                        }
+                    }
+                }
             }
         }
-    }
-}
-
-fn depth<'a>(fields: impl IntoIterator<Item = &'a TreeField>) -> usize {
-    fields.into_iter().fold(0, |d, field| d.max(field.depth))
-}
-
-fn remove_skipped(fields: &mut Vec<TreeField>) -> Result<(), Error> {
-    // unnamed fields can only be skipped if they are terminal
-    while fields
-        .last()
-        .map(|f| f.skip.is_present())
-        .unwrap_or_default()
-    {
-        fields.pop();
-    }
-    fields.retain(|f| f.ident.is_none() || !f.skip.is_present());
-    if let Some(f) = fields.iter().find(|f| f.skip.is_present()) {
-        Err(
-            Error::custom("Can only `skip` terminal tuple struct fields")
-                .with_span(&f.skip.span()),
-        )
-    } else {
-        Ok(())
     }
 }
 

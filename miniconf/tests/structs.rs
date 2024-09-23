@@ -88,6 +88,26 @@ fn empty_struct() {
 }
 
 #[test]
+fn unit_struct() {
+    #[derive(Tree, Default)]
+    struct Settings;
+    assert!(Settings::nodes::<Path<String, '/'>>()
+        .exact_size()
+        .next()
+        .is_none());
+}
+
+#[test]
+fn empty_tuple_struct() {
+    #[derive(Tree, Default)]
+    struct Settings();
+    assert!(Settings::nodes::<Path<String, '/'>>()
+        .exact_size()
+        .next()
+        .is_none());
+}
+
+#[test]
 fn borrowed() {
     // Can't derive TreeAny
     #[derive(TreeKey, TreeDeserialize, TreeSerialize)]
