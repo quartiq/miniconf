@@ -188,7 +188,8 @@ It implements [`Keys`].
 ## Limitations
 
 Access to inner fields of some types is not yet supported, e.g. enums
-other than [`Option`]. These are still however usable in their atomic `serde` form as leaf nodes.
+other than [`Option`] and enums with only newtype/unit variants.
+These are still however usable in their atomic `serde` form as leaf nodes.
 
 Many `std` smart pointers are not supported or handled in any special way: `Box`, `Rc`, `Arc`.
 
