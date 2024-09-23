@@ -9,7 +9,6 @@ pub struct TreeField {
     pub ty: syn::Type,
     #[darling(default)]
     pub depth: usize,
-    // pub flatten: Flag, // FIXME: implement
     pub skip: Flag,
     pub typ: Option<syn::Type>,
     pub validate: Option<syn::Path>,
@@ -19,11 +18,11 @@ pub struct TreeField {
 }
 
 impl TreeField {
-    pub(crate) fn typ(&self) -> &syn::Type {
+    pub fn typ(&self) -> &syn::Type {
         self.typ.as_ref().unwrap_or(&self.ty)
     }
 
-    pub(crate) fn name(&self) -> Option<&syn::Ident> {
+    pub fn name(&self) -> Option<&syn::Ident> {
         self.rename.as_ref().or(self.ident.as_ref())
     }
 
@@ -37,7 +36,7 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn traverse_by_key(&self, i: usize) -> Option<TokenStream> {
+    pub fn traverse_by_key(&self, i: usize) -> Option<TokenStream> {
         // Quote context is a match of the field index with `traverse_by_key()` args available.
         let depth = self.depth;
         if depth > 0 {
@@ -50,7 +49,7 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn metadata(&self, i: usize) -> Option<TokenStream> {
+    pub fn metadata(&self, i: usize) -> Option<TokenStream> {
         // Quote context is a match of the field index with `metadata()` args available.
         let depth = self.depth;
         if depth > 0 {
@@ -96,13 +95,17 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn serialize_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
-        // Quote context is a match of the field index with `serialize_by_key()` args available.
-        let lhs = if let Some(ident) = ident {
+    fn lhs(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
+        if let Some(ident) = ident {
             quote! { (Self::#ident(value), #i) }
         } else {
             quote! { #i }
-        };
+        }
+    }
+
+    pub fn serialize_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
+        // Quote context is a match of the field index with `serialize_by_key()` args available.
+        let lhs = self.lhs(i, ident);
         let depth = self.depth;
         let getter = self.getter(i, ident.is_some());
         if depth > 0 {
@@ -123,13 +126,9 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn deserialize_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
+    pub fn deserialize_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        let lhs = if let Some(ident) = ident {
-            quote! { (Self::#ident(value), #i) }
-        } else {
-            quote! { #i }
-        };
+        let lhs = self.lhs(i, ident);
         let depth = self.depth;
         let getter_mut = self.getter_mut(i, ident.is_some());
         let validator = self.validator();
@@ -156,13 +155,9 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn ref_any_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
+    pub fn ref_any_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let lhs = if let Some(ident) = ident {
-            quote! { (Self::#ident(value), #i) }
-        } else {
-            quote! { #i }
-        };
+        let lhs = self.lhs(i, ident);
         let depth = self.depth;
         let getter = self.getter(i, ident.is_some());
         if depth > 0 {
@@ -177,13 +172,9 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn mut_any_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
+    pub fn mut_any_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let lhs = if let Some(ident) = ident {
-            quote! { (Self::#ident(value), #i) }
-        } else {
-            quote! { #i }
-        };
+        let lhs = self.lhs(i, ident);
         let depth = self.depth;
         let getter_mut = self.getter_mut(i, ident.is_some());
         if depth > 0 {

@@ -12,20 +12,20 @@ use crate::field::TreeField;
 #[derive(Debug, FromVariant, Clone)]
 #[darling(attributes(tree))]
 pub struct TreeVariant {
-    pub ident: syn::Ident,
-    pub rename: Option<syn::Ident>,
+    ident: syn::Ident,
+    rename: Option<syn::Ident>,
     // pub flatten: Flag, // FIXME: implement
-    pub skip: Flag,
-    pub fields: ast::Fields<TreeField>,
+    skip: Flag,
+    fields: ast::Fields<TreeField>,
 }
 
 impl TreeVariant {
-    pub(crate) fn field(&self) -> &TreeField {
+    fn field(&self) -> &TreeField {
         assert!(self.fields.len() == 1);
         self.fields.fields.first().unwrap()
     }
 
-    pub(crate) fn name(&self) -> &syn::Ident {
+    fn name(&self) -> &syn::Ident {
         self.rename.as_ref().unwrap_or(&self.ident)
     }
 }
@@ -34,26 +34,25 @@ impl TreeVariant {
 #[darling(attributes(tree))]
 #[darling(supports(any))]
 pub struct Tree {
-    pub ident: syn::Ident,
-    pub generics: syn::Generics,
-    pub data: ast::Data<TreeVariant, TreeField>,
+    ident: syn::Ident,
+    generics: syn::Generics,
+    data: ast::Data<TreeVariant, TreeField>,
 }
 
 impl Tree {
-    pub(crate) fn depth(&self) -> usize {
+    fn depth(&self) -> usize {
         match &self.data {
             Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)) + 1,
             Data::Enum(variants) => {
                 variants
                     .iter()
-                    .flat_map(|v| &v.fields.fields)
-                    .fold(0, |d, field| d.max(field.depth))
+                    .fold(0, |d, variant| d.max(variant.field().depth))
                     + 1
             }
         }
     }
 
-    pub(crate) fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
+    pub fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
         let mut tree = Self::from_derive_input(input)?;
 
         match &mut tree.data {
@@ -86,7 +85,6 @@ impl Tree {
                         return Err(Error::custom("Only newtype or unit variants are supported")
                             .with_span(&v.ident.span())); // FIXME: Fields.span is not pub, no span()
                     }
-                    assert!(v.fields.len() <= 1);
                 }
                 variants.retain(|v| v.fields.is_newtype());
             }
@@ -94,7 +92,7 @@ impl Tree {
         Ok(tree)
     }
 
-    pub(crate) fn bound_generics<F>(&self, func: &mut F) -> syn::Generics
+    fn bound_generics<F>(&self, func: &mut F) -> syn::Generics
     where
         F: FnMut(usize) -> Option<syn::TypeParamBound>,
     {
@@ -112,7 +110,7 @@ impl Tree {
         generics
     }
 
-    pub(crate) fn tree_key(&self) -> TokenStream {
+    pub fn tree_key(&self) -> TokenStream {
         let depth = self.depth();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
@@ -347,7 +345,7 @@ impl Tree {
         }
     }
 
-    pub(crate) fn tree_serialize(&self) -> TokenStream {
+    pub fn tree_serialize(&self) -> TokenStream {
         let depth = self.depth();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
@@ -413,7 +411,7 @@ impl Tree {
         }
     }
 
-    pub(crate) fn tree_deserialize(&self) -> TokenStream {
+    pub fn tree_deserialize(&self) -> TokenStream {
         let mut generics = self.bound_generics(&mut |depth| {
             if depth > 0 {
                 Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
@@ -491,7 +489,7 @@ impl Tree {
         }
     }
 
-    pub(crate) fn tree_any(&self) -> TokenStream {
+    pub fn tree_any(&self) -> TokenStream {
         let generics = self.bound_generics(&mut |depth| {
             if depth > 0 {
                 Some(parse_quote!(::miniconf::TreeAny<#depth>))
