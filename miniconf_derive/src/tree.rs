@@ -95,6 +95,36 @@ impl TreeVariant {
             }
         }
     }
+
+    pub(crate) fn ref_any_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let depth = self.field().depth;
+        let ident = &self.ident;
+        if depth > 0 {
+            quote! {
+                (Self::#ident(value), #i) => ::miniconf::TreeAny::<#depth>::ref_any_by_key(value, keys)
+            }
+        } else {
+            quote! {
+                (Self::#ident(value), #i) => value as &dyn ::core::any::Any
+            }
+        }
+    }
+
+    pub(crate) fn mut_any_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let depth = self.field().depth;
+        let ident = &self.ident;
+        if depth > 0 {
+            quote! {
+                (Self::#ident(value), #i) => ::miniconf::TreeAny::<#depth>::mut_any_by_key(value, keys)
+            }
+        } else {
+            quote! {
+                (Self::#ident(value), #i) => value as &mut dyn ::core::any::Any
+            }
+        }
+    }
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
@@ -611,7 +641,52 @@ impl Tree {
                     }
                 }
             }
-            Data::Enum(variants) => unimplemented!(),
+            Data::Enum(variants) => {
+                let ref_any_by_key_arms = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| field.ref_any_by_key(i));
+                let mut_any_by_key_arms = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| field.mut_any_by_key(i));
+
+                quote! {
+                    impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
+                        fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+                        where
+                            K: ::miniconf::Keys,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            {
+                                let ret: Result<_, _> = match index {
+                                    #(#ref_any_by_key_arms ,)*
+                                    _ => Err(::miniconf::Traversal::Absent(0).into()),
+                                };
+                                ret.map_err(::miniconf::Traversal::increment)
+                            }
+                        }
+
+                        fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+                        where
+                            K: ::miniconf::Keys,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            {
+                                let ret: Result<_, _> = match index {
+                                    #(#mut_any_by_key_arms ,)*
+                                    _ => Err(::miniconf::Traversal::Absent(0).into()),
+                                };
+                                ret.map_err(::miniconf::Traversal::increment)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -30,18 +30,18 @@ fn newtype_enums() {
     m.count = 2;
     assert_eq!(Settings::metadata(), m);
 
-    let s = Settings::Depth(Inner { a: 4 });
+    let mut s = Settings::Depth(Inner::default());
+    s.set_json("/Depth/a", b"3").unwrap();
+    s.set_json("/Tuple", b"9").unwrap_err();
     let mut buf = [0u8; 256];
-    let len = s.get_json("/Tuple", &mut buf).unwrap_err();
+    s.get_json("/Tuple", &mut buf).unwrap_err();
     let len = s.get_json("/Depth/a", &mut buf).unwrap();
-    assert_eq!(&buf[..len], b"4");
-    let s = Settings::Tuple(9);
+    assert_eq!(&buf[..len], b"3");
+
+    let mut s = Settings::Tuple(0);
+    s.set_json("/Tuple", b"9").unwrap();
+    s.set_json("/Depth/a", b"9").unwrap_err();
     let len = s.get_json("/Tuple", &mut buf).unwrap();
     assert_eq!(&buf[..len], b"9");
-    let len = s.get_json("/Depth/a", &mut buf).unwrap_err();
-
-    // s.set_json("/variant", b"3.0").unwrap();
-    // assert_eq!(s.1, 3.0);
-    // s.set_json("/2", b"3.0").unwrap_err();
-    // s.set_json("/foo", b"3.0").unwrap_err();
+    s.get_json("/Depth/a", &mut buf).unwrap_err();
 }
