@@ -14,7 +14,6 @@ use crate::field::TreeField;
 pub struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
-    // pub flatten: Flag, // FIXME: implement
     skip: Flag,
     fields: ast::Fields<TreeField>,
 }
@@ -35,6 +34,7 @@ impl TreeVariant {
 #[darling(supports(any))]
 pub struct Tree {
     ident: syn::Ident,
+    // pub flatten: Flag, // FIXME: implement
     generics: syn::Generics,
     data: ast::Data<TreeVariant, TreeField>,
 }
