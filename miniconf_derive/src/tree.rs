@@ -54,6 +54,47 @@ impl TreeVariant {
             None
         }
     }
+
+    pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `serialize_by_key()` args available.
+        let depth = self.field().depth;
+        let ident = &self.ident;
+        if depth > 0 {
+            quote! {
+                (Self::#ident(value), #i) =>
+                    ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser)
+            }
+        } else {
+            quote! {
+                (Self::#ident(value), #i) =>
+                    ::miniconf::Serialize::serialize(value, ser)
+                    .map_err(|err| ::miniconf::Error::Inner(0, err))
+                    .and(Ok(0))
+            }
+        }
+    }
+
+    pub(crate) fn deserialize_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `serialize_by_key()` args available.
+        let depth = self.field().depth;
+        let ident = &self.ident;
+        if depth > 0 {
+            quote! {
+                (Self::#ident(value), #i) =>
+                    ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(value, keys, de)
+            }
+        } else {
+            quote! {
+                (Self::#ident(value), #i) =>
+                    ::miniconf::Deserialize::deserialize(de)
+                    .map_err(|err| ::miniconf::Error::Inner(0, err))
+                    .and_then(|new| {
+                        *value = new;
+                        Ok(0)
+                    })
+            }
+        }
+    }
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
@@ -118,13 +159,6 @@ impl Tree {
             }
         }
         Ok(tree)
-    }
-
-    pub(crate) fn fields(&self) -> &Vec<TreeField> {
-        let Data::Struct(fields) = &self.data else {
-            unimplemented!()
-        };
-        &fields.fields
     }
 
     pub(crate) fn bound_generics<F>(&self, func: &mut F) -> syn::Generics
@@ -373,6 +407,211 @@ impl Tree {
                     }
                 }
             }
+        }
+    }
+
+    pub(crate) fn tree_serialize(&self) -> TokenStream {
+        let depth = self.depth();
+        let ident = &self.ident;
+        let generics = self.bound_generics(&mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
+            } else {
+                Some(parse_quote!(::miniconf::Serialize))
+            }
+        });
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+        match &self.data {
+            Data::Struct(fields) => {
+                let serialize_by_key_arms = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| field.serialize_by_key(i));
+
+                quote! {
+                    impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
+                        fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
+                        where
+                            K: ::miniconf::Keys,
+                            S: ::miniconf::Serializer,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            ::miniconf::Error::increment_result(match index {
+                                #(#serialize_by_key_arms ,)*
+                                _ => unreachable!(),
+                            })
+                        }
+                    }
+                }
+            }
+            Data::Enum(variants) => {
+                let serialize_by_key_arms = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, variant)| variant.serialize_by_key(i));
+
+                quote! {
+                    impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
+                        fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
+                        where
+                            K: ::miniconf::Keys,
+                            S: ::miniconf::Serializer,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            ::miniconf::Error::increment_result(match (self, index) {
+                                #(#serialize_by_key_arms ,)*
+                                _ => Err(::miniconf::Traversal::Absent(0).into()),
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn tree_deserialize(&self) -> TokenStream {
+        let mut generics = self.bound_generics(&mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
+            } else {
+                Some(parse_quote!(::miniconf::Deserialize<'de>))
+            }
+        });
+
+        let depth = self.depth();
+        let ident = &self.ident;
+
+        let orig_generics = generics.clone();
+        let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
+        let lts: Vec<_> = generics.lifetimes().cloned().collect();
+        generics.params.push(parse_quote!('de));
+        if let Some(syn::GenericParam::Lifetime(de)) = generics.params.last_mut() {
+            assert_eq!(de.lifetime.ident, "de");
+            for l in lts {
+                assert!(l.lifetime.ident != "de");
+                de.bounds.push(l.lifetime);
+            }
+        }
+        let (impl_generics, _, _) = generics.split_for_impl();
+
+        match &self.data {
+            Data::Struct(fields) => {
+                let deserialize_by_key_arms = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| field.deserialize_by_key(i));
+
+                quote! {
+                    impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
+                        fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+                        where
+                            K: ::miniconf::Keys,
+                            D: ::miniconf::Deserializer<'de>,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            ::miniconf::Error::increment_result(match index {
+                                #(#deserialize_by_key_arms ,)*
+                                _ => unreachable!(),
+                            })
+                        }
+                    }
+                }
+            }
+            Data::Enum(variants) => {
+                let deserialize_by_key_arms = variants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, variant)| variant.deserialize_by_key(i));
+
+                quote! {
+                    impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
+                        fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+                        where
+                            K: ::miniconf::Keys,
+                            D: ::miniconf::Deserializer<'de>,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            ::miniconf::Error::increment_result(match (self, index) {
+                                #(#deserialize_by_key_arms ,)*
+                                _ => Err(::miniconf::Traversal::Absent(0).into()),
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub(crate) fn tree_any(&self) -> TokenStream {
+        let generics = self.bound_generics(&mut |depth| {
+            if depth > 0 {
+                Some(parse_quote!(::miniconf::TreeAny<#depth>))
+            } else {
+                Some(parse_quote!(::core::any::Any))
+            }
+        });
+
+        let depth = self.depth();
+        let ident = &self.ident;
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+        match &self.data {
+            Data::Struct(fields) => {
+                let ref_any_by_key_arms = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| field.ref_any_by_key(i));
+                let mut_any_by_key_arms = fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, field)| field.mut_any_by_key(i));
+
+                quote! {
+                    impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
+                        fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+                        where
+                            K: ::miniconf::Keys,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            {
+                                let ret: Result<_, _> = match index {
+                                    #(#ref_any_by_key_arms ,)*
+                                    _ => unreachable!()
+                                };
+                                ret.map_err(::miniconf::Traversal::increment)
+                            }
+                        }
+
+                        fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+                        where
+                            K: ::miniconf::Keys,
+                        {
+                            let index = Self::__miniconf_lookup(&mut keys)?;
+                            // Note(unreachable) empty structs have diverged by now
+                            #[allow(unreachable_code)]
+                            {
+                                let ret: Result<_, _> = match index {
+                                    #(#mut_any_by_key_arms ,)*
+                                    _ => unreachable!()
+                                };
+                                ret.map_err(::miniconf::Traversal::increment)
+                            }
+                        }
+                    }
+                }
+            }
+            Data::Enum(variants) => unimplemented!(),
         }
     }
 }
