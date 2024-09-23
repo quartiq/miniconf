@@ -117,227 +117,142 @@ impl Tree {
             (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
         });
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-        match &self.data {
-            Data::Struct(fields) => {
-                let fields_len = fields.len();
-
-                let (names, name_to_index, index_to_name, index_len) = if fields.style.is_tuple() {
-                    (
-                        None,
-                        quote!(str::parse(value).ok()),
-                        quote!(if index >= #fields_len {
-                            Err(::miniconf::Traversal::NotFound(1))?
-                        } else {
-                            None
-                        }),
-                        quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
-                    )
-                } else {
-                    let names = fields.iter().map(|field| {
-                        // ident is Some
-                        let name = field.name().unwrap();
+        let fields: Vec<_> = match &self.data {
+            Data::Struct(fields) => fields.iter().collect(),
+            Data::Enum(variants) => variants.iter().map(|v| v.field()).collect(),
+        };
+        let fields_len = fields.len();
+        let metadata_arms = fields.iter().enumerate().filter_map(|(i, f)| f.metadata(i));
+        let traverse_arms = fields
+            .iter()
+            .enumerate()
+            .filter_map(|(i, f)| f.traverse_by_key(i));
+        let defers = fields.iter().map(|field| field.depth > 0);
+        let names: Option<Vec<_>> = match &self.data {
+            Data::Struct(fields) if fields.style.is_struct() => {
+                Some(
+                    fields
+                        .iter()
+                        .map(|f| {
+                            // ident is Some
+                            let name = f.name().unwrap();
+                            quote! { stringify!(#name) }
+                        })
+                        .collect(),
+                )
+            }
+            Data::Enum(variants) => Some(
+                variants
+                    .iter()
+                    .map(|v| {
+                        let name = v.name();
                         quote! { stringify!(#name) }
-                    });
-                    (
-                        Some(quote!(
-                            const __MINICONF_NAMES: &'static [&'static str] = &[#(#names ,)*];
-                        )),
-                        quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
-                        quote!(Some(
-                            *Self::__MINICONF_NAMES
-                                .get(index)
-                                .ok_or(::miniconf::Traversal::NotFound(1))?
-                        )),
-                        quote!(Self::__MINICONF_NAMES[index].len()),
-                    )
-                };
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        };
+        let (names, name_to_index, index_to_name, index_len) = if let Some(names) = names {
+            (
+                Some(quote!(
+                    const __MINICONF_NAMES: &'static [&'static str] = &[#(#names ,)*];
+                )),
+                quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
+                quote!(Some(
+                    *Self::__MINICONF_NAMES
+                        .get(index)
+                        .ok_or(::miniconf::Traversal::NotFound(1))?
+                )),
+                quote!(Self::__MINICONF_NAMES[index].len()),
+            )
+        } else {
+            (
+                None,
+                quote!(str::parse(value).ok()),
+                quote!(if index >= #fields_len {
+                    Err(::miniconf::Traversal::NotFound(1))?
+                } else {
+                    None
+                }),
+                quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
+            )
+        };
 
-                let traverse_by_key_arms = fields
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, field)| field.traverse_by_key(i));
-                let metadata_arms = fields
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, field)| field.metadata(i));
-                let defers = fields.iter().map(|field| field.depth > 0);
-
-                quote! {
-                    impl #impl_generics #ident #ty_generics #where_clause {
-                        // TODO: can these be hidden and disambiguated w.r.t. collision?
-                        fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
-                            const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
-                            let index = ::miniconf::Keys::next::<Self>(keys)?;
-                            let defer = DEFERS.get(index)
-                                .ok_or(::miniconf::Traversal::NotFound(1))?;
-                            if !defer && !keys.finalize() {
-                                Err(::miniconf::Traversal::TooLong(1))
-                            } else {
-                                Ok(index)
-                            }
-                        }
-
-                        #names
-                    }
-
-                    #[automatically_derived]
-                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-                        const LEN: usize = #fields_len;
-
-                        #[inline]
-                        fn name_to_index(value: &str) -> Option<usize> {
-                            #name_to_index
-                        }
-                    }
-
-                    #[automatically_derived]
-                    impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                        fn metadata() -> ::miniconf::Metadata {
-                            let mut meta = ::miniconf::Metadata::default();
-                            for index in 0..#fields_len {
-                                let item_meta: ::miniconf::Metadata = match index {
-                                    #(#metadata_arms ,)*
-                                    _ => {
-                                        let mut m = ::miniconf::Metadata::default();
-                                        m.count = 1;
-                                        m
-                                    }
-                                };
-                                meta.max_length = meta.max_length.max(
-                                    #index_len +
-                                    item_meta.max_length
-                                );
-                                meta.max_depth = meta.max_depth.max(
-                                    item_meta.max_depth
-                                );
-                                meta.count += item_meta.count;
-                            }
-                            meta.max_depth += 1;
-                            meta
-                        }
-
-                        fn traverse_by_key<K, F, E>(
-                            mut keys: K,
-                            mut func: F,
-                        ) -> Result<usize, ::miniconf::Error<E>>
-                        where
-                            K: ::miniconf::Keys,
-                            F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-                        {
-                            let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
-                            let name = #index_to_name;
-                            func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
-                            ::miniconf::Error::increment_result(match index {
-                                #(#traverse_by_key_arms ,)*
-                                _ => {
-                                    if !keys.finalize() {
-                                        Err(::miniconf::Traversal::TooLong(0).into())
-                                    } else {
-                                        Ok(0)
-                                    }
-                                }
-                            })
-                        }
+        quote! {
+            impl #impl_generics #ident #ty_generics #where_clause {
+                // TODO: can these be hidden and disambiguated w.r.t. collision?
+                fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
+                    const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
+                    let index = ::miniconf::Keys::next::<Self>(keys)?;
+                    let defer = DEFERS.get(index)
+                        .ok_or(::miniconf::Traversal::NotFound(1))?;
+                    if !defer && !keys.finalize() {
+                        Err(::miniconf::Traversal::TooLong(1))
+                    } else {
+                        Ok(index)
                     }
                 }
+
+                #names
             }
-            Data::Enum(variants) => {
-                let variants_len = variants.len();
-                let names = variants.iter().map(|v| {
-                    let name = v.name();
-                    quote! { stringify!(#name) }
-                });
-                let defers = variants.iter().map(|v| v.field().depth > 0);
 
-                let metadata_arms = variants
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, variant)| variant.field().metadata(i));
-                let traverse_by_key_arms = variants
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, variant)| variant.field().traverse_by_key(i));
+            #[automatically_derived]
+            impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
+                const LEN: usize = #fields_len;
 
-                quote! {
-                    impl #impl_generics #ident #ty_generics #where_clause {
-                        // TODO: can these be hidden and disambiguated w.r.t. collision?
-                        fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
-                            const DEFERS: [bool; #variants_len] = [#(#defers ,)*];
-                            let index = ::miniconf::Keys::next::<Self>(keys)?;
-                            let defer = DEFERS.get(index)
-                                .ok_or(::miniconf::Traversal::NotFound(1))?;
-                            if !defer && !keys.finalize() {
-                                Err(::miniconf::Traversal::TooLong(1))
+                #[inline]
+                fn name_to_index(value: &str) -> Option<usize> {
+                    #name_to_index
+                }
+            }
+
+            #[automatically_derived]
+            impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
+                fn metadata() -> ::miniconf::Metadata {
+                    let mut meta = ::miniconf::Metadata::default();
+                    for index in 0..#fields_len {
+                        let item_meta: ::miniconf::Metadata = match index {
+                            #(#metadata_arms ,)*
+                            _ => {
+                                let mut m = ::miniconf::Metadata::default();
+                                m.count = 1;
+                                m
+                            }
+                        };
+                        meta.max_length = meta.max_length.max(
+                            #index_len +
+                            item_meta.max_length
+                        );
+                        meta.max_depth = meta.max_depth.max(
+                            item_meta.max_depth
+                        );
+                        meta.count += item_meta.count;
+                    }
+                    meta.max_depth += 1;
+                    meta
+                }
+
+                fn traverse_by_key<K, F, E>(
+                    mut keys: K,
+                    mut func: F,
+                ) -> Result<usize, ::miniconf::Error<E>>
+                where
+                    K: ::miniconf::Keys,
+                    F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+                {
+                    let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
+                    let name = #index_to_name;
+                    func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                    ::miniconf::Error::increment_result(match index {
+                        #(#traverse_arms ,)*
+                        _ => {
+                            if !keys.finalize() {
+                                Err(::miniconf::Traversal::TooLong(0).into())
                             } else {
-                                Ok(index)
+                                Ok(0)
                             }
                         }
-
-                        const __MINICONF_NAMES: [&'static str; #variants_len] = [#(#names ,)*];
-                    }
-
-                    #[automatically_derived]
-                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-                        const LEN: usize = #variants_len;
-
-                        #[inline]
-                        fn name_to_index(value: &str) -> Option<usize> {
-                            Self::__MINICONF_NAMES.iter().position(|&n| n == value)
-                        }
-                    }
-
-                    #[automatically_derived]
-                    impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                        fn metadata() -> ::miniconf::Metadata {
-                            let mut meta = ::miniconf::Metadata::default();
-                            for index in 0..#variants_len {
-                                let item_meta: ::miniconf::Metadata = match index {
-                                    #(#metadata_arms ,)*
-                                    _ => {
-                                        let mut m = ::miniconf::Metadata::default();
-                                        m.count = 1;
-                                        m
-                                    }
-                                };
-                                meta.max_length = meta.max_length.max(
-                                    Self::__MINICONF_NAMES[index].len() +
-                                    item_meta.max_length
-                                );
-                                meta.max_depth = meta.max_depth.max(
-                                    item_meta.max_depth
-                                );
-                                meta.count += item_meta.count;
-                            }
-                            meta.max_depth += 1;
-                            meta
-                        }
-
-                        fn traverse_by_key<K, F, E>(
-                            mut keys: K,
-                            mut func: F,
-                        ) -> Result<usize, ::miniconf::Error<E>>
-                        where
-                            K: ::miniconf::Keys,
-                            F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-                        {
-                            let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
-                            let name = Some(*Self::__MINICONF_NAMES
-                                .get(index)
-                                .ok_or(::miniconf::Traversal::NotFound(1))?);
-                            func(index, name, #variants_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
-                            ::miniconf::Error::increment_result(match index {
-                                #(#traverse_by_key_arms ,)*
-                                _ => {
-                                    if !keys.finalize() {
-                                        Err(::miniconf::Traversal::TooLong(0).into())
-                                    } else {
-                                        Ok(0)
-                                    }
-                                }
-                            })
-                        }
-                    }
+                    })
                 }
             }
         }
