@@ -164,6 +164,7 @@ impl Tree {
                         #names
                     }
 
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
                         const LEN: usize = #fields_len;
 
@@ -173,6 +174,7 @@ impl Tree {
                         }
                     }
 
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
                         fn metadata() -> ::miniconf::Metadata {
                             let mut meta = ::miniconf::Metadata::default();
@@ -258,6 +260,7 @@ impl Tree {
                         const __MINICONF_NAMES: [&'static str; #variants_len] = [#(#names ,)*];
                     }
 
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
                         const LEN: usize = #variants_len;
 
@@ -267,6 +270,7 @@ impl Tree {
                         }
                     }
 
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
                         fn metadata() -> ::miniconf::Metadata {
                             let mut meta = ::miniconf::Metadata::default();
@@ -342,6 +346,7 @@ impl Tree {
                     .map(|(i, field)| field.serialize_by_key(i));
 
                 quote! {
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
                         fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
                         where
@@ -366,6 +371,7 @@ impl Tree {
                     .map(|(i, variant)| variant.serialize_by_key(i));
 
                 quote! {
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
                         fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
                         where
@@ -419,6 +425,7 @@ impl Tree {
                     .map(|(i, field)| field.deserialize_by_key(i));
 
                 quote! {
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
                         fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
                         where
@@ -443,6 +450,7 @@ impl Tree {
                     .map(|(i, variant)| variant.deserialize_by_key(i));
 
                 quote! {
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
                         fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
                         where
@@ -488,6 +496,7 @@ impl Tree {
                     .map(|(i, field)| field.mut_any_by_key(i));
 
                 quote! {
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
                         fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
                         where
@@ -534,6 +543,7 @@ impl Tree {
                     .map(|(i, field)| field.mut_any_by_key(i));
 
                 quote! {
+                    #[automatically_derived]
                     impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
                         fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
                         where

@@ -1,8 +1,4 @@
-use darling::{
-    ast,
-    util::Flag,
-    FromVariant,
-};
+use darling::{ast, util::Flag, FromVariant};
 use proc_macro2::TokenStream;
 use quote::quote;
 
