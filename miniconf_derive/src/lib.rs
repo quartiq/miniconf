@@ -3,6 +3,7 @@ use syn::{parse_macro_input, DeriveInput};
 
 mod field;
 mod tree;
+mod variant;
 use tree::Tree;
 
 /// Derive the `TreeKey` trait for a struct.
