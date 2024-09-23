@@ -1,13 +1,34 @@
 use darling::{
     ast::{self, Data},
-    Error, FromDeriveInput,
+    util::Flag,
+    Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::parse_quote;
 
 use crate::field::TreeField;
-use crate::variant::TreeVariant;
+
+#[derive(Debug, FromVariant, Clone)]
+#[darling(attributes(tree))]
+pub struct TreeVariant {
+    pub ident: syn::Ident,
+    pub rename: Option<syn::Ident>,
+    // pub flatten: Flag, // FIXME: implement
+    pub skip: Flag,
+    pub fields: ast::Fields<TreeField>,
+}
+
+impl TreeVariant {
+    pub(crate) fn field(&self) -> &TreeField {
+        assert!(self.fields.len() == 1);
+        self.fields.fields.first().unwrap()
+    }
+
+    pub(crate) fn name(&self) -> &syn::Ident {
+        self.rename.as_ref().unwrap_or(&self.ident)
+    }
+}
 
 #[derive(Debug, FromDeriveInput, Clone)]
 #[darling(attributes(tree))]
@@ -236,11 +257,11 @@ impl Tree {
                 let metadata_arms = variants
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, variant)| variant.metadata(i));
+                    .filter_map(|(i, variant)| variant.field().metadata(i));
                 let traverse_by_key_arms = variants
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, variant)| variant.traverse_by_key(i));
+                    .filter_map(|(i, variant)| variant.field().traverse_by_key(i));
 
                 quote! {
                     impl #impl_generics #ident #ty_generics #where_clause {
@@ -343,7 +364,7 @@ impl Tree {
                 let serialize_by_key_arms = fields
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| field.serialize_by_key(i));
+                    .map(|(i, field)| field.serialize_by_key(i, None));
 
                 quote! {
                     #[automatically_derived]
@@ -368,7 +389,7 @@ impl Tree {
                 let serialize_by_key_arms = variants
                     .iter()
                     .enumerate()
-                    .map(|(i, variant)| variant.serialize_by_key(i));
+                    .map(|(i, variant)| variant.field().serialize_by_key(i, Some(&variant.ident)));
 
                 quote! {
                     #[automatically_derived]
@@ -422,7 +443,7 @@ impl Tree {
                 let deserialize_by_key_arms = fields
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| field.deserialize_by_key(i));
+                    .map(|(i, field)| field.deserialize_by_key(i, None));
 
                 quote! {
                     #[automatically_derived]
@@ -444,10 +465,9 @@ impl Tree {
                 }
             }
             Data::Enum(variants) => {
-                let deserialize_by_key_arms = variants
-                    .iter()
-                    .enumerate()
-                    .map(|(i, variant)| variant.deserialize_by_key(i));
+                let deserialize_by_key_arms = variants.iter().enumerate().map(|(i, variant)| {
+                    variant.field().deserialize_by_key(i, Some(&variant.ident))
+                });
 
                 quote! {
                     #[automatically_derived]
@@ -489,11 +509,11 @@ impl Tree {
                 let ref_any_by_key_arms = fields
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| field.ref_any_by_key(i));
+                    .map(|(i, field)| field.ref_any_by_key(i, None));
                 let mut_any_by_key_arms = fields
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| field.mut_any_by_key(i));
+                    .map(|(i, field)| field.mut_any_by_key(i, None));
 
                 quote! {
                     #[automatically_derived]
@@ -536,11 +556,11 @@ impl Tree {
                 let ref_any_by_key_arms = variants
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| field.ref_any_by_key(i));
+                    .map(|(i, variant)| variant.field().ref_any_by_key(i, Some(&variant.ident)));
                 let mut_any_by_key_arms = variants
                     .iter()
                     .enumerate()
-                    .map(|(i, field)| field.mut_any_by_key(i));
+                    .map(|(i, variant)| variant.field().mut_any_by_key(i, Some(&variant.ident)));
 
                 quote! {
                     #[automatically_derived]

@@ -63,23 +63,25 @@ impl TreeField {
         }
     }
 
-    fn getter(&self, i: usize) -> TokenStream {
+    fn getter(&self, i: usize, value: bool) -> TokenStream {
         let ident = self.ident_or_index(i);
-        match &self.get {
-            Some(get) => quote! {
+        match (&self.get, value) {
+            (Some(get), _) => quote! {
                 #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             },
-            None => quote! { Ok(&self.#ident) },
+            (None, false) => quote! { Ok(&self.#ident) },
+            (None, true) => quote! { Ok(value) },
         }
     }
 
-    fn getter_mut(&self, i: usize) -> TokenStream {
+    fn getter_mut(&self, i: usize, value: bool) -> TokenStream {
         let ident = self.ident_or_index(i);
-        match &self.get_mut {
-            Some(get_mut) => quote!(
+        match (&self.get_mut, value) {
+            (Some(get_mut), _) => quote!(
                 #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             ),
-            None => quote! { Ok(&mut self.#ident) },
+            (None, false) => quote! { Ok(&mut self.#ident) },
+            (None, true) => quote! { Ok(value) },
         }
     }
 
@@ -94,19 +96,24 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn serialize_by_key(&self, i: usize) -> TokenStream {
+    pub(crate) fn serialize_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
+        let lhs = if let Some(ident) = ident {
+            quote! { (Self::#ident(value), #i) }
+        } else {
+            quote! { #i }
+        };
         let depth = self.depth;
-        let getter = self.getter(i);
+        let getter = self.getter(i, ident.is_some());
         if depth > 0 {
             quote! {
-                #i => #getter
+                #lhs => #getter
                     .and_then(|value|
                         ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser))
             }
         } else {
             quote! {
-                #i => #getter
+                #lhs => #getter
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
                         .map_err(|err| ::miniconf::Error::Inner(0, err))
@@ -116,14 +123,19 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn deserialize_by_key(&self, i: usize) -> TokenStream {
+    pub(crate) fn deserialize_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
+        let lhs = if let Some(ident) = ident {
+            quote! { (Self::#ident(value), #i) }
+        } else {
+            quote! { #i }
+        };
         let depth = self.depth;
-        let getter_mut = self.getter_mut(i);
+        let getter_mut = self.getter_mut(i, ident.is_some());
         let validator = self.validator();
         if depth > 0 {
             quote! {
-                #i => #getter_mut
+                #lhs => #getter_mut
                     .and_then(|item|
                         ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(item, keys, de)
                     )
@@ -131,12 +143,12 @@ impl TreeField {
             }
         } else {
             quote! {
-                #i => ::miniconf::Deserialize::deserialize(de)
+                #lhs => ::miniconf::Deserialize::deserialize(de)
                     .map_err(|err| ::miniconf::Error::Inner(0, err))
                     #validator
-                    .and_then(|value|
+                    .and_then(|new|
                         #getter_mut.and_then(|item| {
-                            *item = value;
+                            *item = new;
                             Ok(0)
                         })
                     )
@@ -144,34 +156,44 @@ impl TreeField {
         }
     }
 
-    pub(crate) fn ref_any_by_key(&self, i: usize) -> TokenStream {
+    pub(crate) fn ref_any_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let lhs = if let Some(ident) = ident {
+            quote! { (Self::#ident(value), #i) }
+        } else {
+            quote! { #i }
+        };
         let depth = self.depth;
-        let getter = self.getter(i);
+        let getter = self.getter(i, ident.is_some());
         if depth > 0 {
             quote! {
-                #i => #getter
+                #lhs => #getter
                     .and_then(|value| ::miniconf::TreeAny::<#depth>::ref_any_by_key(value, keys))
             }
         } else {
             quote! {
-                #i => #getter.map(|value| value as &dyn ::core::any::Any)
+                #lhs => #getter.map(|value| value as &dyn ::core::any::Any)
             }
         }
     }
 
-    pub(crate) fn mut_any_by_key(&self, i: usize) -> TokenStream {
+    pub(crate) fn mut_any_by_key(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
+        let lhs = if let Some(ident) = ident {
+            quote! { (Self::#ident(value), #i) }
+        } else {
+            quote! { #i }
+        };
         let depth = self.depth;
-        let getter_mut = self.getter_mut(i);
+        let getter_mut = self.getter_mut(i, ident.is_some());
         if depth > 0 {
             quote! {
-                #i => #getter_mut
+                #lhs => #getter_mut
                     .and_then(|value| ::miniconf::TreeAny::<#depth>::mut_any_by_key(value, keys))
             }
         } else {
             quote! {
-                #i => #getter_mut.map(|value| value as &mut dyn ::core::any::Any)
+                #lhs => #getter_mut.map(|value| value as &mut dyn ::core::any::Any)
             }
         }
     }
