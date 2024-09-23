@@ -447,7 +447,7 @@ impl Tree {
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {
-                        let ret: Result<_, _> = match index {
+                        let ret: Result<_, _> = match #mat {
                             #(#mut_arms ,)*
                             _ => #default
                         };

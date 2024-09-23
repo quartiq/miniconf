@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlash, Path, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{JsonCoreSlash, Path, Tree, TreeKey};
 
 #[test]
 fn newtype_enums() {
@@ -7,7 +7,7 @@ fn newtype_enums() {
         a: i32,
     }
 
-    #[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
+    #[derive(Tree, Default)]
     enum Settings {
         #[default]
         Unit,

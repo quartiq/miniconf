@@ -163,11 +163,11 @@ impl TreeField {
         if depth > 0 {
             quote! {
                 #lhs => #getter
-                    .and_then(|value| ::miniconf::TreeAny::<#depth>::ref_any_by_key(value, keys))
+                    .and_then(|item| ::miniconf::TreeAny::<#depth>::ref_any_by_key(item, keys))
             }
         } else {
             quote! {
-                #lhs => #getter.map(|value| value as &dyn ::core::any::Any)
+                #lhs => #getter.map(|item| item as &dyn ::core::any::Any)
             }
         }
     }
@@ -180,11 +180,11 @@ impl TreeField {
         if depth > 0 {
             quote! {
                 #lhs => #getter_mut
-                    .and_then(|value| ::miniconf::TreeAny::<#depth>::mut_any_by_key(value, keys))
+                    .and_then(|item| ::miniconf::TreeAny::<#depth>::mut_any_by_key(item, keys))
             }
         } else {
             quote! {
-                #lhs => #getter_mut.map(|value| value as &mut dyn ::core::any::Any)
+                #lhs => #getter_mut.map(|item| item as &mut dyn ::core::any::Any)
             }
         }
     }
