@@ -9,8 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.13.0...HEAD) - DATE
 
 ### Added
-* Derive support for enums where all variants are newtypes has been added.
-* Added `#[automatically_derived]` attributes
+* Derive support for enums with newtype/unit/skipped variants
 
 ### Removed
 
