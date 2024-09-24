@@ -129,18 +129,16 @@ impl Tree {
             .filter_map(|(i, f)| f.traverse_by_key(i));
         let defers = fields.iter().map(|field| field.depth > 0);
         let names: Option<Vec<_>> = match &self.data {
-            Data::Struct(fields) if fields.style.is_struct() => {
-                Some(
-                    fields
-                        .iter()
-                        .map(|f| {
-                            // ident is Some
-                            let name = f.name().unwrap();
-                            quote! { stringify!(#name) }
-                        })
-                        .collect(),
-                )
-            }
+            Data::Struct(fields) if fields.style.is_struct() => Some(
+                fields
+                    .iter()
+                    .map(|f| {
+                        // ident is Some
+                        let name = f.name().unwrap();
+                        quote! { stringify!(#name) }
+                    })
+                    .collect(),
+            ),
             Data::Enum(variants) => Some(
                 variants
                     .iter()
@@ -155,7 +153,7 @@ impl Tree {
         let (names, name_to_index, index_to_name, index_len) = if let Some(names) = names {
             (
                 Some(quote!(
-                    const __MINICONF_NAMES: &'static [&'static str] = &[#(#names ,)*];
+                    const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
                 )),
                 quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
                 quote!(Some(
@@ -179,6 +177,7 @@ impl Tree {
         };
 
         quote! {
+            #[automatically_derived]
             impl #impl_generics #ident #ty_generics #where_clause {
                 // TODO: can these be hidden and disambiguated w.r.t. collision?
                 fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
