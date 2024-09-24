@@ -313,10 +313,10 @@ mod test {
 
     #[test]
     fn strsplit() {
+        use heapless::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_> = PathIter::<'_, '/'>::new(p).collect();
-            println!("{p} {:?}", a);
-            let b: Vec<_> = p.split('/').skip(1).collect();
+            let a: Vec<_, 10> = PathIter::<'_, '/'>::new(p).collect();
+            let b: Vec<_, 10> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }
     }

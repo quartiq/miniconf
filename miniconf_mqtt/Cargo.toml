@@ -8,10 +8,6 @@ description = "MQTT interface for `miniconf`, using `minimq`"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
-resolver = "2"
-
-[features]
-std = []
 
 [lib]
 

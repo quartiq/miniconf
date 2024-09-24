@@ -107,7 +107,7 @@ let len = settings.get_json("/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
-for path in Settings::nodes::<Path<String, '/'>>() {
+for path in Settings::nodes::<Path<heapless::String<32>, '/'>>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
     // Serialize each

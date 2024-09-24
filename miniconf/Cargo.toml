@@ -9,7 +9,6 @@ description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["config", "serde", "no_std", "reflection", "graph"]
 categories = ["embedded", "config", "data-structures", "parsing"]
-resolver = "2"
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
@@ -23,7 +22,6 @@ default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive", "serde/derive"]
-std = []
 
 [package.metadata.docs.rs]
 all-features = true
