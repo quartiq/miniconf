@@ -37,6 +37,7 @@ embedded-io-adapters = { version = "0.6.1", features = ["tokio-1"] }
 heapless = "0.8.0"
 yafnv = "3.0.0"
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
+strum = { version = "0.26.3", features = ["derive"] }
 
 [[test]]
 name = "arrays"
