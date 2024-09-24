@@ -166,7 +166,7 @@ impl Tree {
         let (names, name_to_index, index_to_name, index_len) = if let Some(names) = names {
             (
                 Some(quote!(
-                    const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
+                    const __MINICONF_NAMES: &'static [&'static str] = &[#(#names ,)*];
                 )),
                 quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
                 quote!(Some(
