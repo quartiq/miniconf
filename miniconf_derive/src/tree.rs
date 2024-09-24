@@ -1,10 +1,10 @@
 use darling::{
     ast::{self, Data},
-    util::Flag,
+    util::{Flag, SpannedValue},
     Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, quote_spanned};
 use syn::parse_quote;
 
 use crate::field::TreeField;
@@ -15,11 +15,11 @@ pub struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
-    fields: ast::Fields<TreeField>,
+    fields: ast::Fields<SpannedValue<TreeField>>,
 }
 
 impl TreeVariant {
-    fn field(&self) -> &TreeField {
+    fn field(&self) -> &SpannedValue<TreeField> {
         assert!(self.fields.len() == 1);
         self.fields.fields.first().unwrap()
     }
@@ -36,7 +36,7 @@ pub struct Tree {
     ident: syn::Ident,
     // pub flatten: Flag, // FIXME: implement
     generics: syn::Generics,
-    data: ast::Data<TreeVariant, TreeField>,
+    data: Data<SpannedValue<TreeVariant>, SpannedValue<TreeField>>,
 }
 
 impl Tree {
@@ -77,22 +77,38 @@ impl Tree {
                 }
             }
             Data::Enum(variants) => {
-                variants.retain(|v| !v.skip.is_present());
+                variants.retain(|v| !(v.skip.is_present() || v.fields.is_unit()));
                 for v in variants.iter_mut() {
-                    if !(v.fields.is_newtype() || v.fields.is_unit()) {
+                    if v.fields.is_struct() {
                         // Note(design) For tuple or named struct variants we'd have to create proxy
                         // structs anyway to support KeyLookup on that level.
-                        return Err(Error::custom("Only newtype or unit variants are supported")
-                            .with_span(&v.ident.span())); // FIXME: Fields.span is not pub, no span()
+                        return Err(
+                            Error::custom("Struct variants not supported").with_span(&v.span())
+                        );
+                    }
+                    // unnamed fields can only be skipped if they are terminal
+                    while v
+                        .fields
+                        .fields
+                        .last()
+                        .map(|f| f.skip.is_present())
+                        .unwrap_or_default()
+                    {
+                        v.fields.fields.pop();
+                    }
+                    if let Some(f) = v.fields.iter().find(|f| f.skip.is_present()) {
+                        return Err(
+                            Error::custom("Can only `skip` terminal tuple struct fields")
+                                .with_span(&f.skip.span()),
+                        );
                     }
                 }
-                variants.retain(|v| v.fields.is_newtype());
             }
         }
         Ok(tree)
     }
 
-    fn fields(&self) -> Vec<&TreeField> {
+    fn fields(&self) -> Vec<&SpannedValue<TreeField>> {
         match &self.data {
             Data::Struct(fields) => fields.iter().collect(),
             Data::Enum(variants) => variants.iter().map(|v| v.field()).collect(),
@@ -101,7 +117,7 @@ impl Tree {
 
     fn bound_generics<F>(&self, func: &mut F) -> syn::Generics
     where
-        F: FnMut(usize) -> Option<syn::TypeParamBound>,
+        F: FnMut(usize) -> Option<syn::TraitBound>,
     {
         let mut generics = self.generics.clone();
         for f in self.fields() {
@@ -117,10 +133,7 @@ impl Tree {
             (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
         });
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-        let fields: Vec<_> = match &self.data {
-            Data::Struct(fields) => fields.iter().collect(),
-            Data::Enum(variants) => variants.iter().map(|v| v.field()).collect(),
-        };
+        let fields = self.fields();
         let fields_len = fields.len();
         let metadata_arms = fields.iter().enumerate().filter_map(|(i, f)| f.metadata(i));
         let traverse_arms = fields
@@ -135,7 +148,7 @@ impl Tree {
                     .map(|f| {
                         // ident is Some
                         let name = f.name().unwrap();
-                        quote! { stringify!(#name) }
+                        quote_spanned! { name.span()=> stringify!(#name) }
                     })
                     .collect(),
             ),
@@ -144,7 +157,7 @@ impl Tree {
                     .iter()
                     .map(|v| {
                         let name = v.name();
-                        quote! { stringify!(#name) }
+                        quote_spanned! { name.span()=> stringify!(#name) }
                     })
                     .collect(),
             ),
@@ -210,7 +223,7 @@ impl Tree {
                 fn metadata() -> ::miniconf::Metadata {
                     let mut meta = ::miniconf::Metadata::default();
                     for index in 0..#fields_len {
-                        let item_meta: ::miniconf::Metadata = match index {
+                        let item_meta = match index {
                             #(#metadata_arms ,)*
                             _ => {
                                 let mut m = ::miniconf::Metadata::default();
@@ -460,7 +473,7 @@ impl Tree {
 
 fn walk_type_params<F>(typ: &syn::Type, func: &mut F, depth: usize, generics: &mut syn::Generics)
 where
-    F: FnMut(usize) -> Option<syn::TypeParamBound>,
+    F: FnMut(usize) -> Option<syn::TraitBound>,
 {
     match typ {
         syn::Type::Path(syn::TypePath { path, .. }) => {
@@ -471,7 +484,7 @@ where
                     if let syn::GenericParam::Type(type_param) = generic {
                         if &type_param.ident == ident {
                             if let Some(bound) = func(depth) {
-                                type_param.bounds.push(bound);
+                                type_param.bounds.push(bound.into());
                             }
                         }
                     }

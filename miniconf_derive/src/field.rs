@@ -1,6 +1,7 @@
 use darling::{util::Flag, FromField};
-use proc_macro2::TokenStream;
-use quote::quote;
+use proc_macro2::{Span, TokenStream};
+use quote::quote_spanned;
+use syn::spanned::Spanned;
 
 #[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree))]
@@ -18,6 +19,13 @@ pub struct TreeField {
 }
 
 impl TreeField {
+    fn span(&self) -> Span {
+        self.ident
+            .as_ref()
+            .map(|i| i.span())
+            .unwrap_or(self.ty.span())
+    }
+
     pub fn typ(&self) -> &syn::Type {
         self.typ.as_ref().unwrap_or(&self.ty)
     }
@@ -30,9 +38,9 @@ impl TreeField {
         match &self.ident {
             None => {
                 let index = syn::Index::from(i);
-                quote! { #index }
+                quote_spanned!(self.span()=> #index)
             }
-            Some(name) => quote! { #name },
+            Some(name) => quote_spanned!(self.span()=> #name),
         }
     }
 
@@ -41,7 +49,7 @@ impl TreeField {
         let depth = self.depth;
         if depth > 0 {
             let typ = self.typ();
-            Some(quote! {
+            Some(quote_spanned! { self.span()=>
                 #i => <#typ as ::miniconf::TreeKey<#depth>>::traverse_by_key(keys, func)
             })
         } else {
@@ -54,7 +62,7 @@ impl TreeField {
         let depth = self.depth;
         if depth > 0 {
             let typ = self.typ();
-            Some(quote! {
+            Some(quote_spanned! { self.span()=>
                 #i => <#typ as ::miniconf::TreeKey<#depth>>::metadata()
             })
         } else {
@@ -65,41 +73,41 @@ impl TreeField {
     fn getter(&self, i: usize, value: bool) -> TokenStream {
         let ident = self.ident_or_index(i);
         match (&self.get, value) {
-            (Some(get), _) => quote! {
+            (Some(get), _) => quote_spanned! { get.span()=>
                 #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             },
-            (None, false) => quote! { Ok(&self.#ident) },
-            (None, true) => quote! { Ok(value) },
+            (None, false) => quote_spanned! { self.span()=> Ok(&self.#ident) },
+            (None, true) => quote_spanned! { self.span()=> Ok(value) },
         }
     }
 
     fn getter_mut(&self, i: usize, value: bool) -> TokenStream {
         let ident = self.ident_or_index(i);
         match (&self.get_mut, value) {
-            (Some(get_mut), _) => quote!(
+            (Some(get_mut), _) => quote_spanned! { get_mut.span()=>
                 #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
-            ),
-            (None, false) => quote! { Ok(&mut self.#ident) },
-            (None, true) => quote! { Ok(value) },
+            },
+            (None, false) => quote_spanned!(self.span()=> Ok(&mut self.#ident) ),
+            (None, true) => quote_spanned!(self.span()=> Ok(value) ),
         }
     }
 
     fn validator(&self) -> TokenStream {
         match &self.validate {
-            Some(validate) => quote! {
+            Some(validate) => quote_spanned! { validate.span()=>
                 .and_then(|value| #validate(self, value)
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
                 )
             },
-            None => quote! {},
+            None => quote_spanned!(self.span()=> ),
         }
     }
 
     fn lhs(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         if let Some(ident) = ident {
-            quote! { (Self::#ident(value), #i) }
+            quote_spanned!(ident.span()=> (Self::#ident(value), #i))
         } else {
-            quote! { #i }
+            quote_spanned!(self.span()=> #i)
         }
     }
 
@@ -109,13 +117,13 @@ impl TreeField {
         let depth = self.depth;
         let getter = self.getter(i, ident.is_some());
         if depth > 0 {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter
                     .and_then(|value|
                         ::miniconf::TreeSerialize::<#depth>::serialize_by_key(value, keys, ser))
             }
         } else {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
@@ -133,7 +141,7 @@ impl TreeField {
         let getter_mut = self.getter_mut(i, ident.is_some());
         let validator = self.validator();
         if depth > 0 {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter_mut
                     .and_then(|item|
                         ::miniconf::TreeDeserialize::<'de, #depth>::deserialize_by_key(item, keys, de)
@@ -141,7 +149,7 @@ impl TreeField {
                     #validator
             }
         } else {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => ::miniconf::Deserialize::deserialize(de)
                     .map_err(|err| ::miniconf::Error::Inner(0, err))
                     #validator
@@ -161,12 +169,12 @@ impl TreeField {
         let depth = self.depth;
         let getter = self.getter(i, ident.is_some());
         if depth > 0 {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter
                     .and_then(|item| ::miniconf::TreeAny::<#depth>::ref_any_by_key(item, keys))
             }
         } else {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter.map(|item| item as &dyn ::core::any::Any)
             }
         }
@@ -178,12 +186,12 @@ impl TreeField {
         let depth = self.depth;
         let getter_mut = self.getter_mut(i, ident.is_some());
         if depth > 0 {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter_mut
                     .and_then(|item| ::miniconf::TreeAny::<#depth>::mut_any_by_key(item, keys))
             }
         } else {
-            quote! {
+            quote_spanned! { self.span()=>
                 #lhs => #getter_mut.map(|item| item as &mut dyn ::core::any::Any)
             }
         }
