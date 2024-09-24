@@ -29,20 +29,23 @@ fn struct_iter() {
 
 #[test]
 fn struct_iter_indices() {
-    let mut paths = [
+    let paths = [
         ([0, 0, 0], 2),
         ([0, 1, 0], 2),
         ([1, 0, 0], 2),
         ([2, 0, 0], 3),
         ([3, 0, 0], 1),
-    ]
-    .into_iter();
-    for (have, expect) in Settings::nodes::<Indices<_>>().exact_size().zip(&mut paths) {
-        let (idx, node) = have.unwrap();
-        assert_eq!((idx.into_inner(), node.depth()), expect);
-    }
-    // Ensure that all fields were iterated.
-    assert_eq!(paths.next(), None);
+    ];
+    assert_eq!(
+        Settings::nodes::<Indices<[usize; 3]>>()
+            .exact_size()
+            .map(|have| {
+                let (idx, node) = have.unwrap();
+                (idx.into_inner(), node.depth())
+            })
+            .collect::<Vec<_>>(),
+        paths
+    );
 }
 
 #[test]

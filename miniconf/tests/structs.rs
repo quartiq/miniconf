@@ -3,11 +3,10 @@ use miniconf::{
 };
 
 #[test]
-fn atomic_struct() {
-    #[derive(Serialize, Deserialize, Default, PartialEq, Debug)]
+fn structs() {
+    #[derive(Serialize, Deserialize, Tree, Default, PartialEq, Debug)]
     struct Inner {
         a: u32,
-        b: u32,
     }
 
     #[derive(Tree, Default, PartialEq, Debug)]
@@ -15,6 +14,8 @@ fn atomic_struct() {
         a: f32,
         b: bool,
         c: Inner,
+        #[tree(depth = 1)]
+        d: Inner,
     }
 
     let mut settings = Settings::default();
@@ -23,58 +24,30 @@ fn atomic_struct() {
     assert!(settings.set_json("/c/a", b"4").is_err());
 
     // Inner settings can be updated atomically.
-    settings.set_json("/c", b"{\"a\": 5, \"b\": 3}").unwrap();
+    settings.set_json("/c", b"{\"a\": 5}").unwrap();
 
-    let expected = {
-        let mut expected = Settings::default();
-        expected.c.a = 5;
-        expected.c.b = 3;
-        expected
-    };
-
-    assert_eq!(settings, expected);
-
-    // Check that metadata is correct.
-    let metadata = Settings::metadata();
-    assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length("/"), "/c".len());
-    assert_eq!(metadata.count, 3);
-}
-
-#[test]
-fn recursive_struct() {
-    #[derive(Tree, Default, PartialEq, Debug)]
-    struct Inner {
-        a: u32,
-    }
-
-    #[derive(Tree, Default, PartialEq, Debug)]
-    struct Settings {
-        a: f32,
-        b: bool,
-        #[tree(depth = 1)]
-        c: Inner,
-    }
-
-    let mut settings = Settings::default();
-
-    settings.set_json("/c/a", b"3").unwrap();
-    let expected = {
-        let mut expected = Settings::default();
-        expected.c.a = 3;
-        expected
-    };
-
-    assert_eq!(settings, expected);
+    // Deferred inner settings can be updated individually.
+    settings.set_json("/d/a", b"3").unwrap();
 
     // It is not allowed to set a non-terminal node.
-    assert!(settings.set_json("/c", b"{\"a\": 5}").is_err());
+    assert!(settings.set_json("/d", b"{\"a\": 5").is_err());
+
+    assert_eq!(settings.c, Inner { a: 5 });
+    assert_eq!(settings.d, Inner { a: 3 });
 
     // Check that metadata is correct.
     let metadata = Settings::metadata();
     assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length("/"), "/c/a".len());
-    assert_eq!(metadata.count, 3);
+    assert_eq!(metadata.max_length("/"), "/d/a".len());
+    assert_eq!(metadata.count, 4);
+
+    assert_eq!(
+        Settings::nodes::<Path<String, '/'>>()
+            .exact_size()
+            .map(|p| p.unwrap().0.into_inner())
+            .collect::<Vec<_>>(),
+        vec!["/a", "/b", "/c", "/d/a"]
+    );
 }
 
 #[test]
