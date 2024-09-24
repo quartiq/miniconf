@@ -48,15 +48,13 @@ fn newtype_enums() {
 
 #[test]
 fn enum_switch() {
-    #[derive(Tree, Default, EnumString, Clone, AsRefStr)]
+    #[derive(Tree, Default, EnumString, AsRefStr)]
     enum Settings {
         #[default]
         None,
-        #[tree(rename = "a")]
-        #[strum(serialize = "a")]
+        #[strum(serialize = "foo")]
+        #[tree(rename = "foo")]
         A(i32),
-        #[strum(serialize = "b")]
-        #[tree(rename = "b")]
         B(f32),
     }
 
@@ -74,19 +72,19 @@ fn enum_switch() {
         }
 
         fn set_tag(&mut self, tag: &str) -> Result<(), &'static str> {
-            self.payload = Settings::try_from(tag).map_err(|_| "invalid tag")?;
+            self.payload = Settings::try_from(tag).or(Err("invalid tag"))?;
             Ok(())
         }
     }
 
     let mut s = Outer::default();
     assert!(matches!(s.payload, Settings::None));
-    s.set_json("/tag", b"\"a\"").unwrap();
+    s.set_json("/tag", b"\"foo\"").unwrap();
     assert!(matches!(s.payload, Settings::A(0)));
-    s.set_json("/payload/a", b"99").unwrap();
+    s.set_json("/payload/foo", b"99").unwrap();
     assert!(matches!(s.payload, Settings::A(99)));
     assert_eq!(
-        s.set_json("/payload/b", b"99"),
+        s.set_json("/payload/B", b"99"),
         Err(miniconf::Traversal::Absent(2).into())
     );
     assert_eq!(
@@ -98,6 +96,6 @@ fn enum_switch() {
                 p.into_inner()
             })
             .collect::<Vec<_>>(),
-        vec!["/tag", "/payload/a", "/payload/b"]
+        vec!["/tag", "/payload/foo", "/payload/B"]
     );
 }
