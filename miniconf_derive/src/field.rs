@@ -154,9 +154,9 @@ impl TreeField {
                     .map_err(|err| ::miniconf::Error::Inner(0, err))
                     #validator
                     .and_then(|new|
-                        #getter_mut.and_then(|item| {
+                        #getter_mut.map(|item| {
                             *item = new;
-                            Ok(0)
+                            0
                         })
                     )
             }
