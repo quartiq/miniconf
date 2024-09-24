@@ -48,12 +48,12 @@ fn newtype_enums() {
 
 #[test]
 fn enum_switch() {
-    #[derive(Tree, Default)]
+    #[derive(Tree, Default, PartialEq, Debug)]
     struct Inner {
         a: i32,
     }
 
-    #[derive(Tree, Default, EnumString, AsRefStr)]
+    #[derive(Tree, Default, EnumString, AsRefStr, PartialEq, Debug)]
     enum Enum {
         #[default]
         None,
@@ -68,37 +68,37 @@ fn enum_switch() {
         #[tree(typ = "&str", get = "Self::get_tag", validate = "Self::set_tag")]
         tag: (),
         #[tree(depth = 2)]
-        payload: Enum,
+        en: Enum,
     }
 
     impl Settings {
         fn get_tag(&self) -> Result<&str, &'static str> {
-            Ok(self.payload.as_ref())
+            Ok(self.en.as_ref())
         }
 
         fn set_tag(&mut self, tag: &str) -> Result<(), &'static str> {
-            self.payload = Enum::try_from(tag).or(Err("invalid tag"))?;
+            self.en = Enum::try_from(tag).or(Err("invalid tag"))?;
             Ok(())
         }
     }
 
     let mut s = Settings::default();
-    assert!(matches!(s.payload, Enum::None));
+    assert_eq!(s.en, Enum::None);
     s.set_json("/tag", b"\"foo\"").unwrap();
     assert_eq!(
         s.set_json("/tag", b"\"bar\""),
         Err(miniconf::Traversal::Invalid(1, "invalid tag").into())
     );
-    assert!(matches!(s.payload, Enum::A(0)));
-    s.set_json("/payload/foo", b"99").unwrap();
-    assert!(matches!(s.payload, Enum::A(99)));
+    assert_eq!(s.en, Enum::A(0));
+    s.set_json("/en/foo", b"99").unwrap();
+    assert_eq!(s.en, Enum::A(99));
     assert_eq!(
-        s.set_json("/payload/B/a", b"99"),
+        s.set_json("/en/B/a", b"99"),
         Err(miniconf::Traversal::Absent(2).into())
     );
     s.set_json("/tag", b"\"B\"").unwrap();
-    s.set_json("/payload/B/a", b"8").unwrap();
-    assert!(matches!(s.payload, Enum::B(Inner { a: 8 })));
+    s.set_json("/en/B/a", b"8").unwrap();
+    assert_eq!(s.en, Enum::B(Inner { a: 8 }));
 
     assert_eq!(
         Settings::nodes::<Path<String, '/'>>()
@@ -109,6 +109,6 @@ fn enum_switch() {
                 p.into_inner()
             })
             .collect::<Vec<_>>(),
-        vec!["/tag", "/payload/foo", "/payload/B/a"]
+        vec!["/tag", "/en/foo", "/en/B/a"]
     );
 }
