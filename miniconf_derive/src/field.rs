@@ -70,36 +70,41 @@ impl TreeField {
         }
     }
 
-    fn getter(&self, i: usize, value: bool) -> TokenStream {
-        let ident = self.ident_or_index(i);
-        match (&self.get, value) {
-            (Some(get), _) => quote_spanned! { get.span()=>
+    fn getter(&self, i: usize, is_enum: bool) -> TokenStream {
+        if let Some(get) = &self.get {
+            quote_spanned! { get.span()=>
                 #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
-            },
-            (None, false) => quote_spanned! { self.span()=> Ok(&self.#ident) },
-            (None, true) => quote_spanned! { self.span()=> Ok(value) },
+            }
+        } else if is_enum {
+            quote_spanned!(self.span()=> Ok(value))
+        } else {
+            let ident = self.ident_or_index(i);
+            quote_spanned!(self.span()=> Ok(&self.#ident))
         }
     }
 
-    fn getter_mut(&self, i: usize, value: bool) -> TokenStream {
-        let ident = self.ident_or_index(i);
-        match (&self.get_mut, value) {
-            (Some(get_mut), _) => quote_spanned! { get_mut.span()=>
+    fn getter_mut(&self, i: usize, is_enum: bool) -> TokenStream {
+        if let Some(get_mut) = &self.get_mut {
+            quote_spanned! { get_mut.span()=>
                 #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
-            },
-            (None, false) => quote_spanned!(self.span()=> Ok(&mut self.#ident) ),
-            (None, true) => quote_spanned!(self.span()=> Ok(value) ),
+            }
+        } else if is_enum {
+            quote_spanned!(self.span()=> Ok(value))
+        } else {
+            let ident = self.ident_or_index(i);
+            quote_spanned!(self.span()=> Ok(&mut self.#ident))
         }
     }
 
     fn validator(&self) -> TokenStream {
-        match &self.validate {
-            Some(validate) => quote_spanned! { validate.span()=>
+        if let Some(validate) = &self.validate {
+            quote_spanned! { validate.span()=>
                 .and_then(|value| #validate(self, value)
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
                 )
-            },
-            None => quote_spanned!(self.span()=> ),
+            }
+        } else {
+            quote_spanned!(self.span()=> )
         }
     }
 

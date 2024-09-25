@@ -274,12 +274,13 @@ impl Tree {
         let depth = self.depth();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeSerialize<#depth>))
+            Some(if depth > 0 {
+                parse_quote!(::miniconf::TreeSerialize<#depth>)
             } else {
-                Some(parse_quote!(::miniconf::Serialize))
-            }
+                parse_quote!(::miniconf::Serialize)
+            })
         });
+
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let (mat, arms, default): (_, Vec<_>, _) = match &self.data {
             Data::Struct(fields) => (
@@ -324,11 +325,11 @@ impl Tree {
 
     pub fn tree_deserialize(&self) -> TokenStream {
         let mut generics = self.bound_generics(&mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeDeserialize<'de, #depth>))
+            Some(if depth > 0 {
+                parse_quote!(::miniconf::TreeDeserialize<'de, #depth>)
             } else {
-                Some(parse_quote!(::miniconf::Deserialize<'de>))
-            }
+                parse_quote!(::miniconf::Deserialize<'de>)
+            })
         });
 
         let depth = self.depth();
@@ -390,11 +391,11 @@ impl Tree {
 
     pub fn tree_any(&self) -> TokenStream {
         let generics = self.bound_generics(&mut |depth| {
-            if depth > 0 {
-                Some(parse_quote!(::miniconf::TreeAny<#depth>))
+            Some(if depth > 0 {
+                parse_quote!(::miniconf::TreeAny<#depth>)
             } else {
-                Some(parse_quote!(::core::any::Any))
-            }
+                parse_quote!(::core::any::Any)
+            })
         });
 
         let depth = self.depth();
