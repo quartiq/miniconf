@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(test, doctest)), no_std)]
+#![no_std]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]

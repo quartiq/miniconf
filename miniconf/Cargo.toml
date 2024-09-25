@@ -9,7 +9,6 @@ description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["config", "serde", "no_std", "reflection", "graph"]
 categories = ["embedded", "config", "data-structures", "parsing"]
-resolver = "2"
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
@@ -23,7 +22,6 @@ default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive", "serde/derive"]
-std = []
 
 [package.metadata.docs.rs]
 all-features = true
@@ -37,6 +35,7 @@ embedded-io-adapters = { version = "0.6.1", features = ["tokio-1"] }
 heapless = "0.8.0"
 yafnv = "3.0.0"
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
+strum = { version = "0.26.3", features = ["derive"] }
 
 [[test]]
 name = "arrays"
@@ -72,6 +71,10 @@ required-features = ["derive"]
 
 [[test]]
 name = "structs"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "enum"
 required-features = ["json-core", "derive"]
 
 [[test]]

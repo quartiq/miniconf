@@ -1,6 +1,5 @@
-#![cfg_attr(not(any(feature = "std", test, doctest)), no_std)]
-#![cfg_attr(feature = "json-core", doc = include_str!("../README.md"))]
-#![cfg_attr(not(feature = "json-core"), doc = "miniconf")]
+#![no_std]
+#![doc = include_str!("../README.md")]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
 #![warn(missing_docs)]

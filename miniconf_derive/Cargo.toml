@@ -8,7 +8,6 @@ description = "Derive macros for `miniconf`"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
-resolver = "2"
 
 [lib]
 proc-macro = true
@@ -18,6 +17,3 @@ syn = "2.0"
 quote = "1.0"
 proc-macro2 = "1.0"
 darling = "0.20"
-
-[dev-dependencies]
-syn = { version = "2.0", features = ["extra-traits"] }

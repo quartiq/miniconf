@@ -8,10 +8,6 @@ description = "MQTT interface for `miniconf`, using `minimq`"
 repository = "https://github.com/quartiq/miniconf"
 keywords = ["settings", "serde", "no_std", "json", "mqtt"]
 categories = ["no-std", "config", "rust-patterns", "parsing"]
-resolver = "2"
-
-[features]
-std = []
 
 [lib]
 
@@ -30,7 +26,7 @@ name = "mqtt"
 [dev-dependencies]
 machine = "0.3"
 env_logger = "0.11"
-std-embedded-nal = { git = "https://gitlab.com/ryan-summers/std-embedded-nal", branch = "feature/0.8" }
+std-embedded-nal = "0.3"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
 miniconf = { features = ["json-core", "derive"], path = "../miniconf" }

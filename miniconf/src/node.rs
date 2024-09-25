@@ -225,10 +225,12 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
     {
         M::traverse_by_key(keys.into_keys(), |index, name, _len| {
             self.0
-                .write_char(self.separator())
-                .and_then(|()| match name {
-                    Some(name) => self.0.write_str(name),
-                    None => self.0.write_str(itoa::Buffer::new().format(index)),
+                .write_char(S)
+                .and_then(|()| {
+                    let mut buf = itoa::Buffer::new();
+                    let name = name.unwrap_or_else(|| buf.format(index));
+                    debug_assert!(!name.contains(S));
+                    self.0.write_str(name)
                 })
                 .or(Err(()))
         })
@@ -311,10 +313,10 @@ mod test {
 
     #[test]
     fn strsplit() {
+        use heapless::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_> = PathIter::<'_, '/'>::new(p).collect();
-            println!("{p} {:?}", a);
-            let b: Vec<_> = p.split('/').skip(1).collect();
+            let a: Vec<_, 10> = PathIter::<'_, '/'>::new(p).collect();
+            let b: Vec<_, 10> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }
     }

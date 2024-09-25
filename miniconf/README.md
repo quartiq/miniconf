@@ -107,7 +107,7 @@ let len = settings.get_json("/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
-for path in Settings::nodes::<Path<String, '/'>>() {
+for path in Settings::nodes::<Path<heapless::String<32>, '/'>>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
     // Serialize each
@@ -168,7 +168,7 @@ Fields/items that form internal nodes (non-leaf) need to implement the respectiv
 Leaf fields/items need to support the respective [`serde`] trait (and the desired `serde::Serializer`/`serde::Deserializer`
 backend).
 
-Structs, arrays, and Options can then be cascaded to construct more complex trees.
+Structs, enums, arrays, and Options can then be cascaded to construct more complex trees.
 When using the derive macro, the behavior and tree recursion depth can be configured for each
 struct field using the `#[tree(depth(Y))]` attribute.
 
@@ -187,10 +187,11 @@ It implements [`Keys`].
 
 ## Limitations
 
-Access to inner fields of some types is not yet supported, e.g. enums
-other than [`Option`]. These are still however usable in their atomic `serde` form as leaf nodes.
+The derive macros don't support enums with record (named fields) variants or tuple (non-newtype) variants.
+These are still however usable in their atomic `serde` form as leaf nodes.
 
-Many `std` smart pointers are not supported or handled in any special way: `Box`, `Rc`, `Arc`.
+The derive macros don't handle `std`/`alloc` smart pointers ( `Box`, `Rc`, `Arc`) in any special way.
+They however still be handled with accessors (`get`, `get_mut`, `validate`).
 
 ## Features
 

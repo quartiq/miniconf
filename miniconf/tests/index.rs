@@ -1,3 +1,5 @@
+// This follows arrays.rs, just with indices.
+
 use miniconf::{Deserialize, JsonCoreSlash, Serialize, Traversal, Tree};
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]

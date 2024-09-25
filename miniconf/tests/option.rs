@@ -11,6 +11,21 @@ struct Settings {
     value: Option<Inner>,
 }
 
+fn nodes<M: miniconf::TreeKey<Y>, const Y: usize>(want: &[&str]) {
+    assert_eq!(
+        M::nodes::<Path<String, '/'>>()
+            .exact_size()
+            .map(|pn| {
+                let (p, n) = pn.unwrap();
+                assert!(n.is_leaf());
+                assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n.depth());
+                p.into_inner()
+            })
+            .collect::<Vec<_>>(),
+        want
+    );
+}
+
 #[test]
 fn just_option() {
     let mut it = Option::<u32>::nodes::<Path<String, '/'>>().exact_size();
@@ -33,6 +48,7 @@ fn option_get_set_none() {
         settings.get_json("/value", &mut data),
         Err(Traversal::Absent(1).into())
     );
+    // The Absent field indicates at which depth the variant was absent
     assert_eq!(
         settings.set_json("/value/data", b"5"),
         Err(Traversal::Absent(1).into())
@@ -56,21 +72,7 @@ fn option_get_set_some() {
 
 #[test]
 fn option_iterate_some_none() {
-    let mut settings = Settings::default();
-
-    // When the value is None, it will still be iterated over as a topic but may not exist at runtime.
-    settings.value.take();
-    let mut iterator = Settings::nodes::<Path<String, '/'>>().exact_size();
-    let (path, _node) = iterator.next().unwrap().unwrap();
-    assert_eq!(path.as_str(), "/value/data");
-    assert!(iterator.next().is_none());
-
-    // When the value is Some, it should be iterated over.
-    settings.value.replace(Inner { data: 5 });
-    let mut iterator = Settings::nodes::<Path<String, '/'>>().exact_size();
-    let (path, _node) = iterator.next().unwrap().unwrap();
-    assert_eq!(path.as_str(), "/value/data");
-    assert_eq!(iterator.next(), None);
+    nodes::<Settings, 3>(&["/value/data"]);
 }
 
 #[test]
@@ -79,22 +81,13 @@ fn option_test_normal_option() {
     struct S {
         data: Option<u32>,
     }
+    nodes::<S, 1>(&["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    let mut iterator = S::nodes::<Path<String, '/'>>().exact_size();
-    let (path, _node) = iterator.next().unwrap().unwrap();
-    assert_eq!(path.as_str(), "/data");
-    assert!(iterator.next().is_none());
-
     s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
-
-    let mut iterator = S::nodes::<Path<String, '/'>>().exact_size();
-    let (path, _node) = iterator.next().unwrap().unwrap();
-    assert_eq!(path.as_str(), "/data");
-    assert!(iterator.next().is_none());
 
     s.set_json("/data", b"null").unwrap();
     assert!(s.data.is_none());
@@ -107,24 +100,15 @@ fn option_test_defer_option() {
         #[tree(depth = 1)]
         data: Option<u32>,
     }
+    nodes::<S, 2>(&["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
-
-    let mut iterator = S::nodes::<Path<String, '/'>>().exact_size();
-    let (path, _node) = iterator.next().unwrap().unwrap();
-    assert_eq!(path.as_str(), "/data");
-    assert!(iterator.next().is_none());
 
     assert!(s.set_json("/data", b"7").is_err());
     s.data = Some(0);
     s.set_json("/data", b"7").unwrap();
     assert_eq!(s.data, Some(7));
-
-    let mut iterator = S::nodes::<Path<String, '/'>>().exact_size();
-    let (path, _node) = iterator.next().unwrap().unwrap();
-    assert_eq!(path.as_str(), "/data");
-    assert!(iterator.next().is_none());
 
     assert!(s.set_json("/data", b"null").is_err());
 }
