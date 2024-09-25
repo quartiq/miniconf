@@ -84,38 +84,41 @@ def main():
                     path = arg.removesuffix("?")
                     assert path.startswith("/") or not path
                     paths = await interface.list(path)
-                    # FIXME: There is no way for the client to reliably distinguish
-                    # a one-element leaf get from a one-element inner list.
-                    # The only means to do this is to note that a JSON payload of a get
-                    # can not start with the / that a list response starts with.
+                    # Note: There is no way for the CLI tool to reliably
+                    # distinguish a one-element leaf get responce from a
+                    # one-element inner list response without looking at
+                    # the payload.
+                    # The only way is to note that a JSON payload of a
+                    # get can not start with the / that a list response
+                    # starts with.
                     if len(paths) == 1 and not paths[0].startswith("/"):
-                        print(f"List `{path}` = `{paths[0]}`")
-                    else:
-                        for p in paths:
-                            try:
-                                value = await interface.get(p)
-                                print(f"List `{p}` = `{value}`")
-                            except MiniconfException as err:
-                                print(f"List `{p}`: {repr(err)}")
+                        print(f"{path}={paths[0]}")
+                        continue
+                    for p in paths:
+                        try:
+                            value = await interface.get(p)
+                            print(f"{p}={value}")
+                        except MiniconfException as err:
+                            print(f"{p}: {repr(err)}")
                 elif arg.endswith("!"):
                     path = arg.removesuffix("!")
                     assert path.startswith("/") or not path
                     await interface.dump(path)
-                    print(f"Dumped `{path}` into namespace")
+                    print(f"{path}: Dumped into MQTT namespace")
                 elif "=" in arg:
                     path, value = arg.split("=", 1)
                     assert path.startswith("/") or not path
                     if not value:
                         await interface.clear(path)
-                        print(f"Cleared retained `{path}`")
+                        print(f"{path}: Cleared retained")
                     else:
                         await interface.set(path, json.loads(value), args.retain)
-                        print(f"Set `{path}` = `{value}`")
+                        print(f"{path}={value}")
                 else:
                     path = arg
                     assert path.startswith("/") or not path
                     value = await interface.get(path)
-                    print(f"Get `{path}` = `{value}`")
+                    print(f"{path}={value}")
 
     asyncio.run(run())
 
