@@ -83,12 +83,20 @@ def main():
                 if arg.endswith("?"):
                     path = arg.removesuffix("?")
                     assert path.startswith("/") or not path
-                    for p in await interface.list(path):
-                        try:
-                            value = await interface.get(p)
-                            print(f"List `{p}` = `{value}`")
-                        except MiniconfException as err:
-                            print(f"List `{p}`: {repr(err)}")
+                    paths = await interface.list(path)
+                    # FIXME: There is no way for the client to reliably distinguish
+                    # a one-element leaf get from a one-element inner list.
+                    # The only means to do this is to note that a JSON payload of a get
+                    # can not start with the / that a list response starts with.
+                    if len(paths) == 1 and not paths[0].startswith("/"):
+                        print(f"List `{path}` = `{paths[0]}`")
+                    else:
+                        for p in paths:
+                            try:
+                                value = await interface.get(p)
+                                print(f"List `{p}` = `{value}`")
+                            except MiniconfException as err:
+                                print(f"List `{p}`: {repr(err)}")
                 elif arg.endswith("!"):
                     path = arg.removesuffix("!")
                     assert path.startswith("/") or not path
