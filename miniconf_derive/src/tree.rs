@@ -1,6 +1,6 @@
 use darling::{
     ast::{self, Data},
-    util::{Flag, SpannedValue},
+    util::Flag,
     Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
@@ -10,17 +10,39 @@ use syn::parse_quote;
 use crate::field::TreeField;
 
 #[derive(Debug, FromVariant, Clone)]
-#[darling(attributes(tree))]
+#[darling(attributes(tree), supports(newtype, tuple, unit), and_then=Self::parse)]
 pub struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
-    flatten: Flag,
-    fields: ast::Fields<SpannedValue<TreeField>>,
+    fields: ast::Fields<TreeField>,
 }
 
 impl TreeVariant {
-    fn field(&self) -> &SpannedValue<TreeField> {
+    fn parse(mut self) -> darling::Result<Self> {
+        assert!(!self.fields.is_struct());
+        // unnamed fields can only be skipped if they are terminal
+        while self
+            .fields
+            .fields
+            .last()
+            .map(|f| f.skip.is_present())
+            .unwrap_or_default()
+        {
+            self.fields.fields.pop();
+        }
+        if let Some(f) = self.fields.iter().find(|f| f.skip.is_present()) {
+            return Err(
+                Error::custom("Can only `skip` terminal tuple struct fields")
+                    .with_span(&f.skip.span()),
+            );
+        }
+        Ok(self)
+    }
+}
+
+impl TreeVariant {
+    fn field(&self) -> &TreeField {
         // assert!(self.fields.is_newtype()); // Don't do this since we modified it with skip
         assert!(self.fields.len() == 1); // Only newtypes currently
         self.fields.fields.first().unwrap()
@@ -32,18 +54,17 @@ impl TreeVariant {
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
-#[darling(attributes(tree))]
-#[darling(supports(any))]
+#[darling(attributes(tree), supports(any), and_then=Self::parse)]
+#[darling()]
 pub struct Tree {
     ident: syn::Ident,
-    flatten: Flag,
     generics: syn::Generics,
-    data: Data<SpannedValue<TreeVariant>, SpannedValue<TreeField>>,
+    data: Data<TreeVariant, TreeField>,
 }
 
 impl Tree {
     fn depth(&self) -> usize {
-        let level = if self.flatten.is_present() { 0 } else { 1 };
+        let level = 1; // flatten single-variant enums!
         let inner = match &self.data {
             Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)),
             Data::Enum(variants) => variants
@@ -53,16 +74,8 @@ impl Tree {
         (level + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
     }
 
-    pub fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
-        let mut tree = Self::from_derive_input(input)?;
-
-        if tree.flatten.is_present() {
-            return Err(
-                Error::custom("Flattening structs/enums is not yet supported.")
-                    .with_span(&tree.flatten.span()),
-            );
-        }
-        match &mut tree.data {
+    fn parse(mut self) -> darling::Result<Self> {
+        match &mut self.data {
             Data::Struct(fields) => {
                 // unnamed fields can only be skipped if they are terminal
                 while fields
@@ -84,64 +97,23 @@ impl Tree {
                             .with_span(&f.skip.span()),
                     );
                 }
-                if tree.flatten.is_present() && fields.len() > 1 {
-                    return Err(Error::custom("Can only flatten single-field structs")
-                        .with_span(&tree.flatten.span()));
-                }
             }
             Data::Enum(variants) => {
                 variants.retain(|v| !(v.skip.is_present() || v.fields.is_unit()));
-                for v in variants.iter_mut() {
-                    if v.fields.is_struct() {
-                        // Note(design) For tuple or named struct variants we'd have to create proxy
-                        // structs for KeyLookup.
-                        return Err(Error::custom(
-                            "Struct variants with named fields are not supported",
-                        )
-                        .with_span(&v.span()));
-                    }
-                    if !v.flatten.is_present() {
-                        // Note(design)
-                        return Err(Error::custom(
-                            "Enum variants must be flattened. Add `#[tree(flatten)].",
-                        )
-                        .with_span(&v.span()));
-                    }
-                    // unnamed fields can only be skipped if they are terminal
-                    while v
-                        .fields
-                        .fields
-                        .last()
-                        .map(|f| f.ident.is_none() && f.skip.is_present())
-                        .unwrap_or_default()
-                    {
-                        v.fields.fields.pop();
-                    }
-                    if let Some(f) = v.fields.iter().find(|f| f.skip.is_present()) {
-                        return Err(
-                            Error::custom("Can only `skip` terminal tuple struct fields")
-                                .with_span(&f.skip.span()),
-                        );
-                    }
+                for v in variants.iter() {
                     if v.fields.len() != 1 {
                         return Err(Error::custom(
                             "Only newtype (single field tuple) enum variants are supported.",
                         )
-                        .with_span(&v.span()));
+                        .with_span(&v.ident.span()));
                     }
-                }
-                if tree.flatten.is_present() && variants.len() > 1 {
-                    return Err(Error::custom(
-                        "Can only flatten enums with a single non-unit, non-skipped variant.",
-                    )
-                    .with_span(&tree.flatten.span()));
                 }
             }
         }
-        Ok(tree)
+        Ok(self)
     }
 
-    fn fields(&self) -> Vec<&SpannedValue<TreeField>> {
+    fn fields(&self) -> Vec<&TreeField> {
         match &self.data {
             Data::Struct(fields) => fields.iter().collect(),
             Data::Enum(variants) => variants.iter().map(|v| v.field()).collect(),

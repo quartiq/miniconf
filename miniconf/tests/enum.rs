@@ -11,9 +11,8 @@ enum Enum {
     #[default]
     None,
     #[strum(serialize = "foo")]
-    #[tree(rename = "foo", flatten)]
+    #[tree(rename = "foo")]
     A(i32),
-    #[tree(flatten)]
     B(#[tree(depth = 1)] Inner),
 }
 
@@ -76,7 +75,6 @@ fn enum_skip() {
     #[allow(dead_code)]
     #[derive(Tree)]
     enum E {
-        #[tree(flatten)]
         A(i32, #[tree(skip)] i32),
         #[tree(skip)]
         B(S),
