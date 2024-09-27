@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.13.0...HEAD) - DATE
+
+### Changed
+
+* Enum variants (which currently must be newtypes) must be flattened. This doesn't change
+  behavior as they have always been flattened, it just required adding the attribute to make it
+  future proof.
+
 ## [0.14.0](https://github.com/quartiq/miniconf/compare/v0.13.0...v0.14.0) - 2024-09-26
 
 ### Added

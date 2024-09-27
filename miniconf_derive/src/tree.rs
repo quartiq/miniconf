@@ -15,12 +15,14 @@ pub struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
+    flatten: Flag,
     fields: ast::Fields<SpannedValue<TreeField>>,
 }
 
 impl TreeVariant {
     fn field(&self) -> &SpannedValue<TreeField> {
-        assert!(self.fields.len() == 1);
+        // assert!(self.fields.is_newtype()); // Don't do this since we modified it with skip
+        assert!(self.fields.len() == 1); // Only newtypes currently
         self.fields.fields.first().unwrap()
     }
 
@@ -34,22 +36,21 @@ impl TreeVariant {
 #[darling(supports(any))]
 pub struct Tree {
     ident: syn::Ident,
-    // pub flatten: Flag, // FIXME: implement
+    flatten: Flag,
     generics: syn::Generics,
     data: Data<SpannedValue<TreeVariant>, SpannedValue<TreeField>>,
 }
 
 impl Tree {
     fn depth(&self) -> usize {
-        match &self.data {
-            Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)) + 1,
-            Data::Enum(variants) => {
-                variants
-                    .iter()
-                    .fold(0, |d, variant| d.max(variant.field().depth))
-                    + 1
-            }
-        }
+        let level = if self.flatten.is_present() { 0 } else { 1 };
+        let inner = match &self.data {
+            Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)),
+            Data::Enum(variants) => variants
+                .iter()
+                .fold(0, |d, variant| d.max(variant.field().depth)),
+        };
+        (level + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
     }
 
     pub fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
@@ -61,7 +62,7 @@ impl Tree {
                 while fields
                     .fields
                     .last()
-                    .map(|f| f.skip.is_present())
+                    .map(|f| f.ident.is_none() && f.skip.is_present())
                     .unwrap_or_default()
                 {
                     fields.fields.pop();
@@ -71,9 +72,15 @@ impl Tree {
                     .retain(|f| f.ident.is_none() || !f.skip.is_present());
                 if let Some(f) = fields.fields.iter().find(|f| f.skip.is_present()) {
                     return Err(
+                        // Note(design) If non-terminal fields are skipped, there is a gap in the indices.
+                        // This could be lifted with a index map.
                         Error::custom("Can only `skip` terminal tuple struct fields")
                             .with_span(&f.skip.span()),
                     );
+                }
+                if tree.flatten.is_present() && fields.len() > 1 {
+                    return Err(Error::custom("Can only flatten single-field structs")
+                        .with_span(&tree.flatten.span()));
                 }
             }
             Data::Enum(variants) => {
@@ -81,17 +88,25 @@ impl Tree {
                 for v in variants.iter_mut() {
                     if v.fields.is_struct() {
                         // Note(design) For tuple or named struct variants we'd have to create proxy
-                        // structs anyway to support KeyLookup on that level.
-                        return Err(
-                            Error::custom("Struct variants not supported").with_span(&v.span())
-                        );
+                        // structs anyway (or use a FIELD_NAMES: &[&[&str]]) for KeyLookup.
+                        return Err(Error::custom(
+                            "Struct variants with named fields are not supported",
+                        )
+                        .with_span(&v.span()));
+                    }
+                    if !v.flatten.is_present() {
+                        // Note(design)
+                        return Err(Error::custom(
+                            "Enum variants must be flattened. Add `#[tree(flatten)].",
+                        )
+                        .with_span(&v.span()));
                     }
                     // unnamed fields can only be skipped if they are terminal
                     while v
                         .fields
                         .fields
                         .last()
-                        .map(|f| f.skip.is_present())
+                        .map(|f| f.ident.is_none() && f.skip.is_present())
                         .unwrap_or_default()
                     {
                         v.fields.fields.pop();
@@ -102,6 +117,18 @@ impl Tree {
                                 .with_span(&f.skip.span()),
                         );
                     }
+                    if v.fields.len() != 1 {
+                        return Err(Error::custom(
+                            "Only newtype (single field tuple) enum variants are supported.",
+                        )
+                        .with_span(&v.span()));
+                    }
+                }
+                if tree.flatten.is_present() && variants.len() > 1 {
+                    return Err(Error::custom(
+                        "Can only flatten enums with a single non-unit, non-skipped variant.",
+                    )
+                    .with_span(&tree.flatten.span()));
                 }
             }
         }

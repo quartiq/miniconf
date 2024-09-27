@@ -11,8 +11,9 @@ enum Enum {
     #[default]
     None,
     #[strum(serialize = "foo")]
-    #[tree(rename = "foo")]
+    #[tree(rename = "foo", flatten)]
     A(i32),
+    #[tree(flatten)]
     B(#[tree(depth = 1)] Inner),
 }
 
