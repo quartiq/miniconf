@@ -133,7 +133,7 @@ impl Tree {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let fields = self.fields();
         let fields_len = fields.len();
-        let metadata_arms = fields.iter().enumerate().filter_map(|(i, f)| f.metadata(i));
+        let metadata_arms = fields.iter().enumerate().map(|(i, f)| f.metadata(i));
         let traverse_arms = fields
             .iter()
             .enumerate()
@@ -161,7 +161,7 @@ impl Tree {
             ),
             _ => None,
         };
-        let (names, name_to_index, index_to_name, index_len) = if let Some(names) = names {
+        let (names, name_to_index, index_to_name, ident_len) = if let Some(names) = names {
             (
                 Some(quote!(
                     const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
@@ -220,24 +220,8 @@ impl Tree {
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
                 fn metadata() -> ::miniconf::Metadata {
                     let mut meta = ::miniconf::Metadata::default();
-                    for index in 0..#fields_len {
-                        let item_meta = match index {
-                            #(#metadata_arms ,)*
-                            _ => {
-                                let mut m = ::miniconf::Metadata::default();
-                                m.count = 1;
-                                m
-                            }
-                        };
-                        meta.max_length = meta.max_length.max(
-                            #index_len +
-                            item_meta.max_length
-                        );
-                        meta.max_depth = meta.max_depth.max(
-                            item_meta.max_depth
-                        );
-                        meta.count += item_meta.count;
-                    }
+                    let ident_len = |index: usize| { #ident_len };
+                    #(#metadata_arms)*
                     meta.max_depth += 1;
                     meta
                 }
