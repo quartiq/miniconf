@@ -208,14 +208,12 @@ impl Packed {
     pub fn pop_msb(&mut self, bits: u32) -> Option<usize> {
         let s = self.get();
         // Remove value from self
-        if let Some(new) = Self::new(s << bits) {
+        Self::new(s << bits).map(|new| {
             *self = new;
             // Extract value from old self
             // Done in two steps as bits + 1 can be Self::BITS which would wrap.
-            Some((s >> (Self::CAPACITY - bits)) >> 1)
-        } else {
-            None
-        }
+            (s >> (Self::CAPACITY - bits)) >> 1
+        })
     }
 
     /// Push the given number `bits` of `value` as new LSBs.
@@ -229,17 +227,15 @@ impl Packed {
         debug_assert_eq!(value >> bits, 0);
         let mut n = self.trailing_zeros();
         let old_marker = 1 << n;
-        if let Some(new_marker) = Self::new(old_marker >> bits) {
+        Self::new(old_marker >> bits).map(|new_marker| {
             n -= bits;
             // * Remove old marker
             // * Add value at offset n + 1
             //   Done in two steps as n + 1 can be Self::BITS, which would wrap.
             // * Add new marker
             self.0 = (self.get() ^ old_marker) | ((value << n) << 1) | new_marker.0;
-            Some(n)
-        } else {
-            None
-        }
+            n
+        })
     }
 }
 

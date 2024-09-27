@@ -94,7 +94,7 @@ impl Tree {
                 for v in variants.iter_mut() {
                     if v.fields.is_struct() {
                         // Note(design) For tuple or named struct variants we'd have to create proxy
-                        // structs anyway (or use a FIELD_NAMES: &[&[&str]]) for KeyLookup.
+                        // structs for KeyLookup.
                         return Err(Error::custom(
                             "Struct variants with named fields are not supported",
                         )
