@@ -39,9 +39,7 @@ impl TreeVariant {
         }
         Ok(self)
     }
-}
 
-impl TreeVariant {
     fn field(&self) -> &TreeField {
         // assert!(self.fields.is_newtype()); // Don't do this since we modified it with skip
         assert!(self.fields.len() == 1); // Only newtypes currently
@@ -63,17 +61,6 @@ pub struct Tree {
 }
 
 impl Tree {
-    fn depth(&self) -> usize {
-        let level = 1; // flatten single-variant enums!
-        let inner = match &self.data {
-            Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)),
-            Data::Enum(variants) => variants
-                .iter()
-                .fold(0, |d, variant| d.max(variant.field().depth)),
-        };
-        (level + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
-    }
-
     fn parse(mut self) -> darling::Result<Self> {
         match &mut self.data {
             Data::Struct(fields) => {
@@ -99,7 +86,7 @@ impl Tree {
                 }
             }
             Data::Enum(variants) => {
-                variants.retain(|v| !(v.skip.is_present() || v.fields.is_unit()));
+                variants.retain(|v| !(v.skip.is_present() || v.fields.is_empty()));
                 for v in variants.iter() {
                     if v.fields.len() != 1 {
                         return Err(Error::custom(
@@ -111,6 +98,12 @@ impl Tree {
             }
         }
         Ok(self)
+    }
+
+    fn depth(&self) -> usize {
+        let level = 1; // flatten single-variant enums!
+        let inner = self.fields().iter().fold(0, |d, field| d.max(field.depth));
+        (level + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
     }
 
     fn fields(&self) -> Vec<&TreeField> {
