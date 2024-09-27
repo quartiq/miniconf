@@ -68,3 +68,17 @@ fn enum_switch() {
         vec!["/tag", "/en/foo", "/en/B/a"]
     );
 }
+
+#[test]
+fn enum_skip() {
+    struct S;
+
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    enum E {
+        #[tree(flatten)]
+        A(i32, #[tree(skip)] i32),
+        #[tree(skip)]
+        B(S),
+    }
+}

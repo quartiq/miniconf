@@ -110,7 +110,7 @@ impl TreeField {
 
     fn lhs(&self, i: usize, ident: Option<&syn::Ident>) -> TokenStream {
         if let Some(ident) = ident {
-            quote_spanned!(ident.span()=> (Self::#ident(value), #i))
+            quote_spanned!(ident.span()=> (Self::#ident(value, ..), #i))
         } else {
             quote_spanned!(self.span()=> #i)
         }
