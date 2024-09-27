@@ -10,9 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* Enum variants (which currently must be newtypes) must be flattened. This doesn't change
-  behavior as they have always been flattened, it just required adding the attribute to make it
-  future proof.
+* Enum variants must be flattened. This doesn't change behavior as they have always been flattened,
+  it just requires adding the attribute now to make it clear what's happening and avoid a later
+  breakage when/if multi-field variants are supported.
 
 ## [0.14.0](https://github.com/quartiq/miniconf/compare/v0.13.0...v0.14.0) - 2024-09-26
 

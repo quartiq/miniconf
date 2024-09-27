@@ -70,29 +70,29 @@ impl TreeField {
         }
     }
 
-    fn getter(&self, i: usize, is_enum: bool) -> TokenStream {
+    fn getter(&self, i: Option<usize>) -> TokenStream {
         if let Some(get) = &self.get {
             quote_spanned! { get.span()=>
                 #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
-        } else if is_enum {
-            quote_spanned!(self.span()=> Ok(value))
-        } else {
+        } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> Ok(&self.#ident))
+        } else {
+            quote_spanned!(self.span()=> Ok(value))
         }
     }
 
-    fn getter_mut(&self, i: usize, is_enum: bool) -> TokenStream {
+    fn getter_mut(&self, i: Option<usize>) -> TokenStream {
         if let Some(get_mut) = &self.get_mut {
             quote_spanned! { get_mut.span()=>
                 #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
-        } else if is_enum {
-            quote_spanned!(self.span()=> Ok(value))
-        } else {
+        } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> Ok(&mut self.#ident))
+        } else {
+            quote_spanned!(self.span()=> Ok(value))
         }
     }
 
@@ -120,7 +120,7 @@ impl TreeField {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
         let lhs = self.lhs(i, ident);
         let depth = self.depth;
-        let getter = self.getter(i, ident.is_some());
+        let getter = self.getter(ident.is_none().then_some(i));
         if depth > 0 {
             quote_spanned! { self.span()=>
                 #lhs => #getter
@@ -143,7 +143,7 @@ impl TreeField {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
         let lhs = self.lhs(i, ident);
         let depth = self.depth;
-        let getter_mut = self.getter_mut(i, ident.is_some());
+        let getter_mut = self.getter_mut(ident.is_none().then_some(i));
         let validator = self.validator();
         if depth > 0 {
             quote_spanned! { self.span()=>
@@ -172,7 +172,7 @@ impl TreeField {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let lhs = self.lhs(i, ident);
         let depth = self.depth;
-        let getter = self.getter(i, ident.is_some());
+        let getter = self.getter(ident.is_none().then_some(i));
         if depth > 0 {
             quote_spanned! { self.span()=>
                 #lhs => #getter
@@ -189,7 +189,7 @@ impl TreeField {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         let lhs = self.lhs(i, ident);
         let depth = self.depth;
-        let getter_mut = self.getter_mut(i, ident.is_some());
+        let getter_mut = self.getter_mut(ident.is_none().then_some(i));
         if depth > 0 {
             quote_spanned! { self.span()=>
                 #lhs => #getter_mut

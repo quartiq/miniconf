@@ -56,6 +56,12 @@ impl Tree {
     pub fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
         let mut tree = Self::from_derive_input(input)?;
 
+        if tree.flatten.is_present() {
+            return Err(
+                Error::custom("Flattening structs/enums is not yet supported.")
+                    .with_span(&tree.flatten.span()),
+            );
+        }
         match &mut tree.data {
             Data::Struct(fields) => {
                 // unnamed fields can only be skipped if they are terminal
