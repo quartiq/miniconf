@@ -57,6 +57,7 @@ impl TreeVariant {
 pub struct Tree {
     ident: syn::Ident,
     generics: syn::Generics,
+    flatten: Flag,
     data: Data<TreeVariant, TreeField>,
 }
 
@@ -97,13 +98,24 @@ impl Tree {
                 }
             }
         }
+        if self.flatten.is_present() && self.fields().len() != 1 {
+            return Err(Error::custom("Can't flatten multiple fields/variants")
+                .with_span(&self.flatten.span()));
+        }
         Ok(self)
     }
 
+    fn level(&self) -> usize {
+        if self.flatten.is_present() {
+            0
+        } else {
+            1
+        }
+    }
+
     fn depth(&self) -> usize {
-        let level = 1; // flatten single-variant enums!
         let inner = self.fields().iter().fold(0, |d, field| d.max(field.depth));
-        (level + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
+        (self.level() + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
     }
 
     fn fields(&self) -> Vec<&TreeField> {
@@ -161,7 +173,7 @@ impl Tree {
             ),
             _ => None,
         };
-        let (names, name_to_index, index_to_name, ident_len) = if let Some(names) = names {
+        let (names, name_to_index, index_to_name, mut ident_len) = if let Some(names) = names {
             (
                 Some(quote!(
                     const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
@@ -187,13 +199,29 @@ impl Tree {
             )
         };
 
+        let level = self.level();
+        let (index, traverse, increment) = if self.flatten.is_present() {
+            ident_len = quote!(0);
+            (quote!(0), quote!(), quote!())
+        } else {
+            (
+                quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
+                quote! {
+                    func(index, #index_to_name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                },
+                quote!(::miniconf::Error::increment_result),
+            )
+        };
+
+        // FIXME: don't increment result in flatten in other traits
+
         quote! {
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #where_clause {
                 // TODO: can these be hidden and disambiguated w.r.t. collision?
-                fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
+                fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> Result<usize, ::miniconf::Traversal> {
                     const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
-                    let index = ::miniconf::Keys::next::<Self>(keys)?;
+                    let index = #index;
                     let defer = DEFERS.get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?;
                     if !defer && !keys.finalize() {
@@ -222,22 +250,18 @@ impl Tree {
                     let mut meta = ::miniconf::Metadata::default();
                     let ident_len = |index: usize| { #ident_len };
                     #(#metadata_arms)*
-                    meta.max_depth += 1;
+                    meta.max_depth += #level;
                     meta
                 }
 
-                fn traverse_by_key<K, F, E>(
-                    mut keys: K,
-                    mut func: F,
-                ) -> Result<usize, ::miniconf::Error<E>>
+                fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, ::miniconf::Error<E>>
                 where
                     K: ::miniconf::Keys,
                     F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
                 {
-                    let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
-                    let name = #index_to_name;
-                    func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
-                    ::miniconf::Error::increment_result(match index {
+                    let index = #index;
+                    #traverse
+                    #increment(match index {
                         #(#traverse_arms ,)*
                         _ => {
                             if !keys.finalize() {
@@ -292,6 +316,12 @@ impl Tree {
             ),
         };
 
+        let increment = if self.flatten.is_present() {
+            quote!()
+        } else {
+            quote!(::miniconf::Error::increment_result)
+        };
+
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
@@ -303,7 +333,7 @@ impl Tree {
                     let index = Self::__miniconf_lookup(&mut keys)?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
-                    ::miniconf::Error::increment_result(match #mat {
+                    #increment(match #mat {
                         #(#arms ,)*
                         _ => #default
                     })
@@ -365,6 +395,12 @@ impl Tree {
             ),
         };
 
+        let increment = if self.flatten.is_present() {
+            quote!()
+        } else {
+            quote!(::miniconf::Error::increment_result)
+        };
+
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
@@ -376,7 +412,7 @@ impl Tree {
                     let index = Self::__miniconf_lookup(&mut keys)?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
-                    ::miniconf::Error::increment_result(match #mat {
+                    #increment(match #mat {
                         #(#arms ,)*
                         _ => #default
                     })
@@ -433,6 +469,12 @@ impl Tree {
             ),
         };
 
+        let increment = if self.flatten.is_present() {
+            quote!(ret)
+        } else {
+            quote!(ret.map_err(::miniconf::Traversal::increment))
+        };
+
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
@@ -448,7 +490,7 @@ impl Tree {
                             #(#ref_arms ,)*
                             _ => #default
                         };
-                        ret.map_err(::miniconf::Traversal::increment)
+                        #increment
                     }
                 }
 
@@ -464,7 +506,7 @@ impl Tree {
                             #(#mut_arms ,)*
                             _ => #default
                         };
-                        ret.map_err(::miniconf::Traversal::increment)
+                        #increment
                     }
                 }
             }

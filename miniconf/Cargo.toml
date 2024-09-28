@@ -81,6 +81,10 @@ required-features = ["json-core", "derive"]
 name = "validate"
 required-features = ["json-core", "derive"]
 
+[[test]]
+name = "flatten"
+required-features = ["json-core", "derive"]
+
 [[example]]
 name = "common"
 crate-type = ["lib"]
