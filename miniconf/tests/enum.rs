@@ -74,3 +74,16 @@ fn enum_skip() {
     }
     assert_eq!(paths::<E, 1>(), ["/A"]);
 }
+
+#[test]
+fn option() {
+    #[allow(dead_code)]
+    #[derive(Tree, Copy, Clone, PartialEq, Default, Debug)]
+    #[tree(flatten)]
+    enum MOption<T> {
+        #[default]
+        None,
+        Some(#[tree(depth = 1)] T),
+    }
+    assert_eq!(paths::<MOption<[i32; 1]>, 1>(), ["/0"]);
+}

@@ -138,6 +138,7 @@ impl Tree {
 
     pub fn tree_key(&self) -> TokenStream {
         let depth = self.depth();
+        let level = self.level();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
             (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
@@ -199,7 +200,6 @@ impl Tree {
             )
         };
 
-        let level = self.level();
         let (index, traverse, increment) = if self.flatten.is_present() {
             ident_len = quote!(0);
             (quote!(0), quote!(), quote!())
@@ -212,8 +212,6 @@ impl Tree {
                 quote!(::miniconf::Error::increment_result),
             )
         };
-
-        // FIXME: don't increment result in flatten in other traits
 
         quote! {
             #[automatically_derived]
@@ -288,7 +286,7 @@ impl Tree {
         });
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-        let (mat, arms, default): (_, Vec<_>, _) = match &self.data {
+        let (mat, arms, default) = match &self.data {
             Data::Struct(fields) => (
                 quote!(index),
                 fields
@@ -298,7 +296,7 @@ impl Tree {
                         let rhs = f.serialize_by_key(Some(i));
                         quote!(#i => #rhs)
                     })
-                    .collect(),
+                    .collect::<Vec<_>>(),
                 quote!(unreachable!()),
             ),
             Data::Enum(variants) => (
@@ -367,7 +365,7 @@ impl Tree {
         }
         let (impl_generics, _, _) = generics.split_for_impl();
 
-        let (mat, arms, default): (_, Vec<_>, _) = match &self.data {
+        let (mat, arms, default) = match &self.data {
             Data::Struct(fields) => (
                 quote!(index),
                 fields
@@ -377,7 +375,7 @@ impl Tree {
                         let rhs = f.deserialize_by_key(Some(i));
                         quote!(#i => #rhs)
                     })
-                    .collect(),
+                    .collect::<Vec<_>>(),
                 quote!(unreachable!()),
             ),
             Data::Enum(variants) => (
@@ -434,7 +432,7 @@ impl Tree {
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        let (mat, (ref_arms, mut_arms), default): (_, (Vec<_>, Vec<_>), _) = match &self.data {
+        let (mat, (ref_arms, mut_arms), default) = match &self.data {
             Data::Struct(fields) => (
                 quote!(index),
                 fields
@@ -445,7 +443,7 @@ impl Tree {
                             (f.ref_any_by_key(Some(i)), f.mut_any_by_key(Some(i)));
                         (quote!(#i => #ref_rhs), quote!(#i => #mut_rhs))
                     })
-                    .unzip(),
+                    .unzip::<_, _, Vec<_>, Vec<_>>(),
                 quote!(unreachable!()),
             ),
             Data::Enum(variants) => (
