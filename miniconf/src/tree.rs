@@ -278,9 +278,6 @@ impl Metadata {
 /// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
 /// [`TreeAny::ref_any_by_key()`], or [`TreeAny::mut_any_by_key()`])
 /// return the special [`Traversal::Absent`].
-/// This is intended as a mechanism to provide run-time construction of the namespace. In some
-/// cases, run-time detection may indicate that some component is not present. In this case,
-/// the nodes will not be exposed for serialization/deserialization.
 ///
 /// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
 /// the `Option` can be used to access the inner type using its `TreeKey<{Y - 1}>` trait.

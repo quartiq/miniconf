@@ -130,7 +130,7 @@ One possible use of `miniconf` is a backend for run-time settings management in 
 It was originally designed to work with JSON ([`serde_json_core`](https://docs.rs/serde-json-core))
 payloads over MQTT ([`minimq`](https://docs.rs/minimq)) and provides a MQTT settings management
 client in the `miniconf_mqtt` crate and a Python reference implementation to interact with it.
-Miniconf is agnostic of the `serde` backend/format, hierarchy separator, and transport/protocol.
+Miniconf is agnostic of the `serde` backend/format, key type/format, and transport/protocol.
 
 ## Formats
 
@@ -162,11 +162,11 @@ python -m miniconf -d quartiq/application/+ /foo=true
 
 ## Derive macros
 
-For structs `miniconf` offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], and [`macro@TreeDeserialize`].
-The macros implements the [`TreeKey`], [`TreeSerialize`], and [`TreeDeserialize`] traits.
-Fields/items that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize}` trait.
-Leaf fields/items need to support the respective [`serde`] trait (and the desired `serde::Serializer`/`serde::Deserializer`
-backend).
+For structs `miniconf` offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and [`macro@TreeAny`].
+The macros implements the [`TreeKey`], [`TreeSerialize`], [`TreeDeserialize`], and [`TreeAny`] traits.
+Fields/variants that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize,Any}` trait.
+Leaf fields/items need to support the respective [`serde`] (and the desired `serde::Serializer`/`serde::Deserializer`
+backend) or [`core::any`] trait.
 
 Structs, enums, arrays, and Options can then be cascaded to construct more complex trees.
 When using the derive macro, the behavior and tree recursion depth can be configured for each
@@ -180,18 +180,16 @@ Lookup into the tree is done using a [`Keys`] implementation. A blanket implemen
 is provided for `IntoIterator`s over [`Key`] items. The [`Key`] lookup capability is implemented
 for `usize` indices and `&str` names.
 
-Path iteration is supported with arbitrary separator between names.
+Path iteration is supported with arbitrary separator `char`s between names.
 
 Very compact hierarchical indices encodings can be obtained from the [`Packed`] structure.
 It implements [`Keys`].
 
 ## Limitations
 
-The derive macros don't support enums with record (named fields) variants or tuple (non-newtype) variants.
-These are still however usable in their atomic `serde` form as leaf nodes.
-
-The derive macros don't handle `std`/`alloc` smart pointers ( `Box`, `Rc`, `Arc`) in any special way.
-They however still be handled with accessors (`get`, `get_mut`, `validate`).
+* `enum`: The derive macros don't support enums with record (named fields) variants or tuple variants with more than one field. Only unit, newtype and skipped variants are supported. Without the derive macros, these `enums` are still however usable in their atomic `serde` form as leaf nodes.
+* The derive macros don't handle `std`/`alloc` smart pointers ( `Box`, `Rc`, `Arc`) in any special way. They however still be handled with accessors (`get`, `get_mut`, `validate`).
+* The derive macros only support flattening in non-ambiguous situations (single field structs and single variant enums, both modulo skipped fields/variants and unit variants).
 
 ## Features
 
