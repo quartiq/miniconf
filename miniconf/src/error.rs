@@ -47,7 +47,7 @@ impl Display for Traversal {
                 write!(f, "Variant absent (depth: {depth})")
             }
             Traversal::TooShort(depth) => {
-                write!(f, "Key does not read a leaf (depth: {depth})")
+                write!(f, "Key does not reach a leaf (depth: {depth})")
             }
             Traversal::NotFound(depth) => {
                 write!(f, "Key not found (depth: {depth})")

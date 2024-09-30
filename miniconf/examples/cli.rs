@@ -1,10 +1,14 @@
-use anyhow::{Context, Result};
+use anyhow::Context;
 use miniconf::{Error, JsonCoreSlash, Path, Traversal, TreeKey};
 
 mod common;
 use common::Settings;
 
-fn main() -> Result<()> {
+// Simple command line interface example for miniconf.
+// This exposes all leaf nodes as long options, parses the command line,
+// and then prints the settings struct as a list of option key-value pairs.
+
+fn main() -> anyhow::Result<()> {
     let mut settings = Settings::default();
     settings.enable();
 
@@ -15,7 +19,6 @@ fn main() -> Result<()> {
         let value = args.next().context("missing value")?;
         settings
             .set_json_by_key(&Path::<_, '-'>(key), value.as_bytes())
-            .map_err(anyhow::Error::msg)
             .context("lookup/deserialize")?;
     }
 
