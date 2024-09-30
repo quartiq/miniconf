@@ -1,5 +1,8 @@
-use miniconf::{JsonCoreSlash, Path, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{JsonCoreSlash, Tree, TreeDeserialize, TreeKey, TreeSerialize};
 use strum::{AsRefStr, EnumString};
+
+mod common;
+use common::*;
 
 #[derive(Tree, Default, PartialEq, Debug)]
 struct Inner {
@@ -39,31 +42,51 @@ impl Settings {
 fn enum_switch() {
     let mut s = Settings::default();
     assert_eq!(s.en, Enum::None);
-    s.set_json("/tag", b"\"foo\"").unwrap();
+    set_get(&mut s, "/tag", b"\"foo\"");
     assert_eq!(
         s.set_json("/tag", b"\"bar\""),
         Err(miniconf::Traversal::Invalid(1, "invalid tag").into())
     );
     assert_eq!(s.en, Enum::A(0));
-    s.set_json("/en/foo", b"99").unwrap();
+    set_get(&mut s, "/en/foo", b"99");
     assert_eq!(s.en, Enum::A(99));
     assert_eq!(
         s.set_json("/en/B/a", b"99"),
         Err(miniconf::Traversal::Absent(2).into())
     );
-    s.set_json("/tag", b"\"B\"").unwrap();
-    s.set_json("/en/B/a", b"8").unwrap();
+    set_get(&mut s, "/tag", b"\"B\"");
+    set_get(&mut s, "/en/B/a", b"8");
     assert_eq!(s.en, Enum::B(Inner { a: 8 }));
 
-    assert_eq!(
-        Settings::nodes::<Path<String, '/'>>()
-            .exact_size()
-            .map(|pn| {
-                let (p, n) = pn.unwrap();
-                assert!(n.is_leaf());
-                p.into_inner()
-            })
-            .collect::<Vec<_>>(),
-        vec!["/tag", "/en/foo", "/en/B/a"]
-    );
+    assert_eq!(paths::<Settings, 3>(), ["/tag", "/en/foo", "/en/B/a"]);
+}
+
+#[test]
+fn enum_skip() {
+    struct S;
+
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    enum E {
+        A(i32, #[tree(skip)] i32),
+        #[tree(skip)]
+        B(S),
+    }
+    assert_eq!(paths::<E, 1>(), ["/A"]);
+}
+
+#[test]
+fn option() {
+    // Also tests macro hygiene a bit
+    #[allow(dead_code)]
+    #[derive(Tree, Copy, Clone, PartialEq, Default, Debug)]
+    #[tree(flatten)]
+    enum Option<T> {
+        #[default]
+        None,
+        // #192
+        Some(#[tree(depth = 1)] T),
+    }
+    assert_eq!(paths::<Option<[i32; 1]>, 1>(), ["/0"]);
+    assert_eq!(paths::<Option<::core::option::Option<i32>>, 1>(), [""]);
 }

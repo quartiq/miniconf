@@ -36,6 +36,7 @@ heapless = "0.8.0"
 yafnv = "3.0.0"
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.26.3", features = ["derive"] }
+trybuild = { version = "1.0.99", features = ["diff"] }
 
 [[test]]
 name = "arrays"
@@ -79,6 +80,10 @@ required-features = ["json-core", "derive"]
 
 [[test]]
 name = "validate"
+required-features = ["json-core", "derive"]
+
+[[test]]
+name = "flatten"
 required-features = ["json-core", "derive"]
 
 [[example]]

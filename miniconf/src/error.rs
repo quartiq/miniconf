@@ -1,4 +1,4 @@
-use core::fmt::{Display, Formatter};
+use core::fmt::{Debug, Display, Formatter};
 
 /// Errors that can occur when using the Tree traits.
 ///
@@ -13,10 +13,11 @@ use core::fmt::{Display, Formatter};
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Traversal {
-    /// The key is valid, but does not exist at runtime.
+    /// The does not exist at runtime.
     ///
-    /// This is the case if an [`Option`] using the `Tree*` traits
-    /// is `None` at runtime. See also [`crate::TreeKey#option`].
+    /// The `enum` variant is currently absent.
+    /// This is for example the case if an [`Option`] using the `Tree*`
+    /// traits is `None` at runtime. See also [`crate::TreeKey#option`].
     Absent(usize),
 
     /// The key ends early and does not reach a leaf node.
@@ -44,7 +45,7 @@ impl Display for Traversal {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
             Traversal::Absent(depth) => {
-                write!(f, "Key not currently present (depth: {depth})")
+                write!(f, "Variant absent (depth: {depth})")
             }
             Traversal::TooShort(depth) => {
                 write!(f, "Key too short (depth: {depth})")
@@ -64,6 +65,8 @@ impl Display for Traversal {
         }
     }
 }
+
+impl ::core::error::Error for Traversal {}
 
 impl Traversal {
     /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
@@ -116,10 +119,10 @@ pub enum Error<E> {
     Finalization(E),
 }
 
-impl<E: core::fmt::Display> Display for Error<E> {
+impl<E: Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Traversal(t) => t.fmt(f),
+            Self::Traversal(t) => Display::fmt(t, f),
             Self::Inner(depth, error) => {
                 write!(f, "(De)serialization error (depth: {depth}): {error}")
             }
@@ -127,6 +130,15 @@ impl<E: core::fmt::Display> Display for Error<E> {
                 write!(f, "(De)serializer finalization error: {error}")
             }
         }
+    }
+}
+
+impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        Some(match self {
+            Self::Traversal(t) => t,
+            Self::Inner(_, e) | Self::Finalization(e) => e,
+        })
     }
 }
 

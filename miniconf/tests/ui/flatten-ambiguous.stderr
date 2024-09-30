@@ -1,0 +1,11 @@
+error: Can't flatten multiple fields/variants
+ --> tests/ui/flatten-ambiguous.rs:4:8
+  |
+4 | #[tree(flatten)]
+  |        ^^^^^^^
+
+error: Can't flatten multiple fields/variants
+  --> tests/ui/flatten-ambiguous.rs:11:8
+   |
+11 | #[tree(flatten)]
+   |        ^^^^^^^

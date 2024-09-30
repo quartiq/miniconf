@@ -86,7 +86,7 @@ impl From<Node> for usize {
     }
 }
 
-/// Map a `TreeKey::traverse_by_key()` `Result` to a `NodeLookup::lookup()` `Result`.
+/// Map a `TreeKey::traverse_by_key()` `Result` to a `Transcode::transcode()` `Result`.
 impl TryFrom<Result<usize, Error<()>>> for Node {
     type Error = Traversal;
     fn try_from(value: Result<usize, Error<()>>) -> Result<Self, Traversal> {

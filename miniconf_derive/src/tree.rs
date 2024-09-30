@@ -1,6 +1,6 @@
 use darling::{
     ast::{self, Data},
-    util::{Flag, SpannedValue},
+    util::Flag,
     Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
@@ -10,17 +10,39 @@ use syn::parse_quote;
 use crate::field::TreeField;
 
 #[derive(Debug, FromVariant, Clone)]
-#[darling(attributes(tree))]
+#[darling(attributes(tree), supports(newtype, tuple, unit), and_then=Self::parse)]
 pub struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
-    fields: ast::Fields<SpannedValue<TreeField>>,
+    fields: ast::Fields<TreeField>,
 }
 
 impl TreeVariant {
-    fn field(&self) -> &SpannedValue<TreeField> {
-        assert!(self.fields.len() == 1);
+    fn parse(mut self) -> darling::Result<Self> {
+        assert!(!self.fields.is_struct());
+        // unnamed fields can only be skipped if they are terminal
+        while self
+            .fields
+            .fields
+            .last()
+            .map(|f| f.skip.is_present())
+            .unwrap_or_default()
+        {
+            self.fields.fields.pop();
+        }
+        if let Some(f) = self.fields.iter().find(|f| f.skip.is_present()) {
+            return Err(
+                Error::custom("Can only `skip` terminal tuple struct fields")
+                    .with_span(&f.skip.span()),
+            );
+        }
+        Ok(self)
+    }
+
+    fn field(&self) -> &TreeField {
+        // assert!(self.fields.is_newtype()); // Don't do this since we modified it with skip
+        assert!(self.fields.len() == 1); // Only newtypes currently
         self.fields.fields.first().unwrap()
     }
 
@@ -30,38 +52,24 @@ impl TreeVariant {
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
-#[darling(attributes(tree))]
-#[darling(supports(any))]
+#[darling(attributes(tree), supports(any), and_then=Self::parse)]
+#[darling()]
 pub struct Tree {
     ident: syn::Ident,
-    // pub flatten: Flag, // FIXME: implement
     generics: syn::Generics,
-    data: Data<SpannedValue<TreeVariant>, SpannedValue<TreeField>>,
+    flatten: Flag,
+    data: Data<TreeVariant, TreeField>,
 }
 
 impl Tree {
-    fn depth(&self) -> usize {
-        match &self.data {
-            Data::Struct(fields) => fields.fields.iter().fold(0, |d, field| d.max(field.depth)) + 1,
-            Data::Enum(variants) => {
-                variants
-                    .iter()
-                    .fold(0, |d, variant| d.max(variant.field().depth))
-                    + 1
-            }
-        }
-    }
-
-    pub fn parse(input: &syn::DeriveInput) -> Result<Self, Error> {
-        let mut tree = Self::from_derive_input(input)?;
-
-        match &mut tree.data {
+    fn parse(mut self) -> darling::Result<Self> {
+        match &mut self.data {
             Data::Struct(fields) => {
                 // unnamed fields can only be skipped if they are terminal
                 while fields
                     .fields
                     .last()
-                    .map(|f| f.skip.is_present())
+                    .map(|f| f.ident.is_none() && f.skip.is_present())
                     .unwrap_or_default()
                 {
                     fields.fields.pop();
@@ -71,44 +79,46 @@ impl Tree {
                     .retain(|f| f.ident.is_none() || !f.skip.is_present());
                 if let Some(f) = fields.fields.iter().find(|f| f.skip.is_present()) {
                     return Err(
+                        // Note(design) If non-terminal fields are skipped, there is a gap in the indices.
+                        // This could be lifted with a index map.
                         Error::custom("Can only `skip` terminal tuple struct fields")
                             .with_span(&f.skip.span()),
                     );
                 }
             }
             Data::Enum(variants) => {
-                variants.retain(|v| !(v.skip.is_present() || v.fields.is_unit()));
-                for v in variants.iter_mut() {
-                    if v.fields.is_struct() {
-                        // Note(design) For tuple or named struct variants we'd have to create proxy
-                        // structs anyway to support KeyLookup on that level.
-                        return Err(
-                            Error::custom("Struct variants not supported").with_span(&v.span())
-                        );
-                    }
-                    // unnamed fields can only be skipped if they are terminal
-                    while v
-                        .fields
-                        .fields
-                        .last()
-                        .map(|f| f.skip.is_present())
-                        .unwrap_or_default()
-                    {
-                        v.fields.fields.pop();
-                    }
-                    if let Some(f) = v.fields.iter().find(|f| f.skip.is_present()) {
-                        return Err(
-                            Error::custom("Can only `skip` terminal tuple struct fields")
-                                .with_span(&f.skip.span()),
-                        );
+                variants.retain(|v| !(v.skip.is_present() || v.fields.is_empty()));
+                for v in variants.iter() {
+                    if v.fields.len() != 1 {
+                        return Err(Error::custom(
+                            "Only newtype (single field tuple) enum variants are supported.",
+                        )
+                        .with_span(&v.ident.span()));
                     }
                 }
             }
         }
-        Ok(tree)
+        if self.flatten.is_present() && self.fields().len() != 1 {
+            return Err(Error::custom("Can't flatten multiple fields/variants")
+                .with_span(&self.flatten.span()));
+        }
+        Ok(self)
     }
 
-    fn fields(&self) -> Vec<&SpannedValue<TreeField>> {
+    fn level(&self) -> usize {
+        if self.flatten.is_present() {
+            0
+        } else {
+            1
+        }
+    }
+
+    fn depth(&self) -> usize {
+        let inner = self.fields().iter().fold(0, |d, field| d.max(field.depth));
+        (self.level() + inner).max(1) // We need to eat at least one level. C.f. impl TreeKey for Option.
+    }
+
+    fn fields(&self) -> Vec<&TreeField> {
         match &self.data {
             Data::Struct(fields) => fields.iter().collect(),
             Data::Enum(variants) => variants.iter().map(|v| v.field()).collect(),
@@ -128,6 +138,7 @@ impl Tree {
 
     pub fn tree_key(&self) -> TokenStream {
         let depth = self.depth();
+        let level = self.level();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
             (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
@@ -135,7 +146,7 @@ impl Tree {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let fields = self.fields();
         let fields_len = fields.len();
-        let metadata_arms = fields.iter().enumerate().filter_map(|(i, f)| f.metadata(i));
+        let metadata_arms = fields.iter().enumerate().map(|(i, f)| f.metadata(i));
         let traverse_arms = fields
             .iter()
             .enumerate()
@@ -163,13 +174,13 @@ impl Tree {
             ),
             _ => None,
         };
-        let (names, name_to_index, index_to_name, index_len) = if let Some(names) = names {
+        let (names, name_to_index, index_to_name, mut ident_len) = if let Some(names) = names {
             (
                 Some(quote!(
                     const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
                 )),
                 quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
-                quote!(Some(
+                quote!(::core::option::Option::Some(
                     *Self::__MINICONF_NAMES
                         .get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?
@@ -181,11 +192,40 @@ impl Tree {
                 None,
                 quote!(str::parse(value).ok()),
                 quote!(if index >= #fields_len {
-                    Err(::miniconf::Traversal::NotFound(1))?
+                    ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
                 } else {
-                    None
+                    ::core::option::Option::None
                 }),
                 quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
+            )
+        };
+
+        let (index, traverse, increment, lookup) = if self.flatten.is_present() {
+            ident_len = quote!(0);
+            (quote!(0), None, None, None)
+        } else {
+            (
+                quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
+                Some(quote! {
+                    func(index, #index_to_name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                }),
+                Some(quote!(::miniconf::Error::increment_result)),
+                Some(quote! {
+                    #[automatically_derived]
+                    impl #impl_generics #ident #ty_generics #where_clause {
+                        #names
+                    }
+
+                    #[automatically_derived]
+                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
+                        const LEN: usize = #fields_len;
+
+                        #[inline]
+                        fn name_to_index(value: &str) -> ::core::option::Option<usize> {
+                            #name_to_index
+                        }
+                    }
+                }),
             )
         };
 
@@ -193,75 +233,45 @@ impl Tree {
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #where_clause {
                 // TODO: can these be hidden and disambiguated w.r.t. collision?
-                fn __miniconf_lookup<K: ::miniconf::Keys>(keys: &mut K) -> Result<usize, ::miniconf::Traversal> {
+                fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> ::core::result::Result<usize, ::miniconf::Traversal> {
                     const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
-                    let index = ::miniconf::Keys::next::<Self>(keys)?;
+                    let index = #index;
                     let defer = DEFERS.get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?;
                     if !defer && !keys.finalize() {
-                        Err(::miniconf::Traversal::TooLong(1))
+                        ::core::result::Result::Err(::miniconf::Traversal::TooLong(1))
                     } else {
-                        Ok(index)
+                        ::core::result::Result::Ok(index)
                     }
                 }
-
-                #names
             }
 
-            #[automatically_derived]
-            impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-                const LEN: usize = #fields_len;
-
-                #[inline]
-                fn name_to_index(value: &str) -> Option<usize> {
-                    #name_to_index
-                }
-            }
+            #lookup
 
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
                 fn metadata() -> ::miniconf::Metadata {
                     let mut meta = ::miniconf::Metadata::default();
-                    for index in 0..#fields_len {
-                        let item_meta = match index {
-                            #(#metadata_arms ,)*
-                            _ => {
-                                let mut m = ::miniconf::Metadata::default();
-                                m.count = 1;
-                                m
-                            }
-                        };
-                        meta.max_length = meta.max_length.max(
-                            #index_len +
-                            item_meta.max_length
-                        );
-                        meta.max_depth = meta.max_depth.max(
-                            item_meta.max_depth
-                        );
-                        meta.count += item_meta.count;
-                    }
-                    meta.max_depth += 1;
+                    let ident_len = |index: usize| { #ident_len };
+                    #(#metadata_arms)*
+                    meta.max_depth += #level;
                     meta
                 }
 
-                fn traverse_by_key<K, F, E>(
-                    mut keys: K,
-                    mut func: F,
-                ) -> Result<usize, ::miniconf::Error<E>>
+                fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>
                 where
                     K: ::miniconf::Keys,
-                    F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+                    F: ::core::ops::FnMut(usize, ::core::option::Option<&'static str>, usize) -> ::core::result::Result<(), E>,
                 {
-                    let index = ::miniconf::Keys::next::<Self>(&mut keys)?;
-                    let name = #index_to_name;
-                    func(index, name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
-                    ::miniconf::Error::increment_result(match index {
+                    let index = #index;
+                    #traverse
+                    #increment(match index {
                         #(#traverse_arms ,)*
                         _ => {
                             if !keys.finalize() {
-                                Err(::miniconf::Traversal::TooLong(0).into())
+                                ::core::result::Result::Err(::miniconf::Traversal::TooLong(0).into())
                             } else {
-                                Ok(0)
+                                ::core::result::Result::Ok(0)
                             }
                         }
                     })
@@ -282,31 +292,46 @@ impl Tree {
         });
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-        let (mat, arms, default): (_, Vec<_>, _) = match &self.data {
+        let (mat, arms, default) = match &self.data {
             Data::Struct(fields) => (
                 quote!(index),
                 fields
                     .iter()
                     .enumerate()
-                    .map(|(i, f)| f.serialize_by_key(i, None))
-                    .collect(),
-                quote!(unreachable!()),
+                    .map(|(i, f)| {
+                        let rhs = f.serialize_by_key(Some(i));
+                        quote!(#i => #rhs)
+                    })
+                    .collect::<Vec<_>>(),
+                quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
                 quote!((self, index)),
                 variants
                     .iter()
                     .enumerate()
-                    .map(|(i, v)| v.field().serialize_by_key(i, Some(&v.ident)))
+                    .map(|(i, v)| {
+                        let ident = &v.ident;
+                        let rhs = v.field().serialize_by_key(None);
+                        quote!((Self::#ident(value, ..), #i) => #rhs)
+                    })
                     .collect(),
-                quote!(Err(::miniconf::Traversal::Absent(0).into())),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
             ),
+        };
+
+        let increment = if self.flatten.is_present() {
+            quote!()
+        } else {
+            quote!(::miniconf::Error::increment_result)
         };
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
-                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
+                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<usize, ::miniconf::Error<S::Error>>
                 where
                     K: ::miniconf::Keys,
                     S: ::miniconf::Serializer,
@@ -314,7 +339,7 @@ impl Tree {
                     let index = Self::__miniconf_lookup(&mut keys)?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
-                    ::miniconf::Error::increment_result(match #mat {
+                    #increment(match #mat {
                         #(#arms ,)*
                         _ => #default
                     })
@@ -348,31 +373,46 @@ impl Tree {
         }
         let (impl_generics, _, _) = generics.split_for_impl();
 
-        let (mat, arms, default): (_, Vec<_>, _) = match &self.data {
+        let (mat, arms, default) = match &self.data {
             Data::Struct(fields) => (
                 quote!(index),
                 fields
                     .iter()
                     .enumerate()
-                    .map(|(i, f)| f.deserialize_by_key(i, None))
-                    .collect(),
-                quote!(unreachable!()),
+                    .map(|(i, f)| {
+                        let rhs = f.deserialize_by_key(Some(i));
+                        quote!(#i => #rhs)
+                    })
+                    .collect::<Vec<_>>(),
+                quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
                 quote!((self, index)),
                 variants
                     .iter()
                     .enumerate()
-                    .map(|(i, v)| v.field().deserialize_by_key(i, Some(&v.ident)))
+                    .map(|(i, v)| {
+                        let ident = &v.ident;
+                        let rhs = v.field().deserialize_by_key(None);
+                        quote!((Self::#ident(value, ..), #i) => #rhs)
+                    })
                     .collect(),
-                quote!(Err(::miniconf::Traversal::Absent(0).into())),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
             ),
+        };
+
+        let increment = if self.flatten.is_present() {
+            quote!()
+        } else {
+            quote!(::miniconf::Error::increment_result)
         };
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<usize, ::miniconf::Error<D::Error>>
                 where
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
@@ -380,7 +420,7 @@ impl Tree {
                     let index = Self::__miniconf_lookup(&mut keys)?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
-                    ::miniconf::Error::increment_result(match #mat {
+                    #increment(match #mat {
                         #(#arms ,)*
                         _ => #default
                     })
@@ -402,41 +442,53 @@ impl Tree {
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        let (mat, ref_arms, mut_arms, default): (_, Vec<_>, Vec<_>, _) = match &self.data {
+        let (mat, (ref_arms, mut_arms), default) = match &self.data {
             Data::Struct(fields) => (
                 quote!(index),
                 fields
                     .iter()
                     .enumerate()
-                    .map(|(i, f)| f.ref_any_by_key(i, None))
-                    .collect(),
-                fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| f.mut_any_by_key(i, None))
-                    .collect(),
-                quote!(unreachable!()),
+                    .map(|(i, f)| {
+                        let (ref_rhs, mut_rhs) =
+                            (f.ref_any_by_key(Some(i)), f.mut_any_by_key(Some(i)));
+                        (quote!(#i => #ref_rhs), quote!(#i => #mut_rhs))
+                    })
+                    .unzip::<_, _, Vec<_>, Vec<_>>(),
+                quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
                 quote!((self, index)),
                 variants
                     .iter()
                     .enumerate()
-                    .map(|(i, v)| v.field().ref_any_by_key(i, Some(&v.ident)))
-                    .collect(),
-                variants
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| v.field().mut_any_by_key(i, Some(&v.ident)))
-                    .collect(),
-                quote!(Err(::miniconf::Traversal::Absent(0).into())),
+                    .map(|(i, v)| {
+                        let ident = &v.ident;
+                        let (ref_rhs, mut_rhs) = (
+                            v.field().ref_any_by_key(None),
+                            v.field().mut_any_by_key(None),
+                        );
+                        (
+                            quote!((Self::#ident(value, ..), #i) => #ref_rhs),
+                            quote!((Self::#ident(value, ..), #i) => #mut_rhs),
+                        )
+                    })
+                    .unzip(),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
             ),
+        };
+
+        let increment = if self.flatten.is_present() {
+            quote!(ret)
+        } else {
+            quote!(ret.map_err(::miniconf::Traversal::increment))
         };
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
-                fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+                fn ref_any_by_key<K>(&self, mut keys: K) -> ::core::result::Result<&dyn ::core::any::Any, ::miniconf::Traversal>
                 where
                     K: ::miniconf::Keys,
                 {
@@ -444,15 +496,15 @@ impl Tree {
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {
-                        let ret: Result<_, _> = match #mat {
+                        let ret: ::core::result::Result<_, _> = match #mat {
                             #(#ref_arms ,)*
                             _ => #default
                         };
-                        ret.map_err(::miniconf::Traversal::increment)
+                        #increment
                     }
                 }
 
-                fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+                fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
                 where
                     K: ::miniconf::Keys,
                 {
@@ -460,11 +512,11 @@ impl Tree {
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {
-                        let ret: Result<_, _> = match #mat {
+                        let ret: ::core::result::Result<_, _> = match #mat {
                             #(#mut_arms ,)*
                             _ => #default
                         };
-                        ret.map_err(::miniconf::Traversal::increment)
+                        #increment
                     }
                 }
             }

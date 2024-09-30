@@ -28,20 +28,20 @@ pub trait KeyLookup {
     fn name_to_index(value: &str) -> Option<usize>;
 }
 
-/// Convert a `&str` key into a node index on a `TreeKey`
+/// Convert a `&str` key into a node index on a `KeyLookup`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
     fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize>;
 }
 
-// `usize` index as Key
+// index
 impl Key for usize {
     fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize> {
         Some(*self)
     }
 }
 
-// &str name as Key
+// name
 impl Key for &str {
     fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize> {
         M::name_to_index(self)
