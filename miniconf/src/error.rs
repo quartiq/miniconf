@@ -10,12 +10,11 @@ use core::fmt::{Debug, Display, Formatter};
 ///
 /// If multiple errors are applicable simultaneously the precedence
 /// is as per the order in the enum definition (from high to low).
-#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Traversal {
-    /// The does not exist at runtime.
+    /// A node does not exist at runtime.
     ///
-    /// The `enum` variant is currently absent.
+    /// An `enum` variant in the tree towards the node is currently absent.
     /// This is for example the case if an [`Option`] using the `Tree*`
     /// traits is `None` at runtime. See also [`crate::TreeKey#option`].
     Absent(usize),
@@ -30,7 +29,7 @@ pub enum Traversal {
     /// The key is too long and goes beyond a leaf node.
     TooLong(usize),
 
-    /// A field could not be accessed.
+    /// A node could not be accessed.
     ///
     /// The `get` or `get_mut` accessor returned an error message.
     Access(usize, &'static str),
@@ -48,19 +47,19 @@ impl Display for Traversal {
                 write!(f, "Variant absent (depth: {depth})")
             }
             Traversal::TooShort(depth) => {
-                write!(f, "Key too short (depth: {depth})")
+                write!(f, "Key does not read a leaf (depth: {depth})")
             }
             Traversal::NotFound(depth) => {
                 write!(f, "Key not found (depth: {depth})")
             }
             Traversal::TooLong(depth) => {
-                write!(f, "Key too long (depth: {depth})")
+                write!(f, "Key goes beyond a leaf (depth: {depth})")
             }
             Traversal::Access(depth, msg) => {
-                write!(f, "Access failed (depth: {depth}): {msg}")
+                write!(f, "Node accessor failed (depth: {depth}): {msg}")
             }
             Traversal::Invalid(depth, msg) => {
-                write!(f, "Invalid value (depth: {depth}): {msg}")
+                write!(f, "Invalid deserialized value (depth: {depth}): {msg}")
             }
         }
     }
@@ -97,7 +96,6 @@ impl Traversal {
 }
 
 /// Compound errors
-#[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error<E> {
     /// Tree traversal error

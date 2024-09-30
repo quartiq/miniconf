@@ -12,8 +12,9 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
 pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///
-    /// This is the exact maximum of the length of the concatenation of all field names/indices
-    /// in a path. By default, it does not include separators.
+    /// This is the exact maximum of the length of the concatenation of the node names
+    /// in a [`crate::Path`] excluding the separators. See [`Self::max_length()`] for
+    /// the maximum length including separators.
     pub max_length: usize,
 
     /// The maximum key depth.

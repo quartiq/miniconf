@@ -8,10 +8,10 @@ This package contains a MQTT client exposing a [`miniconf`](https://crates.io/cr
 | --- | --- | --- | --- |
 | Get | Leaf | set | empty |
 | List | Internal | set | empty |
-| Dump |  | not set | empty |
+| Dump | (any) | not set | empty |
 | Set | Leaf | | some |
-| Error | Internal |  | some |
+| (Error) | Internal |  | some |
 
 ## Notes
 
-* A list command will also list paths that are absent at runtime.
+* `List` list paths that would result in `miniconf::Traversal::Absent` on `Get` or `Set`.

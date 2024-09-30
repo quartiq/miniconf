@@ -71,6 +71,8 @@ fn enum_skip() {
         A(i32, #[tree(skip)] i32),
         #[tree(skip)]
         B(S),
+        C,
+        D,
     }
     assert_eq!(paths::<E, 1>(), ["/A"]);
 }

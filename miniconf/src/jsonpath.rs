@@ -132,7 +132,10 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     {
         M::traverse_by_key(keys.into_keys(), |index, name, _len| {
             match name {
-                Some(name) => self.0.write_char('.').and_then(|()| self.0.write_str(name)),
+                Some(name) => {
+                    debug_assert!(!name.contains(['.', '\'', '[', ']']));
+                    self.0.write_char('.').and_then(|()| self.0.write_str(name))
+                }
                 None => self
                     .0
                     .write_char('[')
