@@ -52,9 +52,9 @@ pub fn derive_tree(input: TokenStream) -> TokenStream {
     match Tree::from_derive_input(&parse_macro_input!(input as DeriveInput)) {
         Ok(t) => [
             t.tree_key(),
-            t.tree_any(),
             t.tree_serialize(),
             t.tree_deserialize(),
+            t.tree_any(),
         ]
         .into_iter()
         .flatten()

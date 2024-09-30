@@ -31,51 +31,6 @@ use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 
 use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 
-/// Postcard Tree
-#[deprecated]
-pub trait Postcard<'de, const Y: usize = 1>: TreeSerialize<Y> + TreeDeserialize<'de, Y> {
-    /// Deserialize and set a node value from a `postcard` flavor.
-    fn set_postcard_by_key<K: IntoKeys, F: de_flavors::Flavor<'de>>(
-        &mut self,
-        keys: K,
-        flavor: F,
-    ) -> Result<F::Remainder, Error<postcard::Error>>;
-
-    /// Get and serialize a node value into a `postcard` flavor.
-    fn get_postcard_by_key<K: IntoKeys, F: ser_flavors::Flavor>(
-        &self,
-        keys: K,
-        flavor: F,
-    ) -> Result<F::Output, Error<postcard::Error>>;
-}
-
-#[allow(deprecated)]
-impl<'de, T: TreeSerialize<Y> + TreeDeserialize<'de, Y> + ?Sized, const Y: usize> Postcard<'de, Y>
-    for T
-{
-    fn set_postcard_by_key<K: IntoKeys, F: de_flavors::Flavor<'de>>(
-        &mut self,
-        keys: K,
-        flavor: F,
-    ) -> Result<F::Remainder, Error<postcard::Error>> {
-        set_by_key(self, keys, flavor)
-    }
-
-    fn get_postcard_by_key<K: IntoKeys, F: ser_flavors::Flavor>(
-        &self,
-        keys: K,
-        flavor: F,
-    ) -> Result<F::Output, Error<postcard::Error>> {
-        get_by_key(self, keys, flavor)
-    }
-}
-
-/// Shorthand for owned [`Postcard`].
-#[allow(deprecated)]
-pub trait PostcardOwned<const Y: usize = 1>: for<'de> Postcard<'de, Y> {}
-#[allow(deprecated)]
-impl<T, const Y: usize> PostcardOwned<Y> for T where T: for<'de> Postcard<'de, Y> {}
-
 /// Deserialize and set a node value from a `postcard` flavor.
 pub fn set_by_key<
     'de,

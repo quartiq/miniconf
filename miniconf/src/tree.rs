@@ -360,7 +360,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * [`crate::JsonPath`]: normalized JSON path
     /// * [`crate::Indices`]: `usize` indices array
     /// * [`crate::Packed`]: Packed `usize`` bitfield representation
-    /// * [`core::unit`]: Obtain just the [`Node`] information.
+    /// * `()` (the unit): Obtain just the [`Node`] information.
     ///
     /// ```
     /// use miniconf::{TreeKey, Path, Indices, JsonPath, Packed, Node};
@@ -424,7 +424,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * [`crate::Indices`]
     /// * [`crate::Packed`]
     /// * [`crate::JsonPath`]
-    /// * [`core::unit`]
+    /// * `()` (the unit)
     ///
     /// ```
     /// use miniconf::{TreeKey, Path, Packed, Indices, JsonPath, Node};

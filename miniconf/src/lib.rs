@@ -27,15 +27,9 @@ pub use miniconf_derive::*;
 
 #[cfg(feature = "json-core")]
 pub mod json;
-#[cfg(feature = "json-core")]
-#[allow(deprecated)]
-pub use json::{JsonCoreSlash, JsonCoreSlashOwned};
 
 #[cfg(feature = "postcard")]
 pub mod postcard;
-#[cfg(feature = "postcard")]
-#[allow(deprecated)]
-pub use crate::postcard::{Postcard, PostcardOwned};
 
 // re-export for proc-macro
 #[doc(hidden)]
