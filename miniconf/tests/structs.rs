@@ -1,6 +1,4 @@
-use miniconf::{
-    Deserialize, JsonCoreSlash, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
-};
+use miniconf::{json, Deserialize, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize};
 
 mod common;
 use common::*;
@@ -24,7 +22,7 @@ fn structs() {
     let mut settings = Settings::default();
 
     // Inner settings structure is atomic, so cannot be set.
-    assert!(settings.set_json("/c/a", b"4").is_err());
+    assert!(json::set(&mut settings, "/c/a", b"4").is_err());
 
     // Inner settings can be updated atomically.
     set_get(&mut settings, "/c", b"{\"a\":5}");
@@ -33,7 +31,7 @@ fn structs() {
     set_get(&mut settings, "/d/a", b"3");
 
     // It is not allowed to set a non-terminal node.
-    assert!(settings.set_json("/d", b"{\"a\": 5").is_err());
+    assert!(json::set(&mut settings, "/d", b"{\"a\": 5").is_err());
 
     assert_eq!(settings.c, Inner { a: 5 });
     assert_eq!(settings.d, Inner { a: 3 });
@@ -91,8 +89,8 @@ fn tuple_struct() {
     assert_eq!(s.0, 2);
     set_get(&mut s, "/1", br#"3.0"#);
     assert_eq!(s.1, 3.0);
-    s.set_json("/2", b"3.0").unwrap_err();
-    s.set_json("/foo", b"3.0").unwrap_err();
+    json::set(&mut s, "/2", b"3.0").unwrap_err();
+    json::set(&mut s, "/foo", b"3.0").unwrap_err();
 
     assert_eq!(paths::<Settings, 1>(), ["/0", "/1"]);
 }

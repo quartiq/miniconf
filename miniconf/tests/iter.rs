@@ -1,4 +1,7 @@
-use miniconf::{Indices, JsonCoreSlash, NodeIter, Path, Tree, TreeKey};
+use miniconf::{Indices, NodeIter, Path, Tree, TreeKey};
+
+mod common;
+use common::*;
 
 #[derive(Tree, Default, PartialEq, Debug)]
 struct Inner {
@@ -19,10 +22,7 @@ struct Settings {
 #[test]
 fn struct_iter() {
     assert_eq!(
-        Settings::nodes::<Path<String, '/'>>()
-            .exact_size()
-            .map(|p| p.unwrap().0.into_inner())
-            .collect::<Vec<_>>(),
+        paths::<Settings, 3>(),
         ["/b/0", "/b/1", "/c/inner", "/d/0/inner", "/a"]
     );
 }
@@ -52,12 +52,8 @@ fn struct_iter_indices() {
 fn array_iter() {
     let mut s = Settings::default();
 
-    for field in Settings::nodes::<Path<String, '/'>>().exact_size() {
-        let (field, _node) = field.unwrap();
-        s.set_json(&field, b"true").unwrap();
-        let mut buf = [0; 32];
-        let len = s.get_json(&field, &mut buf).unwrap();
-        assert_eq!(&buf[..len], b"true");
+    for field in paths::<Settings, 3>() {
+        set_get(&mut s, &field, b"true");
     }
 
     assert!(s.a);

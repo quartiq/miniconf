@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * `Traversal` and `Error` are now `exhaustive`.
 
+### Removed
+
+* The `JsonCoreSlash`/`JsonCoreSlashOwned` and `Postcard`/`PostcardOwned` traits have
+  been removed in favor of simple functions in the `json::` and `postcard::` modules.
+
 ## [0.14.1](https://github.com/quartiq/miniconf/compare/v0.13.0...v0.14.1) - 2024-09-30
 
 ### Added

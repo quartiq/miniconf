@@ -26,14 +26,16 @@ pub use iter::*;
 pub use miniconf_derive::*;
 
 #[cfg(feature = "json-core")]
-mod json_core;
+pub mod json;
 #[cfg(feature = "json-core")]
-pub use json_core::*;
+#[allow(deprecated)]
+pub use json::{JsonCoreSlash, JsonCoreSlashOwned};
 
 #[cfg(feature = "postcard")]
-mod postcard;
+pub mod postcard;
 #[cfg(feature = "postcard")]
-pub use crate::postcard::*;
+#[allow(deprecated)]
+pub use crate::postcard::{Postcard, PostcardOwned};
 
 // re-export for proc-macro
 #[doc(hidden)]

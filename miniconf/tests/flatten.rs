@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlash, Tree};
+use miniconf::{json, Tree};
 
 mod common;
 use common::*;
@@ -51,7 +51,7 @@ fn enum_flatten() {
     set_get(&mut e, "", b"1");
     assert_eq!(e, E1::A(1));
     assert_eq!(
-        E1::None.set_json("", b"1").unwrap_err(),
+        json::set(&mut E1::None, "", b"1").unwrap_err(),
         miniconf::Traversal::Absent(0).into()
     );
 
@@ -67,7 +67,7 @@ fn enum_flatten() {
     set_get(&mut e, "/a", b"1");
     assert_eq!(e, E2::A(Inner { a: 1 }));
     assert_eq!(
-        E2::None.set_json("/a", b"1").unwrap_err(),
+        json::set(&mut E2::None, "/a", b"1").unwrap_err(),
         miniconf::Traversal::Absent(0).into()
     );
 }

@@ -173,7 +173,7 @@ impl Metadata {
 /// mutate the struct.
 ///
 /// ```
-/// use miniconf::{Error, Tree, JsonCoreSlash};
+/// use miniconf::{Error, Tree};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(validate=leaf)]
@@ -538,8 +538,7 @@ pub trait TreeAny<const Y: usize = 1>: TreeKey<Y> {
 
 /// Serialize a leaf node by its keys.
 ///
-/// See also [`crate::JsonCoreSlash`] or `Postcard` for convenient
-/// subtraits with blanket implementations using this trait.
+/// See also [`crate::json`] or `crate::postcard` for convenient functions using these traits.
 ///
 /// # Derive macro
 ///
@@ -580,7 +579,7 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
 
 /// Deserialize a leaf node by its keys.
 ///
-/// See also [`crate::JsonCoreSlash`] for a convenient blanket implementation using this trait.
+/// See also [`crate::json`] for a convenient helper functions using this trait.
 ///
 /// # Derive macro
 ///

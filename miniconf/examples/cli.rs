@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{Error, JsonCoreSlash, Path, Traversal, TreeKey};
+use miniconf::{json, Error, Path, Traversal, TreeKey};
 
 mod common;
 use common::Settings;
@@ -17,15 +17,14 @@ fn main() -> anyhow::Result<()> {
     while let Some(key) = args.next() {
         let key = key.strip_prefix('-').context("key must start with `-`")?;
         let value = args.next().context("missing value")?;
-        settings
-            .set_json_by_key(&Path::<_, '-'>(key), value.as_bytes())
+        json::set_by_key(&mut settings, &Path::<_, '-'>(key), value.as_bytes())
             .context("lookup/deserialize")?;
     }
 
     // Dump settings
     let mut buf = vec![0; 1024];
     for (key, _node) in Settings::nodes::<Path<String, '-'>>().map(Result::unwrap) {
-        match settings.get_json_by_key(&key, &mut buf[..]) {
+        match json::get_by_key(&settings, &key, &mut buf[..]) {
             Ok(len) => {
                 println!(
                     "-{} {}",
