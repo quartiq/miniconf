@@ -1,4 +1,7 @@
-use miniconf::{Error, JsonCoreSlash, Path, Traversal, Tree, TreeKey};
+use miniconf::{Error, JsonCoreSlash, Traversal, Tree};
+
+mod common;
+use common::*;
 
 #[derive(PartialEq, Debug, Clone, Default, Tree)]
 struct Inner {
@@ -11,26 +14,9 @@ struct Settings {
     value: Option<Inner>,
 }
 
-fn nodes<M: miniconf::TreeKey<Y>, const Y: usize>(want: &[&str]) {
-    assert_eq!(
-        M::nodes::<Path<String, '/'>>()
-            .exact_size()
-            .map(|pn| {
-                let (p, n) = pn.unwrap();
-                assert!(n.is_leaf());
-                assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n.depth());
-                p.into_inner()
-            })
-            .collect::<Vec<_>>(),
-        want
-    );
-}
-
 #[test]
 fn just_option() {
-    let mut it = Option::<u32>::nodes::<Path<String, '/'>>().exact_size();
-    assert_eq!(it.next().unwrap().unwrap().0.as_str(), "");
-    assert_eq!(it.next(), None);
+    assert_eq!(paths::<Option<u32>, 1>(), [""]);
 }
 
 #[test]
@@ -58,21 +44,17 @@ fn option_get_set_none() {
 #[test]
 fn option_get_set_some() {
     let mut settings = Settings::default();
-    let mut data = [0; 10];
 
     // Check that if the option is Some, the value can be get or set.
     settings.value.replace(Inner { data: 5 });
 
-    let len = settings.get_json("/value/data", &mut data).unwrap();
-    assert_eq!(&data[..len], b"5");
-
-    settings.set_json("/value/data", b"7").unwrap();
+    set_get(&mut settings, "/value/data", b"7");
     assert_eq!(settings.value.unwrap().data, 7);
 }
 
 #[test]
 fn option_iterate_some_none() {
-    nodes::<Settings, 3>(&["/value/data"]);
+    assert_eq!(paths::<Settings, 3>(), ["/value/data"]);
 }
 
 #[test]
@@ -81,15 +63,15 @@ fn option_test_normal_option() {
     struct S {
         data: Option<u32>,
     }
-    nodes::<S, 1>(&["/data"]);
+    assert_eq!(paths::<S, 1>(), ["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    s.set_json("/data", b"7").unwrap();
+    set_get(&mut s, "/data", b"7");
     assert_eq!(s.data, Some(7));
 
-    s.set_json("/data", b"null").unwrap();
+    set_get(&mut s, "/data", b"null");
     assert!(s.data.is_none());
 }
 
@@ -100,14 +82,14 @@ fn option_test_defer_option() {
         #[tree(depth = 1)]
         data: Option<u32>,
     }
-    nodes::<S, 2>(&["/data"]);
+    assert_eq!(paths::<S, 2>(), ["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
 
     assert!(s.set_json("/data", b"7").is_err());
     s.data = Some(0);
-    s.set_json("/data", b"7").unwrap();
+    set_get(&mut s, "/data", b"7");
     assert_eq!(s.data, Some(7));
 
     assert!(s.set_json("/data", b"null").is_err());

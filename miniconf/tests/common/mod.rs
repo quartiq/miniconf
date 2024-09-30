@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlashOwned, Path, TreeKey};
+use miniconf::{JsonCoreSlash, Path, TreeKey};
 
 pub fn paths<M, const Y: usize>() -> Vec<String>
 where
@@ -15,9 +15,9 @@ where
         .collect()
 }
 
-pub fn set_get<M, const Y: usize>(s: &mut M, path: &str, value: &[u8])
+pub fn set_get<'de, M, const Y: usize>(s: &mut M, path: &str, value: &'de [u8])
 where
-    M: JsonCoreSlashOwned<Y>,
+    M: JsonCoreSlash<'de, Y>,
 {
     s.set_json(path, value).unwrap();
     let mut buf = vec![0; value.len()];

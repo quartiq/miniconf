@@ -159,7 +159,7 @@ where
                     Some(Err(depth))
                 }
                 // TooLong: impossible due to Consume
-                // Absent, Finalization, Invalid, Access: not returned by traverse(traverse_by_key())
+                // Absent, Finalization, Invalid, Access: not returned by transcode (traverse_by_key())
                 _ => unreachable!(),
             };
         }

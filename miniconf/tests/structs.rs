@@ -1,6 +1,9 @@
 use miniconf::{
-    Deserialize, JsonCoreSlash, Path, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+    Deserialize, JsonCoreSlash, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
 };
+
+mod common;
+use common::*;
 
 #[test]
 fn structs() {
@@ -24,10 +27,10 @@ fn structs() {
     assert!(settings.set_json("/c/a", b"4").is_err());
 
     // Inner settings can be updated atomically.
-    settings.set_json("/c", b"{\"a\": 5}").unwrap();
+    set_get(&mut settings, "/c", b"{\"a\":5}");
 
     // Deferred inner settings can be updated individually.
-    settings.set_json("/d/a", b"3").unwrap();
+    set_get(&mut settings, "/d/a", b"3");
 
     // It is not allowed to set a non-terminal node.
     assert!(settings.set_json("/d", b"{\"a\": 5").is_err());
@@ -41,43 +44,28 @@ fn structs() {
     assert_eq!(metadata.max_length("/"), "/d/a".len());
     assert_eq!(metadata.count, 4);
 
-    assert_eq!(
-        Settings::nodes::<Path<String, '/'>>()
-            .exact_size()
-            .map(|p| p.unwrap().0.into_inner())
-            .collect::<Vec<_>>(),
-        vec!["/a", "/b", "/c", "/d/a"]
-    );
+    assert_eq!(paths::<Settings, 2>(), ["/a", "/b", "/c", "/d/a"]);
 }
 
 #[test]
 fn empty_struct() {
     #[derive(Tree, Default)]
     struct Settings {}
-    assert!(Settings::nodes::<Path<String, '/'>>()
-        .exact_size()
-        .next()
-        .is_none());
+    assert_eq!(paths::<Settings, 1>(), [""; 0]);
 }
 
 #[test]
 fn unit_struct() {
     #[derive(Tree, Default)]
     struct Settings;
-    assert!(Settings::nodes::<Path<String, '/'>>()
-        .exact_size()
-        .next()
-        .is_none());
+    assert_eq!(paths::<Settings, 1>(), [""; 0]);
 }
 
 #[test]
 fn empty_tuple_struct() {
     #[derive(Tree, Default)]
     struct Settings();
-    assert!(Settings::nodes::<Path<String, '/'>>()
-        .exact_size()
-        .next()
-        .is_none());
+    assert_eq!(paths::<Settings, 1>(), [""; 0]);
 }
 
 #[test]
@@ -88,7 +76,7 @@ fn borrowed() {
         a: &'a str,
     }
     let mut s = S { a: "foo" };
-    s.set_json("/a", br#""bar""#).unwrap();
+    set_get(&mut s, "/a", br#""bar""#);
     assert_eq!(s.a, "bar");
 }
 
@@ -99,20 +87,12 @@ fn tuple_struct() {
 
     let mut s = Settings::default();
 
-    let mut buf = [0u8; 256];
-    let len = s.get_json("/0", &mut buf).unwrap();
-    assert_eq!(&buf[..len], b"0");
-
-    s.set_json("/1", b"3.0").unwrap();
+    set_get(&mut s, "/0", br#"2"#);
+    assert_eq!(s.0, 2);
+    set_get(&mut s, "/1", br#"3.0"#);
     assert_eq!(s.1, 3.0);
     s.set_json("/2", b"3.0").unwrap_err();
     s.set_json("/foo", b"3.0").unwrap_err();
 
-    assert_eq!(
-        Settings::nodes::<Path<String, '/'>>()
-            .exact_size()
-            .map(|p| p.unwrap().0.into_inner())
-            .collect::<Vec<_>>(),
-        vec!["/0", "/1"]
-    );
+    assert_eq!(paths::<Settings, 1>(), ["/0", "/1"]);
 }

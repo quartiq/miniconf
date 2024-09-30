@@ -48,7 +48,6 @@ impl<I> From<miniconf::Error<serde_json_core::ser::Error>> for Error<I> {
             miniconf::Error::Inner(depth, e) => Self::Serialize(depth, e),
             miniconf::Error::Traversal(e) => Self::Traversal(e),
             miniconf::Error::Finalization(e) => Self::Serialize(0, e),
-            _ => unimplemented!(),
         }
     }
 }

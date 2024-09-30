@@ -17,6 +17,7 @@ use minimq::{
     types::{Properties, SubscriptionOptions, TopicFilter},
     ConfigBuilder, DeferredPublication, ProtocolError, Publication, QoS,
 };
+use strum::IntoStaticStr;
 
 use embedded_io::Write;
 
@@ -32,8 +33,6 @@ const MAX_CD_LENGTH: usize = 32;
 const DUMP_TIMEOUT_SECONDS: u32 = 2;
 
 const SEPARATOR: char = '/';
-
-type Iter<M, const Y: usize> = NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>>;
 
 /// Miniconf MQTT joint error type
 #[derive(Debug, PartialEq)]
@@ -114,7 +113,7 @@ mod sm {
 
 /// Cache correlation data and topic for multi-part responses.
 struct Multipart<M, const Y: usize> {
-    iter: Iter<M, Y>,
+    iter: NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
@@ -164,7 +163,7 @@ impl<M: TreeKey<Y>, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for 
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, IntoStaticStr)]
 enum ResponseCode {
     Ok,
     Continue,
@@ -173,15 +172,9 @@ enum ResponseCode {
 
 impl From<ResponseCode> for minimq::Property<'static> {
     fn from(value: ResponseCode) -> Self {
-        let string = match value {
-            ResponseCode::Ok => "Ok",
-            ResponseCode::Continue => "Continue",
-            ResponseCode::Error => "Error",
-        };
-
         minimq::Property::UserProperty(
             minimq::types::Utf8String("code"),
-            minimq::types::Utf8String(string),
+            minimq::types::Utf8String(value.into()),
         )
     }
 }
@@ -342,7 +335,7 @@ where
             }
         }
         // All states must handle MQTT traffic.
-        self.poll(settings).map(|c| c == Changed::Changed)
+        self.poll(settings).map(|c| c == State::Changed)
     }
 
     fn alive(&mut self) -> Result<(), minimq::PubError<Stack::Error, ()>> {
@@ -500,7 +493,7 @@ where
             })
     }
 
-    fn poll(&mut self, settings: &mut Settings) -> Result<Changed, Error<Stack::Error>> {
+    fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<Stack::Error>> {
         let Self {
             mqtt,
             state,
@@ -515,7 +508,7 @@ where
                 .map(Path::<_, SEPARATOR>::from)
             else {
                 info!("Unexpected topic: {topic}");
-                return Changed::Unchanged;
+                return State::Unchanged;
             };
 
             if payload.is_empty() {
@@ -562,7 +555,7 @@ where
                         }
                     }
                 }
-                Changed::Unchanged
+                State::Unchanged
             } else {
                 // Set
                 settings
@@ -578,7 +571,7 @@ where
             minimq::Error::SessionReset => {
                 warn!("Session reset");
                 self.state.process_event(sm::Events::Reset).unwrap();
-                Ok(Changed::Unchanged)
+                Ok(State::Unchanged)
             }
             other => Err(other.into()),
         })
@@ -586,13 +579,13 @@ where
 }
 
 #[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
-enum Changed {
+enum State {
     #[default]
     Unchanged,
     Changed,
 }
 
-impl From<bool> for Changed {
+impl From<bool> for State {
     fn from(value: bool) -> Self {
         if value {
             Self::Changed

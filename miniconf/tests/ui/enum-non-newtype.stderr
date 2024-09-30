@@ -3,11 +3,3 @@ error: Only newtype (single field tuple) enum variants are supported.
   |
 5 |     A(i32, i32),
   |     ^
-
-error: Unsupported shape `named fields`. Expected unnamed fields or no fields.
- --> tests/ui/enum-non-newtype.rs:8:10
-  |
-8 | #[derive(Tree)]
-  |          ^^^^
-  |
-  = note: this error originates in the derive macro `Tree` (in Nightly builds, run with -Z macro-backtrace for more info)
