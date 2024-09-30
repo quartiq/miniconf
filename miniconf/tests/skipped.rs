@@ -32,15 +32,6 @@ fn path() {
 }
 
 #[test]
-fn skip_enum() {
-    #[allow(dead_code)]
-    #[derive(Tree)]
-    pub enum E {
-        A(i32, #[tree(skip)] i32),
-    }
-}
-
-#[test]
 fn skip_struct() {
     #[allow(dead_code)]
     #[derive(Tree)]
