@@ -135,10 +135,10 @@ impl<E: Display> Display for Error<E> {
 
 impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
     fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        match self {
-            Self::Traversal(t) => Some(t),
-            Self::Inner(_, e) | Self::Finalization(e) => Some(e),
-        }
+        Some(match self {
+            Self::Traversal(t) => t,
+            Self::Inner(_, e) | Self::Finalization(e) => e,
+        })
     }
 }
 
