@@ -180,7 +180,7 @@ impl Tree {
                     const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
                 )),
                 quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
-                quote!(Some(
+                quote!(::core::option::Option::Some(
                     *Self::__MINICONF_NAMES
                         .get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?
@@ -192,24 +192,40 @@ impl Tree {
                 None,
                 quote!(str::parse(value).ok()),
                 quote!(if index >= #fields_len {
-                    Err(::miniconf::Traversal::NotFound(1))?
+                    ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
                 } else {
-                    None
+                    ::core::option::Option::None
                 }),
                 quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
             )
         };
 
-        let (index, traverse, increment) = if self.flatten.is_present() {
+        let (index, traverse, increment, lookup) = if self.flatten.is_present() {
             ident_len = quote!(0);
-            (quote!(0), quote!(), quote!())
+            (quote!(0), None, None, None)
         } else {
             (
                 quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
-                quote! {
+                Some(quote! {
                     func(index, #index_to_name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
-                },
-                quote!(::miniconf::Error::increment_result),
+                }),
+                Some(quote!(::miniconf::Error::increment_result)),
+                Some(quote! {
+                    #[automatically_derived]
+                    impl #impl_generics #ident #ty_generics #where_clause {
+                        #names
+                    }
+
+                    #[automatically_derived]
+                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
+                        const LEN: usize = #fields_len;
+
+                        #[inline]
+                        fn name_to_index(value: &str) -> ::core::option::Option<usize> {
+                            #name_to_index
+                        }
+                    }
+                }),
             )
         };
 
@@ -217,30 +233,20 @@ impl Tree {
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #where_clause {
                 // TODO: can these be hidden and disambiguated w.r.t. collision?
-                fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> Result<usize, ::miniconf::Traversal> {
+                fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> ::core::result::Result<usize, ::miniconf::Traversal> {
                     const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
                     let index = #index;
                     let defer = DEFERS.get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?;
                     if !defer && !keys.finalize() {
-                        Err(::miniconf::Traversal::TooLong(1))
+                        ::core::result::Result::Err(::miniconf::Traversal::TooLong(1))
                     } else {
-                        Ok(index)
+                        ::core::result::Result::Ok(index)
                     }
                 }
-
-                #names
             }
 
-            #[automatically_derived]
-            impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-                const LEN: usize = #fields_len;
-
-                #[inline]
-                fn name_to_index(value: &str) -> Option<usize> {
-                    #name_to_index
-                }
-            }
+            #lookup
 
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
@@ -252,10 +258,10 @@ impl Tree {
                     meta
                 }
 
-                fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, ::miniconf::Error<E>>
+                fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>
                 where
                     K: ::miniconf::Keys,
-                    F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+                    F: ::core::ops::FnMut(usize, ::core::option::Option<&'static str>, usize) -> ::core::result::Result<(), E>,
                 {
                     let index = #index;
                     #traverse
@@ -263,9 +269,9 @@ impl Tree {
                         #(#traverse_arms ,)*
                         _ => {
                             if !keys.finalize() {
-                                Err(::miniconf::Traversal::TooLong(0).into())
+                                ::core::result::Result::Err(::miniconf::Traversal::TooLong(0).into())
                             } else {
-                                Ok(0)
+                                ::core::result::Result::Ok(0)
                             }
                         }
                     })
@@ -297,7 +303,7 @@ impl Tree {
                         quote!(#i => #rhs)
                     })
                     .collect::<Vec<_>>(),
-                quote!(unreachable!()),
+                quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
                 quote!((self, index)),
@@ -310,7 +316,9 @@ impl Tree {
                         quote!((Self::#ident(value, ..), #i) => #rhs)
                     })
                     .collect(),
-                quote!(Err(::miniconf::Traversal::Absent(0).into())),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
             ),
         };
 
@@ -323,7 +331,7 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize<#depth> for #ident #ty_generics #where_clause {
-                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, ::miniconf::Error<S::Error>>
+                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<usize, ::miniconf::Error<S::Error>>
                 where
                     K: ::miniconf::Keys,
                     S: ::miniconf::Serializer,
@@ -376,7 +384,7 @@ impl Tree {
                         quote!(#i => #rhs)
                     })
                     .collect::<Vec<_>>(),
-                quote!(unreachable!()),
+                quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
                 quote!((self, index)),
@@ -389,7 +397,9 @@ impl Tree {
                         quote!((Self::#ident(value, ..), #i) => #rhs)
                     })
                     .collect(),
-                quote!(Err(::miniconf::Traversal::Absent(0).into())),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
             ),
         };
 
@@ -402,7 +412,7 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'de, #depth> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, ::miniconf::Error<D::Error>>
+                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<usize, ::miniconf::Error<D::Error>>
                 where
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
@@ -444,7 +454,7 @@ impl Tree {
                         (quote!(#i => #ref_rhs), quote!(#i => #mut_rhs))
                     })
                     .unzip::<_, _, Vec<_>, Vec<_>>(),
-                quote!(unreachable!()),
+                quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
                 quote!((self, index)),
@@ -463,7 +473,9 @@ impl Tree {
                         )
                     })
                     .unzip(),
-                quote!(Err(::miniconf::Traversal::Absent(0).into())),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
             ),
         };
 
@@ -476,7 +488,7 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeAny<#depth> for #ident #ty_generics #where_clause {
-                fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+                fn ref_any_by_key<K>(&self, mut keys: K) -> ::core::result::Result<&dyn ::core::any::Any, ::miniconf::Traversal>
                 where
                     K: ::miniconf::Keys,
                 {
@@ -484,7 +496,7 @@ impl Tree {
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {
-                        let ret: Result<_, _> = match #mat {
+                        let ret: ::core::result::Result<_, _> = match #mat {
                             #(#ref_arms ,)*
                             _ => #default
                         };
@@ -492,7 +504,7 @@ impl Tree {
                     }
                 }
 
-                fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+                fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
                 where
                     K: ::miniconf::Keys,
                 {
@@ -500,7 +512,7 @@ impl Tree {
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {
-                        let ret: Result<_, _> = match #mat {
+                        let ret: ::core::result::Result<_, _> = match #mat {
                             #(#mut_arms ,)*
                             _ => #default
                         };

@@ -77,13 +77,16 @@ fn enum_skip() {
 
 #[test]
 fn option() {
+    // Also tests macro hygiene a bit
     #[allow(dead_code)]
     #[derive(Tree, Copy, Clone, PartialEq, Default, Debug)]
     #[tree(flatten)]
-    enum MOption<T> {
+    enum Option<T> {
         #[default]
         None,
+        // #192
         Some(#[tree(depth = 1)] T),
     }
-    assert_eq!(paths::<MOption<[i32; 1]>, 1>(), ["/0"]);
+    assert_eq!(paths::<Option<[i32; 1]>, 1>(), ["/0"]);
+    assert_eq!(paths::<Option<::core::option::Option<i32>>, 1>(), [""]);
 }

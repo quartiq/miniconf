@@ -83,9 +83,9 @@ impl TreeField {
             }
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
-            quote_spanned!(self.span()=> Ok(&self.#ident))
+            quote_spanned!(self.span()=> ::core::result::Result::Ok(&self.#ident))
         } else {
-            quote_spanned!(self.span()=> Ok(value))
+            quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
         }
     }
 
@@ -96,9 +96,9 @@ impl TreeField {
             }
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
-            quote_spanned!(self.span()=> Ok(&mut self.#ident))
+            quote_spanned!(self.span()=> ::core::result::Result::Ok(&mut self.#ident))
         } else {
-            quote_spanned!(self.span()=> Ok(value))
+            quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
         }
     }
 
@@ -130,7 +130,7 @@ impl TreeField {
                     .and_then(|value|
                         ::miniconf::Serialize::serialize(value, ser)
                         .map_err(|err| ::miniconf::Error::Inner(0, err))
-                        .and(Ok(0))
+                        .and(::core::result::Result::Ok(0))
                     )
             }
         }
