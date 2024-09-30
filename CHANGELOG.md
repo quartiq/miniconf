@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * `flatten` support for structs/enums with a single non-skip/non-unit variant/field.
+* `core::error::Error` implementations added to `Error` and `Traversal`
 
 ## [0.14.0](https://github.com/quartiq/miniconf/compare/v0.13.0...v0.14.0) - 2024-09-26
 
