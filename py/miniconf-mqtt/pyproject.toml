@@ -8,7 +8,7 @@ text = "MIT"
 [project]
 name = "miniconf-mqtt"
 # Note: keep this in sync with Cargo.toml
-version = "0.14.0"
+version = "0.15.0"
 description = "Utilities for configuring Miniconf-configurable devices"
 authors = [
     { name = "Ryan Summers", email = "ryan.summers@vertigo-designs.com" },

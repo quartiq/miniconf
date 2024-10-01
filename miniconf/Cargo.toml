@@ -1,7 +1,7 @@
 [package]
 name = "miniconf"
 # Sync all crate versions and the py client
-version = "0.14.1"
+version = "0.15.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
@@ -12,7 +12,7 @@ categories = ["embedded", "config", "data-structures", "parsing"]
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
-miniconf_derive = { path = "../miniconf_derive", version = "0.14.1", optional = true }
+miniconf_derive = { path = "../miniconf_derive", version = "0.15.0", optional = true }
 itoa = "1.0.4"
 serde-json-core = { version = "0.6.0", optional = true }
 postcard = { version = "1.0.8", optional = true }
