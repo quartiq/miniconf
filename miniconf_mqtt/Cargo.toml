@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_mqtt"
-version = "0.15.0"
+version = "0.15.1"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
@@ -19,7 +19,7 @@ embedded-io = "0.6"
 log = "0.4"
 heapless = "0.8"
 serde-json-core = "0.6.0"
-strum = { version = "0.26.3", features = ["derive"] }
+strum = { version = "0.26.3", features = ["derive"], default-features = false }
 
 [[example]]
 name = "mqtt"
