@@ -82,9 +82,7 @@ pub fn get_by_key<T: TreeSerialize<Y> + ?Sized, const Y: usize, K: IntoKeys>(
     tree: &T,
     keys: K,
     data: &mut [u8],
-) -> Result<usize, Error<ser::Error>>
-where
-{
+) -> Result<usize, Error<ser::Error>> {
     let mut ser = ser::Serializer::new(data);
     tree.serialize_by_key(keys.into_keys(), &mut ser)?;
     Ok(ser.end())
