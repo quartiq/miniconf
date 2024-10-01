@@ -1,22 +1,27 @@
 //! `TreeSerialize`/`TreeDeserialize` with `postcard`.
 //!
 //! ```
-//! use miniconf::{Tree, TreeKey, postcard, Packed};
-//! use ::postcard::{ser_flavors::AllocVec, de_flavors::Slice};
+//! use ::postcard::{de_flavors::Slice, ser_flavors::AllocVec};
+//! use miniconf::{postcard, Packed, Tree, TreeKey};
 //!
 //! #[derive(Tree, Default, PartialEq, Debug)]
 //! struct S {
 //!     foo: u32,
-//!     #[tree(depth=1)]
+//!     #[tree(depth = 1)]
 //!     bar: [u16; 2],
 //! };
 //!
-//! let source = S { foo: 9, bar: [7, 11] };
-//! let kv: Vec<_> = S::nodes::<Packed>().map(|p| {
-//!     let (p, _node) = p.unwrap();
-//!     let v = postcard::get_by_key(&source, p, AllocVec::new()).unwrap();
-//!     (p.into_lsb().get(), v)
-//! }).collect();
+//! let source = S {
+//!     foo: 9,
+//!     bar: [7, 11],
+//! };
+//! let kv: Vec<_> = S::nodes::<Packed>()
+//!     .map(|p| {
+//!         let (p, _node) = p.unwrap();
+//!         let v = postcard::get_by_key(&source, p, AllocVec::new()).unwrap();
+//!         (p.into_lsb().get(), v)
+//!     })
+//!     .collect();
 //! assert_eq!(kv, [(2, vec![9]), (6, vec![7]), (7, vec![11])]);
 //!
 //! let mut target = S::default();

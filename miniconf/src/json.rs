@@ -11,7 +11,7 @@
 //! #[derive(Tree, Default)]
 //! struct S {
 //!     foo: u32,
-//!     #[tree(depth=1)]
+//!     #[tree(depth = 1)]
 //!     bar: [u16; 2],
 //! };
 //! let mut s = S::default();

@@ -109,10 +109,10 @@ impl Metadata {
 /// derive macro attribute.
 ///
 /// ```
-/// use miniconf::{Tree, TreeKey, Path};
+/// use miniconf::{Path, Tree, TreeKey};
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(rename="OTHER")]
+///     #[tree(rename = "OTHER")]
 ///     a: f32,
 /// };
 /// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0]).unwrap();
@@ -233,7 +233,7 @@ impl Metadata {
 /// use miniconf::TreeKey;
 /// #[derive(TreeKey)]
 /// struct S<T> {
-///     #[tree(depth=3)]
+///     #[tree(depth = 3)]
 ///     a: [Option<T>; 2],
 /// };
 /// // This works as [u32; N] implements TreeKey<1>:
@@ -297,7 +297,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     #[tree(depth=1)]
+    ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
     /// let m = S::metadata();
@@ -313,17 +313,17 @@ pub trait TreeKey<const Y: usize = 1> {
     /// `Err(Traversal(TooShort(depth)))` is returned.
     ///
     /// ```
-    /// use miniconf::{TreeKey, IntoKeys};
+    /// use miniconf::{IntoKeys, TreeKey};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     #[tree(depth=1)]
+    ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
     /// let mut ret = [(1, Some("bar"), 2), (0, None, 2)].into_iter();
     /// let func = |index, name, len| -> Result<(), ()> {
-    ///         assert_eq!(ret.next().unwrap(), (index, name, len));
-    ///         Ok(())
+    ///     assert_eq!(ret.next().unwrap(), (index, name, len));
+    ///     Ok(())
     /// };
     /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
     /// ```
@@ -363,11 +363,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `()` (the unit): Obtain just the [`Node`] information.
     ///
     /// ```
-    /// use miniconf::{TreeKey, Path, Indices, JsonPath, Packed, Node};
+    /// use miniconf::{Indices, JsonPath, Node, Packed, Path, TreeKey};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     #[tree(depth=1)]
+    ///     #[tree(depth = 1)]
     ///     bar: [u16; 5],
     /// };
     ///
@@ -427,11 +427,11 @@ pub trait TreeKey<const Y: usize = 1> {
     /// * `()` (the unit)
     ///
     /// ```
-    /// use miniconf::{TreeKey, Path, Packed, Indices, JsonPath, Node};
+    /// use miniconf::{Indices, JsonPath, Node, Packed, Path, TreeKey};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
-    ///     #[tree(depth=1)]
+    ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
     ///
@@ -482,18 +482,20 @@ pub trait TreeKey<const Y: usize = 1> {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{TreeAny, TreeKey, JsonPath, IntoKeys, Indices};
+/// use miniconf::{Indices, IntoKeys, JsonPath, TreeAny, TreeKey};
 /// #[derive(TreeKey, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
-///     #[tree(depth=1)]
+///     #[tree(depth = 1)]
 ///     bar: [u16; 2],
 /// };
 /// let mut s = S::default();
 ///
 /// for node in S::nodes::<Indices<[_; 2]>>() {
 ///     let (key, node) = node.unwrap();
-///     let a = s.ref_any_by_key(key.into_iter().take(node.depth()).into_keys()).unwrap();
+///     let a = s
+///         .ref_any_by_key(key.into_iter().take(node.depth()).into_keys())
+///         .unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
@@ -549,17 +551,21 @@ pub trait TreeSerialize<const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{TreeSerialize, TreeKey, IntoKeys};
+    /// use miniconf::{IntoKeys, TreeKey, TreeSerialize};
     /// #[derive(TreeKey, TreeSerialize)]
     /// struct S {
     ///     foo: u32,
-    ///     #[tree(depth=1)]
+    ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
-    /// let s = S { foo: 9, bar: [11, 3] };
+    /// let s = S {
+    ///     foo: 9,
+    ///     bar: [11, 3],
+    /// };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser).unwrap();
+    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser)
+    ///     .unwrap();
     /// let len = ser.end();
     /// assert_eq!(&buf[..len], b"11");
     /// # }
@@ -590,16 +596,17 @@ pub trait TreeDeserialize<'de, const Y: usize = 1>: TreeKey<Y> {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{TreeDeserialize, TreeKey, IntoKeys};
+    /// use miniconf::{IntoKeys, TreeDeserialize, TreeKey};
     /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
     ///     foo: u32,
-    ///     #[tree(depth=1)]
+    ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json_core::de::Deserializer::new(b"7", None);
-    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de).unwrap();
+    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de)
+    ///     .unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.bar[0], 7);
     /// # }
