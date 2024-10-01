@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use miniconf::{Deserialize, JsonCoreSlash, Serialize, Tree, TreeKey};
+use miniconf::{json, Deserialize, Serialize, Tree, TreeKey};
 use serde::de::DeserializeOwned;
 
 #[test]
@@ -11,7 +11,7 @@ fn generic_type() {
     }
 
     let mut settings = Settings::<f32>::default();
-    settings.set_json("/data", b"3.0").unwrap();
+    json::set(&mut settings, "/data", b"3.0").unwrap();
     assert_eq!(settings.data, 3.0);
 
     // Test metadata
@@ -30,7 +30,7 @@ fn generic_array() {
     }
 
     let mut settings = Settings::<f32>::default();
-    settings.set_json("/data/0", b"3.0").unwrap();
+    json::set(&mut settings, "/data/0", b"3.0").unwrap();
 
     assert_eq!(settings.data[0], 3.0);
 
@@ -54,7 +54,7 @@ fn generic_struct() {
     }
 
     let mut settings = Settings::<Inner>::default();
-    settings.set_json("/inner", b"{\"data\": 3.0}").unwrap();
+    json::set(&mut settings, "/inner", b"{\"data\": 3.0}").unwrap();
 
     assert_eq!(settings.inner.data, 3.0);
 
@@ -82,9 +82,7 @@ fn generic_atomic() {
     }
 
     let mut settings = Settings::<f32>::default();
-    settings
-        .set_json("/atomic", b"{\"inner\": [3.0, 0, 0, 0, 0]}")
-        .unwrap();
+    json::set(&mut settings, "/atomic", b"{\"inner\": [3.0, 0, 0, 0, 0]}").unwrap();
 
     assert_eq!(settings.atomic.inner[0], 3.0);
 

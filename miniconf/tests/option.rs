@@ -1,4 +1,4 @@
-use miniconf::{Error, JsonCoreSlash, Traversal, Tree};
+use miniconf::{json, Error, Traversal, Tree};
 
 mod common;
 use common::*;
@@ -27,16 +27,16 @@ fn option_get_set_none() {
     // Check that if the option is None, the value cannot be get or set.
     settings.value.take();
     assert_eq!(
-        settings.get_json("/value_foo", &mut data),
+        json::get(&settings, "/value_foo", &mut data),
         Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
-        settings.get_json("/value", &mut data),
+        json::get(&settings, "/value", &mut data),
         Err(Traversal::Absent(1).into())
     );
     // The Absent field indicates at which depth the variant was absent
     assert_eq!(
-        settings.set_json("/value/data", b"5"),
+        json::set(&mut settings, "/value/data", b"5"),
         Err(Traversal::Absent(1).into())
     );
 }
@@ -87,12 +87,12 @@ fn option_test_defer_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    assert!(s.set_json("/data", b"7").is_err());
+    assert!(json::set(&mut s, "/data", b"7").is_err());
     s.data = Some(0);
     set_get(&mut s, "/data", b"7");
     assert_eq!(s.data, Some(7));
 
-    assert!(s.set_json("/data", b"null").is_err());
+    assert!(json::set(&mut s, "/data", b"null").is_err());
 }
 
 #[test]
@@ -109,25 +109,37 @@ fn option_absent() {
     }
 
     let mut s = S::default();
-    assert_eq!(s.set_json("/d", b"7"), Err(Traversal::Absent(1).into()));
+    assert_eq!(
+        json::set(&mut s, "/d", b"7"),
+        Err(Traversal::Absent(1).into())
+    );
     // Check precedence
-    assert_eq!(s.set_json("/d", b""), Err(Traversal::Absent(1).into()));
     assert_eq!(
-        s.set_json("/d/foo", b"7"),
+        json::set(&mut s, "/d", b""),
+        Err(Traversal::Absent(1).into())
+    );
+    assert_eq!(
+        json::set(&mut s, "/d/foo", b"7"),
         Err(Traversal::TooLong(1).into())
     );
-    assert_eq!(s.set_json("", b"7"), Err(Traversal::TooShort(0).into()));
+    assert_eq!(
+        json::set(&mut s, "", b"7"),
+        Err(Traversal::TooShort(0).into())
+    );
     s.d = Some(3);
-    assert_eq!(s.set_json("/d", b"7"), Ok(1));
+    assert_eq!(json::set(&mut s, "/d", b"7"), Ok(1));
     assert_eq!(
-        s.set_json("/d/foo", b"7"),
+        json::set(&mut s, "/d/foo", b"7"),
         Err(Traversal::TooLong(1).into())
     );
-    assert!(matches!(s.set_json("/d", b""), Err(Error::Inner(1, _))));
-    assert_eq!(s.set_json("/d", b"7 "), Ok(2));
-    assert_eq!(s.set_json("/d", b" 7"), Ok(2));
     assert!(matches!(
-        s.set_json("/d", b"7i"),
+        json::set(&mut s, "/d", b""),
+        Err(Error::Inner(1, _))
+    ));
+    assert_eq!(json::set(&mut s, "/d", b"7 "), Ok(2));
+    assert_eq!(json::set(&mut s, "/d", b" 7"), Ok(2));
+    assert!(matches!(
+        json::set(&mut s, "/d", b"7i"),
         Err(Error::Finalization(_))
     ));
 }

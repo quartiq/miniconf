@@ -9,7 +9,9 @@ use core::fmt::Display;
 
 use heapless::{String, Vec};
 use log::{error, info, warn};
-use miniconf::{IntoKeys, JsonCoreSlash, NodeIter, Path, Traversal, TreeKey};
+use miniconf::{
+    json, IntoKeys, NodeIter, Path, Traversal, TreeDeserializeOwned, TreeKey, TreeSerialize,
+};
 pub use minimq;
 use minimq::{
     embedded_nal::TcpClientStack,
@@ -229,7 +231,7 @@ where
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
     MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
-    for<'de> Settings: JsonCoreSlash<'de, Y> + Clone,
+    Settings: TreeSerialize<Y> + TreeDeserializeOwned<Y> + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Broker: minimq::Broker,
@@ -426,10 +428,11 @@ where
                 .unwrap();
 
             let props = [ResponseCode::Ok.into()];
-            let mut response = DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
-                .topic(&topic)
-                .properties(&props)
-                .qos(QoS::AtLeastOnce);
+            let mut response =
+                DeferredPublication::new(|buf| json::get_by_key(settings, &path, buf))
+                    .topic(&topic)
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce);
 
             if let Some(cd) = &self.pending.correlation_data {
                 response = response.correlate(cd);
@@ -515,7 +518,7 @@ where
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
-                    DeferredPublication::new(|buf| settings.get_json_by_key(&path, buf))
+                    DeferredPublication::new(|buf| json::get_by_key(settings, &path, buf))
                         .topic(topic)
                         .reply(properties)
                         .properties(&[ResponseCode::Ok.into()])
@@ -558,8 +561,7 @@ where
                 State::Unchanged
             } else {
                 // Set
-                settings
-                    .set_json_by_key(&path, payload)
+                json::set_by_key(settings, &path, payload)
                     .map_err(|err| Self::respond(err, ResponseCode::Error, properties, client).ok())
                     .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
                     .is_ok()

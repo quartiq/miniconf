@@ -1,15 +1,15 @@
 use core::fmt;
 use core::marker::PhantomData;
 
+use ::postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
 use anyhow::{Context, Result};
 use embedded_io::Write;
 use embedded_io_async::Write as AWrite;
-use postcard::{de_flavors::Slice as DeSlice, ser_flavors::Slice as SerSlice};
 use tokio::io::AsyncBufReadExt;
 
 use miniconf::{
-    Indices, JsonCoreSlashOwned, Keys, Node, Packed, Path, PostcardOwned, Transcode, Traversal,
-    TreeKey,
+    json, postcard, Indices, Keys, Node, Packed, Path, Transcode, Traversal, TreeDeserializeOwned,
+    TreeKey, TreeSerialize,
 };
 
 mod common;
@@ -61,17 +61,14 @@ impl<I> From<usize> for Error<I> {
 pub const SEPARATOR: char = '/';
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub struct Menu<M, const Y: usize, const D: usize = Y>
-where
-    M: TreeKey<Y> + ?Sized,
-{
+pub struct Menu<M, const Y: usize, const D: usize = Y> {
     key: Packed,
     _m: PhantomData<M>,
 }
 
 impl<M, const Y: usize> Default for Menu<M, Y>
 where
-    M: TreeKey<Y> + ?Sized,
+    M: TreeKey<Y> + TreeSerialize<Y> + TreeDeserializeOwned<Y> + Default,
 {
     fn default() -> Self {
         Self::new(Packed::default())
@@ -80,7 +77,7 @@ where
 
 impl<M, const Y: usize> Menu<M, Y>
 where
-    M: TreeKey<Y> + ?Sized,
+    M: TreeKey<Y> + TreeSerialize<Y> + TreeDeserializeOwned<Y> + Default,
 {
     pub fn new(key: Packed) -> Self {
         Self {
@@ -133,45 +130,36 @@ where
         &self,
         instance: &M,
         buf: &mut [u8],
-    ) -> Result<usize, miniconf::Error<serde_json_core::ser::Error>>
-    where
-        M: JsonCoreSlashOwned<Y>,
-    {
-        instance.get_json_by_key(self.key, buf)
+    ) -> Result<usize, miniconf::Error<serde_json_core::ser::Error>> {
+        json::get_by_key(instance, self.key, buf)
     }
 
     pub fn set(
         &mut self,
         instance: &mut M,
         buf: &[u8],
-    ) -> Result<usize, miniconf::Error<serde_json_core::de::Error>>
-    where
-        M: JsonCoreSlashOwned<Y>,
-    {
-        instance.set_json_by_key(self.key, buf)
+    ) -> Result<usize, miniconf::Error<serde_json_core::de::Error>> {
+        json::set_by_key(instance, self.key, buf)
     }
 
     pub fn reset(
         &mut self,
         instance: &mut M,
         buf: &mut [u8],
-    ) -> Result<(), miniconf::Error<postcard::Error>>
-    where
-        M: PostcardOwned<Y> + Default,
-    {
+    ) -> Result<(), miniconf::Error<::postcard::Error>> {
         let def = M::default();
         for keys in M::nodes::<Packed>().root(self.key)? {
             // Slight abuse of TooLong for "keys to long for packed"
             let (keys, node) =
                 keys.map_err(|depth| miniconf::Error::Traversal(Traversal::TooLong(depth)))?;
             debug_assert!(node.is_leaf());
-            let val = match def.get_postcard_by_key(keys, SerSlice::new(buf)) {
+            let val = match postcard::get_by_key(&def, keys, SerSlice::new(buf)) {
                 Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
                     continue;
                 }
                 ret => ret?,
             };
-            let _rest = match instance.set_postcard_by_key(keys, DeSlice::new(val)) {
+            let _rest = match postcard::set_by_key(instance, keys, DeSlice::new(val)) {
                 Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
                     continue;
                 }
@@ -189,7 +177,6 @@ where
     ) -> Result<(), Error<W::Error>>
     where
         W: AWrite,
-        M: JsonCoreSlashOwned<Y> + Default,
     {
         let def = M::default();
         let bl = buf.len();
@@ -200,7 +187,7 @@ where
         awrite(&mut write, ">\n".as_bytes()).await?;
         for keys in M::nodes::<Packed>().root(self.key)? {
             let (keys, node) = keys?;
-            let (val, rest) = match instance.get_json_by_key(keys, &mut buf[..]) {
+            let (val, rest) = match json::get_by_key(instance, keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_))) => {
                     debug_assert!(!node.is_leaf());
                     ("...\n".as_bytes(), &mut buf[..])
@@ -223,7 +210,7 @@ where
             awrite(&mut write, &rest[root_len..path_len]).await?;
             awrite(&mut write, ": ".as_bytes()).await?;
             awrite(&mut write, val).await?;
-            let def = match def.get_json_by_key(keys, &mut buf[..]) {
+            let def = match json::get_by_key(&def, keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_depth))) => {
                     debug_assert!(!node.is_leaf());
                     continue;
@@ -248,10 +235,7 @@ where
         mut stdout: impl AWrite,
         buf: &mut [u8],
         instance: &mut M,
-    ) -> anyhow::Result<String>
-    where
-        M: JsonCoreSlashOwned<Y> + Default,
-    {
+    ) -> anyhow::Result<String> {
         let mut args = line.splitn(2, ' ');
         Ok(match args.next().context("command")? {
             "enter" => {

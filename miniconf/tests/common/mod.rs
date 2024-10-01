@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlash, Path, TreeKey};
+use miniconf::{json, Path, TreeDeserialize, TreeKey, TreeSerialize};
 
 pub fn paths<M, const Y: usize>() -> Vec<String>
 where
@@ -17,10 +17,10 @@ where
 
 pub fn set_get<'de, M, const Y: usize>(s: &mut M, path: &str, value: &'de [u8])
 where
-    M: JsonCoreSlash<'de, Y>,
+    M: TreeDeserialize<'de, Y> + TreeSerialize<Y> + ?Sized,
 {
-    s.set_json(path, value).unwrap();
+    json::set(s, path, value).unwrap();
     let mut buf = vec![0; value.len()];
-    let len = s.get_json(path, &mut buf[..]).unwrap();
+    let len = json::get(s, path, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 }

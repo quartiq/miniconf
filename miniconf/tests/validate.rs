@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlash, Traversal, Tree};
+use miniconf::{json, Traversal, Tree};
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -34,21 +34,21 @@ impl Settings {
 #[test]
 fn validate() {
     let mut s = Settings::default();
-    s.set_json("/v", b"1.0").unwrap();
+    json::set(&mut s, "/v", b"1.0").unwrap();
     assert_eq!(s.v, 1.0);
     assert_eq!(
-        s.set_json("/v", b"-1.0"),
+        json::set(&mut s, "/v", b"-1.0"),
         Err(Traversal::Invalid(1, "").into())
     );
     assert_eq!(s.v, 1.0); // remains unchanged
-    s.set_json("/i/a", b"1.0").unwrap();
+    json::set(&mut s, "/i/a", b"1.0").unwrap();
     assert_eq!(s.i.a, 1.0);
     assert_eq!(
-        s.set_json("/i/a", b"-1.0"),
+        json::set(&mut s, "/i/a", b"-1.0"),
         Err(Traversal::Invalid(1, "").into())
     );
     assert_eq!(s.i.a, -1.0); // has changed as internal validation was done after leaf setting
-    assert_eq!(s.set_json("/i/a", b"1.0"), Ok(3));
+    assert_eq!(json::set(&mut s, "/i/a", b"1.0"), Ok(3));
 }
 
 #[test]
@@ -81,15 +81,15 @@ fn other_type() {
     }
     let mut s = S::default();
     s.vec.resize(10, 0);
-    s.set_json("/offset", b"3").unwrap();
-    s.set_json("/arr/1", b"5").unwrap();
+    json::set(&mut s, "/offset", b"3").unwrap();
+    json::set(&mut s, "/arr/1", b"5").unwrap();
     assert_eq!(s.vec[s.offset + 1], 5);
     let mut buf = [0; 10];
-    let len = s.get_json("/arr/1", &mut buf[..]).unwrap();
+    let len = json::get(&s, "/arr/1", &mut buf[..]).unwrap();
     assert_eq!(buf[..len], b"5"[..]);
-    s.set_json("/offset", b"100").unwrap();
+    json::set(&mut s, "/offset", b"100").unwrap();
     assert_eq!(
-        s.set_json("/arr/1", b"5"),
+        json::set(&mut s, "/arr/1", b"5"),
         Err(Traversal::Access(1, "range").into())
     );
 }
@@ -121,12 +121,12 @@ fn enable_option() {
     }
 
     let mut s = S::default();
-    s.set_json("/enable", b"true").unwrap();
-    s.set_json("/opt", b"1").unwrap();
+    json::set(&mut s, "/enable", b"true").unwrap();
+    json::set(&mut s, "/opt", b"1").unwrap();
     assert_eq!(s.opt, Some(1));
-    s.set_json("/enable", b"false").unwrap();
+    json::set(&mut s, "/enable", b"false").unwrap();
     assert_eq!(s.opt, None);
-    s.set_json("/opt", b"1").unwrap_err();
+    json::set(&mut s, "/opt", b"1").unwrap_err();
 }
 
 #[test]
@@ -159,12 +159,12 @@ fn locked() {
     }
 
     let mut s = S::default();
-    s.set_json("/write", b"true").unwrap();
-    s.set_json("/val", b"1").unwrap();
+    json::set(&mut s, "/write", b"true").unwrap();
+    json::set(&mut s, "/val", b"1").unwrap();
     assert_eq!(s.val, 1);
-    s.set_json("/write", b"false").unwrap();
+    json::set(&mut s, "/write", b"false").unwrap();
     assert_eq!(s.val, 1);
-    s.set_json("/val", b"1").unwrap_err();
+    json::set(&mut s, "/val", b"1").unwrap_err();
 }
 
 #[test]
@@ -191,8 +191,8 @@ fn write_only() {
     }
 
     let mut s = S::default();
-    s.set_json("/v", b"\"foo\"").unwrap();
+    json::set(&mut s, "/v", b"\"foo\"").unwrap();
     let mut buf = [0u8; 10];
-    let len = s.get_json("/v", &mut buf[..]).unwrap();
+    let len = json::get(&s, "/v", &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], b"null");
 }

@@ -91,7 +91,7 @@ impl Tree {
                 for v in variants.iter() {
                     if v.fields.len() != 1 {
                         return Err(Error::custom(
-                            "Only newtype (single field tuple) enum variants are supported.",
+                            "Only newtype (single field tuple) and unit enum variants are supported.",
                         )
                         .with_span(&v.ident.span()));
                     }

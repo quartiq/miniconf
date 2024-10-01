@@ -1,4 +1,4 @@
-use miniconf::{JsonCoreSlash, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{json, Tree, TreeDeserialize, TreeKey, TreeSerialize};
 use strum::{AsRefStr, EnumString};
 
 mod common;
@@ -44,14 +44,14 @@ fn enum_switch() {
     assert_eq!(s.en, Enum::None);
     set_get(&mut s, "/tag", b"\"foo\"");
     assert_eq!(
-        s.set_json("/tag", b"\"bar\""),
+        json::set(&mut s, "/tag", b"\"bar\""),
         Err(miniconf::Traversal::Invalid(1, "invalid tag").into())
     );
     assert_eq!(s.en, Enum::A(0));
     set_get(&mut s, "/en/foo", b"99");
     assert_eq!(s.en, Enum::A(99));
     assert_eq!(
-        s.set_json("/en/B/a", b"99"),
+        json::set(&mut s, "/en/B/a", b"99"),
         Err(miniconf::Traversal::Absent(2).into())
     );
     set_get(&mut s, "/tag", b"\"B\"");

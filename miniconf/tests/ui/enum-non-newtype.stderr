@@ -1,4 +1,4 @@
-error: Only newtype (single field tuple) enum variants are supported.
+error: Only newtype (single field tuple) and unit enum variants are supported.
  --> tests/ui/enum-non-newtype.rs:5:5
   |
 5 |     A(i32, i32),

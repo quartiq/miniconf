@@ -1,5 +1,5 @@
 use miniconf::{
-    Deserialize, Error, Indices, JsonCoreSlash, Packed, Path, Serialize, Traversal, Tree, TreeKey,
+    json, Deserialize, Error, Indices, Packed, Path, Serialize, Traversal, Tree, TreeKey,
 };
 
 mod common;
@@ -35,17 +35,17 @@ fn set_get(
     let (idx, node): (Indices<[usize; 4]>, _) = Settings::transcode(&Path::<_, '/'>::from(path))?;
     assert!(node.is_leaf());
     let idx = Indices::from(&idx[..node.depth()]);
-    tree.set_json_by_key(&idx, value)?;
+    json::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
-    let len = tree.get_json_by_key(&idx, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
     let (idx, node): (Packed, _) = Settings::transcode(&idx)?;
     assert!(node.is_leaf());
-    tree.set_json_by_key(idx, value)?;
+    json::set_by_key(tree, idx, value)?;
     let mut buf = vec![0; value.len()];
-    let len = tree.get_json_by_key(idx, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     Ok(node.depth())
@@ -78,48 +78,50 @@ fn defer_miniconf() {
 fn too_short() {
     let mut s = Settings::default();
     assert_eq!(
-        s.set_json("/d", b"[1,2]"),
+        json::set(&mut s, "/d", b"[1,2]"),
         Err(Traversal::TooShort(1).into())
     );
     // Check precedence over `Inner`.
     assert_eq!(
-        s.set_json("/d", b"[1,2,3]"),
+        json::set(&mut s, "/d", b"[1,2,3]"),
         Err(Traversal::TooShort(1).into())
     );
 }
 
 #[test]
 fn too_long() {
+    let mut s = Settings::default();
     assert_eq!(
-        Settings::default().set_json("/a/1", b"7"),
+        json::set(&mut s, "/a/1", b"7"),
         Err(Traversal::TooLong(1).into())
     );
     assert_eq!(
-        Settings::default().set_json("/d/0/b", b"7"),
+        json::set(&mut s, "/d/0/b", b"7"),
         Err(Traversal::TooLong(2).into())
     );
     assert_eq!(
-        Settings::default().set_json("/dm/0/c", b"7"),
+        json::set(&mut s, "/dm/0/c", b"7"),
         Err(Traversal::TooLong(2).into())
     );
     assert_eq!(
-        Settings::default().set_json("/dm/0/d", b"7"),
+        json::set(&mut s, "/dm/0/d", b"7"),
         Err(Traversal::TooLong(2).into())
     );
 }
 
 #[test]
 fn not_found() {
+    let mut s = Settings::default();
     assert_eq!(
-        Settings::default().set_json("/d/3", b"7"),
+        json::set(&mut s, "/d/3", b"7"),
         Err(Traversal::NotFound(2).into())
     );
     assert_eq!(
-        Settings::default().set_json("/b", b"7"),
+        json::set(&mut s, "/b", b"7"),
         Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
-        Settings::default().set_json("/aam/0/0/d", b"7"),
+        json::set(&mut s, "/aam/0/0/d", b"7"),
         Err(Traversal::NotFound(4).into())
     );
 }

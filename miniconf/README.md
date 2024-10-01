@@ -19,7 +19,7 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, JsonCoreSlash, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node};
+use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node};
 
 #[derive(Deserialize, Serialize, Default)]
 enum Either {
@@ -64,46 +64,46 @@ struct Settings {
 let mut settings = Settings::default();
 
 // Atomic updates by field name
-settings.set_json("/foo", b"true")?;
+json::set(&mut settings,"/foo", b"true")?;
 assert_eq!(settings.foo, true);
-settings.set_json("/enum_", br#""Good""#)?;
-settings.set_json("/struct_", br#"{"a": 3, "b": 3}"#)?;
-settings.set_json("/array", b"[6, 6]")?;
-settings.set_json("/option", b"12")?;
-settings.set_json("/option", b"null")?;
+json::set(&mut settings, "/enum_", br#""Good""#)?;
+json::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
+json::set(&mut settings, "/array", b"[6, 6]")?;
+json::set(&mut settings, "/option", b"12")?;
+json::set(&mut settings, "/option", b"null")?;
 
 // Exposing nodes of containers
 // ... by field name in a struct
-settings.set_json("/struct_tree/a", b"4")?;
+json::set(&mut settings, "/struct_tree/a", b"4")?;
 // ... or by index in an array
-settings.set_json("/array_tree/0", b"7")?;
+json::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
-settings.set_json("/array_tree2/0/a", b"11")?;
+json::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-settings.set_json_by_key([7, 0, 1], b"8")?;
+json::set_by_key(&mut settings, [7, 0, 1], b"8")?;
 // ... or by packed index
 let (packed, node) = Settings::transcode::<Packed, _>([7, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_0111_1_0);
 assert_eq!(node, Node::leaf(3));
-settings.set_json_by_key(packed, b"9")?;
+json::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
-settings.set_json_by_key(&JsonPath(".array_tree2[1].b"), b"10")?;
+json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
-assert_eq!(settings.set_json("/option_tree", b"13"), Err(Traversal::Absent(1).into()));
+assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(Traversal::Absent(1).into()));
 settings.option_tree = Some(0);
-settings.set_json("/option_tree", b"13")?;
+json::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());
-settings.set_json("/option_tree2/a", b"14")?;
+json::set(&mut settings, "/option_tree2/a", b"14")?;
 // Hiding items of an array of `Tree`s
 settings.array_option_tree[1] = Some(Inner::default());
-settings.set_json("/array_option_tree/1/a", b"15")?;
+json::set(&mut settings, "/array_option_tree/1/a", b"15")?;
 
 let mut buf = [0; 16];
 
 // Serializing nodes by path
-let len = settings.get_json("/struct_", &mut buf).unwrap();
+let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
@@ -111,9 +111,9 @@ for path in Settings::nodes::<Path<heapless::String<32>, '/'>>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
     // Serialize each
-    match settings.get_json(&path, &mut buf) {
+    match json::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
-        Ok(len) => { settings.set_json(&path, &buf[..len])?; }
+        Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
         // Some settings are still `None` and thus their paths are expected to be absent
         Err(Error::Traversal(Traversal::Absent(_))) => {}
         e => { e.unwrap(); }
@@ -136,11 +136,10 @@ Miniconf is agnostic of the `serde` backend/format, key type/format, and transpo
 
 `miniconf` can be used with any `serde::Serializer`/`serde::Deserializer` backend, and key format.
 
-Support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented
-through the [`JsonCoreSlash`] subtrait.
+Explicit support for `/` as the path hierarchy separator and JSON (`serde_json_core`) is implemented.
 
-The `Postcard` subtrait supports the `postcard` wire format with any `postcard` flavor and
-any [`Keys`] type. Combined with the [`Packed`] key representation, this is a very
+Support for the `postcard` wire format with any `postcard` flavor and
+any [`Keys`] type is implemented. Combined with the [`Packed`] key representation, this is a very
 space-efficient serde-by-key API.
 
 Blanket implementations are provided for all
@@ -193,9 +192,9 @@ It implements [`Keys`].
 
 ## Features
 
-* `json-core`: Enable the [`JsonCoreSlash`] implementation of serializing from and
+* `json-core`: Enable helper functions for serializing from and
   into json slices (using the `serde_json_core` crate).
-* `postcard`: Enable the `Postcard` implementation of serializing from and
+* `postcard`: Enable helper functions for serializing from and
   into the postcard compact binary format (using the `postcard` crate).
 * `derive`: Enable the derive macros in `miniconf_derive`. Enabled by default.
 

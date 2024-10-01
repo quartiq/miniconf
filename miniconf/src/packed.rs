@@ -42,8 +42,8 @@ use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey}
 /// `Packed` can be used to uniquely identify
 /// nodes in a `TreeKey` using only a very small amount of bits.
 /// For many realistic `TreeKey`s a `u16` or even a `u8` is sufficient
-/// to hold a `Packed` in LSB notation. Together with the `Postcard` trait
-/// and `postcard` `serde` format, this then gives access to any node in a nested
+/// to hold a `Packed` in LSB notation. Together with the
+/// `postcard` `serde` format, this then gives access to any node in a nested
 /// heterogeneous `Tree` with just a `u16` or `u8` as compact key and `[u8]` as
 /// compact value.
 ///
