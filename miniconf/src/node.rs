@@ -1,6 +1,5 @@
 use core::{
     fmt::Write,
-    iter::Copied,
     ops::{Deref, DerefMut},
     slice::Iter,
 };
@@ -210,6 +209,8 @@ impl<'a, const S: char> Iterator for PathIter<'a, S> {
     }
 }
 
+impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
+
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
     fn into_keys(self) -> Self::IntoKeys {
@@ -285,7 +286,7 @@ impl<T> From<T> for Indices<T> {
 }
 
 impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
-    type IntoKeys = KeysIter<Copied<Iter<'a, usize>>>;
+    type IntoKeys = KeysIter<core::iter::Copied<Iter<'a, usize>>>;
     fn into_keys(self) -> Self::IntoKeys {
         self.0.as_ref().iter().copied().into_keys()
     }

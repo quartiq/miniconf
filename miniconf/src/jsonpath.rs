@@ -77,6 +77,8 @@ impl<'a> Iterator for JsonPathIter<'a> {
     }
 }
 
+impl<'a> core::iter::FusedIterator for JsonPathIter<'a> {}
+
 /// JSON style path notation
 ///
 /// `T` can be `Write` for `Transcode` with the following behavior:

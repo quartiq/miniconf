@@ -1,3 +1,5 @@
+use core::iter::Fuse;
+
 use crate::Traversal;
 
 /// Look up top level field names and convert to indices
@@ -51,6 +53,8 @@ impl Key for &str {
 /// Capability to yield and look up [`Key`]s
 pub trait Keys {
     /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
+    ///
+    /// This must be fused (like [`core::iter::FusedIterator`]).
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
@@ -66,13 +70,19 @@ pub trait Keys {
 }
 
 /// [`Keys`]/[`IntoKeys`] for Iterators of [`Key`]
-#[derive(Debug, Clone, PartialEq, PartialOrd)]
+#[derive(Debug, Clone)]
 #[repr(transparent)]
-pub struct KeysIter<T: ?Sized>(T);
+pub struct KeysIter<T>(Fuse<T>);
+
+impl<T: Iterator> KeysIter<T> {
+    fn new(inner: T) -> Self {
+        Self(inner.fuse())
+    }
+}
 
 impl<T> Keys for KeysIter<T>
 where
-    T: Iterator + ?Sized,
+    T: Iterator,
     T::Item: Key,
 {
     fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
@@ -115,7 +125,7 @@ where
     type IntoKeys = KeysIter<T::IntoIter>;
 
     fn into_keys(self) -> Self::IntoKeys {
-        KeysIter(self.into_iter())
+        KeysIter::new(self.into_iter())
     }
 }
 
