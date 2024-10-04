@@ -14,7 +14,7 @@ use crate::Traversal;
 ///     bar: [u16; 2],
 /// }
 /// assert_eq!(S::LEN, 2);
-/// assert_eq!(S::name_to_index("bar").unwrap(), 1);
+/// assert_eq!(S::NAMES.unwrap()[1], "bar");
 /// ```
 pub trait KeyLookup {
     /// The number of top-level nodes.
@@ -22,12 +22,11 @@ pub trait KeyLookup {
     /// This is used by `impl Keys for Packed`.
     const LEN: usize;
 
-    /// Convert a top level node name to a node index.
+    /// Node names, if any.
     ///
-    /// The details of the mapping and the `usize` index values
-    /// are an implementation detail and only need to be stable at runtime.
-    /// This is used by `impl Key for &str`.
-    fn name_to_index(value: &str) -> Option<usize>;
+    /// If nodes have names, this is a slice of them.
+    /// If it is `Some`, it's `.len()` is guaranteed to be `LEN`.
+    const NAMES: Option<&'static [&'static str]> = None;
 }
 
 /// Convert a `&str` key into a node index on a `KeyLookup`
@@ -46,7 +45,10 @@ impl Key for usize {
 // name
 impl Key for &str {
     fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize> {
-        M::name_to_index(self)
+        match M::NAMES {
+            Some(names) => names.iter().position(|n| n == self),
+            None => self.parse().ok(),
+        }
     }
 }
 

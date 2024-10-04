@@ -225,15 +225,11 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
         K: IntoKeys,
     {
         M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            self.0
-                .write_char(S)
-                .and_then(|()| {
-                    let mut buf = itoa::Buffer::new();
-                    let name = name.unwrap_or_else(|| buf.format(index));
-                    debug_assert!(!name.contains(S));
-                    self.0.write_str(name)
-                })
-                .or(Err(()))
+            self.0.write_char(S).or(Err(()))?;
+            let mut buf = itoa::Buffer::new();
+            let name = name.unwrap_or_else(|| buf.format(index));
+            debug_assert!(!name.contains(S));
+            self.0.write_str(name).or(Err(()))
         })
         .try_into()
     }

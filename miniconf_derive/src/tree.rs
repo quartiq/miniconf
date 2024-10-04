@@ -174,23 +174,22 @@ impl Tree {
             ),
             _ => None,
         };
-        let (names, name_to_index, index_to_name, mut ident_len) = if let Some(names) = names {
+        let (names, index_to_name, mut ident_len) = if let Some(names) = names {
             (
                 Some(quote!(
-                    const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
+                    const NAMES: ::core::option::Option<&'static [&'static str]> = ::core::option::Option::Some(&[#(#names ,)*]);
                 )),
-                quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
                 quote!(::core::option::Option::Some(
-                    *Self::__MINICONF_NAMES
+                    *<Self as ::miniconf::KeyLookup>::NAMES
+                        .unwrap()
                         .get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?
                 )),
-                quote!(Self::__MINICONF_NAMES[index].len()),
+                quote!(<Self as ::miniconf::KeyLookup>::NAMES.unwrap()[index].len()),
             )
         } else {
             (
                 None,
-                quote!(str::parse(value).ok()),
                 quote!(if index >= #fields_len {
                     ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
                 } else {
@@ -207,23 +206,15 @@ impl Tree {
             (
                 quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
                 Some(quote! {
-                    func(index, #index_to_name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                    func(index, #index_to_name, <Self as ::miniconf::KeyLookup>::LEN)
+                    .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
                 Some(quote! {
                     #[automatically_derived]
-                    impl #impl_generics #ident #ty_generics #where_clause {
-                        #names
-                    }
-
-                    #[automatically_derived]
                     impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
                         const LEN: usize = #fields_len;
-
-                        #[inline]
-                        fn name_to_index(value: &str) -> ::core::option::Option<usize> {
-                            #name_to_index
-                        }
+                        #names
                     }
                 }),
             )

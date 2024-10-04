@@ -62,10 +62,10 @@ macro_rules! depth {
                 F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
                 let index = keys.next::<Self>()?;
-                if index >= N {
+                if index >= Self::LEN {
                     return Err(Traversal::NotFound(1).into());
                 }
-                func(index, None, N).map_err(|err| Error::Inner(1, err))?;
+                func(index, None, Self::LEN).map_err(|err| Error::Inner(1, err))?;
                 Error::increment_result(T::traverse_by_key(keys, func))
             }
         }
@@ -115,10 +115,6 @@ depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 
 impl<const N: usize, T> KeyLookup for [T; N] {
     const LEN: usize = N;
-
-    fn name_to_index(value: &str) -> Option<usize> {
-        value.parse().ok()
-    }
 }
 
 // Y == 1
@@ -137,10 +133,10 @@ impl<T, const N: usize> TreeKey for [T; N] {
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
         let index = keys.next::<Self>()?;
-        if index >= N {
+        if index >= Self::LEN {
             return Err(Traversal::NotFound(1).into());
         }
-        func(index, None, N).map_err(|err| Error::Inner(1, err))?;
+        func(index, None, Self::LEN).map_err(|err| Error::Inner(1, err))?;
         if !keys.finalize() {
             Err(Traversal::TooLong(1).into())
         } else {
