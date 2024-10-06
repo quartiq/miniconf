@@ -178,8 +178,11 @@ impl<T, const S: char> From<T> for Path<T, S> {
 pub struct PathIter<'a, const S: char>(Option<&'a str>);
 
 impl<'a, const S: char> PathIter<'a, S> {
+    /// Create a new `PathIter`
+    ///
+    /// This calls `next()` once to pop everything up to and including the first separator.
     #[inline]
-    fn new(s: &'a str) -> Self {
+    pub fn new(s: &'a str) -> Self {
         let mut s = Self(Some(s));
         // Skip the first part to disambiguate between
         // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
