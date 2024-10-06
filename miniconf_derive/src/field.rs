@@ -66,26 +66,7 @@ impl TreeField {
             }
         } else {
             quote_spanned! { self.span()=>
-                M::one()
-            }
-        }
-    }
-
-    pub fn metadata(&self, i: usize) -> TokenStream {
-        // Quote context is a match of the field index with `metadata()` args available.
-        let depth = self.depth;
-        if depth > 0 {
-            let typ = self.typ();
-            quote_spanned! { self.span()=>
-                let m = <#typ as ::miniconf::TreeKey<#depth>>::metadata();
-                meta.max_length = meta.max_length.max(ident_len(#i) + m.max_length);
-                meta.max_depth = meta.max_depth.max(m.max_depth);
-                meta.count += m.count;
-            }
-        } else {
-            quote_spanned! { self.span()=>
-                meta.max_length = meta.max_length.max(ident_len(#i));
-                meta.count += 1;
+                M::leaf()
             }
         }
     }

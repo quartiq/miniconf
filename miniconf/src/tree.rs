@@ -40,8 +40,38 @@ impl Metadata {
 }
 
 pub trait Meta: Default {
-    fn one() -> Self;
+    fn leaf() -> Self;
     fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self);
+}
+
+impl Meta for Metadata {
+    #[inline]
+    fn leaf() -> Self {
+        Self {
+            count: 1,
+            ..Default::default()
+        }
+    }
+
+    #[inline]
+    fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self) {
+        let (ident_len, count) = match index {
+            None => (
+                K::LEN.checked_ilog10().unwrap_or_default() as usize + 1,
+                K::LEN,
+            ),
+            Some(index) => (
+                match K::NAMES {
+                    Some(names) => names[index].len(),
+                    None => index.checked_ilog10().unwrap_or_default() as usize + 1,
+                },
+                1,
+            ),
+        };
+        self.max_depth = self.max_depth.max(meta.max_depth + 1);
+        self.max_length = self.max_length.max(ident_len + meta.max_length);
+        self.count += count * meta.count;
+    }
 }
 
 /// Traversal, iteration of keys in a tree.
@@ -308,7 +338,9 @@ pub trait TreeKey<const Y: usize = 1> {
     /// let m = S::metadata();
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
-    fn metadata() -> Metadata;
+    fn metadata() -> Metadata {
+        Self::walk()
+    }
 
     fn walk<M: Meta>() -> M;
 

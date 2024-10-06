@@ -138,7 +138,6 @@ impl Tree {
 
     pub fn tree_key(&self) -> TokenStream {
         let depth = self.depth();
-        let level = self.level();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
             (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
@@ -146,7 +145,6 @@ impl Tree {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let fields = self.fields();
         let fields_len = fields.len();
-        let metadata_arms = fields.iter().enumerate().map(|(i, f)| f.metadata(i));
         let walk_arms = fields.iter().enumerate().map(|(i, f)| {
             let m = f.walk();
             if self.flatten.is_present() {
@@ -182,7 +180,7 @@ impl Tree {
             ),
             _ => None,
         };
-        let (names, index_to_name, mut ident_len) = if let Some(names) = names {
+        let (names, index_to_name) = if let Some(names) = names {
             (
                 Some(quote!(
                     const NAMES: ::core::option::Option<&'static [&'static str]> = ::core::option::Option::Some(&[#(#names ,)*]);
@@ -193,7 +191,6 @@ impl Tree {
                         .get(index)
                         .ok_or(::miniconf::Traversal::NotFound(1))?
                 )),
-                quote!(<Self as ::miniconf::KeyLookup>::NAMES.unwrap()[index].len()),
             )
         } else {
             (
@@ -203,12 +200,10 @@ impl Tree {
                 } else {
                     ::core::option::Option::None
                 }),
-                quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
             )
         };
 
         let (index, traverse, increment, lookup) = if self.flatten.is_present() {
-            ident_len = quote!(0);
             (quote!(0), None, None, None)
         } else {
             (
@@ -249,14 +244,6 @@ impl Tree {
 
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                fn metadata() -> ::miniconf::Metadata {
-                    let mut meta = ::miniconf::Metadata::default();
-                    let ident_len = |index: usize| { #ident_len };
-                    #(#metadata_arms)*
-                    meta.max_depth += #level;
-                    meta
-                }
-
                 fn walk<M: ::miniconf::Meta>() -> M {
                     let mut meta = M::default();
                     #(#walk_arms)*

@@ -3,8 +3,7 @@ use core::any::Any;
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    Error, KeyLookup, Keys, Meta, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey,
-    TreeSerialize,
+    Error, KeyLookup, Keys, Meta, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
 };
 
 fn get<'a, const N: usize, K, T>(
@@ -47,16 +46,6 @@ where
 macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
-            fn metadata() -> Metadata {
-                let mut meta = T::metadata();
-
-                meta.max_length += N.checked_ilog10().unwrap_or_default() as usize + 1;
-                meta.max_depth += 1;
-                meta.count *= N;
-
-                meta
-            }
-
             fn walk<M: Meta>() -> M {
                 let mut meta = M::default();
                 meta.merge::<Self>(None, &T::walk::<M>());
@@ -126,17 +115,9 @@ impl<const N: usize, T> KeyLookup for [T; N] {
 
 // Y == 1
 impl<T, const N: usize> TreeKey for [T; N] {
-    fn metadata() -> Metadata {
-        Metadata {
-            max_length: N.checked_ilog10().unwrap_or_default() as usize + 1,
-            max_depth: 1,
-            count: N,
-        }
-    }
-
     fn walk<M: Meta>() -> M {
         let mut meta = M::default();
-        meta.merge::<Self>(None, &M::one());
+        meta.merge::<Self>(None, &M::leaf());
         meta
     }
 
