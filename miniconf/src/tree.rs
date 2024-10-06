@@ -9,7 +9,7 @@ use crate::{Error, IntoKeys, KeyLookup, Keys, Node, NodeIter, Transcode, Travers
 /// Metadata includes paths that may be [`Traversal::Absent`] at runtime.
 #[non_exhaustive]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PathMetadata {
+pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///
     /// This is the exact maximum of the length of the concatenation of the node names
@@ -28,7 +28,7 @@ pub struct PathMetadata {
     pub count: usize,
 }
 
-impl PathMetadata {
+impl Metadata {
     /// Add separator length to the maximum path length.
     ///
     /// To obtain an upper bound on the maximum length of all paths
@@ -39,12 +39,21 @@ impl PathMetadata {
     }
 }
 
+/// Capability to be generated from `TreeKey::walk::<W: Walk>() -> W`.
 pub trait Walk: Default {
+    /// Return the walk starting point for a single leaf node
     fn leaf() -> Self;
+
+    /// Merge node metadata into self.
+    ///
+    /// # Args
+    /// * `index`: Either the node index in case of a single node `None`, if
+    ///   the re are `KeyLookup::LEN` nodes of homogeneous type in `Self`.
+    /// * `meta`: The `Self` of the node to merge.
     fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self);
 }
 
-impl Walk for PathMetadata {
+impl Walk for Metadata {
     #[inline]
     fn leaf() -> Self {
         Self {
@@ -104,7 +113,7 @@ impl Walk for PathMetadata {
 /// (even if no keys are consumed directly) to satisfy the bound
 /// heuristics in the derive macro.
 ///
-/// The exact maximum key depth can be obtained through [`TreeKey::path_metadata()`].
+/// The exact maximum key depth can be obtained through [`TreeKey::walk()`].
 ///
 /// # Keys
 ///
@@ -265,16 +274,16 @@ impl Walk for PathMetadata {
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
 ///
 /// ```
-/// use miniconf::TreeKey;
+/// use miniconf::{TreeKey, Metadata};
 /// #[derive(TreeKey)]
 /// struct S<T> {
 ///     #[tree(depth = 3)]
 ///     a: [Option<T>; 2],
 /// };
 /// // This works as [u32; N] implements TreeKey<1>:
-/// S::<[u32; 5]>::path_metadata();
+/// S::<[u32; 5]>::walk::<Metadata>();
 /// // This does not compile as u32 does not implement TreeKey<1>:
-/// // S::<u32>::path_metadata();
+/// // S::<u32>::walk::<Metadata>();
 /// ```
 ///
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
@@ -325,23 +334,19 @@ impl Walk for PathMetadata {
 /// See the [`crate`] documentation for a longer example showing how the traits and the derive
 /// macros work.
 pub trait TreeKey<const Y: usize = 1> {
-    /// Compute metadata about all paths.
+    /// Walk metadata about all paths.
     ///
     /// ```
-    /// use miniconf::TreeKey;
+    /// use miniconf::{TreeKey, Metadata};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,
     ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
-    /// let m = S::path_metadata();
+    /// let m = S::walk::<Metadata>();
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
-    fn path_metadata() -> PathMetadata {
-        Self::walk()
-    }
-
     fn walk<W: Walk>() -> W;
 
     /// Traverse from the root to a leaf and call a function for each node.

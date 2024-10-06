@@ -1,4 +1,4 @@
-use miniconf::{Indices, IntoKeys, Node, Path, Traversal, Tree, TreeKey};
+use miniconf::{Indices, IntoKeys, Metadata, Node, Path, Traversal, Tree, TreeKey};
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -15,7 +15,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::path_metadata();
+    let meta = Settings::walk::<Metadata>();
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length("/"), "/c/inner".len());
     assert_eq!(meta.count, 3);

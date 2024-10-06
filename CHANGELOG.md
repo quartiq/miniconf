@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * `KeyLookup::name_to_index()` has been removed in favor of exposing the names as `NAMES: Option<&[&str]>`.
+* `TreeKey::metadata() -> Metadata` has been changed to `walk<W: Walk>() -> W` with `impl Walk for Metadata`.
 
 ## [0.15.0](https://github.com/quartiq/miniconf/compare/v0.14.1...v0.15.0) - 2024-10-01
 

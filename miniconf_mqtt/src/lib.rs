@@ -10,7 +10,8 @@ use core::fmt::Display;
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, IntoKeys, NodeIter, Path, Traversal, TreeDeserializeOwned, TreeKey, TreeSerialize,
+    json, IntoKeys, Metadata, NodeIter, Path, Traversal, TreeDeserializeOwned, TreeKey,
+    TreeSerialize,
 };
 pub use minimq;
 use minimq::{
@@ -251,7 +252,7 @@ where
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
         assert!(
-            prefix.len() + "/settings".len() + Settings::path_metadata().max_length("/")
+            prefix.len() + "/settings".len() + Settings::walk::<Metadata>().max_length("/")
                 <= MAX_TOPIC_LENGTH
         );
 

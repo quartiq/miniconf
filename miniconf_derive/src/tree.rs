@@ -158,7 +158,7 @@ impl Tree {
             .enumerate()
             .filter_map(|(i, f)| f.traverse_by_key(i));
         let defers = fields.iter().map(|field| field.depth > 0);
-        let names: Option<Vec<_>> = match &self.data {
+        let names = match &self.data {
             Data::Struct(fields) if fields.style.is_struct() => Some(
                 fields
                     .iter()
@@ -167,7 +167,7 @@ impl Tree {
                         let name = f.name().unwrap();
                         quote_spanned! { name.span()=> stringify!(#name) }
                     })
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ),
             Data::Enum(variants) => Some(
                 variants
@@ -179,29 +179,11 @@ impl Tree {
                     .collect(),
             ),
             _ => None,
-        };
-        let (names, index_to_name) = if let Some(names) = names {
-            (
-                Some(quote!(
-                    const NAMES: ::core::option::Option<&'static [&'static str]> = ::core::option::Option::Some(&[#(#names ,)*]);
-                )),
-                quote!(::core::option::Option::Some(
-                    *<Self as ::miniconf::KeyLookup>::NAMES
-                        .unwrap()
-                        .get(index)
-                        .ok_or(::miniconf::Traversal::NotFound(1))?
-                )),
-            )
-        } else {
-            (
-                None,
-                quote!(if index >= #fields_len {
-                    ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
-                } else {
-                    ::core::option::Option::None
-                }),
-            )
-        };
+        }.map(|names|
+            quote!{
+                const NAMES: ::core::option::Option<&'static [&'static str]> = ::core::option::Option::Some(&[#(#names ,)*]);
+            }
+        );
 
         let (index, traverse, increment, lookup) = if self.flatten.is_present() {
             (quote!(0), None, None, None)
@@ -209,7 +191,22 @@ impl Tree {
             (
                 quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
                 Some(quote! {
-                    func(index, #index_to_name, <Self as ::miniconf::KeyLookup>::LEN)
+                    let name = match <Self as ::miniconf::KeyLookup>::NAMES {
+                        ::core::option::Option::Some(names) => {
+                            Some(
+                                *names
+                                    .get(index)
+                                    .ok_or(::miniconf::Traversal::NotFound(1))?
+                            )
+                        }
+                        ::core::option::Option::None => {
+                            if index >= #fields_len {
+                                ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
+                            }
+                            ::core::option::Option::None
+                        }
+                    };
+                    func(index, name, <Self as ::miniconf::KeyLookup>::LEN)
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
