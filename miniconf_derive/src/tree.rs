@@ -146,11 +146,11 @@ impl Tree {
         let fields = self.fields();
         let fields_len = fields.len();
         let walk_arms = fields.iter().enumerate().map(|(i, f)| {
-            let m = f.walk();
+            let w = f.walk();
             if self.flatten.is_present() {
-                quote!(meta = #m;)
+                quote!(walk = #w;)
             } else {
-                quote!(meta.merge::<Self>(Some(#i), &#m);)
+                quote!(walk.merge::<Self>(Some(#i), &#w);)
             }
         });
         let traverse_arms = fields
@@ -244,10 +244,10 @@ impl Tree {
 
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                fn walk<M: ::miniconf::Meta>() -> M {
-                    let mut meta = M::default();
+                fn walk<W: ::miniconf::Walk>() -> W {
+                    let mut walk = W::default();
                     #(#walk_arms)*
-                    meta
+                    walk
                 }
 
                 fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>

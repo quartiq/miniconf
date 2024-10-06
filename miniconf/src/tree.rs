@@ -9,7 +9,7 @@ use crate::{Error, IntoKeys, KeyLookup, Keys, Node, NodeIter, Transcode, Travers
 /// Metadata includes paths that may be [`Traversal::Absent`] at runtime.
 #[non_exhaustive]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Metadata {
+pub struct PathMetadata {
     /// The maximum length of a path in bytes.
     ///
     /// This is the exact maximum of the length of the concatenation of the node names
@@ -28,7 +28,7 @@ pub struct Metadata {
     pub count: usize,
 }
 
-impl Metadata {
+impl PathMetadata {
     /// Add separator length to the maximum path length.
     ///
     /// To obtain an upper bound on the maximum length of all paths
@@ -39,12 +39,12 @@ impl Metadata {
     }
 }
 
-pub trait Meta: Default {
+pub trait Walk: Default {
     fn leaf() -> Self;
     fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self);
 }
 
-impl Meta for Metadata {
+impl Walk for PathMetadata {
     #[inline]
     fn leaf() -> Self {
         Self {
@@ -104,7 +104,7 @@ impl Meta for Metadata {
 /// (even if no keys are consumed directly) to satisfy the bound
 /// heuristics in the derive macro.
 ///
-/// The exact maximum key depth can be obtained through [`TreeKey::metadata()`].
+/// The exact maximum key depth can be obtained through [`TreeKey::path_metadata()`].
 ///
 /// # Keys
 ///
@@ -272,9 +272,9 @@ impl Meta for Metadata {
 ///     a: [Option<T>; 2],
 /// };
 /// // This works as [u32; N] implements TreeKey<1>:
-/// S::<[u32; 5]>::metadata();
+/// S::<[u32; 5]>::path_metadata();
 /// // This does not compile as u32 does not implement TreeKey<1>:
-/// // S::<u32>::metadata();
+/// // S::<u32>::path_metadata();
 /// ```
 ///
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
@@ -335,14 +335,14 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
-    /// let m = S::metadata();
+    /// let m = S::path_metadata();
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
-    fn metadata() -> Metadata {
+    fn path_metadata() -> PathMetadata {
         Self::walk()
     }
 
-    fn walk<M: Meta>() -> M;
+    fn walk<W: Walk>() -> W;
 
     /// Traverse from the root to a leaf and call a function for each node.
     ///

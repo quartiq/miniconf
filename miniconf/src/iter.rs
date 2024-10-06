@@ -118,7 +118,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
         assert!(self.root == 0);
         debug_assert_eq!(&self.state, &Indices::default()); // ensured by depth = D + 1 marker
         assert!(D >= Y);
-        ExactSize::new(self, M::metadata().count)
+        ExactSize::new(self, M::path_metadata().count)
     }
 }
 

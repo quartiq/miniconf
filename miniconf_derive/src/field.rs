@@ -66,7 +66,7 @@ impl TreeField {
             }
         } else {
             quote_spanned! { self.span()=>
-                M::leaf()
+                W::leaf()
             }
         }
     }

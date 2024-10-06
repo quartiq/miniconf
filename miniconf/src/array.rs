@@ -3,7 +3,7 @@ use core::any::Any;
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    Error, KeyLookup, Keys, Meta, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+    Error, KeyLookup, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, Walk,
 };
 
 fn get<'a, const N: usize, K, T>(
@@ -46,10 +46,10 @@ where
 macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
-            fn walk<M: Meta>() -> M {
-                let mut meta = M::default();
-                meta.merge::<Self>(None, &T::walk::<M>());
-                meta
+            fn walk<W: Walk>() -> W {
+                let mut walk = W::default();
+                walk.merge::<Self>(None, &T::walk::<W>());
+                walk
             }
 
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -115,10 +115,10 @@ impl<const N: usize, T> KeyLookup for [T; N] {
 
 // Y == 1
 impl<T, const N: usize> TreeKey for [T; N] {
-    fn walk<M: Meta>() -> M {
-        let mut meta = M::default();
-        meta.merge::<Self>(None, &M::leaf());
-        meta
+    fn walk<W: Walk>() -> W {
+        let mut walk = W::default();
+        walk.merge::<Self>(None, &W::leaf());
+        walk
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
