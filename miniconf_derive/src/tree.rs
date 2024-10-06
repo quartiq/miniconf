@@ -147,6 +147,14 @@ impl Tree {
         let fields = self.fields();
         let fields_len = fields.len();
         let metadata_arms = fields.iter().enumerate().map(|(i, f)| f.metadata(i));
+        let walk_arms = fields.iter().enumerate().map(|(i, f)| {
+            let m = f.walk();
+            if self.flatten.is_present() {
+                quote!(meta = #m;)
+            } else {
+                quote!(meta.merge::<Self>(Some(#i), &#m);)
+            }
+        });
         let traverse_arms = fields
             .iter()
             .enumerate()
@@ -246,6 +254,12 @@ impl Tree {
                     let ident_len = |index: usize| { #ident_len };
                     #(#metadata_arms)*
                     meta.max_depth += #level;
+                    meta
+                }
+
+                fn walk<M: ::miniconf::Meta>() -> M {
+                    let mut meta = M::default();
+                    #(#walk_arms)*
                     meta
                 }
 

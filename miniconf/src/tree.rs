@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal};
+use crate::{Error, IntoKeys, KeyLookup, Keys, Node, NodeIter, Transcode, Traversal};
 
 /// Metadata about a `TreeKey` namespace.
 ///
@@ -37,6 +37,11 @@ impl Metadata {
     pub fn max_length(&self, separator: &str) -> usize {
         self.max_length + self.max_depth * separator.len()
     }
+}
+
+pub trait Meta: Default {
+    fn one() -> Self;
+    fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self);
 }
 
 /// Traversal, iteration of keys in a tree.
@@ -304,6 +309,8 @@ pub trait TreeKey<const Y: usize = 1> {
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
     fn metadata() -> Metadata;
+
+    fn walk<M: Meta>() -> M;
 
     /// Traverse from the root to a leaf and call a function for each node.
     ///

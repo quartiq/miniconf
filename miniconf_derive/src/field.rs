@@ -57,6 +57,20 @@ impl TreeField {
         }
     }
 
+    pub fn walk(&self) -> TokenStream {
+        let depth = self.depth;
+        if depth > 0 {
+            let typ = self.typ();
+            quote_spanned! { self.span()=>
+                <#typ as ::miniconf::TreeKey<#depth>>::walk()
+            }
+        } else {
+            quote_spanned! { self.span()=>
+                M::one()
+            }
+        }
+    }
+
     pub fn metadata(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `metadata()` args available.
         let depth = self.depth;

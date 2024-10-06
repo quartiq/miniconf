@@ -2,7 +2,9 @@ use core::any::Any;
 
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{Error, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
+use crate::{
+    Error, Keys, Meta, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+};
 
 // `Option` does not add to the path hierarchy (does not consume from `keys` or call `func`).
 // But it does add one Tree API layer between its `Tree<Y>` level
@@ -39,6 +41,10 @@ macro_rules! depth {
         impl<T: TreeKey<{$y - 1}>> TreeKey<$y> for Option<T> {
             fn metadata() -> Metadata {
                 T::metadata()
+            }
+
+            fn walk<M: Meta>() -> M {
+                T::walk()
             }
 
             fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
@@ -100,6 +106,10 @@ impl<T> TreeKey for Option<T> {
             count: 1,
             ..Default::default()
         }
+    }
+
+    fn walk<M: Meta>() -> M {
+        M::one()
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>

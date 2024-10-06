@@ -3,7 +3,8 @@ use core::any::Any;
 use serde::{de::Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    Error, KeyLookup, Keys, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+    Error, KeyLookup, Keys, Meta, Metadata, Traversal, TreeAny, TreeDeserialize, TreeKey,
+    TreeSerialize,
 };
 
 fn get<'a, const N: usize, K, T>(
@@ -53,6 +54,12 @@ macro_rules! depth {
                 meta.max_depth += 1;
                 meta.count *= N;
 
+                meta
+            }
+
+            fn walk<M: Meta>() -> M {
+                let mut meta = M::default();
+                meta.merge::<Self>(None, &T::walk::<M>());
                 meta
             }
 
@@ -125,6 +132,12 @@ impl<T, const N: usize> TreeKey for [T; N] {
             max_depth: 1,
             count: N,
         }
+    }
+
+    fn walk<M: Meta>() -> M {
+        let mut meta = M::default();
+        meta.merge::<Self>(None, &M::one());
+        meta
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
