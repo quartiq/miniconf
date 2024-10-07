@@ -37,7 +37,7 @@ fn get_mut<'a, T, K: Keys>(
 macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>> TreeKey<$y> for Option<T> {
-            fn walk<W: Walk>() -> W {
+            fn walk<W: Walk>() -> Result<W, W::Error> {
                 T::walk()
             }
 
@@ -95,8 +95,8 @@ depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 
 // Y == 1
 impl<T> TreeKey for Option<T> {
-    fn walk<W: Walk>() -> W {
-        W::leaf()
+    fn walk<W: Walk>() -> Result<W, W::Error> {
+        Ok(W::leaf())
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>

@@ -1,4 +1,4 @@
-use core::any::Any;
+use core::{any::Any, convert::Infallible};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -39,8 +39,11 @@ impl Metadata {
     }
 }
 
-/// Capability to be generated from `TreeKey::walk::<W: Walk>() -> W`.
-pub trait Walk {
+/// Capability to be walked through a `TreeKey` using `walk()`.
+pub trait Walk: Sized {
+    /// Error type for `merge()`
+    type Error;
+
     /// Return the walk starting point for an an empty inner node
     fn inner() -> Self;
 
@@ -54,10 +57,17 @@ pub trait Walk {
     /// * `index`: Either the node index in case of a single node
     ///   or `None`, in case of `lookup.len` nodes of homogeneous type.
     /// * `lookup`: The namespace the node(s) are in.
-    fn merge(&mut self, walk: &Self, index: Option<usize>, lookup: &KeyLookup);
+    fn merge(
+        self,
+        walk: &Self,
+        index: Option<usize>,
+        lookup: &KeyLookup,
+    ) -> Result<Self, Self::Error>;
 }
 
 impl Walk for Metadata {
+    type Error = Infallible;
+
     #[inline]
     fn inner() -> Self {
         Default::default()
@@ -72,7 +82,12 @@ impl Walk for Metadata {
     }
 
     #[inline]
-    fn merge(&mut self, meta: &Self, index: Option<usize>, lookup: &KeyLookup) {
+    fn merge(
+        mut self,
+        meta: &Self,
+        index: Option<usize>,
+        lookup: &KeyLookup,
+    ) -> Result<Self, Self::Error> {
         let (ident_len, count) = match index {
             None => (
                 match lookup.names {
@@ -92,6 +107,7 @@ impl Walk for Metadata {
         self.max_depth = self.max_depth.max(1 + meta.max_depth);
         self.max_length = self.max_length.max(ident_len + meta.max_length);
         self.count += count * meta.count;
+        Ok(self)
     }
 }
 
@@ -356,10 +372,10 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
-    /// let m = S::walk::<Metadata>();
+    /// let m = S::walk::<Metadata>().unwrap();
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
-    fn walk<W: Walk>() -> W;
+    fn walk<W: Walk>() -> Result<W, W::Error>;
 
     /// Traverse from the root to a leaf and call a function for each node.
     ///

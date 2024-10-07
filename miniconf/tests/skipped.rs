@@ -13,7 +13,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::walk::<Metadata>();
+    let meta = Settings::walk::<Metadata>().unwrap();
     assert_eq!(meta.max_depth, 1);
     assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count, 1);

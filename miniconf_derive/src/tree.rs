@@ -150,7 +150,7 @@ impl Tree {
             if self.flatten.is_present() {
                 quote!(walk = #w;)
             } else {
-                quote!(walk.merge(&#w, Some(#i), &Self::__MINICONF_LOOKUP);)
+                quote!(walk = walk.merge(&#w, Some(#i), &Self::__MINICONF_LOOKUP)?;)
             }
         });
         let traverse_arms = fields
@@ -237,10 +237,10 @@ impl Tree {
 
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                fn walk<W: ::miniconf::Walk>() -> W {
+                fn walk<W: ::miniconf::Walk>() -> ::core::result::Result<W, W::Error> {
                     let mut walk = W::inner();
                     #(#walk_arms)*
-                    walk
+                    Ok(walk)
                 }
 
                 fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>

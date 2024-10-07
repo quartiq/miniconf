@@ -179,8 +179,6 @@ pub struct PathIter<'a, const S: char>(Option<&'a str>);
 
 impl<'a, const S: char> PathIter<'a, S> {
     /// Create a new `PathIter`
-    ///
-    /// This calls `next()` once to pop everything up to and including the first separator.
     #[inline]
     pub fn new(s: Option<&'a str>) -> Self {
         Self(s)
@@ -188,7 +186,7 @@ impl<'a, const S: char> PathIter<'a, S> {
 
     /// Create a new `PathIter` starting at the root.
     ///
-    /// This discards everything up to and including the first separator.
+    /// This calls `next()` once to pop everything up to and including the first separator.
     #[inline]
     pub fn root(s: &'a str) -> Self {
         let mut s = Self::new(Some(s));

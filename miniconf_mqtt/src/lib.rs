@@ -252,7 +252,9 @@ where
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
         assert!(
-            prefix.len() + "/settings".len() + Settings::walk::<Metadata>().max_length("/")
+            prefix.len()
+                + "/settings".len()
+                + Settings::walk::<Metadata>().unwrap().max_length("/")
                 <= MAX_TOPIC_LENGTH
         );
 

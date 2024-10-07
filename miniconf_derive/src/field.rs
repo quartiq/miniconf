@@ -62,7 +62,7 @@ impl TreeField {
         if depth > 0 {
             let typ = self.typ();
             quote_spanned! { self.span()=>
-                <#typ as ::miniconf::TreeKey<#depth>>::walk()
+                <#typ as ::miniconf::TreeKey<#depth>>::walk()?
             }
         } else {
             quote_spanned! { self.span()=>
