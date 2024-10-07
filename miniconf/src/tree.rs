@@ -39,7 +39,7 @@ impl Metadata {
     }
 }
 
-/// Capability to be walked through a `TreeKey` using `walk()`.
+/// Capability to be walked through a `TreeKey` using `traverse_all()`.
 pub trait Walk: Sized {
     /// Error type for `merge()`
     type Error;
@@ -141,7 +141,7 @@ impl Walk for Metadata {
 /// (even if no keys are consumed directly) to satisfy the bound
 /// heuristics in the derive macro.
 ///
-/// The exact maximum key depth can be obtained through [`TreeKey::walk()`].
+/// The exact maximum key depth can be obtained through [`TreeKey::traverse_all()`].
 ///
 /// # Keys
 ///
@@ -309,9 +309,9 @@ impl Walk for Metadata {
 ///     a: [Option<T>; 2],
 /// };
 /// // This works as [u32; N] implements TreeKey<1>:
-/// S::<[u32; 5]>::walk::<Metadata>();
+/// S::<[u32; 5]>::traverse_all::<Metadata>();
 /// // This does not compile as u32 does not implement TreeKey<1>:
-/// // S::<u32>::walk::<Metadata>();
+/// // S::<u32>::traverse_all::<Metadata>();
 /// ```
 ///
 /// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
@@ -372,10 +372,10 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     #[tree(depth = 1)]
     ///     bar: [u16; 2],
     /// };
-    /// let m = S::walk::<Metadata>().unwrap();
+    /// let m = S::traverse_all::<Metadata>().unwrap();
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
-    fn walk<W: Walk>() -> Result<W, W::Error>;
+    fn traverse_all<W: Walk>() -> Result<W, W::Error>;
 
     /// Traverse from the root to a leaf and call a function for each node.
     ///

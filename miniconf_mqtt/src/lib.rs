@@ -254,7 +254,9 @@ where
         assert!(
             prefix.len()
                 + "/settings".len()
-                + Settings::walk::<Metadata>().unwrap().max_length("/")
+                + Settings::traverse_all::<Metadata>()
+                    .unwrap()
+                    .max_length("/")
                 <= MAX_TOPIC_LENGTH
         );
 

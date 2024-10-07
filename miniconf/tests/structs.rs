@@ -39,7 +39,7 @@ fn structs() {
     assert_eq!(settings.d, Inner { a: 3 });
 
     // Check that metadata is correct.
-    let metadata = Settings::walk::<Metadata>().unwrap();
+    let metadata = Settings::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/d/a".len());
     assert_eq!(metadata.count, 4);

@@ -57,12 +57,12 @@ impl TreeField {
         }
     }
 
-    pub fn walk(&self) -> TokenStream {
+    pub fn traverse_all(&self) -> TokenStream {
         let depth = self.depth;
         if depth > 0 {
             let typ = self.typ();
             quote_spanned! { self.span()=>
-                <#typ as ::miniconf::TreeKey<#depth>>::walk()?
+                <#typ as ::miniconf::TreeKey<#depth>>::traverse_all()?
             }
         } else {
             quote_spanned! { self.span()=>

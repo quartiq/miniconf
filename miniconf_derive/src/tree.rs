@@ -145,8 +145,8 @@ impl Tree {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let fields = self.fields();
         let fields_len = fields.len();
-        let walk_arms = fields.iter().enumerate().map(|(i, f)| {
-            let w = f.walk();
+        let traverse_all_arms = fields.iter().enumerate().map(|(i, f)| {
+            let w = f.traverse_all();
             if self.flatten.is_present() {
                 quote!(walk = #w;)
             } else {
@@ -237,10 +237,10 @@ impl Tree {
 
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                fn walk<W: ::miniconf::Walk>() -> ::core::result::Result<W, W::Error> {
+                fn traverse_all<W: ::miniconf::Walk>() -> ::core::result::Result<W, W::Error> {
                     #[allow(unused_mut)]
                     let mut walk = W::internal();
-                    #(#walk_arms)*
+                    #(#traverse_all_arms)*
                     Ok(walk)
                 }
 
