@@ -2,50 +2,39 @@ use core::iter::Fuse;
 
 use crate::Traversal;
 
-/// Look up top level field names and convert to indices
+/// Data to look up field names and convert to indices
 ///
-/// This trait is derived together with [`crate::TreeKey`].
-///
-/// ```
-/// use miniconf::{KeyLookup, TreeKey};
-/// #[derive(TreeKey)]
-/// struct S {
-///     foo: u32,
-///     bar: [u16; 2],
-/// }
-/// assert_eq!(S::LEN, 2);
-/// assert_eq!(S::NAMES.unwrap()[1], "bar");
-/// ```
-pub trait KeyLookup {
+/// This struct used together with [`crate::TreeKey`].
+pub struct KeyLookup {
     /// The number of top-level nodes.
     ///
     /// This is used by `impl Keys for Packed`.
-    const LEN: usize;
+    pub len: usize,
 
     /// Node names, if any.
     ///
     /// If nodes have names, this is a slice of them.
     /// If it is `Some`, it's `.len()` is guaranteed to be `LEN`.
-    const NAMES: Option<&'static [&'static str]> = None;
+    pub names: Option<&'static [&'static str]>,
 }
 
 /// Convert a `&str` key into a node index on a `KeyLookup`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize>;
+    fn find(&self, lookup: &KeyLookup) -> Option<usize>;
 }
 
 // index
 impl Key for usize {
-    fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize> {
+    fn find(&self, _lookup: &KeyLookup) -> Option<usize> {
         Some(*self)
     }
 }
 
 // name
 impl Key for &str {
-    fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize> {
-        match M::NAMES {
+    fn find(&self, lookup: &KeyLookup) -> Option<usize> {
+        match lookup.names {
             Some(names) => names.iter().position(|n| n == self),
             None => self.parse().ok(),
         }
@@ -57,7 +46,7 @@ pub trait Keys {
     /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal>;
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
     fn finalize(&mut self) -> bool;
@@ -87,9 +76,9 @@ where
     T: Iterator,
     T::Item: Key,
 {
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         let key = self.0.next().ok_or(Traversal::TooShort(0))?;
-        key.find::<M>().ok_or(Traversal::NotFound(1))
+        key.find(lookup).ok_or(Traversal::NotFound(1))
     }
 
     fn finalize(&mut self) -> bool {
@@ -101,8 +90,8 @@ impl<T> Keys for &mut T
 where
     T: Keys + ?Sized,
 {
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        T::next::<M>(self)
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        T::next(self, lookup)
     }
 
     fn finalize(&mut self) -> bool {
@@ -142,9 +131,9 @@ impl<T, U> Chain<T, U> {
 }
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        match self.0.next::<M>() {
-            Err(Traversal::TooShort(_)) => self.1.next::<M>(),
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        match self.0.next(lookup) {
+            Err(Traversal::TooShort(_)) => self.1.next(lookup),
             ret => ret,
         }
     }

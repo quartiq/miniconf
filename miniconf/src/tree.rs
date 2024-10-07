@@ -40,20 +40,28 @@ impl Metadata {
 }
 
 /// Capability to be generated from `TreeKey::walk::<W: Walk>() -> W`.
-pub trait Walk: Default {
+pub trait Walk {
+    /// Return the walk starting point for an an empty inner node
+    fn inner() -> Self;
+
     /// Return the walk starting point for a single leaf node
     fn leaf() -> Self;
 
     /// Merge node metadata into self.
     ///
     /// # Args
-    /// * `index`: Either the node index in case of a single node `None`, if
-    ///   the re are `KeyLookup::LEN` nodes of homogeneous type in `Self`.
-    /// * `meta`: The `Self` of the node to merge.
-    fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self);
+    /// * `index`: Either the node index in case of a single node or `None`, if
+    ///   there are `lookup.len` nodes of homogeneous type.
+    /// * `walk`: The walk of the node to merge.
+    fn merge(&mut self, index: Option<usize>, walk: &Self, lookup: &KeyLookup);
 }
 
 impl Walk for Metadata {
+    #[inline]
+    fn inner() -> Self {
+        Default::default()
+    }
+
     #[inline]
     fn leaf() -> Self {
         Self {
@@ -63,14 +71,14 @@ impl Walk for Metadata {
     }
 
     #[inline]
-    fn merge<K: KeyLookup>(&mut self, index: Option<usize>, meta: &Self) {
+    fn merge(&mut self, index: Option<usize>, meta: &Self, lookup: &KeyLookup) {
         let (ident_len, count) = match index {
             None => (
-                K::LEN.checked_ilog10().unwrap_or_default() as usize + 1,
-                K::LEN,
+                lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
+                lookup.len,
             ),
             Some(index) => (
-                match K::NAMES {
+                match lookup.names {
                     Some(names) => names[index].len(),
                     None => index.checked_ilog10().unwrap_or_default() as usize + 1,
                 },

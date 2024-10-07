@@ -10,9 +10,9 @@ use common::Settings;
 struct ScpiKey<T: ?Sized>(T);
 
 impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
-    fn find<M: KeyLookup + ?Sized>(&self) -> Option<usize> {
+    fn find(&self, lookup: &KeyLookup) -> Option<usize> {
         let s = self.0.as_ref();
-        match M::NAMES {
+        match lookup.names {
             Some(names) => {
                 let mut idx = [None; 2];
                 for (i, name) in names.iter().enumerate() {

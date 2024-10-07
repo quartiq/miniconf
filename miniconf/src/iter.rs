@@ -47,8 +47,8 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// A Keys wrapper that can always finalize()
 struct Consume<T>(T);
 impl<T: Keys> Keys for Consume<T> {
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        self.0.next::<M>()
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        self.0.next(lookup)
     }
 
     fn finalize(&mut self) -> bool {

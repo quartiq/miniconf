@@ -150,7 +150,7 @@ impl Tree {
             if self.flatten.is_present() {
                 quote!(walk = #w;)
             } else {
-                quote!(walk.merge::<Self>(Some(#i), &#w);)
+                quote!(walk.merge(Some(#i), &#w, &Self::__MINICONF_LOOKUP);)
             }
         });
         let traverse_arms = fields
@@ -179,19 +179,19 @@ impl Tree {
                     .collect(),
             ),
             _ => None,
-        }.map(|names|
-            quote!{
-                const NAMES: ::core::option::Option<&'static [&'static str]> = ::core::option::Option::Some(&[#(#names ,)*]);
-            }
-        );
+        };
+        let names = match names {
+            None => quote!(::core::option::Option::None),
+            Some(names) => quote!(::core::option::Option::Some(&[#(#names ,)*])),
+        };
 
-        let (index, traverse, increment, lookup) = if self.flatten.is_present() {
-            (quote!(0), None, None, None)
+        let (index, traverse, increment) = if self.flatten.is_present() {
+            (quote!(0), None, None)
         } else {
             (
-                quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
+                quote!(::miniconf::Keys::next(&mut keys, &Self::__MINICONF_LOOKUP)?),
                 Some(quote! {
-                    let name = match <Self as ::miniconf::KeyLookup>::NAMES {
+                    let name = match Self::__MINICONF_LOOKUP.names {
                         ::core::option::Option::Some(names) => {
                             Some(
                                 *names
@@ -200,30 +200,28 @@ impl Tree {
                             )
                         }
                         ::core::option::Option::None => {
-                            if index >= #fields_len {
+                            if index >= Self::__MINICONF_LOOKUP.len {
                                 ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
                             }
                             ::core::option::Option::None
                         }
                     };
-                    func(index, name, <Self as ::miniconf::KeyLookup>::LEN)
+                    func(index, name, Self::__MINICONF_LOOKUP.len)
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
-                Some(quote! {
-                    #[automatically_derived]
-                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-                        const LEN: usize = #fields_len;
-                        #names
-                    }
-                }),
             )
         };
 
         quote! {
+            // TODO: can these be hidden and disambiguated w.r.t. collision?
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #where_clause {
-                // TODO: can these be hidden and disambiguated w.r.t. collision?
+                const __MINICONF_LOOKUP: ::miniconf::KeyLookup = ::miniconf::KeyLookup {
+                    len: #fields_len,
+                    names: #names,
+                };
+
                 fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> ::core::result::Result<usize, ::miniconf::Traversal> {
                     const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
                     let index = #index;
@@ -237,12 +235,10 @@ impl Tree {
                 }
             }
 
-            #lookup
-
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
                 fn walk<W: ::miniconf::Walk>() -> W {
-                    let mut walk = W::default();
+                    let mut walk = W::inner();
                     #(#walk_arms)*
                     walk
                 }

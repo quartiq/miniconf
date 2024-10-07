@@ -6,16 +6,15 @@ use crate::{
     Error, KeyLookup, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, Walk,
 };
 
-fn get<'a, const N: usize, K, T>(
+fn get<'a, const N: usize, K: Keys, T>(
     arr: &'a [T; N],
     keys: &mut K,
     drain: bool,
-) -> Result<&'a T, Traversal>
-where
-    [T; N]: KeyLookup,
-    K: Keys,
-{
-    let index = keys.next::<[T; N]>()?;
+) -> Result<&'a T, Traversal> {
+    let index = keys.next(&KeyLookup {
+        len: N,
+        names: None,
+    })?;
     let item = arr.get(index).ok_or(Traversal::NotFound(1))?;
     if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
@@ -24,16 +23,15 @@ where
     }
 }
 
-fn get_mut<'a, const N: usize, K, T>(
+fn get_mut<'a, const N: usize, K: Keys, T>(
     arr: &'a mut [T; N],
     keys: &mut K,
     drain: bool,
-) -> Result<&'a mut T, Traversal>
-where
-    [T; N]: KeyLookup,
-    K: Keys,
-{
-    let index = keys.next::<[T; N]>()?;
+) -> Result<&'a mut T, Traversal> {
+    let index = keys.next(&KeyLookup {
+        len: N,
+        names: None,
+    })?;
     let item = arr.get_mut(index).ok_or(Traversal::NotFound(1))?;
     if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
@@ -47,8 +45,8 @@ macro_rules! depth {
     ($($y:literal)+) => {$(
         impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
             fn walk<W: Walk>() -> W {
-                let mut walk = W::default();
-                walk.merge::<Self>(None, &T::walk::<W>());
+                let mut walk = W::inner();
+                walk.merge(None, &T::walk::<W>(), &KeyLookup{len: N, names: None});
                 walk
             }
 
@@ -57,11 +55,14 @@ macro_rules! depth {
                 K: Keys,
                 F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
-                let index = keys.next::<Self>()?;
-                if index >= Self::LEN {
+                let index = keys.next(&KeyLookup {
+                    len: N,
+                    names: None,
+                })?;
+                if index >= N {
                     return Err(Traversal::NotFound(1).into());
                 }
-                func(index, None, Self::LEN).map_err(|err| Error::Inner(1, err))?;
+                func(index, None, N).map_err(|err| Error::Inner(1, err))?;
                 Error::increment_result(T::traverse_by_key(keys, func))
             }
         }
@@ -109,15 +110,18 @@ macro_rules! depth {
 }
 depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 
-impl<const N: usize, T> KeyLookup for [T; N] {
-    const LEN: usize = N;
-}
-
 // Y == 1
 impl<T, const N: usize> TreeKey for [T; N] {
     fn walk<W: Walk>() -> W {
-        let mut walk = W::default();
-        walk.merge::<Self>(None, &W::leaf());
+        let mut walk = W::inner();
+        walk.merge(
+            None,
+            &W::leaf(),
+            &KeyLookup {
+                len: N,
+                names: None,
+            },
+        );
         walk
     }
 
@@ -126,11 +130,14 @@ impl<T, const N: usize> TreeKey for [T; N] {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        let index = keys.next::<Self>()?;
-        if index >= Self::LEN {
+        let index = keys.next(&KeyLookup {
+            len: N,
+            names: None,
+        })?;
+        if index >= N {
             return Err(Traversal::NotFound(1).into());
         }
-        func(index, None, Self::LEN).map_err(|err| Error::Inner(1, err))?;
+        func(index, None, N).map_err(|err| Error::Inner(1, err))?;
         if !keys.finalize() {
             Err(Traversal::TooLong(1).into())
         } else {
