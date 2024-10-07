@@ -73,10 +73,13 @@ impl Walk for Metadata {
     #[inline]
     fn merge(&mut self, index: Option<usize>, meta: &Self, lookup: &KeyLookup) {
         let (ident_len, count) = match index {
-            None => (
-                lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
-                lookup.len,
-            ),
+            None => {
+                debug_assert!(lookup.names.is_none());
+                (
+                    lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
+                    lookup.len,
+                )
+            }
             Some(index) => (
                 match lookup.names {
                     Some(names) => names[index].len(),
@@ -85,7 +88,7 @@ impl Walk for Metadata {
                 1,
             ),
         };
-        self.max_depth = self.max_depth.max(meta.max_depth + 1);
+        self.max_depth = self.max_depth.max(1 + meta.max_depth);
         self.max_length = self.max_length.max(ident_len + meta.max_length);
         self.count += count * meta.count;
     }
