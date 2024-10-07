@@ -182,8 +182,16 @@ impl<'a, const S: char> PathIter<'a, S> {
     ///
     /// This calls `next()` once to pop everything up to and including the first separator.
     #[inline]
-    pub fn new(s: &'a str) -> Self {
-        let mut s = Self(Some(s));
+    pub fn new(s: Option<&'a str>) -> Self {
+        Self(s)
+    }
+
+    /// Create a new `PathIter` starting at the root.
+    ///
+    /// This discards everything up to and including the first separator.
+    #[inline]
+    pub fn root(s: &'a str) -> Self {
+        let mut s = Self::new(Some(s));
         // Skip the first part to disambiguate between
         // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
         // This is relevant in the case of e.g. `Option` and newtypes.
@@ -217,7 +225,7 @@ impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::<'a, S>::new(self.0.as_ref()).into_keys()
+        PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
     }
 }
 
@@ -315,7 +323,7 @@ mod test {
     fn strsplit() {
         use heapless::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_, 10> = PathIter::<'_, '/'>::new(p).collect();
+            let a: Vec<_, 10> = PathIter::<'_, '/'>::root(p).collect();
             let b: Vec<_, 10> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }
