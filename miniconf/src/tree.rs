@@ -44,8 +44,8 @@ pub trait Walk: Sized {
     /// Error type for `merge()`
     type Error;
 
-    /// Return the walk starting point for an an empty inner node
-    fn inner() -> Self;
+    /// Return the walk starting point for an an empty internal node
+    fn internal() -> Self;
 
     /// Return the walk starting point for a single leaf node
     fn leaf() -> Self;
@@ -69,7 +69,7 @@ impl Walk for Metadata {
     type Error = Infallible;
 
     #[inline]
-    fn inner() -> Self {
+    fn internal() -> Self {
         Default::default()
     }
 

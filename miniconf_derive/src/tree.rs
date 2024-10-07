@@ -238,7 +238,8 @@ impl Tree {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
                 fn walk<W: ::miniconf::Walk>() -> ::core::result::Result<W, W::Error> {
-                    let mut walk = W::inner();
+                    #[allow(unused_mut)]
+                    let mut walk = W::internal();
                     #(#walk_arms)*
                     Ok(walk)
                 }
