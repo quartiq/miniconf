@@ -150,7 +150,7 @@ impl Tree {
             if self.flatten.is_present() {
                 quote!(walk = #w;)
             } else {
-                quote!(walk.merge(Some(#i), &#w, &Self::__MINICONF_LOOKUP);)
+                quote!(walk.merge(&#w, Some(#i), &Self::__MINICONF_LOOKUP);)
             }
         });
         let traverse_arms = fields

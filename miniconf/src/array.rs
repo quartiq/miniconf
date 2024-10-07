@@ -46,7 +46,14 @@ macro_rules! depth {
         impl<T: TreeKey<{$y - 1}>, const N: usize> TreeKey<$y> for [T; N] {
             fn walk<W: Walk>() -> W {
                 let mut walk = W::inner();
-                walk.merge(None, &T::walk::<W>(), &KeyLookup{len: N, names: None});
+                walk.merge(
+                    &T::walk::<W>(),
+                    None,
+                    &KeyLookup {
+                        len: N,
+                        names: None
+                    }
+                );
                 walk
             }
 
@@ -115,8 +122,8 @@ impl<T, const N: usize> TreeKey for [T; N] {
     fn walk<W: Walk>() -> W {
         let mut walk = W::inner();
         walk.merge(
-            None,
             &W::leaf(),
+            None,
             &KeyLookup {
                 len: N,
                 names: None,

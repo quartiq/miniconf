@@ -50,10 +50,11 @@ pub trait Walk {
     /// Merge node metadata into self.
     ///
     /// # Args
-    /// * `index`: Either the node index in case of a single node or `None`, if
-    ///   there are `lookup.len` nodes of homogeneous type.
     /// * `walk`: The walk of the node to merge.
-    fn merge(&mut self, index: Option<usize>, walk: &Self, lookup: &KeyLookup);
+    /// * `index`: Either the node index in case of a single node
+    ///   or `None`, in case of `lookup.len` nodes of homogeneous type.
+    /// * `lookup`: The namespace the node(s) are in.
+    fn merge(&mut self, walk: &Self, index: Option<usize>, lookup: &KeyLookup);
 }
 
 impl Walk for Metadata {
@@ -71,15 +72,15 @@ impl Walk for Metadata {
     }
 
     #[inline]
-    fn merge(&mut self, index: Option<usize>, meta: &Self, lookup: &KeyLookup) {
+    fn merge(&mut self, meta: &Self, index: Option<usize>, lookup: &KeyLookup) {
         let (ident_len, count) = match index {
-            None => {
-                debug_assert!(lookup.names.is_none());
-                (
-                    lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
-                    lookup.len,
-                )
-            }
+            None => (
+                match lookup.names {
+                    Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
+                    None => lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
+                },
+                lookup.len,
+            ),
             Some(index) => (
                 match lookup.names {
                     Some(names) => names[index].len(),
