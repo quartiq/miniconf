@@ -6,34 +6,6 @@ use crate::{
     Error, KeyLookup, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, Walk,
 };
 
-fn get<'a, const N: usize, K: Keys, T>(
-    arr: &'a [T; N],
-    keys: &mut K,
-    drain: bool,
-) -> Result<&'a T, Traversal> {
-    let index = keys.next(&KeyLookup::homogeneous(N))?;
-    let item = arr.get(index).ok_or(Traversal::NotFound(1))?;
-    if drain && !keys.finalize() {
-        Err(Traversal::TooLong(1))
-    } else {
-        Ok(item)
-    }
-}
-
-fn get_mut<'a, const N: usize, K: Keys, T>(
-    arr: &'a mut [T; N],
-    keys: &mut K,
-    drain: bool,
-) -> Result<&'a mut T, Traversal> {
-    let index = keys.next(&KeyLookup::homogeneous(N))?;
-    let item = arr.get_mut(index).ok_or(Traversal::NotFound(1))?;
-    if drain && !keys.finalize() {
-        Err(Traversal::TooLong(1))
-    } else {
-        Ok(item)
-    }
-}
-
 // Y >= 2
 macro_rules! depth {
     ($($y:literal)+) => {$(
@@ -53,7 +25,7 @@ macro_rules! depth {
             {
                 let index = keys.next(&KeyLookup::homogeneous(N))?;
                 if index >= N {
-                    return Err(Traversal::NotFound(1).into());
+                    Err(Traversal::NotFound(1))?
                 }
                 func(index, None, N).map_err(|err| Error::Inner(1, err))?;
                 Error::increment_result(T::traverse_by_key(keys, func))
@@ -66,7 +38,8 @@ macro_rules! depth {
                 K: Keys,
                 S: Serializer,
             {
-                let item = get(self, &mut keys, false)?;
+                let index = keys.next(&KeyLookup::homogeneous(N))?;
+                let item = self.get(index).ok_or(Traversal::NotFound(1))?;
                 Error::increment_result(item.serialize_by_key(keys, ser))
             }
         }
@@ -77,7 +50,8 @@ macro_rules! depth {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let item = get_mut(self, &mut keys, false)?;
+                let index = keys.next(&KeyLookup::homogeneous(N))?;
+                let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
                 Error::increment_result(item.deserialize_by_key(keys, de))
             }
         }
@@ -87,7 +61,8 @@ macro_rules! depth {
             where
                 K: Keys,
             {
-                let item = get(self, &mut keys, false)?;
+                let index = keys.next(&KeyLookup::homogeneous(N))?;
+                let item = self.get(index).ok_or(Traversal::NotFound(1))?;
                 item.ref_any_by_key(keys).map_err(Traversal::increment)
             }
 
@@ -95,7 +70,8 @@ macro_rules! depth {
             where
                 K: Keys,
             {
-                let item = get_mut(self, &mut keys, false)?;
+                let index = keys.next(&KeyLookup::homogeneous(N))?;
+                let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
                 item.mut_any_by_key(keys).map_err(Traversal::increment)
             }
         }
@@ -116,7 +92,7 @@ impl<T, const N: usize> TreeKey for [T; N] {
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
         if index >= N {
-            return Err(Traversal::NotFound(1).into());
+            Err(Traversal::NotFound(1))?
         }
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
         if !keys.finalize() {
@@ -133,7 +109,11 @@ impl<T: Serialize, const N: usize> TreeSerialize for [T; N] {
         K: Keys,
         S: Serializer,
     {
-        let item = get(self, &mut keys, true)?;
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        let item = self.get(index).ok_or(Traversal::NotFound(1))?;
+        if !keys.finalize() {
+            Err(Traversal::TooLong(1))?
+        }
         item.serialize(ser).map_err(|err| Error::Inner(1, err))?;
         Ok(1)
     }
@@ -145,7 +125,11 @@ impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
         K: Keys,
         D: Deserializer<'de>,
     {
-        let item = get_mut(self, &mut keys, true)?;
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
+        if !keys.finalize() {
+            Err(Traversal::TooLong(1))?
+        }
         *item = T::deserialize(de).map_err(|err| Error::Inner(1, err))?;
         Ok(1)
     }
@@ -156,13 +140,25 @@ impl<T: Any, const N: usize> TreeAny for [T; N] {
     where
         K: Keys,
     {
-        Ok(get(self, &mut keys, true)?)
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        let item = self.get(index).ok_or(Traversal::NotFound(1))?;
+        if !keys.finalize() {
+            Err(Traversal::TooLong(1))
+        } else {
+            Ok(item)
+        }
     }
 
     fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
-        Ok(get_mut(self, &mut keys, true)?)
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
+        if !keys.finalize() {
+            Err(Traversal::TooLong(1))
+        } else {
+            Ok(item)
+        }
     }
 }

@@ -338,24 +338,20 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: [u16; 5],
     /// };
     ///
-    /// let (path, node) = S::transcode::<Path<String, '/'>, _>([1usize, 1]).unwrap();
-    /// assert_eq!(path.as_str(), "/bar/1");
-    ///
     /// let idx = [1usize, 1];
+    ///
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(idx).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/1");
     /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
     /// assert_eq!(path.as_str(), ".bar[1]");
-    ///
     /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
     /// assert_eq!(&indices[..node.depth()], idx);
-    ///
     /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
     /// assert_eq!(&indices[..node.depth()], [1, 1]);
-    ///
     /// let (packed, node) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
     /// assert_eq!(path.as_str(), "/bar/4");
-    ///
     /// let ((), node) = S::transcode(&path).unwrap();
     /// assert_eq!(node, Node::leaf(2));
     /// ```

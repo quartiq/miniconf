@@ -20,6 +20,7 @@ pub struct KeyLookup {
 
 impl KeyLookup {
     /// Return a homogenenous unnamed KeyLookup
+    #[inline]
     pub const fn homogeneous(len: usize) -> Self {
         Self { len, names: None }
     }

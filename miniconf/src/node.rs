@@ -80,6 +80,7 @@ impl Node {
 }
 
 impl From<Node> for usize {
+    #[inline]
     fn from(value: Node) -> Self {
         value.depth
     }
@@ -88,6 +89,8 @@ impl From<Node> for usize {
 /// Map a `TreeKey::traverse_by_key()` `Result` to a `Transcode::transcode()` `Result`.
 impl TryFrom<Result<usize, Error<()>>> for Node {
     type Error = Traversal;
+
+    #[inline]
     fn try_from(value: Result<usize, Error<()>>) -> Result<Self, Traversal> {
         match value {
             Ok(depth) => Ok(Node::leaf(depth)),
