@@ -120,7 +120,9 @@ pub enum Error<E> {
 impl<E: Display> Display for Error<E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Traversal(t) => Display::fmt(t, f),
+            Self::Traversal(t) => {
+                write!(f, "Traversal: {t}")
+            }
             Self::Inner(depth, error) => {
                 write!(f, "(De)serialization error (depth: {depth}): {error}")
             }
