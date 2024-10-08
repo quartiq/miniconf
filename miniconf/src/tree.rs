@@ -81,7 +81,6 @@ impl Walk for Metadata {
         }
     }
 
-    #[inline]
     fn merge(
         mut self,
         meta: &Self,
@@ -244,6 +243,25 @@ impl Walk for Metadata {
 /// Note: In both cases `get_mut` receives `&mut self` as an argument and may
 /// mutate the struct.
 ///
+/// ### `validate`
+///
+/// For leaf fields the `validate` callback is called during `deserialize_by_key()`
+/// after successful deserialization of the leaf value but before `get_mut()` and
+/// before storing the value.
+/// The leaf `validate` signature is `fn(&mut self, value: T) ->
+/// Result<T, &'static str>`. It may mutate the value before it is being stored.
+/// If a leaf validate callback returns `Err(&str)`, the leaf value is not updated
+/// and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
+/// For internal fields `validate` is called after the successful update of the leaf field
+/// during upward traversal.
+/// The internal `validate` signature is `fn(&mut self, depth: usize) ->
+/// Result<usize, &'static str>`
+/// If an internal node validate callback returns `Err()`, the leaf value **has been**
+/// updated and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
+///
+/// Note: In both cases `validate` receives `&mut self` as an argument and may
+/// mutate the struct.
+///
 /// ```
 /// use miniconf::{Error, Tree};
 /// #[derive(Tree, Default)]
@@ -260,25 +278,6 @@ impl Walk for Metadata {
 ///     Err("fail")
 /// }
 /// ```
-///
-/// ### `validate`
-///
-/// For leaf fields the `validate` callback is called during `deserialize_by_key()`
-/// after successful deserialization of the leaf value but before `get_mut()` and
-/// before storing the value.
-/// The leaf `validate` signature is `fn(&mut self, value: T) ->
-/// Result<T, &'static str>`. It may mutate the value before it is being stored.
-/// If a leaf validate callback returns `Err(&str)`, the leaf value is not updated
-/// and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
-/// For internal fields `validate` is called after the successful update of the leaf field
-/// during upward traversal.
-/// The internal `validate` signature is `fn(&mut self, depth: usize) ->
-/// Result<usize, &'static str>`
-/// If an internal validate callback returns `Err()`, the leaf value **has been**
-/// updated and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
-///
-/// Note: In both cases `validate` receives `&mut self` as an argument and may
-/// mutate the struct.
 ///
 /// ## Bounds
 ///
