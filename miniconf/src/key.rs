@@ -18,6 +18,13 @@ pub struct KeyLookup {
     pub names: Option<&'static [&'static str]>,
 }
 
+impl KeyLookup {
+    /// Return a homogenenous unnamed KeyLookup
+    pub const fn homogeneous(len: usize) -> Self {
+        Self { len, names: None }
+    }
+}
+
 /// Convert a `&str` key into a node index on a `KeyLookup`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
@@ -25,11 +32,16 @@ pub trait Key {
 }
 
 // index
-impl Key for usize {
-    fn find(&self, _lookup: &KeyLookup) -> Option<usize> {
-        Some(*self)
-    }
+macro_rules! impl_key {
+    ($($t:ty)+) => {$(
+        impl Key for $t {
+            fn find(&self, _lookup: &KeyLookup) -> Option<usize> {
+                Some(*self as _)
+            }
+        })+
+    };
 }
+impl_key!(usize u8 u16 u32);
 
 // name
 impl Key for &str {

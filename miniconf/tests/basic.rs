@@ -24,7 +24,7 @@ fn meta() {
 #[test]
 fn path() {
     for (keys, path, depth) in [
-        (&[1][..], "/b", Node::leaf(1)),
+        (&[1usize][..], "/b", Node::leaf(1)),
         (&[2, 0][..], "/c/inner", Node::leaf(2)),
         (&[2][..], "/c", Node::internal(1)),
         (&[][..], "", Node::internal(0)),
@@ -48,11 +48,11 @@ fn indices() {
         assert_eq!(node, depth);
         assert_eq!(indices.0, idx);
     }
-    let (indices, node) = Option::<i8>::transcode::<Indices<_>, _>([0; 0]).unwrap();
+    let (indices, node) = Option::<i8>::transcode::<Indices<_>, _>([0usize; 0]).unwrap();
     assert_eq!(indices.0, [0]);
     assert_eq!(node, Node::leaf(0));
 
-    let mut it = [0; 4].into_iter();
+    let mut it = [0usize; 4].into_iter();
     assert_eq!(
         Settings::transcode::<Indices<[_; 2]>, _>(&mut it),
         Err(Traversal::TooLong(1).into())
@@ -66,24 +66,27 @@ fn traverse_empty() {
     struct S {}
     let f = |_, _, _| -> Result<(), ()> { unreachable!() };
     assert_eq!(
-        S::traverse_by_key([0].into_keys(), f),
+        S::traverse_by_key([0usize].into_keys(), f),
         Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
-        S::traverse_by_key([0; 0].into_keys(), f),
+        S::traverse_by_key([0usize; 0].into_keys(), f),
         Err(Traversal::TooShort(0).into())
     );
     assert_eq!(
-        Option::<i32>::traverse_by_key([0].into_keys(), f),
+        Option::<i32>::traverse_by_key([0usize].into_keys(), f),
         Err(Traversal::TooLong(0).into())
     );
-    assert_eq!(Option::<i32>::traverse_by_key([0; 0].into_keys(), f), Ok(0));
     assert_eq!(
-        <Option::<S> as TreeKey<2>>::traverse_by_key([0].into_keys(), f),
+        Option::<i32>::traverse_by_key([0usize; 0].into_keys(), f),
+        Ok(0)
+    );
+    assert_eq!(
+        <Option::<S> as TreeKey<2>>::traverse_by_key([0usize].into_keys(), f),
         Err(Traversal::NotFound(1).into())
     );
     assert_eq!(
-        <Option::<S> as TreeKey<2>>::traverse_by_key([0; 0].into_keys(), f),
+        <Option::<S> as TreeKey<2>>::traverse_by_key([0usize; 0].into_keys(), f),
         Err(Traversal::TooShort(0).into())
     );
 }

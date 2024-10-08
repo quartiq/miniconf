@@ -63,7 +63,7 @@ fn top() {
             .collect::<Vec<_>>(),
         [(Indices([1, 0]), Node::leaf(1))]
     );
-    let (p, node) = S::transcode::<Packed, _>([1]).unwrap();
+    let (p, node) = S::transcode::<Packed, _>([1usize]).unwrap();
     assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
     assert_eq!(
         S::nodes::<Packed>()

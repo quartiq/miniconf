@@ -11,10 +11,7 @@ fn get<'a, const N: usize, K: Keys, T>(
     keys: &mut K,
     drain: bool,
 ) -> Result<&'a T, Traversal> {
-    let index = keys.next(&KeyLookup {
-        len: N,
-        names: None,
-    })?;
+    let index = keys.next(&KeyLookup::homogeneous(N))?;
     let item = arr.get(index).ok_or(Traversal::NotFound(1))?;
     if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
@@ -28,10 +25,7 @@ fn get_mut<'a, const N: usize, K: Keys, T>(
     keys: &mut K,
     drain: bool,
 ) -> Result<&'a mut T, Traversal> {
-    let index = keys.next(&KeyLookup {
-        len: N,
-        names: None,
-    })?;
+    let index = keys.next(&KeyLookup::homogeneous(N))?;
     let item = arr.get_mut(index).ok_or(Traversal::NotFound(1))?;
     if drain && !keys.finalize() {
         Err(Traversal::TooLong(1))
@@ -48,10 +42,7 @@ macro_rules! depth {
                 W::internal().merge(
                     &T::traverse_all::<W>()?,
                     None,
-                    &KeyLookup {
-                        len: N,
-                        names: None
-                    }
+                    &KeyLookup::homogeneous(N)
                 )
             }
 
@@ -60,10 +51,7 @@ macro_rules! depth {
                 K: Keys,
                 F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
             {
-                let index = keys.next(&KeyLookup {
-                    len: N,
-                    names: None,
-                })?;
+                let index = keys.next(&KeyLookup::homogeneous(N))?;
                 if index >= N {
                     return Err(Traversal::NotFound(1).into());
                 }
@@ -118,14 +106,7 @@ depth!(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16);
 // Y == 1
 impl<T, const N: usize> TreeKey for [T; N] {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal().merge(
-            &W::leaf(),
-            None,
-            &KeyLookup {
-                len: N,
-                names: None,
-            },
-        )
+        W::internal().merge(&W::leaf(), None, &KeyLookup::homogeneous(N))
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -133,10 +114,7 @@ impl<T, const N: usize> TreeKey for [T; N] {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        let index = keys.next(&KeyLookup {
-            len: N,
-            names: None,
-        })?;
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
         if index >= N {
             return Err(Traversal::NotFound(1).into());
         }

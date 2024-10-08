@@ -1,114 +1,8 @@
-use core::{any::Any, convert::Infallible};
+use core::any::Any;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserializer, Serializer};
 
-use crate::{Error, IntoKeys, KeyLookup, Keys, Node, NodeIter, Transcode, Traversal};
-
-/// Metadata about a `TreeKey` namespace.
-///
-/// Metadata includes paths that may be [`Traversal::Absent`] at runtime.
-#[non_exhaustive]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Metadata {
-    /// The maximum length of a path in bytes.
-    ///
-    /// This is the exact maximum of the length of the concatenation of the node names
-    /// in a [`crate::Path`] excluding the separators. See [`Self::max_length()`] for
-    /// the maximum length including separators.
-    pub max_length: usize,
-
-    /// The maximum key depth.
-    ///
-    /// This is equal to the exact maximum number of path hierarchy separators.
-    /// It's the exact maximum number of key indices.
-    /// It may be smaller than the [`TreeKey<Y>` recursion depth](TreeKey#recursion-depth).
-    pub max_depth: usize,
-
-    /// The exact total number of keys.
-    pub count: usize,
-}
-
-impl Metadata {
-    /// Add separator length to the maximum path length.
-    ///
-    /// To obtain an upper bound on the maximum length of all paths
-    /// including separators, this adds `max_depth*separator_length`.
-    #[inline]
-    pub fn max_length(&self, separator: &str) -> usize {
-        self.max_length + self.max_depth * separator.len()
-    }
-}
-
-/// Capability to be walked through a `TreeKey` using `traverse_all()`.
-pub trait Walk: Sized {
-    /// Error type for `merge()`
-    type Error;
-
-    /// Return the walk starting point for an an empty internal node
-    fn internal() -> Self;
-
-    /// Return the walk starting point for a single leaf node
-    fn leaf() -> Self;
-
-    /// Merge node metadata into self.
-    ///
-    /// # Args
-    /// * `walk`: The walk of the node to merge.
-    /// * `index`: Either the node index in case of a single node
-    ///   or `None`, in case of `lookup.len` nodes of homogeneous type.
-    /// * `lookup`: The namespace the node(s) are in.
-    fn merge(
-        self,
-        walk: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error>;
-}
-
-impl Walk for Metadata {
-    type Error = Infallible;
-
-    #[inline]
-    fn internal() -> Self {
-        Default::default()
-    }
-
-    #[inline]
-    fn leaf() -> Self {
-        Self {
-            count: 1,
-            ..Default::default()
-        }
-    }
-
-    fn merge(
-        mut self,
-        meta: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error> {
-        let (ident_len, count) = match index {
-            None => (
-                match lookup.names {
-                    Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
-                    None => lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
-                },
-                lookup.len,
-            ),
-            Some(index) => (
-                match lookup.names {
-                    Some(names) => names[index].len(),
-                    None => index.checked_ilog10().unwrap_or_default() as usize + 1,
-                },
-                1,
-            ),
-        };
-        self.max_depth = self.max_depth.max(1 + meta.max_depth);
-        self.max_length = self.max_length.max(ident_len + meta.max_length);
-        self.count += count * meta.count;
-        Ok(self)
-    }
-}
+use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -133,11 +27,11 @@ impl Walk for Metadata {
 /// [`TreeKey::traverse_by_key()`] at most `Y` times, again including those calls due
 /// to recursion into inner `TreeKey` types.
 ///
-/// This implies that if an implementor `T` of `TreeKey<Y>` (with `Y >= 1`) contains and recurses into
-/// an inner type using that type's `TreeKey<Z>` implementation, then `1 <= Z <= Y` must
-/// hold and `T` may consume at most `Y - Z` items from the `keys` iterators and call
-/// `func` at most `Y - Z` times. It is recommended (but not necessary) to keep `Z = Y - 1`
-/// (even if no keys are consumed directly) to satisfy the bound
+/// This implies that if an implementor `T` of `TreeKey<Y>` (with `Y >= 1`) contains and
+/// recurses into an inner type using that type's `TreeKey<Z>` implementation, then
+/// `1 <= Z <= Y` must hold and `T` may consume at most `Y - Z` items from the `keys`
+/// iterators and call `func` at most `Y - Z` times. It is recommended (but not necessary)
+/// to keep `Z = Y - 1` (even if no keys are consumed directly) to satisfy the bound
 /// heuristics in the derive macro.
 ///
 /// The exact maximum key depth can be obtained through [`TreeKey::traverse_all()`].
@@ -150,9 +44,9 @@ impl Walk for Metadata {
 /// An iterator of keys for the nodes is available through [`TreeKey::nodes()`]/[`NodeIter`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
-/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated by
-///    some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
-///    complex notation, see [`crate::JsonPath`].
+/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
+///   by some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
+///   complex notation, see [`crate::JsonPath`].
 /// * [`crate::Packed`] is a variable bit-width compact compressed notation of
 ///   hierarchical compound indices.
 ///
@@ -161,7 +55,8 @@ impl Walk for Metadata {
 /// Derive macros to automatically implement the correct traits on a struct are available through
 /// [`macro@crate::TreeKey`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
 /// and [`macro@crate::TreeAny`].
-/// A shorthand derive macro that derives all four trait implementations is also available at [`macro@crate::Tree`].
+/// A shorthand derive macro that derives all four trait implementations is also available at
+/// [`macro@crate::Tree`].
 ///
 /// The derive macros support per-field attribute to control the derived trait implementations.
 ///
@@ -170,7 +65,7 @@ impl Walk for Metadata {
 /// For each field, the recursion depth is configured through the `depth`
 /// attribute, with `Y = 0` being the implied default.
 /// If `Y = 0`, the field is a leaf and accessed only through its
-/// [`Serialize`]/[`Deserialize`]/[`Any`] implementation.
+/// [`serde::Serialize`]/[`serde::Deserialize`]/[`Any`] implementation.
 /// With `Y > 0` the field is accessed through its `TreeKey<Y>` implementation with the given
 /// recursion depth.
 ///
@@ -186,13 +81,14 @@ impl Walk for Metadata {
 ///     #[tree(rename = "OTHER")]
 ///     a: f32,
 /// };
-/// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0]).unwrap();
+/// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0usize]).unwrap();
 /// assert_eq!(name.as_str(), "/OTHER");
 /// ```
 ///
 /// ## Skip
 ///
-/// Named fields may be omitted from the derived `Tree` trait implementations using the `skip` attribute.
+/// Named fields may be omitted from the derived `Tree` trait implementations using the
+/// `skip` attribute.
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```compile_fail
@@ -282,7 +178,7 @@ impl Walk for Metadata {
 /// ## Bounds
 ///
 /// To derive `TreeSerialize`/`TreeDeserialize`/`TreeAny`, each field (that is not `skip`ped)
-/// in the struct must either implement [`Serialize`]/[`Deserialize`]/[`Any`]
+/// in the struct must either implement [`serde::Serialize`]/[`serde::Deserialize`]/[`Any`]
 /// or implement the respective `TreeSerialize`/`TreeDeserialize`/`TreeAny` trait
 /// for the required remaining recursion depth.
 ///
@@ -290,11 +186,11 @@ impl Walk for Metadata {
 ///
 /// The macros add bounds to generic types of the struct they are acting on.
 /// If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
-/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at type depth `X = 2` (as it is
-/// within `F2` which is within `F1`) and the following bounds will be applied:
+/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at type depth `X = 2`
+/// (as it is within `F2` which is within `F1`) and the following bounds will be applied:
 ///
-/// * With the `#[tree()]` attribute not present on `a`, `T` will receive bounds `Serialize`/`Deserialize` when
-///   `TreeSerialize`/`TreeDeserialize` is derived.
+/// * With the `#[tree()]` attribute not present on `a`, `T` will receive bounds
+///   `Serialize`/`Deserialize` when `TreeSerialize`/`TreeDeserialize` is derived.
 /// * With `#[tree(depth=Y)]`, and `Y - X < 1` it will receive the bounds `Serialize`/`Deserialize`.
 /// * For `Y - X >= 1` it will receive the bound `T: TreeKey<Y - X>`.
 ///
@@ -313,31 +209,31 @@ impl Walk for Metadata {
 /// // S::<u32>::traverse_all::<Metadata>();
 /// ```
 ///
-/// This behavior is upheld by and compatible with all implementations in this crate. It is only violated
-/// when deriving `TreeKey` for a struct that (a) forwards its own type parameters as type
-/// parameters to its field types, (b) uses `TreeKey` on those fields, and (c) those field
+/// This behavior is upheld by and compatible with all implementations in this crate. It is
+/// only violated when deriving `TreeKey` for a struct that (a) forwards its own type parameters
+/// as type parameters to its field types, (b) uses `TreeKey` on those fields, and (c) those field
 /// types use their type parameters at other depths than `TreeKey<Y - 1>`. See also the
 /// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
 ///
 /// # Array
 ///
-/// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays [`[T; N]`](core::array)
-/// up to recursion depth `Y = 16`.
+/// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays
+/// [`[T; N]`](core::array) up to recursion depth `Y = 16`.
 ///
 /// When a `[T; N]` is used through `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
 /// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
-/// For `Y = 1` each index of the array is is instead accessed as
-/// an atomic value.
-/// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic
-/// value.
+/// For `Y = 1` each index of the array is instead accessed as an atomic value.
+/// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic value.
 ///
 /// The `depth` to use on the array depends on the desired semantics of the data contained
 /// in the array. If the array contains `TreeKey` items, you likely want use `Y >= 2`.
-/// However, if each element in the array should be individually configurable as a single value (e.g. a list
-/// of `u32`), then `Y = 1` can be used. With `Y = 0` all items are to be accessed simultaneously and atomically.
+/// However, if each element in the array should be individually configurable as a single
+/// value (e.g. a list of `u32`), then `Y = 1` can be used.
+/// With `Y = 0` all items are to be accessed simultaneously and atomically.
 /// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 3 + 1 + 1 = 5`.
 /// It automatically implements `TreeKey<5>`.
-/// For `[[T; 2]; 3]` with `T: Serialize`/`T: Deserialize`/`T: Any` any `Y <= 2` trait is implemented.
+/// For `[[T; 2]; 3]` with `T: Serialize`/`T: Deserialize`/`T: Any` any `Y <= 2` trait is
+/// implemented.
 ///
 /// # Option
 ///
@@ -345,11 +241,11 @@ impl Walk for Metadata {
 /// up to recursion depth `Y = 16`.
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
-/// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the corresponding part
-/// of the tree inaccessible at run-time. It will still be iterated over (e.g. by [`TreeKey::nodes()`]) but attempts
-/// to access it (e.g. [`TreeSerialize::serialize_by_key()`], [`TreeDeserialize::deserialize_by_key()`],
-/// [`TreeAny::ref_any_by_key()`], or [`TreeAny::mut_any_by_key()`])
-/// return the special [`Traversal::Absent`].
+/// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the
+/// corresponding part of the tree inaccessible at run-time. It will still be iterated over (e.g.
+/// by [`TreeKey::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
+/// [`TreeDeserialize::deserialize_by_key()`], [`TreeAny::ref_any_by_key()`], or
+/// [`TreeAny::mut_any_by_key()`]) return the special [`Traversal::Absent`].
 ///
 /// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
 /// the `Option` can be used to access the inner type using its `TreeKey<{Y - 1}>` trait.
@@ -442,11 +338,11 @@ pub trait TreeKey<const Y: usize = 1> {
     ///     bar: [u16; 5],
     /// };
     ///
-    /// let (path, node) = S::transcode::<Path<String, '/'>, _>([1, 1]).unwrap();
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>([1usize, 1]).unwrap();
     /// assert_eq!(path.as_str(), "/bar/1");
     ///
-    /// let idx = [1, 1];
-    /// let (path, node) = S::transcode::<JsonPath<String>, _>([1, 1]).unwrap();
+    /// let idx = [1usize, 1];
+    /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
     /// assert_eq!(path.as_str(), ".bar[1]");
     ///
     /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();

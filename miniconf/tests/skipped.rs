@@ -22,11 +22,11 @@ fn meta() {
 #[test]
 fn path() {
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([0]),
+        Settings::transcode::<Path<String, '/'>, _>([0usize]),
         Ok((Path("/value".to_owned()), Node::leaf(1)))
     );
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([1]),
+        Settings::transcode::<Path<String, '/'>, _>([1usize]),
         Err(Traversal::NotFound(1))
     );
 }

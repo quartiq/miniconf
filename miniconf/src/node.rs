@@ -114,6 +114,16 @@ pub trait Transcode {
         K: IntoKeys;
 }
 
+impl<T: Transcode + ?Sized> Transcode for &mut T {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
+    {
+        Transcode::transcode::<M, Y, _>(*self, keys)
+    }
+}
+
 /// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
@@ -222,6 +232,7 @@ impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
 
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
+
     fn into_keys(self) -> Self::IntoKeys {
         PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
     }
@@ -265,12 +276,6 @@ impl<T: ?Sized> DerefMut for Indices<T> {
     }
 }
 
-impl<const D: usize> Default for Indices<[usize; D]> {
-    fn default() -> Self {
-        Self([0; D])
-    }
-}
-
 impl<T> Indices<T> {
     /// Extract just the indices
     pub fn into_inner(self) -> T {
@@ -278,15 +283,21 @@ impl<T> Indices<T> {
     }
 }
 
-impl<const D: usize> From<Indices<[usize; D]>> for [usize; D] {
-    fn from(value: Indices<[usize; D]>) -> Self {
-        value.0
-    }
-}
-
 impl<T> From<T> for Indices<T> {
     fn from(value: T) -> Self {
         Self(value)
+    }
+}
+
+impl<const D: usize, T: Copy + Default> Default for Indices<[T; D]> {
+    fn default() -> Self {
+        Self([Default::default(); D])
+    }
+}
+
+impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
+    fn from(value: Indices<[T; D]>) -> Self {
+        value.0
     }
 }
 
