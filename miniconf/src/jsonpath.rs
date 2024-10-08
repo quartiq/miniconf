@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 
-/// JSON style path notation
+/// JSON style path notation iterator
 ///
 /// This is only styled after JSON notation, it does not adhere to it.
 /// Supported are both dot and key notation with and without
@@ -76,6 +76,8 @@ impl<'a> Iterator for JsonPathIter<'a> {
         None
     }
 }
+
+impl<'a> core::iter::FusedIterator for JsonPathIter<'a> {}
 
 /// JSON style path notation
 ///

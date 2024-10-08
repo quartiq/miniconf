@@ -138,7 +138,6 @@ impl Tree {
 
     pub fn tree_key(&self) -> TokenStream {
         let depth = self.depth();
-        let level = self.level();
         let ident = &self.ident;
         let generics = self.bound_generics(&mut |depth| {
             (depth > 0).then_some(parse_quote!(::miniconf::TreeKey<#depth>))
@@ -146,13 +145,20 @@ impl Tree {
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let fields = self.fields();
         let fields_len = fields.len();
-        let metadata_arms = fields.iter().enumerate().map(|(i, f)| f.metadata(i));
+        let traverse_all_arms = fields.iter().enumerate().map(|(i, f)| {
+            let w = f.traverse_all();
+            if self.flatten.is_present() {
+                quote!(walk = #w;)
+            } else {
+                quote!(walk = walk.merge(&#w, Some(#i), &Self::__MINICONF_LOOKUP)?;)
+            }
+        });
         let traverse_arms = fields
             .iter()
             .enumerate()
             .filter_map(|(i, f)| f.traverse_by_key(i));
         let defers = fields.iter().map(|field| field.depth > 0);
-        let names: Option<Vec<_>> = match &self.data {
+        let names = match &self.data {
             Data::Struct(fields) if fields.style.is_struct() => Some(
                 fields
                     .iter()
@@ -161,7 +167,7 @@ impl Tree {
                         let name = f.name().unwrap();
                         quote_spanned! { name.span()=> stringify!(#name) }
                     })
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ),
             Data::Enum(variants) => Some(
                 variants
@@ -174,65 +180,34 @@ impl Tree {
             ),
             _ => None,
         };
-        let (names, name_to_index, index_to_name, mut ident_len) = if let Some(names) = names {
-            (
-                Some(quote!(
-                    const __MINICONF_NAMES: [&'static str; #fields_len] = [#(#names ,)*];
-                )),
-                quote!(Self::__MINICONF_NAMES.iter().position(|&n| n == value)),
-                quote!(::core::option::Option::Some(
-                    *Self::__MINICONF_NAMES
-                        .get(index)
-                        .ok_or(::miniconf::Traversal::NotFound(1))?
-                )),
-                quote!(Self::__MINICONF_NAMES[index].len()),
-            )
-        } else {
-            (
-                None,
-                quote!(str::parse(value).ok()),
-                quote!(if index >= #fields_len {
-                    ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
-                } else {
-                    ::core::option::Option::None
-                }),
-                quote!(index.checked_ilog10().unwrap_or_default() as usize + 1),
-            )
+        let names = match names {
+            None => quote!(::core::option::Option::None),
+            Some(names) => quote!(::core::option::Option::Some(&[#(#names ,)*])),
         };
 
-        let (index, traverse, increment, lookup) = if self.flatten.is_present() {
-            ident_len = quote!(0);
-            (quote!(0), None, None, None)
+        let (index, traverse, increment) = if self.flatten.is_present() {
+            (quote!(0), None, None)
         } else {
             (
-                quote!(::miniconf::Keys::next::<Self>(&mut keys)?),
+                quote!(::miniconf::Keys::next(&mut keys, &Self::__MINICONF_LOOKUP)?),
                 Some(quote! {
-                    func(index, #index_to_name, #fields_len).map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                    let name = Self::__MINICONF_LOOKUP.lookup(index)?;
+                    func(index, name, Self::__MINICONF_LOOKUP.len)
+                    .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
-                Some(quote! {
-                    #[automatically_derived]
-                    impl #impl_generics #ident #ty_generics #where_clause {
-                        #names
-                    }
-
-                    #[automatically_derived]
-                    impl #impl_generics ::miniconf::KeyLookup for #ident #ty_generics #where_clause {
-                        const LEN: usize = #fields_len;
-
-                        #[inline]
-                        fn name_to_index(value: &str) -> ::core::option::Option<usize> {
-                            #name_to_index
-                        }
-                    }
-                }),
             )
         };
 
         quote! {
+            // TODO: can these be hidden and disambiguated w.r.t. collision?
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #where_clause {
-                // TODO: can these be hidden and disambiguated w.r.t. collision?
+                const __MINICONF_LOOKUP: ::miniconf::KeyLookup = ::miniconf::KeyLookup {
+                    len: #fields_len,
+                    names: #names,
+                };
+
                 fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> ::core::result::Result<usize, ::miniconf::Traversal> {
                     const DEFERS: [bool; #fields_len] = [#(#defers ,)*];
                     let index = #index;
@@ -246,16 +221,13 @@ impl Tree {
                 }
             }
 
-            #lookup
-
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey<#depth> for #ident #ty_generics #where_clause {
-                fn metadata() -> ::miniconf::Metadata {
-                    let mut meta = ::miniconf::Metadata::default();
-                    let ident_len = |index: usize| { #ident_len };
-                    #(#metadata_arms)*
-                    meta.max_depth += #level;
-                    meta
+                fn traverse_all<W: ::miniconf::Walk>() -> ::core::result::Result<W, W::Error> {
+                    #[allow(unused_mut)]
+                    let mut walk = W::internal();
+                    #(#traverse_all_arms)*
+                    Ok(walk)
                 }
 
                 fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>

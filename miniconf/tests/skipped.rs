@@ -1,4 +1,4 @@
-use miniconf::{Node, Path, Traversal, Tree, TreeKey};
+use miniconf::{Metadata, Node, Path, Traversal, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -13,7 +13,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta = Settings::metadata();
+    let meta = Settings::traverse_all::<Metadata>().unwrap();
     assert_eq!(meta.max_depth, 1);
     assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count, 1);
@@ -22,11 +22,11 @@ fn meta() {
 #[test]
 fn path() {
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([0]),
+        Settings::transcode::<Path<String, '/'>, _>([0usize]),
         Ok((Path("/value".to_owned()), Node::leaf(1)))
     );
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([1]),
+        Settings::transcode::<Path<String, '/'>, _>([1usize]),
         Err(Traversal::NotFound(1))
     );
 }

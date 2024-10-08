@@ -21,6 +21,8 @@ mod array;
 mod iter;
 mod option;
 pub use iter::*;
+mod walk;
+pub use walk::*;
 
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;

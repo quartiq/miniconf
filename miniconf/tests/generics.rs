@@ -1,6 +1,6 @@
 use core::any::Any;
 
-use miniconf::{json, Deserialize, Serialize, Tree, TreeKey};
+use miniconf::{json, Deserialize, Metadata, Serialize, Tree, TreeKey};
 use serde::de::DeserializeOwned;
 
 #[test]
@@ -15,7 +15,7 @@ fn generic_type() {
     assert_eq!(settings.data, 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata();
+    let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "data".len());
     assert_eq!(metadata.count, 1);
@@ -35,7 +35,7 @@ fn generic_array() {
     assert_eq!(settings.data[0], 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata();
+    let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/data/0".len());
     assert_eq!(metadata.count, 2);
@@ -59,7 +59,7 @@ fn generic_struct() {
     assert_eq!(settings.inner.data, 3.0);
 
     // Test metadata
-    let metadata = Settings::<Inner>::metadata();
+    let metadata = Settings::<Inner>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length("/"), "/inner".len());
     assert_eq!(metadata.count, 1);
@@ -87,7 +87,7 @@ fn generic_atomic() {
     assert_eq!(settings.atomic.inner[0], 3.0);
 
     // Test metadata
-    let metadata = Settings::<f32>::metadata();
+    let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length("/"), "/opt1/0/0".len());
 }
@@ -97,8 +97,8 @@ fn test_derive_macro_bound_failure() {
     // The derive macro uses a simplistic approach to adding bounds
     // for generic types.
     // This is analogous to other standard derive macros.
-    // See also the documentation for the [Tree] trait
-    // and the code comments in the derive macro ([StructField::walk_type]
+    // See also the documentation for the Tree traits
+    // and the code comments in the derive macro
     // on adding bounds to generics.
     // This test below shows the issue and tests whether the workaround of
     // adding the required traits by hand works.
@@ -116,7 +116,7 @@ fn test_depth() {
     #[derive(Tree)]
     struct S<T>(#[tree(depth = 3)] Option<Option<T>>);
     // works as array implements Tree<1>
-    S::<[u32; 1]>::metadata();
+    S::<[u32; 1]>::traverse_all::<Metadata>().unwrap();
     // does not compile as u32 does not implement Tree<1>
-    // S::<u32>::metadata();
+    // S::<u32>::traverse_all::<Metadata>();
 }

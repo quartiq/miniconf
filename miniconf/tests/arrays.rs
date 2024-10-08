@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Deserialize, Error, Indices, Packed, Path, Serialize, Traversal, Tree, TreeKey,
+    json, Deserialize, Error, Indices, Metadata, Packed, Path, Serialize, Traversal, Tree, TreeKey,
 };
 
 mod common;
@@ -128,7 +128,7 @@ fn not_found() {
 
 #[test]
 fn metadata() {
-    let metadata = Settings::metadata();
+    let metadata = Settings::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 4);
     assert_eq!(metadata.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(metadata.count, 11);

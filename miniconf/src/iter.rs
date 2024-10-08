@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{Indices, IntoKeys, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
+use crate::{Indices, IntoKeys, KeyLookup, Keys, Metadata, Node, Transcode, Traversal, TreeKey};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,8 +47,8 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// A Keys wrapper that can always finalize()
 struct Consume<T>(T);
 impl<T: Keys> Keys for Consume<T> {
-    fn next<M: KeyLookup + ?Sized>(&mut self) -> Result<usize, Traversal> {
-        self.0.next::<M>()
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        self.0.next(lookup)
     }
 
     fn finalize(&mut self) -> bool {
@@ -118,7 +118,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
         assert!(self.root == 0);
         debug_assert_eq!(&self.state, &Indices::default()); // ensured by depth = D + 1 marker
         assert!(D >= Y);
-        ExactSize::new(self, M::metadata().count)
+        ExactSize::new(self, M::traverse_all::<Metadata>().unwrap().count)
     }
 }
 

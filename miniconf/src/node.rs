@@ -1,6 +1,5 @@
 use core::{
     fmt::Write,
-    iter::Copied,
     ops::{Deref, DerefMut},
     slice::Iter,
 };
@@ -81,6 +80,7 @@ impl Node {
 }
 
 impl From<Node> for usize {
+    #[inline]
     fn from(value: Node) -> Self {
         value.depth
     }
@@ -89,6 +89,8 @@ impl From<Node> for usize {
 /// Map a `TreeKey::traverse_by_key()` `Result` to a `Transcode::transcode()` `Result`.
 impl TryFrom<Result<usize, Error<()>>> for Node {
     type Error = Traversal;
+
+    #[inline]
     fn try_from(value: Result<usize, Error<()>>) -> Result<Self, Traversal> {
         match value {
             Ok(depth) => Ok(Node::leaf(depth)),
@@ -115,6 +117,16 @@ pub trait Transcode {
         K: IntoKeys;
 }
 
+impl<T: Transcode + ?Sized> Transcode for &mut T {
+    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        M: TreeKey<Y> + ?Sized,
+        K: IntoKeys,
+    {
+        Transcode::transcode::<M, Y, _>(*self, keys)
+    }
+}
+
 /// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
     fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
@@ -131,7 +143,7 @@ impl Transcode for () {
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [TreeKey::metadata()] and `Metadata::max_length()` for upper bounds
+///   See also [TreeKey::traverse_all()] and `Metadata::max_length()` for upper bounds
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`KeysIter`]).
 /// * `const S: char`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
@@ -179,9 +191,18 @@ impl<T, const S: char> From<T> for Path<T, S> {
 pub struct PathIter<'a, const S: char>(Option<&'a str>);
 
 impl<'a, const S: char> PathIter<'a, S> {
+    /// Create a new `PathIter`
     #[inline]
-    fn new(s: &'a str) -> Self {
-        let mut s = Self(Some(s));
+    pub fn new(s: Option<&'a str>) -> Self {
+        Self(s)
+    }
+
+    /// Create a new `PathIter` starting at the root.
+    ///
+    /// This calls `next()` once to pop everything up to and including the first separator.
+    #[inline]
+    pub fn root(s: &'a str) -> Self {
+        let mut s = Self::new(Some(s));
         // Skip the first part to disambiguate between
         // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
         // This is relevant in the case of e.g. `Option` and newtypes.
@@ -210,10 +231,13 @@ impl<'a, const S: char> Iterator for PathIter<'a, S> {
     }
 }
 
+impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
+
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
+
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::<'a, S>::new(self.0.as_ref()).into_keys()
+        PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
     }
 }
 
@@ -224,15 +248,11 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
         K: IntoKeys,
     {
         M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            self.0
-                .write_char(S)
-                .and_then(|()| {
-                    let mut buf = itoa::Buffer::new();
-                    let name = name.unwrap_or_else(|| buf.format(index));
-                    debug_assert!(!name.contains(S));
-                    self.0.write_str(name)
-                })
-                .or(Err(()))
+            self.0.write_char(S).or(Err(()))?;
+            let mut buf = itoa::Buffer::new();
+            let name = name.unwrap_or_else(|| buf.format(index));
+            debug_assert!(!name.contains(S));
+            self.0.write_str(name).or(Err(()))
         })
         .try_into()
     }
@@ -259,22 +279,10 @@ impl<T: ?Sized> DerefMut for Indices<T> {
     }
 }
 
-impl<const D: usize> Default for Indices<[usize; D]> {
-    fn default() -> Self {
-        Self([0; D])
-    }
-}
-
 impl<T> Indices<T> {
     /// Extract just the indices
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<const D: usize> From<Indices<[usize; D]>> for [usize; D] {
-    fn from(value: Indices<[usize; D]>) -> Self {
-        value.0
     }
 }
 
@@ -284,8 +292,20 @@ impl<T> From<T> for Indices<T> {
     }
 }
 
+impl<const D: usize, T: Copy + Default> Default for Indices<[T; D]> {
+    fn default() -> Self {
+        Self([Default::default(); D])
+    }
+}
+
+impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
+    fn from(value: Indices<[T; D]>) -> Self {
+        value.0
+    }
+}
+
 impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
-    type IntoKeys = KeysIter<Copied<Iter<'a, usize>>>;
+    type IntoKeys = KeysIter<core::iter::Copied<Iter<'a, usize>>>;
     fn into_keys(self) -> Self::IntoKeys {
         self.0.as_ref().iter().copied().into_keys()
     }
@@ -315,7 +335,7 @@ mod test {
     fn strsplit() {
         use heapless::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_, 10> = PathIter::<'_, '/'>::new(p).collect();
+            let a: Vec<_, 10> = PathIter::<'_, '/'>::root(p).collect();
             let b: Vec<_, 10> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }

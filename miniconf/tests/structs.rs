@@ -1,4 +1,6 @@
-use miniconf::{json, Deserialize, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{
+    json, Deserialize, Metadata, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+};
 
 mod common;
 use common::*;
@@ -37,7 +39,7 @@ fn structs() {
     assert_eq!(settings.d, Inner { a: 3 });
 
     // Check that metadata is correct.
-    let metadata = Settings::metadata();
+    let metadata = Settings::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/d/a".len());
     assert_eq!(metadata.count, 4);

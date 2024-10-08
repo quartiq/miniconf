@@ -80,9 +80,9 @@ json::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
 json::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-json::set_by_key(&mut settings, [7, 0, 1], b"8")?;
+json::set_by_key(&mut settings, [7usize, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, node) = Settings::transcode::<Packed, _>([7, 1, 0]).unwrap();
+let (packed, node) = Settings::transcode::<Packed, _>([7usize, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_0111_1_0);
 assert_eq!(node, Node::leaf(3));
 json::set_by_key(&mut settings, packed, b"9")?;
