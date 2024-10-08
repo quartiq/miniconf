@@ -8,12 +8,12 @@ mod common;
 use common::Settings;
 
 /// This show-cases the implementation of a custom [`miniconf::Key`]
-/// alogn the lines of SCPI style hierarchies.
+/// along the lines of SCPI style hierarchies. It is case-insensitive and
+/// distinguishes relative/absolute paths.
 /// It then proceeds to implement a SCPI command parser that supports
-/// setting and getting, case-insensitive, and distinguishes relative/absolute
-/// paths.
+/// setting and getting.
 ///
-/// This is just a sketch. There is no error handling.
+/// This is just a sketch.
 
 #[derive(Copy, Clone)]
 struct ScpiKey<T: ?Sized>(T);
@@ -21,39 +21,37 @@ struct ScpiKey<T: ?Sized>(T);
 impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
     fn find(&self, lookup: &KeyLookup) -> Option<usize> {
         let s = self.0.as_ref();
-        match lookup.names {
-            Some(names) => {
-                let mut truncated = None;
-                let mut ambiguous = false;
-                for (i, name) in names.iter().enumerate() {
-                    if name.len() < s.len() {
-                        continue;
-                    }
-                    if name
+        if let Some(names) = lookup.names {
+            let mut truncated = None;
+            let mut ambiguous = false;
+            for (i, name) in names.iter().enumerate() {
+                if name.len() < s.len()
+                    || !name
                         .chars()
                         .zip(s.chars())
                         .all(|(n, s)| n.to_ascii_lowercase() == s.to_ascii_lowercase())
-                    {
-                        if name.len() == s.len() {
-                            // Exact match: return immediately
-                            return Some(i);
-                        }
-                        if truncated.is_some() {
-                            // Multiple truncated matches: ambiguous if there isn't an additional exact match
-                            ambiguous = true;
-                        } else {
-                            // First truncated match: fine if there is only one.
-                            truncated = Some(i);
-                        }
-                    }
+                {
+                    continue;
                 }
-                if ambiguous {
-                    None
+                if name.len() == s.len() {
+                    // Exact match: return immediately
+                    return Some(i);
+                }
+                if truncated.is_some() {
+                    // Multiple truncated matches: ambiguous unless there is an additional exact match
+                    ambiguous = true;
                 } else {
-                    truncated
+                    // First truncated match: fine if there is only one.
+                    truncated = Some(i);
                 }
             }
-            None => s.parse().ok(),
+            if ambiguous {
+                None
+            } else {
+                truncated
+            }
+        } else {
+            s.parse().ok()
         }
     }
 }
@@ -79,61 +77,55 @@ impl<'a> IntoIterator for &'a ScpiPath<'a> {
     }
 }
 
-struct ScpiCtrl<M, const Y: usize> {
-    settings: M,
-    buf: [u8; 1024],
+#[derive(thiserror::Error, Debug, Copy, Clone)]
+enum Error {
+    #[error("While setting value")]
+    Set(#[from] miniconf::Error<serde_json_core::de::Error>),
+    #[error("While getting value")]
+    Get(#[from] miniconf::Error<serde_json_core::ser::Error>),
+    #[error("Parse failure: {0}")]
+    Parse(&'static str),
+    #[error("Could not print value")]
+    Utf8(#[from] core::str::Utf8Error),
 }
+
+struct ScpiCtrl<M, const Y: usize>(M);
 
 impl<M: TreeSerialize<Y> + TreeDeserializeOwned<Y>, const Y: usize> ScpiCtrl<M, Y> {
     fn new(settings: M) -> Self {
-        Self {
-            settings,
-            buf: [0; 1024],
-        }
+        Self(settings)
     }
 
-    fn get(&mut self, path: impl IntoKeys) -> &str {
-        let len = json::get_by_key(&self.settings, path, &mut self.buf[..]).unwrap();
-        str::from_utf8(&self.buf[..len]).unwrap()
-    }
-
-    fn set(&mut self, path: impl IntoKeys, value: &str) {
-        json::set_by_key(&mut self.settings, path, value.as_bytes()).unwrap();
-    }
-
-    fn cmd(&mut self, cmd: &str) {
+    fn cmd(&mut self, cmds: &str) -> Result<(), Error> {
+        let mut buf = [0; 1024];
         let root = ScpiPath(None);
         let mut abs = root;
-        let mut rel;
-        for mut cmd in cmd.split_terminator(';') {
-            cmd = cmd.trim();
+        for cmd in cmds.split_terminator(';').map(|cmd| cmd.trim()) {
             let (path, value) = if let Some(path) = cmd.strip_suffix('?') {
                 (path, None)
             } else if let Some((path, value)) = cmd.split_once(' ') {
                 (path, Some(value))
             } else {
-                println!("Could not parse: {}", cmd);
-                continue;
+                Err(Error::Parse("Missing `?` to get or value to set"))?
             };
-            if let Some(path) = path.strip_prefix(':') {
-                if let Some((abs_path, rel_path)) = path.rsplit_once(':') {
-                    abs = ScpiPath(Some(abs_path));
-                    rel = ScpiPath(Some(rel_path));
-                } else {
-                    abs = root;
-                    rel = ScpiPath(Some(path));
-                }
+            let rel;
+            (abs, rel) = if let Some(path) = path.strip_prefix(':') {
+                path.rsplit_once(':')
+                    .map(|(a, r)| (ScpiPath(Some(a)), ScpiPath(Some(r))))
+                    .unwrap_or((root, ScpiPath(Some(path))))
             } else {
-                rel = ScpiPath(Some(path));
+                (abs, ScpiPath(Some(path)))
             };
             let path = Keys::chain(abs.into_keys(), &rel);
             if let Some(value) = value {
-                self.set(path, value);
+                json::set_by_key(&mut self.0, path, value.as_bytes())?;
                 println!("OK");
             } else {
-                println!("{}", self.get(path));
+                let len = json::get_by_key(&self.0, path, &mut buf[..])?;
+                println!("{}", str::from_utf8(&buf[..len])?);
             }
         }
+        Ok(())
     }
 }
 
@@ -142,11 +134,9 @@ fn main() -> anyhow::Result<()> {
     settings.enable();
     let mut ctrl = ScpiCtrl::new(settings);
 
-    ctrl.set(&ScpiPath(Some("ARRAY_OPT:1:A")), "99");
-    println!("{}", ctrl.get(&ScpiPath(Some("ArrAY_opTION_TRE:1:A"))));
+    ctrl.cmd("fO?; foo?; FOO?; :FOO?; :ARRAY_OPT:1:A?; A?; A?; A 1; A?; :FOO?")?;
+    ctrl.cmd("FO?; STRUCT_TREE:B 3; STRUCT_TREE:B?")?;
 
-    ctrl.cmd("FOO?; :ARRAY_OPT:1:A?; A?; A?; A 1; A?; :FOO?");
-    ctrl.cmd("FO?; STRUCT_TREE:B 3; STRUCT_TREE:B?");
-
+    ctrl.cmd(":STRUCT_ 42")?;
     Ok(())
 }

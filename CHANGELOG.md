@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `KeyLookup` has been changed from a trait to a struct.
 * `TreeKey::metadata() -> Metadata` has been changed to `traverse_all<W: Walk>() -> W` with `impl Walk for Metadata`.
 
+### Added
+
+* `Key` impls for `u8, u16, u32`.
+* A `SCPI` exampling showcasing how to implement a custom `Key`.
+
 ## [0.15.0](https://github.com/quartiq/miniconf/compare/v0.14.1...v0.15.0) - 2024-10-01
 
 ### Changed

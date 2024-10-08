@@ -2,7 +2,11 @@
 name = "miniconf"
 # Sync all crate versions and the py client
 version = "0.15.0"
-authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
+authors = [
+    "James Irwin <irwineffect@gmail.com>",
+    "Ryan Summers <ryan.summers@vertigo-designs.com>",
+    "Robert Jördens <rj@quartiq.de>",
+]
 edition = "2021"
 license = "MIT"
 description = "Serialize/deserialize/access reflection for trees"
@@ -37,6 +41,7 @@ yafnv = "3.0.0"
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.26.3", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
+thiserror = { version = "1.0.63" }
 
 [[test]]
 name = "arrays"
