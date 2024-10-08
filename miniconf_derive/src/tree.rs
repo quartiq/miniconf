@@ -191,21 +191,7 @@ impl Tree {
             (
                 quote!(::miniconf::Keys::next(&mut keys, &Self::__MINICONF_LOOKUP)?),
                 Some(quote! {
-                    let name = match Self::__MINICONF_LOOKUP.names {
-                        ::core::option::Option::Some(names) => {
-                            Some(
-                                *names
-                                    .get(index)
-                                    .ok_or(::miniconf::Traversal::NotFound(1))?
-                            )
-                        }
-                        ::core::option::Option::None => {
-                            if index >= Self::__MINICONF_LOOKUP.len {
-                                ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))?
-                            }
-                            ::core::option::Option::None
-                        }
-                    };
+                    let name = Self::__MINICONF_LOOKUP.lookup(index)?;
                     func(index, name, Self::__MINICONF_LOOKUP.len)
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),

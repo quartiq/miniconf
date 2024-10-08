@@ -23,6 +23,24 @@ impl KeyLookup {
     pub const fn homogeneous(len: usize) -> Self {
         Self { len, names: None }
     }
+
+    /// Perform a index-to-name lookup
+    #[inline]
+    pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
+        match self.names {
+            Some(names) => match names.get(index) {
+                Some(name) => Ok(Some(name)),
+                None => Err(Traversal::NotFound(1)),
+            },
+            None => {
+                if index >= self.len {
+                    Err(Traversal::NotFound(1))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
 }
 
 /// Convert a `&str` key into a node index on a `KeyLookup`
