@@ -21,11 +21,14 @@ providers are supported.
 use serde::{Deserialize, Serialize};
 use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node};
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Tree)]
 enum Either {
     #[default]
     Bad,
     Good,
+    A(i32),
+    B(#[tree(depth=1)] Inner),
+    C(#[tree(depth=2)] [Inner; 2]),
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
@@ -48,6 +51,8 @@ struct Settings {
 
     #[tree(depth=1)]
     struct_tree: Inner,
+    #[tree(depth=3)]
+    enum_tree: Either,
     #[tree(depth=1)]
     array_tree: [i32; 2],
     #[tree(depth=2)]
@@ -80,10 +85,10 @@ json::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
 json::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-json::set_by_key(&mut settings, [7usize, 0, 1], b"8")?;
+json::set_by_key(&mut settings, [8usize, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, node) = Settings::transcode::<Packed, _>([7usize, 1, 0]).unwrap();
-assert_eq!(packed.into_lsb().get(), 0b1_0111_1_0);
+let (packed, node) = Settings::transcode::<Packed, _>([8usize, 1, 0]).unwrap();
+assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
 assert_eq!(node, Node::leaf(3));
 json::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
