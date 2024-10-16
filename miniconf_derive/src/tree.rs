@@ -193,7 +193,7 @@ impl Tree {
             .enumerate()
             .filter_map(|(i, f)| f.traverse_by_key(i));
         let defers = fields.iter().map(|field| field.depth > 0);
-        let names = match &self.data {
+        let names: Option<Vec<_>> = match &self.data {
             Data::Struct(fields) if fields.style.is_struct() => Some(
                 fields
                     .iter()
@@ -202,7 +202,7 @@ impl Tree {
                         let name = f.name().unwrap();
                         quote_spanned! { name.span()=> stringify!(#name) }
                     })
-                    .collect::<Vec<_>>(),
+                    .collect(),
             ),
             Data::Enum(variants) => Some(
                 variants
@@ -300,12 +300,8 @@ impl Tree {
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
-
-        let increment = if self.flatten.is_present() {
-            quote!()
-        } else {
-            quote!(::miniconf::Error::increment_result)
-        };
+        let increment =
+            (!self.flatten.is_present()).then_some(quote!(::miniconf::Error::increment_result));
 
         quote! {
             #[automatically_derived]
@@ -352,12 +348,8 @@ impl Tree {
         }
         let (impl_generics, _, _) = generics.split_for_impl();
         let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
-
-        let increment = if self.flatten.is_present() {
-            quote!()
-        } else {
-            quote!(::miniconf::Error::increment_result)
-        };
+        let increment =
+            (!self.flatten.is_present()).then_some(quote!(::miniconf::Error::increment_result));
 
         quote! {
             #[automatically_derived]
@@ -391,14 +383,10 @@ impl Tree {
         let depth = self.depth();
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-        let (_, ref_arms, _) = self.arms(|f, i| f.ref_any_by_key(i));
-        let (mat, mut_arms, default) = self.arms(|f, i| f.mut_any_by_key(i));
-
-        let increment = if self.flatten.is_present() {
-            quote!(ret)
-        } else {
-            quote!(ret.map_err(::miniconf::Traversal::increment))
-        };
+        let (mat, ref_arms, default) = self.arms(|f, i| f.ref_any_by_key(i));
+        let (_, mut_arms, _) = self.arms(|f, i| f.mut_any_by_key(i));
+        let increment = (!self.flatten.is_present())
+            .then_some(quote!(.map_err(::miniconf::Traversal::increment)));
 
         quote! {
             #[automatically_derived]
@@ -415,7 +403,7 @@ impl Tree {
                             #(#ref_arms ,)*
                             _ => #default
                         };
-                        #increment
+                        ret #increment
                     }
                 }
 
@@ -431,7 +419,7 @@ impl Tree {
                             #(#mut_arms ,)*
                             _ => #default
                         };
-                        #increment
+                        ret #increment
                     }
                 }
             }
