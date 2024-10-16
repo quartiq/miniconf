@@ -42,7 +42,7 @@ impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
 impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 
 // https://github.com/rust-lang/rust/issues/37572
-// unsafe impl<T: Iterator> core::iter::TrustedLen for Counting<T> {}
+// unsafe impl<T: Iterator> core::iter::TrustedLen for ExactSize<T> {}
 
 /// A Keys wrapper that can always finalize()
 struct Consume<T>(T);
