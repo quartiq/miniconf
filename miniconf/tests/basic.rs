@@ -44,7 +44,7 @@ fn indices() {
         ("/c", [2, 0], Node::internal(1)),
     ] {
         let (indices, node) =
-            Settings::transcode::<Indices<_>, _>(&Path::<_, '/'>::from(keys)).unwrap();
+            Settings::transcode::<Indices<_>, _>(Path::<_, '/'>::from(keys)).unwrap();
         assert_eq!(node, depth);
         assert_eq!(indices.0, idx);
     }

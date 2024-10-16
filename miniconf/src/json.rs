@@ -40,7 +40,7 @@ pub fn set<'de, T: TreeDeserialize<'de, Y> + ?Sized, const Y: usize>(
     path: &str,
     data: &'de [u8],
 ) -> Result<usize, Error<de::Error>> {
-    set_by_key(tree, &Path::<_, '/'>::from(path), data)
+    set_by_key(tree, Path::<_, '/'>::from(path), data)
 }
 
 /// Retrieve a serialized value by path.
@@ -57,7 +57,7 @@ pub fn get<T: TreeSerialize<Y> + ?Sized, const Y: usize>(
     path: &str,
     data: &mut [u8],
 ) -> Result<usize, Error<ser::Error>> {
-    get_by_key(tree, &Path::<_, '/'>::from(path), data)
+    get_by_key(tree, Path::<_, '/'>::from(path), data)
 }
 
 /// Update a node by key.

@@ -87,19 +87,19 @@ where
     }
 
     fn push(&self, path: &str) -> Result<(Self, Node), Traversal> {
-        let (key, node) = M::transcode(self.key.chain(&Path::<_, SEPARATOR>::from(path)))?;
+        let (key, node) = M::transcode(self.key.chain(Path::<_, SEPARATOR>::from(path)))?;
         Ok((Self::new(key), node))
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
-        let (idx, node) = M::transcode::<Indices<[_; Y]>, _>(self.key)?;
+        let (idx, node): (Indices<[_; Y]>, _) = M::transcode(self.key)?;
         if let Some(idx) = idx.get(
             ..node
                 .depth()
                 .checked_sub(levels)
                 .ok_or(Traversal::TooLong(0))?,
         ) {
-            let (key, node) = M::transcode(&Indices::from(idx))?;
+            let (key, node) = M::transcode(idx)?;
             Ok((Self::new(key), node))
         } else {
             Err(Traversal::TooShort(node.depth()))
@@ -150,8 +150,7 @@ where
         let def = M::default();
         for keys in M::nodes::<Packed>().root(self.key)? {
             // Slight abuse of TooLong for "keys to long for packed"
-            let (keys, node) =
-                keys.map_err(|depth| miniconf::Error::Traversal(Traversal::TooLong(depth)))?;
+            let (keys, node) = keys.map_err(|depth| Traversal::TooLong(depth))?;
             debug_assert!(node.is_leaf());
             let val = match postcard::get_by_key(&def, keys, SerSlice::new(buf)) {
                 Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {

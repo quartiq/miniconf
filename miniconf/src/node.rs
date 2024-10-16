@@ -1,7 +1,6 @@
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
-    slice::Iter,
 };
 
 use serde::{Deserialize, Serialize};
@@ -123,7 +122,7 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        Transcode::transcode::<M, Y, _>(*self, keys)
+        T::transcode::<M, Y, _>(self, keys)
     }
 }
 
@@ -233,6 +232,14 @@ impl<'a, const S: char> Iterator for PathIter<'a, S> {
 
 impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
 
+impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
+    type IntoKeys = KeysIter<PathIter<'a, S>>;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
+    }
+}
+
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
 
@@ -304,10 +311,10 @@ impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
     }
 }
 
-impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
-    type IntoKeys = KeysIter<Iter<'a, usize>>;
+impl<T: IntoKeys> IntoKeys for Indices<T> {
+    type IntoKeys = T::IntoKeys;
     fn into_keys(self) -> Self::IntoKeys {
-        self.0.as_ref().iter().into_keys()
+        self.0.into_keys()
     }
 }
 
