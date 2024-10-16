@@ -125,6 +125,41 @@ impl Tree {
         }
     }
 
+    fn arms<F: FnMut(&TreeField, Option<usize>) -> TokenStream>(
+        &self,
+        mut func: F,
+    ) -> (TokenStream, Vec<TokenStream>, TokenStream) {
+        match &self.data {
+            Data::Struct(fields) => (
+                quote!(index),
+                fields
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| {
+                        let rhs = func(f, Some(i));
+                        quote!(#i => #rhs)
+                    })
+                    .collect(),
+                quote!(::core::unreachable!()),
+            ),
+            Data::Enum(variants) => (
+                quote!((self, index)),
+                variants
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        let ident = &v.ident;
+                        let rhs = func(v.field(), None);
+                        quote!((Self::#ident(value, ..), #i) => #rhs)
+                    })
+                    .collect(),
+                quote!(::core::result::Result::Err(
+                    ::miniconf::Traversal::Absent(0).into()
+                )),
+            ),
+        }
+    }
+
     fn bound_generics<F>(&self, func: &mut F) -> syn::Generics
     where
         F: FnMut(usize) -> Option<syn::TraitBound>,
@@ -264,35 +299,7 @@ impl Tree {
         });
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-        let (mat, arms, default) = match &self.data {
-            Data::Struct(fields) => (
-                quote!(index),
-                fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| {
-                        let rhs = f.serialize_by_key(Some(i));
-                        quote!(#i => #rhs)
-                    })
-                    .collect::<Vec<_>>(),
-                quote!(::core::unreachable!()),
-            ),
-            Data::Enum(variants) => (
-                quote!((self, index)),
-                variants
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| {
-                        let ident = &v.ident;
-                        let rhs = v.field().serialize_by_key(None);
-                        quote!((Self::#ident(value, ..), #i) => #rhs)
-                    })
-                    .collect(),
-                quote!(::core::result::Result::Err(
-                    ::miniconf::Traversal::Absent(0).into()
-                )),
-            ),
-        };
+        let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
 
         let increment = if self.flatten.is_present() {
             quote!()
@@ -344,36 +351,7 @@ impl Tree {
             }
         }
         let (impl_generics, _, _) = generics.split_for_impl();
-
-        let (mat, arms, default) = match &self.data {
-            Data::Struct(fields) => (
-                quote!(index),
-                fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| {
-                        let rhs = f.deserialize_by_key(Some(i));
-                        quote!(#i => #rhs)
-                    })
-                    .collect::<Vec<_>>(),
-                quote!(::core::unreachable!()),
-            ),
-            Data::Enum(variants) => (
-                quote!((self, index)),
-                variants
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| {
-                        let ident = &v.ident;
-                        let rhs = v.field().deserialize_by_key(None);
-                        quote!((Self::#ident(value, ..), #i) => #rhs)
-                    })
-                    .collect(),
-                quote!(::core::result::Result::Err(
-                    ::miniconf::Traversal::Absent(0).into()
-                )),
-            ),
-        };
+        let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
 
         let increment = if self.flatten.is_present() {
             quote!()
@@ -413,43 +391,8 @@ impl Tree {
         let depth = self.depth();
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
-
-        let (mat, (ref_arms, mut_arms), default) = match &self.data {
-            Data::Struct(fields) => (
-                quote!(index),
-                fields
-                    .iter()
-                    .enumerate()
-                    .map(|(i, f)| {
-                        let (ref_rhs, mut_rhs) =
-                            (f.ref_any_by_key(Some(i)), f.mut_any_by_key(Some(i)));
-                        (quote!(#i => #ref_rhs), quote!(#i => #mut_rhs))
-                    })
-                    .unzip::<_, _, Vec<_>, Vec<_>>(),
-                quote!(::core::unreachable!()),
-            ),
-            Data::Enum(variants) => (
-                quote!((self, index)),
-                variants
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| {
-                        let ident = &v.ident;
-                        let (ref_rhs, mut_rhs) = (
-                            v.field().ref_any_by_key(None),
-                            v.field().mut_any_by_key(None),
-                        );
-                        (
-                            quote!((Self::#ident(value, ..), #i) => #ref_rhs),
-                            quote!((Self::#ident(value, ..), #i) => #mut_rhs),
-                        )
-                    })
-                    .unzip(),
-                quote!(::core::result::Result::Err(
-                    ::miniconf::Traversal::Absent(0).into()
-                )),
-            ),
-        };
+        let (_, ref_arms, _) = self.arms(|f, i| f.ref_any_by_key(i));
+        let (mat, mut_arms, default) = self.arms(|f, i| f.mut_any_by_key(i));
 
         let increment = if self.flatten.is_present() {
             quote!(ret)
