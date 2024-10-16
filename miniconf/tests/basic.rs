@@ -29,7 +29,7 @@ fn path() {
         (&[2][..], "/c", Node::internal(1)),
         (&[][..], "", Node::internal(0)),
     ] {
-        let (s, node) = Settings::transcode::<Path<String, '/'>, _>(keys.iter().copied()).unwrap();
+        let (s, node) = Settings::transcode::<Path<String, '/'>, _>(keys.iter()).unwrap();
         assert_eq!(node, depth);
         assert_eq!(s.as_str(), path);
     }

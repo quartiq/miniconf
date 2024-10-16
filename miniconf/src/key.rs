@@ -50,6 +50,15 @@ pub trait Key {
     fn find(&self, lookup: &KeyLookup) -> Option<usize>;
 }
 
+impl<T: Key> Key for &T
+where
+    T: Key + ?Sized,
+{
+    fn find(&self, lookup: &KeyLookup) -> Option<usize> {
+        T::find(self, lookup)
+    }
+}
+
 // index
 macro_rules! impl_key {
     ($($t:ty)+) => {$(
@@ -63,10 +72,10 @@ macro_rules! impl_key {
 impl_key!(usize u8 u16 u32);
 
 // name
-impl Key for &str {
+impl Key for str {
     fn find(&self, lookup: &KeyLookup) -> Option<usize> {
         match lookup.names {
-            Some(names) => names.iter().position(|n| n == self),
+            Some(names) => names.iter().position(|n| *n == self),
             None => self.parse().ok(),
         }
     }
@@ -88,6 +97,19 @@ pub trait Keys {
         Self: Sized,
     {
         Chain(self, other.into_keys())
+    }
+}
+
+impl<T> Keys for &mut T
+where
+    T: Keys + ?Sized,
+{
+    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        T::next(self, lookup)
+    }
+
+    fn finalize(&mut self) -> bool {
+        T::finalize(self)
     }
 }
 
@@ -114,19 +136,6 @@ where
 
     fn finalize(&mut self) -> bool {
         self.0.next().is_none()
-    }
-}
-
-impl<T> Keys for &mut T
-where
-    T: Keys + ?Sized,
-{
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        T::next(self, lookup)
-    }
-
-    fn finalize(&mut self) -> bool {
-        T::finalize(self)
     }
 }
 
