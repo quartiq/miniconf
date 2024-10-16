@@ -50,6 +50,15 @@ pub trait Key {
     fn find(&self, lookup: &KeyLookup) -> Option<usize>;
 }
 
+impl<T: Key> Key for &T
+where
+    T: Key + ?Sized,
+{
+    fn find(&self, lookup: &KeyLookup) -> Option<usize> {
+        T::find(self, lookup)
+    }
+}
+
 // index
 macro_rules! impl_key {
     ($($t:ty)+) => {$(
