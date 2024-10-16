@@ -262,7 +262,7 @@ impl Tree {
                     #[allow(unused_mut)]
                     let mut walk = W::internal();
                     #(#traverse_all_arms)*
-                    Ok(walk)
+                    ::core::result::Result::Ok(walk)
                 }
 
                 fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>
