@@ -374,7 +374,7 @@ where
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
         let mut m = Multipart::default();
         if let Some(path) = path {
-            m = m.root(&Path::<_, SEPARATOR>::from(path))?;
+            m = m.root(Path::<_, SEPARATOR>::from(path))?;
         }
         self.state.process_event(sm::Events::Multipart)?;
         self.pending = m;
@@ -523,7 +523,7 @@ where
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
-                    DeferredPublication::new(|buf| json::get_by_key(settings, &path, buf))
+                    DeferredPublication::new(|buf| json::get_by_key(settings, path, buf))
                         .topic(topic)
                         .reply(properties)
                         .properties(&[ResponseCode::Ok.into()])
@@ -546,7 +546,7 @@ where
                                             .ok();
                                     },
                                     |m| {
-                                        *pending = m.root(&path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
+                                        *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
                                         // Responses come through iter_list/iter_dump
                                     },
@@ -566,7 +566,7 @@ where
                 State::Unchanged
             } else {
                 // Set
-                json::set_by_key(settings, &path, payload)
+                json::set_by_key(settings, path, payload)
                     .map_err(|err| Self::respond(err, ResponseCode::Error, properties, client).ok())
                     .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
                     .is_ok()

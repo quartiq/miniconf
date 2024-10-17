@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     while let Some(key) = args.next() {
         let key = key.strip_prefix('-').context("key must start with `-`")?;
         let value = args.next().context("missing value")?;
-        json::set_by_key(&mut settings, &Path::<_, '-'>(key), value.as_bytes())
+        json::set_by_key(&mut settings, Path::<_, '-'>(key), value.as_bytes())
             .context("lookup/deserialize")?;
     }
 

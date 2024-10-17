@@ -69,7 +69,7 @@ impl<'a> Iterator for ScpiPathIter<'a> {
 #[derive(Copy, Clone)]
 struct ScpiPath<'a>(Option<&'a str>);
 
-impl<'a> IntoIterator for &'a ScpiPath<'a> {
+impl<'a> IntoIterator for ScpiPath<'a> {
     type IntoIter = ScpiPathIter<'a>;
     type Item = ScpiKey<&'a str>;
     fn into_iter(self) -> Self::IntoIter {
@@ -116,7 +116,7 @@ impl<M: TreeSerialize<Y> + TreeDeserializeOwned<Y>, const Y: usize> ScpiCtrl<M, 
             } else {
                 (abs, ScpiPath(Some(path)))
             };
-            let path = Keys::chain(abs.into_keys(), &rel);
+            let path = abs.into_keys().chain(rel);
             if let Some(value) = value {
                 json::set_by_key(&mut self.0, path, value.as_bytes())?;
                 println!("OK");

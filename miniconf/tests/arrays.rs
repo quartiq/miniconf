@@ -32,16 +32,16 @@ fn set_get(
     common::set_get(tree, path, value);
 
     // Indices
-    let (idx, node): (Indices<[usize; 4]>, _) = Settings::transcode(&Path::<_, '/'>::from(path))?;
+    let (idx, node): (Indices<[usize; 4]>, _) = Settings::transcode(Path::<_, '/'>::from(path))?;
     assert!(node.is_leaf());
-    let idx = Indices::from(&idx[..node.depth()]);
-    json::set_by_key(tree, &idx, value)?;
+    let idx = &idx[..node.depth()];
+    json::set_by_key(tree, idx, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let (idx, node): (Packed, _) = Settings::transcode(&idx)?;
+    let (idx, node): (Packed, _) = Settings::transcode(idx)?;
     assert!(node.is_leaf());
     json::set_by_key(tree, idx, value)?;
     let mut buf = vec![0; value.len()];
