@@ -197,7 +197,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
 ///
 /// ```
-/// use miniconf::{TreeKey, Metadata};
+/// use miniconf::{Metadata, TreeKey};
 /// #[derive(TreeKey)]
 /// struct S<T> {
 ///     #[tree(depth = 3)]
@@ -260,7 +260,7 @@ pub trait TreeKey<const Y: usize = 1> {
     /// Walk metadata about all paths.
     ///
     /// ```
-    /// use miniconf::{TreeKey, Metadata};
+    /// use miniconf::{Metadata, TreeKey};
     /// #[derive(TreeKey)]
     /// struct S {
     ///     foo: u32,

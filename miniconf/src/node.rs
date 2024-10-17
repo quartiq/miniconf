@@ -244,7 +244,7 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
 
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
+        Path(&self.0).into_keys()
     }
 }
 
@@ -326,9 +326,11 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     {
         let mut it = self.0.as_mut().iter_mut();
         M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            it.next().ok_or(()).map(|idx| {
-                *idx = index;
-            })
+            it.next()
+                .map(|idx| {
+                    *idx = index;
+                })
+                .ok_or(())
         })
         .try_into()
     }
