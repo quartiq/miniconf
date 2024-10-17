@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_mqtt"
-version = "0.16.0"
+version = "0.16.2"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
 edition = "2021"
 license = "MIT"
@@ -12,7 +12,7 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 [lib]
 
 [dependencies]
-miniconf = { version = "0.16.0", features = ["json-core"], default-features = false, path = "../miniconf" }
+miniconf = { version = "0.16.2", features = ["json-core"], default-features = false, path = "../miniconf" }
 minimq = "0.9.0"
 smlang = "0.8"
 embedded-io = "0.6"
