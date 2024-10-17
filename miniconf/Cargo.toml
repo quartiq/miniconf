@@ -1,7 +1,7 @@
 [package]
 name = "miniconf"
 # Sync all crate versions and the py client
-version = "0.16.1"
+version = "0.16.2"
 authors = [
     "James Irwin <irwineffect@gmail.com>",
     "Ryan Summers <ryan.summers@vertigo-designs.com>",
