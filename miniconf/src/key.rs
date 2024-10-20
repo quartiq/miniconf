@@ -60,16 +60,17 @@ where
 }
 
 // index
-macro_rules! impl_key {
+macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
+            #[inline]
             fn find(&self, _lookup: &KeyLookup) -> Option<usize> {
-                Some(*self as _)
+                (*self).try_into().ok()
             }
-        })+
-    };
+        }
+    )+};
 }
-impl_key!(usize u8 u16 u32);
+impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 // name
 impl Key for str {
