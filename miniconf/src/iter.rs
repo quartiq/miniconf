@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{Indices, IntoKeys, KeyLookup, Keys, Metadata, Node, Transcode, Traversal, TreeKey};
+use crate::{IntoKeys, KeyLookup, Keys, Metadata, Node, Transcode, Traversal, TreeKey};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -77,7 +77,7 @@ pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
-    state: Indices<[usize; D]>,
+    state: [usize; D],
     root: usize,
     depth: usize,
     _n: PhantomData<N>,
@@ -87,7 +87,7 @@ pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
 impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N, D> {
     fn default() -> Self {
         Self {
-            state: Indices::default(),
+            state: [0; D],
             root: 0,
             // Marker to prevent initial index increment in `next()`
             depth: D + 1,
@@ -116,7 +116,7 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
     pub fn exact_size(self) -> ExactSize<Self> {
         assert!(self.depth == D + 1);
         assert!(self.root == 0);
-        debug_assert_eq!(&self.state, &Indices::default()); // ensured by depth = D + 1 marker
+        debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker
         assert!(D >= Y);
         ExactSize::new(self, M::traverse_all::<Metadata>().unwrap().count)
     }

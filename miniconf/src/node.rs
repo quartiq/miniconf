@@ -216,7 +216,6 @@ impl<'a, const S: char> PathIter<'a, S> {
 impl<'a, const S: char> Iterator for PathIter<'a, S> {
     type Item = &'a str;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         self.0.map(|s| {
             let pos = s
@@ -324,17 +323,30 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
         M: TreeKey<Y> + ?Sized,
         K: IntoKeys,
     {
-        let mut it = self.0.as_mut().iter_mut();
-        M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            it.next()
-                .map(|idx| {
-                    *idx = index;
-                })
-                .ok_or(())
-        })
-        .try_into()
+        self.0.as_mut().transcode::<M, Y, _>(keys)
     }
 }
+
+macro_rules! impl_transcode_slice {
+    ($($t:ty)+) => {$(
+        impl Transcode for [$t] {
+            fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+            where
+                M: TreeKey<Y> + ?Sized,
+                K: IntoKeys,
+            {
+                let mut it = self.iter_mut();
+                M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
+                    let idx = it.next().ok_or(())?;
+                    *idx = index.try_into().or(Err(()))?;
+                    Ok(())
+                })
+                .try_into()
+            }
+        }
+    )+};
+}
+impl_transcode_slice!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 #[cfg(test)]
 mod test {
