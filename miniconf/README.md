@@ -166,8 +166,6 @@ Leaf fields/items need to support the respective [`serde`] (and the desired `ser
 backend) or [`core::any`] trait.
 
 Structs, enums, arrays, and Options can then be cascaded to construct more complex trees.
-When using the derive macro, the behavior and tree recursion depth can be configured for each
-struct field using the `#[tree(depth(Y))]` attribute.
 
 See also the [`TreeKey`] trait documentation for details.
 

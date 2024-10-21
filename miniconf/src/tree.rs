@@ -6,35 +6,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 
 /// Traversal, iteration of keys in a tree.
 ///
-/// See also the sub-traits [`TreeSerialize<Y>`], [`TreeDeserialize<Y>`], [`TreeAny<Y>`].
-///
-/// # Recursion depth
-///
-/// The `Tree*` traits are meant to be implemented
-/// recursively on nested data structures. Recursion here means that a container
-/// that implements `Tree*`, may call on the `Tree*` implementations of
-/// inner types or `Serialize`/`Deserialize`/`Any` of leaf types.
-///
-/// The const parameter `Y` in the traits is the recursion depth and determines the
-/// maximum nesting of `Tree*` layers. It's at least `1` and defaults to `1`.
-///
-/// The recursion depth `Y` doubles as an upper bound to the maximum key length
-/// (the depth/height of the tree):
-/// An implementor of `TreeKey<Y>` may consume at most `Y` items from the
-/// `keys` argument. This includes
-/// both the items consumed directly before recursing/terminating and those consumed
-/// indirectly by recursing into inner types. In the same way it may call `func` in
-/// [`TreeKey::traverse_by_key()`] at most `Y` times, again including those calls due
-/// to recursion into inner `TreeKey` types.
-///
-/// This implies that if an implementor `T` of `TreeKey<Y>` (with `Y >= 1`) contains and
-/// recurses into an inner type using that type's `TreeKey<Z>` implementation, then
-/// `1 <= Z <= Y` must hold and `T` may consume at most `Y - Z` items from the `keys`
-/// iterators and call `func` at most `Y - Z` times. It is recommended (but not necessary)
-/// to keep `Z = Y - 1` (even if no keys are consumed directly) to satisfy the bound
-/// heuristics in the derive macro.
-///
-/// The exact maximum key depth can be obtained through [`TreeKey::traverse_all()`].
+/// See also the sub-traits [`TreeSerialize`], [`TreeDeserialize`], [`TreeAny`].
 ///
 /// # Keys
 ///
@@ -59,15 +31,6 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// [`macro@crate::Tree`].
 ///
 /// The derive macros support per-field attribute to control the derived trait implementations.
-///
-/// ## Depth
-///
-/// For each field, the recursion depth is configured through the `depth`
-/// attribute, with `Y = 0` being the implied default.
-/// If `Y = 0`, the field is a leaf and accessed only through its
-/// [`serde::Serialize`]/[`serde::Deserialize`]/[`Any`] implementation.
-/// With `Y > 0` the field is accessed through its `TreeKey<Y>` implementation with the given
-/// recursion depth.
 ///
 /// ## Rename
 ///
@@ -187,12 +150,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// field type `a: F1<F2<T>>` the type `T` will be considered to reside at type depth `X = 2`
 /// (as it is within `F2` which is within `F1`) and the following bounds will be applied:
 ///
-/// * With the `#[tree()]` attribute not present on `a`, `T` will receive bounds
-///   `Serialize`/`Deserialize` when `TreeSerialize`/`TreeDeserialize` is derived.
-/// * With `#[tree(depth=Y)]`, and `Y - X < 1` it will receive the bounds `Serialize`/`Deserialize`.
-/// * For `Y - X >= 1` it will receive the bound `T: TreeKey<Y - X>`.
-///
-/// E.g. In the following `T` resides at depth `2` and `T: TreeKey<1>` will be inferred:
+/// TODO
 ///
 /// ```
 /// use miniconf::{Leaf, Metadata, TreeKey};
@@ -200,42 +158,20 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// struct S<T> {
 ///     a: [Option<T>; 2],
 /// };
-/// // This works as [u32; N] implements TreeKey<1>:
+/// // This works as [Leaf<u32>; N] and Leaf<u32> implement TreeKey:
 /// S::<[Leaf<u32>; 5]>::traverse_all::<Metadata>();
-/// // This does not compile as u32 does not implement TreeKey<1>:
+/// // This does not compile as u32 does not implement TreeKey:
 /// // S::<u32>::traverse_all::<Metadata>();
 /// ```
-///
-/// This behavior is upheld by and compatible with all implementations in this crate. It is
-/// only violated when deriving `TreeKey` for a struct that (a) forwards its own type parameters
-/// as type parameters to its field types, (b) uses `TreeKey` on those fields, and (c) those field
-/// types use their type parameters at other depths than `TreeKey<Y - 1>`. See also the
-/// `test_derive_macro_bound_failure` test in `tests/generics.rs`.
 ///
 /// # Array
 ///
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays
-/// [`[T; N]`](core::array) up to recursion depth `Y = 16`.
-///
-/// When a `[T; N]` is used through `TreeKey<Y>` (i.e. marked as `#[tree(depth=Y)]` in a struct)
-/// and `Y > 1` each item of the array is accessed as a `TreeKey` tree.
-/// For `Y = 1` each index of the array is instead accessed as an atomic value.
-/// For a depth `Y = 0` (attribute absent), the entire array is accessed as one atomic value.
-///
-/// The `depth` to use on the array depends on the desired semantics of the data contained
-/// in the array. If the array contains `TreeKey` items, you likely want use `Y >= 2`.
-/// However, if each element in the array should be individually configurable as a single
-/// value (e.g. a list of `u32`), then `Y = 1` can be used.
-/// With `Y = 0` all items are to be accessed simultaneously and atomically.
-/// For e.g. `[[T; 2]; 3] where T: TreeKey<3>` the recursion depth is `Y = 3 + 1 + 1 = 5`.
-/// It automatically implements `TreeKey<5>`.
-/// For `[[T; 2]; 3]` with `T: Serialize`/`T: Deserialize`/`T: Any` any `Y <= 2` trait is
-/// implemented.
+/// [`[T; N]`](core::array).
 ///
 /// # Option
 ///
-/// Blanket implementations of the `TreeKey` traits are provided for [`Option<T>`]
-/// up to recursion depth `Y = 16`.
+/// Blanket implementations of the `TreeKey` traits are provided for [`Option<T>`].
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the
@@ -243,11 +179,6 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// by [`TreeKey::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
 /// [`TreeDeserialize::deserialize_by_key()`], [`TreeAny::ref_any_by_key()`], or
 /// [`TreeAny::mut_any_by_key()`]) return the special [`Traversal::Absent`].
-///
-/// If the depth specified by the `#[tree(depth=Y)]` attribute exceeds 1,
-/// the `Option` can be used to access the inner type using its `TreeKey<{Y - 1}>` trait.
-/// If there is no `tree` attribute on an `Option` field in a `struct or in an array,
-/// JSON `null` corresponds to `None` as usual and the `TreeKey` trait is not used.
 ///
 /// # Examples
 ///
@@ -299,11 +230,13 @@ pub trait TreeKey {
     ///
     /// # Returns
     /// Node depth on success (number of keys consumed/number of calls to `func`)
+    ///
+    /// # Design note
+    /// Writing this to return an iterator instead of using a callback
+    /// would have worse performance (O(n^2) instead of O(n) for matching)
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        // Writing this to return an iterator instead of using a callback
-        // would have worse performance (O(n^2) instead of O(n) for matching)
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>;
 
     /// Transcode keys to a new keys type representation
@@ -372,8 +305,8 @@ pub trait TreeKey {
     /// runtime (see [`TreeKey#option`]).
     /// An iterator with an exact and trusted `size_hint()` can be obtained from
     /// this through [`NodeIter::exact_size()`].
-    /// The maximum key depth may be selected independently of `Y` through the `D`
-    /// const generic of [`NodeIter`].
+    /// The `D`
+    /// const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// Potential [`Transcode`] targets:
     ///
@@ -487,74 +420,6 @@ pub trait TreeAny: TreeKey {
     }
 }
 
-impl<T: TreeKey> TreeKey for &T {
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        T::traverse_all()
-    }
-
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        // Writing this to return an iterator instead of using a callback
-        // would have worse performance (O(n^2) instead of O(n) for matching)
-        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
-    }
-}
-
-impl<T: TreeSerialize> TreeSerialize for &T {
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
-    where
-        K: Keys,
-        S: Serializer,
-    {
-        T::serialize_by_key(self, keys, ser)
-    }
-}
-
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Keys,
-        D: Deserializer<'de>,
-    {
-        T::deserialize_by_key(self, keys, de)
-    }
-}
-
-impl<T: TreeKey> TreeKey for &mut T {
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        T::traverse_all()
-    }
-
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        // Writing this to return an iterator instead of using a callback
-        // would have worse performance (O(n^2) instead of O(n) for matching)
-        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
-    }
-}
-
-impl<T: TreeAny> TreeAny for &mut T {
-    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
-    where
-        K: Keys,
-    {
-        T::ref_any_by_key(self, keys)
-    }
-
-    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
-    where
-        K: Keys,
-    {
-        T::mut_any_by_key(self, keys)
-    }
-}
-
 // # Alternative serialize/deserialize designs
 //
 // One could have (ab)used a custom `Serializer`/`Deserializer` wrapper for this but that would be inefficient:
@@ -648,3 +513,67 @@ pub trait TreeDeserialize<'de>: TreeKey {
 /// Shorthand for owned deserialization through [`TreeDeserialize`].
 pub trait TreeDeserializeOwned: for<'de> TreeDeserialize<'de> {}
 impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
+
+impl<T: TreeKey> TreeKey for &T {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for &T {
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        T::serialize_by_key(self, keys, ser)
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        T::deserialize_by_key(self, keys, de)
+    }
+}
+
+impl<T: TreeKey> TreeKey for &mut T {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeAny> TreeAny for &mut T {
+    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        T::ref_any_by_key(self, keys)
+    }
+
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        T::mut_any_by_key(self, keys)
+    }
+}
