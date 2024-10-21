@@ -24,6 +24,8 @@ mod iter;
 pub use iter::*;
 mod pad;
 pub use pad::*;
+mod leaf;
+pub use leaf::*;
 mod walk;
 pub use walk::*;
 
