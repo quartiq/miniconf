@@ -19,50 +19,43 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node};
+use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
-enum Either {
+pub enum Either {
     #[default]
     Bad,
     Good,
-    A(i32),
-    B(#[tree(depth=1)] Inner),
-    C(#[tree(depth=2)] [Inner; 2]),
+    A(Leaf<i32>),
+    B(Inner),
+    C([Inner; 2]),
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
-struct Inner {
-    a: i32,
-    b: i32,
+pub struct Inner {
+    a: Leaf<i32>,
+    b: Leaf<i32>,
 }
 
 #[derive(Tree, Default)]
-struct Settings {
-    foo: bool,
-    enum_: Either,
-    struct_: Inner,
-    array: [i32; 2],
-    option: Option<i32>,
+pub struct Settings {
+    foo: Leaf<bool>,
+    enum_: Leaf<Either>,
+    struct_: Leaf<Inner>,
+    array: Leaf<[i32; 2]>,
+    option: Leaf<Option<i32>>,
 
     #[tree(skip)]
     #[allow(unused)]
     skipped: (),
 
-    #[tree(depth=1)]
     struct_tree: Inner,
-    #[tree(depth=3)]
     enum_tree: Either,
-    #[tree(depth=1)]
-    array_tree: [i32; 2],
-    #[tree(depth=2)]
+    array_tree: [Leaf<i32>; 2],
     array_tree2: [Inner; 2],
 
-    #[tree(depth=1)]
-    option_tree: Option<i32>,
-    #[tree(depth=2)]
+    option_tree: Option<Leaf<i32>>,
     option_tree2: Option<Inner>,
-    #[tree(depth=3)]
     array_option_tree: [Option<Inner>; 2],
 }
 
@@ -70,7 +63,7 @@ let mut settings = Settings::default();
 
 // Atomic updates by field name
 json::set(&mut settings,"/foo", b"true")?;
-assert_eq!(settings.foo, true);
+assert_eq!(*settings.foo, true);
 json::set(&mut settings, "/enum_", br#""Good""#)?;
 json::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
 json::set(&mut settings, "/array", b"[6, 6]")?;
@@ -96,7 +89,7 @@ json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(Traversal::Absent(1).into()));
-settings.option_tree = Some(0);
+settings.option_tree = Some(0.into());
 json::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());
@@ -112,7 +105,7 @@ let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Iterating over all paths
-for path in Settings::nodes::<Path<heapless::String<32>, '/'>>() {
+for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 4>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
     // Serialize each

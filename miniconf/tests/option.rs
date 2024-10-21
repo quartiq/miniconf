@@ -1,22 +1,21 @@
-use miniconf::{json, Error, Traversal, Tree};
+use miniconf::{json, Error, Leaf, Traversal, Tree};
 
 mod common;
 use common::*;
 
 #[derive(PartialEq, Debug, Clone, Default, Tree)]
 struct Inner {
-    data: u32,
+    data: Leaf<u32>,
 }
 
 #[derive(Debug, Clone, Default, Tree)]
 struct Settings {
-    #[tree(depth = 2)]
     value: Option<Inner>,
 }
 
 #[test]
 fn just_option() {
-    assert_eq!(paths::<Option<u32>, 1>(), [""]);
+    assert_eq!(paths::<Option<Leaf<u32>>>(), [""]);
 }
 
 #[test]
@@ -46,30 +45,30 @@ fn option_get_set_some() {
     let mut settings = Settings::default();
 
     // Check that if the option is Some, the value can be get or set.
-    settings.value.replace(Inner { data: 5 });
+    settings.value.replace(Inner { data: 5.into() });
 
     set_get(&mut settings, "/value/data", b"7");
-    assert_eq!(settings.value.unwrap().data, 7);
+    assert_eq!(*settings.value.unwrap().data, 7);
 }
 
 #[test]
 fn option_iterate_some_none() {
-    assert_eq!(paths::<Settings, 3>(), ["/value/data"]);
+    assert_eq!(paths::<Settings>(), ["/value/data"]);
 }
 
 #[test]
 fn option_test_normal_option() {
     #[derive(Copy, Clone, Default, Tree)]
     struct S {
-        data: Option<u32>,
+        data: Leaf<Option<u32>>,
     }
-    assert_eq!(paths::<S, 1>(), ["/data"]);
+    assert_eq!(paths::<S>(), ["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
 
     set_get(&mut s, "/data", b"7");
-    assert_eq!(s.data, Some(7));
+    assert_eq!(*s.data, Some(7));
 
     set_get(&mut s, "/data", b"null");
     assert!(s.data.is_none());
@@ -79,18 +78,17 @@ fn option_test_normal_option() {
 fn option_test_defer_option() {
     #[derive(Copy, Clone, Default, Tree)]
     struct S {
-        #[tree(depth = 1)]
-        data: Option<u32>,
+        data: Option<Leaf<u32>>,
     }
-    assert_eq!(paths::<S, 2>(), ["/data"]);
+    assert_eq!(paths::<S>(), ["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
 
     assert!(json::set(&mut s, "/data", b"7").is_err());
-    s.data = Some(0);
+    s.data = Some(0.into());
     set_get(&mut s, "/data", b"7");
-    assert_eq!(s.data, Some(7));
+    assert_eq!(s.data, Some(7.into()));
 
     assert!(json::set(&mut s, "/data", b"null").is_err());
 }
@@ -102,9 +100,7 @@ fn option_absent() {
 
     #[derive(Copy, Clone, Default, Tree)]
     struct S {
-        #[tree(depth = 1)]
-        d: Option<u32>,
-        #[tree(depth = 2)]
+        d: Option<Leaf<u32>>,
         dm: Option<I>,
     }
 
@@ -120,13 +116,13 @@ fn option_absent() {
     );
     assert_eq!(
         json::set(&mut s, "/d/foo", b"7"),
-        Err(Traversal::TooLong(1).into())
+        Err(Traversal::Absent(1).into())
     );
     assert_eq!(
         json::set(&mut s, "", b"7"),
         Err(Traversal::TooShort(0).into())
     );
-    s.d = Some(3);
+    s.d = Some(3.into());
     assert_eq!(json::set(&mut s, "/d", b"7"), Ok(1));
     assert_eq!(
         json::set(&mut s, "/d/foo", b"7"),
@@ -149,11 +145,8 @@ fn array_option() {
     // This tests that no invalid bounds are inferred for Options and Options in arrays.
     #[derive(Copy, Clone, Default, Tree)]
     struct S {
-        #[tree(depth = 1)]
-        a: Option<u32>,
-        #[tree(depth = 1)]
-        b: [Option<u32>; 1],
-        #[tree(depth = 2)]
-        c: [Option<u32>; 1],
+        a: Option<Leaf<u32>>,
+        b: [Leaf<Option<u32>>; 1],
+        c: [Option<Leaf<u32>>; 1],
     }
 }

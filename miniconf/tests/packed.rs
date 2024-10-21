@@ -1,10 +1,9 @@
-use miniconf::{Indices, Node, Packed, Path, Traversal, Tree, TreeKey, TreeSerialize};
+use miniconf::{Indices, Leaf, Node, Packed, Path, Traversal, Tree, TreeKey, TreeSerialize};
 
 #[derive(Tree, Default)]
 struct Settings {
-    a: f32,
-    #[tree(depth = 1)]
-    b: [f32; 2],
+    a: Leaf<f32>,
+    b: [Leaf<f32>; 2],
 }
 
 #[test]
@@ -16,7 +15,7 @@ fn packed() {
     );
 
     // Check path-packed round trip.
-    for (iter_path, _node) in Settings::nodes::<Path<String, '/'>>()
+    for (iter_path, _node) in Settings::nodes::<Path<String, '/'>, 2>()
         .exact_size()
         .map(Result::unwrap)
     {
@@ -31,7 +30,7 @@ fn packed() {
     }
     println!(
         "{:?}",
-        Settings::nodes::<Packed>()
+        Settings::nodes::<Packed, 2>()
             .map(|p| p.unwrap().0.into_lsb().get())
             .collect::<Vec<_>>()
     );
@@ -47,18 +46,17 @@ fn packed() {
 fn top() {
     #[derive(Tree)]
     struct S {
-        #[tree(depth = 1)]
-        baz: [i32; 0],
-        foo: i32,
+        baz: [Leaf<i32>; 0],
+        foo: Leaf<i32>,
     }
     assert_eq!(
-        S::nodes::<Path<String, '/'>>()
+        S::nodes::<Path<String, '/'>, 2>()
             .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
         ["/foo"]
     );
     assert_eq!(
-        S::nodes::<Indices<_>>()
+        S::nodes::<Indices<_>, 2>()
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
         [(Indices([1, 0]), Node::leaf(1))]
@@ -66,7 +64,7 @@ fn top() {
     let (p, node) = S::transcode::<Packed, _>([1usize]).unwrap();
     assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
     assert_eq!(
-        S::nodes::<Packed>()
+        S::nodes::<Packed, 2>()
             .map(|p| p.unwrap().0.into_lsb().get())
             .collect::<Vec<_>>(),
         [0b11]
@@ -76,7 +74,7 @@ fn top() {
 #[test]
 fn zero_key() {
     assert_eq!(
-        Option::<()>::nodes::<Packed>()
+        Option::<Leaf<()>>::nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -87,7 +85,7 @@ fn zero_key() {
     );
 
     assert_eq!(
-        <[usize; 1]>::nodes::<Packed>()
+        <[Leaf<usize>; 1]>::nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -99,8 +97,8 @@ fn zero_key() {
 
     // Check the corner case of a len=1 index where (len - 1) = 0 and zero bits would be required to encode.
     // Hence the Packed values for len=1 and len=2 are the same.
-    let mut a11 = [[0]];
-    let mut a22 = [[0, 0], [0, 0]];
+    let mut a11 = [[Leaf(0)]];
+    let mut a22 = [[Leaf(0); 2]; 2];
     let mut buf = [0u8; 100];
     let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
     for (depth, result) in [
@@ -112,7 +110,7 @@ fn zero_key() {
     .enumerate()
     {
         assert_eq!(
-            TreeSerialize::<2>::serialize_by_key(
+            TreeSerialize::serialize_by_key(
                 &mut a11,
                 Packed::from_lsb((0b1 << depth).try_into().unwrap()),
                 &mut ser
@@ -120,7 +118,7 @@ fn zero_key() {
             *result
         );
         assert_eq!(
-            TreeSerialize::<2>::serialize_by_key(
+            TreeSerialize::serialize_by_key(
                 &mut a22,
                 Packed::from_lsb((0b1 << depth).try_into().unwrap()),
                 &mut ser
@@ -138,10 +136,11 @@ fn size() {
     // Worst case for a 32 bit usize we need 31 array levels (marker bit) but TreeKey is only implemented to 16
     // Easiest way to get to 32 bit is to take 15 length-3 (2 bit) levels and one length-1 (1 bit) level to fill it, needing (3**15 ~ 14 M) storage.
     // With the unit as type, we need 0 storage but can't do much.
-    type A16 = [[[[[[[[[[[[[[[[(); 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 1];
+    type A16 =
+        [[[[[[[[[[[[[[[[Leaf<()>; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 1];
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
-    let (path, node) = <A16 as TreeKey<16>>::transcode::<Path<String, '/'>, _>(packed).unwrap();
+    let (path, node) = <A16 as TreeKey>::transcode::<Path<String, '/'>, _>(packed).unwrap();
     assert_eq!(node, Node::leaf(16));
     assert_eq!(path.as_str().len(), 2 * 16);
 }

@@ -262,10 +262,10 @@ impl IntoKeys for Packed {
 }
 
 impl Transcode for Packed {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys,
     {
         M::traverse_by_key(keys.into_keys(), |index, _name, len: usize| {

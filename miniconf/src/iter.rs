@@ -73,7 +73,7 @@ impl<T: Keys> IntoKeys for Consume<T> {
 /// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
 /// not have sufficient capacity and failed to encode the key at the given depth.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
+pub struct NodeIter<M: ?Sized, N, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
@@ -84,7 +84,7 @@ pub struct NodeIter<M: ?Sized, const Y: usize, N, const D: usize = Y> {
     _m: PhantomData<M>,
 }
 
-impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N, D> {
+impl<M: ?Sized, N, const D: usize> Default for NodeIter<M, N, D> {
     fn default() -> Self {
         Self {
             state: [0; D],
@@ -97,12 +97,12 @@ impl<M: ?Sized, const Y: usize, N, const D: usize> Default for NodeIter<M, Y, N,
     }
 }
 
-impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N, D> {
+impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
-        let node = self.state.transcode::<M, Y, _>(root)?;
+        let node = self.state.transcode::<M, _>(root)?;
         self.root = node.depth();
         self.depth = D + 1;
         Ok(self)
@@ -117,14 +117,15 @@ impl<M: TreeKey<Y> + ?Sized, const Y: usize, N, const D: usize> NodeIter<M, Y, N
         assert!(self.depth == D + 1);
         assert!(self.root == 0);
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker
-        assert!(D >= Y);
-        ExactSize::new(self, M::traverse_all::<Metadata>().unwrap().count)
+        let meta = M::traverse_all::<Metadata>().unwrap();
+        assert!(D >= meta.max_depth);
+        ExactSize::new(self, meta.count)
     }
 }
 
-impl<M, const Y: usize, N, const D: usize> Iterator for NodeIter<M, Y, N, D>
+impl<M, N, const D: usize> Iterator for NodeIter<M, N, D>
 where
-    M: TreeKey<Y> + ?Sized,
+    M: TreeKey + ?Sized,
     N: Transcode + Default,
 {
     type Item = Result<(N, Node), usize>;
@@ -167,7 +168,7 @@ where
 }
 
 /// Do not allow manipulation of `depth` other than through iteration .
-impl<M: TreeKey<Y> + ?Sized, const Y: usize, N: Transcode + Default, const D: usize>
-    core::iter::FusedIterator for NodeIter<M, Y, N, D>
+impl<M: TreeKey + ?Sized, N: Transcode + Default, const D: usize> core::iter::FusedIterator
+    for NodeIter<M, N, D>
 {
 }

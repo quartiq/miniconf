@@ -89,9 +89,9 @@ enum Error {
     Utf8(#[from] core::str::Utf8Error),
 }
 
-struct ScpiCtrl<M, const Y: usize>(M);
+struct ScpiCtrl<M>(M);
 
-impl<M: TreeSerialize<Y> + TreeDeserializeOwned<Y>, const Y: usize> ScpiCtrl<M, Y> {
+impl<M: TreeSerialize + TreeDeserializeOwned> ScpiCtrl<M> {
     fn new(settings: M) -> Self {
         Self(settings)
     }

@@ -7,16 +7,15 @@
 //! `TreeKey::nodes::<Path<_, '/'>>()`.
 //!
 //! ```
-//! use miniconf::{json, Tree};
+//! use miniconf::{json, Leaf, Tree};
 //! #[derive(Tree, Default)]
 //! struct S {
-//!     foo: u32,
-//!     #[tree(depth = 1)]
-//!     bar: [u16; 2],
+//!     foo: Leaf<u32>,
+//!     bar: [Leaf<u16>; 2],
 //! };
 //! let mut s = S::default();
 //! json::set(&mut s, "/bar/1", b"9").unwrap();
-//! assert_eq!(s.bar[1], 9);
+//! assert_eq!(*s.bar[1], 9);
 //! let mut buf = [0u8; 10];
 //! let len = json::get(&mut s, "/bar/1", &mut buf[..]).unwrap();
 //! assert_eq!(&buf[..len], b"9");
@@ -35,7 +34,7 @@ use crate::{Error, IntoKeys, Path, TreeDeserialize, TreeSerialize};
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
-pub fn set<'de, T: TreeDeserialize<'de, Y> + ?Sized, const Y: usize>(
+pub fn set<'de, T: TreeDeserialize<'de> + ?Sized>(
     tree: &mut T,
     path: &str,
     data: &'de [u8],
@@ -52,7 +51,7 @@ pub fn set<'de, T: TreeDeserialize<'de, Y> + ?Sized, const Y: usize>(
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
-pub fn get<T: TreeSerialize<Y> + ?Sized, const Y: usize>(
+pub fn get<T: TreeSerialize + ?Sized>(
     tree: &T,
     path: &str,
     data: &mut [u8],
@@ -64,7 +63,7 @@ pub fn get<T: TreeSerialize<Y> + ?Sized, const Y: usize>(
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
-pub fn set_by_key<'de, T: TreeDeserialize<'de, Y> + ?Sized, const Y: usize, K: IntoKeys>(
+pub fn set_by_key<'de, T: TreeDeserialize<'de> + ?Sized, K: IntoKeys>(
     tree: &mut T,
     keys: K,
     data: &'de [u8],
@@ -78,7 +77,7 @@ pub fn set_by_key<'de, T: TreeDeserialize<'de, Y> + ?Sized, const Y: usize, K: I
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
-pub fn get_by_key<T: TreeSerialize<Y> + ?Sized, const Y: usize, K: IntoKeys>(
+pub fn get_by_key<T: TreeSerialize + ?Sized, K: IntoKeys>(
     tree: &T,
     keys: K,
     data: &mut [u8],
