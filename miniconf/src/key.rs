@@ -92,6 +92,15 @@ pub trait Keys {
     /// Finalize the keys, ensure there are no more.
     fn finalize(&mut self) -> bool;
 
+    /// Finalize and convert to Result
+    fn finish(&mut self) -> Result<usize, Traversal> {
+        if self.finalize() {
+            Ok(0)
+        } else {
+            Err(Traversal::TooLong(0))
+        }
+    }
+
     /// Chain another `Keys` to this one.
     fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
     where

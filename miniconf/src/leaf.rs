@@ -53,18 +53,6 @@ impl<T> From<T> for Leaf<T> {
     }
 }
 
-impl<'a, T: ?Sized> From<&'a T> for &'a Leaf<T> {
-    fn from(value: &'a T) -> Self {
-        Leaf::ref_cast(value)
-    }
-}
-
-impl<'a, T: ?Sized> From<&'a mut T> for &'a mut Leaf<T> {
-    fn from(value: &'a mut T) -> Self {
-        Leaf::ref_cast_mut(value)
-    }
-}
-
 impl<T: ?Sized> TreeKey for Leaf<T> {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         Ok(W::leaf())
@@ -75,11 +63,7 @@ impl<T: ?Sized> TreeKey for Leaf<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        if !keys.finalize() {
-            Err(Traversal::TooLong(0).into())
-        } else {
-            Ok(0)
-        }
+        Ok(keys.finish()?)
     }
 }
 
@@ -89,9 +73,7 @@ impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
         K: Keys,
         S: Serializer,
     {
-        if !keys.finalize() {
-            Err(Traversal::TooLong(0))?;
-        }
+        keys.finish()?;
         self.0.serialize(ser).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
@@ -103,9 +85,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        if !keys.finalize() {
-            Err(Traversal::TooLong(0))?;
-        }
+        keys.finish()?;
         self.0 = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
@@ -116,9 +96,7 @@ impl<T: Any> TreeAny for Leaf<T> {
     where
         K: Keys,
     {
-        if !keys.finalize() {
-            Err(Traversal::TooLong(0))?;
-        }
+        keys.finish()?;
         Ok(&self.0)
     }
 
@@ -126,9 +104,7 @@ impl<T: Any> TreeAny for Leaf<T> {
     where
         K: Keys,
     {
-        if !keys.finalize() {
-            Err(Traversal::TooLong(0))?;
-        }
+        keys.finish()?;
         Ok(&mut self.0)
     }
 }
