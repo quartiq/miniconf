@@ -54,7 +54,7 @@ required-features = ["derive"]
 
 [[test]]
 name = "generics"
-required-features = ["json-core", "derive", "disabled"]
+required-features = ["json-core", "derive"]
 
 [[test]]
 name = "iter"

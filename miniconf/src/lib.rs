@@ -39,3 +39,25 @@ pub mod postcard;
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+
+struct S<T>(Leaf<T>);
+impl<T> TreeKey for S<T> {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        unimplemented!()
+    }
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E> {
+        unimplemented!()
+    }
+}
+impl<T> TreeSerialize for S<T> {
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer {
+        unimplemented!()
+    }
+}

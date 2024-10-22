@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 #[test]
 fn generic_type() {
     #[derive(Tree, Default)]
-    struct Settings<T> {
+    struct Settings<T: Serialize + DeserializeOwned + 'static> {
         pub data: Leaf<T>,
     }
 
@@ -24,14 +24,14 @@ fn generic_type() {
 #[test]
 fn generic_array() {
     #[derive(Tree, Default)]
-    struct Settings<T> {
+    struct Settings<T: Serialize + DeserializeOwned + 'static> {
         pub data: [Leaf<T>; 2],
     }
 
     let mut settings = Settings::<f32>::default();
     json::set(&mut settings, "/data/0", b"3.0").unwrap();
 
-    assert_eq!(settings.data[0], 3.0);
+    assert_eq!(*settings.data[0], 3.0);
 
     // Test metadata
     let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
@@ -43,8 +43,8 @@ fn generic_array() {
 #[test]
 fn generic_struct() {
     #[derive(Tree, Default)]
-    struct Settings<T> {
-        pub inner: T,
+    struct Settings<T: Serialize + DeserializeOwned + 'static> {
+        pub inner: Leaf<T>,
     }
 
     #[derive(Serialize, Deserialize, Default)]
@@ -67,10 +67,10 @@ fn generic_struct() {
 #[test]
 fn generic_atomic() {
     #[derive(Tree, Default)]
-    struct Settings<T> {
+    struct Settings<T: Serialize + DeserializeOwned + 'static> {
         atomic: Leaf<Inner<T>>,
-        opt: [[Option<T>; 0]; 0],
-        opt1: [[Option<T>; 0]; 0],
+        opt: [[Leaf<Option<T>>; 0]; 0],
+        opt1: [[Option<Leaf<T>>; 0]; 0],
     }
 
     #[derive(Deserialize, Serialize, Default)]
@@ -112,8 +112,8 @@ fn test_derive_macro_bound_failure() {
 fn test_depth() {
     #[derive(Tree)]
     struct S<T>(Option<Option<T>>);
-    // works as array implements Tree<1>
-    S::<[u32; 1]>::traverse_all::<Metadata>().unwrap();
-    // does not compile as u32 does not implement Tree<1>
+    // works as array implements Tree
+    S::<[Leaf<u32>; 1]>::traverse_all::<Metadata>().unwrap();
+    // does not compile as u32 does not implement Tree
     // S::<u32>::traverse_all::<Metadata>();
 }
