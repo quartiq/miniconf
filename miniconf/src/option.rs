@@ -24,8 +24,9 @@ impl<T: TreeSerialize> TreeSerialize for Option<T> {
         K: Keys,
         S: Serializer,
     {
-        let inner = self.as_ref().ok_or(Traversal::Absent(0))?;
-        inner.serialize_by_key(keys, ser)
+        self.as_ref()
+            .ok_or(Traversal::Absent(0))?
+            .serialize_by_key(keys, ser)
     }
 }
 
@@ -35,8 +36,9 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        let inner = self.as_mut().ok_or(Traversal::Absent(0))?;
-        inner.deserialize_by_key(keys, de)
+        self.as_mut()
+            .ok_or(Traversal::Absent(0))?
+            .deserialize_by_key(keys, de)
     }
 }
 
@@ -45,15 +47,17 @@ impl<T: TreeAny> TreeAny for Option<T> {
     where
         K: Keys,
     {
-        let inner = self.as_ref().ok_or(Traversal::Absent(0))?;
-        inner.ref_any_by_key(keys)
+        self.as_ref()
+            .ok_or(Traversal::Absent(0))?
+            .ref_any_by_key(keys)
     }
 
     fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
-        let inner = self.as_mut().ok_or(Traversal::Absent(0))?;
-        inner.mut_any_by_key(keys)
+        self.as_mut()
+            .ok_or(Traversal::Absent(0))?
+            .mut_any_by_key(keys)
     }
 }
