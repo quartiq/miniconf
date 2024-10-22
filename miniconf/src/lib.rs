@@ -19,7 +19,7 @@ mod tree;
 pub use tree::*;
 mod array;
 mod option;
-// mod tuple;
+mod tuple;
 mod iter;
 pub use iter::*;
 mod leaf;

@@ -4,22 +4,20 @@ use strum::{AsRefStr, EnumString};
 mod common;
 use common::*;
 
-// TODO
+#[derive(Tree, Default, PartialEq, Debug)]
+struct Inner {
+    a: Leaf<i32>,
+}
 
-// #[derive(Tree, Default, PartialEq, Debug)]
-// struct Inner {
-//     a: Leaf<i32>,
-// }
-
-// #[derive(Tree, Default, EnumString, AsRefStr, PartialEq, Debug)]
-// enum Enum {
-//     #[default]
-//     None,
-//     #[strum(serialize = "foo")]
-//     #[tree(rename = "foo")]
-//     A(Leaf<i32>),
-//     B(Inner),
-// }
+#[derive(Tree, Default, EnumString, AsRefStr, PartialEq, Debug)]
+enum Enum {
+    #[default]
+    None,
+    #[strum(serialize = "foo")]
+    #[tree(rename = "foo")]
+    A(Leaf<i32>),
+    B(Inner),
+}
 
 // #[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
 // struct Settings {
@@ -30,7 +28,10 @@ use common::*;
 
 // impl Settings {
 //     fn get_tag(&self) -> Result<&Leaf<&str>, &'static str> {
-//         Ok(Leaf(self.en.as_ref()))
+//         Ok(&Leaf(self.en.as_ref()))
+//     }
+//     fn get_mut(&mut self) -> Result<&mut Leaf<&str>, &'static str> {
+
 //     }
 
 //     fn set_tag(&mut self, depth: usize) -> Result<usize, &'static str> {

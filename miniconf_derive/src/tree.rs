@@ -392,17 +392,7 @@ fn walk_type_params(typ: &syn::Type, bound: &syn::TraitBound, generics: &mut syn
             } else {
                 // Analyze the type parameters of the type, as they may be generics for us as well
                 // This tries to reproduce the bounds that field types place on
-                // their generic types, directly or indirectly. For this the API depth (the const generic
-                // param to `TreeKey<Y>` etc) is determined as follows:
-                //
-                // Assume that all types use their generic T at
-                // relative depth 1, i.e.
-                // * if `#[tree(depth(Y > 1))] a: S<T>` then `T: Tree{Key,Serialize,Deserialize}<Y - 1>`
-                // * else (that is if `Y = 1` or `a: S<T>` without `#[tree]`) then
-                //   `T: serde::{Serialize,Deserialize}`
-                //
-                // And analogously for nested types `S<T<U>>` and `[[T; ..]; ..]` etc.
-                // This is correct for all types in this library (Option, array, structs with the derive macro).
+                // their generic types, directly or indirectly.
                 //
                 // The bounds are conservative (might not be required) and
                 // fragile (might apply the wrong bound).
