@@ -51,8 +51,8 @@ impl<T: Keys> Keys for Consume<T> {
         self.0.next(lookup)
     }
 
-    fn finalize(&mut self) -> bool {
-        true
+    fn finalize(&mut self) -> Result<(), Traversal> {
+        Ok(())
     }
 }
 impl<T: Keys> IntoKeys for Consume<T> {

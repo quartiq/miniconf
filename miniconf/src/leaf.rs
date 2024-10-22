@@ -63,7 +63,8 @@ impl<T: ?Sized> TreeKey for Leaf<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
-        Ok(keys.finish()?)
+        keys.finalize()?;
+        Ok(0)
     }
 }
 
@@ -73,7 +74,7 @@ impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
         K: Keys,
         S: Serializer,
     {
-        keys.finish()?;
+        keys.finalize()?;
         self.0.serialize(ser).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
@@ -85,7 +86,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finish()?;
+        keys.finalize()?;
         self.0 = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
@@ -96,7 +97,7 @@ impl<T: Any> TreeAny for Leaf<T> {
     where
         K: Keys,
     {
-        keys.finish()?;
+        keys.finalize()?;
         Ok(&self.0)
     }
 
@@ -104,7 +105,7 @@ impl<T: Any> TreeAny for Leaf<T> {
     where
         K: Keys,
     {
-        keys.finish()?;
+        keys.finalize()?;
         Ok(&mut self.0)
     }
 }

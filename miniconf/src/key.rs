@@ -101,16 +101,7 @@ pub trait Keys {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
-    fn finalize(&mut self) -> bool;
-
-    /// Finalize and convert to Result
-    fn finish(&mut self) -> Result<usize, Traversal> {
-        if self.finalize() {
-            Ok(0)
-        } else {
-            Err(Traversal::TooLong(0))
-        }
-    }
+    fn finalize(&mut self) -> Result<(), Traversal>;
 
     /// Chain another `Keys` to this one.
     fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
@@ -129,7 +120,7 @@ where
         T::next(self, lookup)
     }
 
-    fn finalize(&mut self) -> bool {
+    fn finalize(&mut self) -> Result<(), Traversal> {
         T::finalize(self)
     }
 }
@@ -151,12 +142,15 @@ where
     T::Item: Key,
 {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        let key = self.0.next().ok_or(Traversal::TooShort(0))?;
-        key.find(lookup)
+        self.0.next().ok_or(Traversal::TooShort(0))?.find(lookup)
     }
 
-    fn finalize(&mut self) -> bool {
-        self.0.next().is_none()
+    fn finalize(&mut self) -> Result<(), Traversal> {
+        self.0
+            .next()
+            .is_none()
+            .then_some(())
+            .ok_or(Traversal::TooLong(0))
     }
 }
 
@@ -199,8 +193,8 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
         }
     }
 
-    fn finalize(&mut self) -> bool {
-        self.0.finalize() && self.1.finalize()
+    fn finalize(&mut self) -> Result<(), Traversal> {
+        self.0.finalize().and_then(|()| self.1.finalize())
     }
 }
 

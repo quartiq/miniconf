@@ -247,8 +247,10 @@ impl Keys for Packed {
     }
 
     #[inline]
-    fn finalize(&mut self) -> bool {
+    fn finalize(&mut self) -> Result<(), Traversal> {
         Packed::is_empty(self)
+            .then_some(())
+            .ok_or(Traversal::TooLong(0))
     }
 }
 
