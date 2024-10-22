@@ -156,6 +156,16 @@ impl Tree {
         generics
     }
 
+    fn index(&self) -> TokenStream {
+        if self.flatten.is_present() {
+            quote!(::core::result::Result::<usize, ::miniconf::Traversal>::Ok(
+                0
+            ))
+        } else {
+            quote!(::miniconf::Keys::next(&mut keys, &Self::__MINICONF_LOOKUP))
+        }
+    }
+
     pub fn tree_key(&self) -> TokenStream {
         let ident = &self.ident;
         let generics = self.bound_generics(parse_quote!(::miniconf::TreeKey));
@@ -197,12 +207,11 @@ impl Tree {
             None => quote!(::core::option::Option::None),
             Some(names) => quote!(::core::option::Option::Some(&[#(#names ,)*])),
         };
-
-        let (index, traverse, increment) = if self.flatten.is_present() {
-            (quote!(0), None, None)
+        let index = self.index();
+        let (traverse, increment) = if self.flatten.is_present() {
+            (None, None)
         } else {
             (
-                quote!(::miniconf::Keys::next(&mut keys, &Self::__MINICONF_LOOKUP)?),
                 Some(quote! {
                     let name = Self::__MINICONF_LOOKUP.lookup(index)?;
                     func(index, name, Self::__MINICONF_LOOKUP.len)
@@ -220,15 +229,6 @@ impl Tree {
                     len: #fields_len,
                     names: #names,
                 };
-
-                fn __miniconf_lookup<K: ::miniconf::Keys>(mut keys: K) -> ::core::result::Result<usize, ::miniconf::Traversal> {
-                    let index = #index;
-                    if index >= Self::__MINICONF_LOOKUP.len {
-                        ::core::result::Result::Err(::miniconf::Traversal::NotFound(1))
-                    } else {
-                        ::core::result::Result::Ok(index)
-                    }
-                }
             }
 
             #[automatically_derived]
@@ -245,7 +245,7 @@ impl Tree {
                     K: ::miniconf::Keys,
                     F: ::core::ops::FnMut(usize, ::core::option::Option<&'static str>, usize) -> ::core::result::Result<(), E>,
                 {
-                    let index = #index;
+                    let index = #index?;
                     #traverse
                     #[allow(unreachable_code)]
                     #increment(match index {
@@ -260,6 +260,7 @@ impl Tree {
     pub fn tree_serialize(&self) -> TokenStream {
         let ident = &self.ident;
         let generics = self.bound_generics(parse_quote!(::miniconf::TreeSerialize));
+        let index = self.index();
 
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
@@ -274,7 +275,7 @@ impl Tree {
                     K: ::miniconf::Keys,
                     S: ::miniconf::Serializer,
                 {
-                    let index = Self::__miniconf_lookup(&mut keys)?;
+                    let index = #index?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     #increment(match #mat {
@@ -288,7 +289,7 @@ impl Tree {
 
     pub fn tree_deserialize(&self) -> TokenStream {
         let mut generics = self.bound_generics(parse_quote!(::miniconf::TreeDeserialize<'de>));
-
+        let index = self.index();
         let ident = &self.ident;
 
         let orig_generics = generics.clone();
@@ -315,7 +316,7 @@ impl Tree {
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
                 {
-                    let index = Self::__miniconf_lookup(&mut keys)?;
+                    let index = #index?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     #increment(match #mat {
@@ -329,7 +330,7 @@ impl Tree {
 
     pub fn tree_any(&self) -> TokenStream {
         let generics = self.bound_generics(parse_quote!(::miniconf::TreeAny));
-
+        let index = self.index();
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let (mat, ref_arms, default) = self.arms(|f, i| f.ref_any_by_key(i));
@@ -344,7 +345,7 @@ impl Tree {
                 where
                     K: ::miniconf::Keys,
                 {
-                    let index = Self::__miniconf_lookup(&mut keys)?;
+                    let index = #index?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {
@@ -360,7 +361,7 @@ impl Tree {
                 where
                     K: ::miniconf::Keys,
                 {
-                    let index = Self::__miniconf_lookup(&mut keys)?;
+                    let index = #index?;
                     // Note(unreachable) empty structs have diverged by now
                     #[allow(unreachable_code)]
                     {

@@ -29,9 +29,6 @@ macro_rules! impl_tuple {
             {
                 let k = KeyLookup::homogeneous(count_tts!($($t)*));
                 let index = keys.next(&k)?;
-                if index >= k.len {
-                    Err(Traversal::NotFound(1))?
-                }
                 func(index, None, k.len).map_err(|err| Error::Inner(1, err))?;
                 Error::increment_result(match index {
                     $($i => $t::traverse_by_key(keys, func),)*
@@ -49,9 +46,6 @@ macro_rules! impl_tuple {
             {
                 let k = KeyLookup::homogeneous(count_tts!($($t)*));
                 let index = keys.next(&k)?;
-                if index >= k.len {
-                    Err(Traversal::NotFound(1))?
-                }
                 Error::increment_result(match index {
                     $($i => $t::serialize_by_key(&self.$i, keys, ser),)*
                     _ => unreachable!()
@@ -68,9 +62,6 @@ macro_rules! impl_tuple {
             {
                 let k = KeyLookup::homogeneous(count_tts!($($t)*));
                 let index = keys.next(&k)?;
-                if index >= k.len {
-                    Err(Traversal::NotFound(1))?
-                }
                 Error::increment_result(match index {
                     $($i => $t::deserialize_by_key(&mut self.$i, keys, de),)*
                     _ => unreachable!()
@@ -86,9 +77,6 @@ macro_rules! impl_tuple {
             {
                 let k = KeyLookup::homogeneous(count_tts!($($t)*));
                 let index = keys.next(&k)?;
-                if index >= k.len {
-                    Err(Traversal::NotFound(1))?
-                }
                 let ret: Result<_, _> = match index {
                     $($i => $t::ref_any_by_key(&self.$i, keys),)*
                     _ => unreachable!()
@@ -102,9 +90,6 @@ macro_rules! impl_tuple {
             {
                 let k = KeyLookup::homogeneous(count_tts!($($t)*));
                 let index = keys.next(&k)?;
-                if index >= k.len {
-                    Err(Traversal::NotFound(1))?
-                }
                 let ret: Result<_, _> = match index {
                     $($i => $t::mut_any_by_key(&mut self.$i, keys),)*
                     _ => unreachable!()

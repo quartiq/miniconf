@@ -47,14 +47,14 @@ impl KeyLookup {
 /// Convert a `&str` key into a node index on a `KeyLookup`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find(&self, lookup: &KeyLookup) -> Option<usize>;
+    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal>;
 }
 
 impl<T: Key> Key for &T
 where
     T: Key + ?Sized,
 {
-    fn find(&self, lookup: &KeyLookup) -> Option<usize> {
+    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         T::find(self, lookup)
     }
 }
@@ -64,8 +64,13 @@ macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
             #[inline]
-            fn find(&self, _lookup: &KeyLookup) -> Option<usize> {
-                (*self).try_into().ok()
+            fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+                let index = (*self).try_into().or(Err(Traversal::NotFound(1)))?;
+                if index >= lookup.len {
+                    Err(Traversal::NotFound(1))
+                } else {
+                    Ok(index)
+                }
             }
         }
     )+};
@@ -74,10 +79,16 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 // name
 impl Key for str {
-    fn find(&self, lookup: &KeyLookup) -> Option<usize> {
-        match lookup.names {
+    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        let index = match lookup.names {
             Some(names) => names.iter().position(|n| *n == self),
             None => self.parse().ok(),
+        }
+        .ok_or(Traversal::NotFound(1))?;
+        if index >= lookup.len {
+            Err(Traversal::NotFound(1))
+        } else {
+            Ok(index)
         }
     }
 }
@@ -141,7 +152,7 @@ where
 {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         let key = self.0.next().ok_or(Traversal::TooShort(0))?;
-        key.find(lookup).ok_or(Traversal::NotFound(1))
+        key.find(lookup)
     }
 
     fn finalize(&mut self) -> bool {
