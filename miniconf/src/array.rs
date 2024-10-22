@@ -17,9 +17,6 @@ impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        if index >= N {
-            Err(Traversal::NotFound(1))?
-        }
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
         Error::increment_result(T::traverse_by_key(keys, func))
     }
@@ -32,8 +29,7 @@ impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N] {
         S: Serializer,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        let item = self.get(index).ok_or(Traversal::NotFound(1))?;
-        Error::increment_result(item.serialize_by_key(keys, ser))
+        Error::increment_result(self[index].serialize_by_key(keys, ser))
     }
 }
 
@@ -44,8 +40,7 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
         D: Deserializer<'de>,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
-        Error::increment_result(item.deserialize_by_key(keys, de))
+        Error::increment_result(self[index].deserialize_by_key(keys, de))
     }
 }
 
@@ -55,8 +50,9 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
         K: Keys,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        let item = self.get(index).ok_or(Traversal::NotFound(1))?;
-        item.ref_any_by_key(keys).map_err(Traversal::increment)
+        self[index]
+            .ref_any_by_key(keys)
+            .map_err(Traversal::increment)
     }
 
     fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
@@ -64,7 +60,8 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
         K: Keys,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        let item = self.get_mut(index).ok_or(Traversal::NotFound(1))?;
-        item.mut_any_by_key(keys).map_err(Traversal::increment)
+        self[index]
+            .mut_any_by_key(keys)
+            .map_err(Traversal::increment)
     }
 }

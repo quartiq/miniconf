@@ -44,8 +44,7 @@ macro_rules! impl_tuple {
                 K: Keys,
                 S: Serializer,
             {
-                let k = KeyLookup::homogeneous(count_tts!($($t)*));
-                let index = keys.next(&k)?;
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
                 Error::increment_result(match index {
                     $($i => $t::serialize_by_key(&self.$i, keys, ser),)*
                     _ => unreachable!()
@@ -60,8 +59,7 @@ macro_rules! impl_tuple {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let k = KeyLookup::homogeneous(count_tts!($($t)*));
-                let index = keys.next(&k)?;
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
                 Error::increment_result(match index {
                     $($i => $t::deserialize_by_key(&mut self.$i, keys, de),)*
                     _ => unreachable!()
@@ -75,8 +73,7 @@ macro_rules! impl_tuple {
             where
                 K: Keys,
             {
-                let k = KeyLookup::homogeneous(count_tts!($($t)*));
-                let index = keys.next(&k)?;
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
                 let ret: Result<_, _> = match index {
                     $($i => $t::ref_any_by_key(&self.$i, keys),)*
                     _ => unreachable!()
@@ -88,8 +85,7 @@ macro_rules! impl_tuple {
             where
                 K: Keys,
             {
-                let k = KeyLookup::homogeneous(count_tts!($($t)*));
-                let index = keys.next(&k)?;
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
                 let ret: Result<_, _> = match index {
                     $($i => $t::mut_any_by_key(&mut self.$i, keys),)*
                     _ => unreachable!()
