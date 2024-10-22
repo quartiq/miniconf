@@ -215,7 +215,7 @@ impl Tree {
                 Some(quote! {
                     let name = Self::__MINICONF_LOOKUP.lookup(index)?;
                     func(index, name, Self::__MINICONF_LOOKUP.len)
-                    .map_err(|err| ::miniconf::Error::Inner(1, err))?;
+                        .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
             )
