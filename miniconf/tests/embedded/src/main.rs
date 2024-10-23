@@ -9,7 +9,7 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::{debug, hprintln};
 
 use crosstrait::{register, Cast};
-use miniconf::{self, json, IntoKeys, JsonPath, Node, Packed, Path, Tree, TreeAny, TreeKey};
+use miniconf::{self, json, IntoKeys, JsonPath, Leaf, Node, Packed, Path, Tree, TreeAny, TreeKey};
 
 use core::ops::{AddAssign, SubAssign};
 register! { i32 => dyn AddAssign<i32> }
@@ -17,17 +17,14 @@ register! { u32 => dyn SubAssign<u32> }
 
 #[derive(Default, Tree)]
 struct Inner {
-    val: i32,
+    val: Leaf<i32>,
 }
 
 #[derive(Default, Tree)]
 struct Settings {
-    #[tree(depth = 1)]
-    a: [i32; 2],
-    #[tree(depth = 2)]
+    a: [Leaf<i32>; 2],
     i: [Inner; 3],
-    #[tree(depth = 1)]
-    b: Option<i32>,
+    b: Option<Leaf<i32>>,
 }
 
 #[entry]
@@ -63,7 +60,7 @@ fn main() -> ! {
 
     let val: &mut dyn AddAssign<i32> = any.cast().unwrap();
     *val += 5;
-    assert_eq!(s.i[1].val, 3 + 5);
+    assert_eq!(*s.i[1].val, 3 + 5);
 
     hprintln!("success!");
 
