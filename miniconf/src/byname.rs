@@ -13,35 +13,35 @@ use crate::{Error, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSeria
 )]
 #[serde(transparent)]
 #[repr(transparent)]
-pub struct ByName<T: ?Sized>(pub T);
+pub struct StrLeaf<T: ?Sized>(pub T);
 
-impl<T: ?Sized> Deref for ByName<T> {
+impl<T: ?Sized> Deref for StrLeaf<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<T: ?Sized> DerefMut for ByName<T> {
+impl<T: ?Sized> DerefMut for StrLeaf<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T> ByName<T> {
+impl<T> StrLeaf<T> {
     /// Extract just the inner
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
-impl<T> From<T> for ByName<T> {
+impl<T> From<T> for StrLeaf<T> {
     fn from(value: T) -> Self {
         Self(value)
     }
 }
 
-impl<T: ?Sized> TreeKey for ByName<T> {
+impl<T: ?Sized> TreeKey for StrLeaf<T> {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         Ok(W::leaf())
     }
@@ -56,7 +56,7 @@ impl<T: ?Sized> TreeKey for ByName<T> {
     }
 }
 
-impl<T: AsRef<str> + ?Sized> TreeSerialize for ByName<T> {
+impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
     fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
@@ -69,7 +69,7 @@ impl<T: AsRef<str> + ?Sized> TreeSerialize for ByName<T> {
     }
 }
 
-impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for ByName<T> {
+impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Keys,
@@ -82,13 +82,13 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for ByName<T> {
     }
 }
 
-impl<T> TreeAny for ByName<T> {
+impl<T> TreeAny for StrLeaf<T> {
     fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
         keys.finalize()?;
-        Err(Traversal::Access(1, "No Any access for ByName"))
+        Err(Traversal::Access(1, "No Any access for StrLeaf"))
     }
 
     fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
@@ -96,6 +96,6 @@ impl<T> TreeAny for ByName<T> {
         K: Keys,
     {
         keys.finalize()?;
-        Err(Traversal::Access(1, "No Any access for ByName"))
+        Err(Traversal::Access(1, "No Any access for StrLeaf"))
     }
 }

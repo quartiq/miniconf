@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 * The "recursion depth" const generic of the `Tree*` traits has been removed in favor of
-  explicit newtypes implementing the traits for leaf values `Leaf<T>` and `ByName<T>`.
+  explicit newtypes implementing the traits for leaf values `Leaf<T>` and `StrLeaf<T>`.
   This dramatically reduces code duplication, macro usage and complexity.
   It enables any recursion depth, does away with most manual tracking of recursion depth
   in proc macro attributes, and simplifies code and derive macros, at the expense of having
@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * `Leaf` to explicitly manage `Serialize/Deserialize` leaf values.
-* `ByName` to manage values via `AsRef<str>`/`TryFrom<&str>` (e.g. Enums via `strum`)
+* `StrLeaf` to manage values via `AsRef<str>`/`TryFrom<&str>` (e.g. Enums via `strum`)
 * `Tree*` impls for heterogeneous inline tuples up to length 8 (also useful for enum variants)
 * `impl Tree* for &{mut,} T where T: Tree*` blanket impls to simplify usage downstream
 

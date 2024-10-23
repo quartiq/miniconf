@@ -1,4 +1,4 @@
-use miniconf::{json, ByName, Leaf, Tree};
+use miniconf::{json, Leaf, StrLeaf, Tree};
 use strum::{AsRefStr, EnumString};
 
 mod common;
@@ -21,33 +21,33 @@ enum Enum {
 
 #[derive(Tree, Default)]
 struct Settings {
-    tag: ByName<Enum>,
-    #[tree(typ = "Enum", get = Ok(& *self.tag), get_mut = Ok(&mut *self.tag))]
-    #[allow(dead_code)]
-    en: (),
+    #[tree(rename = "tag")]
+    enu: StrLeaf<Enum>,
+    #[tree(rename = "enu", typ = "Enum", get = Ok(& *self.enu), get_mut = Ok(&mut *self.enu))]
+    _enu: (),
 }
 
 #[test]
 fn enum_switch() {
     let mut s = Settings::default();
-    assert_eq!(*s.tag, Enum::None);
+    assert_eq!(*s.enu, Enum::None);
     set_get(&mut s, "/tag", b"\"foo\"");
     assert_eq!(
         json::set(&mut s, "/tag", b"\"bar\""),
         Err(miniconf::Traversal::Invalid(1, "Invalid name").into())
     );
-    assert_eq!(*s.tag, Enum::A(0.into()));
-    set_get(&mut s, "/en/foo", b"99");
-    assert_eq!(*s.tag, Enum::A(99.into()));
+    assert_eq!(*s.enu, Enum::A(0.into()));
+    set_get(&mut s, "/enu/foo", b"99");
+    assert_eq!(*s.enu, Enum::A(99.into()));
     assert_eq!(
-        json::set(&mut s, "/en/B/a", b"99"),
+        json::set(&mut s, "/enu/B/a", b"99"),
         Err(miniconf::Traversal::Absent(2).into())
     );
     set_get(&mut s, "/tag", b"\"B\"");
-    set_get(&mut s, "/en/B/a", b"8");
-    assert_eq!(*s.tag, Enum::B(Inner { a: 8.into() }));
+    set_get(&mut s, "/enu/B/a", b"8");
+    assert_eq!(*s.enu, Enum::B(Inner { a: 8.into() }));
 
-    assert_eq!(paths::<Settings, 3>(), ["/tag", "/en/foo", "/en/B/a"]);
+    assert_eq!(paths::<Settings, 3>(), ["/tag", "/enu/foo", "/enu/B/a"]);
 }
 
 #[test]
