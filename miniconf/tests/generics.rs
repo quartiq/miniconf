@@ -90,6 +90,8 @@ fn generic_atomic() {
 fn test_depth() {
     #[derive(Tree)]
     struct S<T>(Option<Option<T>>);
-    // works as array implements Tree
+    // This works as array implements TreeKey
     S::<[Leaf<u32>; 1]>::traverse_all::<Metadata>().unwrap();
+    // This does not compile as u32 does not implement TreeKey
+    // S::<u32>::traverse_all::<Metadata>();
 }
