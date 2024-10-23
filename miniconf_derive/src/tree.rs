@@ -187,8 +187,9 @@ impl Tree {
 
     pub fn tree_key(&self) -> TokenStream {
         let ident = &self.ident;
-        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
-        let where_clause = self.bound_generics(parse_quote!(::miniconf::TreeKey), where_clause);
+        let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
+        let where_clause =
+            self.bound_generics(parse_quote!(::miniconf::TreeKey), orig_where_clause);
         let fields = self.fields();
         let fields_len = fields.len();
         let traverse_all_arms = fields.iter().enumerate().map(|(i, f)| {
@@ -243,7 +244,7 @@ impl Tree {
         quote! {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
             #[automatically_derived]
-            impl #impl_generics #ident #ty_generics #where_clause {
+            impl #impl_generics #ident #ty_generics #orig_where_clause {
                 const __MINICONF_LOOKUP: ::miniconf::KeyLookup = ::miniconf::KeyLookup {
                     len: #fields_len,
                     names: #names,

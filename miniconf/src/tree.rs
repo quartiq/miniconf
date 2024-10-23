@@ -19,23 +19,25 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
 ///   by some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
 ///   complex notation, see [`crate::JsonPath`].
-/// * [`crate::Packed`] is a variable bit-width compact compressed notation of
+/// * [`crate::Packed`] is a bit-packed compact compressed notation of
 ///   hierarchical compound indices.
+/// * See the `scpi` example for how to implement case-insensitive, relative, and abbreviated/partial
+///   matches.
 ///
 /// # Derive macros
 ///
-/// Derive macros to automatically implement the correct traits on a struct are available through
+/// Derive macros to automatically implement the correct traits on a struct or enum are available through
 /// [`macro@crate::TreeKey`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
 /// and [`macro@crate::TreeAny`].
 /// A shorthand derive macro that derives all four trait implementations is also available at
 /// [`macro@crate::Tree`].
 ///
-/// The derive macros support per-field attribute to control the derived trait implementations.
+/// The derive macros support per-field/per-variant attributes to control the derived trait implementations.
 ///
 /// ## Rename
 ///
-/// The key for named struct fields may be changed from the default field ident using the `rename`
-/// derive macro attribute.
+/// The key for named struct fields or enum variants may be changed from the default field ident using
+/// the `rename` derive macro attribute.
 ///
 /// ```
 /// use miniconf::{Leaf, Path, Tree, TreeKey};
@@ -50,20 +52,20 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// ## Skip
 ///
-/// Named fields may be omitted from the derived `Tree` trait implementations using the
+/// Named fields/variants may be omitted from the derived `Tree` trait implementations using the
 /// `skip` attribute.
 /// Note that for tuple structs skipping is only supported for terminal fields:
-///
-/// ```compile_fail
-/// use miniconf::{Tree, Leaf};
-/// #[derive(Tree)]
-/// struct S(#[tree(skip)] (), Leaf<i32>);
-/// ```
 ///
 /// ```
 /// use miniconf::{Leaf, Tree};
 /// #[derive(Tree)]
 /// struct S(Leaf<i32>, #[tree(skip)] ());
+/// ```
+///
+/// ```compile_fail
+/// use miniconf::{Tree, Leaf};
+/// #[derive(Tree)]
+/// struct S(#[tree(skip)] (), Leaf<i32>);
 /// ```
 ///
 /// ## Type
@@ -74,52 +76,35 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// ## Accessors
 ///
 /// The `get`, `get_mut`, `validate` callbacks can be used to implement accessors,
-/// validation or support remote types (e.g. `#[tree(get_mut=func)]`)
+/// validation or support remote types (e.g. `#[tree(get_mut=func())]`)
 ///
-/// ## `get`
+/// ### `get`
 ///
 /// The getter is called during `serialize_by_key()` before leaf serialization and
-/// during `ref_any_by_key()`. Its signature is `fn(&self) -> Result<&T, &'static str>`.
-/// The default getter is `Ok(&self.field)`.
-/// Getters can be used for both leaf fields as well as internal (non-leaf) fields.
+/// during `ref_any_by_key()`. Its signature is `fn() -> Result<&T, &'static str>`.
+/// The default getter is `Ok(&self.field)`. `&self` is in scope and can be used.
 /// If a getter returns an error message `Err(&str)` the serialization/traversal
 /// is not performed, further getters at greater depth are not invoked
 /// and [`Traversal::Access`] is returned.
 ///
-/// ## `get_mut`
+/// ### `get_mut`
 ///
-/// For internal (non-leaf) fields `get_mut` is invoked during `mut_any_by_key()` and
+/// `get_mut` is invoked during `mut_any_by_key()` and
 /// during `deserialize_by_key()` before deserialization while traversing down to
 /// the leaf node.
-/// For leaf fields it is invoked after deserialization and validation but before
-/// updating the leaf value.
-/// The signature is `fn(&mut self) -> Result<&mut T, &str>`.
+/// The signature is `fn() -> Result<&mut T, &str>`. `&mut self` is in scope and
+/// can be used/mutated.
 /// The default `get_mut` is `Ok(&mut self.field)`.
 /// If `get_mut` returns an `Err` [`Traversal::Access`] will be returned.
-/// If a leaf `get_mut` returns an `Err` the leaf node is not updated in
-/// `deserialize_by_key()`.
-///
-/// Note: In both cases `get_mut` receives `&mut self` as an argument and may
-/// mutate the struct.
 ///
 /// ### `validate`
 ///
-/// For leaf fields the `validate` callback is called during `deserialize_by_key()`
-/// after successful deserialization of the leaf value but before `get_mut()` and
-/// before storing the value.
-/// The leaf `validate` signature is `fn(&mut self, value: T) ->
-/// Result<T, &'static str>`. It may mutate the value before it is being stored.
-/// If a leaf validate callback returns `Err(&str)`, the leaf value is not updated
-/// and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
-/// For internal fields `validate` is called after the successful update of the leaf field
+/// `validate` is called after the successful update of the leaf field
 /// during upward traversal.
-/// The internal `validate` signature is `fn(&mut self, depth: usize) ->
-/// Result<usize, &'static str>`
-/// If an internal node validate callback returns `Err()`, the leaf value **has been**
+/// The `validate` signature is `fn(depth: usize) ->
+/// Result<usize, &'static str>`. `&mut self` is in scope and can be used/mutated.
+/// If a validate callback returns `Err()`, the leaf value already **has been**
 /// updated and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
-///
-/// Note: In both cases `validate` receives `&mut self` as an argument and may
-/// mutate the struct.
 ///
 /// ```
 /// use miniconf::{Error, Leaf, Tree};
@@ -137,12 +122,12 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// # Array
 ///
-/// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays
+/// Blanket implementations of the `Tree*` traits are provided for homogeneous arrays
 /// [`[T; N]`](core::array).
 ///
 /// # Option
 ///
-/// Blanket implementations of the `TreeKey` traits are provided for [`Option<T>`].
+/// Blanket implementations of the `Tree*` traits are provided for [`Option<T>`].
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the
@@ -150,6 +135,13 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// by [`TreeKey::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
 /// [`TreeDeserialize::deserialize_by_key()`], [`TreeAny::ref_any_by_key()`], or
 /// [`TreeAny::mut_any_by_key()`]) return the special [`Traversal::Absent`].
+///
+/// This is the same behavior as for other `enums` that have the `Tree*` traits derived.
+///
+/// # Tuples
+///
+/// Blanket impementations for the `Tree*` traits are provided for heterogeneous tuples up to
+/// length eight.
 ///
 /// # Examples
 ///
@@ -176,6 +168,7 @@ pub trait TreeKey {
     /// `Err(Traversal(TooLong(depth)))` is returned.
     /// If `keys` is exhausted before reaching a leaf node,
     /// `Err(Traversal(TooShort(depth)))` is returned.
+    /// `Traversal::Access/Invalid/Absent` are never returned.
     ///
     /// ```
     /// use miniconf::{IntoKeys, Leaf, TreeKey};
@@ -219,14 +212,6 @@ pub trait TreeKey {
     ///
     /// In order to not require `N: Default`, use [`Transcode::transcode`] on
     /// an existing `&mut N`.
-    ///
-    /// Potential [`Transcode`] targets:
-    ///
-    /// * [`crate::Path`]: `char`-separated `Write`
-    /// * [`crate::JsonPath`]: normalized JSON path
-    /// * [`crate::Indices`]: `usize` indices array
-    /// * [`crate::Packed`]: Packed `usize`` bitfield representation
-    /// * `()` (the unit): Obtain just the [`Node`] information.
     ///
     /// ```
     /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
@@ -276,16 +261,7 @@ pub trait TreeKey {
     /// runtime (see [`TreeKey#option`]).
     /// An iterator with an exact and trusted `size_hint()` can be obtained from
     /// this through [`NodeIter::exact_size()`].
-    /// The `D`
-    /// const generic of [`NodeIter`] is the maximum key depth.
-    ///
-    /// Potential [`Transcode`] targets:
-    ///
-    /// * [`crate::Path`]
-    /// * [`crate::Indices`]
-    /// * [`crate::Packed`]
-    /// * [`crate::JsonPath`]
-    /// * `()` (the unit)
+    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
     /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
@@ -365,7 +341,7 @@ pub trait TreeKey {
 /// let val: &u16 = s.ref_by_key(&JsonPath::from(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// ```
-pub trait TreeAny: TreeKey {
+pub trait TreeAny {
     /// Obtain a reference to a `dyn Any` trait object for a leaf node.
     fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
     where
@@ -405,7 +381,7 @@ pub trait TreeAny: TreeKey {
 ///
 /// [`macro@crate::TreeSerialize`] derives `TreeSerialize` for structs with named fields and tuple structs.
 /// The field attributes are described in the [`TreeKey`] trait.
-pub trait TreeSerialize: TreeKey {
+pub trait TreeSerialize {
     /// Serialize a node by keys.
     ///
     /// ```
@@ -449,7 +425,7 @@ pub trait TreeSerialize: TreeKey {
 ///
 /// [`macro@crate::TreeDeserialize`] derives `TreeSerialize` for structs with named fields and tuple structs.
 /// The field attributes are described in the [`TreeKey`] trait.
-pub trait TreeDeserialize<'de>: TreeKey {
+pub trait TreeDeserialize<'de> {
     /// Deserialize a leaf node by its keys.
     ///
     /// ```

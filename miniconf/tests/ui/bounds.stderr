@@ -1,0 +1,12 @@
+error[E0599]: no function or associated item named `traverse_all` found for struct `S` in the current scope
+ --> tests/ui/bounds.rs:8:15
+  |
+4 | struct S<T>(Option<Option<T>>);
+  | ----------- function or associated item `traverse_all` not found for this struct
+...
+8 |     S::<u32>::traverse_all::<Metadata>();
+  |               ^^^^^^^^^^^^ function or associated item not found in `S<u32>`
+  |
+  = help: items from traits can only be used if the trait is implemented and in scope
+  = note: the following trait defines an item `traverse_all`, perhaps you need to implement it:
+          candidate #1: `TreeKey`

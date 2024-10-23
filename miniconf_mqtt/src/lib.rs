@@ -232,7 +232,7 @@ where
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
     MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
-    Settings: TreeSerialize + TreeDeserializeOwned + Clone,
+    Settings: TreeKey + TreeSerialize + TreeDeserializeOwned + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Broker: minimq::Broker,

@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `get`, `get_mut`, `validate` proc macro attributes are now `Expr`
 * `Key::find` and `Keys::finalize` return a `Result`, not an `Option` to reduce code duplication
 * Derive macro lifetime and type param trait bound heuristics have been improved.
-  They should now yield the correct result in many more cases.
+  They should now yield the correct result in mpst cases.
 * A depth-0 exact size nodes iterator (`<T as TreeKey>::nodes::<_, 0>().exact_size()`)
   is invalid and now panics on creation.
 
@@ -29,9 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Leaf` to explicitly manage `Serialize/Deserialize` leaf values.
 * `ByName` to manage values via `AsRef<str>`/`TryFrom<&str>` (e.g. Enums via `strum`)
 * `Tree*` impls for heterogeneous inline tuples up to length 8 (also useful for enum variants)
-* `impl Tree* for &{mut,} T where T: Tree*` blanket impls to simplify trait bounds
+* `impl Tree* for &{mut,} T where T: Tree*` blanket impls to simplify usage downstream
 
 ### Removed
+
+* `TreeSerialize`/`TreeDeserialize`/`TreeAny` don't need `TreeKey`
 
 ## [0.16.3](https://github.com/quartiq/miniconf/compare/v0.16.2...v0.16.3) - 2024-10-20
 

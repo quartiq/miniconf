@@ -92,6 +92,4 @@ fn test_depth() {
     struct S<T>(Option<Option<T>>);
     // works as array implements Tree
     S::<[Leaf<u32>; 1]>::traverse_all::<Metadata>().unwrap();
-    // does not compile as u32 does not implement Tree
-    // S::<u32>::traverse_all::<Metadata>();
 }
