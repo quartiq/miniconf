@@ -1,5 +1,4 @@
 use miniconf::{json, Leaf, StrLeaf, Tree};
-use strum::{AsRefStr, EnumString};
 
 mod common;
 use common::*;
@@ -9,7 +8,7 @@ struct Inner {
     a: Leaf<i32>,
 }
 
-#[derive(Tree, Default, EnumString, AsRefStr, PartialEq, Debug)]
+#[derive(Tree, Default, PartialEq, Debug, strum::EnumString, strum::AsRefStr)]
 enum Enum {
     #[default]
     None,
@@ -19,7 +18,7 @@ enum Enum {
     B(Inner),
 }
 
-#[derive(Tree, Default)]
+#[derive(Tree, Default, Debug)]
 struct Settings {
     #[tree(rename = "tag")]
     enu: StrLeaf<Enum>,

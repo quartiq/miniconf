@@ -461,6 +461,8 @@ pub trait TreeDeserialize<'de> {
 pub trait TreeDeserializeOwned: for<'de> TreeDeserialize<'de> {}
 impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
 
+// Blanket impls for refs and muts
+
 impl<T: TreeKey> TreeKey for &T {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         T::traverse_all()

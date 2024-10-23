@@ -1,0 +1,232 @@
+use core::any::Any;
+
+use serde::{Deserializer, Serializer};
+
+use crate::{
+    Error, KeyLookup, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, Walk,
+};
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+macro_rules! count_tts {
+    () => {0};
+    ($_head:tt $($tail:tt)*) => {1 + count_tts!($($tail)*)};
+}
+
+macro_rules! impl_tuple {
+    ($($i:tt $t:ident)*) => {
+        #[allow(unreachable_code, unused_mut, unused)]
+        impl<$($t: TreeKey),*> TreeKey for ($($t,)*) {
+            fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+                let mut walk = W::internal();
+                let k = KeyLookup::homogeneous(count_tts!($($t)*));
+                $(walk = walk.merge(&$t::traverse_all()?, Some($i), &k)?;)*
+                Ok(walk)
+            }
+
+            fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
+            where
+                K: Keys,
+                F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+            {
+                let k = KeyLookup::homogeneous(count_tts!($($t)*));
+                let index = keys.next(&k)?;
+                func(index, None, k.len).map_err(|err| Error::Inner(1, err))?;
+                Error::increment_result(match index {
+                    $($i => $t::traverse_by_key(keys, func),)*
+                    _ => unreachable!()
+                })
+            }
+        }
+
+        #[allow(unreachable_code, unused_mut, unused)]
+        impl<$($t: TreeSerialize),*> TreeSerialize for ($($t,)*) {
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            where
+                K: Keys,
+                S: Serializer,
+            {
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
+                Error::increment_result(match index {
+                    $($i => self.$i.serialize_by_key(keys, ser),)*
+                    _ => unreachable!()
+                })
+            }
+        }
+
+        #[allow(unreachable_code, unused_mut, unused)]
+        impl<'de, $($t: TreeDeserialize<'de>),*> TreeDeserialize<'de> for ($($t,)*) {
+            fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+            where
+                K: Keys,
+                D: Deserializer<'de>,
+            {
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
+                Error::increment_result(match index {
+                    $($i => self.$i.deserialize_by_key(keys, de),)*
+                    _ => unreachable!()
+                })
+            }
+        }
+
+        #[allow(unreachable_code, unused_mut, unused)]
+        impl<$($t: TreeAny),*> TreeAny for ($($t,)*) {
+            fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+            where
+                K: Keys,
+            {
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
+                let ret: Result<_, _> = match index {
+                    $($i => self.$i.ref_any_by_key(keys),)*
+                    _ => unreachable!()
+                };
+                ret.map_err(Traversal::increment)
+            }
+
+            fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+            where
+                K: Keys,
+            {
+                let index = keys.next(&KeyLookup::homogeneous(count_tts!($($t)*)))?;
+                let ret: Result<_, _> = match index {
+                    $($i => self.$i.mut_any_by_key(keys),)*
+                    _ => unreachable!()
+                };
+                ret.map_err(Traversal::increment)
+            }
+        }
+    }
+}
+impl_tuple!();
+impl_tuple!(0 T0);
+impl_tuple!(0 T0 1 T1);
+impl_tuple!(0 T0 1 T1 2 T2);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        W::internal().merge(&T::traverse_all()?, None, &KeyLookup::homogeneous(N))
+    }
+
+    fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        func(index, None, N).map_err(|err| Error::Inner(1, err))?;
+        Error::increment_result(T::traverse_by_key(keys, func))
+    }
+}
+
+impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N] {
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        Error::increment_result(self[index].serialize_by_key(keys, ser))
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        Error::increment_result(self[index].deserialize_by_key(keys, de))
+    }
+}
+
+impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        self[index]
+            .ref_any_by_key(keys)
+            .map_err(Traversal::increment)
+    }
+
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        let index = keys.next(&KeyLookup::homogeneous(N))?;
+        self[index]
+            .mut_any_by_key(keys)
+            .map_err(Traversal::increment)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+impl<T: TreeKey> TreeKey for Option<T> {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for Option<T> {
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        self.as_ref()
+            .ok_or(Traversal::Absent(0))?
+            .serialize_by_key(keys, ser)
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        self.as_mut()
+            .ok_or(Traversal::Absent(0))?
+            .deserialize_by_key(keys, de)
+    }
+}
+
+impl<T: TreeAny> TreeAny for Option<T> {
+    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        self.as_ref()
+            .ok_or(Traversal::Absent(0))?
+            .ref_any_by_key(keys)
+    }
+
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        self.as_mut()
+            .ok_or(Traversal::Absent(0))?
+            .mut_any_by_key(keys)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////

@@ -310,7 +310,7 @@ impl Tree {
     pub fn tree_deserialize(&self) -> TokenStream {
         let ty_generics = self.generics.split_for_impl().1;
         let lifetimes = self.generics.declared_lifetimes();
-        let mut de: syn::LifetimeParam = parse_quote!('__de);
+        let mut de: syn::LifetimeParam = parse_quote!('de);
         de.bounds.extend(
             self.fields()
                 .iter()
@@ -322,10 +322,8 @@ impl Tree {
         let mut generics = self.generics.clone();
         generics.params.push(syn::GenericParam::Lifetime(de));
         let (impl_generics, _, where_clause) = generics.split_for_impl();
-        let where_clause = self.bound_generics(
-            parse_quote!(::miniconf::TreeDeserialize<'__de>),
-            where_clause,
-        );
+        let where_clause =
+            self.bound_generics(parse_quote!(::miniconf::TreeDeserialize<'de>), where_clause);
         let index = self.index();
         let ident = &self.ident;
         let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
@@ -334,11 +332,11 @@ impl Tree {
 
         quote! {
             #[automatically_derived]
-            impl #impl_generics ::miniconf::TreeDeserialize<'__de> for #ident #ty_generics #where_clause {
+            impl #impl_generics ::miniconf::TreeDeserialize<'de> for #ident #ty_generics #where_clause {
                 fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<usize, ::miniconf::Error<D::Error>>
                 where
                     K: ::miniconf::Keys,
-                    D: ::miniconf::Deserializer<'__de>,
+                    D: ::miniconf::Deserializer<'de>,
                 {
                     let index = #index?;
                     // Note(unreachable) empty structs have diverged by now

@@ -3,8 +3,6 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use serde::{Deserialize, Serialize};
-
 use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
 
 /// A bit-packed representation of multiple indices.
@@ -63,7 +61,9 @@ use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey}
 /// assert_eq!(p.get(), 0b11_0__101_1 << (Packed::CAPACITY - p.len()));
 /// //                              ^ marker
 /// ```
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct Packed(
@@ -248,9 +248,7 @@ impl Keys for Packed {
 
     #[inline]
     fn finalize(&mut self) -> Result<(), Traversal> {
-        Packed::is_empty(self)
-            .then_some(())
-            .ok_or(Traversal::TooLong(0))
+        self.is_empty().then_some(()).ok_or(Traversal::TooLong(0))
     }
 }
 

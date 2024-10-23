@@ -17,17 +17,13 @@ mod jsonpath;
 pub use jsonpath::*;
 mod tree;
 pub use tree::*;
-mod array;
 mod iter;
-mod option;
-mod tuple;
 pub use iter::*;
+mod impls;
 mod leaf;
 pub use leaf::*;
 mod walk;
 pub use walk::*;
-mod byname;
-pub use byname::*;
 
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;

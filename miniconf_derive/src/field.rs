@@ -115,7 +115,7 @@ impl TreeField {
         quote_spanned! { self.span()=>
             #getter_mut
                 .and_then(|item|
-                    ::miniconf::TreeDeserialize::<'__de>::deserialize_by_key(item, keys, de)
+                    ::miniconf::TreeDeserialize::<'de>::deserialize_by_key(item, keys, de)
                 )
                 #validator
         }

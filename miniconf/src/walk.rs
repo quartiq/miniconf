@@ -1,14 +1,10 @@
-use core::convert::Infallible;
-
-use serde::{Deserialize, Serialize};
-
 use crate::KeyLookup;
 
 /// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
 #[non_exhaustive]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///
@@ -65,7 +61,7 @@ pub trait Walk: Sized {
 }
 
 impl Walk for Metadata {
-    type Error = Infallible;
+    type Error = core::convert::Infallible;
 
     #[inline]
     fn internal() -> Self {
