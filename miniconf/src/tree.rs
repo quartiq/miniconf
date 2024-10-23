@@ -500,7 +500,31 @@ impl<T: TreeKey> TreeKey for &T {
     }
 }
 
+impl<T: TreeKey> TreeKey for &mut T {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
 impl<T: TreeSerialize> TreeSerialize for &T {
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        T::serialize_by_key(self, keys, ser)
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for &mut T {
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
@@ -517,20 +541,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
         D: Deserializer<'de>,
     {
         T::deserialize_by_key(self, keys, de)
-    }
-}
-
-impl<T: TreeKey> TreeKey for &mut T {
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        T::traverse_all()
-    }
-
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
     }
 }
 

@@ -59,6 +59,15 @@ where
     }
 }
 
+impl<T: Key> Key for &mut T
+where
+    T: Key + ?Sized,
+{
+    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+        T::find(self, lookup)
+    }
+}
+
 // index
 macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
