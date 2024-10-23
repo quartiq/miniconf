@@ -22,18 +22,9 @@ enum Enum {
 #[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
 struct Settings {
     tag: ByName<Enum>,
-    #[tree(typ = "Enum", get = Self::get, get_mut = Self::get_mut)]
+    #[tree(typ = "Enum", get = Ok(& *self.tag), get_mut = Ok(&mut *self.tag))]
     #[allow(dead_code)]
     en: (),
-}
-
-impl Settings {
-    fn get(&self) -> Result<&Enum, &'static str> {
-        Ok(&*self.tag)
-    }
-    fn get_mut(&mut self) -> Result<&mut Enum, &'static str> {
-        Ok(&mut *self.tag)
-    }
 }
 
 #[test]
@@ -84,7 +75,6 @@ fn option() {
     enum Option<T> {
         #[default]
         None,
-        // #192
         Some(T),
     }
     assert_eq!(paths::<Option<[Leaf<i32>; 1]>>(), ["/0"]);

@@ -125,14 +125,13 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// use miniconf::{Error, Leaf, Tree};
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(validate=non_leaf)]
+///     #[tree(validate=self.non_leaf)]
 ///     b: [Leaf<f32>; 2],
 /// };
-/// fn leaf(s: &mut S, new: f32) -> Result<f32, &'static str> {
-///     Err("fail")
-/// }
-/// fn non_leaf(s: &mut S, depth: usize) -> Result<usize, &'static str> {
-///     Err("fail")
+/// impl S {
+///     fn non_leaf(&mut self, depth: usize) -> Result<usize, &'static str> {
+///         Err("fail")
+///     }
 /// }
 /// ```
 ///

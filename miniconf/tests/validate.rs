@@ -7,9 +7,9 @@ struct Inner {
 
 #[derive(Tree, Default)]
 struct Settings {
-    #[tree(validate=Self::validate_v)]
+    #[tree(validate=self.validate_v)]
     v: Leaf<f32>,
-    #[tree(validate=Self::validate_i)]
+    #[tree(validate=self.validate_i)]
     i: Inner,
 }
 
@@ -58,7 +58,7 @@ fn other_type() {
     // through a variable offset, fixed length array.
     #[derive(Default, Tree)]
     struct S {
-        #[tree(typ="[Leaf<i32>; 4]", get=Self::get::<4>, get_mut=Self::get_mut::<4>, rename=arr)]
+        #[tree(typ="[Leaf<i32>; 4]", get=self.get::<4>(), get_mut=self.get_mut::<4>(), rename=arr)]
         vec: Vec<Leaf<i32>>,
         offset: Leaf<usize>,
     }
@@ -103,7 +103,7 @@ fn enable_option() {
     #[derive(Default, Tree)]
     struct S {
         opt: Option<Leaf<i32>>,
-        #[tree(validate=Self::validate)]
+        #[tree(validate=self.validate)]
         enable: Leaf<bool>,
     }
 
@@ -135,7 +135,7 @@ fn locked() {
     // It doesn't show up as `Absent` though.
     #[derive(Default, Tree)]
     struct S {
-        #[tree(get=Self::get, get_mut=Self::get_mut)]
+        #[tree(get=self.get(), get_mut=self.get_mut())]
         val: Leaf<i32>,
         read: Leaf<bool>,
         write: Leaf<bool>,

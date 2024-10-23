@@ -10,9 +10,9 @@ pub struct TreeField {
     pub ty: syn::Type,
     pub skip: Flag,
     pub typ: Option<syn::Type>,
-    pub validate: Option<syn::Path>,
-    pub get: Option<syn::Path>,
-    pub get_mut: Option<syn::Path>,
+    pub validate: Option<syn::Expr>,
+    pub get: Option<syn::Expr>,
+    pub get_mut: Option<syn::Expr>,
     pub rename: Option<syn::Ident>,
 }
 
@@ -63,7 +63,7 @@ impl TreeField {
     fn getter(&self, i: Option<usize>) -> TokenStream {
         if let Some(get) = &self.get {
             quote_spanned! { get.span()=>
-                #get(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
+                #get.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
@@ -76,7 +76,7 @@ impl TreeField {
     fn getter_mut(&self, i: Option<usize>) -> TokenStream {
         if let Some(get_mut) = &self.get_mut {
             quote_spanned! { get_mut.span()=>
-                #get_mut(self).map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
+                #get_mut.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
@@ -89,7 +89,7 @@ impl TreeField {
     fn validator(&self) -> TokenStream {
         if let Some(validate) = &self.validate {
             quote_spanned! { validate.span()=>
-                .and_then(|value| #validate(self, value)
+                .and_then(|depth| #validate(depth)
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
                 )
             }

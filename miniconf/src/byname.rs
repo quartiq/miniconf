@@ -63,10 +63,8 @@ impl<T: AsRef<str> + ?Sized> TreeSerialize for ByName<T> {
         S: Serializer,
     {
         keys.finalize()?;
-        self.0
-            .as_ref()
-            .serialize(ser)
-            .map_err(|err| Error::Inner(0, err))?;
+        let name = self.0.as_ref();
+        name.serialize(ser).map_err(|err| Error::Inner(0, err))?;
         Ok(0)
     }
 }
@@ -78,7 +76,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for ByName<T> {
         D: Deserializer<'de>,
     {
         keys.finalize()?;
-        let name: &str = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
+        let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
         self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Invalid name")))?;
         Ok(0)
     }

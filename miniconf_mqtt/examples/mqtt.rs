@@ -26,7 +26,7 @@ struct Settings {
     values: [Leaf<f32>; 2],
     array: Leaf<[i32; 4]>,
     opt: Option<Leaf<i32>>,
-    #[tree(validate=Self::validate_four)]
+    #[tree(validate=self.validate_four)]
     four: Leaf<f32>,
     exit: Leaf<bool>,
 }
