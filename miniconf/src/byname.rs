@@ -82,13 +82,13 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for ByName<T> {
     }
 }
 
-impl<T: Any> TreeAny for ByName<T> {
+impl<T> TreeAny for ByName<T> {
     fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
         keys.finalize()?;
-        Ok(&self.0)
+        Err(Traversal::Access(1, "No Any access for ByName"))
     }
 
     fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
@@ -96,6 +96,6 @@ impl<T: Any> TreeAny for ByName<T> {
         K: Keys,
     {
         keys.finalize()?;
-        Ok(&mut self.0)
+        Err(Traversal::Access(1, "No Any access for ByName"))
     }
 }

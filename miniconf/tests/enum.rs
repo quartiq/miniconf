@@ -1,4 +1,4 @@
-use miniconf::{json, ByName, Leaf, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{json, ByName, Leaf, Tree};
 use strum::{AsRefStr, EnumString};
 
 mod common;
@@ -19,7 +19,7 @@ enum Enum {
     B(Inner),
 }
 
-#[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
+#[derive(Tree, Default)]
 struct Settings {
     tag: ByName<Enum>,
     #[tree(typ = "Enum", get = Ok(& *self.tag), get_mut = Ok(&mut *self.tag))]
