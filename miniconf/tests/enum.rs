@@ -47,7 +47,7 @@ fn enum_switch() {
     set_get(&mut s, "/en/B/a", b"8");
     assert_eq!(*s.tag, Enum::B(Inner { a: 8.into() }));
 
-    assert_eq!(paths::<Settings>(), ["/tag", "/en/foo", "/en/B/a"]);
+    assert_eq!(paths::<Settings, 3>(), ["/tag", "/en/foo", "/en/B/a"]);
 }
 
 #[test]
@@ -63,7 +63,7 @@ fn enum_skip() {
         C,
         D,
     }
-    assert_eq!(paths::<E>(), ["/A"]);
+    assert_eq!(paths::<E, 1>(), ["/A"]);
 }
 
 #[test]
@@ -77,6 +77,9 @@ fn option() {
         None,
         Some(T),
     }
-    assert_eq!(paths::<Option<[Leaf<i32>; 1]>>(), ["/0"]);
-    assert_eq!(paths::<Option<::core::option::Option<Leaf<i32>>>>(), [""]);
+    assert_eq!(paths::<Option<[Leaf<i32>; 1]>, 1>(), ["/0"]);
+    assert_eq!(
+        paths::<Option<::core::option::Option<Leaf<i32>>>, 1>(),
+        [""]
+    );
 }

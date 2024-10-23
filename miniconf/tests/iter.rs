@@ -19,7 +19,7 @@ struct Settings {
 #[test]
 fn struct_iter() {
     assert_eq!(
-        paths::<Settings>(),
+        paths::<Settings, 3>(),
         ["/b/0", "/b/1", "/c/inner", "/d/0/inner", "/a"]
     );
 }
@@ -49,7 +49,7 @@ fn struct_iter_indices() {
 fn array_iter() {
     let mut s = Settings::default();
 
-    for field in paths::<Settings>() {
+    for field in paths::<Settings, 3>() {
         set_get(&mut s, &field, b"true");
     }
 

@@ -133,13 +133,13 @@ fn metadata() {
 
 #[test]
 fn empty() {
-    assert_eq!(paths::<[Leaf<u32>; 0]>(), [""; 0]);
+    assert_eq!(paths::<[Leaf<u32>; 0], 1>(), [""; 0]);
 
     #[derive(Tree, Serialize, Deserialize)]
     struct S {}
 
-    assert_eq!(paths::<S>(), [""; 0]);
-    assert_eq!(paths::<[[S; 0]; 0]>(), [""; 0]);
+    assert_eq!(paths::<S, 1>(), [""; 0]);
+    assert_eq!(paths::<[[S; 0]; 0], 3>(), [""; 0]);
 
     #[derive(Tree)]
     struct Q {
@@ -147,5 +147,5 @@ fn empty() {
         b: [Leaf<S>; 0],
     }
 
-    assert_eq!(paths::<Q>(), [""; 0]);
+    assert_eq!(paths::<Q, 3>(), [""; 0]);
 }

@@ -15,7 +15,7 @@ struct Settings {
 
 #[test]
 fn just_option() {
-    assert_eq!(paths::<Option<Leaf<u32>>>(), [""]);
+    assert_eq!(paths::<Option<Leaf<u32>>, 1>(), [""]);
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn option_get_set_some() {
 
 #[test]
 fn option_iterate_some_none() {
-    assert_eq!(paths::<Settings>(), ["/value/data"]);
+    assert_eq!(paths::<Settings, 3>(), ["/value/data"]);
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn option_test_normal_option() {
     struct S {
         data: Leaf<Option<u32>>,
     }
-    assert_eq!(paths::<S>(), ["/data"]);
+    assert_eq!(paths::<S, 1>(), ["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());
@@ -80,7 +80,7 @@ fn option_test_defer_option() {
     struct S {
         data: Option<Leaf<u32>>,
     }
-    assert_eq!(paths::<S>(), ["/data"]);
+    assert_eq!(paths::<S, 1>(), ["/data"]);
 
     let mut s = S::default();
     assert!(s.data.is_none());

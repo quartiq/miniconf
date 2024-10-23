@@ -119,6 +119,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker
         let meta = M::traverse_all::<Metadata>().unwrap();
         assert!(D >= meta.max_depth);
+        assert!(D > 0, "Depth-0 iterator will return a node");
         ExactSize::new(self, meta.count)
     }
 }

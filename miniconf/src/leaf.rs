@@ -3,25 +3,13 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use ref_cast::RefCast;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{Error, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, Walk};
 
 /// Transparent leaf marker newtype
 #[derive(
-    Clone,
-    Copy,
-    Default,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Deserialize,
-    Serialize,
-    RefCast,
+    Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
 )]
 #[serde(transparent)]
 #[repr(transparent)]

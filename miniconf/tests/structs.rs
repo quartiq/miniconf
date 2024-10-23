@@ -43,28 +43,39 @@ fn structs() {
     assert_eq!(metadata.max_length("/"), "/d/a".len());
     assert_eq!(metadata.count, 4);
 
-    assert_eq!(paths::<Settings>(), ["/a", "/b", "/c", "/d/a"]);
+    assert_eq!(paths::<Settings, 2>(), ["/a", "/b", "/c", "/d/a"]);
 }
 
 #[test]
 fn empty_struct() {
     #[derive(Tree, Default)]
     struct Settings {}
-    assert_eq!(paths::<Settings>(), [""; 0]);
+    assert_eq!(paths::<Settings, 1>(), [""; 0]);
+}
+
+#[test]
+#[should_panic]
+fn empty_iter_exact() {
+    <()>::nodes::<(), 0>().exact_size();
+}
+
+#[test]
+fn empty_iter() {
+    assert!(<()>::nodes::<(), 0>().count() == 1);
 }
 
 #[test]
 fn unit_struct() {
     #[derive(Tree, Default)]
     struct Settings;
-    assert_eq!(paths::<Settings>(), [""; 0]);
+    assert_eq!(paths::<Settings, 1>(), [""; 0]);
 }
 
 #[test]
 fn empty_tuple_struct() {
     #[derive(Tree, Default)]
     struct Settings();
-    assert_eq!(paths::<Settings>(), [""; 0]);
+    assert_eq!(paths::<Settings, 1>(), [""; 0]);
 }
 
 #[test]
@@ -93,5 +104,5 @@ fn tuple_struct() {
     json::set(&mut s, "/2", b"3.0").unwrap_err();
     json::set(&mut s, "/foo", b"3.0").unwrap_err();
 
-    assert_eq!(paths::<Settings>(), ["/0", "/1"]);
+    assert_eq!(paths::<Settings, 1>(), ["/0", "/1"]);
 }

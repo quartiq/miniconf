@@ -1,10 +1,10 @@
 use miniconf::{json, Path, TreeDeserialize, TreeKey, TreeSerialize};
 
-pub fn paths<M>() -> Vec<String>
+pub fn paths<M, const D: usize>() -> Vec<String>
 where
     M: TreeKey,
 {
-    M::nodes::<Path<String, '/'>, 10>()
+    M::nodes::<Path<String, '/'>, D>()
         .exact_size()
         .map(|pn| {
             let (p, n) = pn.unwrap();
