@@ -1,12 +1,9 @@
-use core::any::Any;
-
 use miniconf::{json, Deserialize, Leaf, Metadata, Serialize, Tree, TreeKey};
-use serde::de::DeserializeOwned;
 
 #[test]
 fn generic_type() {
     #[derive(Tree, Default)]
-    struct Settings<T: Serialize + DeserializeOwned + 'static> {
+    struct Settings<T> {
         pub data: Leaf<T>,
     }
 
@@ -24,7 +21,7 @@ fn generic_type() {
 #[test]
 fn generic_array() {
     #[derive(Tree, Default)]
-    struct Settings<T: Serialize + DeserializeOwned + 'static> {
+    struct Settings<T> {
         pub data: [Leaf<T>; 2],
     }
 
@@ -43,7 +40,7 @@ fn generic_array() {
 #[test]
 fn generic_struct() {
     #[derive(Tree, Default)]
-    struct Settings<T: Serialize + DeserializeOwned + 'static> {
+    struct Settings<T> {
         pub inner: Leaf<T>,
     }
 
@@ -67,7 +64,7 @@ fn generic_struct() {
 #[test]
 fn generic_atomic() {
     #[derive(Tree, Default)]
-    struct Settings<T: Serialize + DeserializeOwned + 'static> {
+    struct Settings<T> {
         atomic: Leaf<Inner<T>>,
         opt: [[Leaf<Option<T>>; 0]; 0],
         opt1: [[Option<Leaf<T>>; 0]; 0],
@@ -87,25 +84,6 @@ fn generic_atomic() {
     let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length("/"), "/opt1/0/0".len());
-}
-
-#[test]
-fn test_derive_macro_bound_failure() {
-    // The derive macro uses a simplistic approach to adding bounds
-    // for generic types.
-    // This is analogous to other standard derive macros.
-    // See also the documentation for the Tree traits
-    // and the code comments in the derive macro
-    // on adding bounds to generics.
-    // This test below shows the issue and tests whether the workaround of
-    // adding the required traits by hand works.
-    type A<T> = [[T; 0]; 0];
-    #[derive(Tree)]
-    struct S<T: Serialize + DeserializeOwned + Any>(
-        // this wrongly infers T: Tree<1> instead of T: SerDe
-        // adding the missing bound is a workaround
-        A<Leaf<T>>,
-    );
 }
 
 #[test]

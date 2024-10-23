@@ -1,11 +1,12 @@
 use darling::{
     ast::{self, Data},
+    usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes, UsesTypeParams},
     util::Flag,
     Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::parse_quote;
+use syn::{parse_quote, WhereClause};
 
 use crate::field::TreeField;
 
@@ -147,13 +148,31 @@ impl Tree {
         }
     }
 
-    fn bound_generics(&self, bound: syn::TraitBound) -> syn::Generics {
-        let mut generics = self.generics.clone();
-        // println!("BOUND {:?}", &generics);
-        for f in self.fields() {
-            walk_type_params(f.typ(), &bound, &mut generics);
+    fn bound_generics(
+        &self,
+        bound: syn::TraitBound,
+        where_clause: Option<&WhereClause>,
+    ) -> Option<syn::WhereClause> {
+        let type_set = self.generics.declared_type_params();
+        let bounds: TokenStream = self
+            .fields()
+            .iter()
+            .filter_map(|f| {
+                let ty = f.typ();
+                (!f.uses_type_params(&Purpose::BoundImpl.into(), &type_set)
+                    .is_empty())
+                .then_some({
+                    quote! { #ty: #bound, }
+                })
+            })
+            .collect();
+        if bounds.is_empty() {
+            where_clause.cloned()
+        } else if where_clause.is_some() {
+            Some(parse_quote! { #where_clause #bounds })
+        } else {
+            Some(parse_quote! { where #bounds })
         }
-        generics
     }
 
     fn index(&self) -> TokenStream {
@@ -168,8 +187,8 @@ impl Tree {
 
     pub fn tree_key(&self) -> TokenStream {
         let ident = &self.ident;
-        let generics = self.bound_generics(parse_quote!(::miniconf::TreeKey));
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+        let where_clause = self.bound_generics(parse_quote!(::miniconf::TreeKey), where_clause);
         let fields = self.fields();
         let fields_len = fields.len();
         let traverse_all_arms = fields.iter().enumerate().map(|(i, f)| {
@@ -259,10 +278,10 @@ impl Tree {
 
     pub fn tree_serialize(&self) -> TokenStream {
         let ident = &self.ident;
-        let generics = self.bound_generics(parse_quote!(::miniconf::TreeSerialize));
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+        let where_clause =
+            self.bound_generics(parse_quote!(::miniconf::TreeSerialize), where_clause);
         let index = self.index();
-
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
         let increment =
             (!self.flatten.is_present()).then_some(quote!(::miniconf::Error::increment_result));
@@ -288,33 +307,37 @@ impl Tree {
     }
 
     pub fn tree_deserialize(&self) -> TokenStream {
-        let mut generics = self.bound_generics(parse_quote!(::miniconf::TreeDeserialize<'de>));
+        let ty_generics = self.generics.split_for_impl().1;
+        let lifetimes = self.generics.declared_lifetimes();
+        let mut de: syn::LifetimeParam = parse_quote!('__de);
+        de.bounds.extend(
+            self.fields()
+                .iter()
+                .flat_map(|f| f.uses_lifetimes(&Purpose::BoundImpl.into(), &lifetimes))
+                .collect::<LifetimeRefSet>()
+                .into_iter()
+                .cloned(),
+        );
+        let mut generics = self.generics.clone();
+        generics.params.push(syn::GenericParam::Lifetime(de));
+        let (impl_generics, _, where_clause) = generics.split_for_impl();
+        let where_clause = self.bound_generics(
+            parse_quote!(::miniconf::TreeDeserialize<'__de>),
+            where_clause,
+        );
         let index = self.index();
         let ident = &self.ident;
-
-        let orig_generics = generics.clone();
-        let (_, ty_generics, where_clause) = orig_generics.split_for_impl();
-        let lts: Vec<_> = generics.lifetimes().cloned().collect();
-        generics.params.push(parse_quote!('de));
-        if let Some(syn::GenericParam::Lifetime(de)) = generics.params.last_mut() {
-            assert_eq!(de.lifetime.ident, "de");
-            for l in lts {
-                assert!(l.lifetime.ident != "de");
-                de.bounds.push(l.lifetime);
-            }
-        }
-        let (impl_generics, _, _) = generics.split_for_impl();
         let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
         let increment =
             (!self.flatten.is_present()).then_some(quote!(::miniconf::Error::increment_result));
 
         quote! {
             #[automatically_derived]
-            impl #impl_generics ::miniconf::TreeDeserialize<'de> for #ident #ty_generics #where_clause {
+            impl #impl_generics ::miniconf::TreeDeserialize<'__de> for #ident #ty_generics #where_clause {
                 fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<usize, ::miniconf::Error<D::Error>>
                 where
                     K: ::miniconf::Keys,
-                    D: ::miniconf::Deserializer<'de>,
+                    D: ::miniconf::Deserializer<'__de>,
                 {
                     let index = #index?;
                     // Note(unreachable) empty structs have diverged by now
@@ -329,10 +352,10 @@ impl Tree {
     }
 
     pub fn tree_any(&self) -> TokenStream {
-        let generics = self.bound_generics(parse_quote!(::miniconf::TreeAny));
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+        let where_clause = self.bound_generics(parse_quote!(::miniconf::TreeAny), where_clause);
         let index = self.index();
         let ident = &self.ident;
-        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
         let (mat, ref_arms, default) = self.arms(|f, i| f.ref_any_by_key(i));
         let (_, mut_arms, _) = self.arms(|f, i| f.mut_any_by_key(i));
         let increment = (!self.flatten.is_present())
@@ -375,65 +398,4 @@ impl Tree {
             }
         }
     }
-}
-
-fn walk_type_params(typ: &syn::Type, bound: &syn::TraitBound, generics: &mut syn::Generics) {
-    match typ {
-        syn::Type::Path(syn::TypePath { path, .. }) => {
-            if let Some(ident) = path.get_ident() {
-                // The type is a single ident (no other path segments, has no generics):
-                // call back if it is a generic type for us
-                for generic in &mut generics.params {
-                    if let syn::GenericParam::Type(type_param) = generic {
-                        if &type_param.ident == ident {
-                            type_param.bounds.push(bound.clone().into());
-                        }
-                    }
-                }
-            } else {
-                // Analyze the type parameters of the type, as they may be generics for us as well
-                // This tries to reproduce the bounds that field types place on
-                // their generic types, directly or indirectly.
-                //
-                // The bounds are conservative (might not be required) and
-                // fragile (might apply the wrong bound).
-                // This matches the standard derive behavior and its issues
-                // https://github.com/rust-lang/rust/issues/26925
-                //
-                // To fix this, one would extend the attribute syntax to allow overriding bounds.
-                for seg in path.segments.iter() {
-                    if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
-                        for arg in args.args.iter() {
-                            if let syn::GenericArgument::Type(typ) = arg {
-                                // Found type argument in field type: recurse
-                                if seg.ident == "Leaf" {
-                                    // let syn::Type::Path(syn::TypePath { path, .. }) = typ else {
-                                    //     unimplemented!()
-                                    // };
-                                    // println!("{:?}", typ);
-                                    // let id = path.get_ident().unwrap();
-                                    // generics
-                                    //     .where_clause
-                                    //     .get_or_insert(parse_quote!(where Leaf<#id>: #bound));
-                                } else {
-                                    walk_type_params(typ, bound, generics);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        syn::Type::Array(syn::TypeArray { elem, .. })
-        | syn::Type::Slice(syn::TypeSlice { elem, .. })
-        | syn::Type::Reference(syn::TypeReference { elem, .. }) => {
-            walk_type_params(elem, bound, generics);
-        }
-        syn::Type::Tuple(syn::TypeTuple { elems, .. }) => {
-            for elem in elems.iter() {
-                walk_type_params(elem, bound, generics);
-            }
-        }
-        other => panic!("Unsupported type: {:?}", other),
-    };
 }

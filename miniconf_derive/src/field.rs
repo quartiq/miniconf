@@ -1,4 +1,4 @@
-use darling::{util::Flag, FromField};
+use darling::{uses_lifetimes, uses_type_params, util::Flag, FromField};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use syn::spanned::Spanned;
@@ -15,6 +15,9 @@ pub struct TreeField {
     pub get_mut: Option<syn::Path>,
     pub rename: Option<syn::Ident>,
 }
+
+uses_type_params!(TreeField, ty, typ);
+uses_lifetimes!(TreeField, ty, typ);
 
 impl TreeField {
     fn span(&self) -> Span {
@@ -112,7 +115,7 @@ impl TreeField {
         quote_spanned! { self.span()=>
             #getter_mut
                 .and_then(|item|
-                    ::miniconf::TreeDeserialize::<'de>::deserialize_by_key(item, keys, de)
+                    ::miniconf::TreeDeserialize::<'__de>::deserialize_by_key(item, keys, de)
                 )
                 #validator
         }
