@@ -1,12 +1,28 @@
-error[E0599]: no function or associated item named `traverse_all` found for struct `S` in the current scope
- --> tests/ui/bounds.rs:8:15
-  |
-4 | struct S<T>(Option<Option<T>>);
-  | ----------- function or associated item `traverse_all` not found for this struct
+error[E0599]: the function or associated item `traverse_all` exists for struct `S<u32>`, but its trait bounds were not satisfied
+  --> tests/ui/bounds.rs:12:15
+   |
+6  | struct S<T>(Option<Option<T>>);
+   | ----------- function or associated item `traverse_all` not found for this struct because it doesn't satisfy `S<u32>: TreeKey`
 ...
-8 |     S::<u32>::traverse_all::<Metadata>();
-  |               ^^^^^^^^^^^^ function or associated item not found in `S<u32>`
-  |
-  = help: items from traits can only be used if the trait is implemented and in scope
-  = note: the following trait defines an item `traverse_all`, perhaps you need to implement it:
-          candidate #1: `TreeKey`
+12 |     S::<u32>::traverse_all::<Metadata>();
+   |               ^^^^^^^^^^^^ function or associated item cannot be called on `S<u32>` due to unsatisfied trait bounds
+   |
+  ::: $RUST/core/src/option.rs
+   |
+   | pub enum Option<T> {
+   | ------------------ doesn't satisfy `Option<Option<u32>>: TreeKey`
+   |
+   = note: trait bound `Option<Option<u32>>: TreeKey` was not satisfied
+   = note: the following trait bounds were not satisfied:
+           `S<u32>: TreeKey`
+           which is required by `&S<u32>: TreeKey`
+           `S<u32>: TreeKey`
+           which is required by `&mut S<u32>: TreeKey`
+note: the trait `TreeKey` must be implemented
+  --> src/tree.rs
+   |
+   | pub trait TreeKey {
+   | ^^^^^^^^^^^^^^^^^
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `traverse_all`, perhaps you need to implement it:
+           candidate #1: `TreeKey`
