@@ -251,14 +251,9 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        assert!(
-            prefix.len()
-                + "/settings".len()
-                + Settings::traverse_all::<Metadata>()
-                    .unwrap()
-                    .max_length("/")
-                <= MAX_TOPIC_LENGTH
-        );
+        let meta = Settings::traverse_all::<Metadata>().unwrap();
+        assert!(meta.max_depth <= Y);
+        assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();

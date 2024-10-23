@@ -21,7 +21,7 @@ enum Enum {
 
 // #[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
 // struct Settings {
-//     #[tree(typ = "Leaf<&str>", get = Self::get_tag, validate = Self::set_tag)]
+//     #[tree(typ = "Leaf<&'static str>", get = Self::get_tag, get_mut = Self::get_mut, validate = Self::set_tag)]
 //     tag: (),
 //     en: Enum,
 // }
