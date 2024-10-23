@@ -34,7 +34,7 @@ impl TreeVariant {
         }
         if let Some(f) = self.fields.iter().find(|f| f.skip.is_present()) {
             return Err(
-                Error::custom("Can only `skip` terminal tuple struct fields")
+                Error::custom("Can only `skip` terminal tuple variant fields")
                     .with_span(&f.skip.span()),
             );
         }
