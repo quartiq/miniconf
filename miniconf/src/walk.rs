@@ -21,7 +21,6 @@ pub struct Metadata {
     ///
     /// This is equal to the exact maximum number of path hierarchy separators.
     /// It's the exact maximum number of key indices.
-    /// It may be smaller than the [`TreeKey<Y>` recursion depth](crate::TreeKey#recursion-depth).
     pub max_depth: usize,
 
     /// The exact total number of keys.

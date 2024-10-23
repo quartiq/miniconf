@@ -136,34 +136,6 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// }
 /// ```
 ///
-/// ## Bounds
-///
-/// To derive `TreeSerialize`/`TreeDeserialize`/`TreeAny`, each field (that is not `skip`ped)
-/// in the struct must either implement [`serde::Serialize`]/[`serde::Deserialize`]/[`Any`]
-/// or implement the respective `TreeSerialize`/`TreeDeserialize`/`TreeAny` trait
-/// for the required remaining recursion depth.
-///
-/// ## Generics
-///
-/// The macros add bounds to generic types of the struct they are acting on.
-/// If a generic type parameter `T` of the struct `S<T>`is used as a type parameter to a
-/// field type `a: F1<F2<T>>` the type `T` will be considered to reside at type depth `X = 2`
-/// (as it is within `F2` which is within `F1`) and the following bounds will be applied:
-///
-/// TODO
-///
-/// ```
-/// use miniconf::{Leaf, Metadata, TreeKey};
-/// #[derive(TreeKey)]
-/// struct S<T> {
-///     a: [Option<T>; 2],
-/// };
-/// // This works as [Leaf<u32>; N] and Leaf<u32> implement TreeKey:
-/// S::<[Leaf<u32>; 5]>::traverse_all::<Metadata>();
-/// // This does not compile as u32 does not implement TreeKey:
-/// // S::<u32>::traverse_all::<Metadata>();
-/// ```
-///
 /// # Array
 ///
 /// Blanket implementations of the `TreeKey` traits are provided for homogeneous arrays
