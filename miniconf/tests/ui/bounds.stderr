@@ -1,10 +1,10 @@
 error[E0599]: the function or associated item `traverse_all` exists for struct `S<u32>`, but its trait bounds were not satisfied
-  --> tests/ui/bounds.rs:12:15
+  --> tests/ui/bounds.rs:11:15
    |
-6  | struct S<T>(Option<Option<T>>);
+5  | struct S<T>(Option<Option<T>>);
    | ----------- function or associated item `traverse_all` not found for this struct because it doesn't satisfy `S<u32>: TreeKey`
 ...
-12 |     S::<u32>::traverse_all::<Metadata>();
+11 |     S::<u32>::traverse_all::<Metadata>();
    |               ^^^^^^^^^^^^ function or associated item cannot be called on `S<u32>` due to unsatisfied trait bounds
    |
   ::: $RUST/core/src/option.rs

@@ -1,5 +1,4 @@
-#[allow(unused_imports)]
-use miniconf::TreeKey;
+use miniconf::TreeKey as _;
 use miniconf::{Metadata, Tree, Leaf};
 
 #[derive(Tree)]
