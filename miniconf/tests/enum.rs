@@ -1,4 +1,4 @@
-use miniconf::{json, Leaf, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{json, ByName, Leaf, Tree, TreeDeserialize, TreeKey, TreeSerialize};
 use strum::{AsRefStr, EnumString};
 
 mod common;
@@ -19,49 +19,45 @@ enum Enum {
     B(Inner),
 }
 
-// #[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
-// struct Settings {
-//     #[tree(typ = "Leaf<&'static str>", get = Self::get_tag, get_mut = Self::get_mut, validate = Self::set_tag)]
-//     tag: (),
-//     en: Enum,
-// }
+#[derive(TreeKey, TreeSerialize, TreeDeserialize, Default)]
+struct Settings {
+    tag: ByName<Enum>,
+    #[tree(typ = "Enum", get = Self::get, get_mut = Self::get_mut)]
+    #[allow(dead_code)]
+    en: (),
+}
 
-// impl Settings {
-//     fn get_tag(&self) -> Result<&Leaf<&str>, &'static str> {
-//         Ok(&Leaf(self.en.as_ref()))
-//     }
-//     fn get_mut(&mut self) -> Result<&mut Leaf<&str>, &'static str> {
+impl Settings {
+    fn get(&self) -> Result<&Enum, &'static str> {
+        Ok(&*self.tag)
+    }
+    fn get_mut(&mut self) -> Result<&mut Enum, &'static str> {
+        Ok(&mut *self.tag)
+    }
+}
 
-//     }
+#[test]
+fn enum_switch() {
+    let mut s = Settings::default();
+    assert_eq!(*s.tag, Enum::None);
+    set_get(&mut s, "/tag", b"\"foo\"");
+    assert_eq!(
+        json::set(&mut s, "/tag", b"\"bar\""),
+        Err(miniconf::Traversal::Invalid(1, "Invalid name").into())
+    );
+    assert_eq!(*s.tag, Enum::A(0.into()));
+    set_get(&mut s, "/en/foo", b"99");
+    assert_eq!(*s.tag, Enum::A(99.into()));
+    assert_eq!(
+        json::set(&mut s, "/en/B/a", b"99"),
+        Err(miniconf::Traversal::Absent(2).into())
+    );
+    set_get(&mut s, "/tag", b"\"B\"");
+    set_get(&mut s, "/en/B/a", b"8");
+    assert_eq!(*s.tag, Enum::B(Inner { a: 8.into() }));
 
-//     fn set_tag(&mut self, depth: usize) -> Result<usize, &'static str> {
-//         self.en = Enum::try_from(tag).or(Err("invalid tag"))?;
-//         Ok(())
-//     }
-// }
-
-// #[test]
-// fn enum_switch() {
-//     let mut s = Settings::default();
-//     assert_eq!(s.en, Enum::None);
-//     set_get(&mut s, "/tag", b"\"foo\"");
-//     assert_eq!(
-//         json::set(&mut s, "/tag", b"\"bar\""),
-//         Err(miniconf::Traversal::Invalid(1, "invalid tag").into())
-//     );
-//     assert_eq!(s.en, Enum::A(0.into()));
-//     set_get(&mut s, "/en/foo", b"99");
-//     assert_eq!(s.en, Enum::A(99.into()));
-//     assert_eq!(
-//         json::set(&mut s, "/en/B/a", b"99"),
-//         Err(miniconf::Traversal::Absent(2).into())
-//     );
-//     set_get(&mut s, "/tag", b"\"B\"");
-//     set_get(&mut s, "/en/B/a", b"8");
-//     assert_eq!(s.en, Enum::B(Inner { a: 8.into() }));
-
-//     assert_eq!(paths::<Settings>(), ["/tag", "/en/foo", "/en/B/a"]);
-// }
+    assert_eq!(paths::<Settings>(), ["/tag", "/en/foo", "/en/B/a"]);
+}
 
 #[test]
 fn enum_skip() {

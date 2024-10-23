@@ -26,6 +26,8 @@ mod leaf;
 pub use leaf::*;
 mod walk;
 pub use walk::*;
+mod byname;
+pub use byname::*;
 
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;
