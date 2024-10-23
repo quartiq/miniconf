@@ -485,3 +485,67 @@ pub trait TreeDeserialize<'de>: TreeKey {
 /// Shorthand for owned deserialization through [`TreeDeserialize`].
 pub trait TreeDeserializeOwned: for<'de> TreeDeserialize<'de> {}
 impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
+
+impl<T: TreeKey> TreeKey for &T {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for &T {
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        T::serialize_by_key(self, keys, ser)
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        T::deserialize_by_key(self, keys, de)
+    }
+}
+
+impl<T: TreeKey> TreeKey for &mut T {
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeAny> TreeAny for &mut T {
+    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        T::ref_any_by_key(self, keys)
+    }
+
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        T::mut_any_by_key(self, keys)
+    }
+}
