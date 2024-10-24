@@ -53,7 +53,7 @@ impl TreeVariant {
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
-#[darling(attributes(tree), supports(any), and_then=Self::parse)]
+#[darling(attributes(tree), supports(struct_named, struct_newtype, struct_tuple, enum_newtype, enum_tuple, enum_unit), and_then=Self::parse)]
 #[darling()]
 pub struct Tree {
     ident: syn::Ident,

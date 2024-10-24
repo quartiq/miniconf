@@ -10,6 +10,9 @@ pub enum EnumEmpty {#[tree(skip)] V}
 pub struct StructUnit;
 
 #[derive(Tree)]
+pub struct StructUnitTuple ();
+
+#[derive(Tree)]
 pub struct StructEmptyTuple (#[tree(skip)] ());
 
 #[derive(Tree)]
