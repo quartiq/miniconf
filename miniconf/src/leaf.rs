@@ -126,7 +126,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 /// #[derive(Tree)]
 /// struct S {
 ///     e: StrLeaf<En>,
-///     #[tree(typ="En", get=Ok(& *self.e), get_mut=Ok(&mut *self.e))]
+///     #[tree(typ="En", via=*self.e)]
 ///     t: (),
 /// }
 /// let mut s = S {

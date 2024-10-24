@@ -14,6 +14,7 @@ pub struct TreeField {
     pub get: Option<syn::Expr>,
     pub get_mut: Option<syn::Expr>,
     pub rename: Option<syn::Ident>,
+    pub via: Option<syn::Expr>,
 }
 
 uses_type_params!(TreeField, ty, typ);
@@ -48,16 +49,12 @@ impl TreeField {
     pub fn traverse_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `traverse_by_key()` args available.
         let typ = self.typ();
-        quote_spanned! { self.span()=>
-            #i => <#typ as ::miniconf::TreeKey>::traverse_by_key(keys, func)
-        }
+        quote_spanned!(self.span()=> #i => <#typ as ::miniconf::TreeKey>::traverse_by_key(keys, func))
     }
 
     pub fn traverse_all(&self) -> TokenStream {
         let typ = self.typ();
-        quote_spanned! { self.span()=>
-            <#typ as ::miniconf::TreeKey>::traverse_all()?
-        }
+        quote_spanned!(self.span()=> <#typ as ::miniconf::TreeKey>::traverse_all()?)
     }
 
     fn getter(&self, i: Option<usize>) -> TokenStream {
@@ -65,6 +62,8 @@ impl TreeField {
             quote_spanned! { get.span()=>
                 #get.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
+        } else if let Some(via) = &self.via {
+            quote_spanned!(via.span()=> ::core::result::Result::Ok(&#via))
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&self.#ident))
@@ -78,6 +77,8 @@ impl TreeField {
             quote_spanned! { get_mut.span()=>
                 #get_mut.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
+        } else if let Some(via) = &self.via {
+            quote_spanned!(via.span()=> ::core::result::Result::Ok(&mut #via))
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&mut self.#ident))
@@ -86,16 +87,14 @@ impl TreeField {
         }
     }
 
-    fn validator(&self) -> TokenStream {
-        if let Some(validate) = &self.validate {
+    fn validator(&self) -> Option<TokenStream> {
+        self.validate.as_ref().map(|validate| {
             quote_spanned! { validate.span()=>
                 .and_then(|depth| #validate(depth)
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
                 )
             }
-        } else {
-            quote_spanned!(self.span()=> )
-        }
+        })
     }
 
     pub fn serialize_by_key(&self, i: Option<usize>) -> TokenStream {
@@ -104,7 +103,8 @@ impl TreeField {
         quote_spanned! { self.span()=>
             #getter
                 .and_then(|value|
-                    ::miniconf::TreeSerialize::serialize_by_key(value, keys, ser))
+                    ::miniconf::TreeSerialize::serialize_by_key(value, keys, ser)
+                )
         }
     }
 

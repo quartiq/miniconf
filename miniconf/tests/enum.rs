@@ -22,7 +22,7 @@ enum Enum {
 struct Settings {
     #[tree(rename = "tag")]
     enu: StrLeaf<Enum>,
-    #[tree(rename = "enu", typ = "Enum", get = Ok(& *self.enu), get_mut = Ok(&mut *self.enu))]
+    #[tree(rename = "enu", typ = "Enum", via = *self.enu)]
     _enu: (),
 }
 
