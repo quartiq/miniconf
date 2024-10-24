@@ -17,7 +17,7 @@ pub enum NodeType {
 
     /// An internal node
     ///
-    /// A non-leaf node with zero or more leaf nodes below this node
+    /// A non-leaf node with one or more leaf nodes below this node
     Internal,
 }
 
@@ -36,6 +36,7 @@ pub struct Node {
     ///
     /// This is the length of the key required to identify it.
     pub depth: usize,
+
     /// Leaf or internal
     pub typ: NodeType,
 }
@@ -133,7 +134,7 @@ impl Transcode for () {
         M: TreeKey + ?Sized,
         K: IntoKeys,
     {
-        M::traverse_by_key(keys.into_keys(), |_index, _name, _len| Ok::<_, ()>(())).try_into()
+        M::traverse_by_key(keys.into_keys(), |_, _, _| Ok(())).try_into()
     }
 }
 
@@ -265,8 +266,6 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
 }
 
 /// Indices of `usize` to identify a node in a `TreeKey`
-///
-/// `T` can be `[usize; D]` for `Transcode` or `AsRef<[usize]>` for `IntoKeys` (see [`KeysIter`]).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
