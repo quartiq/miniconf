@@ -384,7 +384,7 @@ where
                 .next()
                 .map(|path| {
                     let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
-                    assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
+                    debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
                     (ResponseCode::Continue, path.into_inner())
                 })
                 .unwrap_or((ResponseCode::Ok, String::new()));
@@ -419,7 +419,7 @@ where
             };
 
             let (path, node) = path.unwrap(); // Note(unwraped): checked capacity
-            assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
+            debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
 
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic

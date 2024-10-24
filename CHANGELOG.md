@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Derive macro lifetime and type param trait bound heuristics have been improved.
   They should now yield the correct result in mpst cases.
 * Internal nodes must always have at least one leaf. Trait impls for `[T; 0]` and `()`
-  have been removed.
+  have been removed. The `len` argument to the `traverse_by_key` closure is now a
+  `NonZero<usize>`.
 
 ### Added
 
