@@ -122,7 +122,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// ### `defer`
 ///
-/// The `defer` attribute is a shorthand for `get`+`get_mut` of a downstream field.
+/// The `defer` attribute is a shorthand for `get`+`get_mut` of the same owned value.
 ///
 /// # Array
 ///
@@ -144,8 +144,8 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// # Tuples
 ///
-/// Blanket impementations for the `Tree*` traits are provided for heterogeneous tuples up to
-/// length eight.
+/// Blanket impementations for the `Tree*` traits are provided for heterogeneous tuples `(T0, T1, ...)`
+/// up to length eight.
 ///
 /// # Examples
 ///
@@ -371,19 +371,15 @@ pub trait TreeAny {
     }
 }
 
-// # Alternative serialize/deserialize designs
-//
-// One could have (ab)used a custom `Serializer`/`Deserializer` wrapper for this but that would be inefficient:
-// `Serialize` would try to pass each node to the `Serializer` until the `Serializer` matches the leaf key
-// (and could terminate early).
-
 /// Serialize a leaf node by its keys.
 ///
 /// See also [`crate::json`] or `crate::postcard` for convenient functions using these traits.
 ///
 /// # Derive macro
 ///
-/// [`macro@crate::TreeSerialize`] derives `TreeSerialize` for structs with named fields and tuple structs.
+/// [`macro@crate::TreeSerialize`] derives `TreeSerialize` for structs with named fields and tuple structs
+/// and for enums with newtype and unit variants.
+///
 /// The field attributes are described in the [`TreeKey`] trait.
 pub trait TreeSerialize {
     /// Serialize a node by keys.
@@ -410,7 +406,7 @@ pub trait TreeSerialize {
     /// ```
     ///
     /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `keys`: A `Keys` identifying the node.
     /// * `ser`: A `Serializer` to to serialize the value.
     ///
     /// # Returns
@@ -427,7 +423,9 @@ pub trait TreeSerialize {
 ///
 /// # Derive macro
 ///
-/// [`macro@crate::TreeDeserialize`] derives `TreeSerialize` for structs with named fields and tuple structs.
+/// [`macro@crate::TreeDeserialize`] derives `TreeSerialize` for structs with named fields and tuple structs
+/// and for enums with newtype and unit variants.
+///
 /// The field attributes are described in the [`TreeKey`] trait.
 pub trait TreeDeserialize<'de> {
     /// Deserialize a leaf node by its keys.
@@ -450,7 +448,7 @@ pub trait TreeDeserialize<'de> {
     /// ```
     ///
     /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `keys`: A `Keys` identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
     ///
     /// # Returns
