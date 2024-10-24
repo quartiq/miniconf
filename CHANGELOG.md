@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Key::find` and `Keys::finalize` return a `Result`, not an `Option` to reduce code duplication
 * Derive macro lifetime and type param trait bound heuristics have been improved.
   They should now yield the correct result in mpst cases.
-* A depth-0 exact size nodes iterator (`<T as TreeKey>::nodes::<_, 0>().exact_size()`)
-  is invalid and now panics on creation.
+* Internal nodes must always have at least one leaf. Trait impls for `[T; 0]` and `()`
+  have been removed.
 
 ### Added
 
@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `StrLeaf` to manage values via `AsRef<str>`/`TryFrom<&str>` (e.g. Enums via `strum`)
 * `Tree*` impls for heterogeneous inline tuples up to length 8 (also useful for enum variants)
 * `impl Tree* for &{mut,} T where T: Tree*` blanket impls to simplify usage downstream
+* `defer` derive attribute to quickly defer to a downstream field without having to write accessors
 
 ### Removed
 

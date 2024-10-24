@@ -14,7 +14,7 @@ pub struct TreeField {
     pub get: Option<syn::Expr>,
     pub get_mut: Option<syn::Expr>,
     pub rename: Option<syn::Ident>,
-    pub via: Option<syn::Expr>,
+    pub defer: Option<syn::Expr>,
 }
 
 uses_type_params!(TreeField, ty, typ);
@@ -62,8 +62,8 @@ impl TreeField {
             quote_spanned! { get.span()=>
                 #get.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
-        } else if let Some(via) = &self.via {
-            quote_spanned!(via.span()=> ::core::result::Result::Ok(&#via))
+        } else if let Some(defer) = &self.defer {
+            quote_spanned!(defer.span()=> ::core::result::Result::Ok(&#defer))
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&self.#ident))
@@ -77,8 +77,8 @@ impl TreeField {
             quote_spanned! { get_mut.span()=>
                 #get_mut.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
             }
-        } else if let Some(via) = &self.via {
-            quote_spanned!(via.span()=> ::core::result::Result::Ok(&mut #via))
+        } else if let Some(defer) = &self.defer {
+            quote_spanned!(defer.span()=> ::core::result::Result::Ok(&mut #defer))
         } else if let Some(i) = i {
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&mut self.#ident))
