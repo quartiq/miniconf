@@ -1,4 +1,4 @@
-use core::iter::Fuse;
+use core::{iter::Fuse, num::NonZeroUsize};
 
 use crate::Traversal;
 
@@ -9,7 +9,7 @@ pub struct KeyLookup {
     /// The number of top-level nodes.
     ///
     /// This is used by `impl Keys for Packed`.
-    pub len: usize,
+    pub len: NonZeroUsize,
 
     /// Node names, if any.
     ///
@@ -22,18 +22,24 @@ impl KeyLookup {
     /// Return a homogenenous unnamed KeyLookup
     #[inline]
     pub const fn homogeneous(len: usize) -> Self {
-        Self { len, names: None }
+        match NonZeroUsize::new(len) {
+            Some(len) => Self { len, names: None },
+            None => panic!("Internal nodes must have at least one leaf"),
+        }
     }
 
     /// Perform a index-to-name lookup
     pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
         match self.names {
-            Some(names) => match names.get(index) {
-                Some(name) => Ok(Some(name)),
-                None => Err(Traversal::NotFound(1)),
-            },
+            Some(names) => {
+                debug_assert!(names.len() == self.len.get());
+                match names.get(index) {
+                    Some(name) => Ok(Some(name)),
+                    None => Err(Traversal::NotFound(1)),
+                }
+            }
             None => {
-                if index >= self.len {
+                if index >= self.len.get() {
                     Err(Traversal::NotFound(1))
                 } else {
                     Ok(None)
@@ -73,7 +79,7 @@ macro_rules! impl_key_integer {
         impl Key for $t {
             fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
                 let index = (*self).try_into().or(Err(Traversal::NotFound(1)))?;
-                if index >= lookup.len {
+                if index >= lookup.len.get() {
                     Err(Traversal::NotFound(1))
                 } else {
                     Ok(index)
@@ -92,7 +98,7 @@ impl Key for str {
             None => self.parse().ok(),
         }
         .ok_or(Traversal::NotFound(1))?;
-        if index >= lookup.len {
+        if index >= lookup.len.get() {
             Err(Traversal::NotFound(1))
         } else {
             Ok(index)

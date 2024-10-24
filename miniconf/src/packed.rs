@@ -241,7 +241,7 @@ impl Packed {
 
 impl Keys for Packed {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        let bits = Self::bits_for(lookup.len.saturating_sub(1));
+        let bits = Self::bits_for(lookup.len.get() - 1);
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
         index.find(lookup)
     }
@@ -268,8 +268,8 @@ impl Transcode for Packed {
         M: TreeKey + ?Sized,
         K: IntoKeys,
     {
-        M::traverse_by_key(keys.into_keys(), |index, _name, len: usize| {
-            match self.push_lsb(Packed::bits_for(len.saturating_sub(1)), index) {
+        M::traverse_by_key(keys.into_keys(), |index, _name, len| {
+            match self.push_lsb(Packed::bits_for(len.get() - 1), index) {
                 None => Err(()),
                 Some(_) => Ok(()),
             }

@@ -86,9 +86,9 @@ impl Walk for Metadata {
             None => (
                 match lookup.names {
                     Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
-                    None => lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
+                    None => lookup.len.ilog10() as usize + 1,
                 },
-                lookup.len,
+                lookup.len.get(),
             ),
             Some(index) => (
                 match lookup.names {
@@ -100,6 +100,7 @@ impl Walk for Metadata {
         };
         self.max_depth = self.max_depth.max(1 + meta.max_depth);
         self.max_length = self.max_length.max(ident_len + meta.max_length);
+        debug_assert_ne!(meta.count, 0);
         self.count += count * meta.count;
         Ok(self)
     }
