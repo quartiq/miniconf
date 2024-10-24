@@ -1,4 +1,4 @@
-use crate::KeyLookup;
+use crate::{KeyLookup, Packed};
 
 /// Metadata about a `TreeKey` namespace.
 ///
@@ -21,6 +21,9 @@ pub struct Metadata {
 
     /// The exact total number of keys.
     pub count: usize,
+
+    /// The maximum number of bits (see [`crate::Packed`])
+    pub max_bits: u32,
 }
 
 impl Metadata {
@@ -84,6 +87,7 @@ impl Walk for Metadata {
     ) -> Result<Self, Self::Error> {
         let (ident_len, count) = match index {
             None => (
+                // homogeneous [meta; len]
                 match lookup.names {
                     Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
                     None => lookup.len.ilog10() as usize + 1,
@@ -91,6 +95,7 @@ impl Walk for Metadata {
                 lookup.len.get(),
             ),
             Some(index) => (
+                // one meta at index
                 match lookup.names {
                     Some(names) => names[index].len(),
                     None => index.checked_ilog10().unwrap_or_default() as usize + 1,
@@ -102,6 +107,9 @@ impl Walk for Metadata {
         self.max_length = self.max_length.max(ident_len + meta.max_length);
         debug_assert_ne!(meta.count, 0);
         self.count += count * meta.count;
+        self.max_bits = self
+            .max_bits
+            .max(Packed::bits_for(lookup.len.get() - 1) + meta.max_bits);
         Ok(self)
     }
 }

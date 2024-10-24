@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Tree*` impls for heterogeneous inline tuples up to length 8 (also useful for enum variants)
 * `impl Tree* for &{mut,} T where T: Tree*` blanket impls to simplify usage downstream
 * `defer` derive attribute to quickly defer to a downstream field without having to write accessors
+* `Metadata` now also computes maximum `Packed` bits usage
 
 ### Removed
 

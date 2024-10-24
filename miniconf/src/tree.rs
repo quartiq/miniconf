@@ -172,7 +172,7 @@ pub trait TreeKey {
     /// `Err(Traversal(TooLong(depth)))` is returned.
     /// If `keys` is exhausted before reaching a leaf node,
     /// `Err(Traversal(TooShort(depth)))` is returned.
-    /// `Traversal::Access/Invalid/Absent` are never returned.
+    /// `Traversal::Access/Invalid/Absent/Finalization` are never returned.
     ///
     /// ```
     /// use miniconf::{IntoKeys, Leaf, TreeKey};
