@@ -9,13 +9,13 @@ use crate::{
 /////////////////////////////////////////////////////////////////////////////////////////
 
 macro_rules! impl_tuple {
-    ($n:literal $($i:tt $t:ident)*) => {
+    ($n:literal $($i:tt $t:ident)+) => {
         #[allow(unreachable_code, unused_mut, unused)]
-        impl<$($t: TreeKey),*> TreeKey for ($($t,)*) {
+        impl<$($t: TreeKey),+> TreeKey for ($($t,)+) {
             fn traverse_all<W: Walk>() -> Result<W, W::Error> {
                 let mut walk = W::internal();
-                let k = KeyLookup::homogeneous($n.try_into().unwrap());
-                $(walk = walk.merge(&$t::traverse_all()?, Some($i), &k)?;)*
+                let k = KeyLookup::homogeneous($n);
+                $(walk = walk.merge(&$t::traverse_all()?, Some($i), &k)?;)+
                 Ok(walk)
             }
 
@@ -28,14 +28,14 @@ macro_rules! impl_tuple {
                 let index = keys.next(&k)?;
                 func(index, None, k.len).map_err(|err| Error::Inner(1, err))?;
                 Error::increment_result(match index {
-                    $($i => $t::traverse_by_key(keys, func),)*
+                    $($i => $t::traverse_by_key(keys, func),)+
                     _ => unreachable!()
                 })
             }
         }
 
         #[allow(unreachable_code, unused_mut, unused)]
-        impl<$($t: TreeSerialize),*> TreeSerialize for ($($t,)*) {
+        impl<$($t: TreeSerialize),+> TreeSerialize for ($($t,)+) {
             fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
             where
                 K: Keys,
@@ -43,14 +43,14 @@ macro_rules! impl_tuple {
             {
                 let index = keys.next(&KeyLookup::homogeneous($n))?;
                 Error::increment_result(match index {
-                    $($i => self.$i.serialize_by_key(keys, ser),)*
+                    $($i => self.$i.serialize_by_key(keys, ser),)+
                     _ => unreachable!()
                 })
             }
         }
 
         #[allow(unreachable_code, unused_mut, unused)]
-        impl<'de, $($t: TreeDeserialize<'de>),*> TreeDeserialize<'de> for ($($t,)*) {
+        impl<'de, $($t: TreeDeserialize<'de>),+> TreeDeserialize<'de> for ($($t,)+) {
             fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
             where
                 K: Keys,
@@ -58,21 +58,21 @@ macro_rules! impl_tuple {
             {
                 let index = keys.next(&KeyLookup::homogeneous($n))?;
                 Error::increment_result(match index {
-                    $($i => self.$i.deserialize_by_key(keys, de),)*
+                    $($i => self.$i.deserialize_by_key(keys, de),)+
                     _ => unreachable!()
                 })
             }
         }
 
         #[allow(unreachable_code, unused_mut, unused)]
-        impl<$($t: TreeAny),*> TreeAny for ($($t,)*) {
+        impl<$($t: TreeAny),+> TreeAny for ($($t,)+) {
             fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
             where
                 K: Keys,
             {
                 let index = keys.next(&KeyLookup::homogeneous($n))?;
                 let ret: Result<_, _> = match index {
-                    $($i => self.$i.ref_any_by_key(keys),)*
+                    $($i => self.$i.ref_any_by_key(keys),)+
                     _ => unreachable!()
                 };
                 ret.map_err(Traversal::increment)
@@ -84,7 +84,7 @@ macro_rules! impl_tuple {
             {
                 let index = keys.next(&KeyLookup::homogeneous($n))?;
                 let ret: Result<_, _> = match index {
-                    $($i => self.$i.mut_any_by_key(keys),)*
+                    $($i => self.$i.mut_any_by_key(keys),)+
                     _ => unreachable!()
                 };
                 ret.map_err(Traversal::increment)
