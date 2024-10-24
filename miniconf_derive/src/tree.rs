@@ -250,7 +250,7 @@ impl Tree {
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #orig_where_clause {
                 const __MINICONF_LOOKUP: ::miniconf::KeyLookup = ::miniconf::KeyLookup {
-                    len: match ::core::num::NonZeroUsize::new(#fields_len) {
+                    len: match ::core::num::NonZero::new(#fields_len) {
                         Some(n) => n,
                         None => unreachable!(),
                     },
@@ -270,7 +270,7 @@ impl Tree {
                 fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>
                 where
                     K: ::miniconf::Keys,
-                    F: ::core::ops::FnMut(usize, ::core::option::Option<&'static str>, ::core::num::NonZeroUsize) -> ::core::result::Result<(), E>,
+                    F: ::core::ops::FnMut(usize, ::core::option::Option<&'static str>, ::core::num::NonZero<usize>) -> ::core::result::Result<(), E>,
                 {
                     let index = #index?;
                     #traverse

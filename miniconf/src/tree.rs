@@ -1,4 +1,4 @@
-use core::{any::Any, num::NonZeroUsize};
+use core::{any::Any, num::NonZero};
 
 use serde::{Deserializer, Serializer};
 
@@ -120,6 +120,10 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// }
 /// ```
 ///
+/// ### `defer`
+///
+/// The `defer` attribute is a shorthand for `get`+`get_mut` of a downstream field.
+///
 /// # Array
 ///
 /// Blanket implementations of the `Tree*` traits are provided for homogeneous arrays
@@ -178,7 +182,7 @@ pub trait TreeKey {
     ///     bar: [Leaf<u16>; 2],
     /// };
     /// let mut ret = [(1, Some("bar"), 2), (0, None, 2)].into_iter();
-    /// let func = |index, name, len: core::num::NonZeroUsize| -> Result<(), ()> {
+    /// let func = |index, name, len: core::num::NonZero<usize>| -> Result<(), ()> {
     ///     assert_eq!(ret.next().unwrap(), (index, name, len.get()));
     ///     Ok(())
     /// };
@@ -201,7 +205,7 @@ pub trait TreeKey {
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>;
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>;
 
     /// Transcode keys to a new keys type representation
     ///
@@ -471,7 +475,7 @@ impl<T: TreeKey> TreeKey for &T {
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
         T::traverse_by_key(keys, func)
     }
@@ -485,7 +489,7 @@ impl<T: TreeKey> TreeKey for &mut T {
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
         T::traverse_by_key(keys, func)
     }

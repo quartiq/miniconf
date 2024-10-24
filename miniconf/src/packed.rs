@@ -1,5 +1,5 @@
 use core::{
-    num::NonZeroUsize,
+    num::NonZero,
     ops::{Deref, DerefMut},
 };
 
@@ -66,10 +66,7 @@ use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey}
 )]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Packed(
-    // Could use generic_nonzero #120257
-    NonZeroUsize,
-);
+pub struct Packed(NonZero<usize>);
 
 impl Default for Packed {
     #[inline]
@@ -78,14 +75,14 @@ impl Default for Packed {
     }
 }
 
-impl From<NonZeroUsize> for Packed {
+impl From<NonZero<usize>> for Packed {
     #[inline]
-    fn from(value: NonZeroUsize) -> Self {
+    fn from(value: NonZero<usize>) -> Self {
         Self(value)
     }
 }
 
-impl From<Packed> for NonZeroUsize {
+impl From<Packed> for NonZero<usize> {
     #[inline]
     fn from(value: Packed) -> Self {
         value.0
@@ -93,7 +90,7 @@ impl From<Packed> for NonZeroUsize {
 }
 
 impl Deref for Packed {
-    type Target = NonZeroUsize;
+    type Target = NonZero<usize>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -110,7 +107,7 @@ impl DerefMut for Packed {
 
 impl Packed {
     /// Number of bits in the representation including the marker bit
-    pub const BITS: u32 = NonZeroUsize::BITS;
+    pub const BITS: u32 = NonZero::<usize>::BITS;
 
     /// The total number of bits this representation can store.
     pub const CAPACITY: u32 = Self::BITS - 1;
@@ -118,7 +115,7 @@ impl Packed {
     /// The empty value
     pub const EMPTY: Self = Self(
         // Slightly cumbersome to generate it with `const`
-        NonZeroUsize::MIN
+        NonZero::<usize>::MIN
             .saturating_add(1)
             .saturating_pow(Self::CAPACITY),
     );
@@ -128,7 +125,7 @@ impl Packed {
     /// The value must not be zero.
     #[inline]
     pub const fn new(value: usize) -> Option<Self> {
-        match NonZeroUsize::new(value) {
+        match NonZero::new(value) {
             Some(value) => Some(Self(value)),
             None => None,
         }
@@ -139,7 +136,7 @@ impl Packed {
     /// The value must not be zero.
     #[inline]
     pub const fn new_from_lsb(value: usize) -> Option<Self> {
-        match NonZeroUsize::new(value) {
+        match NonZero::new(value) {
             Some(value) => Some(Self::from_lsb(value)),
             None => None,
         }
@@ -166,10 +163,9 @@ impl Packed {
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
     #[inline]
-    pub const fn into_lsb(self) -> NonZeroUsize {
-        match NonZeroUsize::new(
-            ((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros(),
-        ) {
+    pub const fn into_lsb(self) -> NonZero<usize> {
+        match NonZero::new(((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros())
+        {
             Some(v) => v,
             // We ensure there is at least the marker bit set
             None => unreachable!(),
@@ -179,7 +175,7 @@ impl Packed {
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
     /// moved from the MSB the LSB.
     #[inline]
-    pub const fn from_lsb(value: NonZeroUsize) -> Self {
+    pub const fn from_lsb(value: NonZero<usize>) -> Self {
         match Self::new(((value.get() << 1) | 1) << value.leading_zeros()) {
             Some(v) => v,
             // We ensure there is at least the marker bit set

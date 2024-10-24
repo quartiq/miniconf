@@ -1,4 +1,4 @@
-use core::{any::Any, num::NonZeroUsize};
+use core::{any::Any, num::NonZero};
 
 use serde::{Deserializer, Serializer};
 
@@ -22,7 +22,7 @@ macro_rules! impl_tuple {
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
             where
                 K: Keys,
-                F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+                F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
             {
                 let k = KeyLookup::homogeneous($n);
                 let index = keys.next(&k)?;
@@ -112,7 +112,7 @@ impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
         let k = KeyLookup::homogeneous(N);
         let index = keys.next(&k)?;
@@ -175,7 +175,7 @@ impl<T: TreeKey> TreeKey for Option<T> {
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
         T::traverse_by_key(keys, func)
     }

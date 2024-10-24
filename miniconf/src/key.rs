@@ -1,4 +1,4 @@
-use core::{iter::Fuse, num::NonZeroUsize};
+use core::{iter::Fuse, num::NonZero};
 
 use crate::Traversal;
 
@@ -9,7 +9,7 @@ pub struct KeyLookup {
     /// The number of top-level nodes.
     ///
     /// This is used by `impl Keys for Packed`.
-    pub len: NonZeroUsize,
+    pub len: NonZero<usize>,
 
     /// Node names, if any.
     ///
@@ -22,7 +22,7 @@ impl KeyLookup {
     /// Return a homogenenous unnamed KeyLookup
     #[inline]
     pub const fn homogeneous(len: usize) -> Self {
-        match NonZeroUsize::new(len) {
+        match NonZero::new(len) {
             Some(len) => Self { len, names: None },
             None => panic!("Internal nodes must have at least one leaf"),
         }

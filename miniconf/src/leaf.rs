@@ -1,6 +1,6 @@
 use core::{
     any::Any,
-    num::NonZeroUsize,
+    num::NonZero,
     ops::{Deref, DerefMut},
 };
 
@@ -59,7 +59,7 @@ impl<T: ?Sized> TreeKey for Leaf<T> {
     fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
         keys.finalize()?;
         Ok(0)
@@ -179,7 +179,7 @@ impl<T: ?Sized> TreeKey for StrLeaf<T> {
     fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZeroUsize) -> Result<(), E>,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
         keys.finalize()?;
         Ok(0)
