@@ -2,20 +2,19 @@
 //!
 //! ```
 //! use ::postcard::{de_flavors::Slice, ser_flavors::AllocVec};
-//! use miniconf::{postcard, Packed, Tree, TreeKey};
+//! use miniconf::{postcard, Leaf, Packed, Tree, TreeKey};
 //!
 //! #[derive(Tree, Default, PartialEq, Debug)]
 //! struct S {
-//!     foo: u32,
-//!     #[tree(depth = 1)]
-//!     bar: [u16; 2],
+//!     foo: Leaf<u32>,
+//!     bar: [Leaf<u16>; 2],
 //! };
 //!
 //! let source = S {
-//!     foo: 9,
-//!     bar: [7, 11],
+//!     foo: 9.into(),
+//!     bar: [7.into(), 11.into()],
 //! };
-//! let kv: Vec<_> = S::nodes::<Packed>()
+//! let kv: Vec<_> = S::nodes::<Packed, 2>()
 //!     .map(|p| {
 //!         let (p, _node) = p.unwrap();
 //!         let v = postcard::get_by_key(&source, p, AllocVec::new()).unwrap();
@@ -39,8 +38,7 @@ use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
 /// Deserialize and set a node value from a `postcard` flavor.
 pub fn set_by_key<
     'de,
-    T: TreeDeserialize<'de, Y> + ?Sized,
-    const Y: usize,
+    T: TreeDeserialize<'de> + ?Sized,
     K: IntoKeys,
     F: de_flavors::Flavor<'de>,
 >(
@@ -54,12 +52,7 @@ pub fn set_by_key<
 }
 
 /// Get and serialize a node value into a `postcard` flavor.
-pub fn get_by_key<
-    T: TreeSerialize<Y> + ?Sized,
-    const Y: usize,
-    K: IntoKeys,
-    F: ser_flavors::Flavor,
->(
+pub fn get_by_key<T: TreeSerialize + ?Sized, K: IntoKeys, F: ser_flavors::Flavor>(
     tree: &T,
     keys: K,
     flavor: F,

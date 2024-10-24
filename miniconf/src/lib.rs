@@ -17,10 +17,11 @@ mod jsonpath;
 pub use jsonpath::*;
 mod tree;
 pub use tree::*;
-mod array;
 mod iter;
-mod option;
 pub use iter::*;
+mod impls;
+mod leaf;
+pub use leaf::*;
 mod walk;
 pub use walk::*;
 

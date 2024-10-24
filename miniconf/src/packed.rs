@@ -1,9 +1,7 @@
 use core::{
-    num::NonZeroUsize,
+    num::NonZero,
     ops::{Deref, DerefMut},
 };
-
-use serde::{Deserialize, Serialize};
 
 use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
 
@@ -63,13 +61,12 @@ use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey}
 /// assert_eq!(p.get(), 0b11_0__101_1 << (Packed::CAPACITY - p.len()));
 /// //                              ^ marker
 /// ```
-#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Packed(
-    // Could use generic_nonzero #120257
-    NonZeroUsize,
-);
+pub struct Packed(NonZero<usize>);
 
 impl Default for Packed {
     #[inline]
@@ -78,14 +75,14 @@ impl Default for Packed {
     }
 }
 
-impl From<NonZeroUsize> for Packed {
+impl From<NonZero<usize>> for Packed {
     #[inline]
-    fn from(value: NonZeroUsize) -> Self {
+    fn from(value: NonZero<usize>) -> Self {
         Self(value)
     }
 }
 
-impl From<Packed> for NonZeroUsize {
+impl From<Packed> for NonZero<usize> {
     #[inline]
     fn from(value: Packed) -> Self {
         value.0
@@ -93,7 +90,7 @@ impl From<Packed> for NonZeroUsize {
 }
 
 impl Deref for Packed {
-    type Target = NonZeroUsize;
+    type Target = NonZero<usize>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -110,7 +107,7 @@ impl DerefMut for Packed {
 
 impl Packed {
     /// Number of bits in the representation including the marker bit
-    pub const BITS: u32 = NonZeroUsize::BITS;
+    pub const BITS: u32 = NonZero::<usize>::BITS;
 
     /// The total number of bits this representation can store.
     pub const CAPACITY: u32 = Self::BITS - 1;
@@ -118,7 +115,7 @@ impl Packed {
     /// The empty value
     pub const EMPTY: Self = Self(
         // Slightly cumbersome to generate it with `const`
-        NonZeroUsize::MIN
+        NonZero::<usize>::MIN
             .saturating_add(1)
             .saturating_pow(Self::CAPACITY),
     );
@@ -128,7 +125,7 @@ impl Packed {
     /// The value must not be zero.
     #[inline]
     pub const fn new(value: usize) -> Option<Self> {
-        match NonZeroUsize::new(value) {
+        match NonZero::new(value) {
             Some(value) => Some(Self(value)),
             None => None,
         }
@@ -139,7 +136,7 @@ impl Packed {
     /// The value must not be zero.
     #[inline]
     pub const fn new_from_lsb(value: usize) -> Option<Self> {
-        match NonZeroUsize::new(value) {
+        match NonZero::new(value) {
             Some(value) => Some(Self::from_lsb(value)),
             None => None,
         }
@@ -166,10 +163,9 @@ impl Packed {
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
     #[inline]
-    pub const fn into_lsb(self) -> NonZeroUsize {
-        match NonZeroUsize::new(
-            ((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros(),
-        ) {
+    pub const fn into_lsb(self) -> NonZero<usize> {
+        match NonZero::new(((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros())
+        {
             Some(v) => v,
             // We ensure there is at least the marker bit set
             None => unreachable!(),
@@ -179,7 +175,7 @@ impl Packed {
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
     /// moved from the MSB the LSB.
     #[inline]
-    pub const fn from_lsb(value: NonZeroUsize) -> Self {
+    pub const fn from_lsb(value: NonZero<usize>) -> Self {
         match Self::new(((value.get() << 1) | 1) << value.leading_zeros()) {
             Some(v) => v,
             // We ensure there is at least the marker bit set
@@ -241,14 +237,14 @@ impl Packed {
 
 impl Keys for Packed {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        let bits = Self::bits_for(lookup.len.saturating_sub(1));
+        let bits = Self::bits_for(lookup.len.get() - 1);
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
-        index.find(lookup).ok_or(Traversal::NotFound(1))
+        index.find(lookup)
     }
 
     #[inline]
-    fn finalize(&mut self) -> bool {
-        Packed::is_empty(self)
+    fn finalize(&mut self) -> Result<(), Traversal> {
+        self.is_empty().then_some(()).ok_or(Traversal::TooLong(0))
     }
 }
 
@@ -262,14 +258,14 @@ impl IntoKeys for Packed {
 }
 
 impl Transcode for Packed {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         Self: Sized,
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys,
     {
-        M::traverse_by_key(keys.into_keys(), |index, _name, len: usize| {
-            match self.push_lsb(Packed::bits_for(len.saturating_sub(1)), index) {
+        M::traverse_by_key(keys.into_keys(), |index, _name, len| {
+            match self.push_lsb(Packed::bits_for(len.get() - 1), index) {
                 None => Err(()),
                 Some(_) => Ok(()),
             }

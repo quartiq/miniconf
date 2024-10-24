@@ -1,14 +1,10 @@
-use core::convert::Infallible;
-
-use serde::{Deserialize, Serialize};
-
-use crate::KeyLookup;
+use crate::{KeyLookup, Packed};
 
 /// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
 #[non_exhaustive]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///
@@ -21,11 +17,13 @@ pub struct Metadata {
     ///
     /// This is equal to the exact maximum number of path hierarchy separators.
     /// It's the exact maximum number of key indices.
-    /// It may be smaller than the [`TreeKey<Y>` recursion depth](crate::TreeKey#recursion-depth).
     pub max_depth: usize,
 
     /// The exact total number of keys.
     pub count: usize,
+
+    /// The maximum number of bits (see [`crate::Packed`])
+    pub max_bits: u32,
 }
 
 impl Metadata {
@@ -66,7 +64,7 @@ pub trait Walk: Sized {
 }
 
 impl Walk for Metadata {
-    type Error = Infallible;
+    type Error = core::convert::Infallible;
 
     #[inline]
     fn internal() -> Self {
@@ -89,13 +87,15 @@ impl Walk for Metadata {
     ) -> Result<Self, Self::Error> {
         let (ident_len, count) = match index {
             None => (
+                // homogeneous [meta; len]
                 match lookup.names {
                     Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
-                    None => lookup.len.checked_ilog10().unwrap_or_default() as usize + 1,
+                    None => lookup.len.ilog10() as usize + 1,
                 },
-                lookup.len,
+                lookup.len.get(),
             ),
             Some(index) => (
+                // one meta at index
                 match lookup.names {
                     Some(names) => names[index].len(),
                     None => index.checked_ilog10().unwrap_or_default() as usize + 1,
@@ -105,7 +105,11 @@ impl Walk for Metadata {
         };
         self.max_depth = self.max_depth.max(1 + meta.max_depth);
         self.max_length = self.max_length.max(ident_len + meta.max_length);
+        debug_assert_ne!(meta.count, 0);
         self.count += count * meta.count;
+        self.max_bits = self
+            .max_bits
+            .max(Packed::bits_for(lookup.len.get() - 1) + meta.max_bits);
         Ok(self)
     }
 }

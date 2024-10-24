@@ -1,5 +1,5 @@
 use heapless::String;
-use miniconf::Tree;
+use miniconf::{Leaf, Tree};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
@@ -7,7 +7,7 @@ use std_embedded_time::StandardClock;
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Inner {
-    a: u32,
+    a: Leaf<u32>,
 }
 
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
@@ -20,27 +20,23 @@ enum Gain {
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Settings {
-    stream: String<32>,
-    #[tree(depth = 1)]
-    afe: [Gain; 2],
-    #[tree(depth = 1)]
+    stream: Leaf<String<32>>,
+    afe: [Leaf<Gain>; 2],
     inner: Inner,
-    #[tree(depth = 1)]
-    values: [f32; 2],
-    array: [i32; 4],
-    #[tree(depth = 1)]
-    opt: Option<i32>,
-    #[tree(validate=Self::validate_four)]
-    four: f32,
-    exit: bool,
+    values: [Leaf<f32>; 2],
+    array: Leaf<[i32; 4]>,
+    opt: Option<Leaf<i32>>,
+    #[tree(validate=self.validate_four)]
+    four: Leaf<f32>,
+    exit: Leaf<bool>,
 }
 
 impl Settings {
-    fn validate_four(&mut self, new: f32) -> Result<f32, &'static str> {
-        if new < 4.0 {
+    fn validate_four(&mut self, depth: usize) -> Result<usize, &'static str> {
+        if *self.four < 4.0 {
             Err("Less than four")
         } else {
-            Ok(new)
+            Ok(depth)
         }
     }
 }
@@ -53,7 +49,7 @@ async fn main() {
     let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
 
     // Construct a settings configuration interface.
-    let mut client = miniconf_mqtt::MqttClient::new(
+    let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 4>::new(
         Stack,
         "test/id",
         StandardClock::default(),
@@ -64,7 +60,7 @@ async fn main() {
     client.set_alive("\"hello\"");
 
     let mut settings = Settings::default();
-    while !settings.exit {
+    while !*settings.exit {
         tokio::time::sleep(Duration::from_millis(10)).await;
         if client.update(&mut settings).unwrap() {
             println!("Settings updated: {:?}", settings);

@@ -1,18 +1,15 @@
-use core::any::Any;
-
-use miniconf::{json, Deserialize, Metadata, Serialize, Tree, TreeKey};
-use serde::de::DeserializeOwned;
+use miniconf::{json, Deserialize, Leaf, Metadata, Serialize, Tree, TreeKey};
 
 #[test]
 fn generic_type() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        pub data: T,
+        pub data: Leaf<T>,
     }
 
     let mut settings = Settings::<f32>::default();
     json::set(&mut settings, "/data", b"3.0").unwrap();
-    assert_eq!(settings.data, 3.0);
+    assert_eq!(*settings.data, 3.0);
 
     // Test metadata
     let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
@@ -25,14 +22,13 @@ fn generic_type() {
 fn generic_array() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        #[tree(depth = 1)]
-        pub data: [T; 2],
+        pub data: [Leaf<T>; 2],
     }
 
     let mut settings = Settings::<f32>::default();
     json::set(&mut settings, "/data/0", b"3.0").unwrap();
 
-    assert_eq!(settings.data[0], 3.0);
+    assert_eq!(*settings.data[0], 3.0);
 
     // Test metadata
     let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
@@ -45,7 +41,7 @@ fn generic_array() {
 fn generic_struct() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        pub inner: T,
+        pub inner: Leaf<T>,
     }
 
     #[derive(Serialize, Deserialize, Default)]
@@ -69,11 +65,9 @@ fn generic_struct() {
 fn generic_atomic() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        atomic: Inner<T>,
-        #[tree(depth = 2)]
-        opt: [[Option<T>; 0]; 0],
-        #[tree(depth = 3)]
-        opt1: [[Option<T>; 0]; 0],
+        atomic: Leaf<Inner<T>>,
+        opt: [[Leaf<Option<T>>; 1]; 1],
+        opt1: [[Option<Leaf<T>>; 1]; 1],
     }
 
     #[derive(Deserialize, Serialize, Default)]
@@ -93,30 +87,11 @@ fn generic_atomic() {
 }
 
 #[test]
-fn test_derive_macro_bound_failure() {
-    // The derive macro uses a simplistic approach to adding bounds
-    // for generic types.
-    // This is analogous to other standard derive macros.
-    // See also the documentation for the Tree traits
-    // and the code comments in the derive macro
-    // on adding bounds to generics.
-    // This test below shows the issue and tests whether the workaround of
-    // adding the required traits by hand works.
-    type A<T> = [[T; 0]; 0];
-    #[derive(Tree)]
-    struct S<T: Serialize + DeserializeOwned + Any>(
-        // this wrongly infers T: Tree<1> instead of T: SerDe
-        // adding the missing bound is a workaround
-        #[tree(depth = 2)] A<T>,
-    );
-}
-
-#[test]
 fn test_depth() {
     #[derive(Tree)]
-    struct S<T>(#[tree(depth = 3)] Option<Option<T>>);
-    // works as array implements Tree<1>
-    S::<[u32; 1]>::traverse_all::<Metadata>().unwrap();
-    // does not compile as u32 does not implement Tree<1>
+    struct S<T>(Option<Option<T>>);
+    // This works as array implements TreeKey
+    S::<[Leaf<u32>; 1]>::traverse_all::<Metadata>().unwrap();
+    // This does not compile as u32 does not implement TreeKey
     // S::<u32>::traverse_all::<Metadata>();
 }

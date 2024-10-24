@@ -61,23 +61,23 @@ impl<I> From<usize> for Error<I> {
 pub const SEPARATOR: char = '/';
 
 #[derive(Debug, PartialEq, PartialOrd)]
-pub struct Menu<M, const Y: usize, const D: usize = Y> {
+pub struct Menu<M, const D: usize> {
     key: Packed,
     _m: PhantomData<M>,
 }
 
-impl<M, const Y: usize> Default for Menu<M, Y>
+impl<M, const D: usize> Default for Menu<M, D>
 where
-    M: TreeKey<Y> + TreeSerialize<Y> + TreeDeserializeOwned<Y> + Default,
+    M: TreeKey + TreeSerialize + TreeDeserializeOwned + Default,
 {
     fn default() -> Self {
         Self::new(Packed::default())
     }
 }
 
-impl<M, const Y: usize> Menu<M, Y>
+impl<M, const D: usize> Menu<M, D>
 where
-    M: TreeKey<Y> + TreeSerialize<Y> + TreeDeserializeOwned<Y> + Default,
+    M: TreeKey + TreeSerialize + TreeDeserializeOwned + Default,
 {
     pub fn new(key: Packed) -> Self {
         Self {
@@ -92,7 +92,7 @@ where
     }
 
     fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
-        let (idx, node): (Indices<[_; Y]>, _) = M::transcode(self.key)?;
+        let (idx, node): (Indices<[_; D]>, _) = M::transcode(self.key)?;
         if let Some(idx) = idx.get(
             ..node
                 .depth()
@@ -121,7 +121,7 @@ where
     pub fn list<S: core::fmt::Write + Default>(
         &self,
     ) -> Result<impl Iterator<Item = Result<S, usize>>, Traversal> {
-        Ok(M::nodes::<Path<S, SEPARATOR>>()
+        Ok(M::nodes::<Path<S, SEPARATOR>, D>()
             .root(self.key)?
             .map(|pn| pn.map(|(p, _n)| p.into_inner())))
     }
@@ -148,7 +148,7 @@ where
         buf: &mut [u8],
     ) -> Result<(), miniconf::Error<::postcard::Error>> {
         let def = M::default();
-        for keys in M::nodes::<Packed>().root(self.key)? {
+        for keys in M::nodes::<Packed, D>().root(self.key)? {
             // Slight abuse of TooLong for "keys to long for packed"
             let (keys, node) = keys.map_err(|depth| Traversal::TooLong(depth))?;
             debug_assert!(node.is_leaf());
@@ -180,11 +180,11 @@ where
         let def = M::default();
         let bl = buf.len();
         let mut sl = &mut buf[..];
-        Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).transcode::<M, Y, _>(self.key)?;
+        Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).transcode::<M, _>(self.key)?;
         let root_len = bl - sl.len();
         awrite(&mut write, &buf[..root_len]).await?;
         awrite(&mut write, ">\n".as_bytes()).await?;
-        for keys in M::nodes::<Packed>().root(self.key)? {
+        for keys in M::nodes::<Packed, D>().root(self.key)? {
             let (keys, node) = keys?;
             let (val, rest) = match json::get_by_key(instance, keys, &mut buf[..]) {
                 Err(miniconf::Error::Traversal(Traversal::TooShort(_))) => {
@@ -204,7 +204,7 @@ where
             awrite(&mut write, "  ".as_bytes()).await?;
             let rl = rest.len();
             let mut sl = &mut rest[..];
-            Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).transcode::<M, Y, _>(keys)?;
+            Path::<_, SEPARATOR>::from(WriteWrap(&mut sl)).transcode::<M, _>(keys)?;
             let path_len = rl - sl.len();
             awrite(&mut write, &rest[root_len..path_len]).await?;
             awrite(&mut write, ": ".as_bytes()).await?;
@@ -279,7 +279,7 @@ async fn main() -> Result<()> {
 
     let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
-    let mut menu = Menu::default();
+    let mut menu = Menu::<_, 4>::default();
 
     while let Some(line) = stdin.next_line().await? {
         let ret = menu

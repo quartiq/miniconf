@@ -116,12 +116,12 @@ mod sm {
 
 /// Cache correlation data and topic for multi-part responses.
 struct Multipart<M, const Y: usize> {
-    iter: NodeIter<M, Y, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>>,
+    iter: NodeIter<M, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
-impl<M: TreeKey<Y>, const Y: usize> Default for Multipart<M, Y> {
+impl<M: TreeKey, const Y: usize> Default for Multipart<M, Y> {
     fn default() -> Self {
         Self {
             iter: M::nodes(),
@@ -131,14 +131,14 @@ impl<M: TreeKey<Y>, const Y: usize> Default for Multipart<M, Y> {
     }
 }
 
-impl<M: TreeKey<Y>, const Y: usize> Multipart<M, Y> {
+impl<M: TreeKey, const Y: usize> Multipart<M, Y> {
     fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::Traversal> {
         self.iter = self.iter.root(keys)?;
         Ok(self)
     }
 }
 
-impl<M: TreeKey<Y>, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
+impl<M: TreeKey, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
     type Error = &'static str;
     fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
         let response_topic = value
@@ -197,16 +197,16 @@ impl From<ResponseCode> for minimq::Property<'static> {
 ///
 /// # Example
 /// ```
-/// use miniconf::Tree;
+/// use miniconf::{Leaf, Tree};
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
-///     foo: bool,
+///     foo: Leaf<bool>,
 /// }
 ///
 /// let mut buffer = [0u8; 1024];
 /// let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
-/// let mut client = miniconf_mqtt::MqttClient::new(
+/// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 1>::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),
@@ -232,7 +232,7 @@ where
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
     MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
-    Settings: TreeSerialize<Y> + TreeDeserializeOwned<Y> + Clone,
+    Settings: TreeKey + TreeSerialize + TreeDeserializeOwned + Clone,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Broker: minimq::Broker,
@@ -251,14 +251,9 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        assert!(
-            prefix.len()
-                + "/settings".len()
-                + Settings::traverse_all::<Metadata>()
-                    .unwrap()
-                    .max_length("/")
-                <= MAX_TOPIC_LENGTH
-        );
+        let meta = Settings::traverse_all::<Metadata>().unwrap();
+        assert!(meta.max_depth <= Y);
+        assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
@@ -389,7 +384,7 @@ where
                 .next()
                 .map(|path| {
                     let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
-                    assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
+                    debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
                     (ResponseCode::Continue, path.into_inner())
                 })
                 .unwrap_or((ResponseCode::Ok, String::new()));
@@ -424,7 +419,7 @@ where
             };
 
             let (path, node) = path.unwrap(); // Note(unwraped): checked capacity
-            assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
+            debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
 
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic

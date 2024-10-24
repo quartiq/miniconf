@@ -1,25 +1,21 @@
 use miniconf::{
-    json, Deserialize, Error, Indices, Metadata, Packed, Path, Serialize, Traversal, Tree, TreeKey,
+    json, Deserialize, Error, Indices, Leaf, Metadata, Packed, Path, Serialize, Traversal, Tree,
+    TreeKey,
 };
 
 mod common;
-use common::paths;
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
-    c: u8,
+    c: Leaf<u8>,
 }
 
 #[derive(Debug, Default, Tree)]
 struct Settings {
-    a: [u8; 2],
-    #[tree(depth = 1)]
-    d: [u8; 2],
-    #[tree(depth = 1)]
-    dm: [Inner; 2],
-    #[tree(depth = 2)]
+    a: Leaf<[u8; 2]>,
+    d: [Leaf<u8>; 2],
+    dm: [Leaf<Inner>; 2],
     am: [Inner; 2],
-    #[tree(depth = 3)]
     aam: [[Inner; 2]; 2],
 }
 
@@ -52,26 +48,31 @@ fn set_get(
 }
 
 #[test]
+fn paths() {
+    common::paths::<Settings, 4>();
+}
+
+#[test]
 fn atomic() {
     let mut s = Settings::default();
     set_get(&mut s, "/a", b"[1,2]").unwrap();
-    assert_eq!(s.a, [1, 2]);
+    assert_eq!(*s.a, [1, 2]);
 }
 
 #[test]
 fn defer() {
     let mut s = Settings::default();
     set_get(&mut s, "/d/1", b"99").unwrap();
-    assert_eq!(s.d[1], 99);
+    assert_eq!(*s.d[1], 99);
 }
 
 #[test]
 fn defer_miniconf() {
     let mut s = Settings::default();
     set_get(&mut s, "/am/0/c", b"1").unwrap();
-    assert_eq!(s.am[0].c, 1);
+    assert_eq!(*s.am[0].c, 1);
     set_get(&mut s, "/aam/0/0/c", b"3").unwrap();
-    assert_eq!(s.aam[0][0].c, 3);
+    assert_eq!(*s.aam[0][0].c, 3);
 }
 
 #[test]
@@ -132,25 +133,4 @@ fn metadata() {
     assert_eq!(metadata.max_depth, 4);
     assert_eq!(metadata.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(metadata.count, 11);
-}
-
-#[test]
-fn empty() {
-    assert_eq!(paths::<[u32; 0], 1>(), [""; 0]);
-
-    #[derive(Tree, Serialize, Deserialize)]
-    struct S {}
-
-    assert_eq!(paths::<S, 1>(), [""; 0]);
-    assert_eq!(paths::<[[S; 0]; 0], 3>(), [""; 0]);
-
-    #[derive(Tree)]
-    struct Q {
-        #[tree(depth = 2)]
-        a: [S; 0],
-        #[tree(depth = 1)]
-        b: [S; 0],
-    }
-
-    assert_eq!(paths::<Q, 3>(), [""; 0]);
 }

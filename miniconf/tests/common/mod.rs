@@ -1,10 +1,10 @@
 use miniconf::{json, Path, TreeDeserialize, TreeKey, TreeSerialize};
 
-pub fn paths<M, const Y: usize>() -> Vec<String>
+pub fn paths<M, const D: usize>() -> Vec<String>
 where
-    M: TreeKey<Y>,
+    M: TreeKey,
 {
-    M::nodes::<Path<String, '/'>>()
+    M::nodes::<Path<String, '/'>, D>()
         .exact_size()
         .map(|pn| {
             let (p, n) = pn.unwrap();
@@ -15,9 +15,9 @@ where
         .collect()
 }
 
-pub fn set_get<'de, M, const Y: usize>(s: &mut M, path: &str, value: &'de [u8])
+pub fn set_get<'de, M>(s: &mut M, path: &str, value: &'de [u8])
 where
-    M: TreeDeserialize<'de, Y> + TreeSerialize<Y> + ?Sized,
+    M: TreeDeserialize<'de> + TreeSerialize + ?Sized,
 {
     json::set(s, path, value).unwrap();
     let mut buf = vec![0; value.len()];

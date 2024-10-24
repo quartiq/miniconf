@@ -17,7 +17,7 @@ pub enum NodeType {
 
     /// An internal node
     ///
-    /// A non-leaf node with zero or more leaf nodes below this node
+    /// A non-leaf node with one or more leaf nodes below this node
     Internal,
 }
 
@@ -36,6 +36,7 @@ pub struct Node {
     ///
     /// This is the length of the key required to identify it.
     pub depth: usize,
+
     /// Leaf or internal
     pub typ: NodeType,
 }
@@ -110,30 +111,30 @@ pub trait Transcode {
     ///
     /// Returning `Err(Traversal::TooShort(depth))` indicates that there was insufficient
     /// capacity and a key could not be encoded at the given depth.
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys;
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys,
     {
-        T::transcode::<M, Y, _>(self, keys)
+        T::transcode::<M, _>(self, keys)
     }
 }
 
 /// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys,
     {
-        M::traverse_by_key(keys.into_keys(), |_index, _name, _len| Ok::<_, ()>(())).try_into()
+        M::traverse_by_key(keys.into_keys(), |_, _, _| Ok(())).try_into()
     }
 }
 
@@ -248,9 +249,9 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 }
 
 impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys,
     {
         M::traverse_by_key(keys.into_keys(), |index, name, _len| {
@@ -265,8 +266,6 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
 }
 
 /// Indices of `usize` to identify a node in a `TreeKey`
-///
-/// `T` can be `[usize; D]` for `Transcode` or `AsRef<[usize]>` for `IntoKeys` (see [`KeysIter`]).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -318,21 +317,21 @@ impl<T: IntoKeys> IntoKeys for Indices<T> {
 }
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
-    fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
-        M: TreeKey<Y> + ?Sized,
+        M: TreeKey + ?Sized,
         K: IntoKeys,
     {
-        self.0.as_mut().transcode::<M, Y, _>(keys)
+        self.0.as_mut().transcode::<M, _>(keys)
     }
 }
 
 macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
-            fn transcode<M, const Y: usize, K>(&mut self, keys: K) -> Result<Node, Traversal>
+            fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
             where
-                M: TreeKey<Y> + ?Sized,
+                M: TreeKey + ?Sized,
                 K: IntoKeys,
             {
                 let mut it = self.iter_mut();

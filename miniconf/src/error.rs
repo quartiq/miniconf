@@ -5,8 +5,7 @@ use core::fmt::{Debug, Display, Formatter};
 /// A `usize` member indicates the key depth where the error occurred.
 /// The depth here is the number of names or indices consumed.
 /// It is also the number of separators in a path or the length
-/// of an indices slice. The [`TreeKey<Y>` recursion depth](crate::TreeKey#recursion-depth)
-/// is an upper bound to the key depth here but not equivalent.
+/// of an indices slice.
 ///
 /// If multiple errors are applicable simultaneously the precedence
 /// is as per the order in the enum definition (from high to low).

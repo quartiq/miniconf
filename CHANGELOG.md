@@ -6,6 +6,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.16.3...HEAD) - DATE
+
+### Changed
+
+* The "recursion depth" const generic of the `Tree*` traits has been removed in favor of
+  explicit newtypes implementing the traits for leaf values `Leaf<T>` and `StrLeaf<T>`.
+  This reduces code duplication, macro usage and complexity.
+  It enables any recursion depth, does away with most manual tracking of recursion depth
+  in proc macro attributes, and simplifies code and derive macros, at the expense of having
+  to wrap leaves in newtypes and having to pass an indices length to `TreeKey::nodes()`.
+* `TreeKey::nodes` requires the indices length as a const generic.
+* `get`, `get_mut`, `validate` proc macro attributes are now `Expr`
+* `Key::find` and `Keys::finalize` return a `Result`, not an `Option` to reduce code duplication
+* Derive macro lifetime and type param trait bound heuristics have been improved.
+  They should now yield the correct result in mpst cases.
+* Internal nodes must always have at least one leaf. Trait impls for `[T; 0]` and `()`
+  have been removed. The `len` argument to the `traverse_by_key` closure is now a
+  `NonZero<usize>`.
+
+### Added
+
+* `Leaf` to explicitly manage `Serialize/Deserialize` leaf values.
+* `StrLeaf` to manage values via `AsRef<str>`/`TryFrom<&str>` (e.g. Enums via `strum`)
+* `Tree*` impls for heterogeneous inline tuples `(T0, T1, ...)` up to length 8 (also useful
+  for enum variants)
+* `impl Tree* for &{mut,} T where T: Tree*` blanket impls to simplify usage downstream
+* `defer` derive attribute to quickly defer to a downstream field without having to write accessors
+* `Metadata` now also computes maximum `Packed` bits usage
+
+### Removed
+
+* `TreeSerialize`/`TreeDeserialize`/`TreeAny` don't need `TreeKey`
+
 ## [0.16.3](https://github.com/quartiq/miniconf/compare/v0.16.2...v0.16.3) - 2024-10-20
 
 ### Added

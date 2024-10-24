@@ -4,7 +4,7 @@ error: Can only `skip` terminal tuple struct fields
 4 | pub struct S(#[tree(skip)] i32, i32);
   |                     ^^^^
 
-error: Can only `skip` terminal tuple struct fields
+error: Can only `skip` terminal tuple variant fields
  --> tests/ui/skip-unnamed.rs:8:14
   |
 8 |     A(#[tree(skip)] i32, i32),
