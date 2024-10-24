@@ -12,7 +12,7 @@ use crate::{Error, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSeria
 /// This wraps [`Serialize`], [`Deserialize`], and [`Any`] into `Tree` a leaf node.
 ///
 /// ```
-/// use miniconf::{Leaf, json, Tree};
+/// use miniconf::{json, Leaf, Tree};
 /// let mut s = Leaf(0);
 /// json::set(&mut s, "", b"7").unwrap();
 /// assert!(matches!(*s, 7));
@@ -117,7 +117,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 /// Inner enum variant field access can be implemented using `get`/`get_mut`.
 ///
 /// ```
-/// use miniconf::{StrLeaf, Leaf, json, Tree};
+/// use miniconf::{json, Leaf, StrLeaf, Tree};
 /// #[derive(Tree, strum::AsRefStr, strum::EnumString)]
 /// enum En {
 ///     A(Leaf<i32>),

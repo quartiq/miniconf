@@ -26,7 +26,6 @@ impl KeyLookup {
     }
 
     /// Perform a index-to-name lookup
-    #[inline]
     pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
         match self.names {
             Some(names) => match names.get(index) {
@@ -72,7 +71,6 @@ where
 macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
-            #[inline]
             fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
                 let index = (*self).try_into().or(Err(Traversal::NotFound(1)))?;
                 if index >= lookup.len {
