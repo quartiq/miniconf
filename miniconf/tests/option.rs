@@ -96,7 +96,7 @@ fn option_test_defer_option() {
 #[test]
 fn option_absent() {
     #[derive(Copy, Clone, Default, Tree)]
-    struct I {}
+    struct I(Leaf<()>);
 
     #[derive(Copy, Clone, Default, Tree)]
     struct S {

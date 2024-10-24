@@ -66,8 +66,8 @@ fn generic_atomic() {
     #[derive(Tree, Default)]
     struct Settings<T> {
         atomic: Leaf<Inner<T>>,
-        opt: [[Leaf<Option<T>>; 0]; 0],
-        opt1: [[Option<Leaf<T>>; 0]; 0],
+        opt: [[Leaf<Option<T>>; 1]; 1],
+        opt1: [[Option<Leaf<T>>; 1]; 1],
     }
 
     #[derive(Deserialize, Serialize, Default)]

@@ -103,6 +103,10 @@ impl Tree {
             return Err(Error::custom("Can't flatten multiple fields/variants")
                 .with_span(&self.flatten.span()));
         }
+        if self.fields().is_empty() {
+            return Err(Error::custom("Internal nodes must have at least one leaf")
+                .with_span(&self.ident.span()));
+        }
         Ok(self)
     }
 

@@ -97,7 +97,7 @@ macro_rules! impl_tuple {
         }
     }
 }
-impl_tuple!();
+// Note: internal nodes must have at least one leaf
 impl_tuple!(0 T0);
 impl_tuple!(0 T0 1 T1);
 impl_tuple!(0 T0 1 T1 2 T2);
@@ -109,8 +109,15 @@ impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
+struct Assert<const L: usize, const R: usize>;
+impl<const L: usize, const R: usize> Assert<L, R> {
+    const GREATER: () = assert!(L > R);
+}
+
 impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        let () = Assert::<N, 0>::GREATER;
+
         W::internal().merge(&T::traverse_all()?, None, &KeyLookup::homogeneous(N))
     }
 
@@ -119,6 +126,8 @@ impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, usize) -> Result<(), E>,
     {
+        let () = Assert::<N, 0>::GREATER;
+
         let index = keys.next(&KeyLookup::homogeneous(N))?;
         func(index, None, N).map_err(|err| Error::Inner(1, err))?;
         Error::increment_result(T::traverse_by_key(keys, func))

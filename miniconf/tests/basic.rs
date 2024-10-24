@@ -1,4 +1,4 @@
-use miniconf::{Indices, IntoKeys, Leaf, Metadata, Node, Path, Traversal, Tree, TreeKey};
+use miniconf::{Indices, Leaf, Metadata, Node, Path, Traversal, Tree, TreeKey};
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -57,35 +57,4 @@ fn indices() {
         Err(Traversal::TooLong(1).into())
     );
     assert_eq!(it.count(), 2);
-}
-
-#[test]
-fn traverse_empty() {
-    #[derive(Tree, Default)]
-    struct S {}
-    let f = |_, _, _| -> Result<(), ()> { unreachable!() };
-    assert_eq!(
-        S::traverse_by_key([0usize].into_keys(), f),
-        Err(Traversal::NotFound(1).into())
-    );
-    assert_eq!(
-        S::traverse_by_key([0usize; 0].into_keys(), f),
-        Err(Traversal::TooShort(0).into())
-    );
-    assert_eq!(
-        Option::<Leaf<i32>>::traverse_by_key([0usize].into_keys(), f),
-        Err(Traversal::TooLong(0).into())
-    );
-    assert_eq!(
-        Option::<Leaf<i32>>::traverse_by_key([0usize; 0].into_keys(), f),
-        Ok(0)
-    );
-    assert_eq!(
-        <Option::<S> as TreeKey>::traverse_by_key([0usize].into_keys(), f),
-        Err(Traversal::NotFound(1).into())
-    );
-    assert_eq!(
-        <Option::<S> as TreeKey>::traverse_by_key([0usize; 0].into_keys(), f),
-        Err(Traversal::TooShort(0).into())
-    );
 }

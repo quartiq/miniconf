@@ -114,12 +114,15 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited.
     pub fn exact_size(self) -> ExactSize<Self> {
-        assert!(self.depth == D + 1);
-        assert!(self.root == 0);
+        assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
+        assert_eq!(self.root, 0, "NodeIter on sub-tree");
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker
         let meta = M::traverse_all::<Metadata>().unwrap();
-        assert!(D >= meta.max_depth);
-        assert!(D > 0, "Depth-0 iterator will return a node");
+        assert!(
+            D >= meta.max_depth,
+            "depth D = {D} must be at least {}",
+            meta.max_depth
+        );
         ExactSize::new(self, meta.count)
     }
 }

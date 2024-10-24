@@ -4,7 +4,6 @@ use miniconf::{
 };
 
 mod common;
-use common::paths;
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
@@ -46,6 +45,11 @@ fn set_get(
     assert_eq!(&buf[..len], value);
 
     Ok(node.depth())
+}
+
+#[test]
+fn paths() {
+    common::paths::<Settings, 4>();
 }
 
 #[test]
@@ -129,23 +133,4 @@ fn metadata() {
     assert_eq!(metadata.max_depth, 4);
     assert_eq!(metadata.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(metadata.count, 11);
-}
-
-#[test]
-fn empty() {
-    assert_eq!(paths::<[Leaf<u32>; 0], 1>(), [""; 0]);
-
-    #[derive(Tree, Serialize, Deserialize)]
-    struct S {}
-
-    assert_eq!(paths::<S, 1>(), [""; 0]);
-    assert_eq!(paths::<[[S; 0]; 0], 3>(), [""; 0]);
-
-    #[derive(Tree)]
-    struct Q {
-        a: [S; 0],
-        b: [Leaf<S>; 0],
-    }
-
-    assert_eq!(paths::<Q, 3>(), [""; 0]);
 }

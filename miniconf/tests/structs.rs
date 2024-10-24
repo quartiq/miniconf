@@ -47,38 +47,6 @@ fn structs() {
 }
 
 #[test]
-fn empty_struct() {
-    #[derive(Tree, Default)]
-    struct Settings {}
-    assert_eq!(paths::<Settings, 1>(), [""; 0]);
-}
-
-#[test]
-#[should_panic]
-fn empty_iter_exact() {
-    <()>::nodes::<(), 0>().exact_size();
-}
-
-#[test]
-fn empty_iter() {
-    assert!(<()>::nodes::<(), 0>().count() == 1);
-}
-
-#[test]
-fn unit_struct() {
-    #[derive(Tree, Default)]
-    struct Settings;
-    assert_eq!(paths::<Settings, 1>(), [""; 0]);
-}
-
-#[test]
-fn empty_tuple_struct() {
-    #[derive(Tree, Default)]
-    struct Settings();
-    assert_eq!(paths::<Settings, 1>(), [""; 0]);
-}
-
-#[test]
 fn borrowed() {
     // Can't derive TreeAny
     #[derive(TreeKey, TreeDeserialize, TreeSerialize)]

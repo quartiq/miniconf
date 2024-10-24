@@ -1,0 +1,29 @@
+error: Internal nodes must have at least one leaf
+ --> tests/ui/internal_no_leaf.rs:4:10
+  |
+4 | pub enum EnumUninhab {}
+  |          ^^^^^^^^^^^
+
+error: Internal nodes must have at least one leaf
+ --> tests/ui/internal_no_leaf.rs:7:10
+  |
+7 | pub enum EnumEmpty {#[tree(skip)] V}
+  |          ^^^^^^^^^
+
+error: Internal nodes must have at least one leaf
+  --> tests/ui/internal_no_leaf.rs:10:12
+   |
+10 | pub struct StructUnit;
+   |            ^^^^^^^^^^
+
+error: Internal nodes must have at least one leaf
+  --> tests/ui/internal_no_leaf.rs:13:12
+   |
+13 | pub struct StructEmptyTuple (#[tree(skip)] ());
+   |            ^^^^^^^^^^^^^^^^
+
+error: Internal nodes must have at least one leaf
+  --> tests/ui/internal_no_leaf.rs:16:12
+   |
+16 | pub struct StructEmpty {#[tree(skip)] _f: ()}
+   |            ^^^^^^^^^^^

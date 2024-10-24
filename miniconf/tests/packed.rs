@@ -46,20 +46,23 @@ fn packed() {
 fn top() {
     #[derive(Tree)]
     struct S {
-        baz: [Leaf<i32>; 0],
+        baz: [Leaf<i32>; 1],
         foo: Leaf<i32>,
     }
     assert_eq!(
         S::nodes::<Path<String, '/'>, 2>()
             .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
-        ["/foo"]
+        ["/baz/0", "/foo"]
     );
     assert_eq!(
         S::nodes::<Indices<_>, 2>()
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
-        [(Indices([1, 0]), Node::leaf(1))]
+        [
+            (Indices([0, 0]), Node::leaf(2)),
+            (Indices([1, 0]), Node::leaf(1))
+        ]
     );
     let (p, node) = S::transcode::<Packed, _>([1usize]).unwrap();
     assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
@@ -67,7 +70,7 @@ fn top() {
         S::nodes::<Packed, 2>()
             .map(|p| p.unwrap().0.into_lsb().get())
             .collect::<Vec<_>>(),
-        [0b11]
+        [0b100, 0b11]
     );
 }
 

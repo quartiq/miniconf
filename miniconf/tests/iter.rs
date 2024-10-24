@@ -82,15 +82,24 @@ fn short_iter() {
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    NodeIter::<Settings, Path<String, '/'>, 1>::default().exact_size();
+    <[[Leaf<u32>; 1]; 1]>::nodes::<(), 1>().exact_size();
 }
 
 #[test]
 #[should_panic]
 fn panic_started_iter() {
-    let mut it = Settings::nodes::<Indices<[_; 3]>, 3>();
+    let mut it = <[[Leaf<u32>; 1]; 1]>::nodes::<(), 2>();
     it.next();
     it.exact_size();
+}
+
+#[test]
+#[should_panic]
+fn panic_rooted_iter() {
+    <[[Leaf<u32>; 1]; 1]>::nodes::<(), 2>()
+        .root([0usize])
+        .unwrap()
+        .exact_size();
 }
 
 #[test]
