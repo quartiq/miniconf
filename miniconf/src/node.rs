@@ -154,6 +154,7 @@ pub struct Path<T: ?Sized, const S: char>(pub T);
 
 impl<T: ?Sized, const S: char> Path<T, S> {
     /// The path hierarchy separator
+    #[inline]
     pub const fn separator(&self) -> char {
         S
     }
@@ -161,6 +162,7 @@ impl<T: ?Sized, const S: char> Path<T, S> {
 
 impl<T, const S: char> Path<T, S> {
     /// Extract just the path
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -168,18 +170,21 @@ impl<T, const S: char> Path<T, S> {
 
 impl<T: ?Sized, const S: char> Deref for Path<T, S> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized, const S: char> DerefMut for Path<T, S> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
 impl<T, const S: char> From<T> for Path<T, S> {
+    #[inline]
     fn from(value: T) -> Self {
         Path(value)
     }
@@ -235,6 +240,7 @@ impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
     }
@@ -243,6 +249,7 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         Path(&self.0).into_keys()
     }
@@ -273,12 +280,14 @@ pub struct Indices<T: ?Sized>(pub T);
 
 impl<T: ?Sized> Deref for Indices<T> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized> DerefMut for Indices<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -286,24 +295,28 @@ impl<T: ?Sized> DerefMut for Indices<T> {
 
 impl<T> Indices<T> {
     /// Extract just the indices
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
 impl<T> From<T> for Indices<T> {
+    #[inline]
     fn from(value: T) -> Self {
         Self(value)
     }
 }
 
 impl<const D: usize, T: Copy + Default> Default for Indices<[T; D]> {
+    #[inline]
     fn default() -> Self {
         Self([Default::default(); D])
     }
 }
 
 impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
+    #[inline]
     fn from(value: Indices<[T; D]>) -> Self {
         value.0
     }
@@ -311,12 +324,14 @@ impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
 
 impl<T: IntoKeys> IntoKeys for Indices<T> {
     type IntoKeys = T::IntoKeys;
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self.0.into_keys()
     }
 }
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
+    #[inline]
     fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
     where
         M: TreeKey + ?Sized,

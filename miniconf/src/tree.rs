@@ -248,6 +248,7 @@ pub trait TreeKey {
     ///
     /// # Returns
     /// Transcoded target and node information on success
+    #[inline]
     fn transcode<N, K>(keys: K) -> Result<(N, Node), Traversal>
     where
         K: IntoKeys,
@@ -308,6 +309,7 @@ pub trait TreeKey {
     ///     .collect::<Vec<_>>();
     /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
     /// ```
+    #[inline]
     fn nodes<N, const D: usize>() -> NodeIter<Self, N, D>
     where
         N: Transcode + Default,
@@ -357,6 +359,7 @@ pub trait TreeAny {
         K: Keys;
 
     /// Obtain a reference to a leaf of known type by key.
+    #[inline]
     fn ref_by_key<T: Any, K: IntoKeys>(&self, keys: K) -> Result<&T, Traversal> {
         self.ref_any_by_key(keys.into_keys())?
             .downcast_ref()
@@ -364,6 +367,7 @@ pub trait TreeAny {
     }
 
     /// Obtain a mutable reference to a leaf of known type by key.
+    #[inline]
     fn mut_by_key<T: Any, K: IntoKeys>(&mut self, keys: K) -> Result<&mut T, Traversal> {
         self.mut_any_by_key(keys.into_keys())?
             .downcast_mut()
@@ -466,10 +470,12 @@ impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
 // Blanket impls for refs and muts
 
 impl<T: TreeKey> TreeKey for &T {
+    #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         T::traverse_all()
     }
 
+    #[inline]
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -480,10 +486,12 @@ impl<T: TreeKey> TreeKey for &T {
 }
 
 impl<T: TreeKey> TreeKey for &mut T {
+    #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         T::traverse_all()
     }
 
+    #[inline]
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -494,47 +502,52 @@ impl<T: TreeKey> TreeKey for &mut T {
 }
 
 impl<T: TreeSerialize> TreeSerialize for &T {
+    #[inline]
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        T::serialize_by_key(self, keys, ser)
+        (**self).serialize_by_key(keys, ser)
     }
 }
 
 impl<T: TreeSerialize> TreeSerialize for &mut T {
+    #[inline]
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        T::serialize_by_key(self, keys, ser)
+        (**self).serialize_by_key(keys, ser)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
+    #[inline]
     fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        T::deserialize_by_key(self, keys, de)
+        (**self).deserialize_by_key(keys, de)
     }
 }
 
 impl<T: TreeAny> TreeAny for &mut T {
+    #[inline]
     fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
     {
-        T::ref_any_by_key(self, keys)
+        (**self).ref_any_by_key(keys)
     }
 
+    #[inline]
     fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
     {
-        T::mut_any_by_key(self, keys)
+        (**self).mut_any_by_key(keys)
     }
 }

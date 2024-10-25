@@ -9,16 +9,10 @@ pub struct ExactSize<T> {
     count: usize,
 }
 
-impl<T> ExactSize<T> {
-    // Not pub since the caller needs to ensure that the count contract holds.
-    fn new(iter: T, count: usize) -> Self {
-        Self { iter, count }
-    }
-}
-
 impl<T: Iterator> Iterator for ExactSize<T> {
     type Item = T::Item;
 
+    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(v) = self.iter.next() {
             self.count -= 1; // checks for overflow in debug
@@ -29,6 +23,7 @@ impl<T: Iterator> Iterator for ExactSize<T> {
         }
     }
 
+    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.count, Some(self.count))
     }
@@ -47,10 +42,12 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// A Keys wrapper that can always finalize()
 struct Consume<T>(T);
 impl<T: Keys> Keys for Consume<T> {
+    #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         self.0.next(lookup)
     }
 
+    #[inline]
     fn finalize(&mut self) -> Result<(), Traversal> {
         Ok(())
     }
@@ -58,6 +55,7 @@ impl<T: Keys> Keys for Consume<T> {
 impl<T: Keys> IntoKeys for Consume<T> {
     type IntoKeys = Self;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }
@@ -123,7 +121,10 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
             "depth D = {D} must be at least {}",
             meta.max_depth
         );
-        ExactSize::new(self, meta.count)
+        ExactSize {
+            iter: self,
+            count: meta.count,
+        }
     }
 }
 

@@ -34,6 +34,7 @@ use crate::{Error, IntoKeys, Path, TreeDeserialize, TreeSerialize};
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
+#[inline]
 pub fn set<'de, T: TreeDeserialize<'de> + ?Sized>(
     tree: &mut T,
     path: &str,
@@ -51,6 +52,7 @@ pub fn set<'de, T: TreeDeserialize<'de> + ?Sized>(
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
+#[inline]
 pub fn get<T: TreeSerialize + ?Sized>(
     tree: &T,
     path: &str,
@@ -63,6 +65,7 @@ pub fn get<T: TreeSerialize + ?Sized>(
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
+#[inline]
 pub fn set_by_key<'de, T: TreeDeserialize<'de> + ?Sized, K: IntoKeys>(
     tree: &mut T,
     keys: K,
@@ -77,6 +80,7 @@ pub fn set_by_key<'de, T: TreeDeserialize<'de> + ?Sized, K: IntoKeys>(
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
+#[inline]
 pub fn get_by_key<T: TreeSerialize + ?Sized, K: IntoKeys>(
     tree: &T,
     keys: K,
