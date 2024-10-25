@@ -79,6 +79,7 @@ impl Walk for Metadata {
         }
     }
 
+    #[inline]
     fn merge(
         mut self,
         meta: &Self,

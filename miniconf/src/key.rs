@@ -29,6 +29,7 @@ impl KeyLookup {
     }
 
     /// Perform a index-to-name lookup
+    #[inline]
     pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
         match self.names {
             Some(names) => {
@@ -45,6 +46,16 @@ impl KeyLookup {
                     Ok(None)
                 }
             }
+        }
+    }
+
+    /// Check that index is within range
+    #[inline]
+    pub fn clamp(&self, index: usize) -> Result<usize, Traversal> {
+        if index >= self.len.get() {
+            Err(Traversal::NotFound(1))
+        } else {
+            Ok(index)
         }
     }
 }
@@ -77,13 +88,10 @@ where
 macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
+            #[inline]
             fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
                 let index = (*self).try_into().or(Err(Traversal::NotFound(1)))?;
-                if index >= lookup.len.get() {
-                    Err(Traversal::NotFound(1))
-                } else {
-                    Ok(index)
-                }
+                lookup.clamp(index)
             }
         }
     )+};
@@ -92,17 +100,14 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 // name
 impl Key for str {
+    #[inline]
     fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         let index = match lookup.names {
             Some(names) => names.iter().position(|n| *n == self),
             None => self.parse().ok(),
         }
         .ok_or(Traversal::NotFound(1))?;
-        if index >= lookup.len.get() {
-            Err(Traversal::NotFound(1))
-        } else {
-            Ok(index)
-        }
+        lookup.clamp(index)
     }
 }
 
