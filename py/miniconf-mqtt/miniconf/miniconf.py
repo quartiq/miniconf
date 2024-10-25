@@ -27,7 +27,7 @@ class MiniconfException(Exception):
         self.message = message
 
     def __repr__(self):
-        return f"Code: {self.code}, Message: {self.message}"
+        return f"{self.code}: {self.message}"
 
 
 class Miniconf:
@@ -57,14 +57,17 @@ class Miniconf:
         try:
             async for message in self.client.messages:
                 self._dispatch(message)
-        except (asyncio.CancelledError, MqttError):
+        except asyncio.CancelledError:
             pass
+        except MqttError as e:
+            LOGGER.debug(f"MQTT Error {e}", exc_info=True)
         finally:
             try:
                 await self.client.unsubscribe(self.response_topic)
+                self.subscribed.clear()
                 LOGGER.info(f"Unsubscribed from {self.response_topic}")
-            except MqttError:
-                pass
+            except MqttError as e:
+                LOGGER.debug(f"MQTT Error {e}", exc_info=True)
 
     def _dispatch(self, message: Message):
         if message.topic.value != self.response_topic:
@@ -160,12 +163,12 @@ class Miniconf:
     async def dump(self, root: str = ""):
         """Dump all the paths at or below a given root into the settings namespace.
 
-        Note that the target Miniconf client may be unable to
-        respond to messages when a multipart operation (list or dump) is in progress.
-        This method does not wait for the completion of the dump.
+        Note that the target may be unable to respond to messages when a multipart
+        operation (list or dump) is in progress.
+        This method does not wait for completion.
 
         Args:
-            root: Path to the root node to dump.
+            root: Path to the root node to dump. Can be a leaf or an internal node.
         """
         await self._do(
             topic=f"{self.prefix}/settings{root}", payload="", response=False
@@ -175,7 +178,7 @@ class Miniconf:
         """Get the specific value of a given path.
 
         Args:
-            path: The path to get.
+            path: The path to get. Must be a leaf node.
         """
         ret = await self._do(topic=f"{self.prefix}/settings{path}", payload="")
         assert len(ret) == 1, ret
@@ -185,7 +188,7 @@ class Miniconf:
         """Clear retained value from a path.
 
         Args:
-            path: The path to get.
+            path: The path to clear. Must be a leaf node.
         """
         ret = await self._do(f"{self.prefix}/settings{path}", payload="", retain=True)
         assert len(ret) == 1, ret

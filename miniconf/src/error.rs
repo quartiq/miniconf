@@ -68,7 +68,6 @@ impl ::core::error::Error for Traversal {}
 
 impl Traversal {
     /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
-    #[inline]
     pub fn increment(self) -> Self {
         match self {
             Self::Absent(i) => Self::Absent(i + 1),
@@ -144,6 +143,7 @@ impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
 // Try to extract the Traversal from an Error
 impl<E> TryFrom<Error<E>> for Traversal {
     type Error = Error<E>;
+    #[inline]
     fn try_from(value: Error<E>) -> Result<Self, Self::Error> {
         match value {
             Error::Traversal(e) => Ok(e),
@@ -153,6 +153,7 @@ impl<E> TryFrom<Error<E>> for Traversal {
 }
 
 impl<E> From<Traversal> for Error<E> {
+    #[inline]
     fn from(value: Traversal) -> Self {
         Self::Traversal(value)
     }
@@ -160,6 +161,7 @@ impl<E> From<Traversal> for Error<E> {
 
 impl<E> Error<E> {
     /// Pass an `Error<E>` up one hierarchy depth level, incrementing its usize depth field by one.
+    #[inline]
     pub fn increment(self) -> Self {
         match self {
             Self::Traversal(t) => Self::Traversal(t.increment()),
@@ -169,6 +171,7 @@ impl<E> Error<E> {
     }
 
     /// Pass a `Result<usize, Error<E>>` up one hierarchy depth level, incrementing its usize depth field by one.
+    #[inline]
     pub fn increment_result(result: Result<usize, Self>) -> Result<usize, Self> {
         match result {
             Ok(i) => Ok(i + 1),

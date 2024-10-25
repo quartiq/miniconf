@@ -188,11 +188,11 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// The MQTT client places the [TreeKey] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
 /// where `<prefix>` is provided in the client constructor.
 ///
-/// It publishes its alive-ness as a `1` to `<prefix>/alive` and sets a will to publish `0` there when
-/// it is disconnected.
+/// By default it publishes its alive-ness as a `1` retained to `<prefix>/alive` and and clears it
+/// when disconnected.
 ///
 /// # Limitations
-/// The client only supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
+/// The client supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
 /// Re-publication timeout is fixed to `DUMP_TIMEOUT_SECONDS = 2` seconds.
 ///
 /// # Example
@@ -232,7 +232,7 @@ where
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
     MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
-    Settings: TreeKey + TreeSerialize + TreeDeserializeOwned + Clone,
+    Settings: TreeKey + TreeSerialize + TreeDeserializeOwned,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Broker: minimq::Broker,

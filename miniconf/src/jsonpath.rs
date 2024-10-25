@@ -42,12 +42,14 @@ impl<'a, T> From<&'a T> for JsonPathIter<'a>
 where
     T: AsRef<str> + ?Sized,
 {
+    #[inline]
     fn from(value: &'a T) -> Self {
         Self(value.as_ref())
     }
 }
 
 impl<'a> From<JsonPathIter<'a>> for &'a str {
+    #[inline]
     fn from(value: JsonPathIter<'a>) -> Self {
         value.0
     }
@@ -94,6 +96,7 @@ impl<'a> core::iter::FusedIterator for JsonPathIter<'a> {}
 pub struct JsonPath<T: ?Sized>(pub T);
 
 impl<T> From<T> for JsonPath<T> {
+    #[inline]
     fn from(value: T) -> Self {
         Self(value)
     }
@@ -101,6 +104,7 @@ impl<T> From<T> for JsonPath<T> {
 
 impl<T> JsonPath<T> {
     /// Extract the inner value
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -108,12 +112,14 @@ impl<T> JsonPath<T> {
 
 impl<T: ?Sized> Deref for JsonPath<T> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized> DerefMut for JsonPath<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -121,6 +127,7 @@ impl<T: ?Sized> DerefMut for JsonPath<T> {
 
 impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
     type IntoKeys = KeysIter<JsonPathIter<'a>>;
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         JsonPathIter::from(self.0.as_ref()).into_keys()
     }

@@ -236,6 +236,7 @@ impl Packed {
 }
 
 impl Keys for Packed {
+    #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         let bits = Self::bits_for(lookup.len.get() - 1);
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;

@@ -58,8 +58,8 @@ async def discover(
         )
     except asyncio.TimeoutError:
         pass
-
-    await client.unsubscribe(topic)
+    finally:
+        await client.unsubscribe(topic)
     return discovered
 
 

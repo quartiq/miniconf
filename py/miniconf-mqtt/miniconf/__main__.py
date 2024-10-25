@@ -22,13 +22,13 @@ def main():
     parser = argparse.ArgumentParser(
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Examples:
-%(prog)s test/id '/stream="192.0.2.16:9293"'
-%(prog)s -d test/+ '/afe/0'       # GET
-%(prog)s -d test/+ '/afe/0="G10"' # SET
-%(prog)s -d test/+ '/afe/0='      # CLEAR
-%(prog)s -d test/+ '/afe?' '?'    # LIST-GET
-%(prog)s -d test/+ '/afe!'        # DUMP
+        epilog="""Examples (with a target at prefix 'app/id'):
+%(prog)s app/id '/stream="192.0.2.16:9293"'
+%(prog)s -d app/+ /afe/0         # GET
+%(prog)s -d app/+ '/afe/0="G10"' # SET
+%(prog)s -d app/+ /afe/0=        # CLEAR
+%(prog)s -d app/+ /afe?          # LIST-GET
+%(prog)s -d app/+ 'afe!        # DUMP
 """,
     )
     parser.add_argument(
@@ -42,10 +42,10 @@ def main():
         "-r",
         default=False,
         action="store_true",
-        help="Retain the settings that are being set",
+        help="Retain the settings that are being set on the broker",
     )
     parser.add_argument(
-        "--discover", "-d", action="store_true", help="Detect and list device prefixes"
+        "--discover", "-d", action="store_true", help="Detect device prefix"
     )
     parser.add_argument(
         "prefix",

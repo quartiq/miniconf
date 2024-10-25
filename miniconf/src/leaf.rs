@@ -27,12 +27,14 @@ pub struct Leaf<T: ?Sized>(pub T);
 
 impl<T: ?Sized> Deref for Leaf<T> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized> DerefMut for Leaf<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -40,22 +42,26 @@ impl<T: ?Sized> DerefMut for Leaf<T> {
 
 impl<T> Leaf<T> {
     /// Extract just the inner
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
 impl<T> From<T> for Leaf<T> {
+    #[inline]
     fn from(value: T) -> Self {
         Self(value)
     }
 }
 
 impl<T: ?Sized> TreeKey for Leaf<T> {
+    #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         Ok(W::leaf())
     }
 
+    #[inline]
     fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -67,6 +73,7 @@ impl<T: ?Sized> TreeKey for Leaf<T> {
 }
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
+    #[inline]
     fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
@@ -79,6 +86,7 @@ impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
 }
 
 impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
+    #[inline]
     fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Keys,
@@ -91,6 +99,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
 }
 
 impl<T: Any> TreeAny for Leaf<T> {
+    #[inline]
     fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
@@ -99,6 +108,7 @@ impl<T: Any> TreeAny for Leaf<T> {
         Ok(&self.0)
     }
 
+    #[inline]
     fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,
@@ -147,12 +157,14 @@ pub struct StrLeaf<T: ?Sized>(pub T);
 
 impl<T: ?Sized> Deref for StrLeaf<T> {
     type Target = T;
+    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized> DerefMut for StrLeaf<T> {
+    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -160,22 +172,26 @@ impl<T: ?Sized> DerefMut for StrLeaf<T> {
 
 impl<T> StrLeaf<T> {
     /// Extract just the inner
+    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
 impl<T> From<T> for StrLeaf<T> {
+    #[inline]
     fn from(value: T) -> Self {
         Self(value)
     }
 }
 
 impl<T: ?Sized> TreeKey for StrLeaf<T> {
+    #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         Ok(W::leaf())
     }
 
+    #[inline]
     fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -187,6 +203,7 @@ impl<T: ?Sized> TreeKey for StrLeaf<T> {
 }
 
 impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
+    #[inline]
     fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
@@ -200,6 +217,7 @@ impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
 }
 
 impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
+    #[inline]
     fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Keys,
@@ -213,6 +231,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
 }
 
 impl<T> TreeAny for StrLeaf<T> {
+    #[inline]
     fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
@@ -221,6 +240,7 @@ impl<T> TreeAny for StrLeaf<T> {
         Err(Traversal::Access(1, "No Any access for StrLeaf"))
     }
 
+    #[inline]
     fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,

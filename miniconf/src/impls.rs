@@ -13,8 +13,8 @@ macro_rules! impl_tuple {
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeKey),+> TreeKey for ($($t,)+) {
             fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-                let mut walk = W::internal();
                 let k = KeyLookup::homogeneous($n);
+                let mut walk = W::internal();
                 $(walk = walk.merge(&$t::traverse_all()?, Some($i), &k)?;)+
                 Ok(walk)
             }
@@ -104,8 +104,14 @@ impl_tuple!(8 0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
+struct Assert<const L: usize, const R: usize>;
+impl<const L: usize, const R: usize> Assert<L, R> {
+    const GREATER: () = assert!(L > R);
+}
+
 impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        let () = Assert::<N, 0>::GREATER; // internal nodes must have at least one leaf
         W::internal().merge(&T::traverse_all()?, None, &KeyLookup::homogeneous(N))
     }
 
@@ -114,6 +120,7 @@ impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
     {
+        let () = Assert::<N, 0>::GREATER; // internal nodes must have at least one leaf
         let k = KeyLookup::homogeneous(N);
         let index = keys.next(&k)?;
         func(index, None, k.len).map_err(|err| Error::Inner(1, err))?;
@@ -168,10 +175,12 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeKey> TreeKey for Option<T> {
+    #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         T::traverse_all()
     }
 
+    #[inline]
     fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
     where
         K: Keys,
@@ -182,6 +191,7 @@ impl<T: TreeKey> TreeKey for Option<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for Option<T> {
+    #[inline]
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
     where
         K: Keys,
@@ -194,6 +204,7 @@ impl<T: TreeSerialize> TreeSerialize for Option<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
+    #[inline]
     fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
     where
         K: Keys,
@@ -206,6 +217,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
 }
 
 impl<T: TreeAny> TreeAny for Option<T> {
+    #[inline]
     fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
     where
         K: Keys,
@@ -215,6 +227,7 @@ impl<T: TreeAny> TreeAny for Option<T> {
             .ref_any_by_key(keys)
     }
 
+    #[inline]
     fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
     where
         K: Keys,

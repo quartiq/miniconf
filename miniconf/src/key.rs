@@ -29,6 +29,7 @@ impl KeyLookup {
     }
 
     /// Perform a index-to-name lookup
+    #[inline]
     pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
         match self.names {
             Some(names) => {
@@ -47,6 +48,16 @@ impl KeyLookup {
             }
         }
     }
+
+    /// Check that index is within range
+    #[inline]
+    pub fn clamp(&self, index: usize) -> Result<usize, Traversal> {
+        if index >= self.len.get() {
+            Err(Traversal::NotFound(1))
+        } else {
+            Ok(index)
+        }
+    }
 }
 
 /// Convert a `&str` key into a node index on a `KeyLookup`
@@ -59,8 +70,9 @@ impl<T: Key> Key for &T
 where
     T: Key + ?Sized,
 {
+    #[inline]
     fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        T::find(self, lookup)
+        (**self).find(lookup)
     }
 }
 
@@ -68,8 +80,9 @@ impl<T: Key> Key for &mut T
 where
     T: Key + ?Sized,
 {
+    #[inline]
     fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        T::find(self, lookup)
+        (**self).find(lookup)
     }
 }
 
@@ -77,13 +90,10 @@ where
 macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
+            #[inline]
             fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
                 let index = (*self).try_into().or(Err(Traversal::NotFound(1)))?;
-                if index >= lookup.len.get() {
-                    Err(Traversal::NotFound(1))
-                } else {
-                    Ok(index)
-                }
+                lookup.clamp(index)
             }
         }
     )+};
@@ -92,17 +102,14 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 // name
 impl Key for str {
+    #[inline]
     fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         let index = match lookup.names {
             Some(names) => names.iter().position(|n| *n == self),
             None => self.parse().ok(),
         }
         .ok_or(Traversal::NotFound(1))?;
-        if index >= lookup.len.get() {
-            Err(Traversal::NotFound(1))
-        } else {
-            Ok(index)
-        }
+        lookup.clamp(index)
     }
 }
 
@@ -117,6 +124,7 @@ pub trait Keys {
     fn finalize(&mut self) -> Result<(), Traversal>;
 
     /// Chain another `Keys` to this one.
+    #[inline]
     fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
     where
         Self: Sized,
@@ -129,12 +137,14 @@ impl<T> Keys for &mut T
 where
     T: Keys + ?Sized,
 {
+    #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        T::next(self, lookup)
+        (**self).next(lookup)
     }
 
+    #[inline]
     fn finalize(&mut self) -> Result<(), Traversal> {
-        T::finalize(self)
+        (**self).finalize()
     }
 }
 
@@ -144,6 +154,7 @@ where
 pub struct KeysIter<T>(Fuse<T>);
 
 impl<T: Iterator> KeysIter<T> {
+    #[inline]
     fn new(inner: T) -> Self {
         Self(inner.fuse())
     }
@@ -154,10 +165,12 @@ where
     T: Iterator,
     T::Item: Key,
 {
+    #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         self.0.next().ok_or(Traversal::TooShort(0))?.find(lookup)
     }
 
+    #[inline]
     fn finalize(&mut self) -> Result<(), Traversal> {
         self.0
             .next()
@@ -183,6 +196,7 @@ where
 {
     type IntoKeys = KeysIter<T::IntoIter>;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         KeysIter::new(self.into_iter())
     }
@@ -193,12 +207,14 @@ pub struct Chain<T, U>(T, U);
 
 impl<T, U> Chain<T, U> {
     /// Return a new concatenated `Keys`
+    #[inline]
     pub fn new(t: T, u: U) -> Self {
         Self(t, u)
     }
 }
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
+    #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         match self.0.next(lookup) {
             Err(Traversal::TooShort(_)) => self.1.next(lookup),
@@ -206,6 +222,7 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
         }
     }
 
+    #[inline]
     fn finalize(&mut self) -> Result<(), Traversal> {
         self.0.finalize().and_then(|()| self.1.finalize())
     }
@@ -214,6 +231,7 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
 impl<T: Keys, U: Keys> IntoKeys for Chain<T, U> {
     type IntoKeys = Self;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }
