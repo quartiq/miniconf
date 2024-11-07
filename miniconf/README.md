@@ -22,6 +22,12 @@ use serde::{Deserialize, Serialize};
 use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
+pub struct Inner {
+    a: Leaf<i32>,
+    b: Leaf<i32>,
+}
+
+#[derive(Deserialize, Serialize, Default, Tree)]
 pub enum Either {
     #[default]
     Bad,
@@ -29,12 +35,6 @@ pub enum Either {
     A(Leaf<i32>),
     B(Inner),
     C([Inner; 2]),
-}
-
-#[derive(Deserialize, Serialize, Default, Tree)]
-pub struct Inner {
-    a: Leaf<i32>,
-    b: Leaf<i32>,
 }
 
 #[derive(Tree, Default)]
@@ -78,9 +78,9 @@ json::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
 json::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-json::set_by_key(&mut settings, [8u8, 0, 1], b"8")?;
+json::set_by_key(&mut settings, [8, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, node): (Packed, _) = Settings::transcode([8u8, 1, 0]).unwrap();
+let (packed, node): (Packed, _) = Settings::transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
 assert_eq!(node, Node::leaf(3));
 json::set_by_key(&mut settings, packed, b"9")?;
