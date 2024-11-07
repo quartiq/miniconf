@@ -19,7 +19,7 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf};
+use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf, Metadata};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
@@ -53,7 +53,7 @@ pub struct Settings {
     enum_tree: Either,
     array_tree: [Leaf<i32>; 2],
     array_tree2: [Inner; 2],
-
+    tuple_tree: (Leaf<i32>, Inner),
     option_tree: Option<Leaf<i32>>,
     option_tree2: Option<Inner>,
     array_option_tree: [Option<Inner>; 2],
@@ -61,7 +61,7 @@ pub struct Settings {
 
 let mut settings = Settings::default();
 
-// Atomic updates by field name
+// Access nodes by field name
 json::set(&mut settings,"/foo", b"true")?;
 assert_eq!(*settings.foo, true);
 json::set(&mut settings, "/enum_", br#""Good""#)?;
@@ -70,7 +70,7 @@ json::set(&mut settings, "/array", b"[6, 6]")?;
 json::set(&mut settings, "/option", b"12")?;
 json::set(&mut settings, "/option", b"null")?;
 
-// Exposing nodes of containers
+// Nodes inside containers
 // ... by field name in a struct
 json::set(&mut settings, "/struct_tree/a", b"4")?;
 // ... or by index in an array
@@ -104,8 +104,13 @@ let mut buf = [0; 16];
 let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
+// Tree metadata
+let meta = Settings::traverse_all::<Metadata>().unwrap();
+assert!(meta.max_depth <= 6);
+assert!(meta.max_length("/") <= 32);
+
 // Iterating over all paths
-for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 4>() {
+for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
     // Serialize each
