@@ -1,5 +1,3 @@
-use core::fmt::{Debug, Display, Formatter};
-
 /// Errors that can occur when using the Tree traits.
 ///
 /// A `usize` member indicates the key depth where the error occurred.
@@ -9,62 +7,41 @@ use core::fmt::{Debug, Display, Formatter};
 ///
 /// If multiple errors are applicable simultaneously the precedence
 /// is as per the order in the enum definition (from high to low).
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Traversal {
     /// A node does not exist at runtime.
     ///
     /// An `enum` variant in the tree towards the node is currently absent.
     /// This is for example the case if an [`Option`] using the `Tree*`
     /// traits is `None` at runtime. See also [`crate::TreeKey#option`].
+    #[error("Variant absent (depth: {0})")]
     Absent(usize),
 
     /// The key ends early and does not reach a leaf node.
+    #[error("Key does not reach a leaf (depth: {0})")]
     TooShort(usize),
 
     /// The key was not found (index parse failure or too large,
     /// name not found or invalid).
+    #[error("Key not found (depth: {0})")]
     NotFound(usize),
 
     /// The key is too long and goes beyond a leaf node.
+    #[error("Key goes beyond leaf (depth: {0})")]
     TooLong(usize),
 
     /// A node could not be accessed.
     ///
     /// The `get` or `get_mut` accessor returned an error message.
+    #[error("Node accessor failed (depth: {0}): {1}")]
     Access(usize, &'static str),
 
     /// A deserialized leaf value was found to be invalid.
     ///
     /// The `validate` callback returned an error message.
+    #[error("Invalid value (depth: {0}): {1}")]
     Invalid(usize, &'static str),
 }
-
-impl Display for Traversal {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Traversal::Absent(depth) => {
-                write!(f, "Variant absent (depth: {depth})")
-            }
-            Traversal::TooShort(depth) => {
-                write!(f, "Key does not reach a leaf (depth: {depth})")
-            }
-            Traversal::NotFound(depth) => {
-                write!(f, "Key not found (depth: {depth})")
-            }
-            Traversal::TooLong(depth) => {
-                write!(f, "Key goes beyond a leaf (depth: {depth})")
-            }
-            Traversal::Access(depth, msg) => {
-                write!(f, "Node accessor failed (depth: {depth}): {msg}")
-            }
-            Traversal::Invalid(depth, msg) => {
-                write!(f, "Invalid deserialized value (depth: {depth}): {msg}")
-            }
-        }
-    }
-}
-
-impl ::core::error::Error for Traversal {}
 
 impl Traversal {
     /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
@@ -94,14 +71,16 @@ impl Traversal {
 }
 
 /// Compound errors
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Error<E> {
     /// Tree traversal error
-    Traversal(Traversal),
+    #[error(transparent)]
+    Traversal(#[from] Traversal),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal callback returned an error.
-    Inner(usize, E),
+    #[error("(De)serialization (depth: {0}): {1}")]
+    Inner(usize, #[source] E),
 
     /// There was an error during finalization.
     ///
@@ -112,32 +91,8 @@ pub enum Error<E> {
     ///
     /// A `Serializer` may write checksums or additional framing data and fail with
     /// this error during finalization after the value has been serialized.
-    Finalization(E),
-}
-
-impl<E: Display> Display for Error<E> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Traversal(t) => {
-                write!(f, "Traversal: {t}")
-            }
-            Self::Inner(depth, error) => {
-                write!(f, "(De)serialization error (depth: {depth}): {error}")
-            }
-            Self::Finalization(error) => {
-                write!(f, "(De)serializer finalization error: {error}")
-            }
-        }
-    }
-}
-
-impl<E: core::error::Error + 'static> core::error::Error for Error<E> {
-    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
-        Some(match self {
-            Self::Traversal(t) => t,
-            Self::Inner(_, e) | Self::Finalization(e) => e,
-        })
-    }
+    #[error("(De)serializer finalization: {0}")]
+    Finalization(#[source] E),
 }
 
 // Try to extract the Traversal from an Error
@@ -149,13 +104,6 @@ impl<E> TryFrom<Error<E>> for Traversal {
             Error::Traversal(e) => Ok(e),
             e => Err(e),
         }
-    }
-}
-
-impl<E> From<Traversal> for Error<E> {
-    #[inline]
-    fn from(value: Traversal) -> Self {
-        Self::Traversal(value)
     }
 }
 
