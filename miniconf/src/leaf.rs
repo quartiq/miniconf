@@ -125,7 +125,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 /// This wraps [`TryFrom<&str>`] and [`AsRef<str>`] into a `Tree*` leaf.
 /// [`TreeAny`] is implemented but denied access at runtime.
 /// It is especially useful to support enum variant switching using `strum`.
-/// Inner enum variant field access can be implemented using `get`/`get_mut`.
+/// Inner enum variant field access can be implemented using `defer`.
 ///
 /// ```
 /// use miniconf::{json, Leaf, StrLeaf, Tree};
@@ -225,7 +225,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     {
         keys.finalize()?;
         let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Invalid name")))?;
+        self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert")))?;
         Ok(0)
     }
 }

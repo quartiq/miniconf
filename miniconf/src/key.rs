@@ -202,6 +202,19 @@ where
     }
 }
 
+impl<T> IntoKeys for KeysIter<T>
+where
+    T: Iterator,
+    T::Item: Key,
+{
+    type IntoKeys = KeysIter<T>;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
 /// Concatenate two `Keys` of different types
 pub struct Chain<T, U>(T, U);
 

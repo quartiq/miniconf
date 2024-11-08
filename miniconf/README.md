@@ -105,11 +105,11 @@ let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-let meta = Settings::traverse_all::<Metadata>().unwrap();
+let meta: Metadata = Settings::traverse_all().unwrap();
 assert!(meta.max_depth <= 6);
 assert!(meta.max_length("/") <= 32);
 
-// Iterating over all paths
+// Iterating over all leaf paths
 for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
@@ -117,7 +117,7 @@ for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
     match json::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
         Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
-        // Some settings are still `None` and thus their paths are expected to be absent
+        // Some leaves are still `None` and thus their paths are expected to be absent
         Err(Error::Traversal(Traversal::Absent(_))) => {}
         e => { e.unwrap(); }
     }
