@@ -121,6 +121,8 @@ pub trait Keys {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
+    ///
+    /// This must be fused.
     fn finalize(&mut self) -> Result<(), Traversal>;
 
     /// Chain another `Keys` to this one.

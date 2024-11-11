@@ -135,8 +135,10 @@ fn zero_key() {
 
 #[test]
 fn size() {
+    // The max width claims below only apply to 32 bit architectures
+
     // Play with the worst cases for 32 bit Packed
-    // Bit-hungriest type would be [T; 0] or () but (a) those are forbidden (internal without leaves) and (b) they doesn't have any keys
+    // Bit-hungriest type would be [T; 0] or () but (a) those are forbidden (internal without leaves) and (b) they don't have any keys
     // so won't recurse in Transcode or consume from Keys
     // Then [T; 1] which takes one bit per level (not 0 bits, to distinguish empty Packed)
     // Worst case for a 32 bit usize we need 31 array levels (marker bit).

@@ -58,14 +58,14 @@ impl Traversal {
 
     /// Return the traversal depth
     #[inline]
-    pub fn depth(&self) -> &usize {
+    pub fn depth(&self) -> usize {
         match self {
             Self::Absent(i)
             | Self::TooShort(i)
             | Self::NotFound(i)
             | Self::TooLong(i)
             | Self::Access(i, _)
-            | Self::Invalid(i, _) => i,
+            | Self::Invalid(i, _) => *i,
         }
     }
 }
