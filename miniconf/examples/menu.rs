@@ -316,7 +316,7 @@ mod test {
             .0
             .set(&mut s, b"9")
             .unwrap();
-        let paths: Vec<heapless::String<128>> = menu.list().unwrap().map(Result::unwrap).collect();
+        let paths: Vec<heapless::String<128>> = menu.list().unwrap().collect().unwrap();
         stdout
             .write_all(format!("{:?}\n", paths).as_bytes())
             .await

@@ -19,7 +19,13 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf};
+use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf, Metadata};
+
+#[derive(Deserialize, Serialize, Default, Tree)]
+pub struct Inner {
+    a: Leaf<i32>,
+    b: Leaf<i32>,
+}
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub enum Either {
@@ -29,12 +35,6 @@ pub enum Either {
     A(Leaf<i32>),
     B(Inner),
     C([Inner; 2]),
-}
-
-#[derive(Deserialize, Serialize, Default, Tree)]
-pub struct Inner {
-    a: Leaf<i32>,
-    b: Leaf<i32>,
 }
 
 #[derive(Tree, Default)]
@@ -53,7 +53,7 @@ pub struct Settings {
     enum_tree: Either,
     array_tree: [Leaf<i32>; 2],
     array_tree2: [Inner; 2],
-
+    tuple_tree: (Leaf<i32>, Inner),
     option_tree: Option<Leaf<i32>>,
     option_tree2: Option<Inner>,
     array_option_tree: [Option<Inner>; 2],
@@ -61,7 +61,7 @@ pub struct Settings {
 
 let mut settings = Settings::default();
 
-// Atomic updates by field name
+// Access nodes by field name
 json::set(&mut settings,"/foo", b"true")?;
 assert_eq!(*settings.foo, true);
 json::set(&mut settings, "/enum_", br#""Good""#)?;
@@ -70,7 +70,7 @@ json::set(&mut settings, "/array", b"[6, 6]")?;
 json::set(&mut settings, "/option", b"12")?;
 json::set(&mut settings, "/option", b"null")?;
 
-// Exposing nodes of containers
+// Nodes inside containers
 // ... by field name in a struct
 json::set(&mut settings, "/struct_tree/a", b"4")?;
 // ... or by index in an array
@@ -78,9 +78,9 @@ json::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
 json::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-json::set_by_key(&mut settings, [8u8, 0, 1], b"8")?;
+json::set_by_key(&mut settings, [8, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, node): (Packed, _) = Settings::transcode([8u8, 1, 0]).unwrap();
+let (packed, node): (Packed, _) = Settings::transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
 assert_eq!(node, Node::leaf(3));
 json::set_by_key(&mut settings, packed, b"9")?;
@@ -104,15 +104,20 @@ let mut buf = [0; 16];
 let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
-// Iterating over all paths
-for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 4>() {
+// Tree metadata
+let meta: Metadata = Settings::traverse_all().unwrap();
+assert!(meta.max_depth <= 6);
+assert!(meta.max_length("/") <= 32);
+
+// Iterating over all leaf paths
+for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
     let (path, node) = path.unwrap();
     assert!(node.is_leaf());
     // Serialize each
     match json::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
         Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
-        // Some settings are still `None` and thus their paths are expected to be absent
+        // Some leaves are still `None` and thus their paths are expected to be absent
         Err(Error::Traversal(Traversal::Absent(_))) => {}
         e => { e.unwrap(); }
     }

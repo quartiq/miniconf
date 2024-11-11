@@ -121,6 +121,8 @@ pub trait Keys {
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
+    ///
+    /// This must be fused.
     fn finalize(&mut self) -> Result<(), Traversal>;
 
     /// Chain another `Keys` to this one.
@@ -199,6 +201,19 @@ where
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         KeysIter::new(self.into_iter())
+    }
+}
+
+impl<T> IntoKeys for KeysIter<T>
+where
+    T: Iterator,
+    T::Item: Key,
+{
+    type IntoKeys = KeysIter<T>;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        self
     }
 }
 

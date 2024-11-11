@@ -161,7 +161,7 @@ pub trait TreeKey {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
     /// };
-    /// let m = S::traverse_all::<Metadata>().unwrap();
+    /// let m: Metadata = S::traverse_all().unwrap();
     /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
     /// ```
     fn traverse_all<W: Walk>() -> Result<W, W::Error>;
@@ -276,37 +276,37 @@ pub trait TreeKey {
     ///     bar: [Leaf<u16>; 2],
     /// };
     ///
-    /// let paths = S::nodes::<Path<String, '/'>, 2>()
+    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
     ///     .exact_size()
     ///     .map(|p| p.unwrap().0.into_inner())
-    ///     .collect::<Vec<_>>();
+    ///     .collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     ///
-    /// let paths = S::nodes::<JsonPath<String>, 2>()
+    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
     ///     .exact_size()
     ///     .map(|p| p.unwrap().0.into_inner())
-    ///     .collect::<Vec<_>>();
+    ///     .collect();
     /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
     ///
-    /// let indices = S::nodes::<Indices<[_; 2]>, 2>()
+    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
     ///     .exact_size()
     ///     .map(|p| {
     ///         let (idx, node) = p.unwrap();
     ///         (idx.into_inner(), node.depth)
     ///     })
-    ///     .collect::<Vec<_>>();
+    ///     .collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     ///
-    /// let packed = S::nodes::<Packed, 2>()
+    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
     ///     .exact_size()
     ///     .map(|p| p.unwrap().0.into_lsb().get())
-    ///     .collect::<Vec<_>>();
+    ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     ///
-    /// let nodes = S::nodes::<(), 2>()
+    /// let nodes: Vec<_> = S::nodes::<(), 2>()
     ///     .exact_size()
     ///     .map(|p| p.unwrap().1)
-    ///     .collect::<Vec<_>>();
+    ///     .collect();
     /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
     /// ```
     #[inline]

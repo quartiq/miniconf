@@ -53,7 +53,7 @@ fn validate() {
 }
 
 #[test]
-fn other_type() {
+fn paging() {
     // Demonstrate and test how a variable length `Vec` can be accessed
     // through a variable offset, fixed length array.
     #[derive(Default, Tree)]

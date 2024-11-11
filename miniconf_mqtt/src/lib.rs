@@ -251,7 +251,7 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta = Settings::traverse_all::<Metadata>().unwrap();
+        let meta: Metadata = Settings::traverse_all().unwrap();
         assert!(meta.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 
@@ -378,16 +378,13 @@ where
 
     fn iter_list(&mut self) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            let (code, path) = self
-                .pending
-                .iter
-                .next()
-                .map(|path| {
-                    let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
-                    debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
-                    (ResponseCode::Continue, path.into_inner())
-                })
-                .unwrap_or((ResponseCode::Ok, String::new()));
+            let (code, path) = if let Some(path) = self.pending.iter.next() {
+                let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
+                debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
+                (ResponseCode::Continue, path.into_inner())
+            } else {
+                (ResponseCode::Ok, String::new())
+            };
 
             let props = [code.into()];
             let mut response = Publication::new(path.as_bytes())
@@ -490,9 +487,8 @@ where
                 .finish()
                 .map_err(minimq::Error::from)?,
             )
-            .map_err(|err| {
+            .inspect_err(|err| {
                 info!("Response failure: {err:?}");
-                err
             })
     }
 

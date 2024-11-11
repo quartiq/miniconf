@@ -100,8 +100,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
-        let node = self.state.transcode::<M, _>(root)?;
-        self.root = node.depth();
+        self.root = self.state.transcode::<M, _>(root)?.depth();
         self.depth = D + 1;
         Ok(self)
     }
@@ -110,12 +109,13 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     /// `FusedIterator` and `ExactSizeIterator`.
     ///
     /// Note(panic): Panics, if the iterator had `next()` called or
-    /// if the iteration depth has been limited.
+    /// if the iteration depth has been limited or if the iteration root
+    /// is not the tree root.
     pub fn exact_size(self) -> ExactSize<Self> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");
-        debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker
-        let meta = M::traverse_all::<Metadata>().unwrap();
+        debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
+        let meta: Metadata = M::traverse_all().unwrap();
         assert!(
             D >= meta.max_depth,
             "depth D = {D} must be at least {}",
@@ -172,7 +172,7 @@ where
     }
 }
 
-/// Do not allow manipulation of `depth` other than through iteration .
+// Do not allow manipulation of `depth` other than through iteration.
 impl<M: TreeKey + ?Sized, N: Transcode + Default, const D: usize> core::iter::FusedIterator
     for NodeIter<M, N, D>
 {

@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 // Either/Inner/Settings are straight from README.md
 
 #[derive(Deserialize, Serialize, Default, Tree)]
+pub struct Inner {
+    a: Leaf<i32>,
+    b: Leaf<i32>,
+}
+
+#[derive(Deserialize, Serialize, Default, Tree)]
 pub enum Either {
     #[default]
     Bad,
@@ -11,12 +17,6 @@ pub enum Either {
     A(Leaf<i32>),
     B(Inner),
     C([Inner; 2]),
-}
-
-#[derive(Deserialize, Serialize, Default, Tree)]
-pub struct Inner {
-    a: Leaf<i32>,
-    b: Leaf<i32>,
 }
 
 #[derive(Tree, Default)]
@@ -35,7 +35,7 @@ pub struct Settings {
     enum_tree: Either,
     array_tree: [Leaf<i32>; 2],
     array_tree2: [Inner; 2],
-
+    tuple_tree: (Leaf<i32>, Inner),
     option_tree: Option<Leaf<i32>>,
     option_tree2: Option<Inner>,
     array_option_tree: [Option<Inner>; 2],

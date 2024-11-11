@@ -129,8 +129,8 @@ fn not_found() {
 
 #[test]
 fn metadata() {
-    let metadata = Settings::traverse_all::<Metadata>().unwrap();
-    assert_eq!(metadata.max_depth, 4);
-    assert_eq!(metadata.max_length("/"), "/aam/0/0/c".len());
-    assert_eq!(metadata.count, 11);
+    let m: Metadata = Settings::traverse_all().unwrap();
+    assert_eq!(m.max_depth, 4);
+    assert_eq!(m.max_length("/"), "/aam/0/0/c".len());
+    assert_eq!(m.count, 11);
 }
