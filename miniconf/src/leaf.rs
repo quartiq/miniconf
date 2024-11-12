@@ -237,7 +237,7 @@ impl<T> TreeAny for StrLeaf<T> {
         K: Keys,
     {
         keys.finalize()?;
-        Err(Traversal::Access(1, "No Any access for StrLeaf"))
+        Err(Traversal::Access(0, "No Any access for StrLeaf"))
     }
 
     #[inline]
@@ -246,6 +246,105 @@ impl<T> TreeAny for StrLeaf<T> {
         K: Keys,
     {
         keys.finalize()?;
-        Err(Traversal::Access(1, "No Any access for StrLeaf"))
+        Err(Traversal::Access(0, "No Any access for StrLeaf"))
+    }
+}
+
+/// Deny any value access
+#[derive(
+    Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
+)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct Deny<T: ?Sized>(pub T);
+
+impl<T: ?Sized> Deref for Deny<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: ?Sized> DerefMut for Deny<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T> Deny<T> {
+    /// Extract just the inner
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> From<T> for Deny<T> {
+    #[inline]
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T: ?Sized> TreeKey for Deny<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        Ok(W::leaf())
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+    {
+        keys.finalize()?;
+        Ok(0)
+    }
+}
+
+impl<T: ?Sized> TreeSerialize for Deny<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, _ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        keys.finalize()?;
+        Err(Traversal::Access(0, "Denied").into())
+    }
+}
+
+impl<'de, T: ?Sized> TreeDeserialize<'de> for Deny<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, _de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        keys.finalize()?;
+        Err(Traversal::Access(0, "Denied").into())
+    }
+}
+
+impl<T> TreeAny for Deny<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        keys.finalize()?;
+        Err(Traversal::Access(0, "Denied"))
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        keys.finalize()?;
+        Err(Traversal::Access(0, "Denied"))
     }
 }

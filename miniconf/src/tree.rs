@@ -225,7 +225,7 @@ pub trait TreeKey {
     ///     bar: [Leaf<u16>; 5],
     /// };
     ///
-    /// let idx = [1usize, 1];
+    /// let idx = [1, 1];
     ///
     /// let (path, node) = S::transcode::<Path<String, '/'>, _>(idx).unwrap();
     /// assert_eq!(path.as_str(), "/bar/1");
@@ -377,14 +377,12 @@ pub trait TreeAny {
 
 /// Serialize a leaf node by its keys.
 ///
-/// See also [`crate::json`] or `crate::postcard` for convenient functions using these traits.
+/// See also [`crate::json`] or `crate::postcard` for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
-/// [`macro@crate::TreeSerialize`] derives `TreeSerialize` for structs with named fields and tuple structs
-/// and for enums with newtype and unit variants.
-///
-/// The field attributes are described in the [`TreeKey`] trait.
+/// See [`macro@crate::TreeSerialize`].
+/// The derive macro attributes are described in the [`TreeKey`] trait.
 pub trait TreeSerialize {
     /// Serialize a node by keys.
     ///
@@ -423,14 +421,12 @@ pub trait TreeSerialize {
 
 /// Deserialize a leaf node by its keys.
 ///
-/// See also [`crate::json`] for a convenient helper functions using this trait.
+/// See also [`crate::json`] or `crate::postcard` for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
-/// [`macro@crate::TreeDeserialize`] derives `TreeSerialize` for structs with named fields and tuple structs
-/// and for enums with newtype and unit variants.
-///
-/// The field attributes are described in the [`TreeKey`] trait.
+/// See [`macro@crate::TreeDeserialize`].
+/// The derive macro attributes are described in the [`TreeKey`] trait.
 pub trait TreeDeserialize<'de> {
     /// Deserialize a leaf node by its keys.
     ///

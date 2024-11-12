@@ -187,8 +187,7 @@ It implements [`Keys`].
 
 ## Limitations
 
-* `enum`: The derive macros don't support enums with record (named fields) variants or tuple variants with more than one field. Only unit, newtype and skipped variants are supported. Without the derive macros, these `enums` are still however usable in their atomic `serde` form as leaf nodes. Inline tuple variants are supported.
-* The derive macros don't handle `std`/`alloc` smart pointers ( `Box`, `Rc`, `Arc`) in any special way. They however still be handled with accessors (`get`, `get_mut`, `validate`).
+* `enum`: The derive macros don't support enums with record (named fields) variants or tuple variants with more than one (non-skip) field. Only unit, newtype and skipped variants are supported. Without the derive macros, any `enum` is still however usable as a `Leaf` node. Note also that netwype variants with a single inline tuple are supported.
 * The derive macros only support flattening in non-ambiguous situations (single field structs and single variant enums, both modulo skipped fields/variants and unit variants).
 
 ## Features
