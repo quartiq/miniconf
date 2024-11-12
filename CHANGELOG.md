@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-* `std` and `alloc` features and `Tree*` impls for `Box`, `Rc`, `Arc`
+* `std` and `alloc` features and `Tree*` impls for `Box`, `Rc`, `Arc`, `Cow`, `Mutex`,
+  `RwLock`, `Cell`, `RefCell`
 
 ## [0.17.0](https://github.com/quartiq/miniconf/compare/v0.16.3...v0.17.0) - 2024-10-25
 

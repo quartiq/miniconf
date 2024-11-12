@@ -1,3 +1,4 @@
+use core::cell::{Cell, RefCell};
 use core::{any::Any, num::NonZero};
 
 use serde::{Deserializer, Serializer};
@@ -240,11 +241,265 @@ impl<T: TreeAny> TreeAny for Option<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
+const RESULT_LOOKUP: KeyLookup = KeyLookup {
+    len: NonZero::<usize>::MIN.saturating_add(1),
+    names: Some(&["Ok", "Err"]),
+};
+
+impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        W::internal()
+            .merge(&T::traverse_all()?, Some(0), &RESULT_LOOKUP)?
+            .merge(&E::traverse_all()?, Some(1), &RESULT_LOOKUP)
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, G>(mut keys: K, func: F) -> Result<usize, Error<G>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
+    {
+        Error::increment_result(match keys.next(&RESULT_LOOKUP)? {
+            0 => T::traverse_by_key(keys, func),
+            1 => E::traverse_by_key(keys, func),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        Error::increment_result(match (keys.next(&RESULT_LOOKUP)?, self) {
+            (0, Ok(value)) => value.serialize_by_key(keys, ser),
+            (1, Err(value)) => value.serialize_by_key(keys, ser),
+            _ => Err(Traversal::Absent(0).into()),
+        })
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de> for Result<T, E> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        Error::increment_result(match (keys.next(&RESULT_LOOKUP)?, self) {
+            (0, Ok(value)) => value.deserialize_by_key(keys, de),
+            (1, Err(value)) => value.deserialize_by_key(keys, de),
+            _ => Err(Traversal::Absent(0).into()),
+        })
+    }
+}
+
+impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match (keys.next(&RESULT_LOOKUP)?, self) {
+            (0, Ok(value)) => value.ref_any_by_key(keys),
+            (1, Err(value)) => value.ref_any_by_key(keys),
+            _ => Err(Traversal::Absent(0)),
+        }
+        .map_err(Traversal::increment)
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match (keys.next(&RESULT_LOOKUP)?, self) {
+            (0, Ok(value)) => value.mut_any_by_key(keys),
+            (1, Err(value)) => value.mut_any_by_key(keys),
+            _ => Err(Traversal::Absent(0)),
+        }
+        .map_err(Traversal::increment)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+impl<T: TreeKey> TreeKey for Cell<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeSerialize + Copy> TreeSerialize for Cell<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        self.get().serialize_by_key(keys, ser)
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        self.get_mut().deserialize_by_key(keys, de)
+    }
+}
+
+impl<T: TreeAny> TreeAny for Cell<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        Err(Traversal::Access(0, "Can't leak out of Cell"))
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        self.get_mut().mut_any_by_key(keys)
+    }
+}
+
+impl<T: TreeAny> TreeAny for &Cell<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        Err(Traversal::Access(0, "Can't leak out of Cell"))
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        Err(Traversal::Access(0, "Can't leak out of Cell"))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+impl<T: TreeKey> TreeKey for RefCell<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        T::traverse_all()
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+    {
+        T::traverse_by_key(keys, func)
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        self.try_borrow()
+            .or(Err(Traversal::Access(0, "Borrowed")))?
+            .serialize_by_key(keys, ser)
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        self.try_borrow_mut()
+            .or(Err(Traversal::Access(0, "Borrowed")))?
+            .deserialize_by_key(keys, de)
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        self.get_mut().deserialize_by_key(keys, de)
+    }
+}
+
+impl<T: TreeAny> TreeAny for RefCell<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        Err(Traversal::Access(0, "Can't leak out of RefCell"))
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        self.get_mut().mut_any_by_key(keys)
+    }
+}
+
+impl<T: TreeAny> TreeAny for &RefCell<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        Err(Traversal::Access(0, "Can't leak out of RefCell"))
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        Err(Traversal::Access(0, "Can't leak out of RefCell"))
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
 #[cfg(feature = "alloc")]
-mod alloc {
+mod _alloc {
     use super::*;
     extern crate alloc;
-    use alloc::{boxed::Box, rc::Rc};
+    use alloc::{borrow::Cow, boxed::Box, rc, rc::Rc, sync, sync::Arc};
 
     impl<T: TreeKey> TreeKey for Box<T> {
         #[inline]
@@ -299,6 +554,64 @@ mod alloc {
             K: Keys,
         {
             (**self).mut_any_by_key(keys)
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+    impl<'a, T: TreeKey + Clone> TreeKey for Cow<'a, T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<'a, T: TreeSerialize + Clone> TreeSerialize for Cow<'a, T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            (**self).serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'a, 'de, T: TreeDeserialize<'de> + Clone> TreeDeserialize<'de> for Cow<'a, T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.to_mut().deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<'a, T: TreeAny + Clone> TreeAny for Cow<'a, T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            (**self).ref_any_by_key(keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            self.to_mut().mut_any_by_key(keys)
         }
     }
 
@@ -363,14 +676,70 @@ mod alloc {
                 .mut_any_by_key(keys)
         }
     }
-}
 
-/////////////////////////////////////////////////////////////////////////////////////////
+    /////////////////////////////////////////////////////////////////////////////////////////
 
-#[cfg(feature = "std")]
-mod sync {
-    use super::*;
-    use std::sync::Arc;
+    impl<T: TreeKey> TreeKey for rc::Weak<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for rc::Weak<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            self.upgrade()
+                .ok_or(Traversal::Access(0, "Dropped"))?
+                .serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for rc::Weak<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.upgrade()
+                .ok_or(Traversal::Access(0, "Dropped"))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for rc::Weak<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Weak"))
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Weak"))
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
 
     impl<T: TreeKey> TreeKey for Arc<T> {
         #[inline]
@@ -429,6 +798,265 @@ mod sync {
             Arc::get_mut(self)
                 .ok_or(Traversal::Access(0, "Reference is taken"))?
                 .mut_any_by_key(keys)
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+    impl<T: TreeKey> TreeKey for sync::Weak<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for sync::Weak<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            self.upgrade()
+                .ok_or(Traversal::Access(0, "Dropped"))?
+                .serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for sync::Weak<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.upgrade()
+                .ok_or(Traversal::Access(0, "Dropped"))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for sync::Weak<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Weak"))
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Weak"))
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(feature = "std")]
+mod _std {
+    use super::*;
+    use std::sync::{Mutex, RwLock};
+
+    impl<T: TreeKey> TreeKey for Mutex<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for Mutex<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            self.lock()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &Mutex<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            (*self)
+                .lock()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Mutex<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.get_mut()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for Mutex<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Mutex"))
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            self.get_mut()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .mut_any_by_key(keys)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for &Mutex<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Mutex"))
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of Mutex"))
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+    impl<T: TreeKey> TreeKey for RwLock<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for RwLock<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            self.read()
+                .or(Err(Traversal::Access(0, "Locked")))?
+                .serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RwLock<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.write()
+                .or(Err(Traversal::Access(0, "Locked")))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RwLock<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.get_mut()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for RwLock<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of RwLock"))
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            self.get_mut()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .mut_any_by_key(keys)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for &RwLock<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of RwLock"))
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Err(Traversal::Access(0, "Can't leak out of RwLock"))
         }
     }
 }
