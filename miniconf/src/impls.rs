@@ -1,5 +1,5 @@
 use core::cell::{Cell, RefCell};
-use core::ops::Bound;
+use core::ops::{Bound, Range, RangeFrom, RangeInclusive, RangeTo};
 use core::{any::Any, num::NonZero};
 
 use serde::{Deserializer, Serializer};
@@ -337,9 +337,10 @@ const BOUND_LOOKUP: KeyLookup = KeyLookup {
 impl<T: TreeKey> TreeKey for Bound<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        let t = T::traverse_all()?;
         W::internal()
-            .merge(&T::traverse_all()?, Some(0), &BOUND_LOOKUP)?
-            .merge(&T::traverse_all()?, Some(1), &BOUND_LOOKUP)
+            .merge(&t, Some(0), &BOUND_LOOKUP)?
+            .merge(&t, Some(1), &BOUND_LOOKUP)
     }
 
     #[inline]
@@ -408,6 +409,292 @@ impl<T: TreeAny> TreeAny for Bound<T> {
         match (keys.next(&BOUND_LOOKUP)?, self) {
             (0, Self::Included(value)) | (1, Self::Excluded(value)) => value.mut_any_by_key(keys),
             _ => Err(Traversal::Absent(0)),
+        }
+        .map_err(Traversal::increment)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+const RANGE_LOOKUP: KeyLookup = KeyLookup {
+    len: NonZero::<usize>::MIN.saturating_add(1),
+    names: Some(&["start", "end"]),
+};
+
+impl<T: TreeKey> TreeKey for Range<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        let t = T::traverse_all()?;
+        W::internal()
+            .merge(&t, Some(0), &RANGE_LOOKUP)?
+            .merge(&t, Some(1), &RANGE_LOOKUP)
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, G>(mut keys: K, func: F) -> Result<usize, Error<G>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
+    {
+        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+            0..=1 => T::traverse_by_key(keys, func),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for Range<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+            0 => self.start.serialize_by_key(keys, ser),
+            1 => self.end.serialize_by_key(keys, ser),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+            0 => self.start.deserialize_by_key(keys, de),
+            1 => self.end.deserialize_by_key(keys, de),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeAny> TreeAny for Range<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match keys.next(&RANGE_LOOKUP)? {
+            0 => self.start.ref_any_by_key(keys),
+            1 => self.end.ref_any_by_key(keys),
+            _ => unreachable!(),
+        }
+        .map_err(Traversal::increment)
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match keys.next(&RANGE_LOOKUP)? {
+            0 => self.start.mut_any_by_key(keys),
+            1 => self.end.mut_any_by_key(keys),
+            _ => unreachable!(),
+        }
+        .map_err(Traversal::increment)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+impl<T: TreeKey> TreeKey for RangeInclusive<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        let t = T::traverse_all()?;
+        W::internal()
+            .merge(&t, Some(0), &RANGE_LOOKUP)?
+            .merge(&t, Some(1), &RANGE_LOOKUP)
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, G>(mut keys: K, func: F) -> Result<usize, Error<G>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
+    {
+        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+            0..=1 => T::traverse_by_key(keys, func),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+            0 => self.start().serialize_by_key(keys, ser),
+            1 => self.end().serialize_by_key(keys, ser),
+            _ => unreachable!(),
+        })
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup {
+    len: NonZero::<usize>::MIN,
+    names: Some(&["start"]),
+};
+
+impl<T: TreeKey> TreeKey for RangeFrom<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        W::internal().merge(&T::traverse_all()?, Some(0), &RANGE_FROM_LOOKUP)
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, G>(mut keys: K, func: F) -> Result<usize, Error<G>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
+    {
+        Error::increment_result(match keys.next(&RANGE_FROM_LOOKUP)? {
+            0 => T::traverse_by_key(keys, func),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for RangeFrom<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        Error::increment_result(match keys.next(&RANGE_FROM_LOOKUP)? {
+            0 => self.start.serialize_by_key(keys, ser),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        Error::increment_result(match keys.next(&RANGE_FROM_LOOKUP)? {
+            0 => self.start.deserialize_by_key(keys, de),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeAny> TreeAny for RangeFrom<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match keys.next(&RANGE_FROM_LOOKUP)? {
+            0 => self.start.ref_any_by_key(keys),
+            _ => unreachable!(),
+        }
+        .map_err(Traversal::increment)
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match keys.next(&RANGE_FROM_LOOKUP)? {
+            0 => self.start.mut_any_by_key(keys),
+            _ => unreachable!(),
+        }
+        .map_err(Traversal::increment)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+const RANGE_TO_LOOKUP: KeyLookup = KeyLookup {
+    len: NonZero::<usize>::MIN,
+    names: Some(&["end"]),
+};
+
+impl<T: TreeKey> TreeKey for RangeTo<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        W::internal().merge(&T::traverse_all()?, Some(0), &RANGE_TO_LOOKUP)
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, G>(mut keys: K, func: F) -> Result<usize, Error<G>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
+    {
+        Error::increment_result(match keys.next(&RANGE_TO_LOOKUP)? {
+            0 => T::traverse_by_key(keys, func),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for RangeTo<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        Error::increment_result(match keys.next(&RANGE_TO_LOOKUP)? {
+            0 => self.end.serialize_by_key(keys, ser),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        Error::increment_result(match keys.next(&RANGE_TO_LOOKUP)? {
+            0 => self.end.deserialize_by_key(keys, de),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeAny> TreeAny for RangeTo<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match keys.next(&RANGE_TO_LOOKUP)? {
+            0 => self.end.ref_any_by_key(keys),
+            _ => unreachable!(),
+        }
+        .map_err(Traversal::increment)
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match keys.next(&RANGE_TO_LOOKUP)? {
+            0 => self.end.mut_any_by_key(keys),
+            _ => unreachable!(),
         }
         .map_err(Traversal::increment)
     }
