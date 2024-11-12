@@ -27,6 +27,8 @@ default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive", "serde/derive"]
+alloc = []
+std = ["alloc"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -49,7 +51,7 @@ required-features = ["json-core", "derive"]
 
 [[test]]
 name = "basic"
-required-features = ["derive"]
+required-features = ["json-core", "derive"]
 
 [[test]]
 name = "generics"
@@ -87,9 +89,14 @@ required-features = ["json-core", "derive"]
 name = "flatten"
 required-features = ["json-core", "derive"]
 
+[[test]]
+name = "compiletest"
+required-features = ["derive"]
+
 [[example]]
 name = "common"
 crate-type = ["lib"]
+required-features = ["derive"]
 
 [[example]]
 name = "cli"
