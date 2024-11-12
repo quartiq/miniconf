@@ -831,24 +831,6 @@ impl<T: TreeAny> TreeAny for RefCell<T> {
     }
 }
 
-impl<T: TreeAny> TreeAny for &RefCell<T> {
-    #[inline]
-    fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
-    where
-        K: Keys,
-    {
-        Err(Traversal::Access(0, "Can't leak out of RefCell"))
-    }
-
-    #[inline]
-    fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
-    where
-        K: Keys,
-    {
-        Err(Traversal::Access(0, "Can't leak out of RefCell"))
-    }
-}
-
 /////////////////////////////////////////////////////////////////////////////////////////
 
 #[cfg(feature = "alloc")]
@@ -1077,24 +1059,6 @@ mod _alloc {
         }
     }
 
-    impl<T: TreeAny> TreeAny for rc::Weak<T> {
-        #[inline]
-        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of Weak"))
-        }
-
-        #[inline]
-        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of Weak"))
-        }
-    }
-
     /////////////////////////////////////////////////////////////////////////////////////////
 
     impl<T: TreeKey> TreeKey for Arc<T> {
@@ -1200,24 +1164,6 @@ mod _alloc {
                 .deserialize_by_key(keys, de)
         }
     }
-
-    impl<T: TreeAny> TreeAny for sync::Weak<T> {
-        #[inline]
-        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of Weak"))
-        }
-
-        #[inline]
-        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of Weak"))
-        }
-    }
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -1303,24 +1249,6 @@ mod _std {
         }
     }
 
-    impl<T: TreeAny> TreeAny for &Mutex<T> {
-        #[inline]
-        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of Mutex"))
-        }
-
-        #[inline]
-        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of Mutex"))
-        }
-    }
-
     /////////////////////////////////////////////////////////////////////////////////////////
 
     impl<T: TreeKey> TreeKey for RwLock<T> {
@@ -1395,24 +1323,6 @@ mod _std {
             self.get_mut()
                 .or(Err(Traversal::Access(0, "Poisoned")))?
                 .mut_any_by_key(keys)
-        }
-    }
-
-    impl<T: TreeAny> TreeAny for &RwLock<T> {
-        #[inline]
-        fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of RwLock"))
-        }
-
-        #[inline]
-        fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
-        where
-            K: Keys,
-        {
-            Err(Traversal::Access(0, "Can't leak out of RwLock"))
         }
     }
 }
