@@ -1,4 +1,5 @@
 use core::cell::{Cell, RefCell};
+use core::ops::Bound;
 use core::{any::Any, num::NonZero};
 
 use serde::{Deserializer, Serializer};
@@ -242,7 +243,7 @@ impl<T: TreeAny> TreeAny for Option<T> {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 const RESULT_LOOKUP: KeyLookup = KeyLookup {
-    len: NonZero::<usize>::MIN.saturating_add(1),
+    len: NonZero::<usize>::MIN.saturating_add(1), // 2
     names: Some(&["Ok", "Err"]),
 };
 
@@ -320,6 +321,92 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
         match (keys.next(&RESULT_LOOKUP)?, self) {
             (0, Ok(value)) => value.mut_any_by_key(keys),
             (1, Err(value)) => value.mut_any_by_key(keys),
+            _ => Err(Traversal::Absent(0)),
+        }
+        .map_err(Traversal::increment)
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+const BOUND_LOOKUP: KeyLookup = KeyLookup {
+    len: NonZero::<usize>::MIN.saturating_add(1),
+    names: Some(&["Included", "Excluded"]),
+};
+
+impl<T: TreeKey> TreeKey for Bound<T> {
+    #[inline]
+    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        W::internal()
+            .merge(&T::traverse_all()?, Some(0), &BOUND_LOOKUP)?
+            .merge(&T::traverse_all()?, Some(1), &BOUND_LOOKUP)
+    }
+
+    #[inline]
+    fn traverse_by_key<K, F, G>(mut keys: K, func: F) -> Result<usize, Error<G>>
+    where
+        K: Keys,
+        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
+    {
+        Error::increment_result(match keys.next(&BOUND_LOOKUP)? {
+            0..=1 => T::traverse_by_key(keys, func),
+            _ => unreachable!(),
+        })
+    }
+}
+
+impl<T: TreeSerialize> TreeSerialize for Bound<T> {
+    #[inline]
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    where
+        K: Keys,
+        S: Serializer,
+    {
+        Error::increment_result(match (keys.next(&BOUND_LOOKUP)?, self) {
+            (0, Self::Included(value)) | (1, Self::Excluded(value)) => {
+                value.serialize_by_key(keys, ser)
+            }
+            _ => Err(Traversal::Absent(0).into()),
+        })
+    }
+}
+
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        Error::increment_result(match (keys.next(&BOUND_LOOKUP)?, self) {
+            (0, Self::Included(value)) | (1, Self::Excluded(value)) => {
+                value.deserialize_by_key(keys, de)
+            }
+            _ => Err(Traversal::Absent(0).into()),
+        })
+    }
+}
+
+impl<T: TreeAny> TreeAny for Bound<T> {
+    #[inline]
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match (keys.next(&BOUND_LOOKUP)?, self) {
+            (0, Self::Included(value)) | (1, Self::Excluded(value)) => value.ref_any_by_key(keys),
+            _ => Err(Traversal::Absent(0)),
+        }
+        .map_err(Traversal::increment)
+    }
+
+    #[inline]
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    where
+        K: Keys,
+    {
+        match (keys.next(&BOUND_LOOKUP)?, self) {
+            (0, Self::Included(value)) | (1, Self::Excluded(value)) => value.mut_any_by_key(keys),
             _ => Err(Traversal::Absent(0)),
         }
         .map_err(Traversal::increment)
