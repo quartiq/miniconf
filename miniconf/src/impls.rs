@@ -758,24 +758,6 @@ impl<T: TreeAny> TreeAny for Cell<T> {
     }
 }
 
-impl<T: TreeAny> TreeAny for &Cell<T> {
-    #[inline]
-    fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, Traversal>
-    where
-        K: Keys,
-    {
-        Err(Traversal::Access(0, "Can't leak out of Cell"))
-    }
-
-    #[inline]
-    fn mut_any_by_key<K>(&mut self, _keys: K) -> Result<&mut dyn Any, Traversal>
-    where
-        K: Keys,
-    {
-        Err(Traversal::Access(0, "Can't leak out of Cell"))
-    }
-}
-
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeKey> TreeKey for RefCell<T> {
@@ -807,6 +789,17 @@ impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
     }
 }
 
+impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
+    #[inline]
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        self.get_mut().deserialize_by_key(keys, de)
+    }
+}
+
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
     #[inline]
     fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
@@ -817,17 +810,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
         self.try_borrow_mut()
             .or(Err(Traversal::Access(0, "Borrowed")))?
             .deserialize_by_key(keys, de)
-    }
-}
-
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
-    #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-    where
-        K: Keys,
-        D: Deserializer<'de>,
-    {
-        self.get_mut().deserialize_by_key(keys, de)
     }
 }
 
@@ -1077,7 +1059,7 @@ mod _alloc {
             S: Serializer,
         {
             self.upgrade()
-                .ok_or(Traversal::Access(0, "Dropped"))?
+                .ok_or(Traversal::Absent(0))?
                 .serialize_by_key(keys, ser)
         }
     }
@@ -1090,7 +1072,7 @@ mod _alloc {
             D: Deserializer<'de>,
         {
             self.upgrade()
-                .ok_or(Traversal::Access(0, "Dropped"))?
+                .ok_or(Traversal::Absent(0))?
                 .deserialize_by_key(keys, de)
         }
     }
@@ -1201,7 +1183,7 @@ mod _alloc {
             S: Serializer,
         {
             self.upgrade()
-                .ok_or(Traversal::Access(0, "Dropped"))?
+                .ok_or(Traversal::Absent(0))?
                 .serialize_by_key(keys, ser)
         }
     }
@@ -1214,7 +1196,7 @@ mod _alloc {
             D: Deserializer<'de>,
         {
             self.upgrade()
-                .ok_or(Traversal::Access(0, "Dropped"))?
+                .ok_or(Traversal::Absent(0))?
                 .deserialize_by_key(keys, de)
         }
     }
@@ -1274,6 +1256,19 @@ mod _std {
         }
     }
 
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Mutex<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            self.get_mut()
+                .or(Err(Traversal::Access(0, "Poisoned")))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &Mutex<T> {
         #[inline]
         fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
@@ -1283,19 +1278,6 @@ mod _std {
         {
             (*self)
                 .lock()
-                .or(Err(Traversal::Access(0, "Poisoned")))?
-                .deserialize_by_key(keys, de)
-        }
-    }
-
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Mutex<T> {
-        #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
-        where
-            K: Keys,
-            D: Deserializer<'de>,
-        {
-            self.get_mut()
                 .or(Err(Traversal::Access(0, "Poisoned")))?
                 .deserialize_by_key(keys, de)
         }

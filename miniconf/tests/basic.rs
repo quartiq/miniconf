@@ -71,3 +71,12 @@ fn tuple() {
     }
     assert_eq!(s, (9.into(), (9.into(), 9.into()), [9.into(); 3]));
 }
+
+#[test]
+fn cell() {
+    use core::cell::RefCell;
+
+    let c: RefCell<Leaf<i32>> = Default::default();
+    let mut r = &c;
+    common::set_get(&mut r, "", b"9");
+}
