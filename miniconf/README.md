@@ -117,7 +117,7 @@ for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
     match json::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
         Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
-        // Some leaves are still `None` and thus their paths are expected to be absent
+        // Some Options are `None`, some enum variants are absent
         Err(Error::Traversal(Traversal::Absent(_))) => {}
         e => { e.unwrap(); }
     }

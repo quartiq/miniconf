@@ -27,6 +27,8 @@ default = ["derive"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive", "serde/derive"]
+alloc = []
+std = ["alloc"]
 
 [package.metadata.docs.rs]
 all-features = true

@@ -239,3 +239,196 @@ impl<T: TreeAny> TreeAny for Option<T> {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(feature = "alloc")]
+mod alloc {
+    use super::*;
+    extern crate alloc;
+    use alloc::{boxed::Box, rc::Rc};
+
+    impl<T: TreeKey> TreeKey for Box<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for Box<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            (**self).serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Box<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            (**self).deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for Box<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            (**self).ref_any_by_key(keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            (**self).mut_any_by_key(keys)
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+    impl<T: TreeKey> TreeKey for Rc<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for Rc<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            (**self).serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Rc<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            Rc::get_mut(self)
+                .ok_or(Traversal::Access(0, "Reference is taken"))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for Rc<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            (**self).ref_any_by_key(keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Rc::get_mut(self)
+                .ok_or(Traversal::Access(0, "Reference is taken"))?
+                .mut_any_by_key(keys)
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+#[cfg(feature = "std")]
+mod sync {
+    use super::*;
+    use std::sync::Arc;
+
+    impl<T: TreeKey> TreeKey for Arc<T> {
+        #[inline]
+        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+            T::traverse_all()
+        }
+
+        #[inline]
+        fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
+        where
+            K: Keys,
+            F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
+        {
+            T::traverse_by_key(keys, func)
+        }
+    }
+
+    impl<T: TreeSerialize> TreeSerialize for Arc<T> {
+        #[inline]
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        where
+            K: Keys,
+            S: Serializer,
+        {
+            (**self).serialize_by_key(keys, ser)
+        }
+    }
+
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Arc<T> {
+        #[inline]
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        where
+            K: Keys,
+            D: Deserializer<'de>,
+        {
+            Arc::get_mut(self)
+                .ok_or(Traversal::Access(0, "Reference is taken"))?
+                .deserialize_by_key(keys, de)
+        }
+    }
+
+    impl<T: TreeAny> TreeAny for Arc<T> {
+        #[inline]
+        fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            (**self).ref_any_by_key(keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
+        where
+            K: Keys,
+        {
+            Arc::get_mut(self)
+                .ok_or(Traversal::Access(0, "Reference is taken"))?
+                .mut_any_by_key(keys)
+        }
+    }
+}

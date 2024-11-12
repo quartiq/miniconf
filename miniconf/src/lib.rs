@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![doc = include_str!("../README.md")]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
