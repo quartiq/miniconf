@@ -1,5 +1,6 @@
 use miniconf::{
-    json, Deserialize, Leaf, Metadata, Serialize, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+    json, Deserialize, IntoKeys, Leaf, Metadata, Serialize, Traversal, Tree, TreeAny,
+    TreeDeserialize, TreeKey, TreeSerialize,
 };
 
 mod common;
@@ -73,4 +74,27 @@ fn tuple_struct() {
     json::set(&mut s, "/foo", b"3.0").unwrap_err();
 
     assert_eq!(paths::<Settings, 1>(), ["/0", "/1"]);
+}
+
+#[test]
+fn deny_access() {
+    use core::cell::RefCell;
+    #[derive(Tree)]
+    struct S<'a> {
+        #[tree(deny(deserialize = "no de", mut_any = "no any"))]
+        field: Leaf<i32>,
+        #[tree(deny(ref_any = "no any", mut_any = "no any"))]
+        cell: &'a RefCell<Leaf<i32>>,
+    }
+    let cell = RefCell::new(2.into());
+    let mut s = S {
+        field: 1.into(),
+        cell: &cell,
+    };
+    common::set_get(&mut s, "/cell", b"3");
+    s.ref_any_by_key([0].into_keys()).unwrap();
+    assert!(matches!(
+        s.mut_any_by_key([0].into_keys()),
+        Err(Traversal::Access(1, "no any"))
+    ));
 }

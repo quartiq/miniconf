@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased](https://github.com/quartiq/miniconf/compare/v0.17.1...HEAD) - DATE
+
+### Added
+
+* `deny` proc macro field attribute for fine grained rejection of struct access
+  (and removed corresponding trait impls).
+
 ## [0.17.1](https://github.com/quartiq/miniconf/compare/v0.17.0...v0.17.1) - 2024-11-12
 
 ### Added
