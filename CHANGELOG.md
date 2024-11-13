@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `std` and `alloc` features and `Tree*` impls for `Box`, `Rc`, `RcWeak`, `Arc`, `ArcWeak`,
   `Cow`, `Mutex`, `RwLock`, `Cell`, `RefCell`, `Bound`, `Range`, `RangeFrom`, `RangeTo`,
   `RangeInflusive`
+* `deny` proc macro field attribute for fine grained rejection of struct access.
 
 ## [0.17.0](https://github.com/quartiq/miniconf/compare/v0.16.3...v0.17.0) - 2024-10-25
 

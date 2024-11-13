@@ -1,7 +1,15 @@
-use darling::{uses_lifetimes, uses_type_params, util::Flag, FromField};
+use darling::{uses_lifetimes, uses_type_params, util::Flag, FromField, FromMeta};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
 use syn::spanned::Spanned;
+
+#[derive(Debug, FromMeta, PartialEq, Clone, Default)]
+pub struct Deny {
+    serialize: Option<String>,
+    deserialize: Option<String>,
+    ref_any: Option<String>,
+    mut_any: Option<String>,
+}
 
 #[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree))]
@@ -15,6 +23,8 @@ pub struct TreeField {
     pub get_mut: Option<syn::Expr>,
     pub rename: Option<syn::Ident>,
     pub defer: Option<syn::Expr>,
+    #[darling(default)]
+    pub deny: Deny,
 }
 
 uses_type_params!(TreeField, ty, typ);
@@ -99,43 +109,67 @@ impl TreeField {
 
     pub fn serialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
-        let getter = self.getter(i);
-        quote_spanned! { self.span()=>
-            #getter
-                .and_then(|value|
-                    ::miniconf::TreeSerialize::serialize_by_key(value, keys, ser)
-                )
+        if let Some(s) = &self.deny.serialize {
+            quote_spanned! { self.span()=> ::core::result::Result::Err(
+                ::miniconf::Traversal::Access(0, #s).into())
+            }
+        } else {
+            let getter = self.getter(i);
+            quote_spanned! { self.span()=>
+                #getter
+                    .and_then(|value|
+                        ::miniconf::TreeSerialize::serialize_by_key(value, keys, ser)
+                    )
+            }
         }
     }
 
     pub fn deserialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        let getter_mut = self.getter_mut(i);
-        let validator = self.validator();
-        quote_spanned! { self.span()=>
-            #getter_mut
-                .and_then(|item|
-                    ::miniconf::TreeDeserialize::<'de>::deserialize_by_key(item, keys, de)
-                )
-                #validator
+        if let Some(s) = &self.deny.deserialize {
+            quote_spanned! { self.span()=> ::core::result::Result::Err(
+                ::miniconf::Traversal::Access(0, #s).into())
+            }
+        } else {
+            let getter_mut = self.getter_mut(i);
+            let validator = self.validator();
+            quote_spanned! { self.span()=>
+                #getter_mut
+                    .and_then(|item|
+                        ::miniconf::TreeDeserialize::<'de>::deserialize_by_key(item, keys, de)
+                    )
+                    #validator
+            }
         }
     }
 
     pub fn ref_any_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let getter = self.getter(i);
-        quote_spanned! { self.span()=>
-            #getter
-                .and_then(|item| ::miniconf::TreeAny::ref_any_by_key(item, keys))
+        if let Some(s) = &self.deny.ref_any {
+            quote_spanned! { self.span()=> ::core::result::Result::Err(
+                ::miniconf::Traversal::Access(0, #s).into())
+            }
+        } else {
+            let getter = self.getter(i);
+            quote_spanned! { self.span()=>
+                #getter
+                    .and_then(|item| ::miniconf::TreeAny::ref_any_by_key(item, keys))
+            }
         }
     }
 
     pub fn mut_any_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        let getter_mut = self.getter_mut(i);
-        quote_spanned! { self.span()=>
-            #getter_mut
-                .and_then(|item| ::miniconf::TreeAny::mut_any_by_key(item, keys))
+        if let Some(s) = &self.deny.mut_any {
+            quote_spanned! { self.span()=> ::core::result::Result::Err(
+                ::miniconf::Traversal::Access(0, #s).into())
+            }
+        } else {
+            let getter_mut = self.getter_mut(i);
+            quote_spanned! { self.span()=>
+                #getter_mut
+                    .and_then(|item| ::miniconf::TreeAny::mut_any_by_key(item, keys))
+            }
         }
     }
 }
