@@ -170,7 +170,7 @@ Fields/variants that form internal nodes (non-leaf) need to implement the respec
 Leaf fields/items need to support the respective [`serde`] (and the desired `serde::Serializer`/`serde::Deserializer`
 backend) or [`core::any`] trait.
 
-Structs, enums, arrays, and Options can then be cascaded to construct more complex trees.
+Structs, enums, arrays, Options, and many other containers can then be cascaded to construct more complex trees.
 
 See also the [`TreeKey`] trait documentation for details.
 
