@@ -1,10 +1,23 @@
-use darling::{uses_lifetimes, uses_type_params, util::Flag, FromField, FromMeta};
+use darling::{
+    usage::{IdentSet, Purpose, UsesTypeParams},
+    uses_lifetimes, uses_type_params,
+    util::Flag,
+    FromField, FromMeta,
+};
 use proc_macro2::{Span, TokenStream};
 use quote::quote_spanned;
-use syn::spanned::Spanned;
+use syn::{parse_quote, spanned::Spanned};
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TreeTrait {
+    Key,
+    Serialize,
+    Deserialize,
+    Any,
+}
 
 #[derive(Debug, FromMeta, PartialEq, Clone, Default)]
-pub struct Deny {
+struct Deny {
     serialize: Option<String>,
     deserialize: Option<String>,
     ref_any: Option<String>,
@@ -15,16 +28,16 @@ pub struct Deny {
 #[darling(attributes(tree))]
 pub struct TreeField {
     pub ident: Option<syn::Ident>,
-    pub ty: syn::Type,
+    ty: syn::Type,
     pub skip: Flag,
-    pub typ: Option<syn::Type>,
-    pub validate: Option<syn::Expr>,
-    pub get: Option<syn::Expr>,
-    pub get_mut: Option<syn::Expr>,
-    pub rename: Option<syn::Ident>,
-    pub defer: Option<syn::Expr>,
+    typ: Option<syn::Type>,
+    validate: Option<syn::Expr>,
+    get: Option<syn::Expr>,
+    get_mut: Option<syn::Expr>,
+    rename: Option<syn::Ident>,
+    defer: Option<syn::Expr>,
     #[darling(default)]
-    pub deny: Deny,
+    deny: Deny,
 }
 
 uses_type_params!(TreeField, ty, typ);
@@ -40,6 +53,35 @@ impl TreeField {
 
     pub fn typ(&self) -> &syn::Type {
         self.typ.as_ref().unwrap_or(&self.ty)
+    }
+
+    pub fn bound(&self, traite: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {
+        if self
+            .uses_type_params(&Purpose::BoundImpl.into(), type_set)
+            .is_empty()
+        {
+            None
+        } else {
+            let bound: Option<syn::TraitBound> = match traite {
+                TreeTrait::Key => Some(parse_quote!(::miniconf::TreeKey)),
+                TreeTrait::Serialize => self
+                    .deny
+                    .serialize
+                    .is_none()
+                    .then_some(parse_quote!(::miniconf::TreeSerialize)),
+                TreeTrait::Deserialize => self
+                    .deny
+                    .deserialize
+                    .is_none()
+                    .then_some(parse_quote!(::miniconf::TreeDeserialize<'de>)),
+                TreeTrait::Any => (self.deny.ref_any.is_none() || self.deny.mut_any.is_none())
+                    .then_some(parse_quote!(::miniconf::TreeAny)),
+            };
+            bound.map(|bound| {
+                let ty = self.typ();
+                quote_spanned!(self.span()=> #ty: #bound, )
+            })
+        }
     }
 
     pub fn name(&self) -> Option<&syn::Ident> {

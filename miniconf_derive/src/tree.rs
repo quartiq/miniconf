@@ -1,6 +1,6 @@
 use darling::{
     ast::{self, Data},
-    usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes, UsesTypeParams},
+    usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes},
     util::Flag,
     Error, FromDeriveInput, FromVariant,
 };
@@ -8,7 +8,7 @@ use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{parse_quote, WhereClause};
 
-use crate::field::TreeField;
+use crate::field::{TreeField, TreeTrait};
 
 #[derive(Debug, FromVariant, Clone)]
 #[darling(attributes(tree), supports(newtype, tuple, unit), and_then=Self::parse)]
@@ -154,21 +154,14 @@ impl Tree {
 
     fn bound_generics(
         &self,
-        bound: syn::TraitBound,
+        traite: TreeTrait,
         where_clause: Option<&WhereClause>,
     ) -> Option<syn::WhereClause> {
         let type_set = self.generics.declared_type_params();
         let bounds: TokenStream = self
             .fields()
             .iter()
-            .filter_map(|f| {
-                let ty = f.typ();
-                (!f.uses_type_params(&Purpose::BoundImpl.into(), &type_set)
-                    .is_empty())
-                .then_some({
-                    quote! { #ty: #bound, }
-                })
-            })
+            .filter_map(|f| f.bound(traite, &type_set))
             .collect();
         if bounds.is_empty() {
             where_clause.cloned()
@@ -192,8 +185,7 @@ impl Tree {
     pub fn tree_key(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
-        let where_clause =
-            self.bound_generics(parse_quote!(::miniconf::TreeKey), orig_where_clause);
+        let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
         let fields = self.fields();
         let fields_len = fields.len();
         let traverse_all_arms = fields.iter().enumerate().map(|(i, f)| {
@@ -287,8 +279,7 @@ impl Tree {
     pub fn tree_serialize(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
-        let where_clause =
-            self.bound_generics(parse_quote!(::miniconf::TreeSerialize), where_clause);
+        let where_clause = self.bound_generics(TreeTrait::Serialize, where_clause);
         let index = self.index();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
         let increment =
@@ -329,8 +320,7 @@ impl Tree {
         let mut generics = self.generics.clone();
         generics.params.push(syn::GenericParam::Lifetime(de));
         let (impl_generics, _, where_clause) = generics.split_for_impl();
-        let where_clause =
-            self.bound_generics(parse_quote!(::miniconf::TreeDeserialize<'de>), where_clause);
+        let where_clause = self.bound_generics(TreeTrait::Deserialize, where_clause);
         let index = self.index();
         let ident = &self.ident;
         let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
@@ -359,7 +349,7 @@ impl Tree {
 
     pub fn tree_any(&self) -> TokenStream {
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
-        let where_clause = self.bound_generics(parse_quote!(::miniconf::TreeAny), where_clause);
+        let where_clause = self.bound_generics(TreeTrait::Any, where_clause);
         let index = self.index();
         let ident = &self.ident;
         let (mat, ref_arms, default) = self.arms(|f, i| f.ref_any_by_key(i));
