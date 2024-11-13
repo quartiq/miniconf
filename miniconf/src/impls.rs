@@ -1275,7 +1275,7 @@ mod _std {
             S: Serializer,
         {
             self.read()
-                .or(Err(Traversal::Access(0, "Locked")))?
+                .or(Err(Traversal::Access(0, "Poisoned")))?
                 .serialize_by_key(keys, ser)
         }
     }
@@ -1288,7 +1288,7 @@ mod _std {
             D: Deserializer<'de>,
         {
             self.write()
-                .or(Err(Traversal::Access(0, "Locked")))?
+                .or(Err(Traversal::Access(0, "Poisoned")))?
                 .deserialize_by_key(keys, de)
         }
     }
