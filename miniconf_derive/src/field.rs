@@ -79,7 +79,7 @@ impl TreeField {
             };
             bound.map(|bound| {
                 let ty = self.typ();
-                quote_spanned!(self.span()=> #ty: #bound, )
+                quote_spanned!(self.span()=> #ty: #bound,)
             })
         }
     }
