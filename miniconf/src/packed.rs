@@ -154,10 +154,16 @@ impl Packed {
         *self = Self::EMPTY;
     }
 
+    /// Number of bits that can be stored.
+    #[inline]
+    pub const fn capacity(&self) -> u32 {
+        self.0.trailing_zeros()
+    }
+
     /// Number of bits stored.
     #[inline]
     pub const fn len(&self) -> u32 {
-        Self::CAPACITY - self.0.trailing_zeros()
+        Self::CAPACITY - self.capacity()
     }
 
     /// Return the representation aligned to the LSB with the marker bit
