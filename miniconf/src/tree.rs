@@ -431,7 +431,7 @@ pub trait TreeDeserialize<'de> {
     /// Deserialize a leaf node by its keys.
     ///
     /// ```
-    /// # #[cfg(feature = "json-core")] {
+    /// # #[cfg(feature = "derive")] {
     /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
     /// #[derive(Default, TreeKey, TreeDeserialize)]
     /// struct S {
@@ -439,7 +439,7 @@ pub trait TreeDeserialize<'de> {
     ///     bar: [Leaf<u16>; 2],
     /// };
     /// let mut s = S::default();
-    /// let mut de = serde_json_core::de::Deserializer::new(b"7", None);
+    /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
     /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de)
     ///     .unwrap();
     /// de.end().unwrap();

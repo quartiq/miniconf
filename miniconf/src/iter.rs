@@ -100,7 +100,8 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
-        self.root = self.state.transcode::<M, _>(root)?.depth();
+        let node = self.state.transcode::<M, _>(root)?;
+        self.root = node.depth();
         self.depth = D + 1;
         Ok(self)
     }
