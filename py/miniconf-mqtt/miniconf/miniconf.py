@@ -51,6 +51,7 @@ class Miniconf:
         self.subscribed = asyncio.Event()
 
     async def close(self):
+        """Cancel the response listener and all in-flight requests"""
         self.listener.cancel()
         for fut in self._inflight.values():
             fut.cancel()
