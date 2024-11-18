@@ -50,6 +50,17 @@ class Miniconf:
         self.listener = asyncio.create_task(self._listen())
         self.subscribed = asyncio.Event()
 
+    async def close(self):
+        self.listener.cancel()
+        for fut in self._inflight.values():
+            fut.cancel()
+        try:
+            await self.listener
+        except asyncio.CancelledError:
+            pass
+        if len(self._inflight) > 0:
+            await asyncio.wait(self._inflight.values())
+
     async def _listen(self):
         await self.client.subscribe(self.response_topic)
         LOGGER.info(f"Subscribed to {self.response_topic}")
