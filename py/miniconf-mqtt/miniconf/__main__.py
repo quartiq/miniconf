@@ -119,6 +119,7 @@ def main():
                     assert path.startswith("/") or not path
                     value = await interface.get(path)
                     print(f"{path}={value}")
+            await interface.close()
 
     asyncio.run(run())
 

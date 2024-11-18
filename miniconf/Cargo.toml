@@ -44,6 +44,7 @@ yafnv = "3.0.0"
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.26.3", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
+serde_json = { version = "1.0.133" }
 
 [[test]]
 name = "arrays"

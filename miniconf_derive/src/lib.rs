@@ -61,7 +61,6 @@ pub fn derive_tree(input: TokenStream) -> TokenStream {
             t.tree_any(),
         ]
         .into_iter()
-        .flatten()
         .collect(),
         Err(e) => e.write_errors(),
     }

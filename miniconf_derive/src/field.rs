@@ -159,8 +159,8 @@ impl TreeField {
             let getter = self.getter(i);
             quote_spanned! { self.span()=>
                 #getter
-                    .and_then(|value|
-                        ::miniconf::TreeSerialize::serialize_by_key(value, keys, ser)
+                    .and_then(|item|
+                        ::miniconf::TreeSerialize::serialize_by_key(item, keys, ser)
                     )
             }
         }

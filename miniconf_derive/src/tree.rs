@@ -22,7 +22,6 @@ pub struct TreeVariant {
 impl TreeVariant {
     fn parse(mut self) -> darling::Result<Self> {
         assert!(!self.fields.is_struct());
-        // unnamed fields can only be skipped if they are terminal
         while self
             .fields
             .fields
@@ -66,7 +65,6 @@ impl Tree {
     fn parse(mut self) -> darling::Result<Self> {
         match &mut self.data {
             Data::Struct(fields) => {
-                // unnamed fields can only be skipped if they are terminal
                 while fields
                     .fields
                     .last()
@@ -81,7 +79,7 @@ impl Tree {
                 if let Some(f) = fields.fields.iter().find(|f| f.skip.is_present()) {
                     return Err(
                         // Note(design) If non-terminal fields are skipped, there is a gap in the indices.
-                        // This could be lifted with a index map.
+                        // This could be lifted with an index map.
                         Error::custom("Can only `skip` terminal tuple struct fields")
                             .with_span(&f.skip.span()),
                     );
@@ -266,7 +264,6 @@ impl Tree {
                 {
                     let index = #index?;
                     #traverse
-                    #[allow(unreachable_code)]
                     #increment(match index {
                         #(#traverse_arms ,)*
                         _ => unreachable!()
@@ -294,8 +291,6 @@ impl Tree {
                     S: ::miniconf::Serializer,
                 {
                     let index = #index?;
-                    // Note(unreachable) empty structs have diverged by now
-                    #[allow(unreachable_code)]
                     #increment(match #mat {
                         #(#arms ,)*
                         _ => #default
@@ -336,8 +331,6 @@ impl Tree {
                     D: ::miniconf::Deserializer<'de>,
                 {
                     let index = #index?;
-                    // Note(unreachable) empty structs have diverged by now
-                    #[allow(unreachable_code)]
                     #increment(match #mat {
                         #(#arms ,)*
                         _ => #default
@@ -365,15 +358,11 @@ impl Tree {
                     K: ::miniconf::Keys,
                 {
                     let index = #index?;
-                    // Note(unreachable) empty structs have diverged by now
-                    #[allow(unreachable_code)]
-                    {
-                        let ret: ::core::result::Result<_, _> = match #mat {
-                            #(#ref_arms ,)*
-                            _ => #default
-                        };
-                        ret #increment
-                    }
+                    let ret: ::core::result::Result<_, _> = match #mat {
+                        #(#ref_arms ,)*
+                        _ => #default
+                    };
+                    ret #increment
                 }
 
                 fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
@@ -381,15 +370,11 @@ impl Tree {
                     K: ::miniconf::Keys,
                 {
                     let index = #index?;
-                    // Note(unreachable) empty structs have diverged by now
-                    #[allow(unreachable_code)]
-                    {
-                        let ret: ::core::result::Result<_, _> = match #mat {
-                            #(#mut_arms ,)*
-                            _ => #default
-                        };
-                        ret #increment
-                    }
+                    let ret: ::core::result::Result<_, _> = match #mat {
+                        #(#mut_arms ,)*
+                        _ => #default
+                    };
+                    ret #increment
                 }
             }
         }
