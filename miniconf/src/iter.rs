@@ -29,6 +29,14 @@ impl<T: Iterator> Iterator for ExactSize<T> {
     }
 }
 
+impl<T> ExactSize<T> {
+    /// Return a reference to the inner iterator
+    #[inline]
+    pub fn inner(&self) -> &T {
+        &self.iter
+    }
+}
+
 // Even though general TreeKey iterations may well be longer than usize::MAX
 // we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
@@ -52,6 +60,7 @@ impl<T: Keys> Keys for Consume<T> {
         Ok(())
     }
 }
+
 impl<T: Keys> IntoKeys for Consume<T> {
     type IntoKeys = Self;
 
@@ -127,6 +136,16 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
             count: meta.count,
         }
     }
+
+    /// Return the current iteration depth
+    pub fn current_depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Return the root depth
+    pub fn root_depth(&self) -> usize {
+        self.root
+    }
 }
 
 impl<M, N, const D: usize> Iterator for NodeIter<M, N, D>
@@ -173,7 +192,7 @@ where
     }
 }
 
-// Do not allow manipulation of `depth` other than through iteration.
+// Contract: Do not allow manipulation of `depth` other than through iteration.
 impl<M: TreeKey + ?Sized, N: Transcode + Default, const D: usize> core::iter::FusedIterator
     for NodeIter<M, N, D>
 {
