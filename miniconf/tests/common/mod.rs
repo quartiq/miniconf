@@ -1,9 +1,14 @@
-use miniconf::{json, Path, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{json, Packed, Path, TreeDeserialize, TreeKey, TreeSerialize};
 
 pub fn paths<M, const D: usize>() -> Vec<String>
 where
     M: TreeKey,
 {
+    assert!(M::nodes::<_, D>()
+        .exact_size()
+        .collect::<Result<Vec<(Packed, _)>, _>>()
+        .unwrap()
+        .is_sorted());
     M::nodes::<Path<String, '/'>, D>()
         .exact_size()
         .map(|pn| {
