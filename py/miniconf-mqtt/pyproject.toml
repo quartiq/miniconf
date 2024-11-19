@@ -2,9 +2,6 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
-[license]
-text = "MIT"
-
 [project]
 name = "miniconf-mqtt"
 # Note: keep this in sync with Cargo.toml
@@ -15,6 +12,9 @@ authors = [
     { name = "Robert Jördens", email = "rj@quartiq.de" },
 ]
 dependencies = ["aiomqtt >= 2.1.0", "typing_extensions >= 4.11"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 
 [project.urls]
 Homepage = "https://github.com/quartiq/miniconf"
