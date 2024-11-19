@@ -113,3 +113,10 @@ fn root() {
         ["/b/0", "/b/1"]
     );
 }
+
+#[test]
+fn trees() {
+    let mut state = [0; 4];
+    let t = miniconf::tree::<Settings, Path<String, '/'>>(&mut state, 0).unwrap();
+    println!("{t:?}");
+}

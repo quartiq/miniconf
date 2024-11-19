@@ -48,7 +48,7 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 // unsafe impl<T: Iterator> core::iter::TrustedLen for ExactSize<T> {}
 
 /// A Keys wrapper that can always finalize()
-struct Consume<T>(T);
+pub(crate) struct Consume<T>(pub(crate) T);
 impl<T: Keys> Keys for Consume<T> {
     #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
@@ -167,7 +167,7 @@ where
                 // Not initial state: increment
                 self.state[self.depth - 1] += 1;
             }
-            return match M::transcode(Consume(self.state.into_keys())) {
+            return match M::transcode(Consume(self.state.iter().into_keys())) {
                 Err(Traversal::NotFound(depth)) => {
                     // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
                     // Key lookup was performed and failed: depth is always >= 1
