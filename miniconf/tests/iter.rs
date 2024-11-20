@@ -114,15 +114,17 @@ fn root() {
     );
 }
 
+#[cfg(feature = "trees")]
 #[test]
 fn tree() {
     let mut state = [0; 4];
-    let t = miniconf::tree::<Settings, Path<String, '/'>>(&mut state, 0).unwrap();
+    let t = miniconf::trees::nodes::<Settings, Path<String, '/'>>(&mut state, 0).unwrap();
     println!("{t:?}");
 }
 
+#[cfg(feature = "trees")]
 #[test]
 fn tree_all() {
-    let t = miniconf::tree_all::<Settings>();
+    let t = miniconf::trees::all::<Settings>();
     println!("{t:?}");
 }

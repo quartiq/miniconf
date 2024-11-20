@@ -132,5 +132,5 @@ fn metadata() {
     let m: Metadata = Settings::traverse_all().unwrap();
     assert_eq!(m.max_depth, 4);
     assert_eq!(m.max_length("/"), "/aam/0/0/c".len());
-    assert_eq!(m.count, 11);
+    assert_eq!(m.count.get(), 11);
 }

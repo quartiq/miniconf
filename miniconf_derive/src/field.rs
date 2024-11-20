@@ -106,7 +106,7 @@ impl TreeField {
 
     pub fn traverse_all(&self) -> TokenStream {
         let typ = self.typ();
-        quote_spanned!(self.span()=> <#typ as ::miniconf::TreeKey>::traverse_all()?)
+        quote_spanned!(self.span()=> <#typ as ::miniconf::TreeKey>::traverse_all())
     }
 
     fn getter(&self, i: Option<usize>) -> TokenStream {

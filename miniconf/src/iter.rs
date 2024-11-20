@@ -133,7 +133,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
         );
         ExactSize {
             iter: self,
-            count: meta.count,
+            count: meta.count.get(),
         }
     }
 

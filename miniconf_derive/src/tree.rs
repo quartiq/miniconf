@@ -186,15 +186,6 @@ impl Tree {
         let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
         let fields = self.fields();
         let fields_len = fields.len();
-        let traverse_all_arms = fields.iter().enumerate().map(|(i, f)| {
-            let w = f.traverse_all();
-            if self.flatten.is_present() {
-                quote!(walk = #w;)
-            } else {
-                quote!(walk = walk.merge(&#w, #i, &Self::__MINICONF_LOOKUP)?;)
-            }
-        });
-        let traverse_arms = fields.iter().enumerate().map(|(i, f)| f.traverse_by_key(i));
         let names: Option<Vec<_>> = match &self.data {
             Data::Struct(fields) if fields.style.is_struct() => Some(
                 fields
@@ -218,18 +209,22 @@ impl Tree {
             _ => None,
         };
         let names = match names {
-            None => quote! { ::miniconf::KeyLookup::Numbered(
-            match ::core::num::NonZero::new(#fields_len) {
-                Some(n) => n,
-                None => unreachable!(),
+            None => quote! {
+                ::miniconf::KeyLookup::Numbered(
+                    match ::core::num::NonZero::new(#fields_len) {
+                        Some(n) => n,
+                        None => unreachable!(),
+                    },
+                )
             },
-            )},
             Some(names) => quote!(::miniconf::KeyLookup::Named(&[#(#names ,)*])),
         };
+        let traverse_arms = fields.iter().enumerate().map(|(i, f)| f.traverse_by_key(i));
         let index = self.index();
-        let (traverse, increment) = if self.flatten.is_present() {
-            (None, None)
+        let (traverse, increment, traverse_all) = if self.flatten.is_present() {
+            (None, None, fields[0].traverse_all())
         } else {
+            let w = fields.iter().map(|f| f.traverse_all());
             (
                 Some(quote! {
                     let name = Self::__MINICONF_LOOKUP.lookup(index)?;
@@ -237,6 +232,7 @@ impl Tree {
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
+                quote!(W::internal(&[#(&#w? ,)*], &Self::__MINICONF_LOOKUP)),
             )
         };
 
@@ -250,10 +246,7 @@ impl Tree {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey for #ident #ty_generics #where_clause {
                 fn traverse_all<W: ::miniconf::Walk>() -> ::core::result::Result<W, W::Error> {
-                    #[allow(unused_mut)]
-                    let mut walk = W::internal();
-                    #(#traverse_all_arms)*
-                    ::core::result::Result::Ok(walk)
+                    #traverse_all
                 }
 
                 fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>

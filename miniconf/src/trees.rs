@@ -1,9 +1,11 @@
+//! Tools to convert from TreeKey nodes to `trees::Tree`
+
 use crate::{IntoKeys, KeyLookup, Node, Transcode, Traversal, TreeKey, Walk};
 
 use trees::Tree;
 
 /// Build a [`trees::Tree`] of keys for a `TreeKey`.
-pub fn tree<M: TreeKey, K: Transcode + Default>(
+pub fn nodes<M: TreeKey, K: Transcode + Default>(
     state: &mut [usize],
     depth: usize,
 ) -> Result<Tree<(K, Node)>, Traversal> {
@@ -11,7 +13,7 @@ pub fn tree<M: TreeKey, K: Transcode + Default>(
     if !root.data().1.is_leaf() && depth < state.len() {
         debug_assert_eq!(state[depth], 0);
         loop {
-            match tree::<M, _>(state, depth + 1) {
+            match nodes::<M, _>(state, depth + 1) {
                 Ok(child) => {
                     debug_assert_eq!(child.data().1.depth(), depth + 1);
                     root.push_back(child);
@@ -36,29 +38,19 @@ struct TreeWalk(Tree<Option<KeyLookup>>);
 impl Walk for TreeWalk {
     type Error = core::convert::Infallible;
 
-    fn internal() -> Self {
-        Self(Tree::new(None))
-    }
     fn leaf() -> Self {
         Self(Tree::new(None))
     }
-    fn merge(mut self, walk: &Self, index: usize, lookup: &KeyLookup) -> Result<Self, Self::Error> {
-        if let Some(l) = self.0.root().data() {
-            debug_assert_eq!(l, lookup);
+    fn internal(children: &[&Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
+        let mut root = Tree::new(Some(lookup.clone()));
+        for child in children.iter() {
+            root.push_back(child.0.clone());
         }
-        self.0
-            .root_mut()
-            .data_mut()
-            .get_or_insert_with(|| lookup.clone());
-        if matches!(lookup, KeyLookup::Homogeneous(_)) {
-            debug_assert_eq!(index, 0);
-        }
-        self.0.push_back(walk.0.clone());
-        Ok(self)
+        Ok(Self(root))
     }
 }
 
 /// Build a Tree of KeyLookup
-pub fn tree_all<M: TreeKey>() -> Tree<Option<KeyLookup>> {
+pub fn all<M: TreeKey>() -> Tree<Option<KeyLookup>> {
     M::traverse_all::<TreeWalk>().unwrap().0
 }
