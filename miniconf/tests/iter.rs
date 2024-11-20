@@ -113,18 +113,3 @@ fn root() {
         ["/b/0", "/b/1"]
     );
 }
-
-#[cfg(feature = "trees")]
-#[test]
-fn tree() {
-    let mut state = [0; 4];
-    let t = miniconf::trees::nodes::<Settings, Path<String, '/'>>(&mut state, 0).unwrap();
-    println!("{t:?}");
-}
-
-#[cfg(feature = "trees")]
-#[test]
-fn tree_all() {
-    let t = miniconf::trees::all::<Settings>();
-    println!("{t:?}");
-}

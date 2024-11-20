@@ -26,9 +26,6 @@ pub use leaf::*;
 mod walk;
 pub use walk::*;
 
-#[cfg(feature = "trees")]
-pub mod trees;
-
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;
 

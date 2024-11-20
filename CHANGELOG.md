@@ -8,9 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleases](https://github.com/quartiq/miniconf/compare/v0.17.2...HEAD) - DATE
 
-### Added
+### Changed
 
-* Optional support for the `trees` crate.
+* `KeyLookup`, `Walk`, and `Metadata` layout and behavior
 
 ## [0.17.2](https://github.com/quartiq/miniconf/compare/v0.17.1...v0.17.2) - 2024-11-19
 
