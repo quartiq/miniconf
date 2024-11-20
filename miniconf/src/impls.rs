@@ -17,7 +17,7 @@ macro_rules! impl_tuple {
             fn traverse_all<W: Walk>() -> Result<W, W::Error> {
                 let k = KeyLookup::numbered($n);
                 let mut walk = W::internal();
-                $(walk = walk.merge(&$t::traverse_all()?, Some($i), &k)?;)+
+                $(walk = walk.merge(&$t::traverse_all()?, $i, &k)?;)+
                 Ok(walk)
             }
 
@@ -114,7 +114,7 @@ impl<const L: usize, const R: usize> Assert<L, R> {
 impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         let () = Assert::<N, 0>::GREATER; // internal nodes must have at least one leaf
-        W::internal().merge(&T::traverse_all()?, None, &KeyLookup::homogeneous(N))
+        W::internal().merge(&T::traverse_all()?, 0, &KeyLookup::homogeneous(N))
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -248,8 +248,8 @@ impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         W::internal()
-            .merge(&T::traverse_all()?, Some(0), &RESULT_LOOKUP)?
-            .merge(&E::traverse_all()?, Some(1), &RESULT_LOOKUP)
+            .merge(&T::traverse_all()?, 0, &RESULT_LOOKUP)?
+            .merge(&E::traverse_all()?, 1, &RESULT_LOOKUP)
     }
 
     #[inline]
@@ -333,8 +333,8 @@ impl<T: TreeKey> TreeKey for Bound<T> {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         let t = T::traverse_all()?;
         W::internal()
-            .merge(&t, Some(0), &BOUND_LOOKUP)?
-            .merge(&t, Some(1), &BOUND_LOOKUP)
+            .merge(&t, 0, &BOUND_LOOKUP)?
+            .merge(&t, 1, &BOUND_LOOKUP)
     }
 
     #[inline]
@@ -417,8 +417,8 @@ impl<T: TreeKey> TreeKey for Range<T> {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         let t = T::traverse_all()?;
         W::internal()
-            .merge(&t, Some(0), &RANGE_LOOKUP)?
-            .merge(&t, Some(1), &RANGE_LOOKUP)
+            .merge(&t, 0, &RANGE_LOOKUP)?
+            .merge(&t, 1, &RANGE_LOOKUP)
     }
 
     #[inline]
@@ -499,8 +499,8 @@ impl<T: TreeKey> TreeKey for RangeInclusive<T> {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         let t = T::traverse_all()?;
         W::internal()
-            .merge(&t, Some(0), &RANGE_LOOKUP)?
-            .merge(&t, Some(1), &RANGE_LOOKUP)
+            .merge(&t, 0, &RANGE_LOOKUP)?
+            .merge(&t, 1, &RANGE_LOOKUP)
     }
 
     #[inline]
@@ -538,7 +538,7 @@ const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup::Named(&["start"]);
 impl<T: TreeKey> TreeKey for RangeFrom<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal().merge(&T::traverse_all()?, Some(0), &RANGE_FROM_LOOKUP)
+        W::internal().merge(&T::traverse_all()?, 0, &RANGE_FROM_LOOKUP)
     }
 
     #[inline]
@@ -615,7 +615,7 @@ const RANGE_TO_LOOKUP: KeyLookup = KeyLookup::Named(&["end"]);
 impl<T: TreeKey> TreeKey for RangeTo<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal().merge(&T::traverse_all()?, Some(0), &RANGE_TO_LOOKUP)
+        W::internal().merge(&T::traverse_all()?, 0, &RANGE_TO_LOOKUP)
     }
 
     #[inline]

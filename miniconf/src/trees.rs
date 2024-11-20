@@ -42,12 +42,7 @@ impl Walk for TreeWalk {
     fn leaf() -> Self {
         Self(Tree::new(None))
     }
-    fn merge(
-        mut self,
-        walk: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error> {
+    fn merge(mut self, walk: &Self, index: usize, lookup: &KeyLookup) -> Result<Self, Self::Error> {
         if let Some(l) = self.0.root().data() {
             debug_assert_eq!(l, lookup);
         }
@@ -55,8 +50,8 @@ impl Walk for TreeWalk {
             .root_mut()
             .data_mut()
             .get_or_insert_with(|| lookup.clone());
-        if let Some(index) = index {
-            debug_assert_eq!(index, self.0.root().degree());
+        if matches!(lookup, KeyLookup::Homogeneous(_)) {
+            debug_assert_eq!(index, 0);
         }
         self.0.push_back(walk.0.clone());
         Ok(self)

@@ -52,15 +52,9 @@ pub trait Walk: Sized {
     ///
     /// # Args
     /// * `walk`: The walk of the node to merge.
-    /// * `index`: Either the node index in case of a single node
-    ///   or `None`, in case of `lookup.len` nodes of homogeneous type.
+    /// * `index`: Either the child index or zero for homogeneous.
     /// * `lookup`: The namespace the node(s) are in.
-    fn merge(
-        self,
-        walk: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error>;
+    fn merge(self, walk: &Self, index: usize, lookup: &KeyLookup) -> Result<Self, Self::Error>;
 }
 
 impl Walk for Metadata {
@@ -80,25 +74,19 @@ impl Walk for Metadata {
     }
 
     #[inline]
-    fn merge(
-        mut self,
-        meta: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error> {
-        let (ident_len, count) = match lookup {
-            KeyLookup::Named(names) => (names[index.unwrap()].len(), 1),
-            KeyLookup::Numbered(_len) => (
-                index.unwrap().checked_ilog10().unwrap_or_default() as usize + 1,
-                1,
-            ),
+    fn merge(mut self, meta: &Self, index: usize, lookup: &KeyLookup) -> Result<Self, Self::Error> {
+        let (len, count) = match lookup {
+            KeyLookup::Named(names) => (names[index].len(), 1),
+            KeyLookup::Numbered(_len) => {
+                (index.checked_ilog10().unwrap_or_default() as usize + 1, 1)
+            }
             KeyLookup::Homogeneous(len) => {
-                assert!(index.is_none());
-                (len.get().ilog10() as usize + 1, len.get())
+                debug_assert_eq!(index, 0);
+                (len.ilog10() as usize + 1, len.get())
             }
         };
         self.max_depth = self.max_depth.max(1 + meta.max_depth);
-        self.max_length = self.max_length.max(ident_len + meta.max_length);
+        self.max_length = self.max_length.max(len + meta.max_length);
         debug_assert_ne!(meta.count, 0);
         self.count += count * meta.count;
         self.max_bits = self

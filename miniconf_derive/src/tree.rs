@@ -191,7 +191,7 @@ impl Tree {
             if self.flatten.is_present() {
                 quote!(walk = #w;)
             } else {
-                quote!(walk = walk.merge(&#w, Some(#i), &Self::__MINICONF_LOOKUP)?;)
+                quote!(walk = walk.merge(&#w, #i, &Self::__MINICONF_LOOKUP)?;)
             }
         });
         let traverse_arms = fields.iter().enumerate().map(|(i, f)| f.traverse_by_key(i));
