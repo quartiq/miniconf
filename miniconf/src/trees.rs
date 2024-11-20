@@ -1,4 +1,4 @@
-use crate::{IntoKeys, Node, Transcode, Traversal, TreeKey};
+use crate::{IntoKeys, KeyLookup, Node, Transcode, Traversal, TreeKey, Walk};
 
 use trees::Tree;
 
@@ -29,4 +29,41 @@ pub fn tree<M: TreeKey, K: Transcode + Default>(
         }
     }
     Ok(root)
+}
+
+struct TreeWalk(Tree<Option<KeyLookup>>);
+
+impl Walk for TreeWalk {
+    type Error = core::convert::Infallible;
+
+    fn internal() -> Self {
+        Self(Tree::new(None))
+    }
+    fn leaf() -> Self {
+        Self(Tree::new(None))
+    }
+    fn merge(
+        mut self,
+        walk: &Self,
+        index: Option<usize>,
+        lookup: &KeyLookup,
+    ) -> Result<Self, Self::Error> {
+        if let Some(l) = self.0.root().data() {
+            debug_assert_eq!(l, lookup);
+        }
+        self.0
+            .root_mut()
+            .data_mut()
+            .get_or_insert_with(|| lookup.clone());
+        if let Some(index) = index {
+            debug_assert_eq!(index, self.0.root().degree());
+        }
+        self.0.push_back(walk.0.clone());
+        Ok(self)
+    }
+}
+
+/// Build a Tree of KeyLookup
+pub fn tree_all<M: TreeKey>() -> Tree<Option<KeyLookup>> {
+    M::traverse_all::<TreeWalk>().unwrap().0
 }
