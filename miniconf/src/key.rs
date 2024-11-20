@@ -8,17 +8,13 @@ use crate::Traversal;
 ///
 /// This struct used together with [`crate::TreeKey`].
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct KeyLookup {
-    /// The number of top-level nodes.
-    ///
-    /// This is used by `impl Keys for Packed`.
-    pub len: NonZero<usize>,
-
-    /// Node names, if any.
-    ///
-    /// If nodes have names, this is a slice of them.
-    /// If it is `Some`, it's `.len()` is guaranteed to be `LEN`.
-    pub names: Option<&'static [&'static str]>,
+pub enum KeyLookup {
+    /// Named children
+    Named(&'static [&'static str]),
+    /// Numbered heterogeneous children
+    Numbered(NonZero<usize>),
+    /// Homogeneous numbered children
+    Homogeneous(NonZero<usize>),
 }
 
 impl KeyLookup {
@@ -26,39 +22,47 @@ impl KeyLookup {
     #[inline]
     pub const fn homogeneous(len: usize) -> Self {
         match NonZero::new(len) {
-            Some(len) => Self { len, names: None },
-            None => panic!("Internal nodes must have at least one leaf"),
+            Some(len) => Self::Homogeneous(len),
+            None => panic!("Must have at least one child"),
+        }
+    }
+
+    /// Return a homogenenous unnamed KeyLookup
+    #[inline]
+    pub const fn numbered(len: usize) -> Self {
+        match NonZero::new(len) {
+            Some(len) => Self::Numbered(len),
+            None => panic!("Must have at least one child"),
+        }
+    }
+
+    /// Return the number of elements in the lookup
+    #[inline]
+    pub const fn len(&self) -> NonZero<usize> {
+        match self {
+            Self::Named(names) => match NonZero::new(names.len()) {
+                Some(len) => len,
+                None => panic!("Must have at least one child"),
+            },
+            Self::Numbered(len) | Self::Homogeneous(len) => *len,
         }
     }
 
     /// Perform a index-to-name lookup
     #[inline]
     pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
-        match self.names {
-            Some(names) => {
-                debug_assert!(names.len() == self.len.get());
-                match names.get(index) {
-                    Some(name) => Ok(Some(name)),
-                    None => Err(Traversal::NotFound(1)),
-                }
-            }
-            None => {
-                if index >= self.len.get() {
+        match self {
+            Self::Named(names) => match names.get(index) {
+                Some(name) => Ok(Some(name)),
+                None => Err(Traversal::NotFound(1)),
+            },
+            Self::Numbered(len) | Self::Homogeneous(len) => {
+                if index >= len.get() {
                     Err(Traversal::NotFound(1))
                 } else {
                     Ok(None)
                 }
             }
-        }
-    }
-
-    /// Check that index is within range
-    #[inline]
-    pub fn clamp(&self, index: usize) -> Result<usize, Traversal> {
-        if index >= self.len.get() {
-            Err(Traversal::NotFound(1))
-        } else {
-            Ok(index)
         }
     }
 }
@@ -95,8 +99,11 @@ macro_rules! impl_key_integer {
         impl Key for $t {
             #[inline]
             fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-                let index = (*self).try_into().or(Err(Traversal::NotFound(1)))?;
-                lookup.clamp(index)
+                (*self)
+                    .try_into()
+                    .ok()
+                    .filter(|i| *i < lookup.len().get())
+                    .ok_or(Traversal::NotFound(1))
             }
         }
     )+};
@@ -107,12 +114,13 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 impl Key for str {
     #[inline]
     fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        let index = match lookup.names {
-            Some(names) => names.iter().position(|n| *n == self),
-            None => self.parse().ok(),
+        match lookup {
+            KeyLookup::Named(names) => names.iter().position(|n| *n == self),
+            KeyLookup::Homogeneous(len) | KeyLookup::Numbered(len) => {
+                self.parse().ok().filter(|i| *i < len.get())
+            }
         }
-        .ok_or(Traversal::NotFound(1))?;
-        lookup.clamp(index)
+        .ok_or(Traversal::NotFound(1))
     }
 }
 

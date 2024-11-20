@@ -86,23 +86,16 @@ impl Walk for Metadata {
         index: Option<usize>,
         lookup: &KeyLookup,
     ) -> Result<Self, Self::Error> {
-        let (ident_len, count) = match index {
-            None => (
-                // homogeneous [meta; len]
-                match lookup.names {
-                    Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
-                    None => lookup.len.ilog10() as usize + 1,
-                },
-                lookup.len.get(),
-            ),
-            Some(index) => (
-                // one meta at index
-                match lookup.names {
-                    Some(names) => names[index].len(),
-                    None => index.checked_ilog10().unwrap_or_default() as usize + 1,
-                },
+        let (ident_len, count) = match lookup {
+            KeyLookup::Named(names) => (names[index.unwrap()].len(), 1),
+            KeyLookup::Numbered(_len) => (
+                index.unwrap().checked_ilog10().unwrap_or_default() as usize + 1,
                 1,
             ),
+            KeyLookup::Homogeneous(len) => {
+                assert!(index.is_none());
+                (len.get().ilog10() as usize + 1, len.get())
+            }
         };
         self.max_depth = self.max_depth.max(1 + meta.max_depth);
         self.max_length = self.max_length.max(ident_len + meta.max_length);
@@ -110,7 +103,7 @@ impl Walk for Metadata {
         self.count += count * meta.count;
         self.max_bits = self
             .max_bits
-            .max(Packed::bits_for(lookup.len.get() - 1) + meta.max_bits);
+            .max(Packed::bits_for(lookup.len().get() - 1) + meta.max_bits);
         Ok(self)
     }
 }

@@ -218,8 +218,13 @@ impl Tree {
             _ => None,
         };
         let names = match names {
-            None => quote!(::core::option::Option::None),
-            Some(names) => quote!(::core::option::Option::Some(&[#(#names ,)*])),
+            None => quote! { ::miniconf::KeyLookup::Numbered(
+            match ::core::num::NonZero::new(#fields_len) {
+                Some(n) => n,
+                None => unreachable!(),
+            },
+            )},
+            Some(names) => quote!(::miniconf::KeyLookup::Named(&[#(#names ,)*])),
         };
         let index = self.index();
         let (traverse, increment) = if self.flatten.is_present() {
@@ -228,7 +233,7 @@ impl Tree {
             (
                 Some(quote! {
                     let name = Self::__MINICONF_LOOKUP.lookup(index)?;
-                    func(index, name, Self::__MINICONF_LOOKUP.len)
+                    func(index, name, Self::__MINICONF_LOOKUP.len())
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(::miniconf::Error::increment_result)),
@@ -239,13 +244,7 @@ impl Tree {
             // TODO: can these be hidden and disambiguated w.r.t. collision?
             #[automatically_derived]
             impl #impl_generics #ident #ty_generics #orig_where_clause {
-                const __MINICONF_LOOKUP: ::miniconf::KeyLookup = ::miniconf::KeyLookup {
-                    len: match ::core::num::NonZero::new(#fields_len) {
-                        Some(n) => n,
-                        None => unreachable!(),
-                    },
-                    names: #names,
-                };
+                const __MINICONF_LOOKUP: ::miniconf::KeyLookup = #names;
             }
 
             #[automatically_derived]

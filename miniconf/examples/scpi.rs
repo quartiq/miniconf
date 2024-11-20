@@ -21,37 +21,40 @@ struct ScpiKey<T: ?Sized>(T);
 impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
     fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
         let s = self.0.as_ref();
-        if let Some(names) = lookup.names {
-            let mut truncated = None;
-            let mut ambiguous = false;
-            for (i, name) in names.iter().enumerate() {
-                if name.len() < s.len()
-                    || !name
-                        .chars()
-                        .zip(s.chars())
-                        .all(|(n, s)| n.to_ascii_lowercase() == s.to_ascii_lowercase())
-                {
-                    continue;
+        match lookup {
+            KeyLookup::Named(names) => {
+                let mut truncated = None;
+                let mut ambiguous = false;
+                for (i, name) in names.iter().enumerate() {
+                    if name.len() < s.len()
+                        || !name
+                            .chars()
+                            .zip(s.chars())
+                            .all(|(n, s)| n.to_ascii_lowercase() == s.to_ascii_lowercase())
+                    {
+                        continue;
+                    }
+                    if name.len() == s.len() {
+                        // Exact match: return immediately
+                        return Ok(i);
+                    }
+                    if truncated.is_some() {
+                        // Multiple truncated matches: ambiguous unless there is an additional exact match
+                        ambiguous = true;
+                    } else {
+                        // First truncated match: fine if there is only one.
+                        truncated = Some(i);
+                    }
                 }
-                if name.len() == s.len() {
-                    // Exact match: return immediately
-                    return Ok(i);
-                }
-                if truncated.is_some() {
-                    // Multiple truncated matches: ambiguous unless there is an additional exact match
-                    ambiguous = true;
+                if ambiguous {
+                    None
                 } else {
-                    // First truncated match: fine if there is only one.
-                    truncated = Some(i);
+                    truncated
                 }
             }
-            if ambiguous {
-                None
-            } else {
-                truncated
+            KeyLookup::Numbered(len) | KeyLookup::Homogeneous(len) => {
+                s.parse().ok().filter(|i| *i < len.get())
             }
-        } else {
-            s.parse().ok()
         }
         .ok_or(Traversal::NotFound(1))
     }

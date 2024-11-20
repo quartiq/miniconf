@@ -15,7 +15,7 @@ macro_rules! impl_tuple {
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeKey),+> TreeKey for ($($t,)+) {
             fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-                let k = KeyLookup::homogeneous($n);
+                let k = KeyLookup::numbered($n);
                 let mut walk = W::internal();
                 $(walk = walk.merge(&$t::traverse_all()?, Some($i), &k)?;)+
                 Ok(walk)
@@ -26,9 +26,9 @@ macro_rules! impl_tuple {
                 K: Keys,
                 F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
             {
-                let k = KeyLookup::homogeneous($n);
+                let k = KeyLookup::numbered($n);
                 let index = keys.next(&k)?;
-                func(index, None, k.len).map_err(|err| Error::Inner(1, err))?;
+                func(index, None, k.len()).map_err(|err| Error::Inner(1, err))?;
                 Error::increment_result(match index {
                     $($i => $t::traverse_by_key(keys, func),)+
                     _ => unreachable!()
@@ -43,7 +43,7 @@ macro_rules! impl_tuple {
                 K: Keys,
                 S: Serializer,
             {
-                let index = keys.next(&KeyLookup::homogeneous($n))?;
+                let index = keys.next(&KeyLookup::numbered($n))?;
                 Error::increment_result(match index {
                     $($i => self.$i.serialize_by_key(keys, ser),)+
                     _ => unreachable!()
@@ -58,7 +58,7 @@ macro_rules! impl_tuple {
                 K: Keys,
                 D: Deserializer<'de>,
             {
-                let index = keys.next(&KeyLookup::homogeneous($n))?;
+                let index = keys.next(&KeyLookup::numbered($n))?;
                 Error::increment_result(match index {
                     $($i => self.$i.deserialize_by_key(keys, de),)+
                     _ => unreachable!()
@@ -72,7 +72,7 @@ macro_rules! impl_tuple {
             where
                 K: Keys,
             {
-                let index = keys.next(&KeyLookup::homogeneous($n))?;
+                let index = keys.next(&KeyLookup::numbered($n))?;
                 let ret: Result<_, _> = match index {
                     $($i => self.$i.ref_any_by_key(keys),)+
                     _ => unreachable!()
@@ -84,7 +84,7 @@ macro_rules! impl_tuple {
             where
                 K: Keys,
             {
-                let index = keys.next(&KeyLookup::homogeneous($n))?;
+                let index = keys.next(&KeyLookup::numbered($n))?;
                 let ret: Result<_, _> = match index {
                     $($i => self.$i.mut_any_by_key(keys),)+
                     _ => unreachable!()
@@ -125,7 +125,7 @@ impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
         let () = Assert::<N, 0>::GREATER; // internal nodes must have at least one leaf
         let k = KeyLookup::homogeneous(N);
         let index = keys.next(&k)?;
-        func(index, None, k.len).map_err(|err| Error::Inner(1, err))?;
+        func(index, None, k.len()).map_err(|err| Error::Inner(1, err))?;
         Error::increment_result(T::traverse_by_key(keys, func))
     }
 }
@@ -242,10 +242,7 @@ impl<T: TreeAny> TreeAny for Option<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RESULT_LOOKUP: KeyLookup = KeyLookup {
-    len: NonZero::<usize>::MIN.saturating_add(1), // 2
-    names: Some(&["Ok", "Err"]),
-};
+const RESULT_LOOKUP: KeyLookup = KeyLookup::Named(&["Ok", "Err"]);
 
 impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
     #[inline]
@@ -329,10 +326,7 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const BOUND_LOOKUP: KeyLookup = KeyLookup {
-    len: NonZero::<usize>::MIN.saturating_add(1),
-    names: Some(&["Included", "Excluded"]),
-};
+const BOUND_LOOKUP: KeyLookup = KeyLookup::Named(&["Included", "Excluded"]);
 
 impl<T: TreeKey> TreeKey for Bound<T> {
     #[inline]
@@ -416,10 +410,7 @@ impl<T: TreeAny> TreeAny for Bound<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RANGE_LOOKUP: KeyLookup = KeyLookup {
-    len: NonZero::<usize>::MIN.saturating_add(1),
-    names: Some(&["start", "end"]),
-};
+const RANGE_LOOKUP: KeyLookup = KeyLookup::Named(&["start", "end"]);
 
 impl<T: TreeKey> TreeKey for Range<T> {
     #[inline]
@@ -542,10 +533,7 @@ impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup {
-    len: NonZero::<usize>::MIN,
-    names: Some(&["start"]),
-};
+const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup::Named(&["start"]);
 
 impl<T: TreeKey> TreeKey for RangeFrom<T> {
     #[inline]
@@ -622,10 +610,7 @@ impl<T: TreeAny> TreeAny for RangeFrom<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RANGE_TO_LOOKUP: KeyLookup = KeyLookup {
-    len: NonZero::<usize>::MIN,
-    names: Some(&["end"]),
-};
+const RANGE_TO_LOOKUP: KeyLookup = KeyLookup::Named(&["end"]);
 
 impl<T: TreeKey> TreeKey for RangeTo<T> {
     #[inline]
