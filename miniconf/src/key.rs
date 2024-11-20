@@ -1,10 +1,13 @@
 use core::{iter::Fuse, num::NonZero};
 
+use serde::Serialize;
+
 use crate::Traversal;
 
 /// Data to look up field names and convert to indices
 ///
 /// This struct used together with [`crate::TreeKey`].
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct KeyLookup {
     /// The number of top-level nodes.
     ///
