@@ -251,7 +251,7 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta: Metadata = Settings::traverse_all().unwrap();
+        let meta: Metadata = Settings::traverse_all().unwrap(); // Note(unwrap): infallible
         assert!(meta.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 
@@ -529,13 +529,15 @@ where
                             // Internal node: Dump or List
                             (state.state() != &sm::States::Single)
                                 .then_some("Pending multipart response")
-                                .or_else(|| Multipart::try_from(properties)
-                                    .map(|m| {
-                                        *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
-                                        state.process_event(sm::Events::Multipart).unwrap();
-                                        // Responses come through iter_list/iter_dump
-                                    })
-                                    .err())
+                                .or_else(|| {
+                                    Multipart::try_from(properties)
+                                        .map(|m| {
+                                            *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
+                                            state.process_event(sm::Events::Multipart).unwrap();
+                                            // Responses come through iter_list/iter_dump
+                                        })
+                                        .err()
+                                })
                                 .map(|msg| {
                                     Self::respond(msg, ResponseCode::Error, properties, client).ok()
                                 });
