@@ -529,7 +529,7 @@ where
                             // Internal node: Dump or List
                             (state.state() != &sm::States::Single)
                                 .then_some("Pending multipart response")
-                                .or(Multipart::try_from(properties)
+                                .or_else(|| Multipart::try_from(properties)
                                     .map(|m| {
                                         *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
