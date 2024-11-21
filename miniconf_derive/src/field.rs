@@ -62,7 +62,7 @@ impl TreeField {
         {
             None
         } else {
-            let bound: Option<syn::TraitBound> = match traite {
+            match traite {
                 TreeTrait::Key => Some(parse_quote!(::miniconf::TreeKey)),
                 TreeTrait::Serialize => self
                     .deny
@@ -76,8 +76,8 @@ impl TreeField {
                     .then_some(parse_quote!(::miniconf::TreeDeserialize<'de>)),
                 TreeTrait::Any => (self.deny.ref_any.is_none() || self.deny.mut_any.is_none())
                     .then_some(parse_quote!(::miniconf::TreeAny)),
-            };
-            bound.map(|bound| {
+            }
+            .map(|bound: syn::TraitBound| {
                 let ty = self.typ();
                 quote_spanned!(self.span()=> #ty: #bound,)
             })

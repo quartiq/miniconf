@@ -527,21 +527,18 @@ where
                             Traversal::TooShort(_depth),
                         )) => {
                             // Internal node: Dump or List
-                            (state.state() == &sm::States::Single)
-                                .then_some(())
-                                .ok_or("Pending multipart response")
-                                .and_then(|()| Multipart::try_from(properties))
-                                .map_or_else(
-                                    |err| {
-                                        Self::respond(err, ResponseCode::Error, properties, client)
-                                            .ok();
-                                    },
-                                    |m| {
+                            (state.state() != &sm::States::Single)
+                                .then_some("Pending multipart response")
+                                .or(Multipart::try_from(properties)
+                                    .map(|m| {
                                         *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
                                         // Responses come through iter_list/iter_dump
-                                    },
-                                );
+                                    })
+                                    .err())
+                                .map(|msg| {
+                                    Self::respond(msg, ResponseCode::Error, properties, client).ok()
+                                });
                         }
                         minimq::PubError::Serialization(err) => {
                             Self::respond(err, ResponseCode::Error, properties, client).ok();
@@ -557,11 +554,16 @@ where
                 State::Unchanged
             } else {
                 // Set
-                json::set_by_key(settings, path, payload)
-                    .map_err(|err| Self::respond(err, ResponseCode::Error, properties, client).ok())
-                    .map(|_depth| Self::respond("OK", ResponseCode::Ok, properties, client).ok())
-                    .is_ok()
-                    .into()
+                match json::set_by_key(settings, path, payload) {
+                    Err(err) => {
+                        Self::respond(err, ResponseCode::Error, properties, client).ok();
+                        State::Unchanged
+                    }
+                    Ok(_depth) => {
+                        Self::respond("OK", ResponseCode::Ok, properties, client).ok();
+                        State::Changed
+                    }
+                }
             }
         })
         .map(Option::unwrap_or_default)
