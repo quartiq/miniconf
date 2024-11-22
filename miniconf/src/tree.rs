@@ -162,7 +162,7 @@ pub trait TreeKey {
     ///     bar: [Leaf<u16>; 2],
     /// };
     /// let m: Metadata = S::traverse_all().unwrap();
-    /// assert_eq!((m.max_depth, m.max_length, m.count), (2, 4, 3));
+    /// assert_eq!((m.max_depth, m.max_length, m.count.get()), (2, 4, 3));
     /// ```
     fn traverse_all<W: Walk>() -> Result<W, W::Error>;
 

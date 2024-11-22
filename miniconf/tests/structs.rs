@@ -42,7 +42,7 @@ fn structs() {
     let metadata = Settings::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/d/a".len());
-    assert_eq!(metadata.count, 4);
+    assert_eq!(metadata.count.get(), 4);
 
     assert_eq!(paths::<Settings, 2>(), ["/a", "/b", "/c", "/d/a"]);
 }

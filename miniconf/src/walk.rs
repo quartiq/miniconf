@@ -1,10 +1,12 @@
+use core::num::NonZero;
+
 use crate::{KeyLookup, Packed};
 
 /// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
 #[non_exhaustive]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Metadata {
     /// The maximum length of a path in bytes.
     ///
@@ -20,7 +22,7 @@ pub struct Metadata {
     pub max_depth: usize,
 
     /// The exact total number of keys.
-    pub count: usize,
+    pub count: NonZero<usize>,
 
     /// The maximum number of bits (see [`crate::Packed`])
     pub max_bits: u32,
@@ -42,75 +44,62 @@ pub trait Walk: Sized {
     /// Error type for `merge()`
     type Error;
 
-    /// Return the walk starting point for an an empty internal node
-    fn internal() -> Self;
-
     /// Return the walk starting point for a single leaf node
     fn leaf() -> Self;
 
     /// Merge node metadata into self.
     ///
     /// # Args
-    /// * `walk`: The walk of the node to merge.
-    /// * `index`: Either the node index in case of a single node
-    ///   or `None`, in case of `lookup.len` nodes of homogeneous type.
+    /// * `children`: The walk of the children to merge.
     /// * `lookup`: The namespace the node(s) are in.
-    fn merge(
-        self,
-        walk: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error>;
+    fn internal(children: &[&Self], lookup: &KeyLookup) -> Result<Self, Self::Error>;
 }
 
 impl Walk for Metadata {
     type Error = core::convert::Infallible;
 
     #[inline]
-    fn internal() -> Self {
-        Default::default()
-    }
-
-    #[inline]
     fn leaf() -> Self {
         Self {
-            count: 1,
-            ..Default::default()
+            count: NonZero::<usize>::MIN,
+            max_length: 0,
+            max_depth: 0,
+            max_bits: 0,
         }
     }
 
     #[inline]
-    fn merge(
-        mut self,
-        meta: &Self,
-        index: Option<usize>,
-        lookup: &KeyLookup,
-    ) -> Result<Self, Self::Error> {
-        let (ident_len, count) = match index {
-            None => (
-                // homogeneous [meta; len]
-                match lookup.names {
-                    Some(names) => names.iter().map(|n| n.len()).max().unwrap_or_default(),
-                    None => lookup.len.ilog10() as usize + 1,
-                },
-                lookup.len.get(),
-            ),
-            Some(index) => (
-                // one meta at index
-                match lookup.names {
-                    Some(names) => names[index].len(),
-                    None => index.checked_ilog10().unwrap_or_default() as usize + 1,
-                },
-                1,
-            ),
-        };
-        self.max_depth = self.max_depth.max(1 + meta.max_depth);
-        self.max_length = self.max_length.max(ident_len + meta.max_length);
-        debug_assert_ne!(meta.count, 0);
-        self.count += count * meta.count;
-        self.max_bits = self
-            .max_bits
-            .max(Packed::bits_for(lookup.len.get() - 1) + meta.max_bits);
-        Ok(self)
+    fn internal(children: &[&Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
+        let mut max_depth = 0;
+        let mut max_length = 0;
+        let mut count = 0;
+        let mut max_bits = 0;
+        // TODO: swap loop and match
+        for (index, child) in children.iter().enumerate() {
+            let (len, n) = match lookup {
+                KeyLookup::Named(names) => {
+                    debug_assert_eq!(children.len(), names.len());
+                    (names[index].len(), 1)
+                }
+                KeyLookup::Numbered(len) => {
+                    debug_assert_eq!(children.len(), len.get());
+                    (index.checked_ilog10().unwrap_or_default() as usize + 1, 1)
+                }
+                KeyLookup::Homogeneous(len) => {
+                    debug_assert_eq!(children.len(), 1);
+                    (len.ilog10() as usize + 1, len.get())
+                }
+            };
+            max_depth = max_depth.max(1 + child.max_depth);
+            max_length = max_length.max(len + child.max_length);
+            count += n * child.count.get();
+            max_bits = max_bits.max(Packed::bits_for(lookup.len().get() - 1) + child.max_bits);
+        }
+        Ok(Self {
+            max_bits,
+            max_depth,
+            max_length,
+            count: NonZero::new(count).unwrap(),
+        })
     }
 }

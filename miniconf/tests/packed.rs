@@ -152,7 +152,7 @@ fn size() {
     let meta: Metadata = A31::traverse_all().unwrap();
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 31);
-    assert_eq!(meta.count, 1usize.pow(31));
+    assert_eq!(meta.count.get(), 1usize.pow(31));
     assert_eq!(meta.max_length, 31);
 
     // Another way to get to 32 bit is to take 15 length-3 (2 bit) levels and one length-1 (1 bit) level to fill it, needing (3**15 ~ 14 M) storage.
@@ -167,6 +167,6 @@ fn size() {
     let meta: Metadata = A16::traverse_all().unwrap();
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 16);
-    assert_eq!(meta.count, 3usize.pow(15));
+    assert_eq!(meta.count.get(), 3usize.pow(15));
     assert_eq!(meta.max_length, 16);
 }

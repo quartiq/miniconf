@@ -48,7 +48,7 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 // unsafe impl<T: Iterator> core::iter::TrustedLen for ExactSize<T> {}
 
 /// A Keys wrapper that can always finalize()
-struct Consume<T>(T);
+pub(crate) struct Consume<T>(pub(crate) T);
 impl<T: Keys> Keys for Consume<T> {
     #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
@@ -125,7 +125,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta: Metadata = M::traverse_all().unwrap();
+        let meta: Metadata = M::traverse_all().unwrap(); // Note(unwrap): infallible
         assert!(
             D >= meta.max_depth,
             "depth D = {D} must be at least {}",
@@ -133,7 +133,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
         );
         ExactSize {
             iter: self,
-            count: meta.count,
+            count: meta.count.get(),
         }
     }
 
@@ -167,7 +167,7 @@ where
                 // Not initial state: increment
                 self.state[self.depth - 1] += 1;
             }
-            return match M::transcode(Consume(self.state.into_keys())) {
+            return match M::transcode(Consume(self.state.iter().into_keys())) {
                 Err(Traversal::NotFound(depth)) => {
                     // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
                     // Key lookup was performed and failed: depth is always >= 1

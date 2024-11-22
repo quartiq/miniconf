@@ -15,7 +15,7 @@ fn generic_type() {
     let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "data".len());
-    assert_eq!(metadata.count, 1);
+    assert_eq!(metadata.count.get(), 1);
 }
 
 #[test]
@@ -34,7 +34,7 @@ fn generic_array() {
     let metadata = Settings::<f32>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/data/0".len());
-    assert_eq!(metadata.count, 2);
+    assert_eq!(metadata.count.get(), 2);
 }
 
 #[test]
@@ -58,7 +58,7 @@ fn generic_struct() {
     let metadata = Settings::<Inner>::traverse_all::<Metadata>().unwrap();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length("/"), "/inner".len());
-    assert_eq!(metadata.count, 1);
+    assert_eq!(metadata.count.get(), 1);
 }
 
 #[test]
