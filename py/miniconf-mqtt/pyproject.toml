@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "miniconf-mqtt"
 # Note: keep this in sync with Cargo.toml
-version = "0.17.2"
+version = "0.18.0"
 description = "Utilities for configuring Miniconf-configurable devices"
 authors = [
     { name = "Ryan Summers", email = "ryan.summers@vertigo-designs.com" },
