@@ -22,13 +22,12 @@ def main():
     parser = argparse.ArgumentParser(
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""Examples (with a target at prefix 'app/id'):
-%(prog)s app/id '/stream="192.0.2.16:9293"'
-%(prog)s -d app/+ /afe/0         # GET
-%(prog)s -d app/+ '/afe/0="G10"' # SET
-%(prog)s -d app/+ /afe/0=        # CLEAR
-%(prog)s -d app/+ /afe?          # LIST-GET
-%(prog)s -d app/+ 'afe!        # DUMP
+        epilog="""Examples (with a target at prefix 'app/id' and device-discovery):
+%(prog)s -d app/+ '/path'       # GET
+%(prog)s -d app/+ '/path=value' # SET
+%(prog)s -d app/+ '/path='      # CLEAR
+%(prog)s -d app/+ '/path?'      # LIST-GET
+%(prog)s -d app/+ '/path!'      # DUMP
 """,
     )
     parser.add_argument(
@@ -57,9 +56,10 @@ def main():
         metavar="CMD",
         nargs="*",
         help="Path to get ('PATH') or path and JSON encoded value to set "
-        "('PATH=VALUE') or path to clear ('PATH=') or path to list (`PATH?`) or "
-        "path to dump (`PATH!`). "
-        "Use sufficient shell escaping.",
+        "('PATH=VALUE') or path to clear ('PATH=') or path to list ('PATH?') or "
+        "path to dump ('PATH!'). "
+        "Use sufficient shell quoting/escaping. "
+        "PATH is empty or starts with a '/'.",
     )
     args = parser.parse_args()
 
