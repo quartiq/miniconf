@@ -17,6 +17,18 @@ if sys.platform.lower() == "win32" or os.name.lower() == "nt":
     set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 
+class Path:
+    def __init__(self):
+        self.current = ""
+
+    def normalize(self, path):
+        if path.startswith("/") or not path:
+            self.current = path[: path.rfind("/")]
+        else:
+            path = f"{self.current}/{path}"
+        return path
+
+
 def main():
     """Main program entry point."""
     parser = argparse.ArgumentParser(
@@ -59,7 +71,8 @@ def main():
         "('PATH=VALUE') or path to clear ('PATH=') or path to list ('PATH?') or "
         "path to dump ('PATH!'). "
         "Use sufficient shell quoting/escaping. "
-        "PATH is empty or starts with a '/'.",
+        "Absolute PATHs are empty or start with a '/'. "
+        "All other PATHs are relative to the last absolute PATH.",
     )
     args = parser.parse_args()
 
@@ -79,10 +92,10 @@ def main():
 
             interface = Miniconf(client, prefix)
 
+            current = Path()
             for arg in args.commands:
                 if arg.endswith("?"):
-                    path = arg.removesuffix("?")
-                    assert path.startswith("/") or not path
+                    path = current.normalize(arg.removesuffix("?"))
                     paths = await interface.list(path)
                     # Note: There is no way for the CLI tool to reliably
                     # distinguish a one-element leaf get responce from a
@@ -101,13 +114,12 @@ def main():
                         except MiniconfException as err:
                             print(f"{p}: {repr(err)}")
                 elif arg.endswith("!"):
-                    path = arg.removesuffix("!")
-                    assert path.startswith("/") or not path
+                    path = current.normalize(arg.removesuffix("!"))
                     await interface.dump(path)
                     print(f"{path}: Dumped into MQTT namespace")
                 elif "=" in arg:
                     path, value = arg.split("=", 1)
-                    assert path.startswith("/") or not path
+                    path = current.normalize(path)
                     if not value:
                         await interface.clear(path)
                         print(f"{path}: Cleared retained")
@@ -115,7 +127,7 @@ def main():
                         await interface.set(path, json.loads(value), args.retain)
                         print(f"{path}={value}")
                 else:
-                    path = arg
+                    path = current.normalize(arg)
                     assert path.startswith("/") or not path
                     value = await interface.get(path)
                     print(f"{path}={value}")
