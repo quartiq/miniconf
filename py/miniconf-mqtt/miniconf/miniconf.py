@@ -161,7 +161,8 @@ class Miniconf:
             payload=json.dumps(value, separators=(",", ":")),
             retain=retain,
         )
-        assert len(ret) == 1, ret
+        if len(ret) != 1:
+            raise MiniconfException("not a leaf", ret)
         return ret[0]
 
     async def list(self, root: str = ""):
@@ -193,7 +194,8 @@ class Miniconf:
             path: The path to get. Must be a leaf node.
         """
         ret = await self._do(topic=f"{self.prefix}/settings{path}", payload="")
-        assert len(ret) == 1, ret
+        if len(ret) != 1:
+            raise MiniconfException("not a leaf", ret)
         return ret[0]
 
     async def clear(self, path: str):
@@ -203,5 +205,6 @@ class Miniconf:
             path: The path to clear. Must be a leaf node.
         """
         ret = await self._do(f"{self.prefix}/settings{path}", payload="", retain=True)
-        assert len(ret) == 1, ret
+        if len(ret) != 1:
+            raise MiniconfException("not a leaf", ret)
         return ret[0]

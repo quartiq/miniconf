@@ -94,44 +94,43 @@ def main():
 
             current = Path()
             for arg in args.commands:
-                if arg.endswith("?"):
-                    path = current.normalize(arg.removesuffix("?"))
-                    paths = await interface.list(path)
-                    # Note: There is no way for the CLI tool to reliably
-                    # distinguish a one-element leaf get responce from a
-                    # one-element inner list response without looking at
-                    # the payload.
-                    # The only way is to note that a JSON payload of a
-                    # get can not start with the / that a list response
-                    # starts with.
-                    if len(paths) == 1 and not paths[0].startswith("/"):
-                        print(f"{path}={paths[0]}")
-                        continue
-                    for p in paths:
-                        try:
+                try:
+                    if arg.endswith("?"):
+                        path = current.normalize(arg.removesuffix("?"))
+                        paths = await interface.list(path)
+                        # Note: There is no way for the CLI tool to reliably
+                        # distinguish a one-element leaf get responce from a
+                        # one-element inner list response without looking at
+                        # the payload.
+                        # The only way is to note that a JSON payload of a
+                        # get can not start with the / that a list response
+                        # starts with.
+                        if len(paths) == 1 and not paths[0].startswith("/"):
+                            print(f"{path}={paths[0]}")
+                            continue
+                        for p in paths:
                             value = await interface.get(p)
                             print(f"{p}={value}")
-                        except MiniconfException as err:
-                            print(f"{p}: {repr(err)}")
-                elif arg.endswith("!"):
-                    path = current.normalize(arg.removesuffix("!"))
-                    await interface.dump(path)
-                    print(f"{path}: Dumped into MQTT namespace")
-                elif "=" in arg:
-                    path, value = arg.split("=", 1)
-                    path = current.normalize(path)
-                    if not value:
-                        await interface.clear(path)
-                        print(f"{path}: Cleared retained")
+                    elif arg.endswith("!"):
+                        path = current.normalize(arg.removesuffix("!"))
+                        await interface.dump(path)
+                        print(f"DUMP '{path}'")
+                    elif "=" in arg:
+                        path, value = arg.split("=", 1)
+                        path = current.normalize(path)
+                        if not value:
+                            await interface.clear(path)
+                            print(f"CLEAR '{path}'")
+                        else:
+                            await interface.set(path, json.loads(value), args.retain)
+                            print(f"{path}={value}")
                     else:
-                        await interface.set(path, json.loads(value), args.retain)
+                        path = current.normalize(arg)
+                        assert path.startswith("/") or not path
+                        value = await interface.get(path)
                         print(f"{path}={value}")
-                else:
-                    path = current.normalize(arg)
-                    assert path.startswith("/") or not path
-                    value = await interface.get(path)
-                    print(f"{path}={value}")
-            await interface.close()
+                except MiniconfException as err:
+                    print(f"{arg}: {repr(err)}")
 
     asyncio.run(run())
 
