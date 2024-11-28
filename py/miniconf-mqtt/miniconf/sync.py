@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Miniconf:
-    """An synchronous API for controlling Miniconf devices using MQTT."""
+    """Miniconf over MQTT (synchronous)"""
 
     def __init__(self, client: Client, prefix: str):
         self.client = client
