@@ -10,9 +10,9 @@ import logging
 import uuid
 from typing import Dict, Any
 
-from aiomqtt import Client, Message, MqttError
-from paho.mqtt.properties import Properties, PacketTypes
 import paho.mqtt
+from paho.mqtt.properties import Properties, PacketTypes
+from aiomqtt import Client, Message, MqttError
 
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
@@ -111,18 +111,17 @@ class Miniconf:
             LOGGER.warning("Discarding message without response code user property")
             return
 
-        response = message.payload.decode("utf-8")
+        resp = message.payload.decode("utf-8")
         if code == "Continue":
-            ret.append(response)
-            return
-
-        if code == "Ok":
-            if response:
-                ret.append(response)
+            ret.append(resp)
+        elif code == "Ok":
+            if resp:
+                ret.append(resp)
             fut.set_result(ret)
+            del self._inflight[cd]
         else:
-            fut.set_exception(MiniconfException(code, response))
-        del self._inflight[cd]
+            fut.set_exception(MiniconfException(code, resp))
+            del self._inflight[cd]
 
     async def _do(self, topic: str, *, response=1, **kwargs):
         response = int(response)
@@ -150,6 +149,7 @@ class Miniconf:
                 return ret[0]
             assert ret
             return ret
+        return None
 
     async def set(self, path: str, value, retain=False, response=True, **kwargs):
         """Write the provided data to the specified path.
@@ -206,7 +206,10 @@ class Miniconf:
             path: The path to clear. Must be a leaf node.
         """
         return await self._do(
-            f"{self.prefix}/settings{path}", retain=True, response=response, **kwargs
+            f"{self.prefix}/settings{path}",
+            retain=True,
+            response=response,
+            **kwargs,
         )
 
 
@@ -234,10 +237,6 @@ async def discover(
     suffix = "/alive"
     topic = f"{prefix}{suffix}"
 
-    t_start = asyncio.get_running_loop().time()
-    await client.subscribe(topic)
-    t_subscribe = asyncio.get_running_loop().time() - t_start
-
     async def listen():
         async for message in client.messages:
             peer = message.topic.value.removesuffix(suffix)
@@ -248,6 +247,10 @@ async def discover(
             else:
                 logging.info(f"Discovered {peer} alive")
                 discovered[peer] = payload
+
+    t_start = asyncio.get_running_loop().time()
+    await client.subscribe(topic)
+    t_subscribe = asyncio.get_running_loop().time() - t_start
 
     try:
         await asyncio.wait_for(
