@@ -1,4 +1,4 @@
 """Miniconf Client"""
 
-from .miniconf import Miniconf, Client, MQTTv5, MiniconfException
-from .discover import discover, discover_one
+from . import sync, async_
+from .async_ import Miniconf, Client, MQTTv5, MiniconfException, discover, one
