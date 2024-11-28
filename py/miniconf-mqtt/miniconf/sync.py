@@ -1,15 +1,19 @@
-#!/usr/bin/python
+"""
+Synchronous Miniconf-over-MQTT utilities
+"""
+
+# pylint: disable=R0801,C0415,W1203,R0903,W0707
+
 import json
 import logging
 import uuid
 import threading
 import time
-from typing import Dict, List, Any
-import enum
+from typing import Dict, Any
 
 import paho.mqtt
 from paho.mqtt.properties import Properties, PacketTypes
-from paho.mqtt.client import Client, MQTTMessage
+from paho.mqtt.client import Client
 
 from .async_ import MiniconfException
 
@@ -28,7 +32,7 @@ class Miniconf:
     def _subscribe(self):
         cond = threading.Event()
         self.client.on_subscribe = (
-            lambda client, userdata, mid, reason, prop: cond.set()
+            lambda _client, _userdata, _mid, _reason, _prop: cond.set()
         )
         self.client.subscribe(self.response_topic)
         cond.wait()
@@ -36,9 +40,10 @@ class Miniconf:
         LOGGER.info(f"Subscribed to {self.response_topic}")
 
     def close(self):
+        """Unsubscribe from the response topic"""
         cond = threading.Event()
         self.client.on_unsubscribe = (
-            lambda client, userdata, mid, reason, prop: cond.set()
+            lambda _client, _userdata, _mid, _reason, _prop: cond.set()
         )
         self.client.unsubscribe(self.response_topic)
         cond.wait()
@@ -56,7 +61,7 @@ class Miniconf:
             props.CorrelationData = uuid.uuid1().bytes
             props.ResponseTopic = self.response_topic
 
-            def on_message(client, userdata, message):
+            def on_message(_client, _userdata, message):
                 if message.topic != self.response_topic:
                     LOGGER.warning(
                         "Discarding message with unexpected topic: %s", message.topic
@@ -105,22 +110,21 @@ class Miniconf:
             self.client.on_message = on_message
 
         LOGGER.info(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
-        pub = self.client.publish(topic, properties=props, **kwargs)
+        _pub = self.client.publish(topic, properties=props, **kwargs)
 
         if response:
             event.wait(timeout)
             self.client.on_message = None
             if len(ret) == 1 and isinstance(ret[0], MiniconfException):
                 raise ret[0]
-            elif response == 1:
+            if response == 1:
                 if len(ret) != 1:
                     raise MiniconfException("Not a leaf", ret)
                 return ret[0]
-            else:
-                assert ret
-                return ret
-        # else:
-        #    pub.wait_for_publish(timeout)
+            assert ret
+            return ret
+        # pub.wait_for_publish(timeout)
+        return None
 
     def set(self, path: str, value, retain=False, response=True, **kwargs):
         """Write the provided data to the specified path.
@@ -176,6 +180,7 @@ class Miniconf:
             f"{self.prefix}/settings{path}",
             retain=True,
             response=response,
+            **kwargs,
         )
 
 
@@ -205,7 +210,7 @@ def discover(
 
     discovered = {}
 
-    def on_message(client, userdata, message):
+    def on_message(_client, _userdata, message):
         logging.debug(f"Got message from {message.topic}: {message.payload}")
         peer = message.topic.removesuffix(suffix)
         try:
@@ -233,8 +238,7 @@ def discover(
 
 
 def _main():
-    import sys
-    from .async_ import _cli, Path, MQTTv5, one
+    from .async_ import _cli, MQTTv5, one
 
     args = _cli().parse_args()
 
@@ -256,52 +260,59 @@ def _main():
     interface = Miniconf(client, prefix)
 
     try:
-        current = Path()
-        for arg in args.commands:
-            try:
-                if arg.endswith("?"):
-                    path = current.normalize(arg.removesuffix("?"))
-                    paths = interface.list(path)
-                    # Note: There is no way for the CLI tool to reliably
-                    # distinguish a one-element leaf get responce from a
-                    # one-element inner list response without looking at
-                    # the payload.
-                    # The only way is to note that a JSON payload of a
-                    # get can not start with the / that a list response
-                    # starts with.
-                    if len(paths) == 1 and not paths[0].startswith("/"):
-                        print(f"{path}={paths[0]}")
-                        continue
-                    for p in paths:
-                        try:
-                            value = interface.get(p)
-                            print(f"{p}={value}")
-                        except MiniconfException as err:
-                            print(f"{p}: {repr(err)}")
-                elif arg.endswith("!"):
-                    path = current.normalize(arg.removesuffix("!"))
-                    interface.dump(path)
-                    print(f"DUMP '{path}'")
-                elif "=" in arg:
-                    path, value = arg.split("=", 1)
-                    path = current.normalize(path)
-                    if not value:
-                        interface.clear(path)
-                        print(f"CLEAR '{path}'")
-                    else:
-                        interface.set(path, json.loads(value), args.retain)
-                        print(f"{path}={value}")
-                else:
-                    path = current.normalize(arg)
-                    value = interface.get(path)
-                    print(f"{path}={value}")
-            except MiniconfException as err:
-                print(f"{arg}: {repr(err)}")
-                sys.exit(1)
+        _handle_commands(interface, args.commands, args.retain)
     finally:
         interface.close()
         client.disconnect()
         client.loop_stop()
+
+
+def _handle_commands(interface, commands, retain):
+    import sys
+    from .async_ import _Path
+
+    current = _Path()
+    for arg in commands:
+        try:
+            if arg.endswith("?"):
+                path = current.normalize(arg.removesuffix("?"))
+                paths = interface.list(path)
+                # Note: There is no way for the CLI tool to reliably
+                # distinguish a one-element leaf get responce from a
+                # one-element inner list response without looking at
+                # the payload.
+                # The only way is to note that a JSON payload of a
+                # get can not start with the / that a list response
+                # starts with.
+                if len(paths) == 1 and not paths[0].startswith("/"):
+                    print(f"{path}={paths[0]}")
+                    continue
+                for p in paths:
+                    try:
+                        value = interface.get(p)
+                        print(f"{p}={value}")
+                    except MiniconfException as err:
+                        print(f"{p}: {repr(err)}")
+            elif arg.endswith("!"):
+                path = current.normalize(arg.removesuffix("!"))
+                interface.dump(path)
+                print(f"DUMP '{path}'")
+            elif "=" in arg:
+                path, value = arg.split("=", 1)
+                path = current.normalize(path)
+                if not value:
+                    interface.clear(path)
+                    print(f"CLEAR '{path}'")
+                else:
+                    interface.set(path, json.loads(value), retain)
+                    print(f"{path}={value}")
+            else:
+                path = current.normalize(arg)
+                value = interface.get(path)
+                print(f"{path}={value}")
+        except MiniconfException as err:
+            print(f"{arg}: {repr(err)}")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

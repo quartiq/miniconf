@@ -1,10 +1,9 @@
-#!/usr/bin/python
 """
-Author: Vertigo Designs, Ryan Summers
-        Robert Jördens
+Asynchronous Miniconf-over-MQTT utilities
+"""
 
-Description: Provides an API for controlling Miniconf devices over MQTT.
-"""
+# pylint: disable=R0801,C0415,W1203,R0903,W0707
+
 import asyncio
 import json
 import logging
@@ -22,6 +21,7 @@ LOGGER = logging.getLogger(__name__)
 
 class MiniconfException(Exception):
     """Miniconf Error"""
+
     def __init__(self, code, message):
         self.code = code
         self.message = message
@@ -52,7 +52,7 @@ class Miniconf:
     async def close(self):
         """Cancel the response listener and all in-flight requests"""
         self.listener.cancel()
-        for fut, ret in self._inflight.values():
+        for fut, _ret in self._inflight.values():
             fut.cancel()
         try:
             await self.listener
@@ -148,9 +148,8 @@ class Miniconf:
                 if len(ret) != 1:
                     raise MiniconfException("Not a leaf", ret)
                 return ret[0]
-            else:
-                assert ret
-                return ret
+            assert ret
+            return ret
 
     async def set(self, path: str, value, retain=False, response=True, **kwargs):
         """Write the provided data to the specified path.
@@ -207,7 +206,7 @@ class Miniconf:
             path: The path to clear. Must be a leaf node.
         """
         return await self._do(
-            f"{self.prefix}/settings{path}", retain=True, response=response
+            f"{self.prefix}/settings{path}", retain=True, response=response, **kwargs
         )
 
 
@@ -268,7 +267,7 @@ def one(devices: Dict[str, Any]) -> (str, Any):
     """
     try:
         (device,) = devices.items()
-    except ValueError as exc:
+    except ValueError:
         raise MiniconfException(
             "Discover", f"No unique Miniconf device (found `{devices}`)."
         )
@@ -276,11 +275,12 @@ def one(devices: Dict[str, Any]) -> (str, Any):
     return device
 
 
-class Path:
+class _Path:
     def __init__(self):
         self.current = ""
 
     def normalize(self, path):
+        """Return an absolute normalized path and update current absolute reference."""
         if path.startswith("/") or not path:
             self.current = path[: path.rfind("/")]
         else:
@@ -339,7 +339,8 @@ def _cli():
 
 
 async def _main():
-    import sys, os
+    import sys
+    import os
 
     if sys.platform.lower() == "win32" or os.name.lower() == "nt":
         from asyncio import set_event_loop_policy, WindowsSelectorEventLoopPolicy
@@ -363,51 +364,57 @@ async def _main():
 
         interface = Miniconf(client, prefix)
 
-        current = Path()
         try:
-            for arg in args.commands:
-                try:
-                    if arg.endswith("?"):
-                        path = current.normalize(arg.removesuffix("?"))
-                        paths = await interface.list(path)
-                        # Note: There is no way for the CLI tool to reliably
-                        # distinguish a one-element leaf get responce from a
-                        # one-element inner list response without looking at
-                        # the payload.
-                        # The only way is to note that a JSON payload of a
-                        # get can not start with the / that a list response
-                        # starts with.
-                        if len(paths) == 1 and not paths[0].startswith("/"):
-                            print(f"{path}={paths[0]}")
-                            continue
-                        for p in paths:
-                            try:
-                                value = await interface.get(p)
-                                print(f"{p}={value}")
-                            except MiniconfException as err:
-                                print(f"{p}: {repr(err)}")
-                    elif arg.endswith("!"):
-                        path = current.normalize(arg.removesuffix("!"))
-                        await interface.dump(path)
-                        print(f"DUMP '{path}'")
-                    elif "=" in arg:
-                        path, value = arg.split("=", 1)
-                        path = current.normalize(path)
-                        if not value:
-                            await interface.clear(path)
-                            print(f"CLEAR '{path}'")
-                        else:
-                            await interface.set(path, json.loads(value), args.retain)
-                            print(f"{path}={value}")
-                    else:
-                        path = current.normalize(arg)
-                        value = await interface.get(path)
-                        print(f"{path}={value}")
-                except MiniconfException as err:
-                    print(f"{arg}: {repr(err)}")
-                    sys.exit(1)
+            await _handle_commands(interface, args.commands, args.retain)
         finally:
             await interface.close()
+
+
+async def _handle_commands(interface, commands, retain):
+    import sys
+
+    current = _Path()
+    for arg in commands:
+        try:
+            if arg.endswith("?"):
+                path = current.normalize(arg.removesuffix("?"))
+                paths = await interface.list(path)
+                # Note: There is no way for the CLI tool to reliably
+                # distinguish a one-element leaf get responce from a
+                # one-element inner list response without looking at
+                # the payload.
+                # The only way is to note that a JSON payload of a
+                # get can not start with the / that a list response
+                # starts with.
+                if len(paths) == 1 and not paths[0].startswith("/"):
+                    print(f"{path}={paths[0]}")
+                    continue
+                for p in paths:
+                    try:
+                        value = await interface.get(p)
+                        print(f"{p}={value}")
+                    except MiniconfException as err:
+                        print(f"{p}: {repr(err)}")
+            elif arg.endswith("!"):
+                path = current.normalize(arg.removesuffix("!"))
+                await interface.dump(path)
+                print(f"DUMP '{path}'")
+            elif "=" in arg:
+                path, value = arg.split("=", 1)
+                path = current.normalize(path)
+                if not value:
+                    await interface.clear(path)
+                    print(f"CLEAR '{path}'")
+                else:
+                    await interface.set(path, json.loads(value), retain)
+                    print(f"{path}={value}")
+            else:
+                path = current.normalize(arg)
+                value = await interface.get(path)
+                print(f"{path}={value}")
+        except MiniconfException as err:
+            print(f"{arg}: {repr(err)}")
+            sys.exit(1)
 
 
 if __name__ == "__main__":
