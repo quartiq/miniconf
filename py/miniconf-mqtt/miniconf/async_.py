@@ -137,7 +137,7 @@ class Miniconf:
             assert cd not in self._inflight
             self._inflight[cd] = fut, []
 
-        LOGGER.info(f"Publishing {topic}: {kwargs.get("payload")}, [{props}]")
+        LOGGER.info(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
         await self.client.publish(
             topic,
             properties=props,

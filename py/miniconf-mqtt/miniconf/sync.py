@@ -104,7 +104,7 @@ class Miniconf:
 
             self.client.on_message = on_message
 
-        LOGGER.info(f"Publishing {topic}: {kwargs.get("payload")}, [{props}]")
+        LOGGER.info(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
         pub = self.client.publish(topic, properties=props, **kwargs)
 
         if response:
