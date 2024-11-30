@@ -24,6 +24,11 @@ class Miniconf:
     """Miniconf over MQTT (synchronous)"""
 
     def __init__(self, client: Client, prefix: str):
+        """
+        Args:
+            client: A connected MQTT5 client.
+            prefix: The MQTT toptic prefix of the device to control.
+        """
         self.client = client
         self.prefix = prefix
         self.response_topic = f"{prefix}/response"
@@ -173,6 +178,8 @@ class Miniconf:
     def clear(self, path: str, response=True, **kwargs):
         """Clear retained value from a path.
 
+        This does not change (`set()`) or reset/clear the value on the device.
+
         Args:
             path: The path to clear. Must be a leaf node.
         """
@@ -207,8 +214,6 @@ def discover(
     discovered = {}
     suffix = "/alive"
     topic = f"{prefix}{suffix}"
-
-    discovered = {}
 
     def on_message(_client, _userdata, message):
         logging.debug(f"Got message from {message.topic}: {message.payload}")

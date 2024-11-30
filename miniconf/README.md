@@ -6,7 +6,7 @@
 [![Continuous Integration](https://github.com/vertigo-designs/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
 `miniconf` enables lightweight (`no_std`/no alloc) serialization, deserialization,
-and access within a tree of heretogeneous types by keys.
+and access within a tree of heterogeneous types by keys.
 
 ## Example
 
