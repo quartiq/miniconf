@@ -195,7 +195,9 @@ class Miniconf:
         Args:
             path: The path to get. Must be a leaf node.
         """
-        return await self._do(topic=f"{self.prefix}/settings{path}", **kwargs)
+        return json.loads(
+            await self._do(topic=f"{self.prefix}/settings{path}", **kwargs)
+        )
 
     async def clear(self, path: str, response=True, **kwargs):
         """Clear retained value from a path.
@@ -205,11 +207,13 @@ class Miniconf:
         Args:
             path: The path to clear. Must be a leaf node.
         """
-        return await self._do(
-            f"{self.prefix}/settings{path}",
-            retain=True,
-            response=response,
-            **kwargs,
+        return json.loads(
+            await self._do(
+                f"{self.prefix}/settings{path}",
+                retain=True,
+                response=response,
+                **kwargs,
+            )
         )
 
 
@@ -406,8 +410,8 @@ async def _handle_commands(interface, commands, retain):
                 path, value = arg.split("=", 1)
                 path = current.normalize(path)
                 if not value:
-                    await interface.clear(path)
-                    print(f"CLEAR '{path}'")
+                    value = await interface.clear(path)
+                    print(f"CLEAR {path}={value}")
                 else:
                     await interface.set(path, json.loads(value), retain)
                     print(f"{path}={value}")
