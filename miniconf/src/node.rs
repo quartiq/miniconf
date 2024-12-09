@@ -235,7 +235,7 @@ impl<'a, const S: char> Iterator for PathIter<'a, S> {
     }
 }
 
-impl<'a, const S: char> core::iter::FusedIterator for PathIter<'a, S> {}
+impl<const S: char> core::iter::FusedIterator for PathIter<'_, S> {}
 
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
     type IntoKeys = KeysIter<PathIter<'a, S>>;
