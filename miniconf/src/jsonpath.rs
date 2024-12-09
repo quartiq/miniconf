@@ -79,7 +79,7 @@ impl<'a> Iterator for JsonPathIter<'a> {
     }
 }
 
-impl<'a> core::iter::FusedIterator for JsonPathIter<'a> {}
+impl core::iter::FusedIterator for JsonPathIter<'_> {}
 
 /// JSON style path notation
 ///
