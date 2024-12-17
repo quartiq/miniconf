@@ -123,7 +123,7 @@ class Miniconf:
             fut.set_exception(MiniconfException(code, resp))
             del self._inflight[cd]
 
-    async def _do(self, topic: str, *, response=1, **kwargs):
+    async def _do(self, path: str, *, response=1, **kwargs):
         response = int(response)
         props = Properties(PacketTypes.PUBLISH)
         if response:
@@ -135,6 +135,7 @@ class Miniconf:
             assert cd not in self._inflight
             self._inflight[cd] = fut, []
 
+        topic = f"{self.prefix}/settings{path}"
         LOGGER.info(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
         await self.client.publish(
             topic,
@@ -160,24 +161,22 @@ class Miniconf:
             retain: Retain the the setting on the broker.
         """
         return await self._do(
-            topic=f"{self.prefix}/settings{path}",
+            path,
             payload=json.dumps(value, separators=(",", ":")),
             response=response,
             retain=retain,
             **kwargs,
         )
 
-    async def list(self, root: str = "", **kwargs):
+    async def list(self, path: str = "", **kwargs):
         """Get a list of all the paths below a given root.
 
         Args:
-            root: Path to the root node to list.
+            path: Path to the root node to list.
         """
-        return await self._do(
-            topic=f"{self.prefix}/settings{root}", response=2, **kwargs
-        )
+        return await self._do(path, response=2, **kwargs)
 
-    async def dump(self, root: str = "", **kwargs):
+    async def dump(self, path: str = "", **kwargs):
         """Dump all the paths at or below a given root into the settings namespace.
 
         Note that the target may be unable to respond to messages when a multipart
@@ -185,9 +184,9 @@ class Miniconf:
         This method does not wait for completion.
 
         Args:
-            root: Path to the root node to dump. Can be a leaf or an internal node.
+            path: Path to the root node to dump. Can be a leaf or an internal node.
         """
-        await self._do(topic=f"{self.prefix}/settings{root}", response=0, **kwargs)
+        await self._do(path, response=0, **kwargs)
 
     async def get(self, path: str, **kwargs):
         """Get the specific value of a given path.
@@ -195,9 +194,7 @@ class Miniconf:
         Args:
             path: The path to get. Must be a leaf node.
         """
-        return json.loads(
-            await self._do(topic=f"{self.prefix}/settings{path}", **kwargs)
-        )
+        return json.loads(await self._do(path, **kwargs))
 
     async def clear(self, path: str, response=True, **kwargs):
         """Clear retained value from a path.
@@ -209,7 +206,7 @@ class Miniconf:
         """
         return json.loads(
             await self._do(
-                f"{self.prefix}/settings{path}",
+                path,
                 retain=True,
                 response=response,
                 **kwargs,
