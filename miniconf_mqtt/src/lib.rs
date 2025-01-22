@@ -463,23 +463,22 @@ where
         code: ResponseCode,
         request: &Properties<'b>,
         client: &mut minimq::mqtt_client::MqttClient<'a, Stack, Clock, Broker>,
-    ) -> Result<
-        (),
-        minimq::PubError<Stack::Error, embedded_io::WriteFmtError<embedded_io::SliceWriteError>>,
-    > {
-        client
-            .publish(
-                Publication::respond(None, request, |mut buf: &mut [u8]| {
-                    let start = buf.len();
-                    write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
+    ) {
+        Publication::respond(None, request, |mut buf: &mut [u8]| {
+            let start = buf.len();
+            write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
+        })
+        .map_err(|err| {
+            info!("Response build failure: {err:?}");
+        })
+        .and_then(|p| {
+            client
+                .publish(p.properties(&[code.into()]).qos(QoS::AtLeastOnce))
+                .map_err(|err| {
+                    info!("Response failure: {err:?}");
                 })
-                .unwrap()
-                .properties(&[code.into()])
-                .qos(QoS::AtLeastOnce),
-            )
-            .inspect_err(|err| {
-                info!("Response failure: {err:?}");
-            })
+        })
+        .ok();
     }
 
     fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<Stack::Error>> {
@@ -516,23 +515,28 @@ where
                             Traversal::TooShort(_depth),
                         )) => {
                             // Internal node: Dump or List
-                            (state.state() != &sm::States::Single)
-                                .then_some("Pending multipart response")
-                                .or_else(|| {
-                                    Multipart::try_from(properties)
-                                        .map(|m| {
-                                            *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
-                                            state.process_event(sm::Events::Multipart).unwrap();
-                                            // Responses come through iter_list/iter_dump
-                                        })
-                                        .err()
-                                })
-                                .map(|msg| {
-                                    Self::respond(msg, ResponseCode::Error, properties, client).ok()
-                                });
+                            if state.state() != &sm::States::Single {
+                                Self::respond(
+                                    "Pending multipart response",
+                                    ResponseCode::Error,
+                                    properties,
+                                    client,
+                                )
+                            } else {
+                                match Multipart::try_from(properties) {
+                                    Ok(m) => {
+                                        *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
+                                        state.process_event(sm::Events::Multipart).unwrap();
+                                        // Responses come through iter_list/iter_dump
+                                    }
+                                    Err(err) => {
+                                        Self::respond(err, ResponseCode::Error, properties, client)
+                                    }
+                                }
+                            }
                         }
                         minimq::PubError::Serialization(err) => {
-                            Self::respond(err, ResponseCode::Error, properties, client).ok();
+                            Self::respond(err, ResponseCode::Error, properties, client);
                         }
                         minimq::PubError::Error(minimq::Error::NotReady) => {
                             warn!("Not ready during Get. Discarding.");
@@ -547,11 +551,11 @@ where
                 // Set
                 match json::set_by_key(settings, path, payload) {
                     Err(err) => {
-                        Self::respond(err, ResponseCode::Error, properties, client).ok();
+                        Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged
                     }
                     Ok(_depth) => {
-                        Self::respond("OK", ResponseCode::Ok, properties, client).ok();
+                        Self::respond("OK", ResponseCode::Ok, properties, client);
                         State::Changed
                     }
                 }
