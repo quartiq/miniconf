@@ -395,10 +395,7 @@ where
                 response = response.correlate(cd);
             }
 
-            self.mqtt
-                .client()
-                .publish(response) // Note(unwrap): has topic
-                .unwrap(); // Note(unwrap) checked can_publish()
+            self.mqtt.client().publish(response).unwrap(); // Note(unwrap) checked can_publish()
 
             if code != ResponseCode::Continue {
                 self.state.process_event(sm::Events::Complete).unwrap();
@@ -433,7 +430,6 @@ where
                 response = response.correlate(cd);
             }
 
-            // Note(unwrap): has topic
             match self.mqtt.client().publish(response) {
                 Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
                     Traversal::Absent(_),
@@ -454,10 +450,7 @@ where
                         response = response.correlate(cd);
                     }
 
-                    self.mqtt
-                        .client()
-                        .publish(response) // Note(unwrap): has topic
-                        .unwrap(); // Note(unwrap): checked can_publish, error message is short
+                    self.mqtt.client().publish(response).unwrap(); // Note(unwrap): checked can_publish, error message is short
                 }
                 other => other.unwrap(),
             }
