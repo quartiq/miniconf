@@ -18,7 +18,7 @@ use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{Properties, SubscriptionOptions, TopicFilter},
-    ConfigBuilder, DeferredPublication, ProtocolError, Publication, QoS,
+    ConfigBuilder, ProtocolError, Publication, QoS,
 };
 use strum::IntoStaticStr;
 
@@ -421,10 +421,11 @@ where
                 .unwrap();
 
             let props = [ResponseCode::Ok.into()];
-            let mut response =
-                DeferredPublication::new(&topic, |buf| json::get_by_key(settings, &path, buf))
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce);
+            let mut response = Publication::new(&topic, |buf: &mut [u8]| {
+                json::get_by_key(settings, &path, buf)
+            })
+            .properties(&props)
+            .qos(QoS::AtLeastOnce);
 
             if let Some(cd) = &self.pending.correlation_data {
                 response = response.correlate(cd);
@@ -468,7 +469,7 @@ where
     > {
         client
             .publish(
-                DeferredPublication::respond(request, |mut buf| {
+                Publication::respond(None, request, |mut buf: &mut [u8]| {
                     let start = buf.len();
                     write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
                 })
@@ -503,7 +504,7 @@ where
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
-                    DeferredPublication::respond(properties, |buf| {
+                    Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
                         json::get_by_key(settings, path, buf)
                     })
                     .unwrap()
