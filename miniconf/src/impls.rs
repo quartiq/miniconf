@@ -866,7 +866,7 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<'a, T: TreeKey + Clone> TreeKey for Cow<'a, T> {
+    impl<T: TreeKey + Clone> TreeKey for Cow<'_, T> {
         #[inline]
         fn traverse_all<W: Walk>() -> Result<W, W::Error> {
             T::traverse_all()
@@ -882,7 +882,7 @@ mod _alloc {
         }
     }
 
-    impl<'a, T: TreeSerialize + Clone> TreeSerialize for Cow<'a, T> {
+    impl<T: TreeSerialize + Clone> TreeSerialize for Cow<'_, T> {
         #[inline]
         fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
         where
@@ -893,7 +893,7 @@ mod _alloc {
         }
     }
 
-    impl<'a, 'de, T: TreeDeserialize<'de> + Clone> TreeDeserialize<'de> for Cow<'a, T> {
+    impl<'de, T: TreeDeserialize<'de> + Clone> TreeDeserialize<'de> for Cow<'_, T> {
         #[inline]
         fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
         where
@@ -904,7 +904,7 @@ mod _alloc {
         }
     }
 
-    impl<'a, T: TreeAny + Clone> TreeAny for Cow<'a, T> {
+    impl<T: TreeAny + Clone> TreeAny for Cow<'_, T> {
         #[inline]
         fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
         where

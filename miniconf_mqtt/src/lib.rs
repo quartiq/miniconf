@@ -464,21 +464,16 @@ where
         request: &Properties<'b>,
         client: &mut minimq::mqtt_client::MqttClient<'a, Stack, Clock, Broker>,
     ) {
-        Publication::respond(None, request, |mut buf: &mut [u8]| {
+        match Publication::respond(None, request, |mut buf: &mut [u8]| {
             let start = buf.len();
             write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
-        })
-        .map_err(|err| {
-            info!("Response build failure: {err:?}");
-        })
-        .and_then(|p| {
-            client
-                .publish(p.properties(&[code.into()]).qos(QoS::AtLeastOnce))
-                .map_err(|err| {
-                    info!("Response failure: {err:?}");
-                })
-        })
-        .ok();
+        }) {
+            Ok(p) => match client.publish(p.properties(&[code.into()]).qos(QoS::AtLeastOnce)) {
+                Ok(()) => {}
+                Err(err) => info!("Response failure: {err:?}"),
+            },
+            Err(err) => info!("Response build failure: {err:?}"),
+        }
     }
 
     fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<Stack::Error>> {
@@ -515,14 +510,7 @@ where
                             Traversal::TooShort(_depth),
                         )) => {
                             // Internal node: Dump or List
-                            if state.state() != &sm::States::Single {
-                                Self::respond(
-                                    "Pending multipart response",
-                                    ResponseCode::Error,
-                                    properties,
-                                    client,
-                                )
-                            } else {
+                            if state.state() == &sm::States::Single {
                                 match Multipart::try_from(properties) {
                                     Ok(m) => {
                                         *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
@@ -533,6 +521,13 @@ where
                                         Self::respond(err, ResponseCode::Error, properties, client)
                                     }
                                 }
+                            } else {
+                                Self::respond(
+                                    "Pending multipart response",
+                                    ResponseCode::Error,
+                                    properties,
+                                    client,
+                                )
                             }
                         }
                         minimq::PubError::Serialization(err) => {
