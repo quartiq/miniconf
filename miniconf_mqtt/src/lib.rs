@@ -18,7 +18,7 @@ use minimq::{
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{Properties, SubscriptionOptions, TopicFilter},
-    ConfigBuilder, DeferredPublication, ProtocolError, Publication, QoS,
+    ConfigBuilder, ProtocolError, Publication, QoS,
 };
 use strum::IntoStaticStr;
 
@@ -205,7 +205,7 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// }
 ///
 /// let mut buffer = [0u8; 1024];
-/// let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+/// let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
 /// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 1>::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
@@ -344,12 +344,9 @@ where
         // Publish a connection status message.
         let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
         topic.push_str("/alive").unwrap();
-        let msg = Publication::new(self.alive.as_bytes())
-            .topic(&topic)
+        let msg = Publication::new(&topic, self.alive.as_bytes())
             .qos(QoS::AtLeastOnce)
-            .retain()
-            .finish()
-            .unwrap(); // Note(unwrap): has topic
+            .retain();
         self.mqtt.client().publish(msg)
     }
 
@@ -387,19 +384,18 @@ where
             };
 
             let props = [code.into()];
-            let mut response = Publication::new(path.as_bytes())
-                .topic(self.pending.response_topic.as_ref().unwrap()) // Note(unwrap) checked in update()
-                .properties(&props)
-                .qos(QoS::AtLeastOnce);
+            let mut response = Publication::new(
+                self.pending.response_topic.as_ref().unwrap(),
+                path.as_bytes(),
+            )
+            .properties(&props)
+            .qos(QoS::AtLeastOnce);
 
             if let Some(cd) = &self.pending.correlation_data {
                 response = response.correlate(cd);
             }
 
-            self.mqtt
-                .client()
-                .publish(response.finish().unwrap()) // Note(unwrap): has topic
-                .unwrap(); // Note(unwrap) checked can_publish()
+            self.mqtt.client().publish(response).unwrap(); // Note(unwrap) checked can_publish()
 
             if code != ResponseCode::Continue {
                 self.state.process_event(sm::Events::Complete).unwrap();
@@ -425,18 +421,17 @@ where
                 .unwrap();
 
             let props = [ResponseCode::Ok.into()];
-            let mut response =
-                DeferredPublication::new(|buf| json::get_by_key(settings, &path, buf))
-                    .topic(&topic)
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce);
+            let mut response = Publication::new(&topic, |buf: &mut [u8]| {
+                json::get_by_key(settings, &path, buf)
+            })
+            .properties(&props)
+            .qos(QoS::AtLeastOnce);
 
             if let Some(cd) = &self.pending.correlation_data {
                 response = response.correlate(cd);
             }
 
-            // Note(unwrap): has topic
-            match self.mqtt.client().publish(response.finish().unwrap()) {
+            match self.mqtt.client().publish(response) {
                 Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
                     Traversal::Absent(_),
                 ))) => {}
@@ -447,19 +442,16 @@ where
                     )),
                 ))) => {
                     let props = [ResponseCode::Error.into()];
-                    let mut response = Publication::new("Serialized value too large".as_bytes())
-                        .topic(&topic)
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce);
+                    let mut response =
+                        Publication::new(&topic, "Serialized value too large".as_bytes())
+                            .properties(&props)
+                            .qos(QoS::AtLeastOnce);
 
                     if let Some(cd) = &self.pending.correlation_data {
                         response = response.correlate(cd);
                     }
 
-                    self.mqtt
-                        .client()
-                        .publish(response.finish().unwrap()) // Note(unwrap): has topic
-                        .unwrap(); // Note(unwrap): checked can_publish, error message is short
+                    self.mqtt.client().publish(response).unwrap(); // Note(unwrap): checked can_publish, error message is short
                 }
                 other => other.unwrap(),
             }
@@ -471,25 +463,17 @@ where
         code: ResponseCode,
         request: &Properties<'b>,
         client: &mut minimq::mqtt_client::MqttClient<'a, Stack, Clock, Broker>,
-    ) -> Result<
-        (),
-        minimq::PubError<Stack::Error, embedded_io::WriteFmtError<embedded_io::SliceWriteError>>,
-    > {
-        client
-            .publish(
-                DeferredPublication::new(|mut buf| {
-                    let start = buf.len();
-                    write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
-                })
-                .reply(request)
-                .properties(&[code.into()])
-                .qos(QoS::AtLeastOnce)
-                .finish()
-                .map_err(minimq::Error::from)?,
-            )
-            .inspect_err(|err| {
-                info!("Response failure: {err:?}");
-            })
+    ) {
+        match Publication::respond(None, request, |mut buf: &mut [u8]| {
+            let start = buf.len();
+            write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
+        }) {
+            Ok(p) => match client.publish(p.properties(&[code.into()]).qos(QoS::AtLeastOnce)) {
+                Ok(()) => {}
+                Err(err) => info!("Response failure: {err:?}"),
+            },
+            Err(err) => info!("Response build failure: {err:?}"),
+        }
     }
 
     fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<Stack::Error>> {
@@ -514,36 +498,40 @@ where
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
-                    DeferredPublication::new(|buf| json::get_by_key(settings, path, buf))
-                        .topic(topic)
-                        .reply(properties)
-                        .properties(&[ResponseCode::Ok.into()])
-                        .qos(QoS::AtLeastOnce)
-                        .finish()
-                        .unwrap(), // Note(unwrap): has topic
+                    Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
+                        json::get_by_key(settings, path, buf)
+                    })
+                    .unwrap()
+                    .properties(&[ResponseCode::Ok.into()])
+                    .qos(QoS::AtLeastOnce),
                 ) {
                     match err {
                         minimq::PubError::Serialization(miniconf::Error::Traversal(
                             Traversal::TooShort(_depth),
                         )) => {
                             // Internal node: Dump or List
-                            (state.state() != &sm::States::Single)
-                                .then_some("Pending multipart response")
-                                .or_else(|| {
-                                    Multipart::try_from(properties)
-                                        .map(|m| {
-                                            *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
-                                            state.process_event(sm::Events::Multipart).unwrap();
-                                            // Responses come through iter_list/iter_dump
-                                        })
-                                        .err()
-                                })
-                                .map(|msg| {
-                                    Self::respond(msg, ResponseCode::Error, properties, client).ok()
-                                });
+                            if state.state() == &sm::States::Single {
+                                match Multipart::try_from(properties) {
+                                    Ok(m) => {
+                                        *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
+                                        state.process_event(sm::Events::Multipart).unwrap();
+                                        // Responses come through iter_list/iter_dump
+                                    }
+                                    Err(err) => {
+                                        Self::respond(err, ResponseCode::Error, properties, client)
+                                    }
+                                }
+                            } else {
+                                Self::respond(
+                                    "Pending multipart response",
+                                    ResponseCode::Error,
+                                    properties,
+                                    client,
+                                )
+                            }
                         }
                         minimq::PubError::Serialization(err) => {
-                            Self::respond(err, ResponseCode::Error, properties, client).ok();
+                            Self::respond(err, ResponseCode::Error, properties, client);
                         }
                         minimq::PubError::Error(minimq::Error::NotReady) => {
                             warn!("Not ready during Get. Discarding.");
@@ -558,11 +546,11 @@ where
                 // Set
                 match json::set_by_key(settings, path, payload) {
                     Err(err) => {
-                        Self::respond(err, ResponseCode::Error, properties, client).ok();
+                        Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged
                     }
                     Ok(_depth) => {
-                        Self::respond("OK", ResponseCode::Ok, properties, client).ok();
+                        Self::respond("OK", ResponseCode::Ok, properties, client);
                         State::Changed
                     }
                 }

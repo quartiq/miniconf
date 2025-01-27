@@ -46,7 +46,7 @@ async fn main() {
     env_logger::init();
 
     let mut buffer = [0u8; 1024];
-    let localhost: minimq::embedded_nal::IpAddr = "127.0.0.1".parse().unwrap();
+    let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
 
     // Construct a settings configuration interface.
     let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 4>::new(

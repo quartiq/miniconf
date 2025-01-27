@@ -13,7 +13,7 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 
 [dependencies]
 miniconf = { version = "0.18.0", features = ["json-core"], default-features = false, path = "../miniconf" }
-minimq = "0.9.0"
+minimq = "0.10.0"
 smlang = "0.8"
 embedded-io = "0.6"
 log = "0.4"
@@ -27,7 +27,7 @@ name = "mqtt"
 [dev-dependencies]
 machine = "0.3"
 env_logger = "0.11"
-std-embedded-nal = "0.3"
+std-embedded-nal = "0.4"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
 miniconf = { features = ["json-core", "derive"], path = "../miniconf" }
