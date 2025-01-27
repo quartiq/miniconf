@@ -1,5 +1,6 @@
 use core::{
     any::Any,
+    fmt::Display,
     num::NonZero,
     ops::{Deref, DerefMut},
 };
@@ -52,6 +53,13 @@ impl<T> From<T> for Leaf<T> {
     #[inline]
     fn from(value: T) -> Self {
         Self(value)
+    }
+}
+
+impl<T: Display> Display for Leaf<T> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
@@ -247,6 +255,13 @@ impl<T> TreeAny for StrLeaf<T> {
     {
         keys.finalize()?;
         Err(Traversal::Access(0, "No Any access for StrLeaf"))
+    }
+}
+
+impl<T: Display> Display for StrLeaf<T> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
