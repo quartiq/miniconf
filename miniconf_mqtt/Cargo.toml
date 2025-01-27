@@ -13,7 +13,7 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 
 [dependencies]
 miniconf = { version = "0.18.0", features = ["json-core"], default-features = false, path = "../miniconf" }
-minimq = { version = "0.9.0", git = "https://github.com/quartiq/minimq.git" }
+minimq = "0.10.0"
 smlang = "0.8"
 embedded-io = "0.6"
 log = "0.4"
