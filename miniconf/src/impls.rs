@@ -237,7 +237,7 @@ impl<T: TreeAny> TreeAny for Option<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RESULT_LOOKUP: KeyLookup = KeyLookup::Named(&["Ok", "Err"]);
+const RESULT_LOOKUP: KeyLookup = KeyLookup::named(&["Ok", "Err"]);
 
 impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
     #[inline]
@@ -319,7 +319,7 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const BOUND_LOOKUP: KeyLookup = KeyLookup::Named(&["Included", "Excluded"]);
+const BOUND_LOOKUP: KeyLookup = KeyLookup::named(&["Included", "Excluded"]);
 
 impl<T: TreeKey> TreeKey for Bound<T> {
     #[inline]
@@ -400,7 +400,7 @@ impl<T: TreeAny> TreeAny for Bound<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RANGE_LOOKUP: KeyLookup = KeyLookup::Named(&["start", "end"]);
+const RANGE_LOOKUP: KeyLookup = KeyLookup::named(&["start", "end"]);
 
 impl<T: TreeKey> TreeKey for Range<T> {
     #[inline]
@@ -517,7 +517,7 @@ impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup::Named(&["start"]);
+const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup::named(&["start"]);
 
 impl<T: TreeKey> TreeKey for RangeFrom<T> {
     #[inline]
@@ -594,7 +594,7 @@ impl<T: TreeAny> TreeAny for RangeFrom<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-const RANGE_TO_LOOKUP: KeyLookup = KeyLookup::Named(&["end"]);
+const RANGE_TO_LOOKUP: KeyLookup = KeyLookup::named(&["end"]);
 
 impl<T: TreeKey> TreeKey for RangeTo<T> {
     #[inline]

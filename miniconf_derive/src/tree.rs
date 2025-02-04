@@ -217,7 +217,7 @@ impl Tree {
                     },
                 )
             },
-            Some(names) => quote!(::miniconf::KeyLookup::Named(&[#(#names ,)*])),
+            Some(names) => quote!(::miniconf::KeyLookup::named(&[#(#names ,)*])),
         };
         let traverse_arms = fields.iter().enumerate().map(|(i, f)| f.traverse_by_key(i));
         let index = self.index();
