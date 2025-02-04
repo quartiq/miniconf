@@ -18,7 +18,16 @@ pub enum KeyLookup {
 }
 
 impl KeyLookup {
-    /// Return a homogenenous unnamed KeyLookup
+    /// Return a named KeyLookup
+    #[inline]
+    pub const fn named(names: &'static [&'static str]) -> Self {
+        if names.is_empty() {
+            panic!("Must have at least one child");
+        }
+        Self::Named(names)
+    }
+
+    /// Return a homogenenous, unnamed KeyLookup
     #[inline]
     pub const fn homogeneous(len: usize) -> Self {
         match NonZero::new(len) {
@@ -27,7 +36,7 @@ impl KeyLookup {
         }
     }
 
-    /// Return a homogenenous unnamed KeyLookup
+    /// Return a heterogeneous numbered KeyLookup
     #[inline]
     pub const fn numbered(len: usize) -> Self {
         match NonZero::new(len) {
