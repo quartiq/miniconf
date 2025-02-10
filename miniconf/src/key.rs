@@ -204,10 +204,10 @@ where
 
 /// Be converted into a `Keys`
 pub trait IntoKeys {
-    /// The specific [`Keys`] implementor.
+    /// The specific `Keys` implementor.
     type IntoKeys: Keys;
 
-    /// Convert `self` into a [`Keys`] implementor.
+    /// Convert `self` into a `Keys` implementor.
     fn into_keys(self) -> Self::IntoKeys;
 }
 
