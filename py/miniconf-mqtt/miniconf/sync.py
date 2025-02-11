@@ -293,14 +293,15 @@ def _handle_commands(interface, commands, retain):
                 # get can not start with the / that a list response
                 # starts with.
                 if len(paths) == 1 and not paths[0].startswith("/"):
-                    print(f"{path}={paths[0]}")
+                    value = json.loads(paths[0])
+                    print(f"{path}={value!r}")
                     continue
                 for p in paths:
                     try:
                         value = interface.get(p)
-                        print(f"{p}={value}")
+                        print(f"{p}={value!r}")
                     except MiniconfException as err:
-                        print(f"{p}: {repr(err)}")
+                        print(f"{p}: {err!r}")
             elif arg.endswith("!"):
                 path = current.normalize(arg.removesuffix("!"))
                 interface.dump(path)
@@ -310,16 +311,16 @@ def _handle_commands(interface, commands, retain):
                 path = current.normalize(path)
                 if not value:
                     value = interface.clear(path)
-                    print(f"CLEAR {path}={value}")
+                    print(f"CLEAR {path}={value!r}")
                 else:
                     interface.set(path, json.loads(value), retain)
-                    print(f"{path}={value}")
+                    print(f"{path}={value!r}")
             else:
                 path = current.normalize(arg)
                 value = interface.get(path)
-                print(f"{path}={value}")
+                print(f"{path}={value!r}")
         except MiniconfException as err:
-            print(f"{arg}: {repr(err)}")
+            print(f"{arg}: {err!r}")
             sys.exit(1)
 
 

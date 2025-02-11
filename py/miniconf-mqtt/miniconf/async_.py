@@ -300,11 +300,11 @@ def _cli():
         description="Miniconf command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples (with a target at prefix 'app/id' and device-discovery):
-%(prog)s -d app/+ '/path'       # GET
-%(prog)s -d app/+ '/path=value' # SET
-%(prog)s -d app/+ '/path='      # CLEAR
-%(prog)s -d app/+ '/path?'      # LIST-GET
-%(prog)s -d app/+ '/path!'      # DUMP
+%(prog)s -d app/+ /path       # GET
+%(prog)s -d app/+ /path=value # SET
+%(prog)s -d app/+ /path=      # CLEAR
+%(prog)s -d app/+ /path?      # LIST-GET
+%(prog)s -d app/+ /path!      # DUMP
 """,
     )
     parser.add_argument(
@@ -391,14 +391,15 @@ async def _handle_commands(interface, commands, retain):
                 # get can not start with the / that a list response
                 # starts with.
                 if len(paths) == 1 and not paths[0].startswith("/"):
-                    print(f"{path}={paths[0]}")
+                    value = json.loads(paths[0])
+                    print(f"{path}={value!r}")
                     continue
                 for p in paths:
                     try:
                         value = await interface.get(p)
-                        print(f"{p}={value}")
+                        print(f"{p}={value!r}")
                     except MiniconfException as err:
-                        print(f"{p}: {repr(err)}")
+                        print(f"{p}: {err!r}")
             elif arg.endswith("!"):
                 path = current.normalize(arg.removesuffix("!"))
                 await interface.dump(path)
@@ -408,16 +409,16 @@ async def _handle_commands(interface, commands, retain):
                 path = current.normalize(path)
                 if not value:
                     value = await interface.clear(path)
-                    print(f"CLEAR {path}={value}")
+                    print(f"CLEAR {path}={value!r}")
                 else:
                     await interface.set(path, json.loads(value), retain)
-                    print(f"{path}={value}")
+                    print(f"{path}={value!r}")
             else:
                 path = current.normalize(arg)
                 value = await interface.get(path)
-                print(f"{path}={value}")
+                print(f"{path}={value!r}")
         except MiniconfException as err:
-            print(f"{arg}: {repr(err)}")
+            print(f"{arg}: {err!r}")
             sys.exit(1)
 
 
