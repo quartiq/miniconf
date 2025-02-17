@@ -9,7 +9,6 @@ import json
 import uuid
 from typing import Dict, Any
 
-import paho.mqtt
 from paho.mqtt.properties import Properties, PacketTypes
 from aiomqtt import Client, Message, MqttError
 
