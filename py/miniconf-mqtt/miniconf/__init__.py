@@ -1,4 +1,3 @@
-"""Miniconf Client"""
+"""Miniconf MQTT Client"""
 
-from . import sync, async_
-from .async_ import Miniconf, Client, MQTTv5, MiniconfException, discover, one
+from .async_ import *

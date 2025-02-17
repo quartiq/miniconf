@@ -1,6 +1,4 @@
-"""
-Command line interface for Miniconf-over-MQTT (asynchronous)
-"""
+"""Miniconf default CLI (async)"""
 
 import asyncio
 from .async_ import _main
