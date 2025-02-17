@@ -28,7 +28,10 @@ struct Settings {
     opt: Option<Leaf<i32>>,
     #[tree(validate=self.validate_four)]
     four: Leaf<f32>,
-    exit: Leaf<bool>,
+    #[tree(validate=self.validate_exit, rename=exit)]
+    _exit: Leaf<()>,
+    #[tree(skip)]
+    exit: bool,
 }
 
 impl Settings {
@@ -38,6 +41,10 @@ impl Settings {
         } else {
             Ok(depth)
         }
+    }
+    fn validate_exit(&mut self, depth: usize) -> Result<usize, &'static str> {
+        self.exit = true;
+        Ok(depth)
     }
 }
 
@@ -60,7 +67,7 @@ async fn main() {
     client.set_alive("\"hello\"");
 
     let mut settings = Settings::default();
-    while !*settings.exit {
+    while !settings.exit {
         tokio::time::sleep(Duration::from_millis(10)).await;
         if client.update(&mut settings).unwrap() {
             println!("Settings updated: {:?}", settings);

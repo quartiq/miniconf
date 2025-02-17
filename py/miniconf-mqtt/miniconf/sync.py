@@ -5,7 +5,6 @@ Synchronous Miniconf-over-MQTT utilities
 # pylint: disable=R0801,C0415,W1203,R0903,W0707
 
 import json
-import logging
 import uuid
 import threading
 import time
@@ -15,9 +14,7 @@ import paho.mqtt
 from paho.mqtt.properties import Properties, PacketTypes
 from paho.mqtt.client import Client
 
-from .async_ import MiniconfException
-
-LOGGER = logging.getLogger(__name__)
+from .common import MiniconfException, LOGGER
 
 
 class Miniconf:
@@ -42,7 +39,7 @@ class Miniconf:
         self.client.subscribe(self.response_topic)
         cond.wait()
         self.client.on_subscribe = None
-        LOGGER.info(f"Subscribed to {self.response_topic}")
+        LOGGER.debug(f"Subscribed to {self.response_topic}")
 
     def close(self):
         """Unsubscribe from the response topic"""
@@ -53,7 +50,7 @@ class Miniconf:
         self.client.unsubscribe(self.response_topic)
         cond.wait()
         self.client.on_unsubscribe = None
-        LOGGER.info(f"Unsubscribed from {self.response_topic}")
+        LOGGER.debug(f"Unsubscribed from {self.response_topic}")
 
     def _do(self, path: str, *, response=1, timeout=None, **kwargs):
         response = int(response)
@@ -115,7 +112,7 @@ class Miniconf:
             self.client.on_message = on_message
 
         topic = f"{self.prefix}/settings{path}"
-        LOGGER.info(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
+        LOGGER.debug(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
         _pub = self.client.publish(topic, properties=props, **kwargs)
 
         if response:
@@ -219,14 +216,14 @@ def discover(
     topic = f"{prefix}{suffix}"
 
     def on_message(_client, _userdata, message):
-        logging.debug(f"Got message from {message.topic}: {message.payload}")
+        LOGGER.debug(f"Got message from {message.topic}: {message.payload}")
         peer = message.topic.removesuffix(suffix)
         try:
             payload = json.loads(message.payload)
         except json.JSONDecodeError:
-            logging.info(f"Ignoring {peer} not/invalid alive")
+            LOGGER.info(f"Ignoring {peer} not/invalid alive")
         else:
-            logging.info(f"Discovered {peer} alive")
+            LOGGER.debug(f"Discovered {peer} alive")
             discovered[peer] = payload
 
     client.on_message = on_message
@@ -246,7 +243,8 @@ def discover(
 
 
 def _main():
-    from .async_ import _cli, MQTTv5, one
+    import logging
+    from .common import _cli, MQTTv5, one
 
     args = _cli().parse_args()
 
@@ -277,7 +275,7 @@ def _main():
 
 def _handle_commands(interface, commands, retain):
     import sys
-    from .async_ import _Path
+    from .common import _Path
 
     current = _Path()
     for arg in commands:

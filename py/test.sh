@@ -41,8 +41,11 @@ $MC '/four=5'
 $MC '/four=2' && exit 1
 
 # request exit
-$MC '/exit=true'
+$MC '/exit=null'
 wait $DUT_PID
 
+# test exited
+($MC 2>/dev/null && exit 1) || true
+# without miniconf
 ALIVE=$(timeout --foreground 1 mosquitto_sub -t "$PREFIX/+/alive" -h localhost -F '%p' || true)
 test "$ALIVE" = ""
