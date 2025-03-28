@@ -121,7 +121,7 @@ class Miniconf:
             self._inflight[cd] = fut, []
 
         topic = f"{self.prefix}/settings{path}"
-        LOGGER.debug(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
+        LOGGER.debug("Publishing %s: %s, [%s]", topic, kwargs.get("payload"), props)
         await self.client.publish(
             topic,
             properties=props,
@@ -137,13 +137,14 @@ class Miniconf:
             return ret
         return None
 
-    async def set(self, path: str, value, retain=False, response=True, **kwargs):
+    async def set(self, path: str, value: Any, retain=False, response=True, **kwargs):
         """Write the provided data to the specified path.
 
         Args:
             path: The path to set.
             value: The value to set.
             retain: Retain the the setting on the broker.
+            response: Request and await the result of the operation.
         """
         return await self._do(
             path,
@@ -157,7 +158,7 @@ class Miniconf:
         """Get a list of all the paths below a given root.
 
         Args:
-            path: Path to the root node to list.
+            path: Path to the root node to list. Can be a leaf or an internal node.
         """
         return await self._do(path, response=2, **kwargs)
 
@@ -166,7 +167,7 @@ class Miniconf:
 
         Note that the target may be unable to respond to messages when a multipart
         operation (list or dump) is in progress.
-        This method does not wait for completion.
+        This method does not wait for a response or completion or indicate an error.
 
         Args:
             path: Path to the root node to dump. Can be a leaf or an internal node.
@@ -188,6 +189,7 @@ class Miniconf:
 
         Args:
             path: The path to clear. Must be a leaf node.
+            response: Obtain and await the result of the operation.
         """
         return json.loads(
             await self._do(
