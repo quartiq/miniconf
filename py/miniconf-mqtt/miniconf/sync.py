@@ -12,7 +12,7 @@ from typing import Dict, Any
 
 import paho.mqtt
 from paho.mqtt.properties import Properties, PacketTypes
-from paho.mqtt.client import Client
+from paho.mqtt.client import Client, MQTTMessage
 
 from .common import MiniconfException, LOGGER
 
@@ -28,6 +28,7 @@ class Miniconf:
         """
         self.client = client
         self.prefix = prefix
+        self._inflight = {}
         self.response_topic = f"{prefix}/response"
         self._subscribe()
 
@@ -36,9 +37,12 @@ class Miniconf:
         self.client.on_subscribe = (
             lambda _client, _userdata, _mid, _reason, _prop: cond.set()
         )
-        self.client.subscribe(self.response_topic)
-        cond.wait()
-        self.client.on_subscribe = None
+        try:
+            self.client.subscribe(self.response_topic)
+            self.client.on_message = self._dispatch
+            cond.wait()
+        finally:
+            self.client.on_subscribe = None
         LOGGER.debug(f"Subscribed to {self.response_topic}")
 
     def close(self):
@@ -47,77 +51,78 @@ class Miniconf:
         self.client.on_unsubscribe = (
             lambda _client, _userdata, _mid, _reason, _prop: cond.set()
         )
-        self.client.unsubscribe(self.response_topic)
-        cond.wait()
-        self.client.on_unsubscribe = None
+        try:
+            self.client.unsubscribe(self.response_topic)
+            self.client.on_message = None
+            cond.wait()
+        finally:
+            self.client.on_unsubscribe = None
         LOGGER.debug(f"Unsubscribed from {self.response_topic}")
+
+    def _dispatch(self, _client, _userdara, message: MQTTMessage):
+        if message.topic != self.response_topic:
+            LOGGER.warning(
+                "Discarding message with unexpected topic: %s", message.topic
+            )
+            return
+
+        try:
+            properties = message.properties.json()
+        except AttributeError:
+            properties = {}
+        # lazy formatting
+        LOGGER.debug("Received %s: %s [%s]", message.topic, message.payload, properties)
+
+        try:
+            cd = bytes.fromhex(properties["CorrelationData"])
+        except KeyError:
+            LOGGER.info("Discarding message without CorrelationData")
+            return
+        try:
+            event, ret = self._inflight[cd]
+        except KeyError:
+            LOGGER.info(f"Discarding message with unexpected CorrelationData: {cd}")
+            return
+
+        try:
+            code = dict(properties["UserProperty"])["code"]
+        except KeyError:
+            LOGGER.warning("Discarding message without response code user property")
+            return
+
+        resp = message.payload.decode("utf-8")
+        if code == "Continue":
+            ret.append(resp)
+        elif code == "Ok":
+            if resp:
+                ret.append(resp)
+            event.set()
+            del self._inflight[cd]
+        else:
+            ret[:] = [MiniconfException(code, resp)]
+            event.set()
+            del self._inflight[cd]
 
     def _do(self, path: str, *, response=1, timeout=None, **kwargs):
         response = int(response)
 
         props = Properties(PacketTypes.PUBLISH)
-        ret = []
-        event = threading.Event()
 
         if response:
-            props.CorrelationData = uuid.uuid1().bytes
+            event = threading.Event()
+            ret = []
+            cd = uuid.uuid1().bytes
             props.ResponseTopic = self.response_topic
-
-            def on_message(_client, _userdata, message):
-                if message.topic != self.response_topic:
-                    LOGGER.warning(
-                        "Discarding message with unexpected topic: %s", message.topic
-                    )
-                    return
-
-                try:
-                    properties = message.properties.json()
-                except AttributeError:
-                    properties = {}
-                # lazy formatting
-                LOGGER.debug(
-                    "Received %s: %s [%s]", message.topic, message.payload, properties
-                )
-
-                try:
-                    cd = bytes.fromhex(properties["CorrelationData"])
-                except KeyError:
-                    LOGGER.info("Discarding message without CorrelationData")
-                    return
-                if cd != props.CorrelationData:
-                    LOGGER.info(
-                        f"Discarding message with unexpected CorrelationData: {cd}"
-                    )
-                    return
-
-                try:
-                    code = dict(properties["UserProperty"])["code"]
-                except KeyError:
-                    LOGGER.warning(
-                        "Discarding message without response code user property"
-                    )
-                    return
-
-                resp = message.payload.decode("utf-8")
-                if code == "Continue":
-                    ret.append(resp)
-                elif code == "Ok":
-                    if resp:
-                        ret.append(resp)
-                    event.set()
-                else:
-                    ret[:] = [MiniconfException(code, resp)]
-                    event.set()
-
-            self.client.on_message = on_message
+            props.CorrelationData = cd
+            assert cd not in self._inflight
+            self._inflight[cd] = event, ret
 
         topic = f"{self.prefix}/settings{path}"
-        LOGGER.debug(f"Publishing {topic}: {kwargs.get('payload')}, [{props}]")
+        LOGGER.debug("Publishing %s: %s, [%s]", topic, kwargs.get("payload"), props)
         _pub = self.client.publish(topic, properties=props, **kwargs)
 
         if response:
             event.wait(timeout)
-            self.client.on_message = None
             if len(ret) == 1 and isinstance(ret[0], MiniconfException):
                 raise ret[0]
             if response == 1:
@@ -136,6 +141,7 @@ class Miniconf:
             path: The path to set.
             value: The value to set.
             retain: Retain the the setting on the broker.
+            response: Request and await the result of the operation.
         """
         return self._do(
             path,
@@ -180,6 +186,7 @@ class Miniconf:
 
         Args:
             path: The path to clear. Must be a leaf node.
+            response: Obtain and await the result of the operation.
         """
         return json.loads(
             self._do(
@@ -255,7 +262,6 @@ def _main():
 
     client = Client(paho.mqtt.enums.CallbackAPIVersion.VERSION2, protocol=MQTTv5)
     client.connect(args.broker)
-    client.enable_logger()
     client.loop_start()
 
     if args.discover:
