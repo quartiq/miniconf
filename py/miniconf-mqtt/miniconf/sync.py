@@ -132,7 +132,7 @@ class Miniconf:
             assert ret
             return ret
         # pub.wait_for_publish(timeout)
-        return
+        return None
 
     def set(self, path: str, value, retain=False, response=True, **kwargs):
         """Write the provided data to the specified path.
