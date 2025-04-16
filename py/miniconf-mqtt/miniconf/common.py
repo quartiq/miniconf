@@ -2,7 +2,7 @@
 
 # pylint: disable=R0801,C0415,W1203,R0903,W0707
 
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 import logging
 
 import paho.mqtt
@@ -23,7 +23,7 @@ class MiniconfException(Exception):
         return f"{self.code}: {self.message}"
 
 
-def one(devices: Dict[str, Any]) -> (str, Any):
+def one(devices: Dict[str, Any]) -> Tuple[str, Any]:
     """Return the prefix for the unique alive Miniconf device.
 
     See `discover()` for arguments.
