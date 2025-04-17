@@ -13,14 +13,19 @@ use miniconf::{
 
 mod common;
 
+/// Internal/leaf node metadata
 #[derive(Clone, Serialize, PartialEq)]
 pub enum Node {
+    /// A terminal leaf node
     Leaf(Option<Format>),
+    /// An internal node with named children
     Named(IndexMap<&'static str, Node>),
+    /// An internal node with numbered children of homogenenous type
     Homogeneous {
         len: NonZero<usize>,
         item: Box<Node>,
     },
+    /// An internal node with numbered children of heterogeneous type
     Numbered(Vec<Node>),
 }
 
@@ -46,6 +51,12 @@ impl Walk for Node {
 }
 
 impl Node {
+    /// Visit each node in the graph
+    ///
+    /// Pass the keys as well as the node by reference to the visitor
+    ///
+    /// Note that only the representative child will be visited for a
+    /// homogeneous internal node.
     pub fn visit<F, E>(&self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &Self) -> Result<(), E>,
@@ -76,6 +87,12 @@ impl Node {
         Ok(())
     }
 
+    /// Visit each node in the graph mutably
+    ///
+    /// Pass the keys as well as the node by mutable reference to the visitor
+    ///
+    /// Note that only the representative child will be visited for a
+    /// homogeneous internal node.
     pub fn visit_mut<F, E>(&mut self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &mut Self) -> Result<(), E>,
@@ -107,17 +124,21 @@ impl Node {
     }
 }
 
+/// A tracer for the `TreeSerialize` and `TreeDeserialize` traits
 pub struct Tracer(serde_reflection::Tracer);
 
 impl Tracer {
+    /// Create a new tracer given a configuration
     pub fn new(config: TracerConfig) -> Self {
         Self(serde_reflection::Tracer::new(config))
     }
 
+    /// Consume the tracer and return its registry if complete
     pub fn registry(self) -> serde_reflection::Result<Registry> {
         self.0.registry()
     }
 
+    /// Trace one leaf value
     pub fn trace_value<T: TreeSerialize, K: Keys>(
         &mut self,
         samples: &mut Samples,
@@ -127,6 +148,7 @@ impl Tracer {
         value.serialize_by_key(keys, Serializer::new(&mut self.0, samples))
     }
 
+    /// Trace all leaf values
     pub fn trace_values<T>(
         &mut self,
         samples: &mut Samples,
@@ -154,6 +176,7 @@ impl Tracer {
         })
     }
 
+    /// Trace one leaf type once
     pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: Keys>(
         &mut self,
         samples: &'de Samples,
@@ -165,6 +188,7 @@ impl Tracer {
         Ok(format)
     }
 
+    /// Trace one leaf type until complete
     pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
         &mut self,
         samples: &'de Samples,
@@ -182,6 +206,7 @@ impl Tracer {
         }
     }
 
+    /// Trace all leaf types until complete
     pub fn trace_types<'de, T>(
         &mut self,
         samples: &'de Samples,
@@ -205,6 +230,7 @@ impl Tracer {
         })
     }
 
+    /// Trace all leaf types assuming no samples are needed
     pub fn trace_types_simple<'de, T>(
         &mut self,
         root: &mut Node,
