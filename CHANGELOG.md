@@ -13,10 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * py: a synchronous client version in `miniconf.sync`
 * py: support for response-less (fire and forget) requests in both the synchronous and the asyncio client
 * py: cli support for simple relative paths
+* examples/trace: Tracing reflection with serde-reflection
 
 ### Changed
 
 * py: `await discover_one(...)` -> `one(await discover(...))`
+* serialize_by_key: returns serializer Ok instead of depth
+* deserialize_by_key: returns () instead of depth
+* TreeDeserialize: add probe_by_key() for tracing without sample
+* Walk::internal() takes slice of children by value
+* derive: deserialize validate doesn't receive or return depth
 
 ## [0.18.0](https://github.com/quartiq/miniconf/compare/v0.17.2...v0.18.0) - 2024-11-22
 
