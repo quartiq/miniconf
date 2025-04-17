@@ -475,10 +475,7 @@ pub trait TreeDeserialize<'de> {
     fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
-        D: Deserializer<'de>,
-    {
-        unimplemented!("TODO")
-    }
+        D: Deserializer<'de>;
 }
 
 /// Shorthand for owned deserialization through [`TreeDeserialize`].
@@ -549,6 +546,15 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
         D: Deserializer<'de>,
     {
         (**self).deserialize_by_key(keys, de)
+    }
+
+    #[inline]
+    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        T::probe_by_key(keys, de)
     }
 }
 
