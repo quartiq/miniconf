@@ -168,11 +168,10 @@ impl Tracer {
     pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: IntoKeys>(
         &mut self,
         samples: &'de Samples,
-        value: &mut T,
         keys: K,
     ) -> Result<Format, Error<serde_reflection::Error>> {
         let mut format = Format::unknown();
-        match value.deserialize_by_key(
+        match T::type_by_key(
             keys.into_keys(),
             Deserializer::new(&mut self.0, samples, &mut format),
         ) {
@@ -186,11 +185,10 @@ impl Tracer {
     pub fn trace_type<'de, T: TreeDeserialize<'de>, K: IntoKeys + Clone>(
         &mut self,
         samples: &'de Samples,
-        value: &mut T,
         keys: K,
     ) -> Result<Format, Error<serde_reflection::Error>> {
         loop {
-            let format = self.trace_type_once(samples, value, keys.clone())?;
+            let format = self.trace_type_once::<T, _>(samples, keys.clone())?;
             if let Format::TypeName(name) = &format {
                 if self.0.incomplete_enums.remove(name).is_some() {
                     // Restart the analysis to find more variants.
@@ -204,7 +202,6 @@ impl Tracer {
     pub fn trace_types<'de, T>(
         &mut self,
         samples: &'de Samples,
-        value: &mut T,
         root: &mut Node,
     ) -> Result<(), Error<serde_reflection::Error>>
     where
@@ -212,7 +209,7 @@ impl Tracer {
     {
         root.visit_mut(&mut vec![], &mut |keys, node| {
             if let Node::Leaf(format) = node {
-                match self.trace_type(samples, value, keys) {
+                match self.trace_type::<T, _>(samples, keys) {
                     Ok(mut fmt) => {
                         fmt.reduce();
                         *format = Some(fmt);
@@ -231,7 +228,7 @@ impl Tracer {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut settings = common::Settings::new();
+    let settings = common::Settings::new();
 
     let mut graph: Node = common::Settings::traverse_all()?;
     let mut tracer = Tracer::new(TracerConfig::default());
@@ -240,7 +237,7 @@ fn main() -> anyhow::Result<()> {
         .trace_values(&mut samples, &settings, &mut graph)
         .unwrap();
     tracer
-        .trace_types(&samples, &mut settings, &mut graph)
+        .trace_types::<common::Settings>(&samples, &mut graph)
         .unwrap();
     println!(
         "{}",
