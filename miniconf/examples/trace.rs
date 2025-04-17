@@ -1,6 +1,5 @@
 use core::num::NonZero;
 use indexmap::IndexMap;
-use std::hash::Hash;
 
 use anyhow::Context;
 use serde::Serialize;
@@ -9,14 +8,12 @@ use serde_reflection::{
 };
 
 use miniconf::{
-    Error, IntoKeys, KeyLookup, Path, Traversal, TreeDeserialize, TreeKey, TreeSerialize, Walk,
+    Error, IntoKeys, KeyLookup, Traversal, TreeDeserialize, TreeKey, TreeSerialize, Walk,
 };
 
 mod common;
-use common::Settings;
 
 #[derive(Clone, Serialize, PartialEq)]
-// #[serde(untagged)]
 pub enum Node {
     Leaf(Option<Format>),
     Named(IndexMap<&'static str, Node>),
@@ -57,7 +54,7 @@ impl Node {
             };
             Ok::<_, ()>(())
         })
-        .unwrap();
+        .unwrap(); // infallible
         k
     }
 
@@ -69,7 +66,7 @@ impl Node {
         match self {
             Self::Leaf(_) => {}
             Self::Homogeneous { item, .. } => {
-                root.push(0);
+                root.push(0); // path must end in leaf
                 item.visit(root, func)?;
                 root.pop();
             }
@@ -99,7 +96,7 @@ impl Node {
         match self {
             Self::Leaf(_) => {}
             Self::Homogeneous { item, .. } => {
-                root.push(0);
+                root.push(0); // path must end in leaf
                 item.visit_mut(root, func)?;
                 root.pop();
             }
@@ -122,30 +119,15 @@ impl Node {
     }
 }
 
-// fn lookup(&self) -> Option<KeyLookup> {
-//     match self {
-//         Self::Leaf => None,
-//         Self::Homogeneous { len, .. } => Some(KeyLookup::Homogeneous(*len)),
-//         Self::Named(_map, names) => Some(KeyLookup::Named(names)),
-//         Self::Numbered(children) => {
-//             Some(KeyLookup::Numbered(NonZero::new(children.len()).unwrap()))
-//         }
-//     }
-// }
-
-pub struct Tracer {
-    tracer: serde_reflection::Tracer,
-}
+pub struct Tracer(serde_reflection::Tracer);
 
 impl Tracer {
     pub fn new(config: TracerConfig) -> Self {
-        Self {
-            tracer: serde_reflection::Tracer::new(config),
-        }
+        Self(serde_reflection::Tracer::new(config))
     }
 
     pub fn registry(self) -> serde_reflection::Result<Registry> {
-        self.tracer.registry()
+        self.0.registry()
     }
 
     pub fn trace_value<T: TreeSerialize, K: IntoKeys>(
@@ -154,7 +136,7 @@ impl Tracer {
         value: &T,
         keys: K,
     ) -> Result<(Format, Value), Error<serde_reflection::Error>> {
-        value.serialize_by_key(keys.into_keys(), Serializer::new(&mut self.tracer, samples))
+        value.serialize_by_key(keys.into_keys(), Serializer::new(&mut self.0, samples))
     }
 
     pub fn trace_values<T>(
@@ -190,10 +172,13 @@ impl Tracer {
         keys: K,
     ) -> Result<Format, Error<serde_reflection::Error>> {
         let mut format = Format::unknown();
-        value.deserialize_by_key(
+        match value.deserialize_by_key(
             keys.into_keys(),
-            Deserializer::new(&mut self.tracer, samples, &mut format),
-        )?;
+            Deserializer::new(&mut self.0, samples, &mut format),
+        ) {
+            Ok(()) | Err(Error::Traversal(Traversal::Invalid(_, _))) => {}
+            Err(err) => Err(err)?,
+        };
         format.reduce();
         Ok(format)
     }
@@ -207,7 +192,7 @@ impl Tracer {
         loop {
             let format = self.trace_type_once(samples, value, keys.clone())?;
             if let Format::TypeName(name) = &format {
-                if self.tracer.incomplete_enums.remove(name).is_some() {
+                if self.0.incomplete_enums.remove(name).is_some() {
                     // Restart the analysis to find more variants.
                     continue;
                 }
@@ -246,10 +231,9 @@ impl Tracer {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut settings = Settings::default();
-    settings.enable();
+    let mut settings = common::Settings::new();
 
-    let mut graph: Node = Settings::traverse_all()?;
+    let mut graph: Node = common::Settings::traverse_all()?;
     let mut tracer = Tracer::new(TracerConfig::default());
     let mut samples = Samples::new();
     tracer
@@ -261,20 +245,6 @@ fn main() -> anyhow::Result<()> {
     println!(
         "{}",
         serde_json::to_string_pretty(&graph).context("formats")?
-    );
-    let paths: Vec<_> = graph
-        .leaves(&mut vec![])
-        .iter()
-        .map(|key| {
-            Settings::transcode::<Path<String, '/'>, _>(key)
-                .unwrap()
-                .0
-                .into_inner()
-        })
-        .collect();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&paths).context("formats")?
     );
     println!(
         "{}",
