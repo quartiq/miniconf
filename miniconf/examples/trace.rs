@@ -171,13 +171,10 @@ impl Tracer {
         keys: K,
     ) -> Result<Format, Error<serde_reflection::Error>> {
         let mut format = Format::unknown();
-        match T::type_by_key(
+        T::probe_by_key(
             keys.into_keys(),
             Deserializer::new(&mut self.0, samples, &mut format),
-        ) {
-            Ok(()) | Err(Error::Traversal(Traversal::Invalid(_, _))) => {}
-            Err(err) => Err(err)?,
-        };
+        )?;
         format.reduce();
         Ok(format)
     }
@@ -203,7 +200,7 @@ impl Tracer {
         &mut self,
         samples: &'de Samples,
         root: &mut Node,
-    ) -> Result<(), Error<serde_reflection::Error>>
+    ) -> Result<(), serde_reflection::Error>
     where
         T: TreeDeserialize<'de>,
     {
@@ -214,12 +211,8 @@ impl Tracer {
                         fmt.reduce();
                         *format = Some(fmt);
                     }
-                    Err(Error::Traversal(
-                        Traversal::Absent(_depth)
-                        | Traversal::Access(_depth, _)
-                        | Traversal::Invalid(_depth, _),
-                    )) => {}
-                    Err(e) => Err(e)?,
+                    Err(Error::Inner(_depth, e)) => Err(e)?,
+                    _ => unreachable!(),
                 }
             }
             Ok(())
