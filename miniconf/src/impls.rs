@@ -15,7 +15,7 @@ macro_rules! impl_tuple {
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeKey),+> TreeKey for ($($t,)+) {
             fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-                W::internal(&[$(&$t::traverse_all()?, )+], &KeyLookup::numbered($n))
+                W::internal(&[$($t::traverse_all()?, )+], &KeyLookup::numbered($n))
             }
 
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -111,7 +111,7 @@ impl<const L: usize, const R: usize> Assert<L, R> {
 impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
         let () = Assert::<N, 0>::GREATER; // internal nodes must have at least one leaf
-        W::internal(&[&T::traverse_all()?], &KeyLookup::homogeneous(N))
+        W::internal(&[T::traverse_all()?], &KeyLookup::homogeneous(N))
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -250,7 +250,7 @@ const RESULT_LOOKUP: KeyLookup = KeyLookup::named(&["Ok", "Err"]);
 impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[&T::traverse_all()?, &E::traverse_all()?], &RESULT_LOOKUP)
+        W::internal(&[T::traverse_all()?, E::traverse_all()?], &RESULT_LOOKUP)
     }
 
     #[inline]
@@ -336,7 +336,7 @@ const BOUND_LOOKUP: KeyLookup = KeyLookup::named(&["Included", "Excluded"]);
 impl<T: TreeKey> TreeKey for Bound<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[&T::traverse_all()?; 2], &BOUND_LOOKUP)
+        W::internal(&[T::traverse_all()?, T::traverse_all()?], &BOUND_LOOKUP)
     }
 
     #[inline]
@@ -421,7 +421,7 @@ const RANGE_LOOKUP: KeyLookup = KeyLookup::named(&["start", "end"]);
 impl<T: TreeKey> TreeKey for Range<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[&T::traverse_all()?; 2], &RANGE_LOOKUP)
+        W::internal(&[T::traverse_all()?, T::traverse_all()?], &RANGE_LOOKUP)
     }
 
     #[inline]
@@ -504,7 +504,7 @@ impl<T: TreeAny> TreeAny for Range<T> {
 impl<T: TreeKey> TreeKey for RangeInclusive<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[&T::traverse_all()?; 2], &RANGE_LOOKUP)
+        W::internal(&[T::traverse_all()?, T::traverse_all()?], &RANGE_LOOKUP)
     }
 
     #[inline]
@@ -545,7 +545,7 @@ const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup::named(&["start"]);
 impl<T: TreeKey> TreeKey for RangeFrom<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[&T::traverse_all()?], &RANGE_FROM_LOOKUP)
+        W::internal(&[T::traverse_all()?], &RANGE_FROM_LOOKUP)
     }
 
     #[inline]
@@ -626,7 +626,7 @@ const RANGE_TO_LOOKUP: KeyLookup = KeyLookup::named(&["end"]);
 impl<T: TreeKey> TreeKey for RangeTo<T> {
     #[inline]
     fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[&T::traverse_all()?], &RANGE_TO_LOOKUP)
+        W::internal(&[T::traverse_all()?], &RANGE_TO_LOOKUP)
     }
 
     #[inline]

@@ -30,18 +30,16 @@ enum Node<'a> {
 impl Walk for Node<'_> {
     type Error = core::convert::Infallible;
 
-    fn internal(children: &[&Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
         Ok(match lookup {
             KeyLookup::Named(names) => Self::Named(IndexMap::from_iter(
-                names.iter().copied().zip(children.iter().copied().cloned()),
+                names.iter().copied().zip(children.iter().cloned()),
             )),
             KeyLookup::Homogeneous(len) => Self::Homogeneous {
                 len: *len,
                 item: Box::new((*children.first().unwrap()).clone()),
             },
-            KeyLookup::Numbered(_len) => {
-                Self::Numbered(children.iter().copied().cloned().collect())
-            }
+            KeyLookup::Numbered(_len) => Self::Numbered(children.iter().cloned().collect()),
         })
     }
 

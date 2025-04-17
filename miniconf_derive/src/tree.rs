@@ -232,7 +232,7 @@ impl Tree {
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
                 Some(quote!(.map_err(::miniconf::Error::increment).map(|depth| depth + 1))),
-                quote!(W::internal(&[#(&#w? ,)*], &Self::__MINICONF_LOOKUP)),
+                quote!(W::internal(&[#(#w? ,)*], &Self::__MINICONF_LOOKUP)),
             )
         };
 

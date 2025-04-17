@@ -52,7 +52,7 @@ pub trait Walk: Sized {
     /// # Args
     /// * `children`: The walk of the children to merge.
     /// * `lookup`: The namespace the node(s) are in.
-    fn internal(children: &[&Self], lookup: &KeyLookup) -> Result<Self, Self::Error>;
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error>;
 }
 
 impl Walk for Metadata {
@@ -69,7 +69,7 @@ impl Walk for Metadata {
     }
 
     #[inline]
-    fn internal(children: &[&Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
         let mut max_depth = 0;
         let mut max_length = 0;
         let mut count = 0;
