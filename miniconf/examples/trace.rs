@@ -1,6 +1,5 @@
 use core::num::NonZero;
 
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{
@@ -8,7 +7,7 @@ use serde_reflection::{
 };
 
 use miniconf::{
-    Error, IntoKeys, KeyLookup, Traversal, TreeDeserialize, TreeKey, TreeSerialize, Walk,
+    Error, IntoKeys, KeyLookup, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize, Walk,
 };
 
 mod common;
@@ -16,7 +15,7 @@ mod common;
 #[derive(Clone, Serialize, PartialEq)]
 pub enum Node {
     Leaf(Option<Format>),
-    Named(IndexMap<&'static str, Node>),
+    Named(Vec<(&'static str, Node)>),
     Homogeneous {
         len: NonZero<usize>,
         item: Box<Node>,
@@ -29,9 +28,13 @@ impl Walk for Node {
 
     fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
         Ok(match lookup {
-            KeyLookup::Named(names) => Self::Named(IndexMap::from_iter(
-                names.iter().copied().zip(children.iter().cloned()),
-            )),
+            KeyLookup::Named(names) => Self::Named(
+                names
+                    .iter()
+                    .copied()
+                    .zip(children.iter().cloned())
+                    .collect(),
+            ),
             KeyLookup::Homogeneous(len) => Self::Homogeneous {
                 len: *len,
                 item: Box::new(children.first().unwrap().clone()),
@@ -59,7 +62,7 @@ impl Node {
                 root.pop();
             }
             Self::Named(map, ..) => {
-                for (i, item) in map.values().enumerate() {
+                for (i, (_name, item)) in map.iter().enumerate() {
                     root.push(i);
                     item.visit(root, func)?;
                     root.pop();
@@ -89,7 +92,7 @@ impl Node {
                 root.pop();
             }
             Self::Named(map, ..) => {
-                for (i, item) in map.values_mut().enumerate() {
+                for (i, (_name, item)) in map.iter_mut().enumerate() {
                     root.push(i);
                     item.visit_mut(root, func)?;
                     root.pop();
@@ -118,13 +121,13 @@ impl Tracer {
         self.0.registry()
     }
 
-    pub fn trace_value<T: TreeSerialize, K: IntoKeys>(
+    pub fn trace_value<T: TreeSerialize, K: Keys>(
         &mut self,
         samples: &mut Samples,
         value: &T,
         keys: K,
     ) -> Result<(Format, Value), Error<serde_reflection::Error>> {
-        value.serialize_by_key(keys.into_keys(), Serializer::new(&mut self.0, samples))
+        value.serialize_by_key(keys, Serializer::new(&mut self.0, samples))
     }
 
     pub fn trace_values<T>(
@@ -138,7 +141,7 @@ impl Tracer {
     {
         root.visit_mut(&mut vec![], &mut |keys, node| {
             if let Node::Leaf(format) = node {
-                match self.trace_value(samples, value, keys) {
+                match self.trace_value(samples, value, keys.into_keys()) {
                     Ok((mut fmt, _value)) => {
                         fmt.reduce();
                         *format = Some(fmt);
@@ -154,21 +157,18 @@ impl Tracer {
         })
     }
 
-    pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: IntoKeys>(
+    pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: Keys>(
         &mut self,
         samples: &'de Samples,
         keys: K,
     ) -> Result<Format, Error<serde_reflection::Error>> {
         let mut format = Format::unknown();
-        T::probe_by_key(
-            keys.into_keys(),
-            Deserializer::new(&mut self.0, samples, &mut format),
-        )?;
+        T::probe_by_key(keys, Deserializer::new(&mut self.0, samples, &mut format))?;
         format.reduce();
         Ok(format)
     }
 
-    pub fn trace_type<'de, T: TreeDeserialize<'de>, K: IntoKeys + Clone>(
+    pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
         &mut self,
         samples: &'de Samples,
         keys: K,
@@ -195,7 +195,7 @@ impl Tracer {
     {
         root.visit_mut(&mut vec![], &mut |keys, node| {
             if let Node::Leaf(format) = node {
-                match self.trace_type::<T, _>(samples, keys) {
+                match self.trace_type::<T, _>(samples, keys.into_keys()) {
                     Ok(mut fmt) => {
                         fmt.reduce();
                         *format = Some(fmt);
@@ -222,10 +222,10 @@ impl Tracer {
 
 fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
-    
+
     let mut root: Node = common::Settings::traverse_all()?;
     let mut tracer = Tracer::new(TracerConfig::default());
-    
+
     // Trace values with TreeSerialize
     let mut samples = Samples::new();
     tracer
