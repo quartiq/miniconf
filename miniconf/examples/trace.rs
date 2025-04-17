@@ -1,5 +1,6 @@
 use core::num::NonZero;
 
+use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{
@@ -15,7 +16,7 @@ mod common;
 #[derive(Clone, Serialize, PartialEq)]
 pub enum Node {
     Leaf(Option<Format>),
-    Named(Vec<(&'static str, Node)>),
+    Named(IndexMap<&'static str, Node>),
     Homogeneous {
         len: NonZero<usize>,
         item: Box<Node>,
@@ -28,13 +29,9 @@ impl Walk for Node {
 
     fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
         Ok(match lookup {
-            KeyLookup::Named(names) => Self::Named(
-                names
-                    .iter()
-                    .copied()
-                    .zip(children.iter().cloned())
-                    .collect(),
-            ),
+            KeyLookup::Named(names) => Self::Named(IndexMap::from_iter(
+                names.iter().copied().zip(children.iter().cloned()),
+            )),
             KeyLookup::Homogeneous(len) => Self::Homogeneous {
                 len: *len,
                 item: Box::new(children.first().unwrap().clone()),
@@ -62,7 +59,7 @@ impl Node {
                 root.pop();
             }
             Self::Named(map, ..) => {
-                for (i, (_name, item)) in map.iter().enumerate() {
+                for (i, item) in map.values().enumerate() {
                     root.push(i);
                     item.visit(root, func)?;
                     root.pop();
@@ -92,7 +89,7 @@ impl Node {
                 root.pop();
             }
             Self::Named(map, ..) => {
-                for (i, (_name, item)) in map.iter_mut().enumerate() {
+                for (i, item) in map.values_mut().enumerate() {
                     root.push(i);
                     item.visit_mut(root, func)?;
                     root.pop();
