@@ -188,11 +188,11 @@ impl TreeField {
         }
     }
 
-    pub fn type_by_key(&self, i: usize) -> TokenStream {
-        // Quote context is a match of the field index with `type_by_key()` args available.
+    pub fn probe_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `probe_by_key()` args available.
         let typ = self.typ();
         quote_spanned! { self.span()=>
-            #i => <#typ as ::miniconf::TreeDeserialize::<'de>>::type_by_key(keys, de)
+            #i => <#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)
         }
     }
 

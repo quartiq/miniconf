@@ -314,7 +314,7 @@ impl Tree {
         let ident = &self.ident;
         let (mat, deserialize_arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
         let fields = self.fields();
-        let type_arms = fields.iter().enumerate().map(|(i, f)| f.type_by_key(i));
+        let probe_arms = fields.iter().enumerate().map(|(i, f)| f.probe_by_key(i));
         let increment =
             (!self.flatten.is_present()).then_some(quote!(.map_err(::miniconf::Error::increment)));
 
@@ -334,14 +334,14 @@ impl Tree {
                     #increment
                 }
 
-            fn type_by_key<K, D>(mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::Error<D::Error>>
+            fn probe_by_key<K, D>(mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::Error<D::Error>>
                 where
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
                 {
                     let index = #index?;
                     match index {
-                        #(#type_arms ,)*
+                        #(#probe_arms ,)*
                         _ => unreachable!()
                     }
                     #increment

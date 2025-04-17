@@ -64,14 +64,14 @@ macro_rules! impl_tuple {
                 }.map_err(Error::increment)
             }
 
-            fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+            fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
             where
                 K: Keys,
                 D: Deserializer<'de>,
             {
                 let index = keys.next(&KeyLookup::numbered($n))?;
                 match index {
-                    $($i => $t::type_by_key(keys, de),)+
+                    $($i => $t::probe_by_key(keys, de),)+
                     _ => unreachable!()
                 }.map_err(Error::increment)
             }
@@ -166,13 +166,13 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
             .map_err(Error::increment)
     }
 
-    fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
         keys.next(&KeyLookup::homogeneous(N))?;
-        T::type_by_key(keys, de).map_err(Error::increment)
+        T::probe_by_key(keys, de).map_err(Error::increment)
     }
 }
 
@@ -242,12 +242,12 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
     }
 
     #[inline]
-    fn type_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        T::type_by_key(keys, de)
+        T::probe_by_key(keys, de)
     }
 }
 

@@ -105,7 +105,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
     }
 
     #[inline]
-    fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -247,7 +247,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     }
 
     #[inline]
-    fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -365,7 +365,7 @@ impl<'de, T: ?Sized> TreeDeserialize<'de> for Deny<T> {
     }
 
     #[inline]
-    fn type_by_key<K, D>(mut keys: K, _de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, _de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,

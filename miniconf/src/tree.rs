@@ -463,7 +463,7 @@ pub trait TreeDeserialize<'de> {
     ///     bar: [Leaf<u16>; 2],
     /// };
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
-    /// S::type_by_key(["bar", "0"].into_keys(), &mut de)
+    /// S::probe_by_key(["bar", "0"].into_keys(), &mut de)
     ///     .unwrap();
     /// de.end().unwrap();
     /// # }
@@ -472,7 +472,7 @@ pub trait TreeDeserialize<'de> {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
-    fn type_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
