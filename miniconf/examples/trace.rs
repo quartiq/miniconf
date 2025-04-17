@@ -15,19 +15,19 @@ use miniconf::{
 mod common;
 use common::Settings;
 
-#[derive(Clone, Serialize)]
-#[serde(untagged)]
-enum Node<'a> {
-    Leaf(Option<&'a Format>),
-    Named(IndexMap<&'static str, Node<'a>>),
+#[derive(Clone, Serialize, PartialEq)]
+// #[serde(untagged)]
+pub enum Node {
+    Leaf(Option<Format>),
+    Named(IndexMap<&'static str, Node>),
     Homogeneous {
         len: NonZero<usize>,
-        item: Box<Node<'a>>,
+        item: Box<Node>,
     },
-    Numbered(Vec<Node<'a>>),
+    Numbered(Vec<Node>),
 }
 
-impl Walk for Node<'_> {
+impl Walk for Node {
     type Error = core::convert::Infallible;
 
     fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
@@ -37,9 +37,9 @@ impl Walk for Node<'_> {
             )),
             KeyLookup::Homogeneous(len) => Self::Homogeneous {
                 len: *len,
-                item: Box::new((*children.first().unwrap()).clone()),
+                item: Box::new(children.first().unwrap().clone()),
             },
-            KeyLookup::Numbered(_len) => Self::Numbered(children.iter().cloned().collect()),
+            KeyLookup::Numbered(_len) => Self::Numbered(children.to_vec()),
         })
     }
 
@@ -48,35 +48,80 @@ impl Walk for Node<'_> {
     }
 }
 
-impl Node<'_> {
-    fn keys(&self, mut root: Vec<usize>) -> Vec<Vec<usize>> {
+impl Node {
+    pub fn leaves(&self, root: &mut Vec<usize>) -> Vec<Vec<usize>> {
+        let mut k = Vec::new();
+        self.visit(root, &mut |keys, node| {
+            if matches!(node, Self::Leaf(_)) {
+                k.push(keys.clone())
+            };
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        k
+    }
+
+    pub fn visit<F, E>(&self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
+    where
+        F: FnMut(&Vec<usize>, &Self) -> Result<(), E>,
+    {
+        func(root, self)?;
         match self {
-            Self::Leaf(_) => vec![root],
+            Self::Leaf(_) => {}
             Self::Homogeneous { item, .. } => {
                 root.push(0);
-                item.keys(root)
+                item.visit(root, func)?;
+                root.pop();
             }
-            Self::Named(map, ..) => map
-                .values()
-                .enumerate()
-                .flat_map(|(i, child)| {
-                    let mut idx = root.clone();
-                    idx.push(i);
-                    child.keys(idx)
-                })
-                .collect(),
-            Self::Numbered(children) => children
-                .iter()
-                .enumerate()
-                .flat_map(|(i, child)| {
-                    let mut idx = root.clone();
-                    idx.push(i);
-                    child.keys(idx)
-                })
-                .collect(),
+            Self::Named(map, ..) => {
+                for (i, item) in map.values().enumerate() {
+                    root.push(i);
+                    item.visit(root, func)?;
+                    root.pop();
+                }
+            }
+            Self::Numbered(items) => {
+                for (i, item) in items.iter().enumerate() {
+                    root.push(i);
+                    item.visit(root, func)?;
+                    root.pop();
+                }
+            }
         }
+        Ok(())
+    }
+
+    pub fn visit_mut<F, E>(&mut self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
+    where
+        F: FnMut(&Vec<usize>, &mut Self) -> Result<(), E>,
+    {
+        func(root, self)?;
+        match self {
+            Self::Leaf(_) => {}
+            Self::Homogeneous { item, .. } => {
+                root.push(0);
+                item.visit_mut(root, func)?;
+                root.pop();
+            }
+            Self::Named(map, ..) => {
+                for (i, item) in map.values_mut().enumerate() {
+                    root.push(i);
+                    item.visit_mut(root, func)?;
+                    root.pop();
+                }
+            }
+            Self::Numbered(items) => {
+                for (i, item) in items.iter_mut().enumerate() {
+                    root.push(i);
+                    item.visit_mut(root, func)?;
+                    root.pop();
+                }
+            }
+        }
+        Ok(())
     }
 }
+
 // fn lookup(&self) -> Option<KeyLookup> {
 //     match self {
 //         Self::Leaf => None,
@@ -112,31 +157,30 @@ impl Tracer {
         value.serialize_by_key(keys.into_keys(), Serializer::new(&mut self.tracer, samples))
     }
 
-    pub fn trace_values<T, I, K>(
+    pub fn trace_values<T>(
         &mut self,
         samples: &mut Samples,
         value: &T,
-        keys: I,
-    ) -> Result<IndexMap<K, (Format, Value)>, Error<serde_reflection::Error>>
+        root: &mut Node,
+    ) -> Result<(), Error<serde_reflection::Error>>
     where
         T: TreeSerialize,
-        I: IntoIterator<Item = K>,
-        K: IntoKeys + Clone + Hash + Eq,
     {
-        keys.into_iter()
-            .filter_map(
-                |keys| match self.trace_value(samples, value, keys.clone()) {
-                    Ok((mut format, value)) => {
-                        format.reduce();
-                        Some(Ok((keys, (format, value))))
+        root.visit_mut(&mut vec![], &mut |keys, node| {
+            if let Node::Leaf(format) = node {
+                match self.trace_value(samples, value, keys) {
+                    Ok((mut fmt, _value)) => {
+                        fmt.reduce();
+                        *format = Some(fmt);
                     }
                     Err(Error::Traversal(
                         Traversal::Absent(_depth) | Traversal::Access(_depth, _),
-                    )) => None,
-                    Err(e) => Some(Err(e)),
-                },
-            )
-            .collect()
+                    )) => {}
+                    Err(e) => Err(e)?,
+                }
+            }
+            Ok(())
+        })
     }
 
     pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: IntoKeys>(
@@ -172,29 +216,32 @@ impl Tracer {
         }
     }
 
-    pub fn trace_types<'de, 'b, T, I, K>(
+    pub fn trace_types<'de, T>(
         &mut self,
         samples: &'de Samples,
         value: &mut T,
-        keys: I,
-    ) -> Result<IndexMap<K, Format>, Error<serde_reflection::Error>>
+        root: &mut Node,
+    ) -> Result<(), Error<serde_reflection::Error>>
     where
         T: TreeDeserialize<'de>,
-        I: IntoIterator<Item = K>,
-        K: IntoKeys + Clone + Hash + Eq,
     {
-        keys.into_iter()
-            .filter_map(|keys| match self.trace_type(samples, value, keys.clone()) {
-                Ok(mut format) => {
-                    format.reduce();
-                    Some(Ok((keys, format)))
+        root.visit_mut(&mut vec![], &mut |keys, node| {
+            if let Node::Leaf(format) = node {
+                match self.trace_type(samples, value, keys) {
+                    Ok(mut fmt) => {
+                        fmt.reduce();
+                        *format = Some(fmt);
+                    }
+                    Err(Error::Traversal(
+                        Traversal::Absent(_depth)
+                        | Traversal::Access(_depth, _)
+                        | Traversal::Invalid(_depth, _),
+                    )) => {}
+                    Err(e) => Err(e)?,
                 }
-                Err(Error::Traversal(Traversal::Absent(_depth) | Traversal::Access(_depth, _))) => {
-                    None
-                }
-                Err(e) => Some(Err(e)),
-            })
-            .collect()
+            }
+            Ok(())
+        })
     }
 }
 
@@ -202,34 +249,32 @@ fn main() -> anyhow::Result<()> {
     let mut settings = Settings::default();
     settings.enable();
 
-    let graph: Node = Settings::traverse_all()?;
-    println!("{}", serde_json::to_string_pretty(&graph).context("graph")?);
-    let keys = graph.keys(vec![]);
-    let config = TracerConfig::default();
-    let mut tracer = Tracer::new(config);
+    let mut graph: Node = Settings::traverse_all()?;
+    let mut tracer = Tracer::new(TracerConfig::default());
     let mut samples = Samples::new();
-    let keys_slice = keys.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let _formats = tracer
-        .trace_values(&mut samples, &settings, keys_slice.iter().copied())
-        .unwrap(); // uncovered variants
-    let formats = tracer
-        .trace_types(&samples, &mut settings, keys_slice)
+    tracer
+        .trace_values(&mut samples, &settings, &mut graph)
         .unwrap();
-    let formats_paths: IndexMap<_, _> = formats
+    tracer
+        .trace_types(&samples, &mut settings, &mut graph)
+        .unwrap();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&graph).context("formats")?
+    );
+    let paths: Vec<_> = graph
+        .leaves(&mut vec![])
         .iter()
-        .map(|(key, format)| {
-            (
-                Settings::transcode::<Path<String, '/'>, _>(*key)
-                    .unwrap()
-                    .0
-                    .into_inner(),
-                format,
-            )
+        .map(|key| {
+            Settings::transcode::<Path<String, '/'>, _>(key)
+                .unwrap()
+                .0
+                .into_inner()
         })
         .collect();
     println!(
         "{}",
-        serde_json::to_string_pretty(&formats_paths).context("formats")?
+        serde_json::to_string_pretty(&paths).context("formats")?
     );
     println!(
         "{}",
