@@ -20,6 +20,7 @@ pub enum TreeTrait {
 struct Deny {
     serialize: Option<String>,
     deserialize: Option<String>,
+    typ: Option<String>,
     ref_any: Option<String>,
     mut_any: Option<String>,
 }
@@ -184,6 +185,14 @@ impl TreeField {
                     )
                     #validator
             }
+        }
+    }
+
+    pub fn type_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `type_by_key()` args available.
+        let typ = self.typ();
+        quote_spanned! { self.span()=>
+            #i => <#typ as ::miniconf::TreeDeserialize::<'de>>::type_by_key(keys, de)
         }
     }
 

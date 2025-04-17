@@ -103,6 +103,17 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
         self.0 = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
         Ok(())
     }
+
+    #[inline]
+    fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        keys.finalize()?;
+        T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
+        Ok(())
+    }
 }
 
 impl<T: Any> TreeAny for Leaf<T> {
@@ -234,6 +245,18 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
         self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert")))?;
         Ok(())
     }
+
+    #[inline]
+    fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        keys.finalize()?;
+        let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
+        T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert")))?;
+        Ok(())
+    }
 }
 
 impl<T> TreeAny for StrLeaf<T> {
@@ -333,6 +356,16 @@ impl<T: ?Sized> TreeSerialize for Deny<T> {
 impl<'de, T: ?Sized> TreeDeserialize<'de> for Deny<T> {
     #[inline]
     fn deserialize_by_key<K, D>(&mut self, mut keys: K, _de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        keys.finalize()?;
+        Err(Traversal::Access(0, "Denied").into())
+    }
+
+    #[inline]
+    fn type_by_key<K, D>(mut keys: K, _de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,

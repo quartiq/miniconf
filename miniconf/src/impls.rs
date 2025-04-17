@@ -63,6 +63,18 @@ macro_rules! impl_tuple {
                     _ => unreachable!()
                 }.map_err(Error::increment)
             }
+
+            fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+            where
+                K: Keys,
+                D: Deserializer<'de>,
+            {
+                let index = keys.next(&KeyLookup::numbered($n))?;
+                match index {
+                    $($i => $t::type_by_key(keys, de),)+
+                    _ => unreachable!()
+                }.map_err(Error::increment)
+            }
         }
 
         #[allow(unreachable_code, unused_mut, unused)]
@@ -153,6 +165,15 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
             .deserialize_by_key(keys, de)
             .map_err(Error::increment)
     }
+
+    fn type_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        keys.next(&KeyLookup::homogeneous(N))?;
+        T::type_by_key(keys, de).map_err(Error::increment)
+    }
 }
 
 impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
@@ -218,6 +239,15 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
         self.as_mut()
             .ok_or(Traversal::Absent(0))?
             .deserialize_by_key(keys, de)
+    }
+
+    #[inline]
+    fn type_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        T::type_by_key(keys, de)
     }
 }
 

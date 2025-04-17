@@ -312,7 +312,9 @@ impl Tree {
         let where_clause = self.bound_generics(TreeTrait::Deserialize, where_clause);
         let index = self.index();
         let ident = &self.ident;
-        let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
+        let (mat, deserialize_arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
+        let fields = self.fields();
+        let type_arms = fields.iter().enumerate().map(|(i, f)| f.type_by_key(i));
         let increment =
             (!self.flatten.is_present()).then_some(quote!(.map_err(::miniconf::Error::increment)));
 
@@ -326,8 +328,21 @@ impl Tree {
                 {
                     let index = #index?;
                     match #mat {
-                        #(#arms ,)*
+                        #(#deserialize_arms ,)*
                         _ => #default
+                    }
+                    #increment
+                }
+
+            fn type_by_key<K, D>(mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::Error<D::Error>>
+                where
+                    K: ::miniconf::Keys,
+                    D: ::miniconf::Deserializer<'de>,
+                {
+                    let index = #index?;
+                    match index {
+                        #(#type_arms ,)*
+                        _ => unreachable!()
                     }
                     #increment
                 }

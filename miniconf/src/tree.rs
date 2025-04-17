@@ -410,9 +410,6 @@ pub trait TreeSerialize {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `ser`: A `Serializer` to to serialize the value.
-    ///
-    /// # Returns
-    /// Node depth on success.
     fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
@@ -450,13 +447,38 @@ pub trait TreeDeserialize<'de> {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
-    ///
-    /// # Returns
-    /// Node depth on success
     fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>;
+
+    /// Blind deserialize a leaf node by its keys.
+    ///
+    /// ```
+    /// # #[cfg(feature = "derive")] {
+    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
+    /// #[derive(Default, TreeKey, TreeDeserialize)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
+    /// S::type_by_key(["bar", "0"].into_keys(), &mut de)
+    ///     .unwrap();
+    /// de.end().unwrap();
+    /// # }
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: A `Keys` identifying the node.
+    /// * `de`: A `Deserializer` to deserialize the value.
+    fn type_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        unimplemented!("TODO")
+    }
 }
 
 /// Shorthand for owned deserialization through [`TreeDeserialize`].
