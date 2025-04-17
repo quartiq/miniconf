@@ -1,7 +1,7 @@
 use core::num::NonZero;
-use indexmap::IndexMap;
 
-use anyhow::Context;
+use indexmap::IndexMap;
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{
     Deserializer, Format, FormatHolder, Registry, Samples, Serializer, TracerConfig, Value,
@@ -46,18 +46,6 @@ impl Walk for Node {
 }
 
 impl Node {
-    pub fn leaves(&self, root: &mut Vec<usize>) -> Vec<Vec<usize>> {
-        let mut k = Vec::new();
-        self.visit(root, &mut |keys, node| {
-            if matches!(node, Self::Leaf(_)) {
-                k.push(keys.clone())
-            };
-            Ok::<_, ()>(())
-        })
-        .unwrap(); // infallible
-        k
-    }
-
     pub fn visit<F, E>(&self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &Self) -> Result<(), E>,
@@ -66,7 +54,7 @@ impl Node {
         match self {
             Self::Leaf(_) => {}
             Self::Homogeneous { item, .. } => {
-                root.push(0); // path must end in leaf
+                root.push(0); // at least one item guaranteed
                 item.visit(root, func)?;
                 root.pop();
             }
@@ -96,7 +84,7 @@ impl Node {
         match self {
             Self::Leaf(_) => {}
             Self::Homogeneous { item, .. } => {
-                root.push(0); // path must end in leaf
+                root.push(0); // at least one item guaranteed
                 item.visit_mut(root, func)?;
                 root.pop();
             }
@@ -144,7 +132,7 @@ impl Tracer {
         samples: &mut Samples,
         value: &T,
         root: &mut Node,
-    ) -> Result<(), Error<serde_reflection::Error>>
+    ) -> Result<(), serde_reflection::Error>
     where
         T: TreeSerialize,
     {
@@ -158,7 +146,8 @@ impl Tracer {
                     Err(Error::Traversal(
                         Traversal::Absent(_depth) | Traversal::Access(_depth, _),
                     )) => {}
-                    Err(e) => Err(e)?,
+                    Err(Error::Inner(_depth, e)) => Err(e)?,
+                    _ => unreachable!(),
                 }
             }
             Ok(())
@@ -218,27 +207,39 @@ impl Tracer {
             Ok(())
         })
     }
+
+    pub fn trace_types_simple<'de, T>(
+        &mut self,
+        root: &mut Node,
+    ) -> Result<(), serde_reflection::Error>
+    where
+        T: TreeDeserialize<'de>,
+    {
+        static SAMPLES: Lazy<Samples> = Lazy::new(Samples::new);
+        self.trace_types::<T>(&SAMPLES, root)
+    }
 }
 
 fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
-
-    let mut graph: Node = common::Settings::traverse_all()?;
+    
+    let mut root: Node = common::Settings::traverse_all()?;
     let mut tracer = Tracer::new(TracerConfig::default());
+    
+    // Trace values with TreeSerialize
     let mut samples = Samples::new();
     tracer
-        .trace_values(&mut samples, &settings, &mut graph)
+        .trace_values(&mut samples, &settings, &mut root)
         .unwrap();
+
+    // Trace typs with TreeDeserialize
     tracer
-        .trace_types::<common::Settings>(&samples, &mut graph)
+        .trace_types_simple::<common::Settings>(&mut root)
         .unwrap();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&graph).context("formats")?
-    );
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&tracer.registry().unwrap()).context("registry")?
-    );
+
+    // Dump
+    let registry = tracer.registry().unwrap();
+    println!("{}", serde_json::to_string_pretty(&(&root, &registry))?,);
+
     Ok(())
 }
