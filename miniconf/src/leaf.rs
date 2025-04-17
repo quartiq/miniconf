@@ -82,27 +82,26 @@ impl<T: ?Sized> TreeKey for Leaf<T> {
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
         keys.finalize()?;
-        self.0.serialize(ser).map_err(|err| Error::Inner(0, err))?;
-        Ok(0)
+        self.0.serialize(ser).map_err(|err| Error::Inner(0, err))
     }
 }
 
 impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
         keys.finalize()?;
         self.0 = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        Ok(0)
+        Ok(())
     }
 }
 
@@ -212,21 +211,20 @@ impl<T: ?Sized> TreeKey for StrLeaf<T> {
 
 impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
         keys.finalize()?;
         let name = self.0.as_ref();
-        name.serialize(ser).map_err(|err| Error::Inner(0, err))?;
-        Ok(0)
+        name.serialize(ser).map_err(|err| Error::Inner(0, err))
     }
 }
 
 impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -234,7 +232,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
         keys.finalize()?;
         let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
         self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert")))?;
-        Ok(0)
+        Ok(())
     }
 }
 
@@ -322,7 +320,7 @@ impl<T: ?Sized> TreeKey for Deny<T> {
 
 impl<T: ?Sized> TreeSerialize for Deny<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, _ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, _ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -334,7 +332,7 @@ impl<T: ?Sized> TreeSerialize for Deny<T> {
 
 impl<'de, T: ?Sized> TreeDeserialize<'de> for Deny<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, _de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, _de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,

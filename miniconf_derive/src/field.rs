@@ -142,8 +142,10 @@ impl TreeField {
     fn validator(&self) -> Option<TokenStream> {
         self.validate.as_ref().map(|validate| {
             quote_spanned! { validate.span()=>
-                .and_then(|depth| #validate(depth)
+                .and_then(|ok| #validate()
+                    .and(Ok(ok))
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
+
                 )
             }
         })

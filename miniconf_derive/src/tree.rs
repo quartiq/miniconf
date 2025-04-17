@@ -231,7 +231,7 @@ impl Tree {
                     func(index, name, Self::__MINICONF_LOOKUP.len())
                     .map_err(|err| ::miniconf::Error::Inner(1, err))?;
                 }),
-                Some(quote!(::miniconf::Error::increment_result)),
+                Some(quote!(.map_err(::miniconf::Error::increment).map(|depth| depth + 1))),
                 quote!(W::internal(&[#(&#w? ,)*], &Self::__MINICONF_LOOKUP)),
             )
         };
@@ -256,10 +256,11 @@ impl Tree {
                 {
                     let index = #index?;
                     #traverse
-                    #increment(match index {
+                    match index {
                         #(#traverse_arms ,)*
                         _ => unreachable!()
-                    })
+                    }
+                    #increment
                 }
             }
         }
@@ -272,21 +273,22 @@ impl Tree {
         let index = self.index();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
         let increment =
-            (!self.flatten.is_present()).then_some(quote!(::miniconf::Error::increment_result));
+            (!self.flatten.is_present()).then_some(quote!(.map_err(::miniconf::Error::increment)));
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize for #ident #ty_generics #where_clause {
-                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<usize, ::miniconf::Error<S::Error>>
+                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<S::Ok, ::miniconf::Error<S::Error>>
                 where
                     K: ::miniconf::Keys,
                     S: ::miniconf::Serializer,
                 {
                     let index = #index?;
-                    #increment(match #mat {
+                    match #mat {
                         #(#arms ,)*
                         _ => #default
-                    })
+                    }
+                    #increment
                 }
             }
         }
@@ -312,21 +314,22 @@ impl Tree {
         let ident = &self.ident;
         let (mat, arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
         let increment =
-            (!self.flatten.is_present()).then_some(quote!(::miniconf::Error::increment_result));
+            (!self.flatten.is_present()).then_some(quote!(.map_err(::miniconf::Error::increment)));
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'de> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<usize, ::miniconf::Error<D::Error>>
+                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::Error<D::Error>>
                 where
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
                 {
                     let index = #index?;
-                    #increment(match #mat {
+                    match #mat {
                         #(#arms ,)*
                         _ => #default
-                    })
+                    }
+                    #increment
                 }
             }
         }
@@ -350,11 +353,11 @@ impl Tree {
                     K: ::miniconf::Keys,
                 {
                     let index = #index?;
-                    let ret: ::core::result::Result<_, _> = match #mat {
+                    match #mat {
                         #(#ref_arms ,)*
                         _ => #default
-                    };
-                    ret #increment
+                    }
+                    #increment
                 }
 
                 fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
@@ -362,11 +365,11 @@ impl Tree {
                     K: ::miniconf::Keys,
                 {
                     let index = #index?;
-                    let ret: ::core::result::Result<_, _> = match #mat {
+                    match #mat {
                         #(#mut_arms ,)*
                         _ => #default
-                    };
-                    ret #increment
+                    }
+                    #increment
                 }
             }
         }

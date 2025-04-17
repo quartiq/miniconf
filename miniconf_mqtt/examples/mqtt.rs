@@ -35,16 +35,16 @@ struct Settings {
 }
 
 impl Settings {
-    fn validate_four(&mut self, depth: usize) -> Result<usize, &'static str> {
+    fn validate_four(&mut self) -> Result<(), &'static str> {
         if *self.four < 4.0 {
             Err("Less than four")
         } else {
-            Ok(depth)
+            Ok(())
         }
     }
-    fn validate_exit(&mut self, depth: usize) -> Result<usize, &'static str> {
+    fn validate_exit(&mut self) -> Result<(), &'static str> {
         self.exit = true;
-        Ok(depth)
+        Ok(())
     }
 }
 

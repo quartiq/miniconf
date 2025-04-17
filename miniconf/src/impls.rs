@@ -26,40 +26,42 @@ macro_rules! impl_tuple {
                 let k = KeyLookup::numbered($n);
                 let index = keys.next(&k)?;
                 func(index, None, k.len()).map_err(|err| Error::Inner(1, err))?;
-                Error::increment_result(match index {
+                match index {
                     $($i => $t::traverse_by_key(keys, func),)+
                     _ => unreachable!()
-                })
+                }
+                .map_err(Error::increment)
+                .map(|depth| depth + 1)
             }
         }
 
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeSerialize),+> TreeSerialize for ($($t,)+) {
-            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+            fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
             where
                 K: Keys,
                 S: Serializer,
             {
                 let index = keys.next(&KeyLookup::numbered($n))?;
-                Error::increment_result(match index {
+                match index {
                     $($i => self.$i.serialize_by_key(keys, ser),)+
                     _ => unreachable!()
-                })
+                }.map_err(Error::increment)
             }
         }
 
         #[allow(unreachable_code, unused_mut, unused)]
         impl<'de, $($t: TreeDeserialize<'de>),+> TreeDeserialize<'de> for ($($t,)+) {
-            fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+            fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
             where
                 K: Keys,
                 D: Deserializer<'de>,
             {
                 let index = keys.next(&KeyLookup::numbered($n))?;
-                Error::increment_result(match index {
+                match index {
                     $($i => self.$i.deserialize_by_key(keys, de),)+
                     _ => unreachable!()
-                })
+                }.map_err(Error::increment)
             }
         }
 
@@ -121,29 +123,35 @@ impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
         let k = KeyLookup::homogeneous(N);
         let index = keys.next(&k)?;
         func(index, None, k.len()).map_err(|err| Error::Inner(1, err))?;
-        Error::increment_result(T::traverse_by_key(keys, func))
+        T::traverse_by_key(keys, func)
+            .map_err(Error::increment)
+            .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N] {
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        Error::increment_result(self[index].serialize_by_key(keys, ser))
+        self[index]
+            .serialize_by_key(keys, ser)
+            .map_err(Error::increment)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
         let index = keys.next(&KeyLookup::homogeneous(N))?;
-        Error::increment_result(self[index].deserialize_by_key(keys, de))
+        self[index]
+            .deserialize_by_key(keys, de)
+            .map_err(Error::increment)
     }
 }
 
@@ -189,7 +197,7 @@ impl<T: TreeKey> TreeKey for Option<T> {
 
 impl<T: TreeSerialize> TreeSerialize for Option<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -202,7 +210,7 @@ impl<T: TreeSerialize> TreeSerialize for Option<T> {
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -251,41 +259,45 @@ impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
     {
-        Error::increment_result(match keys.next(&RESULT_LOOKUP)? {
+        match keys.next(&RESULT_LOOKUP)? {
             0 => T::traverse_by_key(keys, func),
             1 => E::traverse_by_key(keys, func),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
+        .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        Error::increment_result(match (self, keys.next(&RESULT_LOOKUP)?) {
+        match (self, keys.next(&RESULT_LOOKUP)?) {
             (Ok(value), 0) => value.serialize_by_key(keys, ser),
             (Err(value), 1) => value.serialize_by_key(keys, ser),
             _ => Err(Traversal::Absent(0).into()),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de> for Result<T, E> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        Error::increment_result(match (self, keys.next(&RESULT_LOOKUP)?) {
+        match (self, keys.next(&RESULT_LOOKUP)?) {
             (Ok(value), 0) => value.deserialize_by_key(keys, de),
             (Err(value), 1) => value.deserialize_by_key(keys, de),
             _ => Err(Traversal::Absent(0).into()),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
@@ -333,42 +345,46 @@ impl<T: TreeKey> TreeKey for Bound<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
     {
-        Error::increment_result(match keys.next(&BOUND_LOOKUP)? {
+        match keys.next(&BOUND_LOOKUP)? {
             0..=1 => T::traverse_by_key(keys, func),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
+        .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize> TreeSerialize for Bound<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        Error::increment_result(match (self, keys.next(&BOUND_LOOKUP)?) {
+        match (self, keys.next(&BOUND_LOOKUP)?) {
             (Self::Included(value), 0) | (Self::Excluded(value), 1) => {
                 value.serialize_by_key(keys, ser)
             }
             _ => Err(Traversal::Absent(0).into()),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        Error::increment_result(match (self, keys.next(&BOUND_LOOKUP)?) {
+        match (self, keys.next(&BOUND_LOOKUP)?) {
             (Self::Included(value), 0) | (Self::Excluded(value), 1) => {
                 value.deserialize_by_key(keys, de)
             }
             _ => Err(Traversal::Absent(0).into()),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
@@ -414,40 +430,44 @@ impl<T: TreeKey> TreeKey for Range<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
     {
-        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+        match keys.next(&RANGE_LOOKUP)? {
             0..=1 => T::traverse_by_key(keys, func),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
+        .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize> TreeSerialize for Range<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+        match keys.next(&RANGE_LOOKUP)? {
             0 => self.start.serialize_by_key(keys, ser),
             1 => self.end.serialize_by_key(keys, ser),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+        match keys.next(&RANGE_LOOKUP)? {
             0 => self.start.deserialize_by_key(keys, de),
             1 => self.end.deserialize_by_key(keys, de),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
@@ -493,25 +513,28 @@ impl<T: TreeKey> TreeKey for RangeInclusive<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
     {
-        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+        match keys.next(&RANGE_LOOKUP)? {
             0..=1 => T::traverse_by_key(keys, func),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
+        .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        Error::increment_result(match keys.next(&RANGE_LOOKUP)? {
+        match keys.next(&RANGE_LOOKUP)? {
             0 => self.start().serialize_by_key(keys, ser),
             1 => self.end().serialize_by_key(keys, ser),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
@@ -531,38 +554,42 @@ impl<T: TreeKey> TreeKey for RangeFrom<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
     {
-        Error::increment_result(match keys.next(&RANGE_FROM_LOOKUP)? {
+        match keys.next(&RANGE_FROM_LOOKUP)? {
             0 => T::traverse_by_key(keys, func),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
+        .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize> TreeSerialize for RangeFrom<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        Error::increment_result(match keys.next(&RANGE_FROM_LOOKUP)? {
+        match keys.next(&RANGE_FROM_LOOKUP)? {
             0 => self.start.serialize_by_key(keys, ser),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        Error::increment_result(match keys.next(&RANGE_FROM_LOOKUP)? {
+        match keys.next(&RANGE_FROM_LOOKUP)? {
             0 => self.start.deserialize_by_key(keys, de),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
@@ -608,38 +635,42 @@ impl<T: TreeKey> TreeKey for RangeTo<T> {
         K: Keys,
         F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), G>,
     {
-        Error::increment_result(match keys.next(&RANGE_TO_LOOKUP)? {
+        match keys.next(&RANGE_TO_LOOKUP)? {
             0 => T::traverse_by_key(keys, func),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
+        .map(|depth| depth + 1)
     }
 }
 
 impl<T: TreeSerialize> TreeSerialize for RangeTo<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        Error::increment_result(match keys.next(&RANGE_TO_LOOKUP)? {
+        match keys.next(&RANGE_TO_LOOKUP)? {
             0 => self.end.serialize_by_key(keys, ser),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        Error::increment_result(match keys.next(&RANGE_TO_LOOKUP)? {
+        match keys.next(&RANGE_TO_LOOKUP)? {
             0 => self.end.deserialize_by_key(keys, de),
             _ => unreachable!(),
-        })
+        }
+        .map_err(Error::increment)
     }
 }
 
@@ -689,7 +720,7 @@ impl<T: TreeKey> TreeKey for Cell<T> {
 
 impl<T: TreeSerialize + Copy> TreeSerialize for Cell<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -700,7 +731,7 @@ impl<T: TreeSerialize + Copy> TreeSerialize for Cell<T> {
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -747,7 +778,7 @@ impl<T: TreeKey> TreeKey for RefCell<T> {
 
 impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -760,7 +791,7 @@ impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -771,7 +802,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
@@ -826,7 +857,7 @@ mod _alloc {
 
     impl<T: TreeSerialize> TreeSerialize for Box<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -837,7 +868,7 @@ mod _alloc {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Box<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -884,7 +915,7 @@ mod _alloc {
 
     impl<T: TreeSerialize + Clone> TreeSerialize for Cow<'_, T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -895,7 +926,7 @@ mod _alloc {
 
     impl<'de, T: TreeDeserialize<'de> + Clone> TreeDeserialize<'de> for Cow<'_, T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -942,7 +973,7 @@ mod _alloc {
 
     impl<T: TreeSerialize> TreeSerialize for Rc<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -953,7 +984,7 @@ mod _alloc {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Rc<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1004,7 +1035,7 @@ mod _alloc {
 
     impl<T: TreeSerialize> TreeSerialize for rc::Weak<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -1017,7 +1048,7 @@ mod _alloc {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for rc::Weak<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1048,7 +1079,7 @@ mod _alloc {
 
     impl<T: TreeSerialize> TreeSerialize for Arc<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -1059,7 +1090,7 @@ mod _alloc {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Arc<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1110,7 +1141,7 @@ mod _alloc {
 
     impl<T: TreeSerialize> TreeSerialize for sync::Weak<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -1123,7 +1154,7 @@ mod _alloc {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for sync::Weak<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1160,7 +1191,7 @@ mod _std {
 
     impl<T: TreeSerialize> TreeSerialize for Mutex<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -1173,7 +1204,7 @@ mod _std {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Mutex<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1186,7 +1217,7 @@ mod _std {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &Mutex<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1238,7 +1269,7 @@ mod _std {
 
     impl<T: TreeSerialize> TreeSerialize for RwLock<T> {
         #[inline]
-        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+        fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
         where
             K: Keys,
             S: Serializer,
@@ -1251,7 +1282,7 @@ mod _std {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RwLock<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,
@@ -1264,7 +1295,7 @@ mod _std {
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RwLock<T> {
         #[inline]
-        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+        fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
         where
             K: Keys,
             D: Deserializer<'de>,

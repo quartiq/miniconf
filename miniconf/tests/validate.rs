@@ -14,17 +14,17 @@ struct Settings {
 }
 
 impl Settings {
-    fn validate_v(&mut self, depth: usize) -> Result<usize, &'static str> {
+    fn validate_v(&mut self) -> Result<(), &'static str> {
         if *self.v >= 0.0 {
-            Ok(depth)
+            Ok(())
         } else {
             Err("")
         }
     }
 
-    fn validate_i(&mut self, depth: usize) -> Result<usize, &'static str> {
+    fn validate_i(&mut self) -> Result<(), &'static str> {
         if *self.i.a >= 0.0 {
-            Ok(depth)
+            Ok(())
         } else {
             Err("")
         }
@@ -108,7 +108,7 @@ fn enable_option() {
     }
 
     impl S {
-        fn validate(&mut self, depth: usize) -> Result<usize, &'static str> {
+        fn validate(&mut self) -> Result<(), &'static str> {
             if *self.enable {
                 if self.opt.is_none() {
                     self.opt = Some(Default::default());
@@ -116,7 +116,7 @@ fn enable_option() {
             } else {
                 self.opt = None;
             }
-            Ok(depth)
+            Ok(())
         }
     }
 

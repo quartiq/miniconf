@@ -114,7 +114,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///     b: [Leaf<f32>; 2],
 /// };
 /// impl S {
-///     fn non_leaf(&mut self, depth: usize) -> Result<usize, &'static str> {
+///     fn non_leaf(&mut self) -> Result<(), &'static str> {
 ///         Err("fail")
 ///     }
 /// }
@@ -413,7 +413,7 @@ pub trait TreeSerialize {
     ///
     /// # Returns
     /// Node depth on success.
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer;
@@ -453,7 +453,7 @@ pub trait TreeDeserialize<'de> {
     ///
     /// # Returns
     /// Node depth on success
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>;
@@ -499,7 +499,7 @@ impl<T: TreeKey> TreeKey for &mut T {
 
 impl<T: TreeSerialize> TreeSerialize for &T {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -510,7 +510,7 @@ impl<T: TreeSerialize> TreeSerialize for &T {
 
 impl<T: TreeSerialize> TreeSerialize for &mut T {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -521,7 +521,7 @@ impl<T: TreeSerialize> TreeSerialize for &mut T {
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
