@@ -44,7 +44,9 @@ yafnv = "3.0.0"
 tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.26.3", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
-serde_json = { version = "1.0.133" }
+serde_json = "1.0.133"
+serde-reflection = "0.5"
+indexmap = { version = "2.9", features = ["serde"] }
 
 [[test]]
 name = "arrays"
@@ -109,4 +111,8 @@ required-features = ["json-core", "derive", "postcard"]
 
 [[example]]
 name = "scpi"
+required-features = ["json-core", "derive"]
+
+[[example]]
+name = "trace"
 required-features = ["json-core", "derive"]

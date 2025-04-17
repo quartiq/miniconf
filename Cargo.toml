@@ -5,3 +5,6 @@ members = [
     "miniconf_mqtt",
 ]
 resolver = "2"
+
+[patch.crates-io]
+serde-reflection = { path = "../serde-reflection/serde-reflection" }
