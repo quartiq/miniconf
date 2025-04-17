@@ -274,8 +274,7 @@ where
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let mut buf = vec![0; 1024];
-    let mut s = common::Settings::default();
-    s.enable();
+    let mut s = common::Settings::new();
 
     let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin()).lines();
@@ -301,8 +300,7 @@ mod test {
     #[tokio::test]
     async fn test() {
         let mut buf = vec![0; 1024];
-        let mut s = common::Settings::default();
-        s.enable();
+        let mut s = common::Settings::new();
 
         let mut stdout = embedded_io_adapters::tokio_1::FromTokio::new(tokio::io::stdout());
         let mut menu = Menu::default();

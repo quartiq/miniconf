@@ -42,6 +42,13 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Create a new enabled Settings
+    pub fn new() -> Self {
+        let mut s = Self::default();
+        s.enable();
+        s
+    }
+
     /// Fill some of the Options
     pub fn enable(&mut self) {
         self.option_tree = Some(8.into());

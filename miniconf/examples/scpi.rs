@@ -5,7 +5,6 @@ use miniconf::{
 };
 
 mod common;
-use common::Settings;
 
 /// This show-cases the implementation of a custom [`miniconf::Key`]
 /// along the lines of SCPI style hierarchies. It is case-insensitive and
@@ -134,8 +133,7 @@ impl<M: TreeSerialize + TreeDeserializeOwned> ScpiCtrl<M> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let mut settings = Settings::default();
-    settings.enable();
+    let settings = common::Settings::new();
     let mut ctrl = ScpiCtrl::new(settings);
 
     ctrl.cmd("fO?; foo?; FOO?; :FOO?; :ARRAY_OPT:1:A?; A?; A?; A 1; A?; :FOO?")?;
