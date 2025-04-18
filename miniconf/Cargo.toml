@@ -45,7 +45,7 @@ tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.27.1", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
-serde-reflection = { version = "0.5", path = "../../serde-reflection/serde-reflection" }
+serde-reflection = { version = "0.5", git = "https://github.com/quartiq/serde-reflection.git", branch = "pub-ser-de" }
 indexmap = { version = "2.9", features = ["serde"] }
 once_cell = "1.21.3"
 
