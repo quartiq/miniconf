@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use core::num::NonZero;
 
 use indexmap::IndexMap;
@@ -53,10 +54,12 @@ impl Walk for Node {
 impl Node {
     /// Visit each node in the graph
     ///
-    /// Pass the keys as well as the node by reference to the visitor
+    /// Pass the indices keys as well as the node by reference to the visitor
     ///
     /// Note that only the representative child will be visited for a
     /// homogeneous internal node.
+    ///
+    /// Depth first.
     pub fn visit<F, E>(&self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &Self) -> Result<(), E>,
@@ -89,10 +92,12 @@ impl Node {
 
     /// Visit each node in the graph mutably
     ///
-    /// Pass the keys as well as the node by mutable reference to the visitor
+    /// Pass the indices keys as well as the node by mutable reference to the visitor
     ///
     /// Note that only the representative child will be visited for a
     /// homogeneous internal node.
+    ///
+    /// Depth first.
     pub fn visit_mut<F, E>(&mut self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &mut Self) -> Result<(), E>,
@@ -121,6 +126,46 @@ impl Node {
             }
         }
         Ok(())
+    }
+}
+
+/// Graph of `Node` for a Tree type
+pub struct Graph<T> {
+    root: Node,
+    _t: PhantomData<T>,
+}
+
+impl<T: TreeKey> Default for Graph<T> {
+    fn default() -> Self {
+        Self {
+            root: T::traverse_all().unwrap(), // infallible
+            _t: PhantomData,
+        }
+    }
+}
+
+impl<T> Graph<T> {
+    /// Return a reference to the root node
+    pub fn root(&self) -> &Node {
+        &self.root
+    }
+
+    /// Visit all graph nodes by indices and node reference
+    pub fn visit<F, E>(&self, func: &mut F) -> Result<(), E>
+    where
+        F: FnMut(&Vec<usize>, &Node) -> Result<(), E>,
+    {
+        self.root.visit(&mut vec![], func)
+    }
+
+    /// Visit all graph nodes by indices and mutable node reference
+    ///
+    /// Not pub to uphold Graph<->T correctness
+    fn visit_mut<F, E>(&mut self, func: &mut F) -> Result<(), E>
+    where
+        F: FnMut(&Vec<usize>, &mut Node) -> Result<(), E>,
+    {
+        self.root.visit_mut(&mut vec![], func)
     }
 }
 
@@ -153,12 +198,12 @@ impl Tracer {
         &mut self,
         samples: &mut Samples,
         value: &T,
-        root: &mut Node,
+        graph: &mut Graph<T>,
     ) -> Result<(), serde_reflection::Error>
     where
         T: TreeSerialize,
     {
-        root.visit_mut(&mut vec![], &mut |keys, node| {
+        graph.visit_mut(&mut |keys, node| {
             if let Node::Leaf(format) = node {
                 match self.trace_value(samples, value, keys.into_keys()) {
                     Ok((mut fmt, _value)) => {
@@ -210,12 +255,12 @@ impl Tracer {
     pub fn trace_types<'de, T>(
         &mut self,
         samples: &'de Samples,
-        root: &mut Node,
+        graph: &mut Graph<T>,
     ) -> Result<(), serde_reflection::Error>
     where
         T: TreeDeserialize<'de>,
     {
-        root.visit_mut(&mut vec![], &mut |keys, node| {
+        graph.visit_mut(&mut |keys, node| {
             if let Node::Leaf(format) = node {
                 match self.trace_type::<T, _>(samples, keys.into_keys()) {
                     Ok(mut fmt) => {
@@ -233,36 +278,37 @@ impl Tracer {
     /// Trace all leaf types assuming no samples are needed
     pub fn trace_types_simple<'de, T>(
         &mut self,
-        root: &mut Node,
+        graph: &mut Graph<T>,
     ) -> Result<(), serde_reflection::Error>
     where
         T: TreeDeserialize<'de>,
     {
         static SAMPLES: Lazy<Samples> = Lazy::new(Samples::new);
-        self.trace_types::<T>(&SAMPLES, root)
+        self.trace_types(&SAMPLES, graph)
     }
 }
 
 fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
 
-    let mut root: Node = common::Settings::traverse_all()?;
+    let mut graph = Graph::<common::Settings>::default();
     let mut tracer = Tracer::new(TracerConfig::default());
 
     // Trace values with TreeSerialize
     let mut samples = Samples::new();
     tracer
-        .trace_values(&mut samples, &settings, &mut root)
+        .trace_values(&mut samples, &settings, &mut graph)
         .unwrap();
 
     // Trace typs with TreeDeserialize
-    tracer
-        .trace_types_simple::<common::Settings>(&mut root)
-        .unwrap();
+    tracer.trace_types_simple(&mut graph).unwrap();
 
     // Dump
     let registry = tracer.registry().unwrap();
-    println!("{}", serde_json::to_string_pretty(&(&root, &registry))?,);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&(graph.root(), &registry))?,
+    );
 
     Ok(())
 }
