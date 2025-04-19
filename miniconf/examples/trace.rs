@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{
-    Deserializer, Format, FormatHolder, Registry, Samples, Serializer, TracerConfig, Value,
+    Deserializer, Format, FormatHolder, Samples, Serializer, Tracer, TracerConfig, Value,
 };
 
 use miniconf::{
@@ -54,12 +54,12 @@ impl Walk for Node {
 impl Node {
     /// Visit each node in the graph
     ///
-    /// Pass the indices keys as well as the node by reference to the visitor
+    /// Pass the indices as well as the node by reference to the visitor
     ///
     /// Note that only the representative child will be visited for a
     /// homogeneous internal node.
     ///
-    /// Depth first.
+    /// Top down, depth first.
     pub fn visit<F, E>(&self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &Self) -> Result<(), E>,
@@ -92,12 +92,12 @@ impl Node {
 
     /// Visit each node in the graph mutably
     ///
-    /// Pass the indices keys as well as the node by mutable reference to the visitor
+    /// Pass the indices as well as the node by mutable reference to the visitor
     ///
     /// Note that only the representative child will be visited for a
     /// homogeneous internal node.
     ///
-    /// Depth first.
+    /// top down, depth first.
     pub fn visit_mut<F, E>(&mut self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&Vec<usize>, &mut Self) -> Result<(), E>,
@@ -126,6 +126,46 @@ impl Node {
             }
         }
         Ok(())
+    }
+}
+
+/// Trace a leaf value
+pub fn trace_value<T: TreeSerialize, K: Keys>(
+    tracer: &mut Tracer,
+    samples: &mut Samples,
+    keys: K,
+    value: &T,
+) -> Result<(Format, Value), Error<serde_reflection::Error>> {
+    value.serialize_by_key(keys, Serializer::new(tracer, samples))
+}
+
+/// Trace a leaf type once
+pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: Keys>(
+    tracer: &mut Tracer,
+    samples: &'de Samples,
+    keys: K,
+) -> Result<Format, Error<serde_reflection::Error>> {
+    let mut format = Format::unknown();
+    T::probe_by_key(keys, Deserializer::new(tracer, samples, &mut format))?;
+    format.reduce();
+    Ok(format)
+}
+
+/// Trace a leaf type until complete
+pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
+    tracer: &mut Tracer,
+    samples: &'de Samples,
+    keys: K,
+) -> Result<Format, Error<serde_reflection::Error>> {
+    loop {
+        let format = trace_type_once::<T, _>(tracer, samples, keys.clone())?;
+        if let Format::TypeName(name) = &format {
+            if tracer.incomplete_enums.remove(name).is_some() {
+                // Restart the analysis to find more variants.
+                continue;
+            }
+        }
+        return Ok(format);
     }
 }
 
@@ -167,45 +207,20 @@ impl<T> Graph<T> {
     {
         self.root.visit_mut(&mut vec![], func)
     }
-}
-
-/// A tracer for the `TreeSerialize` and `TreeDeserialize` traits
-pub struct Tracer(serde_reflection::Tracer);
-
-impl Tracer {
-    /// Create a new tracer given a configuration
-    pub fn new(config: TracerConfig) -> Self {
-        Self(serde_reflection::Tracer::new(config))
-    }
-
-    /// Consume the tracer and return its registry if complete
-    pub fn registry(self) -> serde_reflection::Result<Registry> {
-        self.0.registry()
-    }
-
-    /// Trace one leaf value
-    pub fn trace_value<T: TreeSerialize, K: Keys>(
-        &mut self,
-        samples: &mut Samples,
-        value: &T,
-        keys: K,
-    ) -> Result<(Format, Value), Error<serde_reflection::Error>> {
-        value.serialize_by_key(keys, Serializer::new(&mut self.0, samples))
-    }
 
     /// Trace all leaf values
-    pub fn trace_values<T>(
+    pub fn trace_values(
         &mut self,
+        tracer: &mut Tracer,
         samples: &mut Samples,
         value: &T,
-        graph: &mut Graph<T>,
     ) -> Result<(), serde_reflection::Error>
     where
         T: TreeSerialize,
     {
-        graph.visit_mut(&mut |keys, node| {
+        self.visit_mut(&mut |idx, node| {
             if let Node::Leaf(format) = node {
-                match self.trace_value(samples, value, keys.into_keys()) {
+                match trace_value(tracer, samples, idx.into_keys(), value) {
                     Ok((mut fmt, _value)) => {
                         fmt.reduce();
                         *format = Some(fmt);
@@ -221,48 +236,18 @@ impl Tracer {
         })
     }
 
-    /// Trace one leaf type once
-    pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: Keys>(
-        &mut self,
-        samples: &'de Samples,
-        keys: K,
-    ) -> Result<Format, Error<serde_reflection::Error>> {
-        let mut format = Format::unknown();
-        T::probe_by_key(keys, Deserializer::new(&mut self.0, samples, &mut format))?;
-        format.reduce();
-        Ok(format)
-    }
-
-    /// Trace one leaf type until complete
-    pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
-        &mut self,
-        samples: &'de Samples,
-        keys: K,
-    ) -> Result<Format, Error<serde_reflection::Error>> {
-        loop {
-            let format = self.trace_type_once::<T, _>(samples, keys.clone())?;
-            if let Format::TypeName(name) = &format {
-                if self.0.incomplete_enums.remove(name).is_some() {
-                    // Restart the analysis to find more variants.
-                    continue;
-                }
-            }
-            return Ok(format);
-        }
-    }
-
     /// Trace all leaf types until complete
-    pub fn trace_types<'de, T>(
+    pub fn trace_types<'de>(
         &mut self,
+        tracer: &mut Tracer,
         samples: &'de Samples,
-        graph: &mut Graph<T>,
     ) -> Result<(), serde_reflection::Error>
     where
         T: TreeDeserialize<'de>,
     {
-        graph.visit_mut(&mut |keys, node| {
+        self.visit_mut(&mut |idx, node| {
             if let Node::Leaf(format) = node {
-                match self.trace_type::<T, _>(samples, keys.into_keys()) {
+                match trace_type::<T, _>(tracer, samples, idx.into_keys()) {
                     Ok(mut fmt) => {
                         fmt.reduce();
                         *format = Some(fmt);
@@ -276,15 +261,15 @@ impl Tracer {
     }
 
     /// Trace all leaf types assuming no samples are needed
-    pub fn trace_types_simple<'de, T>(
+    pub fn trace_types_simple<'de>(
         &mut self,
-        graph: &mut Graph<T>,
+        tracer: &mut Tracer,
     ) -> Result<(), serde_reflection::Error>
     where
         T: TreeDeserialize<'de>,
     {
         static SAMPLES: Lazy<Samples> = Lazy::new(Samples::new);
-        self.trace_types(&SAMPLES, graph)
+        self.trace_types(tracer, &SAMPLES)
     }
 }
 
@@ -292,18 +277,18 @@ fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
 
     let mut graph = Graph::<common::Settings>::default();
-    let mut tracer = Tracer::new(TracerConfig::default());
+    let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
 
-    // Trace values with TreeSerialize
+    // Using TreeSerialize
     let mut samples = Samples::new();
-    tracer
-        .trace_values(&mut samples, &settings, &mut graph)
+    graph
+        .trace_values(&mut tracer, &mut samples, &settings)
         .unwrap();
 
-    // Trace typs with TreeDeserialize
-    tracer.trace_types_simple(&mut graph).unwrap();
+    // Using TreeDeserialize
+    graph.trace_types_simple(&mut tracer).unwrap();
 
-    // Dump
+    // Dump graph and registry
     let registry = tracer.registry().unwrap();
     println!(
         "{}",
