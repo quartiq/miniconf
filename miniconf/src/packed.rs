@@ -241,6 +241,13 @@ impl Packed {
     }
 }
 
+impl core::fmt::Display for Packed {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl Keys for Packed {
     #[inline]
     fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {

@@ -38,6 +38,13 @@ use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 #[serde(transparent)]
 pub struct JsonPathIter<'a>(&'a str);
 
+impl core::fmt::Display for JsonPathIter<'_> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 impl<'a, T> From<&'a T> for JsonPathIter<'a>
 where
     T: AsRef<str> + ?Sized,
@@ -60,10 +67,10 @@ impl<'a> Iterator for JsonPathIter<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         for (open, close) in [
-            (".'", Continue("'")),         // "'" inclusive
-            (".", Break(&['.', '['][..])), // '.' or '[' exclusive
-            ("['", Continue("']")),        // "']" inclusive
-            ("[", Continue("]")),          // "]" inclusive
+            (".'", Continue("'")),    // "'" inclusive
+            (".", Break(['.', '['])), // '.' or '[' exclusive
+            ("['", Continue("']")),   // "']" inclusive
+            ("[", Continue("]")),     // "]" inclusive
         ] {
             if let Some(rest) = self.0.strip_prefix(open) {
                 let (end, sep) = match close {
@@ -122,6 +129,13 @@ impl<T: ?Sized> DerefMut for JsonPath<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl<T: core::fmt::Display> core::fmt::Display for JsonPath<T> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
