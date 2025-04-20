@@ -117,13 +117,4 @@ impl<E> Error<E> {
             Self::Finalization(e) => Self::Finalization(e),
         }
     }
-
-    /// Pass a `Result<usize, Error<E>>` up one hierarchy depth level, incrementing its usize depth field by one.
-    #[inline]
-    pub fn increment_result(result: Result<usize, Self>) -> Result<usize, Self> {
-        match result {
-            Ok(i) => Ok(i + 1),
-            Err(err) => Err(err.increment()),
-        }
-    }
 }

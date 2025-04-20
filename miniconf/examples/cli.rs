@@ -2,15 +2,13 @@ use anyhow::Context;
 use miniconf::{json, Error, Path, Traversal, TreeKey};
 
 mod common;
-use common::Settings;
 
 // Simple command line interface example for miniconf.
 // This exposes all leaf nodes as long options, parses the command line,
 // and then prints the settings struct as a list of option key-value pairs.
 
 fn main() -> anyhow::Result<()> {
-    let mut settings = Settings::default();
-    settings.enable();
+    let mut settings = common::Settings::new();
 
     // Parse args
     let mut args = std::env::args().skip(1);
@@ -23,7 +21,7 @@ fn main() -> anyhow::Result<()> {
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    for (key, _node) in Settings::nodes::<Path<String, '-'>, 4>().map(Result::unwrap) {
+    for (key, _node) in common::Settings::nodes::<Path<String, '-'>, 4>().map(Result::unwrap) {
         match json::get_by_key(&settings, &key, &mut buf[..]) {
             Ok(len) => {
                 println!(

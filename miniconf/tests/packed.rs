@@ -109,7 +109,7 @@ fn zero_key() {
     for (depth, result) in [
         Err(Traversal::TooShort(0).into()),
         Err(Traversal::TooShort(1).into()),
-        Ok(2),
+        Ok(()),
     ]
     .iter()
     .enumerate()

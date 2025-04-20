@@ -114,7 +114,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///     b: [Leaf<f32>; 2],
 /// };
 /// impl S {
-///     fn non_leaf(&mut self, depth: usize) -> Result<usize, &'static str> {
+///     fn non_leaf(&mut self) -> Result<(), &'static str> {
 ///         Err("fail")
 ///     }
 /// }
@@ -410,10 +410,7 @@ pub trait TreeSerialize {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `ser`: A `Serializer` to to serialize the value.
-    ///
-    /// # Returns
-    /// Node depth on success.
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer;
@@ -450,10 +447,32 @@ pub trait TreeDeserialize<'de> {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>;
+
+    /// Blind deserialize a leaf node by its keys.
     ///
-    /// # Returns
-    /// Node depth on success
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    /// ```
+    /// # #[cfg(feature = "derive")] {
+    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
+    /// #[derive(Default, TreeKey, TreeDeserialize)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
+    /// S::probe_by_key(["bar", "0"].into_keys(), &mut de)
+    ///     .unwrap();
+    /// de.end().unwrap();
+    /// # }
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: A `Keys` identifying the node.
+    /// * `de`: A `Deserializer` to deserialize the value.
+    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>;
@@ -499,7 +518,7 @@ impl<T: TreeKey> TreeKey for &mut T {
 
 impl<T: TreeSerialize> TreeSerialize for &T {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -510,7 +529,7 @@ impl<T: TreeSerialize> TreeSerialize for &T {
 
 impl<T: TreeSerialize> TreeSerialize for &mut T {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<usize, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
     where
         K: Keys,
         S: Serializer,
@@ -521,12 +540,21 @@ impl<T: TreeSerialize> TreeSerialize for &mut T {
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<usize, Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
         (**self).deserialize_by_key(keys, de)
+    }
+
+    #[inline]
+    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
+    where
+        K: Keys,
+        D: Deserializer<'de>,
+    {
+        T::probe_by_key(keys, de)
     }
 }
 

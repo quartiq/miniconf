@@ -20,6 +20,7 @@ pub enum TreeTrait {
 struct Deny {
     serialize: Option<String>,
     deserialize: Option<String>,
+    typ: Option<String>,
     ref_any: Option<String>,
     mut_any: Option<String>,
 }
@@ -117,9 +118,11 @@ impl TreeField {
         } else if let Some(defer) = &self.defer {
             quote_spanned!(defer.span()=> ::core::result::Result::Ok(&#defer))
         } else if let Some(i) = i {
+            // named or tuple struct
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&self.#ident))
         } else {
+            // enum
             quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
         }
     }
@@ -132,9 +135,11 @@ impl TreeField {
         } else if let Some(defer) = &self.defer {
             quote_spanned!(defer.span()=> ::core::result::Result::Ok(&mut #defer))
         } else if let Some(i) = i {
+            // named or tuple struct
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&mut self.#ident))
         } else {
+            // enum
             quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
         }
     }
@@ -142,7 +147,7 @@ impl TreeField {
     fn validator(&self) -> Option<TokenStream> {
         self.validate.as_ref().map(|validate| {
             quote_spanned! { validate.span()=>
-                .and_then(|depth| #validate(depth)
+                .and_then(|()| #validate()
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
                 )
             }
@@ -182,6 +187,14 @@ impl TreeField {
                     )
                     #validator
             }
+        }
+    }
+
+    pub fn probe_by_key(&self, i: usize) -> TokenStream {
+        // Quote context is a match of the field index with `probe_by_key()` args available.
+        let typ = self.typ();
+        quote_spanned! { self.span()=>
+            #i => <#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)
         }
     }
 

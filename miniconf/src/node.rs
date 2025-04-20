@@ -190,6 +190,13 @@ impl<T, const S: char> From<T> for Path<T, S> {
     }
 }
 
+impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(transparent)]
@@ -319,6 +326,13 @@ impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
     #[inline]
     fn from(value: Indices<[T; D]>) -> Self {
         value.0
+    }
+}
+
+impl<T: core::fmt::Display> core::fmt::Display for Indices<T> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
     }
 }
 
