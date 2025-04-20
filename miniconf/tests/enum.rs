@@ -33,7 +33,7 @@ fn enum_switch() {
     set_get(&mut s, "/tag", b"\"foo\"");
     assert_eq!(
         json::set(&mut s, "/tag", b"\"bar\""),
-        Err(miniconf::Traversal::Invalid(1, "Could not convert").into())
+        Err(miniconf::Traversal::Invalid(1, "Could not convert from str").into())
     );
     assert_eq!(*s.enu, Enum::A(0.into()));
     set_get(&mut s, "/enu/foo", b"99");
