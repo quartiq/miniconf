@@ -118,9 +118,11 @@ impl TreeField {
         } else if let Some(defer) = &self.defer {
             quote_spanned!(defer.span()=> ::core::result::Result::Ok(&#defer))
         } else if let Some(i) = i {
+            // named or tuple struct
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&self.#ident))
         } else {
+            // enum
             quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
         }
     }
@@ -133,9 +135,11 @@ impl TreeField {
         } else if let Some(defer) = &self.defer {
             quote_spanned!(defer.span()=> ::core::result::Result::Ok(&mut #defer))
         } else if let Some(i) = i {
+            // named or tuple struct
             let ident = self.ident_or_index(i);
             quote_spanned!(self.span()=> ::core::result::Result::Ok(&mut self.#ident))
         } else {
+            // enum
             quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
         }
     }
@@ -143,10 +147,8 @@ impl TreeField {
     fn validator(&self) -> Option<TokenStream> {
         self.validate.as_ref().map(|validate| {
             quote_spanned! { validate.span()=>
-                .and_then(|ok| #validate()
-                    .and(Ok(ok))
+                .and_then(|()| #validate()
                     .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
-
                 )
             }
         })
