@@ -8,11 +8,23 @@ struct Inner {
     a: Leaf<i32>,
 }
 
-#[derive(Tree, Default, PartialEq, Debug, strum::EnumString, strum::AsRefStr)]
+#[derive(
+    Tree,
+    Default,
+    PartialEq,
+    Debug,
+    strum::EnumString,
+    strum::AsRefStr,
+    strum::FromRepr,
+    strum::EnumDiscriminants,
+)]
+#[strum_discriminants(derive(Default, serde::Serialize, serde::Deserialize))]
 enum Enum {
     #[default]
+    #[strum_discriminants(default)]
     None,
     #[strum(serialize = "foo")]
+    #[strum_discriminants(serde(rename = "foo"))]
     #[tree(rename = "foo")]
     A(Leaf<i32>),
     B(Inner),
@@ -24,6 +36,19 @@ struct Settings {
     enu: StrLeaf<Enum>,
     #[tree(rename = "enu", typ = "Enum", defer = *self.enu)]
     _enu: (),
+
+    // Alternative without StrLeaf, more schema on the tag, but with potential desync
+    #[tree(validate=self.switch)]
+    tag2: Leaf<EnumDiscriminants>,
+    enu2: Enum,
+}
+
+impl Settings {
+    fn switch(&mut self) -> Result<(), &'static str> {
+        // Could NOP on no-change here.
+        self.enu2 = Enum::from_repr(*self.tag2 as _).unwrap();
+        Ok(())
+    }
 }
 
 #[test]
@@ -46,7 +71,17 @@ fn enum_switch() {
     set_get(&mut s, "/enu/B/a", b"8");
     assert_eq!(*s.enu, Enum::B(Inner { a: 8.into() }));
 
-    assert_eq!(paths::<Settings, 3>(), ["/tag", "/enu/foo", "/enu/B/a"]);
+    assert_eq!(
+        paths::<Settings, 3>(),
+        [
+            "/tag",
+            "/enu/foo",
+            "/enu/B/a",
+            "/tag2",
+            "/enu2/foo",
+            "/enu2/B/a"
+        ]
+    );
 }
 
 #[test]
