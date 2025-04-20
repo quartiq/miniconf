@@ -242,7 +242,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     {
         keys.finalize()?;
         let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert")))?;
+        self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert from str")))?;
         Ok(())
     }
 
@@ -254,7 +254,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     {
         keys.finalize()?;
         let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert")))?;
+        T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert from str")))?;
         Ok(())
     }
 }
