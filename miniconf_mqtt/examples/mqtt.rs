@@ -1,6 +1,6 @@
 use heapless::String;
-use miniconf::{Leaf, Tree};
-use serde::{Deserialize, Serialize};
+use miniconf::{Error, Keys, Leaf, Traversal, Tree, TreeDeserialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -26,25 +26,25 @@ struct Settings {
     values: [Leaf<f32>; 2],
     array: Leaf<[i32; 4]>,
     opt: Option<Leaf<i32>>,
-    #[tree(validate=self.validate_four)]
+    #[tree(with(deserialize=self.deserialize_four))]
     four: Leaf<f32>,
-    #[tree(validate=self.validate_exit, rename=exit)]
-    _exit: Leaf<()>,
-    #[tree(skip)]
-    exit: bool,
+    exit: Leaf<bool>,
 }
 
 impl Settings {
-    fn validate_four(&mut self) -> Result<(), &'static str> {
+    fn deserialize_four<'de, K: Keys, D: Deserializer<'de>>(
+        &mut self,
+        keys: K,
+        de: D,
+    ) -> Result<(), Error<D::Error>> {
+        let old = *self.four;
+        self.four.deserialize_by_key(keys, de)?;
         if *self.four < 4.0 {
-            Err("Less than four")
+            *self.four = old;
+            Err(Traversal::Invalid(0, "Less than four").into())
         } else {
             Ok(())
         }
-    }
-    fn validate_exit(&mut self) -> Result<(), &'static str> {
-        self.exit = true;
-        Ok(())
     }
 }
 
@@ -67,7 +67,7 @@ async fn main() {
     client.set_alive("\"hello\"");
 
     let mut settings = Settings::default();
-    while !settings.exit {
+    while !*settings.exit {
         tokio::time::sleep(Duration::from_millis(10)).await;
         if client.update(&mut settings).unwrap() {
             println!("Settings updated: {:?}", settings);

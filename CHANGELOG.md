@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * deserialize_by_key: returns () instead of depth
 * TreeDeserialize: add probe_by_key() for tracing without sample
 * Walk::internal() takes slice of children by value
-* derive: deserialize validate doesn't receive or return depth
+* derive: `validate`, `get`, `get_mut` replaced with `with(serialize=expr, deserialize=expr...)`
 
 ## [0.18.0](https://github.com/quartiq/miniconf/compare/v0.17.2...v0.18.0) - 2024-11-22
 

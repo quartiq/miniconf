@@ -1,32 +1,25 @@
-use miniconf::{json, Leaf, Traversal, Tree};
-
-#[derive(Tree, Default)]
-struct Inner {
-    a: Leaf<f32>,
-}
+use miniconf::{json, Error, Keys, Leaf, Traversal, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use serde::{Deserializer, Serializer};
 
 #[derive(Tree, Default)]
 struct Settings {
-    #[tree(validate=self.validate_v)]
+    #[tree(with(deserialize=self.deserialize_v))]
     v: Leaf<f32>,
-    #[tree(validate=self.validate_i)]
-    i: Inner,
 }
 
 impl Settings {
-    fn validate_v(&mut self) -> Result<(), &'static str> {
+    fn deserialize_v<'de, K: Keys, D: Deserializer<'de>>(
+        &mut self,
+        keys: K,
+        de: D,
+    ) -> Result<(), Error<D::Error>> {
+        let old = *self.v;
+        self.v.deserialize_by_key(keys, de)?;
         if *self.v >= 0.0 {
             Ok(())
         } else {
-            Err("")
-        }
-    }
-
-    fn validate_i(&mut self) -> Result<(), &'static str> {
-        if *self.i.a >= 0.0 {
-            Ok(())
-        } else {
-            Err("")
+            *self.v = old;
+            Err(Traversal::Invalid(0, "").into())
         }
     }
 }
@@ -40,44 +33,48 @@ fn validate() {
         json::set(&mut s, "/v", b"-1.0"),
         Err(Traversal::Invalid(1, "").into())
     );
-    // TODO
-    // assert_eq!(*s.v, 1.0); // remains unchanged
-    json::set(&mut s, "/i/a", b"1.0").unwrap();
-    assert_eq!(*s.i.a, 1.0);
-    assert_eq!(
-        json::set(&mut s, "/i/a", b"-1.0"),
-        Err(Traversal::Invalid(1, "").into())
-    );
-    assert_eq!(*s.i.a, -1.0); // has changed as internal validation was done after leaf setting
-    assert_eq!(json::set(&mut s, "/i/a", b"1.0"), Ok(3));
+    assert_eq!(*s.v, 1.0); // remains unchanged
 }
 
 #[test]
 fn paging() {
     // Demonstrate and test how a variable length `Vec` can be accessed
     // through a variable offset, fixed length array.
-    #[derive(Default, Tree)]
+    #[derive(Default, TreeKey, TreeDeserialize, TreeSerialize)]
     struct S {
-        #[tree(typ="[Leaf<i32>; 4]", get=self.get::<4>(), get_mut=self.get_mut::<4>(), rename=arr)]
+        #[tree(typ="[Leaf<i32>; 4]", rename=arr,
+            with(serialize=self.serialize_vec, deserialize=self.deserialize_vec))]
         vec: Vec<Leaf<i32>>,
         offset: Leaf<usize>,
     }
+
     impl S {
-        fn get<const N: usize>(&self) -> Result<&[Leaf<i32>; N], &'static str> {
-            Ok(self
+        fn serialize_vec<S: Serializer>(
+            &self,
+            keys: impl Keys,
+            ser: S,
+        ) -> Result<S::Ok, Error<S::Error>> {
+            let arr: &[Leaf<i32>; 4] = self
                 .vec
-                .get(*self.offset..*self.offset + N)
-                .ok_or("range")?
+                .get(*self.offset..*self.offset + 4)
+                .ok_or(Traversal::Access(0, "range"))?
                 .try_into()
-                .unwrap())
+                .unwrap();
+            arr.serialize_by_key(keys, ser)
         }
-        fn get_mut<const N: usize>(&mut self) -> Result<&mut [Leaf<i32>; N], &'static str> {
-            Ok(self
+
+        fn deserialize_vec<'de, K: Keys, D: Deserializer<'de>>(
+            &mut self,
+            keys: K,
+            de: D,
+        ) -> Result<(), Error<D::Error>> {
+            let arr: &mut [Leaf<i32>; 4] = self
                 .vec
-                .get_mut(*self.offset..*self.offset + N)
-                .ok_or("range")?
+                .get_mut(*self.offset..*self.offset + 4)
+                .ok_or(Traversal::Access(0, "range"))?
                 .try_into()
-                .unwrap())
+                .unwrap();
+            arr.deserialize_by_key(keys, de)
         }
     }
     let mut s = S::default();
@@ -96,65 +93,31 @@ fn paging() {
 }
 
 #[test]
-fn enable_option() {
-    // This may be less desirable as enable and the variant are redundant and can
-    // become desynced by direct writes.
-    // Also it forgets the Some value.
-    #[derive(Default, Tree)]
-    struct S {
-        opt: Option<Leaf<i32>>,
-        #[tree(validate=self.validate)]
-        enable: Leaf<bool>,
-    }
-
-    impl S {
-        fn validate(&mut self) -> Result<(), &'static str> {
-            if *self.enable {
-                if self.opt.is_none() {
-                    self.opt = Some(Default::default());
-                }
-            } else {
-                self.opt = None;
-            }
-            Ok(())
-        }
-    }
-
-    let mut s = S::default();
-    json::set(&mut s, "/enable", b"true").unwrap();
-    json::set(&mut s, "/opt", b"1").unwrap();
-    assert_eq!(s.opt, Some(1.into()));
-    json::set(&mut s, "/enable", b"false").unwrap();
-    assert_eq!(s.opt, None);
-    json::set(&mut s, "/opt", b"1").unwrap_err();
-}
-
-#[test]
 fn locked() {
-    // This is a bit nicer (could also be called `lock`, or be a `Access` enum)
-    // It doesn't show up as `Absent` though.
-    #[derive(Default, Tree)]
+    #[derive(Default, TreeKey, TreeSerialize, TreeDeserialize)]
     struct S {
-        #[tree(get=self.get(), get_mut=self.get_mut())]
+        #[tree(with(serialize=self.get, deserialize=self.set))]
         val: Leaf<i32>,
         read: Leaf<bool>,
         write: Leaf<bool>,
     }
 
     impl S {
-        fn get(&self) -> Result<&Leaf<i32>, &'static str> {
-            if *self.read {
-                Ok(&self.val)
-            } else {
-                Err("not readable")
+        fn get<K: Keys, S: Serializer>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>> {
+            if !*self.read {
+                return Err(Traversal::Access(0, "not readable").into());
             }
+            self.val.serialize_by_key(keys, ser)
         }
-        fn get_mut(&mut self) -> Result<&mut Leaf<i32>, &'static str> {
-            if *self.write {
-                Ok(&mut self.val)
-            } else {
-                Err("not writable")
+        fn set<'de, K: Keys, D: Deserializer<'de>>(
+            &mut self,
+            keys: K,
+            de: D,
+        ) -> Result<(), Error<D::Error>> {
+            if !*self.write {
+                return Err(Traversal::Access(0, "not writable").into());
             }
+            self.val.deserialize_by_key(keys, de)
         }
     }
 

@@ -155,7 +155,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 /// #[derive(Tree)]
 /// struct S {
 ///     e: StrLeaf<En>,
-///     #[tree(typ="En", defer=*self.e)]
+///     #[tree(typ="En", defer=(*self.e))]
 ///     t: (),
 /// }
 /// let mut s = S {

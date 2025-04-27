@@ -5,11 +5,11 @@ use darling::{
     FromField, FromMeta,
 };
 use proc_macro2::{Span, TokenStream};
-use quote::quote_spanned;
-use syn::{parse_quote, spanned::Spanned};
+use quote::{quote, quote_spanned, ToTokens};
+use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum TreeTrait {
+pub(crate) enum TreeTrait {
     Key,
     Serialize,
     Deserialize,
@@ -18,25 +18,36 @@ pub enum TreeTrait {
 
 #[derive(Debug, FromMeta, PartialEq, Clone, Default)]
 struct Deny {
+    traverse: Option<String>,
     serialize: Option<String>,
     deserialize: Option<String>,
-    typ: Option<String>,
+    probe: Option<String>,
     ref_any: Option<String>,
     mut_any: Option<String>,
 }
 
+#[derive(Debug, FromMeta, PartialEq, Clone, Default)]
+struct With {
+    traverse: Option<syn::Path>,
+    traverse_all: Option<syn::Path>,
+    serialize: Option<syn::Expr>,
+    deserialize: Option<syn::Expr>,
+    probe: Option<syn::Path>,
+    ref_any: Option<syn::Expr>,
+    mut_any: Option<syn::Expr>,
+}
+
 #[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree))]
-pub struct TreeField {
+pub(crate) struct TreeField {
     pub ident: Option<syn::Ident>,
     ty: syn::Type,
     pub skip: Flag,
-    typ: Option<syn::Type>,
-    validate: Option<syn::Expr>,
-    get: Option<syn::Expr>,
-    get_mut: Option<syn::Expr>,
+    typ: Option<syn::Type>, // Type to defer to
     rename: Option<syn::Ident>,
-    defer: Option<syn::Expr>,
+    defer: Option<syn::Expr>, // Value to defer to
+    #[darling(default)]
+    with: With,
     #[darling(default)]
     deny: Deny,
 }
@@ -56,25 +67,23 @@ impl TreeField {
         self.typ.as_ref().unwrap_or(&self.ty)
     }
 
-    pub fn bound(&self, traite: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {
+    pub fn bound(&self, trtr: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {
         if self
             .uses_type_params(&Purpose::BoundImpl.into(), type_set)
             .is_empty()
         {
             None
         } else {
-            match traite {
+            match trtr {
                 TreeTrait::Key => Some(parse_quote!(::miniconf::TreeKey)),
                 TreeTrait::Serialize => self
                     .deny
                     .serialize
                     .is_none()
                     .then_some(parse_quote!(::miniconf::TreeSerialize)),
-                TreeTrait::Deserialize => self
-                    .deny
-                    .deserialize
-                    .is_none()
-                    .then_some(parse_quote!(::miniconf::TreeDeserialize<'de>)),
+                TreeTrait::Deserialize => (self.deny.deserialize.is_none()
+                    || self.deny.probe.is_none())
+                .then_some(parse_quote!(::miniconf::TreeDeserialize<'de>)),
                 TreeTrait::Any => (self.deny.ref_any.is_none() || self.deny.mut_any.is_none())
                     .then_some(parse_quote!(::miniconf::TreeAny)),
             }
@@ -89,142 +98,138 @@ impl TreeField {
         self.rename.as_ref().or(self.ident.as_ref())
     }
 
-    fn ident_or_index(&self, i: usize) -> TokenStream {
-        match &self.ident {
-            None => {
+    fn value(&self, i: Option<usize>) -> syn::Expr {
+        let def = if let Some(i) = i {
+            // named or tuple struct field
+            if let Some(name) = &self.ident {
+                parse_quote_spanned!(self.span()=> self.#name)
+            } else {
                 let index = syn::Index::from(i);
-                quote_spanned!(self.span()=> #index)
+                parse_quote_spanned!(self.span()=> self.#index)
             }
-            Some(name) => quote_spanned!(self.span()=> #name),
-        }
+        } else {
+            // enum variant newtype value
+            parse_quote_spanned!(self.span()=> value)
+        };
+        self.defer.clone().unwrap_or(def)
     }
 
     pub fn traverse_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `traverse_by_key()` args available.
-        let typ = self.typ();
-        quote_spanned!(self.span()=> #i => <#typ as ::miniconf::TreeKey>::traverse_by_key(keys, func))
+        if let Some(msg) = &self.deny.traverse {
+            quote_spanned! { self.span()=> ::core::result::Result::Err(
+                ::miniconf::Traversal::Access(0, #msg).into())
+            }
+        } else {
+            let typ = self.typ();
+            let imp = self
+                .with
+                .traverse
+                .as_ref()
+                .map(|i| i.to_token_stream())
+                .unwrap_or(quote!(<#typ as ::miniconf::TreeKey>::traverse_by_key));
+            quote_spanned!(self.span()=> #i => #imp(keys, func))
+        }
     }
 
     pub fn traverse_all(&self) -> TokenStream {
         let typ = self.typ();
-        quote_spanned!(self.span()=> <#typ as ::miniconf::TreeKey>::traverse_all())
-    }
-
-    fn getter(&self, i: Option<usize>) -> TokenStream {
-        if let Some(get) = &self.get {
-            quote_spanned! { get.span()=>
-                #get.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
-            }
-        } else if let Some(defer) = &self.defer {
-            quote_spanned!(defer.span()=> ::core::result::Result::Ok(&#defer))
-        } else if let Some(i) = i {
-            // named or tuple struct
-            let ident = self.ident_or_index(i);
-            quote_spanned!(self.span()=> ::core::result::Result::Ok(&self.#ident))
-        } else {
-            // enum
-            quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
-        }
-    }
-
-    fn getter_mut(&self, i: Option<usize>) -> TokenStream {
-        if let Some(get_mut) = &self.get_mut {
-            quote_spanned! { get_mut.span()=>
-                #get_mut.map_err(|msg| ::miniconf::Traversal::Access(0, msg).into())
-            }
-        } else if let Some(defer) = &self.defer {
-            quote_spanned!(defer.span()=> ::core::result::Result::Ok(&mut #defer))
-        } else if let Some(i) = i {
-            // named or tuple struct
-            let ident = self.ident_or_index(i);
-            quote_spanned!(self.span()=> ::core::result::Result::Ok(&mut self.#ident))
-        } else {
-            // enum
-            quote_spanned!(self.span()=> ::core::result::Result::Ok(value))
-        }
-    }
-
-    fn validator(&self) -> Option<TokenStream> {
-        self.validate.as_ref().map(|validate| {
-            quote_spanned! { validate.span()=>
-                .and_then(|()| #validate()
-                    .map_err(|msg| ::miniconf::Traversal::Invalid(0, msg).into())
-                )
-            }
-        })
+        let imp = self
+            .with
+            .traverse_all
+            .as_ref()
+            .map(|i| i.to_token_stream())
+            .unwrap_or(quote!(<#typ as ::miniconf::TreeKey>::traverse_all));
+        quote_spanned!(self.span()=> #imp())
     }
 
     pub fn serialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
-        if let Some(s) = &self.deny.serialize {
+        if let Some(msg) = &self.deny.serialize {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #s).into())
+                ::miniconf::Traversal::Access(0, #msg).into())
             }
         } else {
-            let getter = self.getter(i);
-            quote_spanned! { self.span()=>
-                #getter
-                    .and_then(|item|
-                        ::miniconf::TreeSerialize::serialize_by_key(item, keys, ser)
-                    )
-            }
+            let value = self.value(i);
+            let imp = self
+                .with
+                .serialize
+                .as_ref()
+                .map(|p| p.to_token_stream())
+                .unwrap_or(quote!(#value.serialize_by_key));
+            quote_spanned! { self.span()=> #imp(keys, ser) }
         }
     }
 
     pub fn deserialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        if let Some(s) = &self.deny.deserialize {
+        if let Some(msg) = &self.deny.deserialize {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #s).into())
+                ::miniconf::Traversal::Access(0, #msg).into())
             }
         } else {
-            let getter_mut = self.getter_mut(i);
-            let validator = self.validator();
-            quote_spanned! { self.span()=>
-                #getter_mut
-                    .and_then(|item|
-                        ::miniconf::TreeDeserialize::<'de>::deserialize_by_key(item, keys, de)
-                    )
-                    #validator
-            }
+            let value = self.value(i);
+            let imp = self
+                .with
+                .deserialize
+                .as_ref()
+                .map(|p| p.to_token_stream())
+                .unwrap_or(quote!(#value.deserialize_by_key));
+            quote_spanned! { self.span()=> #imp(keys, de) }
         }
     }
 
     pub fn probe_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `probe_by_key()` args available.
-        let typ = self.typ();
-        quote_spanned! { self.span()=>
-            #i => <#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)
+        if let Some(msg) = &self.deny.probe {
+            quote_spanned! { self.span()=> ::core::result::Result::Err(
+                ::miniconf::Traversal::Access(0, #msg).into())
+            }
+        } else {
+            let typ = self.typ();
+            let imp = self
+                .with
+                .probe
+                .as_ref()
+                .map(|i| i.to_token_stream())
+                .unwrap_or(quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key));
+            quote_spanned!(self.span()=> #i => #imp(keys, de))
         }
     }
 
     pub fn ref_any_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        if let Some(s) = &self.deny.ref_any {
+        if let Some(msg) = &self.deny.ref_any {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #s).into())
+                ::miniconf::Traversal::Access(0, #msg))
             }
         } else {
-            let getter = self.getter(i);
-            quote_spanned! { self.span()=>
-                #getter
-                    .and_then(|item| ::miniconf::TreeAny::ref_any_by_key(item, keys))
-            }
+            let value = self.value(i);
+            let imp = self
+                .with
+                .ref_any
+                .as_ref()
+                .map(|p| p.to_token_stream())
+                .unwrap_or(quote!(#value.ref_any_by_key));
+            quote_spanned! { self.span()=> #imp(keys) }
         }
     }
 
     pub fn mut_any_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        if let Some(s) = &self.deny.mut_any {
+        if let Some(msg) = &self.deny.mut_any {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #s).into())
+                ::miniconf::Traversal::Access(0, #msg))
             }
         } else {
-            let getter_mut = self.getter_mut(i);
-            quote_spanned! { self.span()=>
-                #getter_mut
-                    .and_then(|item| ::miniconf::TreeAny::mut_any_by_key(item, keys))
-            }
+            let value = self.value(i);
+            let imp = self
+                .with
+                .mut_any
+                .as_ref()
+                .map(|p| p.to_token_stream())
+                .unwrap_or(quote!(#value.mut_any_by_key));
+            quote_spanned! { self.span()=> #imp(keys) }
         }
     }
 }
