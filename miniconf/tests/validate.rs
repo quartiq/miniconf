@@ -19,7 +19,7 @@ impl Settings {
             Ok(())
         } else {
             *self.v = old;
-            Err(Traversal::Invalid(0, "").into())
+            Err(Traversal::Access(0, "").into())
         }
     }
 }
@@ -31,7 +31,7 @@ fn validate() {
     assert_eq!(*s.v, 1.0);
     assert_eq!(
         json::set(&mut s, "/v", b"-1.0"),
-        Err(Traversal::Invalid(1, "").into())
+        Err(Traversal::Access(1, "").into())
     );
     assert_eq!(*s.v, 1.0); // remains unchanged
 }

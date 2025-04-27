@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Walk::internal() takes slice of children by value
 * derive: `validate`, `get`, `get_mut` replaced with `with(serialize=expr, deserialize=expr...)`
 
+### Removed
+
+* `Traversal::Invalid`: use `Traversal::Access`
+
 ## [0.18.0](https://github.com/quartiq/miniconf/compare/v0.17.2...v0.18.0) - 2024-11-22
 
 ### Changed

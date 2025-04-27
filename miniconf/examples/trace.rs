@@ -252,10 +252,9 @@ impl<T> Graph<T> {
                         fmt.reduce();
                         *format = Some(fmt);
                     }
-                    Err(Error::Traversal(Traversal::Invalid(_depth, msg))) => {
+                    Err(Error::Traversal(Traversal::Access(_depth, msg))) => {
                         Err(serde_reflection::Error::DeserializationError(msg))?
                     }
-                    Err(Error::Traversal(Traversal::Access(_depth, _msg))) => {}
                     Err(Error::Inner(_depth, e)) => Err(e)?,
                     _ => unreachable!(),
                 }

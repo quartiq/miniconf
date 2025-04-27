@@ -106,7 +106,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///         self.b.deserialize_by_key(keys, de)?;
 ///         if *self.b < 0.0 {
 ///             *self.b = old;
-///             Err(Traversal::Invalid(0, "fail").into())
+///             Err(Traversal::Access(0, "fail").into())
 ///         } else {
 ///             Ok(())
 ///         }
@@ -362,7 +362,7 @@ pub trait TreeAny {
     fn ref_by_key<T: Any, K: IntoKeys>(&self, keys: K) -> Result<&T, Traversal> {
         self.ref_any_by_key(keys.into_keys())?
             .downcast_ref()
-            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+            .ok_or(Traversal::Access(0, "Incorrect type"))
     }
 
     /// Obtain a mutable reference to a leaf of known type by key.
@@ -370,7 +370,7 @@ pub trait TreeAny {
     fn mut_by_key<T: Any, K: IntoKeys>(&mut self, keys: K) -> Result<&mut T, Traversal> {
         self.mut_any_by_key(keys.into_keys())?
             .downcast_mut()
-            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+            .ok_or(Traversal::Access(0, "Incorrect type"))
     }
 }
 
