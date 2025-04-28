@@ -41,7 +41,7 @@ $MC '/four=5'
 $MC '/four=2' && exit 1
 
 # request exit
-$MC '/exit=null'
+$MC '/exit=true'
 wait $DUT_PID
 
 # test exited
