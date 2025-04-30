@@ -231,7 +231,8 @@ while `bevy_reflect` requires `'static` for `Reflect` types.
 
 Some tangential crates:
 
-* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract schemata from serde impls
+* [`serde-reflection`](https://crates.io/crates/serde-reflection): extract schemata from serde impls.
+  The `trace` example uses `serde-reflection` to extract a graph and schema for `Tree*`.
 * [`typetag`](https://crates.io/crates/typetag): "derive serde for trait objects" (local traits and impls)
 * [`deflect`](https://crates.io/crates/deflect): reflection on trait objects using adjacent DWARF debug info as the type registry
 * [`intertrait`](https://crates.io/crates/intertrait): inspiration and source of ideas for `crosstrait`

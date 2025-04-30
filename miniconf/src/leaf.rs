@@ -155,7 +155,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 /// #[derive(Tree)]
 /// struct S {
 ///     e: StrLeaf<En>,
-///     #[tree(typ="En", defer=*self.e)]
+///     #[tree(typ="En", defer=(*self.e))]
 ///     t: (),
 /// }
 /// let mut s = S {
@@ -242,7 +242,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     {
         keys.finalize()?;
         let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        self.0 = T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert from str")))?;
+        self.0 = T::try_from(name).or(Err(Traversal::Access(0, "Could not convert from str")))?;
         Ok(())
     }
 
@@ -254,7 +254,7 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     {
         keys.finalize()?;
         let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        T::try_from(name).or(Err(Traversal::Invalid(0, "Could not convert from str")))?;
+        T::try_from(name).or(Err(Traversal::Access(0, "Could not convert from str")))?;
         Ok(())
     }
 }

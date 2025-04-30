@@ -30,17 +30,11 @@ pub enum Traversal {
     #[error("Key goes beyond leaf (depth: {0})")]
     TooLong(usize),
 
-    /// A node could not be accessed.
+    /// A node could not be accessed or is invalid.
     ///
-    /// The `get` or `get_mut` accessor returned an error message.
-    #[error("Node accessor failed (depth: {0}): {1}")]
+    /// This is returned from custom implementations.
+    #[error("Access/validation failure (depth: {0}): {1}")]
     Access(usize, &'static str),
-
-    /// A deserialized leaf value was found to be invalid.
-    ///
-    /// The `validate` callback returned an error message.
-    #[error("Invalid value (depth: {0}): {1}")]
-    Invalid(usize, &'static str),
 }
 
 impl Traversal {
@@ -52,7 +46,6 @@ impl Traversal {
             Self::NotFound(i) => Self::NotFound(i + 1),
             Self::TooLong(i) => Self::TooLong(i + 1),
             Self::Access(i, msg) => Self::Access(i + 1, msg),
-            Self::Invalid(i, msg) => Self::Invalid(i + 1, msg),
         }
     }
 
@@ -64,8 +57,7 @@ impl Traversal {
             | Self::TooShort(i)
             | Self::NotFound(i)
             | Self::TooLong(i)
-            | Self::Access(i, _)
-            | Self::Invalid(i, _) => *i,
+            | Self::Access(i, _) => *i,
         }
     }
 }
@@ -83,6 +75,10 @@ pub enum Error<E> {
     Inner(usize, #[source] E),
 
     /// There was an error during finalization.
+    ///
+    /// This is not to be returned by a TreeSerialize/TreeDeserialize
+    /// implementation but only from a wrapper that creates and finalizes the
+    /// the serializer/deserializer.
     ///
     /// The `Deserializer` has encountered an error only after successfully
     /// deserializing a value. This is the case if there is additional unexpected data.

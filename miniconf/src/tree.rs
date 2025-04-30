@@ -70,59 +70,54 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// ## Type
 ///
-/// The type to use when accessing the field through `TreeKey` can be overridden using the `typ`
-/// derive macro attribute (`#[tree(typ="[f32; 4]")]`).
+/// The type to use when accessing the field/variant through `TreeKey`/`TreeDeserialize::probe`
+/// can be overridden using the `typ` derive macro attribute (`#[tree(typ="[f32; 4]")]`).
 ///
-/// ## Accessors
+/// ## Deny
 ///
-/// The `get`, `get_mut`, `validate` callbacks can be used to implement accessors,
-/// validation or support remote types (e.g. `#[tree(get_mut=func())]`)
+/// `#[tree(deny(operation="message", ...))]`
 ///
-/// ### `get`
+/// This returns `Err(`[`Traversal::Access`]`)` for the respective operation
+/// (`traverse`, `serialize`, `deserialize`, `probe`, `ref_any`, `mut_any`) on a
+/// field/variant and suppresses the respective traits bounds on type paramters
+/// of the struct/enum.
 ///
-/// The getter is called during `serialize_by_key()` before leaf serialization and
-/// during `ref_any_by_key()`. Its signature is `fn() -> Result<&T, &'static str>`.
-/// The default getter is `Ok(&self.field)`. `&self` is in scope and can be used.
-/// If a getter returns an error message `Err(&str)` the serialization/traversal
-/// is not performed, further getters at greater depth are not invoked
-/// and [`Traversal::Access`] is returned.
+/// ## Implementation overrides
 ///
-/// ### `get_mut`
+/// `#[tree(with(operation=expr, ...))]`
 ///
-/// `get_mut` is invoked during `mut_any_by_key()` and
-/// during `deserialize_by_key()` before deserialization while traversing down to
-/// the leaf node.
-/// The signature is `fn() -> Result<&mut T, &str>`. `&mut self` is in scope and
-/// can be used/mutated.
-/// The default `get_mut` is `Ok(&mut self.field)`.
-/// If `get_mut` returns an `Err` [`Traversal::Access`] will be returned.
-///
-/// ### `validate`
-///
-/// `validate` is called after the successful update of the leaf field
-/// during upward traversal.
-/// The `validate` signature is `fn(depth: usize) ->
-/// Result<usize, &'static str>`. `&mut self` is in scope and can be used/mutated.
-/// If a validate callback returns `Err()`, the leaf value already **has been**
-/// updated and [`Traversal::Invalid`] is returned from `deserialize_by_key()`.
+/// This overrides the call to the child node/variant trait for the given `operation`
+/// (`traverse`, `traverse_all`, `serialize`, `deserialize`, `probe`, `ref_any`, `mut_any`).
+/// `expr` should be a method on `self` (not the field!) or `value`
+/// (associated function for `traverse`, `traverse_all` and `probe`)
+/// taking the arguments of the respective trait's method.
 ///
 /// ```
-/// use miniconf::{Error, Leaf, Tree};
+/// # use miniconf::{Error, Leaf, Tree, Keys, Traversal, TreeDeserialize};
+/// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(validate=self.non_leaf)]
-///     b: [Leaf<f32>; 2],
+///     #[tree(with(deserialize=self.check))]
+///     b: Leaf<f32>,
 /// };
 /// impl S {
-///     fn non_leaf(&mut self) -> Result<(), &'static str> {
-///         Err("fail")
+///     fn check<'de, K: Keys, D: Deserializer<'de>>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>> {
+///         let old = *self.b;
+///         self.b.deserialize_by_key(keys, de)?;
+///         if *self.b < 0.0 {
+///             *self.b = old;
+///             Err(Traversal::Access(0, "fail").into())
+///         } else {
+///             Ok(())
+///         }
 ///     }
 /// }
 /// ```
 ///
 /// ### `defer`
 ///
-/// The `defer` attribute is a shorthand for `get`+`get_mut` of the same owned value.
+/// The `defer` attribute is a shorthand for `with()` that defers
+/// child trait implementations to a given expression.
 ///
 /// # Array
 ///
@@ -173,6 +168,10 @@ pub trait TreeKey {
     /// If `keys` is exhausted before reaching a leaf node,
     /// `Err(Traversal(TooShort(depth)))` is returned.
     /// `Traversal::Access/Invalid/Absent/Finalization` are never returned.
+    ///
+    /// This method should fail if and only if the key is invalid.
+    /// It should succeed at least when any of the other key based methods
+    /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
     ///
     /// ```
     /// use miniconf::{IntoKeys, Leaf, TreeKey};
@@ -363,7 +362,7 @@ pub trait TreeAny {
     fn ref_by_key<T: Any, K: IntoKeys>(&self, keys: K) -> Result<&T, Traversal> {
         self.ref_any_by_key(keys.into_keys())?
             .downcast_ref()
-            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+            .ok_or(Traversal::Access(0, "Incorrect type"))
     }
 
     /// Obtain a mutable reference to a leaf of known type by key.
@@ -371,7 +370,7 @@ pub trait TreeAny {
     fn mut_by_key<T: Any, K: IntoKeys>(&mut self, keys: K) -> Result<&mut T, Traversal> {
         self.mut_any_by_key(keys.into_keys())?
             .downcast_mut()
-            .ok_or(Traversal::Invalid(0, "Incorrect type"))
+            .ok_or(Traversal::Access(0, "Incorrect type"))
     }
 }
 
@@ -453,6 +452,9 @@ pub trait TreeDeserialize<'de> {
         D: Deserializer<'de>;
 
     /// Blind deserialize a leaf node by its keys.
+    ///
+    /// This method should succeed at least in those cases where
+    /// `deserialize_by_key()` succeeds.
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {

@@ -2,6 +2,25 @@ use core::num::NonZero;
 
 use crate::{KeyLookup, Packed};
 
+/// Capability to be created from a walk through all representative nodes in a
+/// `TreeKey` using `traverse_all()`.
+///
+/// This is a bottom-up, breadth-first walk.
+pub trait Walk: Sized {
+    /// Error type for `internal()`
+    type Error;
+
+    /// Create a leaf node
+    fn leaf() -> Self;
+
+    /// Create an internal node frmo child nodes.
+    ///
+    /// # Args
+    /// * `children`: Child nodes to merge.
+    /// * `lookup`: The namespace the child nodes are in.
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error>;
+}
+
 /// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
@@ -37,22 +56,6 @@ impl Metadata {
     pub fn max_length(&self, separator: &str) -> usize {
         self.max_length + self.max_depth * separator.len()
     }
-}
-
-/// Capability to be walked through a `TreeKey` using `traverse_all()`.
-pub trait Walk: Sized {
-    /// Error type for `merge()`
-    type Error;
-
-    /// Return the walk starting point for a single leaf node
-    fn leaf() -> Self;
-
-    /// Merge node metadata into self.
-    ///
-    /// # Args
-    /// * `children`: The walk of the children to merge.
-    /// * `lookup`: The namespace the node(s) are in.
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error>;
 }
 
 impl Walk for Metadata {
