@@ -376,7 +376,14 @@ where
     fn iter_list(&mut self) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             let (code, path) = if let Some(path) = self.pending.iter.next() {
-                let (path, node) = path.unwrap(); // Note(unwrap) checked capacity
+                let (path, node) = match path {
+                    Ok(ok) => ok,
+                    Err(err) => {
+                        error!("Path iter error at depth: {err}");
+                        continue;
+                    }
+                };
+
                 debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
                 (ResponseCode::Continue, path.into_inner())
             } else {
@@ -411,7 +418,14 @@ where
                 break;
             };
 
-            let (path, node) = path.unwrap(); // Note(unwraped): checked capacity
+            let (path, node) = match path {
+                Ok(ok) => ok,
+                Err(err) => {
+                    error!("Path iter error at depth: {err}");
+                    continue;
+                }
+            };
+
             debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
 
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
@@ -433,14 +447,15 @@ where
 
             match self.mqtt.client().publish(response) {
                 Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
-                    Traversal::Absent(_),
+                    Traversal::Absent(_depth) | Traversal::Access(_depth, _),
                 ))) => {}
 
-                Err(minimq::PubError::Error(minimq::Error::Minimq(
-                    minimq::MinimqError::Protocol(minimq::ProtocolError::Serialization(
-                        minimq::SerError::InsufficientMemory,
-                    )),
-                ))) => {
+                Err(
+                    minimq::PubError::Error(minimq::Error::Minimq(minimq::MinimqError::Protocol(
+                        minimq::ProtocolError::Serialization(minimq::SerError::InsufficientMemory),
+                    )))
+                    | minimq::PubError::Serialization(_),
+                ) => {
                     let props = [ResponseCode::Error.into()];
                     let mut response =
                         Publication::new(&topic, "Serialized value too large".as_bytes())
