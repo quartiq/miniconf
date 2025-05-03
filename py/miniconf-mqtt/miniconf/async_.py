@@ -301,13 +301,13 @@ async def _handle_commands(interface, commands, retain):
                 # get can not start with the / that a list response
                 # starts with.
                 if len(paths) == 1 and not paths[0].startswith("/"):
-                    value = json.loads(paths[0])
-                    print(f"{path}={value!r}")
+                    value = paths[0]
+                    print(f"{path}={value}")
                     continue
                 for p in paths:
                     try:
-                        value = await interface.get(p)
-                        print(f"{p}={value!r}")
+                        value = json.dumps(await interface.get(p))
+                        print(f"{p}={value}")
                     except MiniconfException as err:
                         print(f"{p}: {err!r}")
             elif arg.endswith("!"):
@@ -318,15 +318,15 @@ async def _handle_commands(interface, commands, retain):
                 path, value = arg.split("=", 1)
                 path = current.normalize(path)
                 if not value:
-                    value = await interface.clear(path)
-                    print(f"CLEAR {path}={value!r}")
+                    value = json.dumps(await interface.clear(path))
+                    print(f"CLEAR {path}={value}")
                 else:
                     await interface.set(path, json.loads(value), retain)
-                    print(f"{path}={value!r}")
+                    print(f"{path}={value}")
             else:
                 path = current.normalize(arg)
-                value = await interface.get(path)
-                print(f"{path}={value!r}")
+                value = json.dumps(await interface.get(path))
+                print(f"{path}={value}")
         except MiniconfException as err:
             print(f"{arg}: {err!r}")
             sys.exit(1)
