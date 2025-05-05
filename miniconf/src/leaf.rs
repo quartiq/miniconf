@@ -65,8 +65,8 @@ impl<T: Display> Display for Leaf<T> {
 
 impl<T: ?Sized> TreeKey for Leaf<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        Ok(W::leaf())
+    fn traverse_all<W: Walk>() -> W {
+        W::leaf()
     }
 
     #[inline]
@@ -205,8 +205,8 @@ impl<T> From<T> for StrLeaf<T> {
 
 impl<T: ?Sized> TreeKey for StrLeaf<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        Ok(W::leaf())
+    fn traverse_all<W: Walk>() -> W {
+        W::leaf()
     }
 
     #[inline]
@@ -326,8 +326,8 @@ impl<T> From<T> for Deny<T> {
 
 impl<T: ?Sized> TreeKey for Deny<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        Ok(W::leaf())
+    fn traverse_all<W: Walk>() -> W {
+        W::leaf()
     }
 
     #[inline]

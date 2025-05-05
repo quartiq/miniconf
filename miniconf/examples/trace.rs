@@ -32,10 +32,8 @@ pub enum Node {
 }
 
 impl Walk for Node {
-    type Error = core::convert::Infallible;
-
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
-        Ok(match lookup {
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Self {
+        match lookup {
             KeyLookup::Named(names) => Self::Named(IndexMap::from_iter(
                 names.iter().copied().zip(children.iter().cloned()),
             )),
@@ -44,7 +42,7 @@ impl Walk for Node {
                 item: Box::new(children.first().unwrap().clone()),
             },
             KeyLookup::Numbered(_len) => Self::Numbered(children.to_vec()),
-        })
+        }
     }
 
     fn leaf() -> Self {
@@ -183,7 +181,7 @@ pub struct Graph<T> {
 impl<T: TreeKey> Default for Graph<T> {
     fn default() -> Self {
         Self {
-            root: T::traverse_all().unwrap(), // infallible
+            root: T::traverse_all(),
             _t: PhantomData,
         }
     }

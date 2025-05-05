@@ -149,7 +149,7 @@ fn size() {
     let (path, node) = A31::transcode::<Path<String, '/'>, _>(packed).unwrap();
     assert_eq!(node, Node::leaf(31));
     assert_eq!(path.as_str().len(), 2 * 31);
-    let meta: Metadata = A31::traverse_all().unwrap();
+    let meta: Metadata = A31::traverse_all();
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 31);
     assert_eq!(meta.count.get(), 1usize.pow(31));
@@ -164,7 +164,7 @@ fn size() {
     let (path, node) = A16::transcode::<Path<String, '/'>, _>(packed).unwrap();
     assert_eq!(node, Node::leaf(16));
     assert_eq!(path.as_str().len(), 2 * 16);
-    let meta: Metadata = A16::traverse_all().unwrap();
+    let meta: Metadata = A16::traverse_all();
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 16);
     assert_eq!(meta.count.get(), 3usize.pow(15));

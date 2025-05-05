@@ -105,7 +105,7 @@ let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-let meta: Metadata = Settings::traverse_all().unwrap();
+let meta: Metadata = Settings::traverse_all();
 assert!(meta.max_depth <= 6);
 assert!(meta.max_length("/") <= 32);
 

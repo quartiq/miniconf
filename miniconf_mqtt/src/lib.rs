@@ -251,7 +251,7 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta: Metadata = Settings::traverse_all().unwrap(); // Note(unwrap): infallible
+        let meta: Metadata = Settings::traverse_all();
         assert!(meta.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 

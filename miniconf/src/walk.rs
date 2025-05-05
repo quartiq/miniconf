@@ -7,9 +7,6 @@ use crate::{KeyLookup, Packed};
 ///
 /// This is a bottom-up, breadth-first walk.
 pub trait Walk: Sized {
-    /// Error type for `internal()`
-    type Error;
-
     /// Create a leaf node
     fn leaf() -> Self;
 
@@ -18,7 +15,7 @@ pub trait Walk: Sized {
     /// # Args
     /// * `children`: Child nodes to merge.
     /// * `lookup`: The namespace the child nodes are in.
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error>;
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Self;
 }
 
 /// Metadata about a `TreeKey` namespace.
@@ -59,8 +56,6 @@ impl Metadata {
 }
 
 impl Walk for Metadata {
-    type Error = core::convert::Infallible;
-
     #[inline]
     fn leaf() -> Self {
         Self {
@@ -72,7 +67,7 @@ impl Walk for Metadata {
     }
 
     #[inline]
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Result<Self, Self::Error> {
+    fn internal(children: &[Self], lookup: &KeyLookup) -> Self {
         let mut max_depth = 0;
         let mut max_length = 0;
         let mut count = 0;
@@ -98,11 +93,11 @@ impl Walk for Metadata {
             count += n * child.count.get();
             max_bits = max_bits.max(Packed::bits_for(lookup.len().get() - 1) + child.max_bits);
         }
-        Ok(Self {
+        Self {
             max_bits,
             max_depth,
             max_length,
             count: NonZero::new(count).unwrap(),
-        })
+        }
     }
 }
