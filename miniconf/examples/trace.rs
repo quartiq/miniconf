@@ -16,7 +16,7 @@ use miniconf::{
 mod common;
 
 /// Internal/leaf node metadata
-#[derive(Clone, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub enum Node {
     /// A terminal leaf node
     Leaf(Option<Format>),
@@ -173,6 +173,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
 }
 
 /// Graph of `Node` for a Tree type
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Graph<T> {
     root: Node,
     _t: PhantomData<T>,
@@ -193,24 +194,6 @@ impl<T> Graph<T> {
         &self.root
     }
 
-    /// Visit all graph nodes by indices and node reference
-    pub fn visit<F, E>(&self, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&Vec<usize>, &Node) -> Result<(), E>,
-    {
-        self.root.visit(&mut vec![], func)
-    }
-
-    /// Visit all graph nodes by indices and mutable node reference
-    ///
-    /// Not pub to uphold Graph<->T correctness
-    fn visit_mut<F, E>(&mut self, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&Vec<usize>, &mut Node) -> Result<(), E>,
-    {
-        self.root.visit_mut(&mut vec![], func)
-    }
-
     /// Trace all leaf values
     pub fn trace_values(
         &mut self,
@@ -221,7 +204,7 @@ impl<T> Graph<T> {
     where
         T: TreeSerialize,
     {
-        self.visit_mut(&mut |idx, node| {
+        self.root.visit_mut(&mut vec![], &mut |idx, node| {
             if let Node::Leaf(format) = node {
                 match trace_value(tracer, samples, idx.into_keys(), value) {
                     Ok((mut fmt, _value)) => {
@@ -248,7 +231,7 @@ impl<T> Graph<T> {
     where
         T: TreeDeserialize<'de>,
     {
-        self.visit_mut(&mut |idx, node| {
+        self.root.visit_mut(&mut vec![], &mut |idx, node| {
             if let Node::Leaf(format) = node {
                 match trace_type::<T, _>(tracer, samples, idx.into_keys()) {
                     Ok(mut fmt) => {
@@ -294,11 +277,20 @@ fn main() -> anyhow::Result<()> {
     // Using TreeDeserialize
     graph.trace_types_simple(&mut tracer).unwrap();
 
+    // No untraced Leaf nodes left
+    graph
+        .root()
+        .visit(&mut vec![], &mut |_idx, node| {
+            assert!(!matches!(node, Node::Leaf(None)));
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+
     // Dump graph and registry
     let registry = tracer.registry().unwrap();
     println!(
         "{}",
-        serde_json::to_string_pretty(&(graph.root(), &registry))?,
+        serde_json::to_string_pretty(&(graph.root(), &registry))?
     );
 
     Ok(())

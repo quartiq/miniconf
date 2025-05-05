@@ -376,6 +376,24 @@ macro_rules! impl_transcode_slice {
 }
 impl_transcode_slice!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
+#[cfg(feature = "alloc")]
+impl<T> Transcode for Vec<T>
+where
+    usize: TryInto<T>,
+{
+    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
+    where
+        M: TreeKey + ?Sized,
+        K: IntoKeys,
+    {
+        M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
+            self.push(index.try_into().or(Err(()))?);
+            Ok(())
+        })
+        .try_into()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

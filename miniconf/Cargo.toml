@@ -116,4 +116,4 @@ required-features = ["json-core", "derive"]
 
 [[example]]
 name = "trace"
-required-features = ["json-core", "derive"]
+required-features = ["json-core", "derive", "alloc"]
