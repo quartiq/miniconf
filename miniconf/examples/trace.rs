@@ -10,8 +10,7 @@ use serde_reflection::{
 };
 
 use miniconf::{
-    Error, Indices, IntoKeys, KeyLookup, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize,
-    Walk,
+    Error, IntoKeys, KeyLookup, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize, Walk,
 };
 
 mod common;
@@ -127,68 +126,6 @@ impl Node {
         }
         Ok(())
     }
-
-    /// The node and its children are equivalent.
-    ///
-    /// The Leaf data (the Formats) may differ.
-    pub fn equiv(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Leaf(_format), Self::Leaf(_format1)) => true,
-            (
-                Self::Homogeneous { len, item },
-                Self::Homogeneous {
-                    len: len1,
-                    item: item1,
-                },
-            ) => len == len1 && item.equiv(item1),
-            (Self::Named(items), Self::Named(items1)) => {
-                items.len() == items1.len()
-                    && items
-                        .iter()
-                        .zip(items1)
-                        .all(|((k, v), (k1, v1))| k == k1 && v.equiv(v1))
-            }
-            (Self::Numbered(items), Self::Numbered(items1)) => {
-                items.len() == items1.len() && items.iter().zip(items1).all(|(a, b)| a.equiv(b))
-            }
-            _ => false,
-        }
-    }
-
-    /// Lookup a node by its indices.
-    pub fn lookup(&self, mut index: impl Iterator<Item = usize>) -> Option<&Self> {
-        match self {
-            Self::Leaf(_format) => index.next().is_none().then_some(self),
-            Self::Homogeneous { len, item } => {
-                if let Some(i) = index.next() {
-                    if i < len.get() {
-                        item.lookup(index)
-                    } else {
-                        None
-                    }
-                } else {
-                    Some(self)
-                }
-            }
-            Self::Numbered(items) => {
-                if let Some(i) = index.next() {
-                    items.get(i).and_then(|item| item.lookup(index))
-                } else {
-                    Some(self)
-                }
-            }
-            Self::Named(items) => {
-                if let Some(i) = index.next() {
-                    items
-                        .as_slice()
-                        .get_index(i)
-                        .and_then(|(_, item)| item.lookup(index))
-                } else {
-                    Some(self)
-                }
-            }
-        }
-    }
 }
 
 /// Trace a leaf value
@@ -257,24 +194,6 @@ impl<T> Graph<T> {
         &self.root
     }
 
-    /// Visit all graph nodes by indices and node reference
-    pub fn visit<F, E>(&self, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&Vec<usize>, &Node) -> Result<(), E>,
-    {
-        self.root.visit(&mut vec![], func)
-    }
-
-    /// Visit all graph nodes by indices and mutable node reference
-    ///
-    /// Not pub to uphold Graph<->T correctness
-    fn visit_mut<F, E>(&mut self, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&Vec<usize>, &mut Node) -> Result<(), E>,
-    {
-        self.root.visit_mut(&mut vec![], func)
-    }
-
     /// Trace all leaf values
     pub fn trace_values(
         &mut self,
@@ -285,7 +204,7 @@ impl<T> Graph<T> {
     where
         T: TreeSerialize,
     {
-        self.visit_mut(&mut |idx, node| {
+        self.root.visit_mut(&mut vec![], &mut |idx, node| {
             if let Node::Leaf(format) = node {
                 match trace_value(tracer, samples, idx.into_keys(), value) {
                     Ok((mut fmt, _value)) => {
@@ -312,7 +231,7 @@ impl<T> Graph<T> {
     where
         T: TreeDeserialize<'de>,
     {
-        self.visit_mut(&mut |idx, node| {
+        self.root.visit_mut(&mut vec![], &mut |idx, node| {
             if let Node::Leaf(format) = node {
                 match trace_type::<T, _>(tracer, samples, idx.into_keys()) {
                     Ok(mut fmt) => {
@@ -341,27 +260,6 @@ impl<T> Graph<T> {
         static SAMPLES: Lazy<Samples> = Lazy::new(Samples::new);
         self.trace_types(tracer, &SAMPLES)
     }
-
-    /// All leaf types of the graph are known
-    pub fn is_complete(&self) -> bool {
-        let mut complete = true;
-        self.visit(&mut |_idx, node| {
-            complete &= !matches!(node, Node::Leaf(None));
-            Ok::<_, ()>(())
-        })
-        .unwrap();
-        complete
-    }
-
-    /// The graph structure matches the target type graph structure
-    ///
-    /// The Leaf data (the Formats) may differ.
-    pub fn is_correct(&self) -> bool
-    where
-        T: TreeKey,
-    {
-        self.root.equiv(&Self::default().root)
-    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -379,22 +277,21 @@ fn main() -> anyhow::Result<()> {
     // Using TreeDeserialize
     graph.trace_types_simple(&mut tracer).unwrap();
 
-    assert!(graph.is_correct());
-    assert!(graph.is_complete());
-    for kn in common::Settings::nodes::<Indices<[usize; 8]>, 8>() {
-        let (idx, n) = kn.unwrap();
-        assert!(matches!(
-            graph
-                .root()
-                .lookup(idx[..n.depth()].iter().copied())
-                .unwrap(),
-            Node::Leaf(Some(_)),
-        ));
-    }
+    // No untraced Leaf nodes left
+    graph
+        .root()
+        .visit(&mut vec![], &mut |_idx, node| {
+            assert!(!matches!(node, Node::Leaf(None)));
+            Ok::<_, ()>(())
+        })
+        .unwrap();
 
     // Dump graph and registry
     let registry = tracer.registry().unwrap();
-    println!("{}", serde_json::to_string_pretty(&(&graph, &registry))?,);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&(graph.root(), &registry))?
+    );
 
     Ok(())
 }
