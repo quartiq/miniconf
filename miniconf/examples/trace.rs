@@ -5,7 +5,8 @@ use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{
-    Deserializer, Format, FormatHolder, Samples, Serializer, Tracer, TracerConfig, Value,
+    Deserializer, EnumProgress, Format, FormatHolder, Samples, Serializer, Tracer, TracerConfig,
+    Value,
 };
 
 use miniconf::{
@@ -160,7 +161,11 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
     loop {
         let format = trace_type_once::<T, _>(tracer, samples, keys.clone())?;
         if let Format::TypeName(name) = &format {
-            if tracer.incomplete_enums.remove(name).is_some() {
+            if let Some(progress) = tracer.pend_enum(name) {
+                debug_assert!(
+                    !matches!(progress, EnumProgress::Pending),
+                    "failed to make progress tracing enum {name}"
+                );
                 // Restart the analysis to find more variants.
                 continue;
             }
