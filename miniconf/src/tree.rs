@@ -156,10 +156,10 @@ pub trait TreeKey {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
     /// };
-    /// let m: Metadata = S::traverse_all().unwrap();
+    /// let m: Metadata = S::traverse_all();
     /// assert_eq!((m.max_depth, m.max_length, m.count.get()), (2, 4, 3));
     /// ```
-    fn traverse_all<W: Walk>() -> Result<W, W::Error>;
+    fn traverse_all<W: Walk>() -> W;
 
     /// Traverse from the root to a leaf and call a function for each node.
     ///
@@ -488,7 +488,7 @@ impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
 
 impl<T: TreeKey> TreeKey for &T {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+    fn traverse_all<W: Walk>() -> W {
         T::traverse_all()
     }
 
@@ -504,7 +504,7 @@ impl<T: TreeKey> TreeKey for &T {
 
 impl<T: TreeKey> TreeKey for &mut T {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+    fn traverse_all<W: Walk>() -> W {
         T::traverse_all()
     }
 

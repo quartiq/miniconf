@@ -125,7 +125,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta: Metadata = M::traverse_all().unwrap(); // Note(unwrap): infallible
+        let meta: Metadata = M::traverse_all();
         assert!(
             D >= meta.max_depth,
             "depth D = {D} must be at least {}",

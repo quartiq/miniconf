@@ -14,8 +14,8 @@ macro_rules! impl_tuple {
     ($n:literal $($i:tt $t:ident)+) => {
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeKey),+> TreeKey for ($($t,)+) {
-            fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-                W::internal(&[$($t::traverse_all()?, )+], &KeyLookup::numbered($n))
+            fn traverse_all<W: Walk>() -> W {
+                W::internal(&[$($t::traverse_all(), )+], &KeyLookup::numbered($n))
             }
 
             fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -121,9 +121,9 @@ impl<const L: usize, const R: usize> Assert<L, R> {
 }
 
 impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+    fn traverse_all<W: Walk>() -> W {
         let () = Assert::<N, 0>::GREATER; // internal nodes must have at least one leaf
-        W::internal(&[T::traverse_all()?], &KeyLookup::homogeneous(N))
+        W::internal(&[T::traverse_all()], &KeyLookup::homogeneous(N))
     }
 
     fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> Result<usize, Error<E>>
@@ -202,7 +202,7 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
 
 impl<T: TreeKey> TreeKey for Option<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+    fn traverse_all<W: Walk>() -> W {
         T::traverse_all()
     }
 
@@ -279,8 +279,8 @@ const RESULT_LOOKUP: KeyLookup = KeyLookup::named(&["Ok", "Err"]);
 
 impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[T::traverse_all()?, E::traverse_all()?], &RESULT_LOOKUP)
+    fn traverse_all<W: Walk>() -> W {
+        W::internal(&[T::traverse_all(), E::traverse_all()], &RESULT_LOOKUP)
     }
 
     #[inline]
@@ -379,8 +379,8 @@ const BOUND_LOOKUP: KeyLookup = KeyLookup::named(&["Included", "Excluded"]);
 
 impl<T: TreeKey> TreeKey for Bound<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[T::traverse_all()?, T::traverse_all()?], &BOUND_LOOKUP)
+    fn traverse_all<W: Walk>() -> W {
+        W::internal(&[T::traverse_all(), T::traverse_all()], &BOUND_LOOKUP)
     }
 
     #[inline]
@@ -477,8 +477,8 @@ const RANGE_LOOKUP: KeyLookup = KeyLookup::named(&["start", "end"]);
 
 impl<T: TreeKey> TreeKey for Range<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[T::traverse_all()?, T::traverse_all()?], &RANGE_LOOKUP)
+    fn traverse_all<W: Walk>() -> W {
+        W::internal(&[T::traverse_all(), T::traverse_all()], &RANGE_LOOKUP)
     }
 
     #[inline]
@@ -573,8 +573,8 @@ impl<T: TreeAny> TreeAny for Range<T> {
 
 impl<T: TreeKey> TreeKey for RangeInclusive<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[T::traverse_all()?, T::traverse_all()?], &RANGE_LOOKUP)
+    fn traverse_all<W: Walk>() -> W {
+        W::internal(&[T::traverse_all(), T::traverse_all()], &RANGE_LOOKUP)
     }
 
     #[inline]
@@ -614,8 +614,8 @@ const RANGE_FROM_LOOKUP: KeyLookup = KeyLookup::named(&["start"]);
 
 impl<T: TreeKey> TreeKey for RangeFrom<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[T::traverse_all()?], &RANGE_FROM_LOOKUP)
+    fn traverse_all<W: Walk>() -> W {
+        W::internal(&[T::traverse_all()], &RANGE_FROM_LOOKUP)
     }
 
     #[inline]
@@ -708,8 +708,8 @@ const RANGE_TO_LOOKUP: KeyLookup = KeyLookup::named(&["end"]);
 
 impl<T: TreeKey> TreeKey for RangeTo<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
-        W::internal(&[T::traverse_all()?], &RANGE_TO_LOOKUP)
+    fn traverse_all<W: Walk>() -> W {
+        W::internal(&[T::traverse_all()], &RANGE_TO_LOOKUP)
     }
 
     #[inline]
@@ -800,7 +800,7 @@ impl<T: TreeAny> TreeAny for RangeTo<T> {
 
 impl<T: TreeKey> TreeKey for Cell<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+    fn traverse_all<W: Walk>() -> W {
         T::traverse_all()
     }
 
@@ -867,7 +867,7 @@ impl<T: TreeAny> TreeAny for Cell<T> {
 
 impl<T: TreeKey> TreeKey for RefCell<T> {
     #[inline]
-    fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+    fn traverse_all<W: Walk>() -> W {
         T::traverse_all()
     }
 
@@ -964,7 +964,7 @@ mod _alloc {
 
     impl<T: TreeKey> TreeKey for Box<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1031,7 +1031,7 @@ mod _alloc {
 
     impl<T: TreeKey + Clone> TreeKey for Cow<'_, T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1098,7 +1098,7 @@ mod _alloc {
 
     impl<T: TreeKey> TreeKey for Rc<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1169,7 +1169,7 @@ mod _alloc {
 
     impl<T: TreeKey> TreeKey for rc::Weak<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1222,7 +1222,7 @@ mod _alloc {
 
     impl<T: TreeKey> TreeKey for Arc<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1293,7 +1293,7 @@ mod _alloc {
 
     impl<T: TreeKey> TreeKey for sync::Weak<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1352,7 +1352,7 @@ mod _std {
 
     impl<T: TreeKey> TreeKey for Mutex<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
@@ -1448,7 +1448,7 @@ mod _std {
 
     impl<T: TreeKey> TreeKey for RwLock<T> {
         #[inline]
-        fn traverse_all<W: Walk>() -> Result<W, W::Error> {
+        fn traverse_all<W: Walk>() -> W {
             T::traverse_all()
         }
 
