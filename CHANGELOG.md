@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * py: support for response-less (fire and forget) requests in both the synchronous and the asyncio client
 * py: cli support for simple relative paths
 * examples/trace: Tracing reflection with serde-reflection
+* `impl Transcode for Vec<T: impl TryFrom<usize>>`
 
 ### Changed
 
