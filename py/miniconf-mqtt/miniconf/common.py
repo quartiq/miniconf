@@ -4,12 +4,18 @@
 
 from typing import Dict, Any, Tuple
 import logging
+import json
 
 import paho.mqtt
 
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 LOGGER = logging.getLogger("miniconf")
+
+
+def json_dumps(value):
+    """Like json.dumps but without whitespace in separators"""
+    return json.dumps(value, separators=(",", ":"))
 
 
 class MiniconfException(Exception):

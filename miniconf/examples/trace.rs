@@ -71,7 +71,7 @@ impl Node {
                 item.visit(root, func)?;
                 root.pop();
             }
-            Self::Named(map, ..) => {
+            Self::Named(map) => {
                 for (i, item) in map.values().enumerate() {
                     root.push(i);
                     item.visit(root, func)?;
@@ -109,7 +109,7 @@ impl Node {
                 item.visit_mut(root, func)?;
                 root.pop();
             }
-            Self::Named(map, ..) => {
+            Self::Named(map) => {
                 for (i, item) in map.values_mut().enumerate() {
                     root.push(i);
                     item.visit_mut(root, func)?;
