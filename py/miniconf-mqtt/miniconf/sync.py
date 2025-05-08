@@ -14,7 +14,7 @@ import paho.mqtt
 from paho.mqtt.properties import Properties, PacketTypes
 from paho.mqtt.client import Client, MQTTMessage
 
-from .common import MiniconfException, LOGGER
+from .common import MiniconfException, LOGGER, json_dumps
 
 
 class Miniconf:
@@ -145,7 +145,7 @@ class Miniconf:
         """
         return self._do(
             path,
-            payload=json.dumps(value, separators=(",", ":")),
+            payload=json_dumps(value),
             response=response,
             retain=retain,
             **kwargs,
@@ -302,26 +302,26 @@ def _handle_commands(interface, commands, retain):
                     continue
                 for p in paths:
                     try:
-                        value = json.dumps(interface.get(p))
+                        value = json_dumps(interface.get(p))
                         print(f"{p}={value}")
                     except MiniconfException as err:
                         print(f"{p}: {err!r}")
             elif arg.endswith("!"):
                 path = current.normalize(arg.removesuffix("!"))
                 interface.dump(path)
-                print(f"DUMP '{path}'")
+                print(f"DUMP {path}")
             elif "=" in arg:
                 path, value = arg.split("=", 1)
                 path = current.normalize(path)
                 if not value:
-                    value = json.dumps(interface.clear(path))
+                    value = json_dumps(interface.clear(path))
                     print(f"CLEAR {path}={value}")
                 else:
                     interface.set(path, json.loads(value), retain)
                     print(f"{path}={value}")
             else:
                 path = current.normalize(arg)
-                value = json.dumps(interface.get(path))
+                value = json_dumps(interface.get(path))
                 print(f"{path}={value!r}")
         except MiniconfException as err:
             print(f"{arg}: {err!r}")
