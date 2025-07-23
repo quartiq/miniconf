@@ -105,6 +105,10 @@ crate-type = ["lib"]
 required-features = ["derive"]
 
 [[example]]
+name = "node"
+crate-type = ["lib"]
+
+[[example]]
 name = "cli"
 required-features = ["json-core", "derive"]
 
