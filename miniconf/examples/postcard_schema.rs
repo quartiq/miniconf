@@ -15,18 +15,11 @@ trait Schema {
     fn schema(&self) -> &'static NamedType;
 }
 
-macro_rules! impl_schema {
-    ($($ty:ty),*) => {$(
-        impl Schema for $ty {
-            fn schema(&self) -> &'static NamedType {
-                <Self as postcard_schema::Schema>::SCHEMA
-            }
-        })*
-    };
+impl<T: postcard_schema::Schema> Schema for T {
+    fn schema(&self) -> &'static NamedType {
+        Self::SCHEMA
+    }
 }
-
-impl_schema!(bool, i32, Option<i32>, [i32; 2]);
-// ... common::{Inner, Either} and others
 
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -80,7 +73,8 @@ fn main() -> anyhow::Result<()> {
         entry!(i32 => dyn Schema),
         entry!(Option<i32> => dyn Schema),
         entry!([i32; 2] => dyn Schema),
-        // common::{Inner, Either}
+        // entry!(common::Inner => dyn Schema),
+        // entry!(common::Either => dyn Schema),
     ]);
 
     let mut settings = common::Settings::new();
