@@ -36,6 +36,8 @@ all-features = true
 [dev-dependencies]
 anyhow = "1.0.86"
 postcard = { version = "1.0.8", features = ["use-std"] }
+postcard-schema = "0.2.2"
+crosstrait = { version = "0.1", default-features = false }
 embedded-io = "0.6.1"
 embedded-io-async = "0.6.1"
 embedded-io-adapters = { version = "0.6.1", features = ["tokio-1"] }
@@ -103,6 +105,10 @@ crate-type = ["lib"]
 required-features = ["derive"]
 
 [[example]]
+name = "node"
+crate-type = ["lib"]
+
+[[example]]
 name = "cli"
 required-features = ["json-core", "derive"]
 
@@ -116,4 +122,8 @@ required-features = ["json-core", "derive"]
 
 [[example]]
 name = "trace"
+required-features = ["json-core", "derive", "alloc"]
+
+[[example]]
+name = "postcard_schema"
 required-features = ["json-core", "derive", "alloc"]

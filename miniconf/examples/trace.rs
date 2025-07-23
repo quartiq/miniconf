@@ -1,7 +1,5 @@
 use core::marker::PhantomData;
-use core::num::NonZero;
 
-use indexmap::IndexMap;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{
@@ -9,124 +7,11 @@ use serde_reflection::{
     Value,
 };
 
-use miniconf::{
-    Error, IntoKeys, KeyLookup, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize, Walk,
-};
+use miniconf::{Error, IntoKeys, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize};
 
 mod common;
-
-/// Internal/leaf node metadata
-#[derive(Clone, Debug, Serialize, PartialEq)]
-pub enum Node {
-    /// A terminal leaf node
-    Leaf(Option<Format>),
-    /// An internal node with named children
-    Named(IndexMap<&'static str, Node>),
-    /// An internal node with numbered children of homogenenous type
-    Homogeneous {
-        len: NonZero<usize>,
-        item: Box<Node>,
-    },
-    /// An internal node with numbered children of heterogeneous type
-    Numbered(Vec<Node>),
-}
-
-impl Walk for Node {
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Self {
-        match lookup {
-            KeyLookup::Named(names) => Self::Named(IndexMap::from_iter(
-                names.iter().copied().zip(children.iter().cloned()),
-            )),
-            KeyLookup::Homogeneous(len) => Self::Homogeneous {
-                len: *len,
-                item: Box::new(children.first().unwrap().clone()),
-            },
-            KeyLookup::Numbered(_len) => Self::Numbered(children.to_vec()),
-        }
-    }
-
-    fn leaf() -> Self {
-        Self::Leaf(None)
-    }
-}
-
-impl Node {
-    /// Visit each node in the graph
-    ///
-    /// Pass the indices as well as the node by reference to the visitor
-    ///
-    /// Note that only the representative child will be visited for a
-    /// homogeneous internal node.
-    ///
-    /// Top down, depth first.
-    pub fn visit<F, E>(&self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&Vec<usize>, &Self) -> Result<(), E>,
-    {
-        func(root, self)?;
-        match self {
-            Self::Leaf(_) => {}
-            Self::Homogeneous { item, .. } => {
-                root.push(0); // at least one item guaranteed
-                item.visit(root, func)?;
-                root.pop();
-            }
-            Self::Named(map) => {
-                for (i, item) in map.values().enumerate() {
-                    root.push(i);
-                    item.visit(root, func)?;
-                    root.pop();
-                }
-            }
-            Self::Numbered(items) => {
-                for (i, item) in items.iter().enumerate() {
-                    root.push(i);
-                    item.visit(root, func)?;
-                    root.pop();
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Visit each node in the graph mutably
-    ///
-    /// Pass the indices as well as the node by mutable reference to the visitor
-    ///
-    /// Note that only the representative child will be visited for a
-    /// homogeneous internal node.
-    ///
-    /// top down, depth first.
-    pub fn visit_mut<F, E>(&mut self, root: &mut Vec<usize>, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&Vec<usize>, &mut Self) -> Result<(), E>,
-    {
-        func(root, self)?;
-        match self {
-            Self::Leaf(_) => {}
-            Self::Homogeneous { item, .. } => {
-                root.push(0); // at least one item guaranteed
-                item.visit_mut(root, func)?;
-                root.pop();
-            }
-            Self::Named(map) => {
-                for (i, item) in map.values_mut().enumerate() {
-                    root.push(i);
-                    item.visit_mut(root, func)?;
-                    root.pop();
-                }
-            }
-            Self::Numbered(items) => {
-                for (i, item) in items.iter_mut().enumerate() {
-                    root.push(i);
-                    item.visit_mut(root, func)?;
-                    root.pop();
-                }
-            }
-        }
-        Ok(())
-    }
-}
+mod node;
+use node::Node;
 
 /// Trace a leaf value
 pub fn trace_value<T: TreeSerialize, K: Keys>(
@@ -175,7 +60,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Graph<T> {
-    root: Node,
+    root: Node<Format>,
     _t: PhantomData<T>,
 }
 
@@ -190,7 +75,7 @@ impl<T: TreeKey> Default for Graph<T> {
 
 impl<T> Graph<T> {
     /// Return a reference to the root node
-    pub fn root(&self) -> &Node {
+    pub fn root(&self) -> &Node<Format> {
         &self.root
     }
 
@@ -265,7 +150,7 @@ impl<T> Graph<T> {
 fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
 
-    let mut graph = Graph::<common::Settings>::default();
+    let mut graph = Graph::default();
     let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
 
     // Using TreeSerialize
