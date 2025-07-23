@@ -150,7 +150,7 @@ impl<T> Graph<T> {
 fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
 
-    let mut graph = Graph::<common::Settings>::default();
+    let mut graph = Graph::default();
     let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
 
     // Using TreeSerialize
