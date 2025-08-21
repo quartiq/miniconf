@@ -23,7 +23,7 @@ postcard = { version = "1.0.8", optional = true }
 thiserror = { version = "2", default-features = false }
 
 [features]
-default = ["derive"]
+default = ["derive", "alloc"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive", "serde/derive"]
@@ -47,7 +47,6 @@ strum = { version = "0.27.1", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
 serde-reflection = { version = "0.5", git = "https://github.com/quartiq/serde-reflection.git", branch = "pub-ser-de" }
-indexmap = { version = "2.9", features = ["serde"] }
 once_cell = "1.21.3"
 
 [[test]]
@@ -102,10 +101,6 @@ required-features = ["derive"]
 name = "common"
 crate-type = ["lib"]
 required-features = ["derive"]
-
-[[example]]
-name = "node"
-crate-type = ["lib"]
 
 [[example]]
 name = "cli"

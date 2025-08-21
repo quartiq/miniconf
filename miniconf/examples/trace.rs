@@ -7,11 +7,9 @@ use serde_reflection::{
     Value,
 };
 
-use miniconf::{Error, IntoKeys, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{Error, IntoKeys, Keys, Traversal, TreeDeserialize, TreeKey, TreeSerialize, schema::Node};
 
 mod common;
-mod node;
-use node::Node;
 
 /// Trace a leaf value
 pub fn trace_value<T: TreeSerialize, K: Keys>(

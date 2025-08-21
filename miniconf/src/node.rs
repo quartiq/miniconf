@@ -3,6 +3,9 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{Error, IntoKeys, KeysIter, Traversal, TreeKey};

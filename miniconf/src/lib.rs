@@ -35,6 +35,12 @@ pub mod json;
 #[cfg(feature = "postcard")]
 pub mod postcard;
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "alloc")]
+pub mod schema;
+
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{Deserialize, Deserializer, Serialize, Serializer};

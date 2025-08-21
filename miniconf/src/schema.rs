@@ -1,9 +1,12 @@
+//! Schema generation tools
+
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::num::NonZero;
 
-use indexmap::IndexMap;
 use serde::Serialize;
 
-use miniconf::{KeyLookup, Walk};
+use crate::{KeyLookup, Walk};
 
 /// Internal/leaf node metadata
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -11,10 +14,12 @@ pub enum Node<T> {
     /// A terminal leaf node
     Leaf(Option<T>),
     /// An internal node with named children
-    Named(IndexMap<&'static str, Node<T>>),
+    Named(Vec<(&'static str, Node<T>)>),
     /// An internal node with numbered children of homogenenous type
     Homogeneous {
+        /// Number of child nodes
         len: NonZero<usize>,
+        /// Representative child node
         item: Box<Node<T>>,
     },
     /// An internal node with numbered children of heterogeneous type
@@ -24,9 +29,13 @@ pub enum Node<T> {
 impl<T: Clone> Walk for Node<T> {
     fn internal(children: &[Self], lookup: &KeyLookup) -> Self {
         match lookup {
-            KeyLookup::Named(names) => Self::Named(IndexMap::from_iter(
-                names.iter().copied().zip(children.iter().cloned()),
-            )),
+            KeyLookup::Named(names) => Self::Named(
+                names
+                    .iter()
+                    .copied()
+                    .zip(children.iter().cloned())
+                    .collect(),
+            ),
             KeyLookup::Homogeneous(len) => Self::Homogeneous {
                 len: *len,
                 item: Box::new(children.first().unwrap().clone()),
@@ -62,7 +71,7 @@ impl<T> Node<T> {
                 root.pop();
             }
             Self::Named(map) => {
-                for (i, item) in map.values().enumerate() {
+                for (i, (_, item)) in map.iter().enumerate() {
                     root.push(i);
                     item.visit(root, func)?;
                     root.pop();
@@ -100,7 +109,7 @@ impl<T> Node<T> {
                 root.pop();
             }
             Self::Named(map) => {
-                for (i, item) in map.values_mut().enumerate() {
+                for (i, (_, item)) in map.iter_mut().enumerate() {
                     root.push(i);
                     item.visit_mut(root, func)?;
                     root.pop();
