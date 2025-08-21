@@ -143,6 +143,7 @@ fn option_absent() {
 #[test]
 fn array_option() {
     // This tests that no invalid bounds are inferred for Options and Options in arrays.
+    #[allow(dead_code)]
     #[derive(Copy, Clone, Default, Tree)]
     struct S {
         a: Option<Leaf<u32>>,
