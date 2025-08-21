@@ -1,12 +1,13 @@
-//! Schema generation tools
+//! Graph of a TreeKey
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::marker::PhantomData;
 use core::num::NonZero;
 
 use serde::Serialize;
 
-use crate::{KeyLookup, Walk};
+use crate::{KeyLookup, TreeKey, Walk};
 
 /// Internal/leaf node metadata
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -19,7 +20,7 @@ pub enum Node<T> {
     Homogeneous {
         /// Number of child nodes
         len: NonZero<usize>,
-        /// Representative child node
+        /// Representative child
         item: Box<Node<T>>,
     },
     /// An internal node with numbered children of heterogeneous type
@@ -124,5 +125,28 @@ impl<T> Node<T> {
             }
         }
         Ok(())
+    }
+}
+
+/// Graph of `Node` for a Tree type
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Graph<T, N> {
+    pub(crate) root: Node<N>,
+    _t: PhantomData<T>,
+}
+
+impl<T: TreeKey, N: Clone> Default for Graph<T, N> {
+    fn default() -> Self {
+        Self {
+            root: T::traverse_all(),
+            _t: PhantomData,
+        }
+    }
+}
+
+impl<T, N> Graph<T, N> {
+    /// Return a reference to the root node
+    pub fn root(&self) -> &Node<N> {
+        &self.root
     }
 }

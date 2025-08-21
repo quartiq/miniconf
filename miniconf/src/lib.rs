@@ -39,7 +39,10 @@ pub mod postcard;
 extern crate alloc;
 
 #[cfg(feature = "alloc")]
-pub mod schema;
+pub mod graph;
+
+#[cfg(feature = "trace")]
+pub mod trace;
 
 // re-export for proc-macro
 #[doc(hidden)]
