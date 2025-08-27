@@ -8,7 +8,7 @@ use serde_reflection::{
     Deserializer, EnumProgress, Format, FormatHolder, Samples, Serializer, Tracer, Value,
 };
 
-use crate::{Error, IntoKeys, Keys, Metadata, Traversal, TreeDeserialize, TreeKey, TreeSerialize};
+use crate::{Error, Keys, Packed, Traversal, TreeDeserialize, TreeKey, TreeSerialize};
 
 /// Trace a leaf value
 pub fn trace_value<T: TreeSerialize, K: Keys>(
@@ -57,24 +57,26 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Graph<T, N> {
-    pub(crate) leaves: Vec<(Vec<usize>, Option<N>)>,
+    pub(crate) leaves: Vec<(Packed, Option<N>)>,
     _t: PhantomData<T>,
 }
 
 impl<T, N> Graph<T, N> {
-    pub fn leaves(&self) -> &Vec<(Vec<usize>, Option<N>)> {
+    pub fn leaves(&self) -> &Vec<(Packed, Option<N>)> {
         &self.leaves
     }
 }
 
 impl<T: TreeKey, N> Default for Graph<T, N> {
     fn default() -> Self {
-        let mut idx = vec![0; Metadata::new(T::SCHEMA).max_depth];
+        let mut idx = vec![0; T::SCHEMA.metadata().max_depth];
         let mut leaves = Vec::new();
         T::SCHEMA
             .visit(&mut idx, 0, &mut |idx, schema| {
                 if schema.internal.is_none() {
-                    leaves.push((idx.to_owned(), None));
+                    let (p, _) = schema.transcode(idx).unwrap();
+                    println!("{p:?} {idx:?}");
+                    leaves.push((p, None));
                 }
                 Ok::<_, ()>(())
             })
@@ -98,7 +100,7 @@ impl<T> Graph<T, Format> {
         T: TreeSerialize,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_value(tracer, samples, idx.iter().into_keys(), value) {
+            match trace_value(tracer, samples, *idx, value) {
                 Ok((mut fmt, _value)) => {
                     fmt.reduce();
                     *format = Some(fmt);
@@ -122,7 +124,7 @@ impl<T> Graph<T, Format> {
         T: TreeDeserialize<'de>,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_type::<T, _>(tracer, samples, idx.iter().into_keys()) {
+            match trace_type::<T, _>(tracer, samples, *idx) {
                 Ok(mut fmt) => {
                     fmt.reduce();
                     *format = Some(fmt);

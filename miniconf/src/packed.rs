@@ -275,10 +275,12 @@ impl Transcode for Packed {
     fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
         schema
             .traverse(keys.into_keys(), |_meta, idx_schema| {
+                println!("{idx_schema:?}");
                 if let Some((index, internal)) = idx_schema {
-                    match self.push_lsb(Packed::bits_for(internal.len().get() - 1), index) {
+                    let bits = Packed::bits_for(internal.len().get() - 1);
+                    match self.push_lsb(bits, index) {
                         None => Err(()),
-                        Some(_) => Ok(()),
+                        Some(_capacity) => Ok(()),
                     }
                 } else {
                     Ok(())

@@ -1,7 +1,16 @@
 use core::{iter::Fuse, num::NonZero};
 use serde::Serialize;
 
-use crate::{Error, NodeIter, Transcode, Traversal};
+use crate::{Error, Metadata, Node, NodeIter, Packed, Transcode, Traversal};
+
+macro_rules! max {
+    ($a:expr, $b:expr) => {{
+        let b = $b;
+        if $a < b {
+            $a = b;
+        }
+    }};
+}
 
 pub type Meta = Option<&'static [(&'static str, &'static str)]>;
 
@@ -42,37 +51,53 @@ impl Schema {
         }
     }
 
+    #[inline]
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, Traversal> {
         keys.next(self.internal.as_ref().unwrap())
     }
 
-    pub fn visit<F, E>(&self, idx: &mut [usize], mut depth: usize, func: &mut F) -> Result<(), E>
+    pub fn visit<F, E>(&self, idx: &mut [usize], depth: usize, func: &mut F) -> Result<(), E>
     where
         F: FnMut(&[usize], &Schema) -> Result<(), E>,
     {
         func(&idx[..depth], self)?;
         if let Some(internal) = self.internal.as_ref() {
-            debug_assert!(depth < idx.len());
-            match internal {
-                Internal::Homogeneous(h) => {
-                    idx[depth] = 0; // at least one item guaranteed
-                    h.schema.visit(idx, depth + 1, func)?;
-                }
-                Internal::Named(n) => {
-                    for (i, n) in n.iter().enumerate() {
-                        idx[depth] = i;
-                        n.schema.visit(idx, depth + 1, func)?;
+            if depth < idx.len() {
+                match internal {
+                    Internal::Homogeneous(h) => {
+                        idx[depth] = 0; // at least one item guaranteed
+                        h.schema.visit(idx, depth + 1, func)?;
                     }
-                }
-                Internal::Numbered(n) => {
-                    for (i, n) in n.iter().enumerate() {
-                        idx[depth] = i;
-                        n.schema.visit(idx, depth + 1, func)?;
+                    Internal::Named(n) => {
+                        for (i, n) in n.iter().enumerate() {
+                            idx[depth] = i;
+                            n.schema.visit(idx, depth + 1, func)?;
+                        }
+                    }
+                    Internal::Numbered(n) => {
+                        for (i, n) in n.iter().enumerate() {
+                            idx[depth] = i;
+                            n.schema.visit(idx, depth + 1, func)?;
+                        }
                     }
                 }
             }
         }
         Ok(())
+    }
+
+    pub fn descend<F, E>(&self, mut func: F) -> Result<usize, Error<E>>
+    where
+        F: FnMut(&Self) -> Result<Option<&Self>, Error<E>>,
+    {
+        if let Some(child) = func(self)? {
+            child
+                .descend(func)
+                .map_err(Error::increment)
+                .map(|depth| depth + 1)
+        } else {
+            Ok(0)
+        }
     }
 
     /// Traverse from the root to a leaf and call a function for each node.
@@ -120,22 +145,16 @@ impl Schema {
         K: Keys,
         F: FnMut(&Meta, Option<(usize, &Internal)>) -> Result<(), E>,
     {
-        if let Some(internal) = self.internal.as_ref() {
-            let idx = keys.next(internal)?;
-            func(&self.meta, Some((idx, internal))).map_err(|err| Error::Inner(1, err))?;
-            let child = match internal {
-                Internal::Named(nameds) => &nameds[idx].schema,
-                Internal::Numbered(numbereds) => &numbereds[idx].schema,
-                Internal::Homogeneous(homogeneous) => &homogeneous.schema,
-            };
-            child
-                .traverse(keys, func)
-                .map_err(Error::increment)
-                .map(|depth| depth + 1)
-        } else {
-            func(&self.meta, None).map_err(|err| Error::Inner(0, err))?;
-            Ok(0)
-        }
+        self.descend(|schema| {
+            if let Some(internal) = schema.internal.as_ref() {
+                let idx = keys.next(internal)?;
+                func(&schema.meta, Some((idx, internal))).map_err(|err| Error::Inner(1, err))?;
+                Ok(Some(internal.next(idx)))
+            } else {
+                func(&schema.meta, None).map_err(|err| Error::Inner(0, err))?;
+                Ok(None)
+            }
+        })
     }
 
     /// Transcode keys to a new keys type representation
@@ -179,16 +198,16 @@ impl Schema {
     ///
     /// # Returns
     /// Transcoded target and node information on success
-    // #[inline]
-    // fn transcode<N, K>(keys: K) -> Result<(N, Schema), Traversal>
-    // where
-    //     K: IntoKeys,
-    //     N: Transcode + Default,
-    // {
-    //     let mut target = N::default();
-    //     let node = target.transcode(self, keys)?;
-    //     Ok((target, node))
-    // }
+    #[inline]
+    pub fn transcode<N, K>(&self, keys: K) -> Result<(N, Node), Traversal>
+    where
+        K: IntoKeys,
+        N: Transcode + Default,
+    {
+        let mut target = N::default();
+        let node = target.transcode(self, keys)?;
+        Ok((target, node))
+    }
 
     /// Return an iterator over nodes of a given type
     ///
@@ -248,6 +267,57 @@ impl Schema {
     {
         NodeIter::new(self)
     }
+
+    pub const fn metadata(&self) -> Metadata {
+        let mut m = Metadata {
+            max_depth: 0,
+            max_length: 0,
+            count: NonZero::<usize>::MIN,
+            max_bits: 0,
+        };
+        if let Some(internal) = self.internal.as_ref() {
+            match internal {
+                Internal::Named(nameds) => {
+                    let bits = Packed::bits_for(nameds.len() - 1);
+                    let mut index = 0;
+                    while index < nameds.len() {
+                        let named = &nameds[index];
+                        let child = named.schema.metadata();
+                        max!(m.max_depth, 1 + child.max_depth);
+                        max!(m.max_length, named.name.len() + child.max_length);
+                        m.count = m.count.checked_add(child.count.get()).unwrap();
+                        max!(m.max_bits, bits + child.max_bits);
+                        index += 1;
+                    }
+                }
+                Internal::Numbered(numbereds) => {
+                    let bits = Packed::bits_for(numbereds.len() - 1);
+                    let mut index = 0;
+                    while index < numbereds.len() {
+                        let numbered = &numbereds[index];
+                        let len = 1 + match index.checked_ilog10() {
+                            None => 0,
+                            Some(len) => len as usize,
+                        };
+                        let child = numbered.schema.metadata();
+                        max!(m.max_depth, 1 + child.max_depth);
+                        max!(m.max_length, len + child.max_length);
+                        m.count = m.count.checked_add(child.count.get()).unwrap();
+                        max!(m.max_bits, bits + child.max_bits);
+                        index += 1;
+                    }
+                }
+                Internal::Homogeneous(homogeneous) => {
+                    m = homogeneous.schema.metadata();
+                    m.max_depth += 1;
+                    m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);
+                    m.max_length += 1 + homogeneous.len.ilog10() as usize;
+                    m.count = m.count.checked_mul(homogeneous.len).unwrap();
+                }
+            }
+        }
+        m
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
@@ -294,30 +364,27 @@ impl Internal {
         }
     }
 
+    pub const fn next(&self, idx: usize) -> &Schema {
+        match self {
+            Self::Named(nameds) => nameds[idx].schema,
+            Self::Numbered(numbereds) => numbereds[idx].schema,
+            Self::Homogeneous(homogeneous) => homogeneous.schema,
+        }
+    }
+
     /// Perform a index-to-name lookup
     ///
     /// If this succeeds with None, it's a numbered or homogeneous internal node and the
     /// name is the formatted index.
     #[inline]
-    pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
-        match self {
-            Self::Named(n) => match n.get(index) {
-                Some(n) => Ok(Some(n.name)),
-                None => Err(Traversal::NotFound(1)),
-            },
-            Self::Numbered(n) => {
-                if index >= n.len() {
-                    Err(Traversal::NotFound(1))
-                } else {
-                    Ok(None)
-                }
-            }
-            Self::Homogeneous(h, ..) => {
-                if index >= h.len.get() {
-                    Err(Traversal::NotFound(1))
-                } else {
-                    Ok(None)
-                }
+    pub const fn lookup(&self, index: usize) -> Result<Option<&str>, Traversal> {
+        if index >= self.len().get() {
+            Err(Traversal::NotFound(1))
+        } else {
+            if let Self::Named(n) = self {
+                Ok(Some(n[index].name))
+            } else {
+                Ok(None)
             }
         }
     }

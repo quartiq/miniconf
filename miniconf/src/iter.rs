@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{Internal, IntoKeys, Keys, Metadata, Node, Schema, Transcode, Traversal};
+use crate::{Internal, IntoKeys, Keys, Node, Schema, Transcode, Traversal};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,7 +123,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta = Metadata::new(&self.schema);
+        let meta = self.schema.metadata();
         assert!(
             D >= meta.max_depth,
             "depth D = {D} must be at least {}",
