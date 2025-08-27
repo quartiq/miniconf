@@ -56,7 +56,7 @@ uses_type_params!(TreeField, ty, typ);
 uses_lifetimes!(TreeField, ty, typ);
 
 impl TreeField {
-    fn span(&self) -> Span {
+    pub fn span(&self) -> Span {
         self.ident
             .as_ref()
             .map(|i| i.span())

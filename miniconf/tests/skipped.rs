@@ -1,4 +1,4 @@
-use miniconf::{Leaf, Metadata, Node, Path, Traversal, Tree, TreeKey};
+use miniconf::{Leaf, Metadata, Path, Schema, Traversal, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -23,7 +23,7 @@ fn meta() {
 fn path() {
     assert_eq!(
         Settings::transcode::<Path<String, '/'>, _>([0usize]),
-        Ok((Path("/value".to_owned()), Node::leaf(1)))
+        Ok((Path("/value".to_owned()), Schema::leaf(1)))
     );
     assert_eq!(
         Settings::transcode::<Path<String, '/'>, _>([1usize]),

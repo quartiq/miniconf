@@ -1,72 +1,319 @@
 use core::{iter::Fuse, num::NonZero};
-
 use serde::Serialize;
 
-use crate::Traversal;
+use crate::{Error, NodeIter, Transcode, Traversal};
+
+pub type Meta = Option<&'static [(&'static str, &'static str)]>;
+
+/// Type of a node: leaf or internal
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize, Default)]
+pub struct Schema {
+    /// Inner metadata
+    pub meta: Meta,
+
+    /// Internal node
+    ///
+    /// A non-leaf node with one or more leaf nodes below this node
+    pub internal: Option<Internal>,
+}
+
+impl Schema {
+    pub const LEAF: Self = Self::leaf(None);
+
+    pub const fn leaf(meta: Meta) -> Self {
+        Self {
+            meta,
+            internal: None,
+        }
+    }
+
+    /// Whether this node is a leaf
+    #[inline]
+    pub const fn is_leaf(&self) -> bool {
+        self.internal.is_none()
+    }
+
+    /// Number of child nodes
+    #[inline]
+    pub const fn len(&self) -> usize {
+        match &self.internal {
+            None => 0,
+            Some(i) => i.len().get(),
+        }
+    }
+
+    pub fn next(&self, mut keys: impl Keys) -> Result<usize, Traversal> {
+        keys.next(self.internal.as_ref().unwrap())
+    }
+
+    pub fn visit<F, E>(&self, idx: &mut [usize], mut depth: usize, func: &mut F) -> Result<(), E>
+    where
+        F: FnMut(&[usize], &Schema) -> Result<(), E>,
+    {
+        func(&idx[..depth], self)?;
+        if let Some(internal) = self.internal.as_ref() {
+            debug_assert!(depth < idx.len());
+            match internal {
+                Internal::Homogeneous(h) => {
+                    idx[depth] = 0; // at least one item guaranteed
+                    h.schema.visit(idx, depth + 1, func)?;
+                }
+                Internal::Named(n) => {
+                    for (i, n) in n.iter().enumerate() {
+                        idx[depth] = i;
+                        n.schema.visit(idx, depth + 1, func)?;
+                    }
+                }
+                Internal::Numbered(n) => {
+                    for (i, n) in n.iter().enumerate() {
+                        idx[depth] = i;
+                        n.schema.visit(idx, depth + 1, func)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Traverse from the root to a leaf and call a function for each node.
+    ///
+    /// If a leaf is found early (`keys` being longer than required)
+    /// `Err(Traversal(TooLong(depth)))` is returned.
+    /// If `keys` is exhausted before reaching a leaf node,
+    /// `Err(Traversal(TooShort(depth)))` is returned.
+    /// `Traversal::Access/Invalid/Absent/Finalization` are never returned.
+    ///
+    /// This method should fail if and only if the key is invalid.
+    /// It should succeed at least when any of the other key based methods
+    /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
+    ///
+    /// ```
+    /// use miniconf::{IntoKeys, Leaf, TreeKey};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    /// let mut ret = [(1, Some("bar"), 2), (0, None, 2)].into_iter();
+    /// let func = |index, name, len: core::num::NonZero<usize>| -> Result<(), ()> {
+    ///     assert_eq!(ret.next().unwrap(), (index, name, len.get()));
+    ///     Ok(())
+    /// };
+    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
+    ///   Its arguments are the index and the optional name of the node and the number
+    ///   of top-level nodes at the given depth. Returning `Err(E)` aborts the traversal.
+    ///   Returning `Ok(())` continues the downward traversal.
+    ///
+    /// # Returns
+    /// Node depth on success (number of keys consumed/number of calls to `func`)
+    ///
+    /// # Design note
+    /// Writing this to return an iterator instead of using a callback
+    /// would have worse performance (O(n^2) instead of O(n) for matching)
+    pub fn traverse<K, F, E>(&self, mut keys: K, mut func: F) -> Result<usize, Error<E>>
+    where
+        K: Keys,
+        F: FnMut(&Meta, Option<(usize, &Internal)>) -> Result<(), E>,
+    {
+        if let Some(internal) = self.internal.as_ref() {
+            let idx = keys.next(internal)?;
+            func(&self.meta, Some((idx, internal))).map_err(|err| Error::Inner(1, err))?;
+            let child = match internal {
+                Internal::Named(nameds) => &nameds[idx].schema,
+                Internal::Numbered(numbereds) => &numbereds[idx].schema,
+                Internal::Homogeneous(homogeneous) => &homogeneous.schema,
+            };
+            child
+                .traverse(keys, func)
+                .map_err(Error::increment)
+                .map(|depth| depth + 1)
+        } else {
+            func(&self.meta, None).map_err(|err| Error::Inner(0, err))?;
+            Ok(0)
+        }
+    }
+
+    /// Transcode keys to a new keys type representation
+    ///
+    /// The keys can be
+    /// * too short: the internal node is returned
+    /// * matched length: the leaf node is returned
+    /// * too long: Err(TooLong(depth)) is returned
+    ///
+    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
+    /// an existing `&mut N`.
+    ///
+    /// ```
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 5],
+    /// };
+    ///
+    /// let idx = [1, 1];
+    ///
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(idx).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/1");
+    /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
+    /// assert_eq!(path.as_str(), ".bar[1]");
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
+    /// assert_eq!(&indices[..node.depth()], idx);
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
+    /// assert_eq!(&indices[..node.depth()], [1, 1]);
+    /// let (packed, node) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
+    /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/4");
+    /// let ((), node) = S::transcode(&path).unwrap();
+    /// assert_eq!(node, Node::leaf(2));
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: `IntoKeys` to identify the node.
+    ///
+    /// # Returns
+    /// Transcoded target and node information on success
+    // #[inline]
+    // fn transcode<N, K>(keys: K) -> Result<(N, Schema), Traversal>
+    // where
+    //     K: IntoKeys,
+    //     N: Transcode + Default,
+    // {
+    //     let mut target = N::default();
+    //     let node = target.transcode(self, keys)?;
+    //     Ok((target, node))
+    // }
+
+    /// Return an iterator over nodes of a given type
+    ///
+    /// This is a walk of all leaf nodes.
+    /// The iterator will walk all paths, including those that may be absent at
+    /// runtime (see [`TreeKey#option`]).
+    /// An iterator with an exact and trusted `size_hint()` can be obtained from
+    /// this through [`NodeIter::exact_size()`].
+    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
+    ///
+    /// ```
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
+    /// #[derive(TreeKey)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    ///
+    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
+    ///
+    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
+    ///
+    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| {
+    ///         let (idx, node) = p.unwrap();
+    ///         (idx.into_inner(), node.depth)
+    ///     })
+    ///     .collect();
+    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
+    ///
+    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_lsb().get())
+    ///     .collect();
+    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
+    ///
+    /// let nodes: Vec<_> = S::nodes::<(), 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().1)
+    ///     .collect();
+    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
+    /// ```
+    ///
+    #[inline]
+    pub fn nodes<N, const D: usize>(&'static self) -> NodeIter<N, D>
+    where
+        N: Transcode + Default,
+    {
+        NodeIter::new(self)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Numbered {
+    pub schema: &'static Schema,
+    pub meta: Meta,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Named {
+    pub name: &'static str,
+    pub schema: &'static Schema,
+    pub meta: Meta,
+}
+
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Homogeneous {
+    pub len: NonZero<usize>,
+    pub schema: &'static Schema,
+    pub meta: Meta,
+}
 
 /// Data to look up field names and convert to indices
 ///
 /// This struct used together with [`crate::TreeKey`].
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
-pub enum KeyLookup {
+pub enum Internal {
     /// Named children
-    Named(&'static [&'static str]),
+    Named(&'static [Named]),
     /// Numbered heterogeneous children
-    Numbered(NonZero<usize>),
+    Numbered(&'static [Numbered]),
     /// Homogeneous numbered children
-    Homogeneous(NonZero<usize>),
+    Homogeneous(Homogeneous),
 }
 
-impl KeyLookup {
-    /// Return a named KeyLookup
-    #[inline]
-    pub const fn named(names: &'static [&'static str]) -> Self {
-        if names.is_empty() {
-            panic!("Must have at least one child");
-        }
-        Self::Named(names)
-    }
-
-    /// Return a homogenenous, unnamed KeyLookup
-    #[inline]
-    pub const fn homogeneous(len: usize) -> Self {
-        match NonZero::new(len) {
-            Some(len) => Self::Homogeneous(len),
-            None => panic!("Must have at least one child"),
-        }
-    }
-
-    /// Return a heterogeneous numbered KeyLookup
-    #[inline]
-    pub const fn numbered(len: usize) -> Self {
-        match NonZero::new(len) {
-            Some(len) => Self::Numbered(len),
-            None => panic!("Must have at least one child"),
-        }
-    }
-
+impl Internal {
     /// Return the number of elements in the lookup
     #[inline]
     pub const fn len(&self) -> NonZero<usize> {
         match self {
-            Self::Named(names) => match NonZero::new(names.len()) {
-                Some(len) => len,
-                None => panic!("Must have at least one child"),
-            },
-            Self::Numbered(len) | Self::Homogeneous(len) => *len,
+            Self::Named(n) => NonZero::new(n.len()).expect("Must have at least one child"),
+            Self::Numbered(n) => NonZero::new(n.len()).expect("Must have at least one child"),
+            Self::Homogeneous(h) => h.len,
         }
     }
 
     /// Perform a index-to-name lookup
+    ///
+    /// If this succeeds with None, it's a numbered or homogeneous internal node and the
+    /// name is the formatted index.
     #[inline]
     pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
         match self {
-            Self::Named(names) => match names.get(index) {
-                Some(name) => Ok(Some(name)),
+            Self::Named(n) => match n.get(index) {
+                Some(n) => Ok(Some(n.name)),
                 None => Err(Traversal::NotFound(1)),
             },
-            Self::Numbered(len) | Self::Homogeneous(len) => {
-                if index >= len.get() {
+            Self::Numbered(n) => {
+                if index >= n.len() {
+                    Err(Traversal::NotFound(1))
+                } else {
+                    Ok(None)
+                }
+            }
+            Self::Homogeneous(h, ..) => {
+                if index >= h.len.get() {
                     Err(Traversal::NotFound(1))
                 } else {
                     Ok(None)
@@ -79,7 +326,7 @@ impl KeyLookup {
 /// Convert a `&str` key into a node index on a `KeyLookup`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal>;
+    fn find(&self, internal: &Internal) -> Result<usize, Traversal>;
 }
 
 impl<T: Key> Key for &T
@@ -87,8 +334,8 @@ where
     T: Key + ?Sized,
 {
     #[inline]
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        (**self).find(lookup)
+    fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+        (**self).find(internal)
     }
 }
 
@@ -97,8 +344,8 @@ where
     T: Key + ?Sized,
 {
     #[inline]
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        (**self).find(lookup)
+    fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+        (**self).find(internal)
     }
 }
 
@@ -107,11 +354,11 @@ macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
             #[inline]
-            fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+            fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
                 (*self)
                     .try_into()
                     .ok()
-                    .filter(|i| *i < lookup.len().get())
+                    .filter(|i| *i < internal.len().get())
                     .ok_or(Traversal::NotFound(1))
             }
         }
@@ -122,12 +369,11 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 // name
 impl Key for str {
     #[inline]
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        match lookup {
-            KeyLookup::Named(names) => names.iter().position(|n| *n == self),
-            KeyLookup::Homogeneous(len) | KeyLookup::Numbered(len) => {
-                self.parse().ok().filter(|i| *i < len.get())
-            }
+    fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+        match internal {
+            Internal::Named(n) => n.iter().position(|n| n.name == self),
+            Internal::Numbered(n) => self.parse().ok().filter(|i| *i < n.len()),
+            Internal::Homogeneous(h, ..) => self.parse().ok().filter(|i| *i < h.len.get()),
         }
         .ok_or(Traversal::NotFound(1))
     }
@@ -138,7 +384,7 @@ pub trait Keys {
     /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal>;
+    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal>;
 
     /// Finalize the keys, ensure there are no more.
     ///
@@ -160,8 +406,8 @@ where
     T: Keys + ?Sized,
 {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        (**self).next(lookup)
+    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+        (**self).next(internal)
     }
 
     #[inline]
@@ -188,17 +434,15 @@ where
     T::Item: Key,
 {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        self.0.next().ok_or(Traversal::TooShort(0))?.find(lookup)
+    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+        let n = self.0.next();
+        n.ok_or(Traversal::TooShort(0))?.find(internal)
     }
 
     #[inline]
     fn finalize(&mut self) -> Result<(), Traversal> {
-        self.0
-            .next()
-            .is_none()
-            .then_some(())
-            .ok_or(Traversal::TooLong(0))
+        let n = self.0.next();
+        n.is_none().then_some(()).ok_or(Traversal::TooLong(0))
     }
 }
 
@@ -250,9 +494,9 @@ impl<T, U> Chain<T, U> {
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        match self.0.next(lookup) {
-            Err(Traversal::TooShort(_)) => self.1.next(lookup),
+    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+        match self.0.next(internal) {
+            Err(Traversal::TooShort(_)) => self.1.next(internal),
             ret => ret,
         }
     }

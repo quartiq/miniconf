@@ -1,4 +1,4 @@
-use miniconf::{Indices, Leaf, Metadata, Node, Path, Traversal, Tree, TreeKey};
+use miniconf::{Indices, Leaf, Metadata, Path, Schema, Traversal, Tree, TreeKey};
 mod common;
 
 #[derive(Tree, Default)]
@@ -24,10 +24,10 @@ fn meta() {
 #[test]
 fn path() {
     for (keys, path, depth) in [
-        (&[1usize][..], "/b", Node::leaf(1)),
-        (&[2, 0][..], "/c/inner", Node::leaf(2)),
-        (&[2][..], "/c", Node::internal(1)),
-        (&[][..], "", Node::internal(0)),
+        (&[1usize][..], "/b", Schema::leaf(1)),
+        (&[2, 0][..], "/c/inner", Schema::leaf(2)),
+        (&[2][..], "/c", Schema::internal(1)),
+        (&[][..], "", Schema::internal(0)),
     ] {
         let (s, node) = Settings::transcode::<Path<String, '/'>, _>(keys.iter()).unwrap();
         assert_eq!(node, depth);
@@ -38,10 +38,10 @@ fn path() {
 #[test]
 fn indices() {
     for (keys, idx, depth) in [
-        ("", [0, 0], Node::internal(0)),
-        ("/b", [1, 0], Node::leaf(1)),
-        ("/c/inner", [2, 0], Node::leaf(2)),
-        ("/c", [2, 0], Node::internal(1)),
+        ("", [0, 0], Schema::internal(0)),
+        ("/b", [1, 0], Schema::leaf(1)),
+        ("/c/inner", [2, 0], Schema::leaf(2)),
+        ("/c", [2, 0], Schema::internal(1)),
     ] {
         let (indices, node) =
             Settings::transcode::<Indices<_>, _>(Path::<_, '/'>::from(keys)).unwrap();
@@ -50,7 +50,7 @@ fn indices() {
     }
     let (indices, node) = Option::<Leaf<i8>>::transcode::<Indices<_>, _>([0usize; 0]).unwrap();
     assert_eq!(indices.0, [0]);
-    assert_eq!(node, Node::leaf(0));
+    assert_eq!(node, Schema::leaf(0));
 
     let mut it = [0usize; 4].into_iter();
     assert_eq!(

@@ -1,23 +1,8 @@
 use core::num::NonZero;
 
-use crate::{KeyLookup, Packed};
+use crate::{Internal, Packed, Schema};
 
-/// Capability to be created from a walk through all representative nodes in a
-/// `TreeKey` using `traverse_all()`.
-///
-/// This is a bottom-up, breadth-first walk.
-pub trait Walk: Sized {
-    /// Create a leaf node
-    fn leaf() -> Self;
-
-    /// Create an internal node frmo child nodes.
-    ///
-    /// # Args
-    /// * `children`: Child nodes to merge.
-    /// * `lookup`: The namespace the child nodes are in.
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Self;
-}
-
+// TODO: Rename to Summary
 /// Metadata about a `TreeKey` namespace.
 ///
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
@@ -50,54 +35,62 @@ impl Metadata {
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
     #[inline]
-    pub fn max_length(&self, separator: &str) -> usize {
+    pub const fn max_length(&self, separator: &str) -> usize {
         self.max_length + self.max_depth * separator.len()
     }
-}
 
-impl Walk for Metadata {
-    #[inline]
-    fn leaf() -> Self {
-        Self {
-            count: NonZero::<usize>::MIN,
-            max_length: 0,
-            max_depth: 0,
-            max_bits: 0,
-        }
-    }
-
-    #[inline]
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Self {
-        let mut max_depth = 0;
-        let mut max_length = 0;
-        let mut count = 0;
-        let mut max_bits = 0;
-        // TODO: swap loop and match
-        for (index, child) in children.iter().enumerate() {
-            let (len, n) = match lookup {
-                KeyLookup::Named(names) => {
-                    debug_assert_eq!(children.len(), names.len());
-                    (names[index].len(), 1)
+    pub fn new(schema: &Schema) -> Self {
+        // TODO: `const`
+        if let Some(internal) = schema.internal.as_ref() {
+            let mut max_depth = 0;
+            let mut max_length = 0;
+            let mut count = 0;
+            let mut max_bits = 0;
+            match internal {
+                Internal::Named(nameds) => {
+                    let bits = Packed::bits_for(nameds.len() - 1);
+                    for named in nameds.iter() {
+                        let child = Self::new(&named.schema);
+                        max_depth = max_depth.max(1 + child.max_depth);
+                        max_length = max_length.max(named.name.len() + child.max_length);
+                        count += child.count.get();
+                        max_bits = max_bits.max(bits + child.max_bits);
+                    }
                 }
-                KeyLookup::Numbered(len) => {
-                    debug_assert_eq!(children.len(), len.get());
-                    (index.checked_ilog10().unwrap_or_default() as usize + 1, 1)
+                Internal::Numbered(numbereds) => {
+                    let bits = Packed::bits_for(numbereds.len() - 1);
+                    for (index, numbered) in numbereds.iter().enumerate() {
+                        let len = index.checked_ilog10().unwrap_or_default() as usize + 1;
+                        let child = Self::new(&numbered.schema);
+                        max_depth = max_depth.max(1 + child.max_depth);
+                        max_length = max_length.max(len + child.max_length);
+                        count += child.count.get();
+                        max_bits = max_bits.max(bits + child.max_bits);
+                    }
                 }
-                KeyLookup::Homogeneous(len) => {
-                    debug_assert_eq!(children.len(), 1);
-                    (len.ilog10() as usize + 1, len.get())
+                Internal::Homogeneous(homogeneous) => {
+                    let bits = Packed::bits_for(homogeneous.len.get() - 1);
+                    let len = homogeneous.len.ilog10() as usize + 1;
+                    let child = Self::new(&homogeneous.schema);
+                    max_depth = max_depth.max(1 + child.max_depth);
+                    max_length = max_length.max(len + child.max_length);
+                    count += homogeneous.len.get() * child.count.get();
+                    max_bits = max_bits.max(bits + child.max_bits);
                 }
-            };
-            max_depth = max_depth.max(1 + child.max_depth);
-            max_length = max_length.max(len + child.max_length);
-            count += n * child.count.get();
-            max_bits = max_bits.max(Packed::bits_for(lookup.len().get() - 1) + child.max_bits);
-        }
-        Self {
-            max_bits,
-            max_depth,
-            max_length,
-            count: NonZero::new(count).unwrap(),
+            }
+            Self {
+                max_bits,
+                max_depth,
+                max_length,
+                count: NonZero::new(count).unwrap(),
+            }
+        } else {
+            Self {
+                count: NonZero::<usize>::MIN,
+                max_length: 0,
+                max_depth: 0,
+                max_bits: 0,
+            }
         }
     }
 }

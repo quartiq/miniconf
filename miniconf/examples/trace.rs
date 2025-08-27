@@ -1,11 +1,12 @@
 use serde_reflection::{Samples, Tracer, TracerConfig};
 
-use miniconf::graph::{Graph, Node};
+use miniconf::trace::Graph;
 
 mod common;
 
 fn main() -> anyhow::Result<()> {
     let settings = common::Settings::new();
+    // println!("{}", serde_json::to_string_pretty(<common::Settings as miniconf::TreeKey>::SCHEMA).unwrap());
 
     let mut graph = Graph::default();
     let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
@@ -20,19 +21,13 @@ fn main() -> anyhow::Result<()> {
     graph.trace_types_simple(&mut tracer).unwrap();
 
     // No untraced Leaf nodes left
-    graph
-        .root()
-        .visit(&mut vec![], &mut |_idx, node| {
-            assert!(!matches!(node, Node::Leaf(None)));
-            Ok::<_, ()>(())
-        })
-        .unwrap();
+    assert!(graph.leaves().iter().all(|(_idx, fmt)| fmt.is_some()));
 
     // Dump graph and registry
     let registry = tracer.registry().unwrap();
     println!(
         "{}",
-        serde_json::to_string_pretty(&(graph.root(), &registry))?
+        serde_json::to_string_pretty(&(graph.leaves(), &registry))?
     );
 
     Ok(())

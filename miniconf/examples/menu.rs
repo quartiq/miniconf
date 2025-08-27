@@ -8,8 +8,8 @@ use embedded_io_async::Write as AWrite;
 use tokio::io::AsyncBufReadExt;
 
 use miniconf::{
-    json, postcard, Indices, Keys, Node, Packed, Path, Transcode, Traversal, TreeDeserializeOwned,
-    TreeKey, TreeSerialize,
+    json, postcard, Indices, Keys, Packed, Path, Schema, Transcode, Traversal,
+    TreeDeserializeOwned, TreeKey, TreeSerialize,
 };
 
 mod common;
@@ -86,12 +86,12 @@ where
         }
     }
 
-    fn push(&self, path: &str) -> Result<(Self, Node), Traversal> {
+    fn push(&self, path: &str) -> Result<(Self, Schema), Traversal> {
         let (key, node) = M::transcode(self.key.chain(Path::<_, SEPARATOR>::from(path)))?;
         Ok((Self::new(key), node))
     }
 
-    fn pop(&self, levels: usize) -> Result<(Self, Node), Traversal> {
+    fn pop(&self, levels: usize) -> Result<(Self, Schema), Traversal> {
         let (idx, node): (Indices<[_; D]>, _) = M::transcode(self.key)?;
         if let Some(idx) = idx.get(
             ..node
@@ -106,13 +106,13 @@ where
         }
     }
 
-    pub fn enter(&mut self, path: &str) -> Result<Node, Traversal> {
+    pub fn enter(&mut self, path: &str) -> Result<Schema, Traversal> {
         let (new, node) = self.push(path)?;
         *self = new;
         Ok(node)
     }
 
-    pub fn exit(&mut self, levels: usize) -> Result<Node, Traversal> {
+    pub fn exit(&mut self, levels: usize) -> Result<Schema, Traversal> {
         let (new, node) = self.pop(levels)?;
         *self = new;
         Ok(node)

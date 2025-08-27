@@ -1,14 +1,14 @@
 //! Schema tracing
 
+use core::marker::PhantomData;
+
 use once_cell::sync::Lazy;
+use serde::Serialize;
 use serde_reflection::{
     Deserializer, EnumProgress, Format, FormatHolder, Samples, Serializer, Tracer, Value,
 };
 
-use crate::{
-    graph::{Graph, Node},
-    Error, IntoKeys, Keys, Traversal, TreeDeserialize, TreeSerialize,
-};
+use crate::{Error, IntoKeys, Keys, Metadata, Traversal, TreeDeserialize, TreeKey, TreeSerialize};
 
 /// Trace a leaf value
 pub fn trace_value<T: TreeSerialize, K: Keys>(
@@ -54,6 +54,38 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
     }
 }
 
+/// Graph of `Node` for a Tree type
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Graph<T, N> {
+    pub(crate) leaves: Vec<(Vec<usize>, Option<N>)>,
+    _t: PhantomData<T>,
+}
+
+impl<T, N> Graph<T, N> {
+    pub fn leaves(&self) -> &Vec<(Vec<usize>, Option<N>)> {
+        &self.leaves
+    }
+}
+
+impl<T: TreeKey, N> Default for Graph<T, N> {
+    fn default() -> Self {
+        let mut idx = vec![0; Metadata::new(T::SCHEMA).max_depth];
+        let mut leaves = Vec::new();
+        T::SCHEMA
+            .visit(&mut idx, 0, &mut |idx, schema| {
+                if schema.internal.is_none() {
+                    leaves.push((idx.to_owned(), None));
+                }
+                Ok::<_, ()>(())
+            })
+            .unwrap();
+        Self {
+            leaves,
+            _t: PhantomData,
+        }
+    }
+}
+
 impl<T> Graph<T, Format> {
     /// Trace all leaf values
     pub fn trace_values(
@@ -65,22 +97,19 @@ impl<T> Graph<T, Format> {
     where
         T: TreeSerialize,
     {
-        self.root.visit_mut(&mut vec![], &mut |idx, node| {
-            if let Node::Leaf(format) = node {
-                match trace_value(tracer, samples, idx.into_keys(), value) {
-                    Ok((mut fmt, _value)) => {
-                        fmt.reduce();
-                        *format = Some(fmt);
-                    }
-                    Err(Error::Traversal(
-                        Traversal::Absent(_depth) | Traversal::Access(_depth, _),
-                    )) => {}
-                    Err(Error::Inner(_depth, e)) => Err(e)?,
-                    _ => unreachable!(),
+        for (idx, format) in self.leaves.iter_mut() {
+            match trace_value(tracer, samples, idx.iter().into_keys(), value) {
+                Ok((mut fmt, _value)) => {
+                    fmt.reduce();
+                    *format = Some(fmt);
                 }
+                Err(Error::Traversal(Traversal::Absent(_depth) | Traversal::Access(_depth, _))) => {
+                }
+                Err(Error::Inner(_depth, e)) => Err(e)?,
+                _ => unreachable!(),
             }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
     /// Trace all leaf types until complete
@@ -92,22 +121,20 @@ impl<T> Graph<T, Format> {
     where
         T: TreeDeserialize<'de>,
     {
-        self.root.visit_mut(&mut vec![], &mut |idx, node| {
-            if let Node::Leaf(format) = node {
-                match trace_type::<T, _>(tracer, samples, idx.into_keys()) {
-                    Ok(mut fmt) => {
-                        fmt.reduce();
-                        *format = Some(fmt);
-                    }
-                    Err(Error::Traversal(Traversal::Access(_depth, msg))) => {
-                        Err(serde_reflection::Error::DeserializationError(msg))?
-                    }
-                    Err(Error::Inner(_depth, e)) => Err(e)?,
-                    _ => unreachable!(),
+        for (idx, format) in self.leaves.iter_mut() {
+            match trace_type::<T, _>(tracer, samples, idx.iter().into_keys()) {
+                Ok(mut fmt) => {
+                    fmt.reduce();
+                    *format = Some(fmt);
                 }
+                Err(Error::Traversal(Traversal::Access(_depth, msg))) => {
+                    Err(serde_reflection::Error::DeserializationError(msg))?
+                }
+                Err(Error::Inner(_depth, e)) => Err(e)?,
+                _ => unreachable!(),
             }
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
     /// Trace all leaf types assuming no samples are needed

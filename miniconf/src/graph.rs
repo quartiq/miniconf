@@ -7,7 +7,7 @@ use core::num::NonZero;
 
 use serde::Serialize;
 
-use crate::{KeyLookup, TreeKey, Walk};
+use crate::{Internal, TreeKey};
 
 /// Internal/leaf node metadata
 #[derive(Clone, Debug, Serialize, PartialEq)]
@@ -27,21 +27,21 @@ pub enum Node<T> {
     Numbered(Vec<Node<T>>),
 }
 
-impl<T: Clone> Walk for Node<T> {
-    fn internal(children: &[Self], lookup: &KeyLookup) -> Self {
+impl<T: Clone> Node<T> {
+    fn internal(children: &[Self], lookup: &Internal) -> Self {
         match lookup {
-            KeyLookup::Named(names) => Self::Named(
+            Internal::Named(names) => Self::Named(
                 names
                     .iter()
                     .copied()
                     .zip(children.iter().cloned())
                     .collect(),
             ),
-            KeyLookup::Homogeneous(len) => Self::Homogeneous {
+            Internal::Homogeneous(len) => Self::Homogeneous {
                 len: *len,
                 item: Box::new(children.first().unwrap().clone()),
             },
-            KeyLookup::Numbered(_len) => Self::Numbered(children.to_vec()),
+            Internal::Numbered(_len) => Self::Numbered(children.to_vec()),
         }
     }
 

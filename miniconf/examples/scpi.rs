@@ -1,7 +1,7 @@
 use core::str;
 
 use miniconf::{
-    json, IntoKeys, Key, KeyLookup, Keys, PathIter, Traversal, TreeDeserializeOwned, TreeSerialize,
+    json, Internal, IntoKeys, Key, Keys, PathIter, Traversal, TreeDeserializeOwned, TreeSerialize,
 };
 
 mod common;
@@ -18,10 +18,10 @@ mod common;
 struct ScpiKey<T: ?Sized>(T);
 
 impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
+    fn find(&self, lookup: &Internal) -> Result<usize, Traversal> {
         let s = self.0.as_ref();
         match lookup {
-            KeyLookup::Named(names) => {
+            Internal::Named(names) => {
                 let mut truncated = None;
                 let mut ambiguous = false;
                 for (i, name) in names.iter().enumerate() {
@@ -51,7 +51,7 @@ impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
                     truncated
                 }
             }
-            KeyLookup::Numbered(len) | KeyLookup::Homogeneous(len) => {
+            Internal::Numbered(len) | Internal::Homogeneous(len) => {
                 s.parse().ok().filter(|i| *i < len.get())
             }
         }

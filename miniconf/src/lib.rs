@@ -3,7 +3,7 @@
 #![cfg_attr(not(all(feature = "derive", feature = "json-core")), doc = "Miniconf")]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
-#![warn(missing_docs)]
+// #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
 mod error;
@@ -38,8 +38,8 @@ pub mod postcard;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-#[cfg(feature = "alloc")]
-pub mod graph;
+//#[cfg(feature = "alloc")]
+//pub mod graph;
 
 #[cfg(feature = "trace")]
 pub mod trace;

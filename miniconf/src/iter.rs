@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{IntoKeys, KeyLookup, Keys, Metadata, Node, Transcode, Traversal, TreeKey};
+use crate::{Internal, IntoKeys, Keys, Metadata, Node, Schema, Transcode, Traversal};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,8 +51,8 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 pub(crate) struct Consume<T>(pub(crate) T);
 impl<T: Keys> Keys for Consume<T> {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        self.0.next(lookup)
+    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+        self.0.next(internal)
     }
 
     #[inline]
@@ -79,37 +79,35 @@ impl<T: Keys> IntoKeys for Consume<T> {
 ///
 /// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
 /// not have sufficient capacity and failed to encode the key at the given depth.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NodeIter<M: ?Sized, N, const D: usize> {
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeIter<N, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
+    schema: &'static Schema,
     state: [usize; D],
     root: usize,
     depth: usize,
     _n: PhantomData<N>,
-    _m: PhantomData<M>,
 }
 
-impl<M: ?Sized, N, const D: usize> Default for NodeIter<M, N, D> {
-    fn default() -> Self {
+impl<N, const D: usize> NodeIter<N, D> {
+    pub fn new(schema: &'static Schema) -> Self {
         Self {
+            schema,
             state: [0; D],
             root: 0,
             // Marker to prevent initial index increment in `next()`
             depth: D + 1,
             _n: PhantomData,
-            _m: PhantomData,
         }
     }
-}
 
-impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
-        let node = self.state.transcode::<M, _>(root)?;
+        let node = self.state.transcode(self.schema, root)?;
         self.root = node.depth();
         self.depth = D + 1;
         Ok(self)
@@ -125,7 +123,7 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta: Metadata = M::traverse_all();
+        let meta = Metadata::new(&self.schema);
         assert!(
             D >= meta.max_depth,
             "depth D = {D} must be at least {}",
@@ -148,9 +146,8 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     }
 }
 
-impl<M, N, const D: usize> Iterator for NodeIter<M, N, D>
+impl<N, const D: usize> Iterator for NodeIter<N, D>
 where
-    M: TreeKey + ?Sized,
     N: Transcode + Default,
 {
     type Item = Result<(N, Node), usize>;
@@ -167,7 +164,8 @@ where
                 // Not initial state: increment
                 self.state[self.depth - 1] += 1;
             }
-            return match M::transcode(Consume(self.state.iter().into_keys())) {
+            let mut path = N::default();
+            return match path.transcode(&self.schema, Consume(self.state.iter().into_keys())) {
                 Err(Traversal::NotFound(depth)) => {
                     // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
                     // Key lookup was performed and failed: depth is always >= 1
@@ -175,7 +173,7 @@ where
                     self.depth = (depth - 1).max(self.root);
                     continue;
                 }
-                Ok((path, node)) => {
+                Ok(node) => {
                     // Leaf or internal node found, save depth for increment at next iteration
                     self.depth = node.depth();
                     Some(Ok((path, node)))
@@ -193,7 +191,4 @@ where
 }
 
 // Contract: Do not allow manipulation of `depth` other than through iteration.
-impl<M: TreeKey + ?Sized, N: Transcode + Default, const D: usize> core::iter::FusedIterator
-    for NodeIter<M, N, D>
-{
-}
+impl<N: Transcode + Default, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}

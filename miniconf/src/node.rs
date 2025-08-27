@@ -1,6 +1,7 @@
 use core::{
     fmt::Write,
     ops::{Deref, DerefMut},
+    slice,
 };
 
 #[cfg(feature = "alloc")]
@@ -8,7 +9,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, IntoKeys, KeysIter, Traversal, TreeKey};
+use crate::{Error, IntoKeys, KeysIter, Schema, Traversal};
 
 /// Type of a node: leaf or internal
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -114,30 +115,19 @@ pub trait Transcode {
     ///
     /// Returning `Err(Traversal::TooShort(depth))` indicates that there was insufficient
     /// capacity and a key could not be encoded at the given depth.
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys;
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal>;
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        T::transcode::<M, _>(self, keys)
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        T::transcode(self, schema, keys)
     }
 }
 
 /// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |_, _, _| Ok(())).try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        schema.traverse(keys.into_keys(), |_, _| Ok(())).try_into()
     }
 }
 
@@ -266,110 +256,82 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 }
 
 impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            self.0.write_char(S).or(Err(()))?;
-            let mut buf = itoa::Buffer::new();
-            let name = name.unwrap_or_else(|| buf.format(index));
-            debug_assert!(!name.contains(S));
-            self.0.write_str(name).or(Err(()))
-        })
-        .try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        schema
+            .traverse(keys.into_keys(), |_meta, idx_schema| {
+                if let Some((index, internal)) = idx_schema {
+                    self.0.write_char(S).or(Err(()))?;
+                    let mut buf = itoa::Buffer::new();
+                    let name = internal
+                        .lookup(index)
+                        .unwrap()
+                        .unwrap_or_else(|| buf.format(index));
+                    debug_assert!(!name.contains(S));
+                    self.0.write_str(name).or(Err(()))
+                } else {
+                    Ok(())
+                }
+            })
+            .try_into()
     }
 }
 
 /// Indices of `usize` to identify a node in a `TreeKey`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[repr(transparent)]
-#[serde(transparent)]
-pub struct Indices<T: ?Sized>(pub T);
-
-impl<T: ?Sized> Deref for Indices<T> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: ?Sized> DerefMut for Indices<T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T> Indices<T> {
-    /// Extract just the indices
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
+pub struct Indices<T: ?Sized> {
+    len: usize,
+    data: T,
 }
 
 impl<T> From<T> for Indices<T> {
     #[inline]
     fn from(value: T) -> Self {
-        Self(value)
+        Self {
+            len: 0,
+            data: value,
+        }
     }
 }
 
 impl<const D: usize, T: Copy + Default> Default for Indices<[T; D]> {
     #[inline]
     fn default() -> Self {
-        Self([Default::default(); D])
+        Self::from([Default::default(); D])
     }
 }
 
-impl<const D: usize, T> From<Indices<[T; D]>> for [T; D] {
-    #[inline]
-    fn from(value: Indices<[T; D]>) -> Self {
-        value.0
+impl<const D: usize, T> AsRef<[T]> for Indices<[T; D]> {
+    fn as_ref(&self) -> &[T] {
+        &self.data[..self.len]
     }
 }
 
-impl<T: core::fmt::Display> core::fmt::Display for Indices<T> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl<T: IntoKeys> IntoKeys for Indices<T> {
-    type IntoKeys = T::IntoKeys;
+impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
+    type IntoKeys = KeysIter<slice::Iter<'a, usize>>;
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
-        self.0.into_keys()
+        self.data.as_ref()[..self.len].into_iter().into_keys()
     }
 }
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     #[inline]
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        self.0.as_mut().transcode::<M, _>(keys)
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        self.data.as_mut()[..self.len].transcode(schema, keys)
     }
 }
 
 macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
-            fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-            where
-                M: TreeKey + ?Sized,
-                K: IntoKeys,
+            fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal>
             {
                 let mut it = self.iter_mut();
-                M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-                    let idx = it.next().ok_or(())?;
-                    *idx = index.try_into().or(Err(()))?;
+                schema.traverse(keys.into_keys(), |_meta, idx_schema| {
+                    if let Some((index, _internal)) = idx_schema {
+                        let idx = it.next().ok_or(())?;
+                        *idx = index.try_into().or(Err(()))?;
+                    }
                     Ok(())
                 })
                 .try_into()
@@ -384,16 +346,15 @@ impl<T> Transcode for Vec<T>
 where
     usize: TryInto<T>,
 {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |index, _name, _len| {
-            self.push(index.try_into().or(Err(()))?);
-            Ok(())
-        })
-        .try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        schema
+            .traverse(keys.into_keys(), |_meta, idx_schema| {
+                if let Some((index, _schema)) = idx_schema {
+                    self.push(index.try_into().or(Err(()))?);
+                }
+                Ok(())
+            })
+            .try_into()
     }
 }
 

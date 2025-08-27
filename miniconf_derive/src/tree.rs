@@ -1,12 +1,12 @@
 use darling::{
-    ast::{self, Data},
+    ast::{self, Data, Style},
     usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes},
     util::Flag,
     Error, FromDeriveInput, FromVariant,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{parse_quote, WhereClause};
+use syn::{parse_quote, token::Token, WhereClause};
 
 use crate::field::{TreeField, TreeTrait};
 
@@ -170,13 +170,19 @@ impl Tree {
         }
     }
 
-    fn index(&self) -> TokenStream {
+    fn index_increment(&self) -> (TokenStream, Option<TokenStream>) {
         if self.flatten.is_present() {
-            quote!(::core::result::Result::<usize, ::miniconf::Traversal>::Ok(
-                0
-            ))
+            (
+                quote!(::core::result::Result::<usize, ::miniconf::Traversal>::Ok(
+                    0
+                )),
+                None,
+            )
         } else {
-            quote!(::miniconf::Keys::next(&mut keys, &Self::__MINICONF_LOOKUP))
+            (
+                quote!(<Self as ::miniconf::TreeKey>::SCHEMA.next(&mut keys)),
+                Some(quote!(.map_err(::miniconf::Error::increment))),
+            )
         }
     }
 
@@ -184,84 +190,74 @@ impl Tree {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
-        let fields = self.fields();
-        let fields_len = fields.len();
-        let names: Option<Vec<_>> = match &self.data {
-            Data::Struct(fields) if fields.style.is_struct() => Some(
-                fields
-                    .iter()
-                    .map(|f| {
-                        // ident is Some
-                        let name = f.name().unwrap();
-                        quote_spanned! { name.span()=> stringify!(#name) }
-                    })
-                    .collect(),
-            ),
-            Data::Enum(variants) => Some(
-                variants
+        let internal = match &self.data {
+            Data::Struct(fields) => {
+                match fields.style {
+                    Style::Tuple => {
+                        let numbered: TokenStream = fields
+                            .iter()
+                            .map(|f| {
+                                // ident is Some
+                                let typ = f.typ();
+
+                                quote_spanned! { f.span()=> ::miniconf::Numbered {
+                                    schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                    meta: None,
+                                }, }
+                            })
+                            .collect();
+                        quote! { ::miniconf::Internal::Numbered(&[#numbered]) }
+                    }
+                    Style::Struct => {
+                        let named: TokenStream = fields
+                            .iter()
+                            .map(|f| {
+                                // ident is Some
+                                let name = f.name().unwrap();
+                                let typ = f.typ();
+
+                                quote_spanned! { name.span()=> ::miniconf::Named {
+                                    name: stringify!(#name),
+                                    schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                    meta: None,
+                                }, }
+                            })
+                            .collect();
+                        quote! { ::miniconf::Internal::Named(&[#named]) }
+                    }
+                    Style::Unit => unreachable!(),
+                }
+            }
+            Data::Enum(variants) => {
+                let named: TokenStream = variants
                     .iter()
                     .map(|v| {
                         let name = v.name();
-                        quote_spanned! { name.span()=> stringify!(#name) }
+                        // ident is Some
+                        let typ = v.field().typ();
+                        quote_spanned! { v.field().span()=> ::miniconf::Named {
+                            name: stringify!(#name),
+                            schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                            meta: None,
+                        }, }
                     })
-                    .collect(),
-            ),
-            _ => None,
-        };
-        let names = match names {
-            None => quote! {
-                ::miniconf::KeyLookup::Numbered(
-                    match ::core::num::NonZero::new(#fields_len) {
-                        Some(n) => n,
-                        None => unreachable!(),
-                    },
-                )
-            },
-            Some(names) => quote!(::miniconf::KeyLookup::named(&[#(#names ,)*])),
-        };
-        let traverse_arms = fields.iter().enumerate().map(|(i, f)| f.traverse_by_key(i));
-        let index = self.index();
-        let (traverse, increment, traverse_all) = if self.flatten.is_present() {
-            (None, None, fields[0].traverse_all())
-        } else {
-            let w = fields.iter().map(|f| f.traverse_all());
-            (
-                Some(quote! {
-                    let name = Self::__MINICONF_LOOKUP.lookup(index)?;
-                    func(index, name, Self::__MINICONF_LOOKUP.len())
-                    .map_err(|err| ::miniconf::Error::Inner(1, err))?;
-                }),
-                Some(quote!(.map_err(::miniconf::Error::increment).map(|depth| depth + 1))),
-                quote!(W::internal(&[#(#w ,)*], &Self::__MINICONF_LOOKUP)),
-            )
-        };
-
-        quote! {
-            // TODO: can these be hidden and disambiguated w.r.t. collision?
-            #[automatically_derived]
-            impl #impl_generics #ident #ty_generics #orig_where_clause {
-                const __MINICONF_LOOKUP: ::miniconf::KeyLookup = #names;
+                    .collect();
+                quote! { ::miniconf::Internal::Named(&[#named]) }
             }
-
+        };
+        let schema = if self.flatten.is_present() {
+            let typ = self.fields().first().unwrap().typ();
+            quote! { <#typ as ::miniconf::TreeKey>::SCHEMA }
+        } else {
+            quote! { &::miniconf::Schema {
+                meta: None, // TODO
+                internal: Some(#internal),
+            } }
+        };
+        quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeKey for #ident #ty_generics #where_clause {
-                fn traverse_all<W: ::miniconf::Walk>() -> W {
-                    #traverse_all
-                }
-
-                fn traverse_by_key<K, F, E>(mut keys: K, mut func: F) -> ::core::result::Result<usize, ::miniconf::Error<E>>
-                where
-                    K: ::miniconf::Keys,
-                    F: ::core::ops::FnMut(usize, ::core::option::Option<&'static str>, ::core::num::NonZero<usize>) -> ::core::result::Result<(), E>,
-                {
-                    let index = #index?;
-                    #traverse
-                    match index {
-                        #(#traverse_arms ,)*
-                        _ => unreachable!()
-                    }
-                    #increment
-                }
+                const SCHEMA: &'static ::miniconf::Schema = #schema;
             }
         }
     }
@@ -270,10 +266,8 @@ impl Tree {
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Serialize, where_clause);
-        let index = self.index();
+        let (index, increment) = self.index_increment();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
-        let increment =
-            (!self.flatten.is_present()).then_some(quote!(.map_err(::miniconf::Error::increment)));
 
         quote! {
             #[automatically_derived]
@@ -310,13 +304,11 @@ impl Tree {
         generics.params.push(syn::GenericParam::Lifetime(de));
         let (impl_generics, _, where_clause) = generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Deserialize, where_clause);
-        let index = self.index();
+        let (index, increment) = self.index_increment();
         let ident = &self.ident;
         let (mat, deserialize_arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
         let fields = self.fields();
         let probe_arms = fields.iter().enumerate().map(|(i, f)| f.probe_by_key(i));
-        let increment =
-            (!self.flatten.is_present()).then_some(quote!(.map_err(::miniconf::Error::increment)));
 
         quote! {
             #[automatically_derived]
@@ -353,7 +345,7 @@ impl Tree {
     pub fn tree_any(&self) -> TokenStream {
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Any, where_clause);
-        let index = self.index();
+        let (index, _) = self.index_increment();
         let ident = &self.ident;
         let (mat, ref_arms, default) = self.arms(|f, i| f.ref_any_by_key(i));
         let (_, mut_arms, _) = self.arms(|f, i| f.mut_any_by_key(i));

@@ -1,5 +1,5 @@
 use miniconf::{
-    Indices, Leaf, Metadata, Node, Packed, Path, Traversal, Tree, TreeKey, TreeSerialize,
+    Indices, Leaf, Metadata, Packed, Path, Schema, Traversal, Tree, TreeKey, TreeSerialize,
 };
 
 #[derive(Tree, Default)]
@@ -13,7 +13,7 @@ fn packed() {
     // Check empty being too short
     assert_eq!(
         Settings::transcode::<Path<String, '/'>, _>(Packed::EMPTY),
-        Ok((Path::default(), Node::internal(0)))
+        Ok((Path::default(), Schema::internal(0)))
     );
 
     // Check path-packed round trip.
@@ -40,7 +40,7 @@ fn packed() {
     // Check that Packed `marker + 0b0` is equivalent to `/a`
     let a = Packed::from_lsb(0b10.try_into().unwrap());
     let (path, node) = Settings::transcode::<Path<String, '/'>, _>(a).unwrap();
-    assert_eq!(node, Node::leaf(1));
+    assert_eq!(node, Schema::leaf(1));
     assert_eq!(path.as_str(), "/a");
 }
 
@@ -62,12 +62,12 @@ fn top() {
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
         [
-            (Indices([0, 0]), Node::leaf(2)),
-            (Indices([1, 0]), Node::leaf(1))
+            (Indices([0, 0]), Schema::leaf(2)),
+            (Indices([1, 0]), Schema::leaf(1))
         ]
     );
     let (p, node) = S::transcode::<Packed, _>([1usize]).unwrap();
-    assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
+    assert_eq!((p.into_lsb().get(), node), (0b11, Schema::leaf(1)));
     assert_eq!(
         S::nodes::<Packed, 2>()
             .map(|p| p.unwrap().0.into_lsb().get())
@@ -147,7 +147,7 @@ fn size() {
     assert_eq!(core::mem::size_of::<A31>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let (path, node) = A31::transcode::<Path<String, '/'>, _>(packed).unwrap();
-    assert_eq!(node, Node::leaf(31));
+    assert_eq!(node, Schema::leaf(31));
     assert_eq!(path.as_str().len(), 2 * 31);
     let meta: Metadata = A31::traverse_all();
     assert_eq!(meta.max_bits, 31);
@@ -162,7 +162,7 @@ fn size() {
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let (path, node) = A16::transcode::<Path<String, '/'>, _>(packed).unwrap();
-    assert_eq!(node, Node::leaf(16));
+    assert_eq!(node, Schema::leaf(16));
     assert_eq!(path.as_str().len(), 2 * 16);
     let meta: Metadata = A16::traverse_all();
     assert_eq!(meta.max_bits, 31);

@@ -5,7 +5,7 @@ use core::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
+use crate::{IntoKeys, KeysIter, Node, Schema, Transcode, Traversal};
 
 /// JSON style path notation iterator
 ///
@@ -148,25 +148,26 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
 }
 
 impl<T: Write + ?Sized> Transcode for JsonPath<T> {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            match name {
-                Some(name) => {
-                    debug_assert!(!name.contains(['.', '\'', '[', ']']));
-                    self.0.write_char('.').and_then(|()| self.0.write_str(name))
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        schema
+            .traverse(keys.into_keys(), |_meta, idx_internal| {
+                if let Some((index, internal)) = idx_internal {
+                    match internal.lookup(index).unwrap() {
+                        Some(name) => {
+                            debug_assert!(!name.contains(['.', '\'', '[', ']']));
+                            self.0.write_char('.').and_then(|()| self.0.write_str(name))
+                        }
+                        None => self
+                            .0
+                            .write_char('[')
+                            .and_then(|()| self.0.write_str(itoa::Buffer::new().format(index)))
+                            .and_then(|()| self.0.write_char(']')),
+                    }
+                    .or(Err(()))
+                } else {
+                    Ok(())
                 }
-                None => self
-                    .0
-                    .write_char('[')
-                    .and_then(|()| self.0.write_str(itoa::Buffer::new().format(index)))
-                    .and_then(|()| self.0.write_char(']')),
-            }
-            .or(Err(()))
-        })
-        .try_into()
+            })
+            .try_into()
     }
 }

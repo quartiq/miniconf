@@ -3,7 +3,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
+use crate::{Internal, IntoKeys, Key, Keys, Node, Schema, Transcode, Traversal};
 
 /// A bit-packed representation of multiple indices.
 ///
@@ -250,10 +250,10 @@ impl core::fmt::Display for Packed {
 
 impl Keys for Packed {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        let bits = Self::bits_for(lookup.len().get() - 1);
+    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+        let bits = Self::bits_for(internal.len().get() - 1);
         let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
-        index.find(lookup)
+        index.find(internal)
     }
 
     #[inline]
@@ -272,19 +272,19 @@ impl IntoKeys for Packed {
 }
 
 impl Transcode for Packed {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        Self: Sized,
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |index, _name, len| {
-            match self.push_lsb(Packed::bits_for(len.get() - 1), index) {
-                None => Err(()),
-                Some(_) => Ok(()),
-            }
-        })
-        .try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+        schema
+            .traverse(keys.into_keys(), |_meta, idx_schema| {
+                if let Some((index, internal)) = idx_schema {
+                    match self.push_lsb(Packed::bits_for(internal.len().get() - 1), index) {
+                        None => Err(()),
+                        Some(_) => Ok(()),
+                    }
+                } else {
+                    Ok(())
+                }
+            })
+            .try_into()
     }
 }
 

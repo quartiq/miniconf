@@ -1,13 +1,12 @@
 use core::{
     any::Any,
     fmt::Display,
-    num::NonZero,
     ops::{Deref, DerefMut},
 };
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{Error, Keys, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, Walk};
+use crate::{Error, Keys, Schema, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
 
 /// `Serialize`/`Deserialize`/`Any` leaf
 ///
@@ -64,20 +63,7 @@ impl<T: Display> Display for Leaf<T> {
 }
 
 impl<T: ?Sized> TreeKey for Leaf<T> {
-    #[inline]
-    fn traverse_all<W: Walk>() -> W {
-        W::leaf()
-    }
-
-    #[inline]
-    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
-    {
-        keys.finalize()?;
-        Ok(0)
-    }
+    const SCHEMA: &'static Schema = &Schema::LEAF;
 }
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
@@ -204,20 +190,7 @@ impl<T> From<T> for StrLeaf<T> {
 }
 
 impl<T: ?Sized> TreeKey for StrLeaf<T> {
-    #[inline]
-    fn traverse_all<W: Walk>() -> W {
-        W::leaf()
-    }
-
-    #[inline]
-    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
-    {
-        keys.finalize()?;
-        Ok(0)
-    }
+    const SCHEMA: &'static Schema = &Schema::LEAF;
 }
 
 impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
@@ -325,20 +298,7 @@ impl<T> From<T> for Deny<T> {
 }
 
 impl<T: ?Sized> TreeKey for Deny<T> {
-    #[inline]
-    fn traverse_all<W: Walk>() -> W {
-        W::leaf()
-    }
-
-    #[inline]
-    fn traverse_by_key<K, F, E>(mut keys: K, _func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
-    {
-        keys.finalize()?;
-        Ok(0)
-    }
+    const SCHEMA: &'static Schema = &Schema::LEAF;
 }
 
 impl<T: ?Sized> TreeSerialize for Deny<T> {
