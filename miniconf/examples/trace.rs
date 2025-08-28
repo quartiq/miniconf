@@ -1,18 +1,19 @@
+use serde_json::to_string_pretty;
 use serde_reflection::{Samples, Tracer, TracerConfig};
 
-use miniconf::trace::Graph;
+use miniconf::{trace::Types, TreeKey};
 
 mod common;
 
 fn main() -> anyhow::Result<()> {
-    let settings = common::Settings::new();
-    // println!("{}", serde_json::to_string_pretty(<common::Settings as miniconf::TreeKey>::SCHEMA).unwrap());
+    println!("Schema:\n{}", to_string_pretty(common::Settings::SCHEMA)?);
 
-    let mut graph = Graph::default();
+    let mut graph = Types::default();
     let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
 
     // Using TreeSerialize
     let mut samples = Samples::new();
+    let settings = common::Settings::new();
     graph
         .trace_values(&mut tracer, &mut samples, &settings)
         .unwrap();
@@ -22,13 +23,11 @@ fn main() -> anyhow::Result<()> {
 
     // No untraced Leaf nodes left
     assert!(graph.leaves().iter().all(|(_idx, fmt)| fmt.is_some()));
+    println!("Leaves:\n{}", to_string_pretty(graph.leaves())?);
 
     // Dump graph and registry
     let registry = tracer.registry().unwrap();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&(graph.leaves(), &registry))?
-    );
+    println!("Registry:\n{}", to_string_pretty(&registry)?);
 
     Ok(())
 }

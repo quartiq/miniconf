@@ -21,11 +21,11 @@ fn main() -> anyhow::Result<()> {
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    for (key, _node) in common::Settings::SCHEMA
+    for item in common::Settings::SCHEMA
         .nodes::<Path<String, '-'>, 4>()
         .exact_size()
-        .map(Result::unwrap)
     {
+        let (key, _node) = item.unwrap();
         let mut k = key.into_keys().track();
         match json::get_by_key(&settings, &mut k, &mut buf[..]) {
             Ok(len) => {
@@ -36,8 +36,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             Err(SerDeError::Value(ValueError::Absent)) => {
-                let depth = k.count();
-                println!("-{} absent (depth: {depth})", key.as_str());
+                println!("-{} absent (depth: {})", key.as_str(), k.node().depth);
             }
             Err(e) => panic!("{e:?}"),
         }

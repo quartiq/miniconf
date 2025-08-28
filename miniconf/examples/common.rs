@@ -52,7 +52,8 @@ impl Settings {
     /// Fill some of the Options
     pub fn enable(&mut self) {
         self.option_tree = Some(8.into());
-        self.enum_tree = Either::B(Default::default());
+        // self.enum_tree = Either::B(Default::default());
+        self.enum_tree = Either::C(Default::default());
         self.option_tree2 = Some(Default::default());
         self.array_option_tree[1] = Some(Default::default());
     }

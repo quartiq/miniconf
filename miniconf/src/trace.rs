@@ -11,20 +11,20 @@ use serde_reflection::{
 use crate::{Keys, Packed, SerDeError, TreeDeserialize, TreeKey, TreeSerialize, ValueError};
 
 /// Trace a leaf value
-pub fn trace_value<T: TreeSerialize, K: Keys>(
+pub fn trace_value(
     tracer: &mut Tracer,
     samples: &mut Samples,
-    keys: K,
-    value: &T,
+    keys: impl Keys,
+    value: &impl TreeSerialize,
 ) -> Result<(Format, Value), SerDeError<serde_reflection::Error>> {
     value.serialize_by_key(keys, Serializer::new(tracer, samples))
 }
 
 /// Trace a leaf type once
-pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: Keys>(
+pub fn trace_type_once<'de, T: TreeDeserialize<'de>>(
     tracer: &mut Tracer,
     samples: &'de Samples,
-    keys: K,
+    keys: impl Keys,
 ) -> Result<Format, SerDeError<serde_reflection::Error>> {
     let mut format = Format::unknown();
     T::probe_by_key(keys, Deserializer::new(tracer, samples, &mut format))?;
@@ -39,7 +39,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
     keys: K,
 ) -> Result<Format, SerDeError<serde_reflection::Error>> {
     loop {
-        let format = trace_type_once::<T, _>(tracer, samples, keys.clone())?;
+        let format = trace_type_once::<T>(tracer, samples, keys.clone())?;
         if let Format::TypeName(name) = &format {
             if let Some(progress) = tracer.pend_enum(name) {
                 debug_assert!(
@@ -56,24 +56,25 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
 
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Graph<T, N> {
+pub struct Types<T, N> {
     pub(crate) leaves: Vec<(Packed, Option<N>)>,
     _t: PhantomData<T>,
 }
 
-impl<T, N> Graph<T, N> {
+impl<T, N> Types<T, N> {
     pub fn leaves(&self) -> &Vec<(Packed, Option<N>)> {
         &self.leaves
     }
 }
 
-impl<T: TreeKey, N> Default for Graph<T, N> {
+impl<T: TreeKey, N> Default for Types<T, N> {
     fn default() -> Self {
-        let mut idx = vec![0; T::SCHEMA.metadata().max_depth];
-        let mut leaves = Vec::new();
+        let meta = T::SCHEMA.metadata();
+        let mut idx = vec![0; meta.max_depth];
+        let mut leaves = Vec::with_capacity(meta.count.get());
         T::SCHEMA
-            .visit(&mut idx, 0, &mut |idx, schema| {
-                if schema.internal.is_none() {
+            .visit_schema(&mut idx, 0, &mut |idx, schema| {
+                if schema.is_leaf() {
                     let p = T::SCHEMA.transcode(idx).unwrap();
                     leaves.push((p, None));
                 }
@@ -87,7 +88,7 @@ impl<T: TreeKey, N> Default for Graph<T, N> {
     }
 }
 
-impl<T> Graph<T, Format> {
+impl<T> Types<T, Format> {
     /// Trace all leaf values
     pub fn trace_values(
         &mut self,

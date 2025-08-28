@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Node, Schema, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,7 +86,7 @@ impl<N, const D: usize> NodeIter<N, D> {
     pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, DescendError> {
         let mut root = root.into_keys().track();
         self.state.transcode(self.schema, &mut root)?;
-        self.root = root.count();
+        self.root = root.node().depth;
         self.depth = D + 1;
         Ok(self)
     }
@@ -128,7 +128,7 @@ impl<N, const D: usize> Iterator for NodeIter<N, D>
 where
     N: Transcode + Default,
 {
-    type Item = Result<(N, (usize, bool)), usize>;
+    type Item = Result<(N, Node), usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -145,28 +145,23 @@ where
             let mut path = N::default();
             let mut idx = self.state.iter().into_keys().track();
             let ret = path.transcode(&self.schema, &mut idx);
-            let depth = idx.count();
+            let node = idx.node();
             return match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
                     // Reset index at NotFound depth, then retry with incremented earlier index or terminate
                     // Track() counts is the number of successful Keys::next()
-                    self.state[depth] = 0;
-                    self.depth = depth.max(self.root);
+                    self.state[node.depth] = 0;
+                    self.depth = node.depth.max(self.root);
                     continue;
                 }
-                Err(DescendError::Key(KeyError::TooLong)) | Ok(()) => {
-                    // Leaf found, save depth for increment at next iteration
-                    self.depth = depth;
-                    Some(Ok((path, (depth, true))))
-                }
-                Err(DescendError::Key(KeyError::TooShort)) => {
-                    // Internal node found, save depth for increment at next iteration
-                    self.depth = depth;
-                    Some(Ok((path, (depth, false))))
+                Err(DescendError::Key(KeyError::TooLong | KeyError::TooShort)) | Ok(()) => {
+                    // Leaf or internal node found, save depth for increment at next iteration
+                    self.depth = node.depth;
+                    Some(Ok((path, node)))
                 }
                 Err(DescendError::Inner) => {
                     // Target type can not hold keys
-                    Some(Err(depth))
+                    Some(Err(node.depth))
                 }
             };
         }

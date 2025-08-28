@@ -3,6 +3,7 @@ use serde::Serialize;
 
 use crate::{DescendError, KeyError, Metadata, NodeIter, Packed, Transcode};
 
+// const a = a.max(b)
 macro_rules! max {
     ($a:expr, $b:expr) => {{
         let b = $b;
@@ -20,21 +21,16 @@ pub struct Schema {
     /// Inner metadata
     pub meta: Meta,
 
-    /// Internal node
-    ///
-    /// A non-leaf node with one or more leaf nodes below this node
+    /// Internal schemata
     pub internal: Option<Internal>,
 }
 
 impl Schema {
-    pub const LEAF: Self = Self::leaf(None);
-
-    pub const fn leaf(meta: Meta) -> Self {
-        Self {
-            meta,
-            internal: None,
-        }
-    }
+    /// A leaf without metadata
+    pub const LEAF: Self = Self {
+        meta: None,
+        internal: None,
+    };
 
     /// Whether this node is a leaf
     #[inline]
@@ -51,14 +47,18 @@ impl Schema {
         }
     }
 
+    /// Look up the next item from keys and return a child index
+    ///
+    /// Panics when called in a leaf node.
     #[inline]
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
         keys.next(self.internal.as_ref().unwrap())
     }
 
-    pub fn visit<F, E>(&self, idx: &mut [usize], depth: usize, func: &mut F) -> Result<(), E>
+    /// Visit all representative schemata with their indices
+    pub fn visit_schema<F, E>(&self, idx: &mut [usize], depth: usize, func: &mut F) -> Result<(), E>
     where
-        F: FnMut(&[usize], &Schema) -> Result<(), E>,
+        F: FnMut(&[usize], &Self) -> Result<(), E>,
     {
         func(&idx[..depth], self)?;
         if let Some(internal) = self.internal.as_ref() {
@@ -66,22 +66,54 @@ impl Schema {
                 match internal {
                     Internal::Homogeneous(h) => {
                         idx[depth] = 0; // at least one item guaranteed
-                        h.schema.visit(idx, depth + 1, func)?;
+                        h.schema.visit_schema(idx, depth + 1, func)?;
                     }
                     Internal::Named(n) => {
                         for (i, n) in n.iter().enumerate() {
                             idx[depth] = i;
-                            n.schema.visit(idx, depth + 1, func)?;
+                            n.schema.visit_schema(idx, depth + 1, func)?;
                         }
                     }
                     Internal::Numbered(n) => {
                         for (i, n) in n.iter().enumerate() {
                             idx[depth] = i;
-                            n.schema.visit(idx, depth + 1, func)?;
+                            n.schema.visit_schema(idx, depth + 1, func)?;
                         }
                     }
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Visit all maximum length indices
+    pub fn visit_nodes<F, E>(&self, idx: &mut [usize], depth: usize, func: &mut F) -> Result<(), E>
+    where
+        F: FnMut(&[usize], &Self) -> Result<(), E>,
+    {
+        if let (Some(internal), Some(_)) = (self.internal.as_ref(), idx.get(depth)) {
+            match internal {
+                Internal::Homogeneous(h) => {
+                    for i in 0..h.len.get() {
+                        idx[depth] = i;
+                        h.schema.visit_nodes(idx, depth + 1, func)?;
+                    }
+                }
+                Internal::Named(n) => {
+                    for (i, n) in n.iter().enumerate() {
+                        idx[depth] = i;
+                        n.schema.visit_nodes(idx, depth + 1, func)?;
+                    }
+                }
+                Internal::Numbered(n) => {
+                    for (i, n) in n.iter().enumerate() {
+                        idx[depth] = i;
+                        n.schema.visit_nodes(idx, depth + 1, func)?;
+                    }
+                }
+            }
+        } else {
+            func(&idx[..depth], self)?;
         }
         Ok(())
     }
@@ -186,11 +218,10 @@ impl Schema {
     /// # Returns
     /// Transcoded target and node information on success
     #[inline]
-    pub fn transcode<N, K>(&self, keys: K) -> Result<N, DescendError>
-    where
-        K: IntoKeys,
-        N: Transcode + Default,
-    {
+    pub fn transcode<N: Transcode + Default>(
+        &self,
+        keys: impl IntoKeys,
+    ) -> Result<N, DescendError> {
         let mut target = N::default();
         target.transcode(self, keys)?;
         Ok(target)
@@ -255,6 +286,7 @@ impl Schema {
         NodeIter::new(self)
     }
 
+    /// Compute metadata
     pub const fn metadata(&self) -> Metadata {
         let mut m = Metadata {
             max_depth: 0,
@@ -311,12 +343,14 @@ impl Schema {
     }
 }
 
+/// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Numbered {
     pub schema: &'static Schema,
     pub meta: Meta,
 }
 
+/// A named schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Named {
     pub name: &'static str,
@@ -324,6 +358,7 @@ pub struct Named {
     pub meta: Meta,
 }
 
+/// A representative schema item for a homogeneous array
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Homogeneous {
     pub len: NonZero<usize>,
@@ -331,9 +366,9 @@ pub struct Homogeneous {
     pub meta: Meta,
 }
 
-/// Data to look up field names and convert to indices
+/// An internal node with children
 ///
-/// This struct used together with [`crate::TreeKey`].
+/// Always non-empty
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub enum Internal {
     /// Named children
@@ -345,7 +380,7 @@ pub enum Internal {
 }
 
 impl Internal {
-    /// Return the number of elements in the lookup
+    /// Return the number of direct child nodes
     #[inline]
     pub const fn len(&self) -> NonZero<usize> {
         match self {
@@ -355,6 +390,10 @@ impl Internal {
         }
     }
 
+    /// Return the child schema at the given index
+    ///
+    /// # Panics
+    /// If the index is out of bounds
     pub const fn next(&self, idx: usize) -> &Schema {
         match self {
             Self::Named(nameds) => nameds[idx].schema,
@@ -368,7 +407,7 @@ impl Internal {
     /// If this succeeds with None, it's a numbered or homogeneous internal node and the
     /// name is the formatted index.
     #[inline]
-    pub const fn lookup(&self, index: usize) -> Option<Option<&str>> {
+    pub const fn get_name(&self, index: usize) -> Option<Option<&str>> {
         if index >= self.len().get() {
             None
         } else {
@@ -379,9 +418,19 @@ impl Internal {
             }
         }
     }
+
+    /// Perform a name-to-index lookup
+    #[inline]
+    pub fn get_index(&self, name: &str) -> Option<usize> {
+        match self {
+            Internal::Named(n) => n.iter().position(|n| n.name == name),
+            Internal::Numbered(n) => name.parse().ok().filter(|i| *i < n.len()),
+            Internal::Homogeneous(h, ..) => name.parse().ok().filter(|i| *i < h.len.get()),
+        }
+    }
 }
 
-/// Convert a `&str` key into a node index on a `KeyLookup`
+/// Convert a key into a node index given an internal node schema
 pub trait Key {
     /// Convert the key `self` to a `usize` index
     fn find(&self, internal: &Internal) -> Option<usize>;
@@ -413,10 +462,7 @@ macro_rules! impl_key_integer {
         impl Key for $t {
             #[inline]
             fn find(&self, internal: &Internal) -> Option<usize> {
-                (*self)
-                    .try_into()
-                    .ok()
-                    .filter(|i| *i < internal.len().get())
+                (*self).try_into().ok().filter(|i| *i < internal.len().get())
             }
         }
     )+};
@@ -427,17 +473,13 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 impl Key for str {
     #[inline]
     fn find(&self, internal: &Internal) -> Option<usize> {
-        match internal {
-            Internal::Named(n) => n.iter().position(|n| n.name == self),
-            Internal::Numbered(n) => self.parse().ok().filter(|i| *i < n.len()),
-            Internal::Homogeneous(h, ..) => self.parse().ok().filter(|i| *i < h.len.get()),
-        }
+        internal.get_index(self)
     }
 }
 
 /// Capability to yield and look up [`Key`]s
 pub trait Keys: Sized {
-    /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
+    /// Look up the next key in a [`Internal`] and convert to `usize` index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError>;
@@ -453,34 +495,51 @@ pub trait Keys: Sized {
     where
         Self: Sized,
     {
-        Chain(Some(self), other.into_keys())
+        Chain::new(self, other.into_keys())
     }
 
+    /// Track consumption
     #[inline]
     fn track(self) -> Track<Self> {
+        self.into()
+    }
+}
+
+/// Node information
+#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Node {
+    /// Depth of the node
+    pub depth: usize,
+    /// The node is a leaf
+    pub leaf: bool,
+}
+
+/// Track keys consumption and leaf encounter
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Track<K> {
+    inner: K,
+    node: Node,
+}
+
+impl<K> From<K> for Track<K> {
+    #[inline]
+    fn from(inner: K) -> Self {
         Track {
-            inner: self,
-            count: 0,
-            done: false,
+            inner,
+            node: Node::default(),
         }
     }
 }
 
-pub struct Track<K> {
-    inner: K,
-    count: usize,
-    done: bool,
-}
-
 impl<K> Track<K> {
-    pub fn count(&self) -> usize {
-        self.count
+    /// Return node information
+    #[inline]
+    pub fn node(&self) -> Node {
+        self.node
     }
 
-    pub fn done(&self) -> bool {
-        self.done
-    }
-
+    /// Return the residual inner Keys
+    #[inline]
     pub fn into_inner(self) -> K {
         self.inner
     }
@@ -489,6 +548,7 @@ impl<K> Track<K> {
 impl<K: Keys> IntoKeys for &mut Track<K> {
     type IntoKeys = Self;
 
+    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }
@@ -496,18 +556,18 @@ impl<K: Keys> IntoKeys for &mut Track<K> {
 
 impl<K: Keys> Keys for Track<K> {
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        debug_assert!(!self.done);
+        debug_assert!(!self.node.leaf);
         let k = self.inner.next(internal);
         if k.is_ok() {
-            self.count += 1;
+            self.node.depth += 1;
         }
         k
     }
 
     fn finalize(&mut self) -> bool {
-        debug_assert!(!self.done);
-        self.done = self.inner.finalize();
-        self.done
+        debug_assert!(!self.node.leaf);
+        self.node.leaf = self.inner.finalize();
+        self.node.leaf
     }
 }
 
@@ -591,33 +651,28 @@ where
 }
 
 /// Concatenate two `Keys` of different types
-pub struct Chain<T, U>(Option<T>, U);
+pub struct Chain<T, U>(T, U);
 
 impl<T, U> Chain<T, U> {
     /// Return a new concatenated `Keys`
     #[inline]
     pub fn new(t: T, u: U) -> Self {
-        Self(Some(t), u)
+        Self(t, u)
     }
 }
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
     #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        if let Some(a) = self.0.as_mut() {
-            match a.next(internal) {
-                Err(KeyError::TooShort) => {
-                    self.0 = None;
-                }
-                ret => return ret,
-            }
+        match self.0.next(internal) {
+            Err(KeyError::TooShort) => self.1.next(internal),
+            ret => ret,
         }
-        self.1.next(internal)
     }
 
     #[inline]
     fn finalize(&mut self) -> bool {
-        self.0.as_mut().map(|a| a.finalize()).unwrap_or(true) && self.1.finalize()
+        self.0.finalize() && self.1.finalize()
     }
 }
 

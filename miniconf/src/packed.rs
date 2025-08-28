@@ -276,13 +276,9 @@ impl Transcode for Packed {
         schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 let bits = Packed::bits_for(internal.len().get() - 1);
-                match self.push_lsb(bits, index) {
-                    None => Err(()),
-                    Some(_capacity) => Ok(()),
-                }
-            } else {
-                Ok(())
+                self.push_lsb(bits, index).ok_or(())?;
             }
+            Ok(())
         })
     }
 }

@@ -38,9 +38,6 @@ pub mod postcard;
 #[cfg(feature = "alloc")]
 extern crate alloc;
 
-//#[cfg(feature = "alloc")]
-//pub mod graph;
-
 #[cfg(feature = "trace")]
 pub mod trace;
 

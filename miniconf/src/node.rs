@@ -29,7 +29,7 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
     }
 }
 
-/// Shim to provide the bare `Node` lookup without transcoding target
+/// Shim to provide the bare lookup without transcoding target
 impl Transcode for () {
     fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
         schema.descend(keys.into_keys(), &mut |_, _| Ok(()))
@@ -167,7 +167,7 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
                 self.0.write_char(S).or(Err(()))?;
                 let mut buf = itoa::Buffer::new();
                 let name = internal
-                    .lookup(index)
+                    .get_name(index)
                     .unwrap()
                     .unwrap_or_else(|| buf.format(index));
                 debug_assert!(!name.contains(S));

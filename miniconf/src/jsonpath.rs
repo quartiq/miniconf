@@ -151,7 +151,7 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
         schema.descend(keys.into_keys(), &mut |_meta, idx_internal| {
             if let Some((index, internal)) = idx_internal {
-                match internal.lookup(index).unwrap() {
+                match internal.get_name(index).unwrap() {
                     Some(name) => {
                         debug_assert!(!name.contains(['.', '\'', '[', ']']));
                         self.0.write_char('.').and_then(|()| self.0.write_str(name))
