@@ -136,7 +136,11 @@ impl Schema {
             func(&self.meta, Some((idx, internal))).or(Err(DescendError::Inner))?;
             internal.next(idx).descend(keys, func)
         } else {
-            func(&self.meta, None).or(Err(DescendError::Inner))
+            if !keys.finalize() {
+                Err(KeyError::TooLong.into())
+            } else {
+                func(&self.meta, None).or(Err(DescendError::Inner))
+            }
         }
     }
 
@@ -263,19 +267,22 @@ impl Schema {
                 Internal::Named(nameds) => {
                     let bits = Packed::bits_for(nameds.len() - 1);
                     let mut index = 0;
+                    let mut count = 0;
                     while index < nameds.len() {
                         let named = &nameds[index];
                         let child = named.schema.metadata();
                         max!(m.max_depth, 1 + child.max_depth);
                         max!(m.max_length, named.name.len() + child.max_length);
-                        m.count = m.count.checked_add(child.count.get()).unwrap();
                         max!(m.max_bits, bits + child.max_bits);
+                        count += child.count.get();
                         index += 1;
                     }
+                    m.count = NonZero::new(count).unwrap();
                 }
                 Internal::Numbered(numbereds) => {
                     let bits = Packed::bits_for(numbereds.len() - 1);
                     let mut index = 0;
+                    let mut count = 0;
                     while index < numbereds.len() {
                         let numbered = &numbereds[index];
                         let len = 1 + match index.checked_ilog10() {
@@ -285,16 +292,17 @@ impl Schema {
                         let child = numbered.schema.metadata();
                         max!(m.max_depth, 1 + child.max_depth);
                         max!(m.max_length, len + child.max_length);
-                        m.count = m.count.checked_add(child.count.get()).unwrap();
                         max!(m.max_bits, bits + child.max_bits);
+                        count += child.count.get();
                         index += 1;
                     }
+                    m.count = NonZero::new(count).unwrap();
                 }
                 Internal::Homogeneous(homogeneous) => {
                     m = homogeneous.schema.metadata();
                     m.max_depth += 1;
-                    m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);
                     m.max_length += 1 + homogeneous.len.ilog10() as usize;
+                    m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);
                     m.count = m.count.checked_mul(homogeneous.len).unwrap();
                 }
             }
@@ -543,8 +551,7 @@ where
 
     #[inline]
     fn finalize(&mut self) -> bool {
-        let n = self.0.next();
-        n.is_none()
+        self.0.next().is_none()
     }
 }
 

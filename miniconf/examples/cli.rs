@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{json, KeyError, Path, SerDeError, TreeKey};
+use miniconf::{json, IntoKeys, Keys, Path, SerDeError, TreeKey, ValueError};
 
 mod common;
 
@@ -23,9 +23,11 @@ fn main() -> anyhow::Result<()> {
     let mut buf = vec![0; 1024];
     for (key, _node) in common::Settings::SCHEMA
         .nodes::<Path<String, '-'>, 4>()
+        .exact_size()
         .map(Result::unwrap)
     {
-        match json::get_by_key(&settings, &key, &mut buf[..]) {
+        let mut k = key.into_keys().track();
+        match json::get_by_key(&settings, &mut k, &mut buf[..]) {
             Ok(len) => {
                 println!(
                     "-{} {}",
@@ -33,7 +35,8 @@ fn main() -> anyhow::Result<()> {
                     core::str::from_utf8(&buf[..len]).unwrap()
                 );
             }
-            Err(SerDeError::Key(KeyError::Absent(depth))) => {
+            Err(SerDeError::Value(ValueError::Absent)) => {
+                let depth = k.count();
                 println!("-{} absent (depth: {depth})", key.as_str());
             }
             Err(e) => panic!("{e:?}"),

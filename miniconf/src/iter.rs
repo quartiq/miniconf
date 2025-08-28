@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, Internal, IntoKeys, KeyError, Keys, Schema, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,29 +47,6 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 // https://github.com/rust-lang/rust/issues/37572
 // unsafe impl<T: Iterator> core::iter::TrustedLen for ExactSize<T> {}
 
-/// A Keys wrapper that can always finalize()
-pub(crate) struct Consume<T>(pub(crate) T);
-impl<T: Keys> Keys for Consume<T> {
-    #[inline]
-    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        self.0.next(internal)
-    }
-
-    #[inline]
-    fn finalize(&mut self) -> bool {
-        true
-    }
-}
-
-impl<T: Keys> IntoKeys for Consume<T> {
-    type IntoKeys = Self;
-
-    #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        self
-    }
-}
-
 /// Node iterator
 ///
 /// A managed indices state for iteration of nodes `N` in a `TreeKey`.
@@ -92,7 +69,7 @@ pub struct NodeIter<N, const D: usize> {
 }
 
 impl<N, const D: usize> NodeIter<N, D> {
-    pub fn new(schema: &'static Schema) -> Self {
+    pub const fn new(schema: &'static Schema) -> Self {
         Self {
             schema,
             state: [0; D],
@@ -137,12 +114,12 @@ impl<N, const D: usize> NodeIter<N, D> {
     }
 
     /// Return the current iteration depth
-    pub fn current_depth(&self) -> usize {
+    pub const fn current_depth(&self) -> usize {
         self.depth
     }
 
     /// Return the root depth
-    pub fn root_depth(&self) -> usize {
+    pub const fn root_depth(&self) -> usize {
         self.root
     }
 }
@@ -166,30 +143,31 @@ where
                 self.state[self.depth - 1] += 1;
             }
             let mut path = N::default();
-            let mut idx = Consume(self.state.iter().into_keys()).track();
+            let mut idx = self.state.iter().into_keys().track();
             let ret = path.transcode(&self.schema, &mut idx);
             let depth = idx.count();
-            let leaf = idx.done();
             return match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
-                    // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
-                    // Key lookup was performed and failed: depth is always >= 1
-                    self.state[depth - 1] = 0;
-                    self.depth = (depth - 1).max(self.root);
+                    // Reset index at NotFound depth, then retry with incremented earlier index or terminate
+                    // Track() counts is the number of successful Keys::next()
+                    self.state[depth] = 0;
+                    self.depth = depth.max(self.root);
                     continue;
                 }
-                Ok(()) => {
-                    // Leaf or internal node found, save depth for increment at next iteration
+                Err(DescendError::Key(KeyError::TooLong)) | Ok(()) => {
+                    // Leaf found, save depth for increment at next iteration
                     self.depth = depth;
-                    Some(Ok((path, (depth, leaf))))
+                    Some(Ok((path, (depth, true))))
+                }
+                Err(DescendError::Key(KeyError::TooShort)) => {
+                    // Internal node found, save depth for increment at next iteration
+                    self.depth = depth;
+                    Some(Ok((path, (depth, false))))
                 }
                 Err(DescendError::Inner) => {
                     // Target type can not hold keys
                     Some(Err(depth))
                 }
-                // TooLong: impossible due to Consume
-                // Absent, Finalization, Invalid, Access: not returned by transcode (traverse_by_key())
-                _ => unreachable!(),
             };
         }
     }
