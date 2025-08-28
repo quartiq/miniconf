@@ -3,7 +3,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use crate::{Internal, IntoKeys, Key, Keys, Node, Schema, Transcode, Traversal};
+use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
 /// A bit-packed representation of multiple indices.
 ///
@@ -250,15 +250,15 @@ impl core::fmt::Display for Packed {
 
 impl Keys for Packed {
     #[inline]
-    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         let bits = Self::bits_for(internal.len().get() - 1);
-        let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
-        index.find(internal)
+        let index = self.pop_msb(bits).ok_or(KeyError::TooShort)?;
+        index.find(internal).ok_or(KeyError::NotFound)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        self.is_empty().then_some(()).ok_or(Traversal::TooLong(0))
+    fn finalize(&mut self) -> bool {
+        self.is_empty()
     }
 }
 
@@ -272,21 +272,18 @@ impl IntoKeys for Packed {
 }
 
 impl Transcode for Packed {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
-        schema
-            .traverse(keys.into_keys(), |_meta, idx_schema| {
-                println!("{idx_schema:?}");
-                if let Some((index, internal)) = idx_schema {
-                    let bits = Packed::bits_for(internal.len().get() - 1);
-                    match self.push_lsb(bits, index) {
-                        None => Err(()),
-                        Some(_capacity) => Ok(()),
-                    }
-                } else {
-                    Ok(())
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+            if let Some((index, internal)) = idx_schema {
+                let bits = Packed::bits_for(internal.len().get() - 1);
+                match self.push_lsb(bits, index) {
+                    None => Err(()),
+                    Some(_capacity) => Ok(()),
                 }
-            })
-            .try_into()
+            } else {
+                Ok(())
+            }
+        })
     }
 }
 

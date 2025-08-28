@@ -1,7 +1,7 @@
 use core::str;
 
 use miniconf::{
-    json, Internal, IntoKeys, Key, Keys, PathIter, Traversal, TreeDeserializeOwned, TreeSerialize,
+    json, Internal, IntoKeys, Key, KeyError, Keys, PathIter, TreeDeserializeOwned, TreeSerialize,
 };
 
 mod common;
@@ -18,7 +18,7 @@ mod common;
 struct ScpiKey<T: ?Sized>(T);
 
 impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
-    fn find(&self, lookup: &Internal) -> Result<usize, Traversal> {
+    fn find(&self, lookup: &Internal) -> Result<usize, KeyError> {
         let s = self.0.as_ref();
         match lookup {
             Internal::Named(names) => {
@@ -55,7 +55,7 @@ impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
                 s.parse().ok().filter(|i| *i < len.get())
             }
         }
-        .ok_or(Traversal::NotFound(1))
+        .ok_or(KeyError::NotFound(1))
     }
 }
 
@@ -83,9 +83,9 @@ impl<'a> IntoIterator for ScpiPath<'a> {
 #[derive(thiserror::Error, Debug, Copy, Clone)]
 enum Error {
     #[error("While setting value")]
-    Set(#[from] miniconf::Error<serde_json_core::de::Error>),
+    Set(#[from] miniconf::SerDeError<serde_json_core::de::Error>),
     #[error("While getting value")]
-    Get(#[from] miniconf::Error<serde_json_core::ser::Error>),
+    Get(#[from] miniconf::SerDeError<serde_json_core::ser::Error>),
     #[error("Parse failure: {0}")]
     Parse(&'static str),
     #[error("Could not print value")]

@@ -1,4 +1,4 @@
-use miniconf::{json, Error, Keys, Leaf, StrLeaf, Tree, TreeDeserialize, TreeSerialize};
+use miniconf::{json, Keys, Leaf, SerDeError, StrLeaf, Tree, TreeDeserialize, TreeSerialize};
 
 mod common;
 use common::*;
@@ -51,7 +51,7 @@ impl Settings {
         &self,
         keys: K,
         ser: S,
-    ) -> Result<S::Ok, Error<S::Error>> {
+    ) -> Result<S::Ok, SerDeError<S::Error>> {
         Leaf(EnumDiscriminants::from(&self.enu)).serialize_by_key(keys, ser)
     }
 
@@ -59,7 +59,7 @@ impl Settings {
         &mut self,
         keys: K,
         de: D,
-    ) -> Result<(), Error<D::Error>> {
+    ) -> Result<(), SerDeError<D::Error>> {
         let mut v = Leaf(EnumDiscriminants::from(&self.enu));
         v.deserialize_by_key(keys, de)?;
         self.enu = Enum::from_repr(*v as _).unwrap();
@@ -74,14 +74,17 @@ fn enum_switch() {
     set_get(&mut s, "/tag", b"\"foo\"");
     assert_eq!(
         json::set(&mut s, "/tag", b"\"bar\""),
-        Err(Error::Inner(1, serde_json_core::de::Error::CustomError))
+        Err(SerDeError::Inner(
+            1,
+            serde_json_core::de::Error::CustomError
+        ))
     );
     assert_eq!(s.enu, Enum::A(0.into()));
     set_get(&mut s, "/enu/foo", b"99");
     assert_eq!(s.enu, Enum::A(99.into()));
     assert_eq!(
         json::set(&mut s, "/enu/B/a", b"99"),
-        Err(miniconf::Traversal::Absent(2).into())
+        Err(miniconf::KeyError::Absent(2).into())
     );
     set_get(&mut s, "/tag", b"\"B\"");
     set_get(&mut s, "/enu/B/a", b"8");

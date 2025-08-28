@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Deserialize, IntoKeys, Leaf, Metadata, Serialize, Traversal, Tree, TreeAny,
+    json, Deserialize, IntoKeys, KeyError, Leaf, Metadata, Serialize, Tree, TreeAny,
     TreeDeserialize, TreeKey, TreeSerialize,
 };
 
@@ -95,6 +95,6 @@ fn deny_access() {
     s.ref_any_by_key([0].into_keys()).unwrap();
     assert!(matches!(
         s.mut_any_by_key([0].into_keys()),
-        Err(Traversal::Access(1, "no any"))
+        Err(KeyError::Access(1, "no any"))
     ));
 }

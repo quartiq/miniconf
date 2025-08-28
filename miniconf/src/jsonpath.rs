@@ -5,7 +5,7 @@ use core::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{IntoKeys, KeysIter, Node, Schema, Transcode, Traversal};
+use crate::{DescendError, IntoKeys, KeysIter, Schema, Transcode};
 
 /// JSON style path notation iterator
 ///
@@ -148,26 +148,24 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
 }
 
 impl<T: Write + ?Sized> Transcode for JsonPath<T> {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
-        schema
-            .traverse(keys.into_keys(), |_meta, idx_internal| {
-                if let Some((index, internal)) = idx_internal {
-                    match internal.lookup(index).unwrap() {
-                        Some(name) => {
-                            debug_assert!(!name.contains(['.', '\'', '[', ']']));
-                            self.0.write_char('.').and_then(|()| self.0.write_str(name))
-                        }
-                        None => self
-                            .0
-                            .write_char('[')
-                            .and_then(|()| self.0.write_str(itoa::Buffer::new().format(index)))
-                            .and_then(|()| self.0.write_char(']')),
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+        schema.descend(keys.into_keys(), &mut |_meta, idx_internal| {
+            if let Some((index, internal)) = idx_internal {
+                match internal.lookup(index).unwrap() {
+                    Some(name) => {
+                        debug_assert!(!name.contains(['.', '\'', '[', ']']));
+                        self.0.write_char('.').and_then(|()| self.0.write_str(name))
                     }
-                    .or(Err(()))
-                } else {
-                    Ok(())
+                    None => self
+                        .0
+                        .write_char('[')
+                        .and_then(|()| self.0.write_str(itoa::Buffer::new().format(index)))
+                        .and_then(|()| self.0.write_char(']')),
                 }
-            })
-            .try_into()
+                .or(Err(()))
+            } else {
+                Ok(())
+            }
+        })
     }
 }

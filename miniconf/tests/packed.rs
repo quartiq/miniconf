@@ -1,5 +1,5 @@
 use miniconf::{
-    Indices, Leaf, Metadata, Packed, Path, Schema, Traversal, Tree, TreeKey, TreeSerialize,
+    Indices, KeyError, Leaf, Metadata, Packed, Path, Schema, Tree, TreeKey, TreeSerialize,
 };
 
 #[derive(Tree, Default)]
@@ -107,8 +107,8 @@ fn zero_key() {
     let mut buf = [0u8; 100];
     let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
     for (depth, result) in [
-        Err(Traversal::TooShort(0).into()),
-        Err(Traversal::TooShort(1).into()),
+        Err(KeyError::TooShort(0).into()),
+        Err(KeyError::TooShort(1).into()),
         Ok(()),
     ]
     .iter()

@@ -1,4 +1,4 @@
-use miniconf::{Leaf, Metadata, Path, Schema, Traversal, Tree, TreeKey};
+use miniconf::{KeyError, Leaf, Metadata, Path, Schema, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -27,7 +27,7 @@ fn path() {
     );
     assert_eq!(
         Settings::transcode::<Path<String, '/'>, _>([1usize]),
-        Err(Traversal::NotFound(1))
+        Err(KeyError::NotFound(1))
     );
 }
 

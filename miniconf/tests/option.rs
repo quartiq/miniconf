@@ -1,4 +1,4 @@
-use miniconf::{json, Error, Leaf, Traversal, Tree};
+use miniconf::{json, KeyError, Leaf, SerDeError, Tree};
 
 mod common;
 use common::*;
@@ -27,16 +27,16 @@ fn option_get_set_none() {
     settings.value.take();
     assert_eq!(
         json::get(&settings, "/value_foo", &mut data),
-        Err(Traversal::NotFound(1).into())
+        Err(KeyError::NotFound(1).into())
     );
     assert_eq!(
         json::get(&settings, "/value", &mut data),
-        Err(Traversal::Absent(1).into())
+        Err(KeyError::Absent(1).into())
     );
     // The Absent field indicates at which depth the variant was absent
     assert_eq!(
         json::set(&mut settings, "/value/data", b"5"),
-        Err(Traversal::Absent(1).into())
+        Err(KeyError::Absent(1).into())
     );
 }
 
@@ -107,36 +107,36 @@ fn option_absent() {
     let mut s = S::default();
     assert_eq!(
         json::set(&mut s, "/d", b"7"),
-        Err(Traversal::Absent(1).into())
+        Err(KeyError::Absent(1).into())
     );
     // Check precedence
     assert_eq!(
         json::set(&mut s, "/d", b""),
-        Err(Traversal::Absent(1).into())
+        Err(KeyError::Absent(1).into())
     );
     assert_eq!(
         json::set(&mut s, "/d/foo", b"7"),
-        Err(Traversal::Absent(1).into())
+        Err(KeyError::Absent(1).into())
     );
     assert_eq!(
         json::set(&mut s, "", b"7"),
-        Err(Traversal::TooShort(0).into())
+        Err(KeyError::TooShort(0).into())
     );
     s.d = Some(3.into());
     assert_eq!(json::set(&mut s, "/d", b"7"), Ok(1));
     assert_eq!(
         json::set(&mut s, "/d/foo", b"7"),
-        Err(Traversal::TooLong(1).into())
+        Err(KeyError::TooLong(1).into())
     );
     assert!(matches!(
         json::set(&mut s, "/d", b""),
-        Err(Error::Inner(1, _))
+        Err(SerDeError::Inner(1, _))
     ));
     assert_eq!(json::set(&mut s, "/d", b"7 "), Ok(2));
     assert_eq!(json::set(&mut s, "/d", b" 7"), Ok(2));
     assert!(matches!(
         json::set(&mut s, "/d", b"7i"),
-        Err(Error::Finalization(_))
+        Err(SerDeError::Finalization(_))
     ));
 }
 

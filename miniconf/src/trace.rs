@@ -1,6 +1,6 @@
 //! Schema tracing
 
-use core::marker::PhantomData;
+use core::{convert::Infallible, marker::PhantomData};
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -8,7 +8,7 @@ use serde_reflection::{
     Deserializer, EnumProgress, Format, FormatHolder, Samples, Serializer, Tracer, Value,
 };
 
-use crate::{Error, Keys, Packed, Traversal, TreeDeserialize, TreeKey, TreeSerialize};
+use crate::{Keys, Packed, SerDeError, TreeDeserialize, TreeKey, TreeSerialize, ValueError};
 
 /// Trace a leaf value
 pub fn trace_value<T: TreeSerialize, K: Keys>(
@@ -16,7 +16,7 @@ pub fn trace_value<T: TreeSerialize, K: Keys>(
     samples: &mut Samples,
     keys: K,
     value: &T,
-) -> Result<(Format, Value), Error<serde_reflection::Error>> {
+) -> Result<(Format, Value), SerDeError<serde_reflection::Error>> {
     value.serialize_by_key(keys, Serializer::new(tracer, samples))
 }
 
@@ -25,7 +25,7 @@ pub fn trace_type_once<'de, T: TreeDeserialize<'de>, K: Keys>(
     tracer: &mut Tracer,
     samples: &'de Samples,
     keys: K,
-) -> Result<Format, Error<serde_reflection::Error>> {
+) -> Result<Format, SerDeError<serde_reflection::Error>> {
     let mut format = Format::unknown();
     T::probe_by_key(keys, Deserializer::new(tracer, samples, &mut format))?;
     format.reduce();
@@ -37,7 +37,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
     tracer: &mut Tracer,
     samples: &'de Samples,
     keys: K,
-) -> Result<Format, Error<serde_reflection::Error>> {
+) -> Result<Format, SerDeError<serde_reflection::Error>> {
     loop {
         let format = trace_type_once::<T, _>(tracer, samples, keys.clone())?;
         if let Format::TypeName(name) = &format {
@@ -74,11 +74,10 @@ impl<T: TreeKey, N> Default for Graph<T, N> {
         T::SCHEMA
             .visit(&mut idx, 0, &mut |idx, schema| {
                 if schema.internal.is_none() {
-                    let (p, _) = schema.transcode(idx).unwrap();
-                    println!("{p:?} {idx:?}");
+                    let p = T::SCHEMA.transcode(idx).unwrap();
                     leaves.push((p, None));
                 }
-                Ok::<_, ()>(())
+                Ok::<_, Infallible>(())
             })
             .unwrap();
         Self {
@@ -105,9 +104,8 @@ impl<T> Graph<T, Format> {
                     fmt.reduce();
                     *format = Some(fmt);
                 }
-                Err(Error::Traversal(Traversal::Absent(_depth) | Traversal::Access(_depth, _))) => {
-                }
-                Err(Error::Inner(_depth, e)) => Err(e)?,
+                Err(SerDeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
+                Err(SerDeError::Inner(e)) => Err(e)?,
                 _ => unreachable!(),
             }
         }
@@ -129,10 +127,10 @@ impl<T> Graph<T, Format> {
                     fmt.reduce();
                     *format = Some(fmt);
                 }
-                Err(Error::Traversal(Traversal::Access(_depth, msg))) => {
+                Err(SerDeError::Value(ValueError::Access(msg))) => {
                     Err(serde_reflection::Error::DeserializationError(msg))?
                 }
-                Err(Error::Inner(_depth, e)) => Err(e)?,
+                Err(SerDeError::Inner(e)) => Err(e)?,
                 _ => unreachable!(),
             }
         }

@@ -1,4 +1,4 @@
-use miniconf::{Indices, Leaf, Metadata, Path, Schema, Traversal, Tree, TreeKey};
+use miniconf::{Indices, KeyError, Leaf, Metadata, Path, Schema, Tree, TreeKey};
 mod common;
 
 #[derive(Tree, Default)]
@@ -55,7 +55,7 @@ fn indices() {
     let mut it = [0usize; 4].into_iter();
     assert_eq!(
         Settings::transcode::<Indices<[_; 2]>, _>(&mut it),
-        Err(Traversal::TooLong(1).into())
+        Err(KeyError::TooLong(1).into())
     );
     assert_eq!(it.count(), 2);
 }

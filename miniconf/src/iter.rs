@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{Internal, IntoKeys, Keys, Node, Schema, Transcode, Traversal};
+use crate::{DescendError, Internal, IntoKeys, KeyError, Keys, Schema, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -51,13 +51,13 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 pub(crate) struct Consume<T>(pub(crate) T);
 impl<T: Keys> Keys for Consume<T> {
     #[inline]
-    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         self.0.next(internal)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        Ok(())
+    fn finalize(&mut self) -> bool {
+        true
     }
 }
 
@@ -106,9 +106,10 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
-    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
-        let node = self.state.transcode(self.schema, root)?;
-        self.root = node.depth();
+    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, DescendError> {
+        let mut root = root.into_keys().track();
+        self.state.transcode(self.schema, &mut root)?;
+        self.root = root.count();
         self.depth = D + 1;
         Ok(self)
     }
@@ -150,7 +151,7 @@ impl<N, const D: usize> Iterator for NodeIter<N, D>
 where
     N: Transcode + Default,
 {
-    type Item = Result<(N, Node), usize>;
+    type Item = Result<(N, (usize, bool)), usize>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -165,20 +166,24 @@ where
                 self.state[self.depth - 1] += 1;
             }
             let mut path = N::default();
-            return match path.transcode(&self.schema, Consume(self.state.iter().into_keys())) {
-                Err(Traversal::NotFound(depth)) => {
+            let mut idx = Consume(self.state.iter().into_keys()).track();
+            let ret = path.transcode(&self.schema, &mut idx);
+            let depth = idx.count();
+            let leaf = idx.done();
+            return match ret {
+                Err(DescendError::Key(KeyError::NotFound)) => {
                     // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
                     // Key lookup was performed and failed: depth is always >= 1
                     self.state[depth - 1] = 0;
                     self.depth = (depth - 1).max(self.root);
                     continue;
                 }
-                Ok(node) => {
+                Ok(()) => {
                     // Leaf or internal node found, save depth for increment at next iteration
-                    self.depth = node.depth();
-                    Some(Ok((path, node)))
+                    self.depth = depth;
+                    Some(Ok((path, (depth, leaf))))
                 }
-                Err(Traversal::TooShort(depth)) => {
+                Err(DescendError::Inner) => {
                     // Target type can not hold keys
                     Some(Err(depth))
                 }

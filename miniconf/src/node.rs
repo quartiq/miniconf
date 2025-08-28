@@ -9,102 +9,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, IntoKeys, KeysIter, Schema, Traversal};
-
-/// Type of a node: leaf or internal
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum NodeType {
-    /// A leaf node
-    ///
-    /// There are no nodes below this node
-    Leaf,
-
-    /// An internal node
-    ///
-    /// A non-leaf node with one or more leaf nodes below this node
-    Internal,
-}
-
-impl NodeType {
-    /// Whether this node is a leaf
-    #[inline]
-    pub const fn is_leaf(&self) -> bool {
-        matches!(self, Self::Leaf)
-    }
-}
-
-/// Type and depth of a node in a `TreeKey`
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Node {
-    /// The node depth
-    ///
-    /// This is the length of the key required to identify it.
-    pub depth: usize,
-
-    /// Leaf or internal
-    pub typ: NodeType,
-}
-
-impl Node {
-    /// The depth
-    #[inline]
-    pub const fn depth(&self) -> usize {
-        self.depth
-    }
-
-    /// The node type
-    #[inline]
-    pub const fn typ(&self) -> NodeType {
-        self.typ
-    }
-
-    /// The node is a leaf node
-    #[inline]
-    pub const fn is_leaf(&self) -> bool {
-        self.typ.is_leaf()
-    }
-
-    /// Create a leaf node
-    #[inline]
-    pub const fn leaf(depth: usize) -> Self {
-        Self {
-            depth,
-            typ: NodeType::Leaf,
-        }
-    }
-
-    /// Create an inernal node
-    #[inline]
-    pub const fn internal(depth: usize) -> Self {
-        Self {
-            depth,
-            typ: NodeType::Internal,
-        }
-    }
-}
-
-impl From<Node> for usize {
-    #[inline]
-    fn from(value: Node) -> Self {
-        value.depth
-    }
-}
-
-/// Map a `TreeKey::traverse_by_key()` `Result` to a `Transcode::transcode()` `Result`.
-impl TryFrom<Result<usize, Error<()>>> for Node {
-    type Error = Traversal;
-
-    #[inline]
-    fn try_from(value: Result<usize, Error<()>>) -> Result<Self, Traversal> {
-        match value {
-            Ok(depth) => Ok(Node::leaf(depth)),
-            Err(Error::Traversal(Traversal::TooShort(depth))) => Ok(Node::internal(depth)),
-            Err(Error::Inner(depth, ())) => Err(Traversal::TooShort(depth)),
-            Err(Error::Traversal(err)) => Err(err),
-            Err(Error::Finalization(())) => unreachable!(),
-        }
-    }
-}
+use crate::{DescendError, IntoKeys, KeysIter, Schema};
 
 /// Look up an `IntoKeys` in a `TreeKey` and transcode it.
 pub trait Transcode {
@@ -113,21 +18,21 @@ pub trait Transcode {
     /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
     /// It returns a `Node` with node type and depth information.
     ///
-    /// Returning `Err(Traversal::TooShort(depth))` indicates that there was insufficient
+    /// Returning `Err(Traversal::Absent)` indicates that there was insufficient
     /// capacity and a key could not be encoded at the given depth.
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal>;
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError>;
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
-        T::transcode(self, schema, keys)
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+        (**self).transcode(schema, keys)
     }
 }
 
 /// Shim to provide the bare `Node` lookup without transcoding target
 impl Transcode for () {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
-        schema.traverse(keys.into_keys(), |_, _| Ok(())).try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+        schema.descend(keys.into_keys(), &mut |_, _| Ok(()))
     }
 }
 
@@ -256,23 +161,21 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 }
 
 impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
-        schema
-            .traverse(keys.into_keys(), |_meta, idx_schema| {
-                if let Some((index, internal)) = idx_schema {
-                    self.0.write_char(S).or(Err(()))?;
-                    let mut buf = itoa::Buffer::new();
-                    let name = internal
-                        .lookup(index)
-                        .unwrap()
-                        .unwrap_or_else(|| buf.format(index));
-                    debug_assert!(!name.contains(S));
-                    self.0.write_str(name).or(Err(()))
-                } else {
-                    Ok(())
-                }
-            })
-            .try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+            if let Some((index, internal)) = idx_schema {
+                self.0.write_char(S).or(Err(()))?;
+                let mut buf = itoa::Buffer::new();
+                let name = internal
+                    .lookup(index)
+                    .unwrap()
+                    .unwrap_or_else(|| buf.format(index));
+                debug_assert!(!name.contains(S));
+                self.0.write_str(name).or(Err(()))
+            } else {
+                Ok(())
+            }
+        })
     }
 }
 
@@ -316,7 +219,7 @@ impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     #[inline]
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
         self.data.as_mut()[..self.len].transcode(schema, keys)
     }
 }
@@ -324,17 +227,15 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
 macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
-            fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal>
-            {
+            fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
                 let mut it = self.iter_mut();
-                schema.traverse(keys.into_keys(), |_meta, idx_schema| {
+                schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
                     if let Some((index, _internal)) = idx_schema {
                         let idx = it.next().ok_or(())?;
                         *idx = index.try_into().or(Err(()))?;
                     }
                     Ok(())
                 })
-                .try_into()
             }
         }
     )+};
@@ -346,15 +247,13 @@ impl<T> Transcode for Vec<T>
 where
     usize: TryInto<T>,
 {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<Node, Traversal> {
-        schema
-            .traverse(keys.into_keys(), |_meta, idx_schema| {
-                if let Some((index, _schema)) = idx_schema {
-                    self.push(index.try_into().or(Err(()))?);
-                }
-                Ok(())
-            })
-            .try_into()
+    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+            if let Some((index, _schema)) = idx_schema {
+                self.push(index.try_into().or(Err(()))?);
+            }
+            Ok(())
+        })
     }
 }
 

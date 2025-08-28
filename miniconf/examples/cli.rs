@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{json, Error, Path, Traversal, TreeKey};
+use miniconf::{json, KeyError, Path, SerDeError, TreeKey};
 
 mod common;
 
@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
                     core::str::from_utf8(&buf[..len]).unwrap()
                 );
             }
-            Err(Error::Traversal(Traversal::Absent(depth))) => {
+            Err(SerDeError::Key(KeyError::Absent(depth))) => {
                 println!("-{} absent (depth: {depth})", key.as_str());
             }
             Err(e) => panic!("{e:?}"),

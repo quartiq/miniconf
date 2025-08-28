@@ -1,4 +1,6 @@
-use miniconf::{json, Error, Keys, Leaf, Traversal, Tree, TreeDeserialize, TreeKey, TreeSerialize};
+use miniconf::{
+    json, KeyError, Keys, Leaf, SerDeError, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+};
 use serde::{Deserializer, Serializer};
 
 #[derive(Tree, Default)]
@@ -12,14 +14,14 @@ impl Settings {
         &mut self,
         keys: K,
         de: D,
-    ) -> Result<(), Error<D::Error>> {
+    ) -> Result<(), SerDeError<D::Error>> {
         let old = *self.v;
         self.v.deserialize_by_key(keys, de)?;
         if *self.v >= 0.0 {
             Ok(())
         } else {
             *self.v = old;
-            Err(Traversal::Access(0, "").into())
+            Err(KeyError::Access(0, "").into())
         }
     }
 }
@@ -31,7 +33,7 @@ fn validate() {
     assert_eq!(*s.v, 1.0);
     assert_eq!(
         json::set(&mut s, "/v", b"-1.0"),
-        Err(Traversal::Access(1, "").into())
+        Err(KeyError::Access(1, "").into())
     );
     assert_eq!(*s.v, 1.0); // remains unchanged
 }
@@ -53,11 +55,11 @@ fn paging() {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, Error<S::Error>> {
+        ) -> Result<S::Ok, SerDeError<S::Error>> {
             let arr: &[Leaf<i32>; 4] = self
                 .vec
                 .get(*self.offset..*self.offset + 4)
-                .ok_or(Traversal::Access(0, "range"))?
+                .ok_or(KeyError::Access(0, "range"))?
                 .try_into()
                 .unwrap();
             arr.serialize_by_key(keys, ser)
@@ -67,11 +69,11 @@ fn paging() {
             &mut self,
             keys: K,
             de: D,
-        ) -> Result<(), Error<D::Error>> {
+        ) -> Result<(), SerDeError<D::Error>> {
             let arr: &mut [Leaf<i32>; 4] = self
                 .vec
                 .get_mut(*self.offset..*self.offset + 4)
-                .ok_or(Traversal::Access(0, "range"))?
+                .ok_or(KeyError::Access(0, "range"))?
                 .try_into()
                 .unwrap();
             arr.deserialize_by_key(keys, de)
@@ -88,7 +90,7 @@ fn paging() {
     json::set(&mut s, "/offset", b"100").unwrap();
     assert_eq!(
         json::set(&mut s, "/arr/1", b"5"),
-        Err(Traversal::Access(1, "range").into())
+        Err(KeyError::Access(1, "range").into())
     );
 }
 
@@ -103,9 +105,13 @@ fn locked() {
     }
 
     impl S {
-        fn get<K: Keys, S: Serializer>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>> {
+        fn get<K: Keys, S: Serializer>(
+            &self,
+            keys: K,
+            ser: S,
+        ) -> Result<S::Ok, SerDeError<S::Error>> {
             if !*self.read {
-                return Err(Traversal::Access(0, "not readable").into());
+                return Err(KeyError::Access(0, "not readable").into());
             }
             self.val.serialize_by_key(keys, ser)
         }
@@ -113,9 +119,9 @@ fn locked() {
             &mut self,
             keys: K,
             de: D,
-        ) -> Result<(), Error<D::Error>> {
+        ) -> Result<(), SerDeError<D::Error>> {
             if !*self.write {
-                return Err(Traversal::Access(0, "not writable").into());
+                return Err(KeyError::Access(0, "not writable").into());
             }
             self.val.deserialize_by_key(keys, de)
         }

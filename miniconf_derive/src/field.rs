@@ -114,40 +114,11 @@ impl TreeField {
         self.defer.clone().unwrap_or(def)
     }
 
-    pub fn traverse_by_key(&self, i: usize) -> TokenStream {
-        // Quote context is a match of the field index with `traverse_by_key()` args available.
-        if let Some(msg) = &self.deny.traverse {
-            quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #msg).into())
-            }
-        } else {
-            let typ = self.typ();
-            let imp = self
-                .with
-                .traverse
-                .as_ref()
-                .map(|i| i.to_token_stream())
-                .unwrap_or(quote!(<#typ as ::miniconf::TreeKey>::traverse_by_key));
-            quote_spanned!(self.span()=> #i => #imp(keys, func))
-        }
-    }
-
-    pub fn traverse_all(&self) -> TokenStream {
-        let typ = self.typ();
-        let imp = self
-            .with
-            .traverse_all
-            .as_ref()
-            .map(|i| i.to_token_stream())
-            .unwrap_or(quote!(<#typ as ::miniconf::TreeKey>::traverse_all));
-        quote_spanned!(self.span()=> #imp())
-    }
-
     pub fn serialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
         if let Some(msg) = &self.deny.serialize {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #msg).into())
+                ::miniconf::ValueError::Access(#msg).into())
             }
         } else {
             let value = self.value(i);
@@ -165,7 +136,7 @@ impl TreeField {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
         if let Some(msg) = &self.deny.deserialize {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #msg).into())
+                ::miniconf::ValueError::Access(#msg).into())
             }
         } else {
             let value = self.value(i);
@@ -183,7 +154,7 @@ impl TreeField {
         // Quote context is a match of the field index with `probe_by_key()` args available.
         if let Some(msg) = &self.deny.probe {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #msg).into())
+                ::miniconf::ValueError::Access(#msg).into())
             }
         } else {
             let typ = self.typ();
@@ -201,7 +172,7 @@ impl TreeField {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         if let Some(msg) = &self.deny.ref_any {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #msg))
+                ::miniconf::ValueError::Access(#msg))
             }
         } else {
             let value = self.value(i);
@@ -219,7 +190,7 @@ impl TreeField {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
         if let Some(msg) = &self.deny.mut_any {
             quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::Traversal::Access(0, #msg))
+                ::miniconf::ValueError::Access(#msg))
             }
         } else {
             let value = self.value(i);

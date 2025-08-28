@@ -1,6 +1,6 @@
 use miniconf::{
-    json, Deserialize, Error, Indices, Leaf, Metadata, Packed, Path, Serialize, Traversal, Tree,
-    TreeKey,
+    json, Deserialize, Indices, KeyError, Leaf, Metadata, Packed, Path, SerDeError, Serialize,
+    Tree, TreeKey,
 };
 
 mod common;
@@ -23,7 +23,7 @@ fn set_get(
     tree: &mut Settings,
     path: &str,
     value: &[u8],
-) -> Result<usize, Error<serde_json_core::de::Error>> {
+) -> Result<usize, SerDeError<serde_json_core::de::Error>> {
     // Path
     common::set_get(tree, path, value);
 
@@ -80,12 +80,12 @@ fn too_short() {
     let mut s = Settings::default();
     assert_eq!(
         json::set(&mut s, "/d", b"[1,2]"),
-        Err(Traversal::TooShort(1).into())
+        Err(KeyError::TooShort(1).into())
     );
     // Check precedence over `Inner`.
     assert_eq!(
         json::set(&mut s, "/d", b"[1,2,3]"),
-        Err(Traversal::TooShort(1).into())
+        Err(KeyError::TooShort(1).into())
     );
 }
 
@@ -94,19 +94,19 @@ fn too_long() {
     let mut s = Settings::default();
     assert_eq!(
         json::set(&mut s, "/a/1", b"7"),
-        Err(Traversal::TooLong(1).into())
+        Err(KeyError::TooLong(1).into())
     );
     assert_eq!(
         json::set(&mut s, "/d/0/b", b"7"),
-        Err(Traversal::TooLong(2).into())
+        Err(KeyError::TooLong(2).into())
     );
     assert_eq!(
         json::set(&mut s, "/dm/0/c", b"7"),
-        Err(Traversal::TooLong(2).into())
+        Err(KeyError::TooLong(2).into())
     );
     assert_eq!(
         json::set(&mut s, "/dm/0/d", b"7"),
-        Err(Traversal::TooLong(2).into())
+        Err(KeyError::TooLong(2).into())
     );
 }
 
@@ -115,15 +115,15 @@ fn not_found() {
     let mut s = Settings::default();
     assert_eq!(
         json::set(&mut s, "/d/3", b"7"),
-        Err(Traversal::NotFound(2).into())
+        Err(KeyError::NotFound(2).into())
     );
     assert_eq!(
         json::set(&mut s, "/b", b"7"),
-        Err(Traversal::NotFound(1).into())
+        Err(KeyError::NotFound(1).into())
     );
     assert_eq!(
         json::set(&mut s, "/aam/0/0/d", b"7"),
-        Err(Traversal::NotFound(4).into())
+        Err(KeyError::NotFound(4).into())
     );
 }
 

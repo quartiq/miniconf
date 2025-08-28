@@ -8,8 +8,8 @@ use embedded_io_async::Write as AWrite;
 use tokio::io::AsyncBufReadExt;
 
 use miniconf::{
-    json, postcard, Indices, Keys, Packed, Path, Schema, Transcode, Traversal,
-    TreeDeserializeOwned, TreeKey, TreeSerialize,
+    json, postcard, Indices, KeyError, Keys, Packed, Path, Schema, Transcode, TreeDeserializeOwned,
+    TreeKey, TreeSerialize,
 };
 
 mod common;
@@ -31,30 +31,30 @@ async fn awrite<W: AWrite>(mut write: W, buf: &[u8]) -> Result<(), Error<W::Erro
 #[derive(Debug, PartialEq)]
 pub enum Error<I> {
     Fmt(core::fmt::Error),
-    Traversal(miniconf::Traversal),
+    Traversal(miniconf::KeyError),
     Serialize(usize, serde_json_core::ser::Error),
     Io(I),
 }
 
-impl<I> From<Traversal> for Error<I> {
-    fn from(value: Traversal) -> Self {
+impl<I> From<KeyError> for Error<I> {
+    fn from(value: KeyError) -> Self {
         Self::Traversal(value)
     }
 }
 
-impl<I> From<miniconf::Error<serde_json_core::ser::Error>> for Error<I> {
-    fn from(value: miniconf::Error<serde_json_core::ser::Error>) -> Self {
+impl<I> From<miniconf::SerDeError<serde_json_core::ser::Error>> for Error<I> {
+    fn from(value: miniconf::SerDeError<serde_json_core::ser::Error>) -> Self {
         match value {
-            miniconf::Error::Inner(depth, e) => Self::Serialize(depth, e),
-            miniconf::Error::Traversal(e) => Self::Traversal(e),
-            miniconf::Error::Finalization(e) => Self::Serialize(0, e),
+            miniconf::SerDeError::Inner(depth, e) => Self::Serialize(depth, e),
+            miniconf::SerDeError::Key(e) => Self::Traversal(e),
+            miniconf::SerDeError::Finalization(e) => Self::Serialize(0, e),
         }
     }
 }
 
 impl<I> From<usize> for Error<I> {
     fn from(value: usize) -> Self {
-        Traversal::TooLong(value).into()
+        KeyError::TooLong(value).into()
     }
 }
 
@@ -86,33 +86,33 @@ where
         }
     }
 
-    fn push(&self, path: &str) -> Result<(Self, Schema), Traversal> {
+    fn push(&self, path: &str) -> Result<(Self, Schema), KeyError> {
         let (key, node) = M::transcode(self.key.chain(Path::<_, SEPARATOR>::from(path)))?;
         Ok((Self::new(key), node))
     }
 
-    fn pop(&self, levels: usize) -> Result<(Self, Schema), Traversal> {
+    fn pop(&self, levels: usize) -> Result<(Self, Schema), KeyError> {
         let (idx, node): (Indices<[_; D]>, _) = M::transcode(self.key)?;
         if let Some(idx) = idx.get(
             ..node
                 .depth()
                 .checked_sub(levels)
-                .ok_or(Traversal::TooLong(0))?,
+                .ok_or(KeyError::TooLong(0))?,
         ) {
             let (key, node) = M::transcode(idx)?;
             Ok((Self::new(key), node))
         } else {
-            Err(Traversal::TooShort(node.depth()))
+            Err(KeyError::TooShort(node.depth()))
         }
     }
 
-    pub fn enter(&mut self, path: &str) -> Result<Schema, Traversal> {
+    pub fn enter(&mut self, path: &str) -> Result<Schema, KeyError> {
         let (new, node) = self.push(path)?;
         *self = new;
         Ok(node)
     }
 
-    pub fn exit(&mut self, levels: usize) -> Result<Schema, Traversal> {
+    pub fn exit(&mut self, levels: usize) -> Result<Schema, KeyError> {
         let (new, node) = self.pop(levels)?;
         *self = new;
         Ok(node)
@@ -120,7 +120,7 @@ where
 
     pub fn list<S: core::fmt::Write + Default>(
         &self,
-    ) -> Result<impl Iterator<Item = Result<S, usize>>, Traversal> {
+    ) -> Result<impl Iterator<Item = Result<S, usize>>, KeyError> {
         Ok(M::nodes::<Path<S, SEPARATOR>, D>()
             .root(self.key)?
             .map(|pn| pn.map(|(p, _n)| p.into_inner())))
@@ -130,7 +130,7 @@ where
         &self,
         instance: &M,
         buf: &mut [u8],
-    ) -> Result<usize, miniconf::Error<serde_json_core::ser::Error>> {
+    ) -> Result<usize, miniconf::SerDeError<serde_json_core::ser::Error>> {
         json::get_by_key(instance, self.key, buf)
     }
 
@@ -138,7 +138,7 @@ where
         &mut self,
         instance: &mut M,
         buf: &[u8],
-    ) -> Result<usize, miniconf::Error<serde_json_core::de::Error>> {
+    ) -> Result<usize, miniconf::SerDeError<serde_json_core::de::Error>> {
         json::set_by_key(instance, self.key, buf)
     }
 
@@ -146,20 +146,20 @@ where
         &mut self,
         instance: &mut M,
         buf: &mut [u8],
-    ) -> Result<(), miniconf::Error<::postcard::Error>> {
+    ) -> Result<(), miniconf::SerDeError<::postcard::Error>> {
         let def = M::default();
         for keys in M::nodes::<Packed, D>().root(self.key)? {
             // Slight abuse of TooLong for "keys to long for packed"
-            let (keys, node) = keys.map_err(|depth| Traversal::TooLong(depth))?;
+            let (keys, node) = keys.map_err(|depth| KeyError::TooLong(depth))?;
             debug_assert!(node.is_leaf());
             let val = match postcard::get_by_key(&def, keys, SerSlice::new(buf)) {
-                Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
+                Err(miniconf::SerDeError::Key(KeyError::Absent(_))) => {
                     continue;
                 }
                 ret => ret?,
             };
             let _rest = match postcard::set_by_key(instance, keys, DeSlice::new(val)) {
-                Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
+                Err(miniconf::SerDeError::Key(KeyError::Absent(_))) => {
                     continue;
                 }
                 ret => ret?,
@@ -187,11 +187,11 @@ where
         for keys in M::nodes::<Packed, D>().root(self.key)? {
             let (keys, node) = keys?;
             let (val, rest) = match json::get_by_key(instance, keys, &mut buf[..]) {
-                Err(miniconf::Error::Traversal(Traversal::TooShort(_))) => {
+                Err(miniconf::SerDeError::Key(KeyError::TooShort(_))) => {
                     debug_assert!(!node.is_leaf());
                     ("...\n".as_bytes(), &mut buf[..])
                 }
-                Err(miniconf::Error::Traversal(Traversal::Absent(_))) => {
+                Err(miniconf::SerDeError::Key(KeyError::Absent(_))) => {
                     continue;
                 }
                 ret => {
@@ -210,11 +210,11 @@ where
             awrite(&mut write, ": ".as_bytes()).await?;
             awrite(&mut write, val).await?;
             let def = match json::get_by_key(&def, keys, &mut buf[..]) {
-                Err(miniconf::Error::Traversal(Traversal::TooShort(_depth))) => {
+                Err(miniconf::SerDeError::Key(KeyError::TooShort(_depth))) => {
                     debug_assert!(!node.is_leaf());
                     continue;
                 }
-                Err(miniconf::Error::Traversal(Traversal::Absent(_depth))) => "absent".as_bytes(),
+                Err(miniconf::SerDeError::Key(KeyError::Absent(_depth))) => "absent".as_bytes(),
                 ret => &buf[..ret?],
             };
             if yafnv::fnv1a::<u32>(def) == check {

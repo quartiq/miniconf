@@ -144,7 +144,7 @@ impl Tree {
                     })
                     .collect(),
                 quote!(::core::result::Result::Err(
-                    ::miniconf::Traversal::Absent(0).into()
+                    ::miniconf::ValueError::Absent.into()
                 )),
             ),
         }
@@ -170,19 +170,11 @@ impl Tree {
         }
     }
 
-    fn index_increment(&self) -> (TokenStream, Option<TokenStream>) {
+    fn index(&self) -> TokenStream {
         if self.flatten.is_present() {
-            (
-                quote!(::core::result::Result::<usize, ::miniconf::Traversal>::Ok(
-                    0
-                )),
-                None,
-            )
+            quote!(::core::result::Result::<(), ::miniconf::ValueError>::Ok())
         } else {
-            (
-                quote!(<Self as ::miniconf::TreeKey>::SCHEMA.next(&mut keys)),
-                Some(quote!(.map_err(::miniconf::Error::increment))),
-            )
+            quote!(<Self as ::miniconf::TreeKey>::SCHEMA.next(&mut keys))
         }
     }
 
@@ -266,13 +258,13 @@ impl Tree {
         let ident = &self.ident;
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Serialize, where_clause);
-        let (index, increment) = self.index_increment();
+        let index = self.index();
         let (mat, arms, default) = self.arms(|f, i| f.serialize_by_key(i));
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize for #ident #ty_generics #where_clause {
-                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<S::Ok, ::miniconf::Error<S::Error>>
+                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<S::Ok, ::miniconf::SerDeError<S::Error>>
                 where
                     K: ::miniconf::Keys,
                     S: ::miniconf::Serializer,
@@ -282,7 +274,6 @@ impl Tree {
                         #(#arms ,)*
                         _ => #default
                     }
-                    #increment
                 }
             }
         }
@@ -304,7 +295,7 @@ impl Tree {
         generics.params.push(syn::GenericParam::Lifetime(de));
         let (impl_generics, _, where_clause) = generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Deserialize, where_clause);
-        let (index, increment) = self.index_increment();
+        let index = self.index();
         let ident = &self.ident;
         let (mat, deserialize_arms, default) = self.arms(|f, i| f.deserialize_by_key(i));
         let fields = self.fields();
@@ -313,7 +304,7 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'de> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::Error<D::Error>>
+                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
                 where
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
@@ -323,10 +314,9 @@ impl Tree {
                         #(#deserialize_arms ,)*
                         _ => #default
                     }
-                    #increment
                 }
 
-            fn probe_by_key<K, D>(mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::Error<D::Error>>
+            fn probe_by_key<K, D>(mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
                 where
                     K: ::miniconf::Keys,
                     D: ::miniconf::Deserializer<'de>,
@@ -336,7 +326,6 @@ impl Tree {
                         #(#probe_arms ,)*
                         _ => unreachable!()
                     }
-                    #increment
                 }
             }
         }
@@ -345,17 +334,15 @@ impl Tree {
     pub fn tree_any(&self) -> TokenStream {
         let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Any, where_clause);
-        let (index, _) = self.index_increment();
+        let index = self.index();
         let ident = &self.ident;
         let (mat, ref_arms, default) = self.arms(|f, i| f.ref_any_by_key(i));
         let (_, mut_arms, _) = self.arms(|f, i| f.mut_any_by_key(i));
-        let increment = (!self.flatten.is_present())
-            .then_some(quote!(.map_err(::miniconf::Traversal::increment)));
 
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeAny for #ident #ty_generics #where_clause {
-                fn ref_any_by_key<K>(&self, mut keys: K) -> ::core::result::Result<&dyn ::core::any::Any, ::miniconf::Traversal>
+                fn ref_any_by_key<K>(&self, mut keys: K) -> ::core::result::Result<&dyn ::core::any::Any, ::miniconf::ValueError>
                 where
                     K: ::miniconf::Keys,
                 {
@@ -364,10 +351,9 @@ impl Tree {
                         #(#ref_arms ,)*
                         _ => #default
                     }
-                    #increment
                 }
 
-                fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::Traversal>
+                fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::ValueError>
                 where
                     K: ::miniconf::Keys,
                 {
@@ -376,7 +362,6 @@ impl Tree {
                         #(#mut_arms ,)*
                         _ => #default
                     }
-                    #increment
                 }
             }
         }

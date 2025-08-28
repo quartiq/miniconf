@@ -52,7 +52,7 @@ fn enum_flatten() {
     assert_eq!(e, E1::A(1.into()));
     assert_eq!(
         json::set(&mut E1::None, "", b"1").unwrap_err(),
-        miniconf::Traversal::Absent(0).into()
+        miniconf::KeyError::Absent(0).into()
     );
 
     #[derive(Tree, Default, PartialEq, Debug)]
@@ -68,6 +68,6 @@ fn enum_flatten() {
     assert_eq!(e, E2::A(Inner { a: Leaf(1) }));
     assert_eq!(
         json::set(&mut E2::None, "/a", b"1").unwrap_err(),
-        miniconf::Traversal::Absent(0).into()
+        miniconf::KeyError::Absent(0).into()
     );
 }

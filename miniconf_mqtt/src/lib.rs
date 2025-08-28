@@ -10,7 +10,7 @@ use core::fmt::Display;
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, IntoKeys, Metadata, NodeIter, Path, Traversal, TreeDeserializeOwned, TreeKey,
+    json, IntoKeys, KeyError, Metadata, NodeIter, Path, TreeDeserializeOwned, TreeKey,
     TreeSerialize,
 };
 pub use minimq;
@@ -41,7 +41,7 @@ const SEPARATOR: char = '/';
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
     /// Miniconf
-    Miniconf(miniconf::Traversal),
+    Miniconf(miniconf::KeyError),
     /// State machine
     State(sm::Error),
     /// Minimq
@@ -54,8 +54,8 @@ impl<E> From<sm::Error> for Error<E> {
     }
 }
 
-impl<E> From<miniconf::Traversal> for Error<E> {
-    fn from(value: miniconf::Traversal) -> Self {
+impl<E> From<miniconf::KeyError> for Error<E> {
+    fn from(value: miniconf::KeyError) -> Self {
         Self::Miniconf(value)
     }
 }
@@ -132,7 +132,7 @@ impl<M: TreeKey, const Y: usize> Default for Multipart<M, Y> {
 }
 
 impl<M: TreeKey, const Y: usize> Multipart<M, Y> {
-    fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::Traversal> {
+    fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::KeyError> {
         self.iter = self.iter.root(keys)?;
         Ok(self)
     }
@@ -446,8 +446,8 @@ where
             }
 
             match self.mqtt.client().publish(response) {
-                Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
-                    Traversal::Absent(_depth) | Traversal::Access(_depth, _),
+                Err(minimq::PubError::Serialization(miniconf::SerDeError::Key(
+                    KeyError::Absent(_depth) | KeyError::Access(_depth, _),
                 ))) => {}
 
                 Err(
@@ -521,8 +521,8 @@ where
                     .qos(QoS::AtLeastOnce),
                 ) {
                     match err {
-                        minimq::PubError::Serialization(miniconf::Error::Traversal(
-                            Traversal::TooShort(_depth),
+                        minimq::PubError::Serialization(miniconf::SerDeError::Key(
+                            KeyError::TooShort(_depth),
                         )) => {
                             // Internal node: Dump or List
                             if state.state() == &sm::States::Single {

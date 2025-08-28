@@ -1,7 +1,7 @@
 use core::{iter::Fuse, num::NonZero};
 use serde::Serialize;
 
-use crate::{Error, Metadata, Node, NodeIter, Packed, Transcode, Traversal};
+use crate::{DescendError, KeyError, Metadata, NodeIter, Packed, Transcode};
 
 macro_rules! max {
     ($a:expr, $b:expr) => {{
@@ -52,7 +52,7 @@ impl Schema {
     }
 
     #[inline]
-    pub fn next(&self, mut keys: impl Keys) -> Result<usize, Traversal> {
+    pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
         keys.next(self.internal.as_ref().unwrap())
     }
 
@@ -84,20 +84,6 @@ impl Schema {
             }
         }
         Ok(())
-    }
-
-    pub fn descend<F, E>(&self, mut func: F) -> Result<usize, Error<E>>
-    where
-        F: FnMut(&Self) -> Result<Option<&Self>, Error<E>>,
-    {
-        if let Some(child) = func(self)? {
-            child
-                .descend(func)
-                .map_err(Error::increment)
-                .map(|depth| depth + 1)
-        } else {
-            Ok(0)
-        }
     }
 
     /// Traverse from the root to a leaf and call a function for each node.
@@ -140,21 +126,18 @@ impl Schema {
     /// # Design note
     /// Writing this to return an iterator instead of using a callback
     /// would have worse performance (O(n^2) instead of O(n) for matching)
-    pub fn traverse<K, F, E>(&self, mut keys: K, mut func: F) -> Result<usize, Error<E>>
+    pub fn descend<K, F, R>(&self, mut keys: K, func: &mut F) -> Result<R, DescendError>
     where
         K: Keys,
-        F: FnMut(&Meta, Option<(usize, &Internal)>) -> Result<(), E>,
+        F: FnMut(&Meta, Option<(usize, &Internal)>) -> Result<R, ()>,
     {
-        self.descend(|schema| {
-            if let Some(internal) = schema.internal.as_ref() {
-                let idx = keys.next(internal)?;
-                func(&schema.meta, Some((idx, internal))).map_err(|err| Error::Inner(1, err))?;
-                Ok(Some(internal.next(idx)))
-            } else {
-                func(&schema.meta, None).map_err(|err| Error::Inner(0, err))?;
-                Ok(None)
-            }
-        })
+        if let Some(internal) = self.internal.as_ref() {
+            let idx = keys.next(internal)?;
+            func(&self.meta, Some((idx, internal))).or(Err(DescendError::Inner))?;
+            internal.next(idx).descend(keys, func)
+        } else {
+            func(&self.meta, None).or(Err(DescendError::Inner))
+        }
     }
 
     /// Transcode keys to a new keys type representation
@@ -199,14 +182,14 @@ impl Schema {
     /// # Returns
     /// Transcoded target and node information on success
     #[inline]
-    pub fn transcode<N, K>(&self, keys: K) -> Result<(N, Node), Traversal>
+    pub fn transcode<N, K>(&self, keys: K) -> Result<N, DescendError>
     where
         K: IntoKeys,
         N: Transcode + Default,
     {
         let mut target = N::default();
-        let node = target.transcode(self, keys)?;
-        Ok((target, node))
+        target.transcode(self, keys)?;
+        Ok(target)
     }
 
     /// Return an iterator over nodes of a given type
@@ -377,14 +360,14 @@ impl Internal {
     /// If this succeeds with None, it's a numbered or homogeneous internal node and the
     /// name is the formatted index.
     #[inline]
-    pub const fn lookup(&self, index: usize) -> Result<Option<&str>, Traversal> {
+    pub const fn lookup(&self, index: usize) -> Option<Option<&str>> {
         if index >= self.len().get() {
-            Err(Traversal::NotFound(1))
+            None
         } else {
             if let Self::Named(n) = self {
-                Ok(Some(n[index].name))
+                Some(Some(n[index].name))
             } else {
-                Ok(None)
+                Some(None)
             }
         }
     }
@@ -393,7 +376,7 @@ impl Internal {
 /// Convert a `&str` key into a node index on a `KeyLookup`
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find(&self, internal: &Internal) -> Result<usize, Traversal>;
+    fn find(&self, internal: &Internal) -> Option<usize>;
 }
 
 impl<T: Key> Key for &T
@@ -401,7 +384,7 @@ where
     T: Key + ?Sized,
 {
     #[inline]
-    fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+    fn find(&self, internal: &Internal) -> Option<usize> {
         (**self).find(internal)
     }
 }
@@ -411,7 +394,7 @@ where
     T: Key + ?Sized,
 {
     #[inline]
-    fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+    fn find(&self, internal: &Internal) -> Option<usize> {
         (**self).find(internal)
     }
 }
@@ -421,12 +404,11 @@ macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
             #[inline]
-            fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+            fn find(&self, internal: &Internal) -> Option<usize> {
                 (*self)
                     .try_into()
                     .ok()
                     .filter(|i| *i < internal.len().get())
-                    .ok_or(Traversal::NotFound(1))
             }
         }
     )+};
@@ -436,27 +418,26 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 // name
 impl Key for str {
     #[inline]
-    fn find(&self, internal: &Internal) -> Result<usize, Traversal> {
+    fn find(&self, internal: &Internal) -> Option<usize> {
         match internal {
             Internal::Named(n) => n.iter().position(|n| n.name == self),
             Internal::Numbered(n) => self.parse().ok().filter(|i| *i < n.len()),
             Internal::Homogeneous(h, ..) => self.parse().ok().filter(|i| *i < h.len.get()),
         }
-        .ok_or(Traversal::NotFound(1))
     }
 }
 
 /// Capability to yield and look up [`Key`]s
-pub trait Keys {
+pub trait Keys: Sized {
     /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
-    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal>;
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError>;
 
     /// Finalize the keys, ensure there are no more.
     ///
     /// This must be fused.
-    fn finalize(&mut self) -> Result<(), Traversal>;
+    fn finalize(&mut self) -> bool;
 
     /// Chain another `Keys` to this one.
     #[inline]
@@ -464,7 +445,61 @@ pub trait Keys {
     where
         Self: Sized,
     {
-        Chain(self, other.into_keys())
+        Chain(Some(self), other.into_keys())
+    }
+
+    #[inline]
+    fn track(self) -> Track<Self> {
+        Track {
+            inner: self,
+            count: 0,
+            done: false,
+        }
+    }
+}
+
+pub struct Track<K> {
+    inner: K,
+    count: usize,
+    done: bool,
+}
+
+impl<K> Track<K> {
+    pub fn count(&self) -> usize {
+        self.count
+    }
+
+    pub fn done(&self) -> bool {
+        self.done
+    }
+
+    pub fn into_inner(self) -> K {
+        self.inner
+    }
+}
+
+impl<K: Keys> IntoKeys for &mut Track<K> {
+    type IntoKeys = Self;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
+impl<K: Keys> Keys for Track<K> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        debug_assert!(!self.done);
+        let k = self.inner.next(internal);
+        if k.is_ok() {
+            self.count += 1;
+        }
+        k
+    }
+
+    fn finalize(&mut self) -> bool {
+        debug_assert!(!self.done);
+        self.done = self.inner.finalize();
+        self.done
     }
 }
 
@@ -473,12 +508,12 @@ where
     T: Keys + ?Sized,
 {
     #[inline]
-    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         (**self).next(internal)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
+    fn finalize(&mut self) -> bool {
         (**self).finalize()
     }
 }
@@ -501,15 +536,15 @@ where
     T::Item: Key,
 {
     #[inline]
-    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
-        let n = self.0.next();
-        n.ok_or(Traversal::TooShort(0))?.find(internal)
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let n = self.0.next().ok_or(KeyError::TooShort)?;
+        n.find(internal).ok_or(KeyError::NotFound)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
+    fn finalize(&mut self) -> bool {
         let n = self.0.next();
-        n.is_none().then_some(()).ok_or(Traversal::TooLong(0))
+        n.is_none()
     }
 }
 
@@ -549,28 +584,33 @@ where
 }
 
 /// Concatenate two `Keys` of different types
-pub struct Chain<T, U>(T, U);
+pub struct Chain<T, U>(Option<T>, U);
 
 impl<T, U> Chain<T, U> {
     /// Return a new concatenated `Keys`
     #[inline]
     pub fn new(t: T, u: U) -> Self {
-        Self(t, u)
+        Self(Some(t), u)
     }
 }
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
     #[inline]
-    fn next(&mut self, internal: &Internal) -> Result<usize, Traversal> {
-        match self.0.next(internal) {
-            Err(Traversal::TooShort(_)) => self.1.next(internal),
-            ret => ret,
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        if let Some(a) = self.0.as_mut() {
+            match a.next(internal) {
+                Err(KeyError::TooShort) => {
+                    self.0 = None;
+                }
+                ret => return ret,
+            }
         }
+        self.1.next(internal)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        self.0.finalize().and_then(|()| self.1.finalize())
+    fn finalize(&mut self) -> bool {
+        self.0.as_mut().map(|a| a.finalize()).unwrap_or(true) && self.1.finalize()
     }
 }
 

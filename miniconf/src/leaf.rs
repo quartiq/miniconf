@@ -6,7 +6,10 @@ use core::{
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::{Error, Keys, Schema, Traversal, TreeAny, TreeDeserialize, TreeKey, TreeSerialize};
+use crate::{
+    KeyError, Keys, Schema, SerDeError, TreeAny, TreeDeserialize, TreeKey, TreeSerialize,
+    ValueError,
+};
 
 /// `Serialize`/`Deserialize`/`Any` leaf
 ///
@@ -68,56 +71,66 @@ impl<T: ?Sized> TreeKey for Leaf<T> {
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, SerDeError<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        keys.finalize()?;
-        self.0.serialize(ser).map_err(|err| Error::Inner(0, err))
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        self.0.serialize(ser).map_err(SerDeError::Inner)
     }
 }
 
 impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), SerDeError<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize()?;
-        self.0 = T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        self.0 = T::deserialize(de).map_err(SerDeError::Inner)?;
         Ok(())
     }
 
     #[inline]
-    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), SerDeError<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize()?;
-        T::deserialize(de).map_err(|err| Error::Inner(0, err))?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        T::deserialize(de).map_err(SerDeError::Inner)?;
         Ok(())
     }
 }
 
 impl<T: Any> TreeAny for Leaf<T> {
     #[inline]
-    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, ValueError>
     where
         K: Keys,
     {
-        keys.finalize()?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
         Ok(&self.0)
     }
 
     #[inline]
-    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, ValueError>
     where
         K: Keys,
     {
-        keys.finalize()?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
         Ok(&mut self.0)
     }
 }
@@ -195,60 +208,70 @@ impl<T: ?Sized> TreeKey for StrLeaf<T> {
 
 impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> Result<S::Ok, SerDeError<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        keys.finalize()?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
         let name = self.0.as_ref();
-        name.serialize(ser).map_err(|err| Error::Inner(0, err))
+        name.serialize(ser).map_err(SerDeError::Inner)
     }
 }
 
 impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> Result<(), SerDeError<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize()?;
-        let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        self.0 = T::try_from(name).or(Err(Traversal::Access(0, "Could not convert from str")))?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        let name = Deserialize::deserialize(de).map_err(SerDeError::Inner)?;
+        self.0 = T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
         Ok(())
     }
 
     #[inline]
-    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, de: D) -> Result<(), SerDeError<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize()?;
-        let name = Deserialize::deserialize(de).map_err(|err| Error::Inner(0, err))?;
-        T::try_from(name).or(Err(Traversal::Access(0, "Could not convert from str")))?;
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        let name = Deserialize::deserialize(de).map_err(SerDeError::Inner)?;
+        T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
         Ok(())
     }
 }
 
 impl<T> TreeAny for StrLeaf<T> {
     #[inline]
-    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, ValueError>
     where
         K: Keys,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "No Any access for StrLeaf"))
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("No Any access for StrLeaf"))
     }
 
     #[inline]
-    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, ValueError>
     where
         K: Keys,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "No Any access for StrLeaf"))
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("No Any access for StrLeaf"))
     }
 }
 
@@ -303,54 +326,64 @@ impl<T: ?Sized> TreeKey for Deny<T> {
 
 impl<T: ?Sized> TreeSerialize for Deny<T> {
     #[inline]
-    fn serialize_by_key<K, S>(&self, mut keys: K, _ser: S) -> Result<S::Ok, Error<S::Error>>
+    fn serialize_by_key<K, S>(&self, mut keys: K, _ser: S) -> Result<S::Ok, SerDeError<S::Error>>
     where
         K: Keys,
         S: Serializer,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "Denied").into())
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("Denied").into())
     }
 }
 
 impl<'de, T: ?Sized> TreeDeserialize<'de> for Deny<T> {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, mut keys: K, _de: D) -> Result<(), Error<D::Error>>
+    fn deserialize_by_key<K, D>(&mut self, mut keys: K, _de: D) -> Result<(), SerDeError<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "Denied").into())
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("Denied").into())
     }
 
     #[inline]
-    fn probe_by_key<K, D>(mut keys: K, _de: D) -> Result<(), Error<D::Error>>
+    fn probe_by_key<K, D>(mut keys: K, _de: D) -> Result<(), SerDeError<D::Error>>
     where
         K: Keys,
         D: Deserializer<'de>,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "Denied").into())
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("Denied").into())
     }
 }
 
 impl<T> TreeAny for Deny<T> {
     #[inline]
-    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, Traversal>
+    fn ref_any_by_key<K>(&self, mut keys: K) -> Result<&dyn Any, ValueError>
     where
         K: Keys,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "Denied"))
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("Denied"))
     }
 
     #[inline]
-    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, Traversal>
+    fn mut_any_by_key<K>(&mut self, mut keys: K) -> Result<&mut dyn Any, ValueError>
     where
         K: Keys,
     {
-        keys.finalize()?;
-        Err(Traversal::Access(0, "Denied"))
+        if !keys.finalize() {
+            Err(KeyError::TooLong)?;
+        }
+        Err(ValueError::Access("Denied"))
     }
 }
