@@ -48,11 +48,12 @@ impl Schema {
     }
 
     /// Look up the next item from keys and return a child index
-    ///
-    /// Panics when called in a leaf node.
     #[inline]
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
-        keys.next(self.internal.as_ref().unwrap())
+        match &self.internal {
+            Some(internal) => keys.next(internal),
+            None => keys.finalize().and(Ok(0)),
+        }
     }
 
     /// Visit all representative schemata with their indices
@@ -168,11 +169,8 @@ impl Schema {
             func(&self.meta, Some((idx, internal))).or(Err(DescendError::Inner))?;
             internal.next(idx).descend(keys, func)
         } else {
-            if !keys.finalize() {
-                Err(KeyError::TooLong.into())
-            } else {
-                func(&self.meta, None).or(Err(DescendError::Inner))
-            }
+            keys.finalize()?;
+            func(&self.meta, None).or(Err(DescendError::Inner))
         }
     }
 
@@ -487,7 +485,7 @@ pub trait Keys: Sized {
     /// Finalize the keys, ensure there are no more.
     ///
     /// This must be fused.
-    fn finalize(&mut self) -> bool;
+    fn finalize(&mut self) -> Result<(), KeyError>;
 
     /// Chain another `Keys` to this one.
     #[inline]
@@ -564,10 +562,11 @@ impl<K: Keys> Keys for Track<K> {
         k
     }
 
-    fn finalize(&mut self) -> bool {
+    fn finalize(&mut self) -> Result<(), KeyError> {
         debug_assert!(!self.node.leaf);
-        self.node.leaf = self.inner.finalize();
-        self.node.leaf
+        let f = self.inner.finalize();
+        self.node.leaf = f.is_ok();
+        f
     }
 }
 
@@ -581,7 +580,7 @@ where
     }
 
     #[inline]
-    fn finalize(&mut self) -> bool {
+    fn finalize(&mut self) -> Result<(), KeyError> {
         (**self).finalize()
     }
 }
@@ -610,8 +609,11 @@ where
     }
 
     #[inline]
-    fn finalize(&mut self) -> bool {
-        self.0.next().is_none()
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        match self.0.next() {
+            Some(_) => Err(KeyError::TooLong),
+            None => Ok(()),
+        }
     }
 }
 
@@ -671,8 +673,8 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
     }
 
     #[inline]
-    fn finalize(&mut self) -> bool {
-        self.0.finalize() && self.1.finalize()
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        self.0.finalize().and_then(|_| self.1.finalize())
     }
 }
 

@@ -230,9 +230,11 @@ macro_rules! impl_transcode_slice {
             fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
                 let mut it = self.iter_mut();
                 schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
-                    if let Some((index, _internal)) = idx_schema {
+                    if let Some((index, internal)) = idx_schema {
+                        debug_assert!(internal.len().get() <= <$t>::MAX as _);
+                        let i = index.try_into().or(Err(()))?;
                         let idx = it.next().ok_or(())?;
-                        *idx = index.try_into().or(Err(()))?;
+                        *idx = i;
                     }
                     Ok(())
                 })

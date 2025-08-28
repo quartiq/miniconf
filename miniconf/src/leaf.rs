@@ -334,7 +334,7 @@ impl<'de, T: TreeKey + ?Sized> TreeDeserialize<'de> for Deny<T> {
     }
 }
 
-impl<T: TreeKey> TreeAny for Deny<T> {
+impl<T: TreeKey + ?Sized> TreeAny for Deny<T> {
     #[inline]
     fn ref_any_by_key<K>(&self, _keys: K) -> Result<&dyn Any, ValueError>
     where

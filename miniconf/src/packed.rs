@@ -257,8 +257,12 @@ impl Keys for Packed {
     }
 
     #[inline]
-    fn finalize(&mut self) -> bool {
-        self.is_empty()
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(KeyError::TooLong)
+        }
     }
 }
 
