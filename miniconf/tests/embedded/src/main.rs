@@ -47,9 +47,8 @@ fn main() -> ! {
     let path = Path::<_, '/'>::from("/i/1/val");
     json::set_by_key(&mut s, &path, b"3").unwrap();
 
-    let (packed, node) = Settings::transcode::<Packed, _>(&path).unwrap();
+    let packed: Packed = Settings::SCHEMA.transcode(&path).unwrap();
     assert_eq!(packed.into_lsb().get(), 0b1_01_01_0);
-    assert_eq!(node, Node::leaf(3));
 
     let mut buf = [0; 10];
     let len = json::get_by_key(&s, packed, &mut buf).unwrap();

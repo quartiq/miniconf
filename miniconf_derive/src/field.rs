@@ -1,8 +1,10 @@
+use std::collections::BTreeMap;
+
 use darling::{
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
     util::Flag,
-    FromField, FromMeta,
+    FromField, FromMeta, Result,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
@@ -38,7 +40,7 @@ struct With {
 }
 
 #[derive(Debug, FromField, Clone)]
-#[darling(attributes(tree))]
+#[darling(attributes(tree), forward_attrs(doc))]
 pub(crate) struct TreeField {
     pub ident: Option<syn::Ident>,
     ty: syn::Type,
@@ -50,12 +52,27 @@ pub(crate) struct TreeField {
     with: With,
     #[darling(default)]
     deny: Deny,
+    #[darling(default)]
+    meta: BTreeMap<String, Option<String>>,
+    #[darling(with=Self::parse_attrs)]
+    attrs: Attrs,
+}
+
+#[derive(Debug, FromMeta, PartialEq, Clone, Default)]
+struct Attrs {
+    #[darling(multiple)]
+    doc: Vec<String>,
 }
 
 uses_type_params!(TreeField, ty, typ);
 uses_lifetimes!(TreeField, ty, typ);
 
 impl TreeField {
+    fn parse_attrs(attrs: Vec<syn::Attribute>) -> Result<Attrs> {
+        // Attrs::from_list(attrs.try_into()?)
+        Ok(Attrs::default())
+    }
+
     pub fn span(&self) -> Span {
         self.ident
             .as_ref()
@@ -65,6 +82,10 @@ impl TreeField {
 
     pub fn typ(&self) -> &syn::Type {
         self.typ.as_ref().unwrap_or(&self.ty)
+    }
+
+    pub fn meta(&self) -> TokenStream {
+        self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
     }
 
     pub fn bound(&self, trtr: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {

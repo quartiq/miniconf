@@ -9,7 +9,10 @@ mod common;
 
 fn main() -> anyhow::Result<()> {
     let mut settings = common::Settings::new();
-
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&common::Settings::SCHEMA)?
+    );
     // Parse args
     let mut args = std::env::args().skip(1);
     while let Some(key) = args.next() {

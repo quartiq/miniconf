@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use darling::{
     ast::{self, Data, Style},
     usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes},
@@ -6,17 +8,24 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{parse_quote, token::Token, WhereClause};
+use syn::{parse_quote, WhereClause};
 
 use crate::field::{TreeField, TreeTrait};
 
 #[derive(Debug, FromVariant, Clone)]
-#[darling(attributes(tree), supports(newtype, tuple, unit), and_then=Self::parse)]
+#[darling(
+    attributes(tree),
+    forward_attrs(doc),
+    supports(newtype, tuple, unit),
+    and_then=Self::parse)]
 pub struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
     fields: ast::Fields<TreeField>,
+    attrs: Vec<syn::Attribute>,
+    #[darling(default)]
+    meta: BTreeMap<String, Option<String>>,
 }
 
 impl TreeVariant {
@@ -49,16 +58,26 @@ impl TreeVariant {
     fn name(&self) -> &syn::Ident {
         self.rename.as_ref().unwrap_or(&self.ident)
     }
+
+    pub fn meta(&self) -> TokenStream {
+        self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
+    }
 }
 
 #[derive(Debug, FromDeriveInput, Clone)]
-#[darling(attributes(tree), supports(struct_named, struct_newtype, struct_tuple, enum_newtype, enum_tuple, enum_unit), and_then=Self::parse)]
-#[darling()]
+#[darling(
+    attributes(tree),
+    forward_attrs(doc),
+    supports(struct_named, struct_newtype, struct_tuple, enum_newtype, enum_tuple, enum_unit),
+    and_then=Self::parse)]
 pub struct Tree {
     ident: syn::Ident,
     generics: syn::Generics,
     flatten: Flag,
     data: Data<TreeVariant, TreeField>,
+    attrs: Vec<syn::Attribute>,
+    #[darling(default)]
+    meta: BTreeMap<String, Option<String>>,
 }
 
 impl Tree {
@@ -91,6 +110,12 @@ impl Tree {
                     if v.fields.len() != 1 {
                         return Err(Error::custom(
                             "Only newtype (single field tuple) and unit enum variants are supported.",
+                        )
+                        .with_span(&v.ident.span()));
+                    }
+                    if !v.field().meta().is_empty() {
+                        return Err(Error::custom(
+                            "Outer metadata must be placed on the variant, not on the tuple field.",
                         )
                         .with_span(&v.ident.span()));
                     }
@@ -172,77 +197,82 @@ impl Tree {
 
     fn index(&self) -> TokenStream {
         if self.flatten.is_present() {
-            quote!(::core::result::Result::<(), ::miniconf::ValueError>::Ok())
+            quote!(::core::result::Result::<(), ::miniconf::ValueError>::Ok(0))
         } else {
             quote!(<Self as ::miniconf::TreeKey>::SCHEMA.next(&mut keys))
         }
+    }
+
+    fn meta(&self) -> TokenStream {
+        self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
     }
 
     pub fn tree_key(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
-        let internal = match &self.data {
-            Data::Struct(fields) => {
-                match fields.style {
-                    Style::Tuple => {
-                        let numbered: TokenStream = fields
-                            .iter()
-                            .map(|f| {
-                                // ident is Some
-                                let typ = f.typ();
-
-                                quote_spanned! { f.span()=> ::miniconf::Numbered {
-                                    schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
-                                    meta: None,
-                                }, }
-                            })
-                            .collect();
-                        quote! { ::miniconf::Internal::Numbered(&[#numbered]) }
-                    }
-                    Style::Struct => {
-                        let named: TokenStream = fields
-                            .iter()
-                            .map(|f| {
-                                // ident is Some
-                                let name = f.name().unwrap();
-                                let typ = f.typ();
-
-                                quote_spanned! { name.span()=> ::miniconf::Named {
-                                    name: stringify!(#name),
-                                    schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
-                                    meta: None,
-                                }, }
-                            })
-                            .collect();
-                        quote! { ::miniconf::Internal::Named(&[#named]) }
-                    }
-                    Style::Unit => unreachable!(),
-                }
-            }
-            Data::Enum(variants) => {
-                let named: TokenStream = variants
-                    .iter()
-                    .map(|v| {
-                        let name = v.name();
-                        // ident is Some
-                        let typ = v.field().typ();
-                        quote_spanned! { v.field().span()=> ::miniconf::Named {
-                            name: stringify!(#name),
-                            schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
-                            meta: None,
-                        }, }
-                    })
-                    .collect();
-                quote! { ::miniconf::Internal::Named(&[#named]) }
-            }
-        };
         let schema = if self.flatten.is_present() {
             let typ = self.fields().first().unwrap().typ();
             quote! { <#typ as ::miniconf::TreeKey>::SCHEMA }
         } else {
+            let internal = match &self.data {
+                Data::Struct(fields) => {
+                    match fields.style {
+                        Style::Tuple => {
+                            let numbered: TokenStream = fields
+                                .iter()
+                                .map(|f| {
+                                    let typ = f.typ();
+                                    let meta = f.meta();
+                                    quote_spanned! { f.span()=> ::miniconf::Numbered {
+                                        schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                        meta: Some(&[#meta]),
+                                    }, }
+                                })
+                                .collect();
+                            quote! { ::miniconf::Internal::Numbered(&[#numbered]) }
+                        }
+                        Style::Struct => {
+                            let named: TokenStream = fields
+                                .iter()
+                                .map(|f| {
+                                    // ident is Some
+                                    let name = f.name().unwrap();
+                                    let typ = f.typ();
+                                    let meta = f.meta();
+                                    quote_spanned! { name.span()=> ::miniconf::Named {
+                                        name: stringify!(#name),
+                                        schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                        meta: Some(&[#meta]),
+                                    }, }
+                                })
+                                .collect();
+                            quote! { ::miniconf::Internal::Named(&[#named]) }
+                        }
+                        Style::Unit => unreachable!(),
+                    }
+                }
+                Data::Enum(variants) => {
+                    let named: TokenStream = variants
+                        .iter()
+                        .map(|v| {
+                            let name = v.name();
+                            // ident is Some
+                            let typ = v.field().typ();
+                            let meta = v.meta();
+                            quote_spanned! { v.field().span()=> ::miniconf::Named {
+                                name: stringify!(#name),
+                                schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                meta: Some(&[#meta]),
+                            }, }
+                        })
+                        .collect();
+                    quote! { ::miniconf::Internal::Named(&[#named]) }
+                }
+            };
+            let meta = self.meta();
             quote! { &::miniconf::Schema {
-                meta: None, // TODO
+                meta: Some(&[#meta]),
                 internal: Some(#internal),
             } }
         };
