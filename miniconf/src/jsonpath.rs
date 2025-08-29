@@ -148,19 +148,23 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
 }
 
 impl<T: Write + ?Sized> Transcode for JsonPath<T> {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    type Error = core::fmt::Error;
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         schema.descend(keys.into_keys(), &mut |_meta, idx_internal| {
             if let Some((index, internal)) = idx_internal {
-                if let Some(name) = internal.get_name(index).unwrap() {
+                if let Some(name) = internal.get_name(index) {
                     debug_assert!(!name.contains(['.', '\'', '[', ']']));
-                    self.0.write_char('.').or(Err(()))?;
-                    self.0.write_str(name).or(Err(()))?;
+                    self.0.write_char('.')?;
+                    self.0.write_str(name)?;
                 } else {
-                    self.0.write_char('[').or(Err(()))?;
-                    self.0
-                        .write_str(itoa::Buffer::new().format(index))
-                        .or(Err(()))?;
-                    self.0.write_char(']').or(Err(()))?;
+                    self.0.write_char('[')?;
+                    self.0.write_str(itoa::Buffer::new().format(index))?;
+                    self.0.write_char(']')?;
                 }
             }
             Ok(())

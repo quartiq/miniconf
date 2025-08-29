@@ -1,4 +1,5 @@
 use core::{
+    convert::Infallible,
     fmt::Write,
     ops::{Deref, DerefMut},
     slice,
@@ -13,6 +14,7 @@ use crate::{DescendError, IntoKeys, KeysIter, Schema};
 
 /// Look up an `IntoKeys` in a `TreeKey` and transcode it.
 pub trait Transcode {
+    type Error;
     /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeKey<Y>` and transcode it.
     ///
     /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
@@ -20,18 +22,32 @@ pub trait Transcode {
     ///
     /// Returning `Err(Traversal::Absent)` indicates that there was insufficient
     /// capacity and a key could not be encoded at the given depth.
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError>;
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>>;
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    type Error = T::Error;
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         (**self).transcode(schema, keys)
     }
 }
 
 /// Shim to provide the bare lookup without transcoding target
 impl Transcode for () {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    type Error = Infallible;
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         schema.descend(keys.into_keys(), &mut |_, _| Ok(()))
     }
 }
@@ -161,17 +177,21 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 }
 
 impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    type Error = core::fmt::Error;
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
-                self.0.write_char(S).or(Err(()))?;
+                self.0.write_char(S)?;
                 let mut buf = itoa::Buffer::new();
                 let name = internal
                     .get_name(index)
-                    .unwrap()
                     .unwrap_or_else(|| buf.format(index));
                 debug_assert!(!name.contains(S));
-                self.0.write_str(name).or(Err(()))
+                self.0.write_str(name)
             } else {
                 Ok(())
             }
@@ -218,8 +238,13 @@ impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
 }
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
+    type Error = <[usize] as Transcode>::Error;
     #[inline]
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         self.data.as_mut()[..self.len].transcode(schema, keys)
     }
 }
@@ -227,7 +252,8 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
 macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
-            fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+            type Error = ();
+            fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError<Self::Error>> {
                 let mut it = self.iter_mut();
                 schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
                     if let Some((index, internal)) = idx_schema {
@@ -249,10 +275,15 @@ impl<T> Transcode for Vec<T>
 where
     usize: TryInto<T>,
 {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    type Error = <usize as TryInto<T>>::Error;
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
-                self.push(index.try_into().or(Err(()))?);
+                self.push(index.try_into()?);
             }
             Ok(())
         })

@@ -276,7 +276,13 @@ impl IntoKeys for Packed {
 }
 
 impl Transcode for Packed {
-    fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError> {
+    type Error = ();
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
         schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 let bits = Packed::bits_for(internal.len().get() - 1);

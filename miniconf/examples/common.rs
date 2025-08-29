@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 
 // Either/Inner/Settings are straight from README.md
 
-/// Inner docs
+/// Inner doc
 #[derive(Deserialize, Serialize, Default, Tree)]
-#[tree(meta(max = "innermeta"))]
+#[tree(doc, meta(name = "Inner"))]
 pub struct Inner {
-    #[tree(meta(min = "0", max = "10"))]
+    #[tree(meta(max = "10"))]
     a: Leaf<i32>,
-    /// The `b` field
+    /// Outer doc
     b: Leaf<i32>,
 }
 

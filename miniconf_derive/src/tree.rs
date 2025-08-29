@@ -4,13 +4,13 @@ use darling::{
     ast::{self, Data, Style},
     usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes},
     util::Flag,
-    Error, FromDeriveInput, FromVariant,
+    Error, FromDeriveInput, FromVariant, Result,
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
 use syn::{parse_quote, WhereClause};
 
-use crate::field::{TreeField, TreeTrait};
+use crate::field::{doc_to_meta, TreeField, TreeTrait};
 
 #[derive(Debug, FromVariant, Clone)]
 #[darling(
@@ -29,7 +29,7 @@ pub struct TreeVariant {
 }
 
 impl TreeVariant {
-    fn parse(mut self) -> darling::Result<Self> {
+    fn parse(mut self) -> Result<Self> {
         assert!(!self.fields.is_struct());
         while self
             .fields
@@ -51,7 +51,7 @@ impl TreeVariant {
 
     fn field(&self) -> &TreeField {
         // assert!(self.fields.is_newtype()); // Don't do this since we modified it with skip
-        assert!(self.fields.len() == 1); // Only newtypes currently
+        assert_eq!(self.fields.len(), 1); // Only newtypes currently
         self.fields.fields.first().unwrap()
     }
 
@@ -75,13 +75,14 @@ pub struct Tree {
     generics: syn::Generics,
     flatten: Flag,
     data: Data<TreeVariant, TreeField>,
+    doc: Flag,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
-    meta: BTreeMap<String, Option<String>>,
+    meta: BTreeMap<String, String>,
 }
 
 impl Tree {
-    fn parse(mut self) -> darling::Result<Self> {
+    fn parse(mut self) -> Result<Self> {
         match &mut self.data {
             Data::Struct(fields) => {
                 while fields
@@ -97,15 +98,15 @@ impl Tree {
                     .retain(|f| f.ident.is_none() || !f.skip.is_present());
                 if let Some(f) = fields.fields.iter().find(|f| f.skip.is_present()) {
                     return Err(
-                        // Note(design) If non-terminal fields are skipped, there is a gap in the indices.
-                        // This could be lifted with an index map.
+                        // TODO: If non-terminal tuple fields are skipped, there is a gap in the indices.
+                        // This could be lifted by correct indices.
                         Error::custom("Can only `skip` terminal tuple struct fields")
                             .with_span(&f.skip.span()),
                     );
                 }
             }
             Data::Enum(variants) => {
-                variants.retain(|v| !(v.skip.is_present() || v.fields.is_empty()));
+                variants.retain(|v| !v.skip.is_present() && !v.fields.is_empty());
                 for v in variants.iter() {
                     if v.fields.len() != 1 {
                         return Err(Error::custom(
@@ -130,7 +131,28 @@ impl Tree {
             return Err(Error::custom("Internal nodes must have at least one leaf")
                 .with_span(&self.ident.span()));
         }
+        self.doc_to_meta()?;
         Ok(self)
+    }
+
+    fn doc_to_meta(&mut self) -> Result<()> {
+        if self.doc.is_present() {
+            doc_to_meta(&self.attrs, &mut self.meta)?;
+            match &mut self.data {
+                Data::Struct(fields) => {
+                    for field in fields.fields.iter_mut() {
+                        doc_to_meta(&field.attrs, &mut field.meta)?;
+                    }
+                }
+                Data::Enum(variants) => {
+                    for variant in variants.iter_mut() {
+                        let field = variant.fields.fields.first_mut().unwrap();
+                        doc_to_meta(&variant.attrs, &mut field.meta)?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn fields(&self) -> Vec<&TreeField> {
@@ -294,10 +316,11 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize for #ident #ty_generics #where_clause {
-                fn serialize_by_key<K, S>(&self, mut keys: K, ser: S) -> ::core::result::Result<S::Ok, ::miniconf::SerDeError<S::Error>>
-                where
-                    K: ::miniconf::Keys,
-                    S: ::miniconf::Serializer,
+                fn serialize_by_key<S: ::miniconf::Serializer>(
+                    &self,
+                    mut keys: impl ::miniconf::Keys,
+                    ser: S
+                ) -> ::core::result::Result<S::Ok, ::miniconf::SerDeError<S::Error>>
                 {
                     let index = #index?;
                     match #mat {
@@ -334,10 +357,11 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'de> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<K, D>(&mut self, mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
-                where
-                    K: ::miniconf::Keys,
-                    D: ::miniconf::Deserializer<'de>,
+                fn deserialize_by_key<D: ::miniconf::Deserializer<'de>>(
+                    &mut self,
+                    mut keys: impl ::miniconf::Keys,
+                    de: D
+                ) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
                 {
                     let index = #index?;
                     match #mat {
@@ -346,10 +370,10 @@ impl Tree {
                     }
                 }
 
-            fn probe_by_key<K, D>(mut keys: K, de: D) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
-                where
-                    K: ::miniconf::Keys,
-                    D: ::miniconf::Deserializer<'de>,
+            fn probe_by_key<D: ::miniconf::Deserializer<'de>>(
+                mut keys: impl ::miniconf::Keys,
+                de: D
+            ) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
                 {
                     let index = #index?;
                     match index {
@@ -372,9 +396,10 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeAny for #ident #ty_generics #where_clause {
-                fn ref_any_by_key<K>(&self, mut keys: K) -> ::core::result::Result<&dyn ::core::any::Any, ::miniconf::ValueError>
-                where
-                    K: ::miniconf::Keys,
+                fn ref_any_by_key(
+                    &self,
+                    mut keys: impl ::miniconf::Keys
+                ) -> ::core::result::Result<&dyn ::core::any::Any, ::miniconf::ValueError>
                 {
                     let index = #index?;
                     match #mat {
@@ -383,9 +408,10 @@ impl Tree {
                     }
                 }
 
-                fn mut_any_by_key<K>(&mut self, mut keys: K) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::ValueError>
-                where
-                    K: ::miniconf::Keys,
+                fn mut_any_by_key(
+                    &mut self,
+                    mut keys: impl ::miniconf::Keys
+                ) -> ::core::result::Result<&mut dyn ::core::any::Any, ::miniconf::ValueError>
                 {
                     let index = #index?;
                     match #mat {

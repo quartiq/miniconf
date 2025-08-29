@@ -24,11 +24,11 @@ pub enum KeyError {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum DescendError {
+pub enum DescendError<E> {
     #[error(transparent)]
     Key(#[from] KeyError),
-    #[error("Visitor failed")]
-    Inner,
+    #[error("Visitor failed: {0}")]
+    Inner(#[source] E),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
@@ -112,13 +112,25 @@ impl TryFrom<ValueError> for KeyError {
 }
 
 // Try to extract the Traversal from an Error
+impl<E> TryFrom<DescendError<E>> for KeyError {
+    type Error = E;
+    #[inline]
+    fn try_from(value: DescendError<E>) -> Result<Self, Self::Error> {
+        match value {
+            DescendError::Key(e) => Ok(e),
+            DescendError::Inner(e) => Err(e),
+        }
+    }
+}
+
+// Try to extract the Traversal from an Error
 impl<E> TryFrom<SerDeError<E>> for ValueError {
-    type Error = SerDeError<E>;
+    type Error = E;
     #[inline]
     fn try_from(value: SerDeError<E>) -> Result<Self, Self::Error> {
         match value {
             SerDeError::Value(e) => Ok(e),
-            e => Err(e),
+            SerDeError::Finalization(e) | SerDeError::Inner(e) => Err(e),
         }
     }
 }

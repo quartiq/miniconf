@@ -1,4 +1,4 @@
-use core::{iter::Fuse, num::NonZero};
+use core::{convert::Infallible, iter::Fuse, num::NonZero};
 use serde::Serialize;
 
 use crate::{DescendError, KeyError, Metadata, NodeIter, Packed, Transcode};
@@ -159,19 +159,38 @@ impl Schema {
     /// # Design note
     /// Writing this to return an iterator instead of using a callback
     /// would have worse performance (O(n^2) instead of O(n) for matching)
-    pub fn descend<K, F, R>(&self, mut keys: K, func: &mut F) -> Result<R, DescendError>
+    pub fn descend<'a, K, F, R, E>(
+        &'a self,
+        mut keys: K,
+        func: &mut F,
+    ) -> Result<R, DescendError<E>>
     where
         K: Keys,
-        F: FnMut(&Meta, Option<(usize, &Internal)>) -> Result<R, ()>,
+        F: FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<R, E>,
     {
         if let Some(internal) = self.internal.as_ref() {
             let idx = keys.next(internal)?;
-            func(&self.meta, Some((idx, internal))).or(Err(DescendError::Inner))?;
-            internal.next(idx).descend(keys, func)
+            func(&self.meta, Some((idx, internal))).map_err(DescendError::Inner)?;
+            internal.get_schema(idx).descend(keys, func)
         } else {
             keys.finalize()?;
-            func(&self.meta, None).or(Err(DescendError::Inner))
+            func(&self.meta, None).map_err(DescendError::Inner)
         }
+    }
+
+    pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
+        let mut outer = None;
+        let mut inner = &self.meta;
+        self.descend(keys.into_keys(), &mut |meta, idx_internal| {
+            if let Some((idx, internal)) = idx_internal {
+                outer = Some(internal.get_meta(idx));
+            } else {
+                inner = meta;
+            }
+            Ok::<_, Infallible>(())
+        })
+        .map_err(|e| e.try_into().unwrap())?;
+        Ok((outer, inner))
     }
 
     /// Transcode keys to a new keys type representation
@@ -219,7 +238,7 @@ impl Schema {
     pub fn transcode<N: Transcode + Default>(
         &self,
         keys: impl IntoKeys,
-    ) -> Result<N, DescendError> {
+    ) -> Result<N, DescendError<N::Error>> {
         let mut target = N::default();
         target.transcode(self, keys)?;
         Ok(target)
@@ -392,7 +411,7 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
-    pub const fn next(&self, idx: usize) -> &Schema {
+    pub const fn get_schema(&self, idx: usize) -> &Schema {
         match self {
             Self::Named(nameds) => nameds[idx].schema,
             Self::Numbered(numbereds) => numbereds[idx].schema,
@@ -400,20 +419,31 @@ impl Internal {
         }
     }
 
+    /// Return the outer metadata for the given child
+    ///
+    /// # Panics
+    /// If the index is out of bounds
+    pub const fn get_meta(&self, idx: usize) -> &Meta {
+        match self {
+            Internal::Named(nameds) => &nameds[idx].meta,
+            Internal::Numbered(numbereds) => &numbereds[idx].meta,
+            Internal::Homogeneous(homogeneous) => &homogeneous.meta,
+        }
+    }
+
     /// Perform a index-to-name lookup
     ///
     /// If this succeeds with None, it's a numbered or homogeneous internal node and the
     /// name is the formatted index.
+    ///
+    /// # Panics
+    /// If the index is out of bounds
     #[inline]
-    pub const fn get_name(&self, index: usize) -> Option<Option<&str>> {
-        if index >= self.len().get() {
-            None
+    pub const fn get_name(&self, idx: usize) -> Option<&str> {
+        if let Self::Named(n) = self {
+            Some(n[idx].name)
         } else {
-            if let Self::Named(n) = self {
-                Some(Some(n[index].name))
-            } else {
-                Some(None)
-            }
+            None
         }
     }
 

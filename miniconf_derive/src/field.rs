@@ -4,11 +4,43 @@ use darling::{
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
     util::Flag,
-    FromField, FromMeta, Result,
+    Error, FromField, FromMeta, Result,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
 use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
+
+fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs
+        .into_iter()
+        .filter_map(|a| {
+            if a.path().is_ident("doc") {
+                let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(doc),
+                    ..
+                }) = &a.meta.require_name_value().unwrap().value
+                else {
+                    panic!("Unexpected `doc` attribute format");
+                };
+                return Some(doc.value().trim().to_owned());
+            }
+            None
+        })
+        .reduce(|mut a, b| {
+            a.push('\n');
+            a.push_str(&b);
+            a
+        })
+}
+
+pub fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) -> Result<()> {
+    if let Some(doc) = get_doc(&attrs) {
+        if let Some(old) = meta.insert("doc".to_owned(), doc) {
+            return Err(Error::custom(format!("Duplicate 'doc' meta")).with_span(&old.span()));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TreeTrait {
@@ -53,26 +85,14 @@ pub(crate) struct TreeField {
     #[darling(default)]
     deny: Deny,
     #[darling(default)]
-    meta: BTreeMap<String, Option<String>>,
-    #[darling(with=Self::parse_attrs)]
-    attrs: Attrs,
-}
-
-#[derive(Debug, FromMeta, PartialEq, Clone, Default)]
-struct Attrs {
-    #[darling(multiple)]
-    doc: Vec<String>,
+    pub meta: BTreeMap<String, String>,
+    pub attrs: Vec<syn::Attribute>,
 }
 
 uses_type_params!(TreeField, ty, typ);
 uses_lifetimes!(TreeField, ty, typ);
 
 impl TreeField {
-    fn parse_attrs(attrs: Vec<syn::Attribute>) -> Result<Attrs> {
-        // Attrs::from_list(attrs.try_into()?)
-        Ok(Attrs::default())
-    }
-
     pub fn span(&self) -> Span {
         self.ident
             .as_ref()

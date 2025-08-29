@@ -1,12 +1,11 @@
 //! Schema tracing
 
 use core::{convert::Infallible, marker::PhantomData};
+use std::collections::BTreeMap;
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
-use serde_reflection::{
-    Deserializer, EnumProgress, Format, FormatHolder, Samples, Serializer, Tracer, Value,
-};
+use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
 use crate::{Keys, Packed, SerDeError, TreeDeserialize, TreeKey, TreeSerialize, ValueError};
 
@@ -17,7 +16,7 @@ pub fn trace_value(
     keys: impl Keys,
     value: &impl TreeSerialize,
 ) -> Result<(Format, Value), SerDeError<serde_reflection::Error>> {
-    value.serialize_by_key(keys, Serializer::new(tracer, samples))
+    value.serialize_by_key(keys, serde_reflection::Serializer::new(tracer, samples))
 }
 
 /// Trace a leaf type once
@@ -27,23 +26,26 @@ pub fn trace_type_once<'de, T: TreeDeserialize<'de>>(
     keys: impl Keys,
 ) -> Result<Format, SerDeError<serde_reflection::Error>> {
     let mut format = Format::unknown();
-    T::probe_by_key(keys, Deserializer::new(tracer, samples, &mut format))?;
+    T::probe_by_key(
+        keys,
+        serde_reflection::Deserializer::new(tracer, samples, &mut format),
+    )?;
     format.reduce();
     Ok(format)
 }
 
 /// Trace a leaf type until complete
-pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
+pub fn trace_type<'de, T: TreeDeserialize<'de>>(
     tracer: &mut Tracer,
     samples: &'de Samples,
-    keys: K,
+    keys: impl Keys + Clone,
 ) -> Result<Format, SerDeError<serde_reflection::Error>> {
     loop {
         let format = trace_type_once::<T>(tracer, samples, keys.clone())?;
         if let Format::TypeName(name) = &format {
             if let Some(progress) = tracer.pend_enum(name) {
                 debug_assert!(
-                    !matches!(progress, EnumProgress::Pending),
+                    !matches!(progress, serde_reflection::EnumProgress::Pending),
                     "failed to make progress tracing enum {name}"
                 );
                 // Restart the analysis to find more variants.
@@ -57,12 +59,12 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>, K: Keys + Clone>(
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Types<T, N> {
-    pub(crate) leaves: Vec<(Packed, Option<N>)>,
+    pub(crate) leaves: BTreeMap<Packed, Option<N>>,
     _t: PhantomData<T>,
 }
 
 impl<T, N> Types<T, N> {
-    pub fn leaves(&self) -> &Vec<(Packed, Option<N>)> {
+    pub fn leaves(&self) -> &BTreeMap<Packed, Option<N>> {
         &self.leaves
     }
 }
@@ -71,12 +73,12 @@ impl<T: TreeKey, N> Default for Types<T, N> {
     fn default() -> Self {
         let meta = T::SCHEMA.metadata();
         let mut idx = vec![0; meta.max_depth];
-        let mut leaves = Vec::with_capacity(meta.count.get());
+        let mut leaves = BTreeMap::new(); // with_capacity(meta.count.get());
         T::SCHEMA
             .visit_schema(&mut idx, 0, &mut |idx, schema| {
                 if schema.is_leaf() {
                     let p = T::SCHEMA.transcode(idx).unwrap();
-                    leaves.push((p, None));
+                    leaves.insert(p, None);
                 }
                 Ok::<_, Infallible>(())
             })
@@ -123,15 +125,15 @@ impl<T> Types<T, Format> {
         T: TreeDeserialize<'de>,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_type::<T, _>(tracer, samples, *idx) {
+            match trace_type::<T>(tracer, samples, *idx) {
                 Ok(mut fmt) => {
                     fmt.reduce();
                     *format = Some(fmt);
                 }
-                Err(SerDeError::Value(ValueError::Access(msg))) => {
-                    Err(serde_reflection::Error::DeserializationError(msg))?
+                Err(SerDeError::Value(ValueError::Access(_msg))) => {
+                    // probe access denied
                 }
-                Err(SerDeError::Inner(e)) => Err(e)?,
+                Err(SerDeError::Inner(e) | SerDeError::Finalization(e)) => Err(e)?,
                 _ => unreachable!(),
             }
         }

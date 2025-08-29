@@ -83,7 +83,7 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
-    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, DescendError> {
+    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, DescendError<()>> {
         let mut root = root.into_keys().track();
         self.state.transcode(self.schema, &mut root)?;
         self.root = root.node().depth;
@@ -159,7 +159,7 @@ where
                     self.depth = node.depth;
                     Some(Ok((path, node)))
                 }
-                Err(DescendError::Inner) => {
+                Err(DescendError::Inner(_)) => {
                     // Target type can not hold keys
                     Some(Err(node.depth))
                 }
