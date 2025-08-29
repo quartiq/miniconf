@@ -1,8 +1,6 @@
 use core::str;
 
-use miniconf::{
-    json, Internal, IntoKeys, Key, KeyError, Keys, PathIter, TreeDeserializeOwned, TreeSerialize,
-};
+use miniconf::{json, IntoKeys, Keys, PathIter, TreeDeserializeOwned, TreeSerialize};
 
 mod common;
 
@@ -17,14 +15,15 @@ mod common;
 #[derive(Copy, Clone)]
 struct ScpiKey<T: ?Sized>(T);
 
-impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
-    fn find(&self, lookup: &Internal) -> Result<usize, KeyError> {
+impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
+    fn find(&self, lookup: &miniconf::Internal) -> Option<usize> {
+        use miniconf::Internal::*;
         let s = self.0.as_ref();
         match lookup {
-            Internal::Named(names) => {
+            Named(n) => {
                 let mut truncated = None;
                 let mut ambiguous = false;
-                for (i, name) in names.iter().enumerate() {
+                for (i, miniconf::Named { name, .. }) in n.iter().enumerate() {
                     if name.len() < s.len()
                         || !name
                             .chars()
@@ -35,7 +34,7 @@ impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
                     }
                     if name.len() == s.len() {
                         // Exact match: return immediately
-                        return Ok(i);
+                        return Some(i);
                     }
                     if truncated.is_some() {
                         // Multiple truncated matches: ambiguous unless there is an additional exact match
@@ -51,11 +50,9 @@ impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
                     truncated
                 }
             }
-            Internal::Numbered(len) | Internal::Homogeneous(len) => {
-                s.parse().ok().filter(|i| *i < len.get())
-            }
+            Numbered(n) => s.parse().ok().filter(|i| *i < n.len()),
+            Homogeneous(h) => s.parse().ok().filter(|i| *i < h.len.get()),
         }
-        .ok_or(KeyError::NotFound(1))
     }
 }
 

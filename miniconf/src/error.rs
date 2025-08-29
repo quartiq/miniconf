@@ -27,7 +27,7 @@ pub enum KeyError {
 pub enum DescendError<E> {
     #[error(transparent)]
     Key(#[from] KeyError),
-    #[error("Visitor failed: {0}")]
+    #[error("Visitor failed")]
     Inner(#[source] E),
 }
 
@@ -60,7 +60,7 @@ pub enum SerDeError<E> {
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal callback returned an error.
-    #[error("(De)serialization: {0}")]
+    #[error("(De)serialization")]
     Inner(#[source] E),
 
     /// There was an error during finalization.
@@ -76,7 +76,7 @@ pub enum SerDeError<E> {
     ///
     /// A `Serializer` may write checksums or additional framing data and fail with
     /// this error during finalization after the value has been serialized.
-    #[error("(De)serializer finalization: {0}")]
+    #[error("(De)serializer finalization")]
     Finalization(#[source] E),
 }
 
