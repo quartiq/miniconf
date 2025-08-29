@@ -6,7 +6,7 @@ use core::num::NonZero;
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Metadata {
+pub struct Shape {
     /// The maximum length of a path in bytes.
     ///
     /// This is the exact maximum of the length of the concatenation of the node names
@@ -27,7 +27,7 @@ pub struct Metadata {
     pub max_bits: u32,
 }
 
-impl Metadata {
+impl Shape {
     /// Add separator length to the maximum path length.
     ///
     /// To obtain an upper bound on the maximum length of all paths

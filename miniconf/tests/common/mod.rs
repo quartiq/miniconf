@@ -34,18 +34,3 @@ where
     let len = json::get(s, path, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 }
-
-pub fn transcode_tracked<N: Transcode + Default>(
-    schema: &Schema,
-    keys: impl IntoKeys,
-) -> Result<(N, Node), DescendError<N::Error>> {
-    let mut target = N::default();
-    let mut tracked = keys.into_keys().track();
-    match target.transcode(schema, &mut tracked) {
-        Err(DescendError::Key(KeyError::TooShort)) => {}
-        ret => {
-            ret?;
-        }
-    }
-    Ok((target, tracked.node()))
-}

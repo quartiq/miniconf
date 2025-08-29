@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Node, Schema, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Node, Schema, Track, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,12 +84,9 @@ impl<N, const D: usize> NodeIter<N, D> {
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
-        let mut root = root.into_keys().track();
-        match self.state.transcode(self.schema, &mut root) {
-            Err(DescendError::Key(KeyError::TooShort)) | Ok(_) => {}
-            e => e?,
-        }
-        self.root = root.node().depth;
+        let mut tr = Track::from(&mut self.state[..]);
+        tr.transcode(self.schema, root)?;
+        self.root = tr.node().depth;
         self.depth = D + 1;
         Ok(self)
     }
@@ -106,7 +103,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");
         debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta = self.schema.metadata();
+        let meta = self.schema.shape();
         assert!(
             D >= meta.max_depth,
             "depth D = {D} must be at least {}",

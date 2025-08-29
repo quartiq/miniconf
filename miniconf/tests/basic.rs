@@ -1,6 +1,5 @@
-use miniconf::{Indices, KeyError, Leaf, Metadata, Node, Path, Tree, TreeKey};
+use miniconf::{Indices, KeyError, Leaf, Node, Path, Shape, Track, Tree, TreeKey};
 mod common;
-use common::transcode_tracked;
 
 #[derive(Tree, Default)]
 struct Inner {
@@ -16,7 +15,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta: Metadata = Settings::SCHEMA.metadata();
+    let meta: Shape = Settings::SCHEMA.shape();
     assert_eq!(meta.max_depth, 2);
     assert_eq!(meta.max_length("/"), "/c/inner".len());
     assert_eq!(meta.count.get(), 3);
@@ -30,7 +29,10 @@ fn path() {
         (&[2][..], "/c", Node::internal(1)),
         (&[][..], "", Node::internal(0)),
     ] {
-        let (s, node) = transcode_tracked::<Path<String, '/'>>(Settings::SCHEMA, keys).unwrap();
+        let (s, node) = Settings::SCHEMA
+            .transcode::<Track<Path<String, '/'>>>(keys)
+            .unwrap()
+            .into();
         assert_eq!(depth, node);
         assert_eq!(s.as_str(), path);
     }
@@ -44,14 +46,18 @@ fn indices() {
         ("/c/inner", [2, 0], Node::leaf(2)),
         ("/c", [2, 0], Node::internal(1)),
     ] {
-        let (indices, node) =
-            transcode_tracked::<Indices<_>>(Settings::SCHEMA, Path::<_, '/'>::from(keys)).unwrap();
+        let (indices, node) = Settings::SCHEMA
+            .transcode::<Track<Indices<_>>>(Path::<_, '/'>::from(keys))
+            .unwrap()
+            .into();
         assert_eq!(node, depth);
         assert_eq!(indices.len, depth.depth);
         assert_eq!(indices.data, idx);
     }
-    let (indices, node) =
-        transcode_tracked::<Indices<_>>(Option::<Leaf<i8>>::SCHEMA, [0usize; 0]).unwrap();
+    let (indices, node) = Option::<Leaf<i8>>::SCHEMA
+        .transcode::<Track<Indices<_>>>([0usize; 0])
+        .unwrap()
+        .into();
     assert_eq!(indices.data, [0]);
     assert_eq!(node, Node::leaf(0));
 

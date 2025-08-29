@@ -1,4 +1,4 @@
-use miniconf::{json, Deserialize, Leaf, Metadata, Serialize, Tree, TreeKey};
+use miniconf::{json, Deserialize, Leaf, Serialize, Shape, Tree, TreeKey};
 
 #[test]
 fn generic_type() {
@@ -12,7 +12,7 @@ fn generic_type() {
     assert_eq!(*settings.data, 3.0);
 
     // Test metadata
-    let metadata: Metadata = Settings::<f32>::SCHEMA.metadata();
+    let metadata: Shape = Settings::<f32>::SCHEMA.shape();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length, "data".len());
     assert_eq!(metadata.count.get(), 1);
@@ -31,7 +31,7 @@ fn generic_array() {
     assert_eq!(*settings.data[0], 3.0);
 
     // Test metadata
-    let metadata: Metadata = Settings::<f32>::SCHEMA.metadata();
+    let metadata: Shape = Settings::<f32>::SCHEMA.shape();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/data/0".len());
     assert_eq!(metadata.count.get(), 2);
@@ -55,7 +55,7 @@ fn generic_struct() {
     assert_eq!(settings.inner.data, 3.0);
 
     // Test metadata
-    let metadata: Metadata = Settings::<Inner>::SCHEMA.metadata();
+    let metadata: Shape = Settings::<Inner>::SCHEMA.shape();
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length("/"), "/inner".len());
     assert_eq!(metadata.count.get(), 1);
@@ -81,7 +81,7 @@ fn generic_atomic() {
     assert_eq!(settings.atomic.inner[0], 3.0);
 
     // Test metadata
-    let metadata: Metadata = Settings::<f32>::SCHEMA.metadata();
+    let metadata: Shape = Settings::<f32>::SCHEMA.shape();
     assert_eq!(metadata.max_depth, 3);
     assert_eq!(metadata.max_length("/"), "/opt1/0/0".len());
 }
@@ -90,8 +90,15 @@ fn generic_atomic() {
 fn test_depth() {
     #[derive(Tree)]
     struct S<T>(Option<Option<T>>);
+
     // This works as array implements TreeKey
-    S::<[Leaf<u32>; 1]>::SCHEMA.metadata();
+    S::<[Leaf<u32>; 1]>::SCHEMA.shape();
+
     // This does not compile as u32 does not implement TreeKey
-    // S::<u32>::traverse_all::<Metadata>();
+    // S::<u32>::SCHEMA.shape();
+
+    // Depth is always statically known
+    // .. but can't be used in const generics yet,
+    //    i.e. we can't name the type.
+    let _idx = [0usize; S::<[Leaf<u32>; 1]>::SCHEMA.shape().max_depth];
 }

@@ -1,6 +1,6 @@
 use miniconf::{
-    json, Deserialize, Indices, IntoKeys, KeyError, Keys, Leaf, Metadata, Packed, Path, SerDeError,
-    Serialize, Tree, TreeKey,
+    json, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerDeError, Serialize, Track, Tree,
+    TreeKey,
 };
 
 mod common;
@@ -28,24 +28,30 @@ fn set_get(
     common::set_get(tree, path, value);
 
     // Indices
-    let mut path = Path::<_, '/'>::from(path).into_keys().track();
-    let idx: Indices<[usize; 4]> = Settings::SCHEMA.transcode(&mut path).unwrap();
-    assert!(path.node().leaf);
+    let (idx, node) = Settings::SCHEMA
+        .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>::from(path))
+        .unwrap()
+        .into();
+    assert!(node.leaf);
+    assert_eq!(node.depth, idx.len);
     json::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
     let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let mut idx = idx.into_keys().track();
-    let packed: Packed = Settings::SCHEMA.transcode(&mut idx).unwrap();
-    assert!(idx.node().leaf);
+    let (packed, node) = Settings::SCHEMA
+        .transcode::<Track<Packed>>(&idx)
+        .unwrap()
+        .into();
+    assert!(node.leaf);
+    assert_eq!(node.depth, idx.len);
     json::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
     let len = json::get_by_key(tree, packed, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
-    Ok(idx.node().depth)
+    Ok(node.depth)
 }
 
 #[test]
@@ -130,7 +136,7 @@ fn not_found() {
 
 #[test]
 fn metadata() {
-    let m: Metadata = Settings::SCHEMA.metadata();
+    let m = Settings::SCHEMA.shape();
     assert_eq!(m.max_depth, 4);
     assert_eq!(m.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(m.count.get(), 11);

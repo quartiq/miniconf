@@ -1,8 +1,7 @@
 use miniconf::{
-    Indices, KeyError, Keys, Leaf, Metadata, Node, Packed, Path, Tree, TreeKey, TreeSerialize,
+    Indices, KeyError, Leaf, Node, Packed, Path, Shape, Track, Tree, TreeKey, TreeSerialize,
 };
 mod common;
-use common::transcode_tracked;
 
 #[derive(Tree, Default)]
 struct Settings {
@@ -14,8 +13,10 @@ struct Settings {
 fn packed() {
     // Check empty being too short
     assert_eq!(
-        transcode_tracked::<Path<String, '/'>>(Settings::SCHEMA, Packed::EMPTY),
-        Ok((Path::default(), Node::internal(0)))
+        Settings::SCHEMA
+            .transcode::<Track<Path<String, '/'>>>(Packed::EMPTY)
+            .unwrap(),
+        Track::from(Path::default())
     );
 
     // Check path-packed round trip.
@@ -24,9 +25,13 @@ fn packed() {
         .exact_size()
         .map(Result::unwrap)
     {
-        let (packed, node) = transcode_tracked::<Packed>(Settings::SCHEMA, &iter_path).unwrap();
-        let (path, _node) =
-            transcode_tracked::<Path<String, '/'>>(Settings::SCHEMA, packed).unwrap();
+        let (packed, node) = Settings::SCHEMA
+            .transcode::<Track<Packed>>(&iter_path)
+            .unwrap()
+            .into();
+        let path = Settings::SCHEMA
+            .transcode::<Path<String, '/'>>(packed)
+            .unwrap();
         assert_eq!(path, iter_path);
         println!(
             "{path:?} {iter_path:?}, {:#06b} {} {node:?}",
@@ -44,7 +49,10 @@ fn packed() {
 
     // Check that Packed `marker + 0b0` is equivalent to `/a`
     let a = Packed::from_lsb(0b10.try_into().unwrap());
-    let (path, node) = transcode_tracked::<Path<String, '/'>>(Settings::SCHEMA, a).unwrap();
+    let (path, node) = Settings::SCHEMA
+        .transcode::<Track<Path<String, '/'>>>(a)
+        .unwrap()
+        .into();
     assert_eq!(node, Node::leaf(1));
     assert_eq!(path.as_str(), "/a");
 }
@@ -85,7 +93,10 @@ fn top() {
             )
         ]
     );
-    let (p, node) = transcode_tracked::<Packed>(S::SCHEMA, [1usize]).unwrap();
+    let (p, node) = S::SCHEMA
+        .transcode::<Track<Packed>>([1usize])
+        .unwrap()
+        .into();
     assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
     assert_eq!(
         S::SCHEMA
@@ -168,13 +179,13 @@ fn size() {
         1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1];
     assert_eq!(core::mem::size_of::<A31>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
-    let mut keys = packed.track();
-    let path = A31::SCHEMA
-        .transcode::<Path<String, '/'>>(&mut keys)
-        .unwrap();
-    assert_eq!(keys.node(), Node::leaf(31));
+    let (path, node) = A31::SCHEMA
+        .transcode::<Track<Path<String, '/'>>>(packed)
+        .unwrap()
+        .into();
+    assert_eq!(node, Node::leaf(31));
     assert_eq!(path.as_str().len(), 2 * 31);
-    let meta: Metadata = A31::SCHEMA.metadata();
+    let meta: Shape = A31::SCHEMA.shape();
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 31);
     assert_eq!(meta.count.get(), 1usize.pow(31));
@@ -186,13 +197,13 @@ fn size() {
         [[[[[[[[[[[[[[[[Leaf<()>; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 1];
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
-    let mut keys = packed.track();
-    let path = A16::SCHEMA
-        .transcode::<Path<String, '/'>>(&mut keys)
-        .unwrap();
-    assert_eq!(keys.node(), Node::leaf(16));
+    let (path, node) = A16::SCHEMA
+        .transcode::<Track<Path<String, '/'>>>(packed)
+        .unwrap()
+        .into();
+    assert_eq!(node, Node::leaf(16));
     assert_eq!(path.as_str().len(), 2 * 16);
-    let meta: Metadata = A16::SCHEMA.metadata();
+    let meta: Shape = A16::SCHEMA.shape();
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 16);
     assert_eq!(meta.count.get(), 3usize.pow(15));

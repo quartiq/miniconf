@@ -10,8 +10,7 @@ use core::fmt::Display;
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, IntoKeys, KeyError, Metadata, NodeIter, Path, TreeDeserializeOwned, TreeKey,
-    TreeSerialize,
+    json, IntoKeys, KeyError, NodeIter, Path, Shape, TreeDeserializeOwned, TreeKey, TreeSerialize,
 };
 pub use minimq;
 use minimq::{
@@ -251,7 +250,7 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta: Metadata = Settings::traverse_all();
+        let meta: Shape = Settings::traverse_all();
         assert!(meta.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 

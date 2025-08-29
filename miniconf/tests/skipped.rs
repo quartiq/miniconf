@@ -1,4 +1,4 @@
-use miniconf::{KeyError, Leaf, Metadata, Path, Tree, TreeKey};
+use miniconf::{KeyError, Leaf, Path, Shape, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -13,7 +13,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta: Metadata = Settings::SCHEMA.metadata();
+    let meta: Shape = Settings::SCHEMA.shape();
     assert_eq!(meta.max_depth, 1);
     assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count.get(), 1);

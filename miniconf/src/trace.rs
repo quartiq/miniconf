@@ -71,7 +71,7 @@ impl<T, N> Types<T, N> {
 
 impl<T: TreeKey, N> Default for Types<T, N> {
     fn default() -> Self {
-        let meta = T::SCHEMA.metadata();
+        let meta = T::SCHEMA.shape();
         let mut idx = vec![0; meta.max_depth];
         let mut leaves = BTreeMap::new(); // with_capacity(meta.count.get());
         T::SCHEMA

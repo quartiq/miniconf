@@ -1,7 +1,7 @@
 use core::{convert::Infallible, iter::Fuse, num::NonZero};
 use serde::Serialize;
 
-use crate::{DescendError, KeyError, Metadata, NodeIter, Packed, Transcode};
+use crate::{DescendError, KeyError, NodeIter, Packed, Shape, Transcode};
 
 // const a = a.max(b)
 macro_rules! max {
@@ -324,8 +324,8 @@ impl Schema {
     }
 
     /// Compute metadata
-    pub const fn metadata(&self) -> Metadata {
-        let mut m = Metadata {
+    pub const fn shape(&self) -> Shape {
+        let mut m = Shape {
             max_depth: 0,
             max_length: 0,
             count: NonZero::<usize>::MIN,
@@ -339,7 +339,7 @@ impl Schema {
                     let mut count = 0;
                     while index < nameds.len() {
                         let named = &nameds[index];
-                        let child = named.schema.metadata();
+                        let child = named.schema.shape();
                         max!(m.max_depth, 1 + child.max_depth);
                         max!(m.max_length, named.name.len() + child.max_length);
                         max!(m.max_bits, bits + child.max_bits);
@@ -358,7 +358,7 @@ impl Schema {
                             None => 0,
                             Some(len) => len as usize,
                         };
-                        let child = numbered.schema.metadata();
+                        let child = numbered.schema.shape();
                         max!(m.max_depth, 1 + child.max_depth);
                         max!(m.max_length, len + child.max_length);
                         max!(m.max_bits, bits + child.max_bits);
@@ -368,7 +368,7 @@ impl Schema {
                     m.count = NonZero::new(count).unwrap();
                 }
                 Internal::Homogeneous(homogeneous) => {
-                    m = homogeneous.schema.metadata();
+                    m = homogeneous.schema.shape();
                     m.max_depth += 1;
                     m.max_length += 1 + homogeneous.len.ilog10() as usize;
                     m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);
@@ -603,7 +603,7 @@ impl Node {
 }
 
 /// Track keys consumption and leaf encounter
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Track<K> {
     inner: K,
     node: Node,
@@ -633,6 +633,12 @@ impl<K> Track<K> {
     }
 }
 
+impl<K> From<Track<K>> for (K, Node) {
+    fn from(value: Track<K>) -> Self {
+        (value.inner, value.node)
+    }
+}
+
 impl<K: Keys> IntoKeys for &mut Track<K> {
     type IntoKeys = Self;
 
@@ -657,6 +663,25 @@ impl<K: Keys> Keys for Track<K> {
         let f = self.inner.finalize();
         self.node.leaf = matches!(f, Ok(_) | Err(KeyError::TooLong));
         f
+    }
+}
+
+impl<T: Transcode> Transcode for Track<T> {
+    type Error = T::Error;
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        let mut tracked = keys.into_keys().track();
+        match self.inner.transcode(schema, &mut tracked) {
+            Ok(()) | Err(DescendError::Key(KeyError::TooShort)) => {
+                self.node = tracked.node;
+                Ok(())
+            }
+            ret => ret,
+        }
     }
 }
 
