@@ -1,5 +1,5 @@
 use miniconf::{
-    json, KeyError, Keys, Leaf, SerDeError, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+    json, Keys, Leaf, SerDeError, Tree, TreeDeserialize, TreeKey, TreeSerialize, ValueError,
 };
 use serde::{Deserializer, Serializer};
 
@@ -21,7 +21,7 @@ impl Settings {
             Ok(())
         } else {
             *self.v = old;
-            Err(KeyError::Access(0, "").into())
+            Err(ValueError::Access("").into())
         }
     }
 }
@@ -33,7 +33,7 @@ fn validate() {
     assert_eq!(*s.v, 1.0);
     assert_eq!(
         json::set(&mut s, "/v", b"-1.0"),
-        Err(KeyError::Access(1, "").into())
+        Err(ValueError::Access("").into())
     );
     assert_eq!(*s.v, 1.0); // remains unchanged
 }
@@ -59,7 +59,7 @@ fn paging() {
             let arr: &[Leaf<i32>; 4] = self
                 .vec
                 .get(*self.offset..*self.offset + 4)
-                .ok_or(KeyError::Access(0, "range"))?
+                .ok_or(ValueError::Access("range"))?
                 .try_into()
                 .unwrap();
             arr.serialize_by_key(keys, ser)
@@ -73,7 +73,7 @@ fn paging() {
             let arr: &mut [Leaf<i32>; 4] = self
                 .vec
                 .get_mut(*self.offset..*self.offset + 4)
-                .ok_or(KeyError::Access(0, "range"))?
+                .ok_or(ValueError::Access("range"))?
                 .try_into()
                 .unwrap();
             arr.deserialize_by_key(keys, de)
@@ -90,7 +90,7 @@ fn paging() {
     json::set(&mut s, "/offset", b"100").unwrap();
     assert_eq!(
         json::set(&mut s, "/arr/1", b"5"),
-        Err(KeyError::Access(1, "range").into())
+        Err(ValueError::Access("range").into())
     );
 }
 
@@ -111,7 +111,7 @@ fn locked() {
             ser: S,
         ) -> Result<S::Ok, SerDeError<S::Error>> {
             if !*self.read {
-                return Err(KeyError::Access(0, "not readable").into());
+                return Err(ValueError::Access("not readable").into());
             }
             self.val.serialize_by_key(keys, ser)
         }
@@ -121,7 +121,7 @@ fn locked() {
             de: D,
         ) -> Result<(), SerDeError<D::Error>> {
             if !*self.write {
-                return Err(KeyError::Access(0, "not writable").into());
+                return Err(ValueError::Access("not writable").into());
             }
             self.val.deserialize_by_key(keys, de)
         }

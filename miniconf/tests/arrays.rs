@@ -50,7 +50,7 @@ fn set_get(
 
 #[test]
 fn paths() {
-    common::paths::<Settings, 4>();
+    common::paths::<4>(Settings::SCHEMA);
 }
 
 #[test]

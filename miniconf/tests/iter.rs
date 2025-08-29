@@ -19,7 +19,7 @@ struct Settings {
 #[test]
 fn struct_iter() {
     assert_eq!(
-        paths::<Settings, 3>(),
+        paths::<3>(Settings::SCHEMA),
         ["/b/0", "/b/1", "/c/inner", "/d/0/inner", "/a"]
     );
 }
@@ -34,11 +34,13 @@ fn struct_iter_indices() {
         ([3, 0, 0], 1),
     ];
     assert_eq!(
-        Settings::nodes::<Indices<[usize; 3]>, 3>()
+        Settings::SCHEMA
+            .nodes::<Indices<[usize; 3]>, 3>()
             .exact_size()
             .map(|have| {
-                let (idx, node) = have.unwrap();
-                (idx.into_inner(), node.depth())
+                let (Indices { len, data }, node) = have.unwrap();
+                assert_eq!(node.depth, len);
+                (data, len)
             })
             .collect::<Vec<_>>(),
         paths
@@ -49,7 +51,7 @@ fn struct_iter_indices() {
 fn array_iter() {
     let mut s = Settings::default();
 
-    for field in paths::<Settings, 3>() {
+    for field in paths::<3>(Settings::SCHEMA) {
         set_get(&mut s, &field, b"true");
     }
 
@@ -62,14 +64,14 @@ fn array_iter() {
 #[test]
 fn short_iter() {
     assert_eq!(
-        NodeIter::<Settings, Path<String, '/'>, 1>::default()
+        NodeIter::<Path<String, '/'>, 1>::new(Settings::SCHEMA)
             .map(|p| p.unwrap().0.into_inner())
             .collect::<Vec<_>>(),
         ["/b", "/c", "/d", "/a"]
     );
 
     assert_eq!(
-        NodeIter::<Settings, Path<String, '/'>, 0>::default()
+        NodeIter::<Path<String, '/'>, 0>::new(Settings::SCHEMA)
             .next()
             .unwrap()
             .unwrap()
@@ -82,13 +84,13 @@ fn short_iter() {
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    <[[Leaf<u32>; 1]; 1]>::nodes::<(), 1>().exact_size();
+    <[[Leaf<u32>; 1]; 1]>::SCHEMA.nodes::<(), 1>().exact_size();
 }
 
 #[test]
 #[should_panic]
 fn panic_started_iter() {
-    let mut it = <[[Leaf<u32>; 1]; 1]>::nodes::<(), 2>();
+    let mut it = <[[Leaf<u32>; 1]; 1]>::SCHEMA.nodes::<(), 2>();
     it.next();
     it.exact_size();
 }
@@ -96,7 +98,8 @@ fn panic_started_iter() {
 #[test]
 #[should_panic]
 fn panic_rooted_iter() {
-    <[[Leaf<u32>; 1]; 1]>::nodes::<(), 2>()
+    <[[Leaf<u32>; 1]; 1]>::SCHEMA
+        .nodes::<(), 2>()
         .root([0usize])
         .unwrap()
         .exact_size();
@@ -105,7 +108,8 @@ fn panic_rooted_iter() {
 #[test]
 fn root() {
     assert_eq!(
-        Settings::nodes::<Path<String, '/'>, 3>()
+        Settings::SCHEMA
+            .nodes::<Path<String, '/'>, 3>()
             .root(["b"])
             .unwrap()
             .map(|p| p.unwrap().0.into_inner())

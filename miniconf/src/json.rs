@@ -35,8 +35,8 @@ use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeSerialize};
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
 #[inline]
-pub fn set<'de, T: TreeDeserialize<'de> + ?Sized>(
-    tree: &mut T,
+pub fn set<'de>(
+    tree: &mut (impl TreeDeserialize<'de> + ?Sized),
     path: &str,
     data: &'de [u8],
 ) -> Result<usize, SerDeError<de::Error>> {
@@ -53,8 +53,8 @@ pub fn set<'de, T: TreeDeserialize<'de> + ?Sized>(
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
 #[inline]
-pub fn get<T: TreeSerialize + ?Sized>(
-    tree: &T,
+pub fn get(
+    tree: &(impl TreeSerialize + ?Sized),
     path: &str,
     data: &mut [u8],
 ) -> Result<usize, SerDeError<ser::Error>> {
@@ -66,9 +66,9 @@ pub fn get<T: TreeSerialize + ?Sized>(
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
 #[inline]
-pub fn set_by_key<'de, T: TreeDeserialize<'de> + ?Sized, K: IntoKeys>(
-    tree: &mut T,
-    keys: K,
+pub fn set_by_key<'de>(
+    tree: &mut (impl TreeDeserialize<'de> + ?Sized),
+    keys: impl IntoKeys,
     data: &'de [u8],
 ) -> Result<usize, SerDeError<de::Error>> {
     let mut de = de::Deserializer::new(data, None);
@@ -81,9 +81,9 @@ pub fn set_by_key<'de, T: TreeDeserialize<'de> + ?Sized, K: IntoKeys>(
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
 #[inline]
-pub fn get_by_key<T: TreeSerialize + ?Sized, K: IntoKeys>(
-    tree: &T,
-    keys: K,
+pub fn get_by_key(
+    tree: &(impl TreeSerialize + ?Sized),
+    keys: impl IntoKeys,
     data: &mut [u8],
 ) -> Result<usize, SerDeError<ser::Error>> {
     let mut ser = ser::Serializer::new(data);

@@ -41,7 +41,7 @@ impl Settings {
         self.four.deserialize_by_key(keys, de)?;
         if *self.four < 4.0 {
             *self.four = old;
-            Err(KeyError::Access(0, "Less than four").into())
+            Err(ValueError::Access("Less than four").into())
         } else {
             Ok(())
         }

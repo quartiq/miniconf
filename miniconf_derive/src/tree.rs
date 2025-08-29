@@ -219,7 +219,9 @@ impl Tree {
 
     fn index(&self) -> TokenStream {
         if self.flatten.is_present() {
-            quote!(::core::result::Result::<(), ::miniconf::ValueError>::Ok(0))
+            quote!(::core::result::Result::<usize, ::miniconf::ValueError>::Ok(
+                0
+            ))
         } else {
             quote!(<Self as ::miniconf::TreeKey>::SCHEMA.next(&mut keys))
         }

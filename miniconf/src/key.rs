@@ -32,6 +32,27 @@ impl Schema {
         internal: None,
     };
 
+    pub const fn numbered(numbered: &'static [Numbered]) -> Self {
+        Self {
+            meta: None,
+            internal: Some(Internal::Numbered(numbered)),
+        }
+    }
+
+    pub const fn named(named: &'static [Named]) -> Self {
+        Self {
+            meta: None,
+            internal: Some(Internal::Named(named)),
+        }
+    }
+
+    pub const fn homogeneous(homogeneous: Homogeneous) -> Self {
+        Self {
+            meta: None,
+            internal: Some(Internal::Homogeneous(homogeneous)),
+        }
+    }
+
     /// Whether this node is a leaf
     #[inline]
     pub const fn is_leaf(&self) -> bool {
@@ -48,12 +69,12 @@ impl Schema {
     }
 
     /// Look up the next item from keys and return a child index
+    ///
+    /// # Panics
+    /// On a leaf Schema.
     #[inline]
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
-        match &self.internal {
-            Some(internal) => keys.next(internal),
-            None => keys.finalize().and(Ok(0)),
-        }
+        keys.next(self.internal.as_ref().unwrap())
     }
 
     /// Visit all representative schemata with their indices
@@ -159,13 +180,12 @@ impl Schema {
     /// # Design note
     /// Writing this to return an iterator instead of using a callback
     /// would have worse performance (O(n^2) instead of O(n) for matching)
-    pub fn descend<'a, K, F, R, E>(
+    pub fn descend<'a, F, R, E>(
         &'a self,
-        mut keys: K,
+        mut keys: impl Keys,
         func: &mut F,
     ) -> Result<R, DescendError<E>>
     where
-        K: Keys,
         F: FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<R, E>,
     {
         if let Some(internal) = self.internal.as_ref() {
@@ -367,6 +387,12 @@ pub struct Numbered {
     pub meta: Meta,
 }
 
+impl Numbered {
+    pub const fn new(schema: &'static Schema) -> Self {
+        Self { meta: None, schema }
+    }
+}
+
 /// A named schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Named {
@@ -375,12 +401,36 @@ pub struct Named {
     pub meta: Meta,
 }
 
+impl Named {
+    pub const fn new(name: &'static str, schema: &'static Schema) -> Self {
+        Self {
+            meta: None,
+            name,
+            schema,
+        }
+    }
+}
+
 /// A representative schema item for a homogeneous array
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Homogeneous {
     pub len: NonZero<usize>,
     pub schema: &'static Schema,
     pub meta: Meta,
+}
+
+impl Homogeneous {
+    pub const fn new(len: usize, schema: &'static Schema) -> Self {
+        let len = match NonZero::new(len) {
+            Some(len) => len,
+            None => panic!("Must have at least one child"),
+        };
+        Self {
+            meta: None,
+            len,
+            schema,
+        }
+    }
 }
 
 /// An internal node with children
@@ -540,6 +590,16 @@ pub struct Node {
     pub depth: usize,
     /// The node is a leaf
     pub leaf: bool,
+}
+
+impl Node {
+    pub const fn leaf(depth: usize) -> Self {
+        Self { depth, leaf: true }
+    }
+
+    pub const fn internal(depth: usize) -> Self {
+        Self { depth, leaf: false }
+    }
 }
 
 /// Track keys consumption and leaf encounter

@@ -83,9 +83,12 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
-    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, DescendError<()>> {
+    pub fn root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
         let mut root = root.into_keys().track();
-        self.state.transcode(self.schema, &mut root)?;
+        match self.state.transcode(self.schema, &mut root) {
+            Err(DescendError::Key(KeyError::TooShort)) | Ok(_) => {}
+            e => e?,
+        }
         self.root = root.node().depth;
         self.depth = D + 1;
         Ok(self)
@@ -97,6 +100,8 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited or if the iteration root
     /// is not the tree root.
+    ///
+    // TODO: improve by e.g. changing schema
     pub fn exact_size(self) -> ExactSize<Self> {
         assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
         assert_eq!(self.root, 0, "NodeIter on sub-tree");

@@ -1,4 +1,4 @@
-use miniconf::{KeyError, Leaf, Metadata, Path, Schema, Tree, TreeKey};
+use miniconf::{KeyError, Leaf, Metadata, Path, Tree, TreeKey};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -13,7 +13,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta: Metadata = Settings::traverse_all();
+    let meta: Metadata = Settings::SCHEMA.metadata();
     assert_eq!(meta.max_depth, 1);
     assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count.get(), 1);
@@ -22,12 +22,12 @@ fn meta() {
 #[test]
 fn path() {
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([0usize]),
-        Ok((Path("/value".to_owned()), Schema::leaf(1)))
+        Settings::SCHEMA.transcode::<Path<String, '/'>>([0usize]),
+        Ok(Path("/value".to_owned()))
     );
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([1usize]),
-        Err(KeyError::NotFound(1))
+        Settings::SCHEMA.transcode::<Path<String, '/'>>([1usize]),
+        Err(KeyError::NotFound.into())
     );
 }
 

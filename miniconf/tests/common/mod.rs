@@ -1,13 +1,18 @@
-use miniconf::{json, Packed, Path, TreeDeserialize, TreeKey, TreeSerialize};
+#![allow(unused)]
 
-pub fn paths<T: TreeKey, const D: usize>() -> Vec<String> {
-    assert!(T::SCHEMA
+use miniconf::{
+    json, DescendError, IntoKeys, KeyError, Keys, Node, Packed, Path, Schema, Transcode,
+    TreeDeserialize, TreeKey, TreeSerialize,
+};
+
+pub fn paths<const D: usize>(schema: &'static Schema) -> Vec<String> {
+    assert!(schema
         .nodes::<_, D>()
         .exact_size()
         .collect::<Result<Vec<(Packed, _)>, _>>()
         .unwrap()
         .is_sorted());
-    T::SCHEMA
+    schema
         .nodes::<Path<String, '/'>, D>()
         .exact_size()
         .map(|pn| {
@@ -28,4 +33,19 @@ where
     let mut buf = vec![0; value.len()];
     let len = json::get(s, path, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
+}
+
+pub fn transcode_tracked<N: Transcode + Default>(
+    schema: &Schema,
+    keys: impl IntoKeys,
+) -> Result<(N, Node), DescendError<N::Error>> {
+    let mut target = N::default();
+    let mut tracked = keys.into_keys().track();
+    match target.transcode(schema, &mut tracked) {
+        Err(DescendError::Key(KeyError::TooShort)) => {}
+        ret => {
+            ret?;
+        }
+    }
+    Ok((target, tracked.node()))
 }

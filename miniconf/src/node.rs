@@ -202,8 +202,8 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
 /// Indices of `usize` to identify a node in a `TreeKey`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Indices<T: ?Sized> {
-    len: usize,
-    data: T,
+    pub len: usize,
+    pub data: T,
 }
 
 impl<T> From<T> for Indices<T> {
@@ -254,15 +254,15 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
         let slic = self.data.as_mut();
         self.len = slic.len();
         let mut it = slic.iter_mut();
-        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+        let ret = schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
             if let Some((index, _internal)) = idx_schema {
                 let idx = it.next().ok_or(())?;
                 *idx = index;
             }
             Ok(())
-        })?;
+        });
         self.len -= it.len();
-        Ok(())
+        ret
     }
 }
 

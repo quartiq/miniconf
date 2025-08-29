@@ -1,6 +1,6 @@
 use miniconf::{
-    json, Deserialize, IntoKeys, KeyError, Leaf, Metadata, Serialize, Tree, TreeAny,
-    TreeDeserialize, TreeKey, TreeSerialize,
+    json, Deserialize, IntoKeys, Leaf, Serialize, Tree, TreeAny, TreeDeserialize, TreeKey,
+    TreeSerialize, ValueError,
 };
 
 mod common;
@@ -39,12 +39,12 @@ fn structs() {
     assert_eq!(settings.d, Inner { a: 3.into() });
 
     // Check that metadata is correct.
-    let metadata: Metadata = Settings::traverse_all();
+    let metadata = Settings::SCHEMA.metadata();
     assert_eq!(metadata.max_depth, 2);
     assert_eq!(metadata.max_length("/"), "/d/a".len());
     assert_eq!(metadata.count.get(), 4);
 
-    assert_eq!(paths::<Settings, 2>(), ["/a", "/b", "/c", "/d/a"]);
+    assert_eq!(paths::<2>(Settings::SCHEMA), ["/a", "/b", "/c", "/d/a"]);
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn tuple_struct() {
     json::set(&mut s, "/2", b"3.0").unwrap_err();
     json::set(&mut s, "/foo", b"3.0").unwrap_err();
 
-    assert_eq!(paths::<Settings, 1>(), ["/0", "/1"]);
+    assert_eq!(paths::<1>(Settings::SCHEMA), ["/0", "/1"]);
 }
 
 #[test]
@@ -95,6 +95,6 @@ fn deny_access() {
     s.ref_any_by_key([0].into_keys()).unwrap();
     assert!(matches!(
         s.mut_any_by_key([0].into_keys()),
-        Err(KeyError::Access(1, "no any"))
+        Err(ValueError::Access("no any"))
     ));
 }
