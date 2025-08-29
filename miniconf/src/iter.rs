@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Node, Schema, Track, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Track, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,24 +69,32 @@ pub struct NodeIter<N, const D: usize> {
 }
 
 impl<N, const D: usize> NodeIter<N, D> {
-    pub const fn new(schema: &'static Schema) -> Self {
+    pub const fn with(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
         Self {
             schema,
-            state: [0; D],
-            root: 0,
+            state,
+            root,
             // Marker to prevent initial index increment in `next()`
             depth: D + 1,
             _n: PhantomData,
         }
     }
 
+    pub const fn new(schema: &'static Schema) -> Self {
+        Self::with(schema, [0; D], 0)
+    }
+
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
+        self.state = [0; D];
         let mut tr = Track::from(&mut self.state[..]);
-        tr.transcode(self.schema, root)?;
-        self.root = tr.node().depth;
+        match tr.transcode(self.schema, root) {
+            Err(DescendError::Key(KeyError::TooShort)) | Ok(()) => {}
+            ret => ret?,
+        }
+        self.root = tr.depth;
         self.depth = D + 1;
         Ok(self)
     }
@@ -130,7 +138,7 @@ impl<N, const D: usize> Iterator for NodeIter<N, D>
 where
     N: Transcode + Default,
 {
-    type Item = Result<(N, Node), usize>;
+    type Item = Result<N, N::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -147,23 +155,27 @@ where
             let mut path = N::default();
             let mut idx = self.state.iter().into_keys().track();
             let ret = path.transcode(&self.schema, &mut idx);
-            let node = idx.node();
+            let depth = idx.depth;
             return match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
                     // Reset index at NotFound depth, then retry with incremented earlier index or terminate
                     // Track() counts is the number of successful Keys::next()
-                    self.state[node.depth] = 0;
-                    self.depth = node.depth.max(self.root);
+                    self.state[depth] = 0;
+                    self.depth = depth.max(self.root);
                     continue;
                 }
-                Err(DescendError::Key(KeyError::TooLong | KeyError::TooShort)) | Ok(()) => {
-                    // Leaf or internal node found, save depth for increment at next iteration
-                    self.depth = node.depth;
-                    Some(Ok((path, node)))
+                Err(DescendError::Key(KeyError::TooLong)) | Ok(()) => {
+                    // Leaf node found, save depth for increment at next iteration
+                    self.depth = depth;
+                    Some(Ok(path))
                 }
-                Err(DescendError::Inner(_)) => {
+                Err(DescendError::Key(KeyError::TooShort)) => {
+                    self.depth = depth;
+                    continue;
+                }
+                Err(DescendError::Inner(e)) => {
                     // Target type can not hold keys
-                    Some(Err(node.depth))
+                    Some(Err(e))
                 }
             };
         }

@@ -1,4 +1,4 @@
-use miniconf::{Indices, Leaf, NodeIter, Path, Tree, TreeKey};
+use miniconf::{Indices, Leaf, NodeIter, Path, Short, Tree, TreeKey};
 
 mod common;
 use common::*;
@@ -38,8 +38,7 @@ fn struct_iter_indices() {
             .nodes::<Indices<[usize; 3]>, 3>()
             .exact_size()
             .map(|have| {
-                let (Indices { len, data }, node) = have.unwrap();
-                assert_eq!(node.depth, len);
+                let Indices { len, data } = have.unwrap();
                 (data, len)
             })
             .collect::<Vec<_>>(),
@@ -64,18 +63,18 @@ fn array_iter() {
 #[test]
 fn short_iter() {
     assert_eq!(
-        NodeIter::<Path<String, '/'>, 1>::new(Settings::SCHEMA)
-            .map(|p| p.unwrap().0.into_inner())
+        NodeIter::<Short<Path<String, '/'>>, 1>::new(Settings::SCHEMA)
+            .map(|p| p.unwrap().inner.into_inner())
             .collect::<Vec<_>>(),
         ["/b", "/c", "/d", "/a"]
     );
 
     assert_eq!(
-        NodeIter::<Path<String, '/'>, 0>::new(Settings::SCHEMA)
+        NodeIter::<Short<Path<String, '/'>>, 0>::new(Settings::SCHEMA)
             .next()
             .unwrap()
             .unwrap()
-            .0
+            .inner
             .into_inner(),
         ""
     );
@@ -112,7 +111,7 @@ fn root() {
             .nodes::<Path<String, '/'>, 3>()
             .root(["b"])
             .unwrap()
-            .map(|p| p.unwrap().0.into_inner())
+            .map(|p| p.unwrap().into_inner())
             .collect::<Vec<String>>(),
         ["/b/0", "/b/1"]
     );

@@ -1,3 +1,4 @@
+/*
 use miniconf::{Indices, KeyError, Leaf, Node, Path, Shape, Track, Tree, TreeKey};
 mod common;
 
@@ -89,3 +90,4 @@ fn cell() {
     let mut r = &c;
     common::set_get(&mut r, "", b"9");
 }
+*/

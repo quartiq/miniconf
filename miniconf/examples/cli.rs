@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
         .nodes::<Path<String, '-'>, 4>()
         .exact_size()
     {
-        let (key, _node) = item.unwrap();
+        let key = item.unwrap();
         let mut k = key.into_keys().track();
         match json::get_by_key(&settings, &mut k, &mut buf[..]) {
             Ok(len) => {
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             Err(SerDeError::Value(ValueError::Absent)) => {
-                println!("-{} absent (depth: {})", key.as_str(), k.node().depth);
+                println!("-{} absent (depth: {})", key.as_str(), k.depth);
             }
             Err(e) => panic!("{e:?}"),
         }

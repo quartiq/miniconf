@@ -1,5 +1,5 @@
 use miniconf::{
-    Indices, KeyError, Leaf, Node, Packed, Path, Shape, Track, Tree, TreeKey, TreeSerialize,
+    Indices, KeyError, Leaf, Packed, Path, Shape, Short, Track, Tree, TreeKey, TreeSerialize,
 };
 mod common;
 
@@ -14,13 +14,13 @@ fn packed() {
     // Check empty being too short
     assert_eq!(
         Settings::SCHEMA
-            .transcode::<Track<Path<String, '/'>>>(Packed::EMPTY)
+            .transcode::<Short<Path<String, '/'>>>(Packed::EMPTY)
             .unwrap(),
-        Track::from(Path::default())
+        Short::from(Path::default())
     );
 
     // Check path-packed round trip.
-    for (iter_path, _node) in Settings::SCHEMA
+    for iter_path in Settings::SCHEMA
         .nodes::<Path<String, '/'>, 2>()
         .exact_size()
         .map(Result::unwrap)
@@ -43,7 +43,7 @@ fn packed() {
         "{:?}",
         Settings::SCHEMA
             .nodes::<Packed, 2>()
-            .map(|p| p.unwrap().0.into_lsb().get())
+            .map(|p| p.unwrap().into_lsb().get())
             .collect::<Vec<_>>()
     );
 
@@ -53,7 +53,7 @@ fn packed() {
         .transcode::<Track<Path<String, '/'>>>(a)
         .unwrap()
         .into();
-    assert_eq!(node, Node::leaf(1));
+    assert_eq!(node, 1);
     assert_eq!(path.as_str(), "/a");
 }
 
@@ -67,7 +67,7 @@ fn top() {
     assert_eq!(
         S::SCHEMA
             .nodes::<Path<String, '/'>, 2>()
-            .map(|p| p.unwrap().0.into_inner())
+            .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/baz/0", "/foo"]
     );
@@ -77,31 +77,25 @@ fn top() {
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
         [
-            (
-                Indices {
-                    data: [0, 0],
-                    len: 2
-                },
-                Node::leaf(2)
-            ),
-            (
-                Indices {
-                    data: [1, 0],
-                    len: 1
-                },
-                Node::leaf(1)
-            )
+            Indices {
+                data: [0, 0],
+                len: 2
+            },
+            Indices {
+                data: [1, 0],
+                len: 1
+            },
         ]
     );
     let (p, node) = S::SCHEMA
         .transcode::<Track<Packed>>([1usize])
         .unwrap()
         .into();
-    assert_eq!((p.into_lsb().get(), node), (0b11, Node::leaf(1)));
+    assert_eq!((p.into_lsb().get(), node), (0b11, 1));
     assert_eq!(
         S::SCHEMA
             .nodes::<Packed, 2>()
-            .map(|p| p.unwrap().0.into_lsb().get())
+            .map(|p| p.unwrap().into_lsb().get())
             .collect::<Vec<_>>(),
         [0b100, 0b11]
     );
@@ -115,7 +109,6 @@ fn zero_key() {
             .next()
             .unwrap()
             .unwrap()
-            .0
             .into_lsb()
             .get(),
         0b1
@@ -127,7 +120,6 @@ fn zero_key() {
             .next()
             .unwrap()
             .unwrap()
-            .0
             .into_lsb()
             .get(),
         0b10
@@ -183,7 +175,7 @@ fn size() {
         .transcode::<Track<Path<String, '/'>>>(packed)
         .unwrap()
         .into();
-    assert_eq!(node, Node::leaf(31));
+    assert_eq!(node, 31);
     assert_eq!(path.as_str().len(), 2 * 31);
     let meta: Shape = A31::SCHEMA.shape();
     assert_eq!(meta.max_bits, 31);
@@ -201,7 +193,7 @@ fn size() {
         .transcode::<Track<Path<String, '/'>>>(packed)
         .unwrap()
         .into();
-    assert_eq!(node, Node::leaf(16));
+    assert_eq!(node, 16);
     assert_eq!(path.as_str().len(), 2 * 16);
     let meta: Shape = A16::SCHEMA.shape();
     assert_eq!(meta.max_bits, 31);

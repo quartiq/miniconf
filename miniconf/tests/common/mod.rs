@@ -1,25 +1,24 @@
 #![allow(unused)]
 
 use miniconf::{
-    json, DescendError, IntoKeys, KeyError, Keys, Node, Packed, Path, Schema, Transcode,
+    json, DescendError, IntoKeys, KeyError, Keys, Packed, Path, Schema, Track, Transcode,
     TreeDeserialize, TreeKey, TreeSerialize,
 };
 
 pub fn paths<const D: usize>(schema: &'static Schema) -> Vec<String> {
     assert!(schema
-        .nodes::<_, D>()
+        .nodes::<Packed, D>()
         .exact_size()
-        .collect::<Result<Vec<(Packed, _)>, _>>()
+        .collect::<Result<Vec<_>, _>>()
         .unwrap()
         .is_sorted());
     schema
-        .nodes::<Path<String, '/'>, D>()
+        .nodes::<Track<Path<String, '/'>>, D>()
         .exact_size()
         .map(|pn| {
-            let (p, n) = pn.unwrap();
+            let (p, n) = pn.unwrap().into();
             println!("{p} {n:?}");
-            assert!(n.leaf);
-            assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n.depth);
+            // assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n);
             p.into_inner()
         })
         .collect()

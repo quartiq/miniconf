@@ -188,28 +188,26 @@ impl Schema {
     where
         F: FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<R, E>,
     {
-        if let Some(internal) = self.internal.as_ref() {
+        let mut schema = self;
+        while let Some(internal) = schema.internal.as_ref() {
             let idx = keys.next(internal)?;
-            func(&self.meta, Some((idx, internal))).map_err(DescendError::Inner)?;
-            internal.get_schema(idx).descend(keys, func)
-        } else {
-            keys.finalize()?;
-            func(&self.meta, None).map_err(DescendError::Inner)
+            func(&schema.meta, Some((idx, internal))).map_err(DescendError::Inner)?;
+            schema = internal.get_schema(idx);
         }
+        keys.finalize()?;
+        func(&schema.meta, None).map_err(DescendError::Inner)
     }
 
     pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
         let mut outer = None;
-        let mut inner = &self.meta;
-        self.descend(keys.into_keys(), &mut |meta, idx_internal| {
-            if let Some((idx, internal)) = idx_internal {
-                outer = Some(internal.get_meta(idx));
-            } else {
-                inner = meta;
-            }
-            Ok::<_, Infallible>(())
-        })
-        .map_err(|e| e.try_into().unwrap())?;
+        let inner = self
+            .descend(keys.into_keys(), &mut |meta, idx_internal| {
+                if let Some((idx, internal)) = idx_internal {
+                    outer = Some(internal.get_meta(idx));
+                }
+                Ok::<_, Infallible>(meta)
+            })
+            .map_err(|e| e.try_into().unwrap())?;
         Ok((outer, inner))
     }
 
@@ -581,61 +579,111 @@ pub trait Keys: Sized {
     fn track(self) -> Track<Self> {
         self.into()
     }
+
+    #[inline]
+    fn short(self) -> Short<Self> {
+        self.into()
+    }
 }
 
-/// Node information
-#[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct Node {
-    /// Depth of the node
-    pub depth: usize,
-    /// The node is a leaf
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Short<K> {
+    pub inner: K,
     pub leaf: bool,
 }
 
-impl Node {
-    pub const fn leaf(depth: usize) -> Self {
-        Self { depth, leaf: true }
-    }
-
-    pub const fn internal(depth: usize) -> Self {
-        Self { depth, leaf: false }
+impl<K> From<K> for Short<K> {
+    #[inline]
+    fn from(inner: K) -> Self {
+        Self { inner, leaf: false }
     }
 }
+
+impl<K> From<Short<K>> for (K, bool) {
+    fn from(value: Short<K>) -> Self {
+        (value.inner, value.leaf)
+    }
+}
+
+impl<K: Keys> IntoKeys for &mut Short<K> {
+    type IntoKeys = Self;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
+impl<K: Keys> Keys for Short<K> {
+    #[inline]
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        self.inner.next(internal)
+    }
+
+    #[inline]
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        let ret = self.inner.finalize();
+        self.leaf = ret.is_ok();
+        ret
+    }
+}
+
+impl<T: Transcode> Transcode for Short<T> {
+    type Error = T::Error;
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        self.leaf = false;
+        match self.inner.transcode(schema, keys) {
+            Err(DescendError::Key(KeyError::TooShort)) => Ok(()),
+            Ok(()) | Err(DescendError::Key(KeyError::TooLong)) => {
+                self.leaf = true;
+                Ok(())
+            }
+            ret => ret,
+        }
+    }
+}
+
+// /// Node information
+// #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
+// pub struct Node {
+//     /// Depth of the node
+//     pub depth: usize,
+//     /// The node is a leaf
+//     pub leaf: bool,
+// }
+
+// impl Node {
+//     pub const fn leaf(depth: usize) -> Self {
+//         Self { depth, leaf: true }
+//     }
+
+//     pub const fn internal(depth: usize) -> Self {
+//         Self { depth, leaf: false }
+//     }
+// }
 
 /// Track keys consumption and leaf encounter
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Track<K> {
-    inner: K,
-    node: Node,
+    pub inner: K,
+    pub depth: usize,
 }
 
 impl<K> From<K> for Track<K> {
     #[inline]
     fn from(inner: K) -> Self {
-        Track {
-            inner,
-            node: Node::default(),
-        }
+        Self { inner, depth: 0 }
     }
 }
 
-impl<K> Track<K> {
-    /// Return node information
-    #[inline]
-    pub fn node(&self) -> Node {
-        self.node
-    }
-
-    /// Return the residual inner Keys
-    #[inline]
-    pub fn into_inner(self) -> K {
-        self.inner
-    }
-}
-
-impl<K> From<Track<K>> for (K, Node) {
+impl<K> From<Track<K>> for (K, usize) {
     fn from(value: Track<K>) -> Self {
-        (value.inner, value.node)
+        (value.inner, value.depth)
     }
 }
 
@@ -649,20 +697,18 @@ impl<K: Keys> IntoKeys for &mut Track<K> {
 }
 
 impl<K: Keys> Keys for Track<K> {
+    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        debug_assert!(!self.node.leaf);
         let k = self.inner.next(internal);
         if k.is_ok() {
-            self.node.depth += 1;
+            self.depth += 1;
         }
         k
     }
 
+    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
-        debug_assert!(!self.node.leaf);
-        let f = self.inner.finalize();
-        self.node.leaf = matches!(f, Ok(_) | Err(KeyError::TooLong));
-        f
+        self.inner.finalize()
     }
 }
 
@@ -675,13 +721,9 @@ impl<T: Transcode> Transcode for Track<T> {
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
         let mut tracked = keys.into_keys().track();
-        match self.inner.transcode(schema, &mut tracked) {
-            Ok(()) | Err(DescendError::Key(KeyError::TooShort)) => {
-                self.node = tracked.node;
-                Ok(())
-            }
-            ret => ret,
-        }
+        let ret = self.inner.transcode(schema, &mut tracked);
+        self.depth = tracked.depth;
+        ret
     }
 }
 

@@ -28,30 +28,28 @@ fn set_get(
     common::set_get(tree, path, value);
 
     // Indices
-    let (idx, node) = Settings::SCHEMA
+    let (idx, depth) = Settings::SCHEMA
         .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>::from(path))
         .unwrap()
         .into();
-    assert!(node.leaf);
-    assert_eq!(node.depth, idx.len);
+    assert_eq!(depth, idx.len);
     json::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
     let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let (packed, node) = Settings::SCHEMA
+    let (packed, depth) = Settings::SCHEMA
         .transcode::<Track<Packed>>(&idx)
         .unwrap()
         .into();
-    assert!(node.leaf);
-    assert_eq!(node.depth, idx.len);
+    assert_eq!(depth, idx.len);
     json::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
     let len = json::get_by_key(tree, packed, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
-    Ok(node.depth)
+    Ok(depth)
 }
 
 #[test]
