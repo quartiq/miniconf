@@ -23,6 +23,9 @@ pub enum Either {
     C([Inner; 2]),
 }
 
+#[derive(Deserialize, Serialize, Default)]
+pub struct Uni;
+
 #[derive(Tree, Default)]
 pub struct Settings {
     foo: Leaf<bool>,
@@ -30,6 +33,7 @@ pub struct Settings {
     struct_: Leaf<Inner>,
     array: Leaf<[i32; 2]>,
     option: Leaf<Option<i32>>,
+    uni: Leaf<Uni>,
 
     #[tree(skip)]
     #[allow(unused)]

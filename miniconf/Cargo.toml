@@ -23,6 +23,8 @@ postcard = { version = "1.0.8", optional = true }
 thiserror = { version = "2", default-features = false }
 serde-reflection = { version = "0.5", git = "https://github.com/quartiq/serde-reflection.git", branch = "pub-ser-de", optional = true }
 once_cell = { version = "1.21.3", default-features = false, optional = true }
+schemars = { version = "1.0.4", optional = true, default-features = false }
+serde_json = { version = "1.0.133", optional = true }
 
 [features]
 default = ["derive", "trace"]
@@ -32,6 +34,7 @@ json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 derive = ["dep:miniconf_derive", "serde/derive"]
 trace = ["std", "dep:serde-reflection", "dep:once_cell"]
+schema = ["dep:schemars", "dep:serde_json", "trace"]
 
 [package.metadata.docs.rs]
 all-features = true
@@ -49,6 +52,7 @@ tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.27.1", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
+# jsonschema = { version = "0.32.1", default-features = false }
 
 [[test]]
 name = "arrays"
@@ -113,4 +117,4 @@ required-features = ["json-core", "derive"]
 
 [[example]]
 name = "trace"
-required-features = ["json-core", "derive", "trace"]
+required-features = ["derive", "schema"]

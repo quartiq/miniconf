@@ -41,6 +41,9 @@ extern crate alloc;
 #[cfg(feature = "trace")]
 pub mod trace;
 
+#[cfg(feature = "schema")]
+pub mod schema;
+
 // re-export for proc-macro
 #[doc(hidden)]
 pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
