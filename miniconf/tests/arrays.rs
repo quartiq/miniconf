@@ -1,6 +1,6 @@
 use miniconf::{
-    json, Deserialize, Indices, KeyError, Leaf, Metadata, Packed, Path, SerDeError, Serialize,
-    Tree, TreeKey,
+    json, Deserialize, Indices, IntoKeys, KeyError, Keys, Leaf, Metadata, Packed, Path, SerDeError,
+    Serialize, Tree, TreeKey,
 };
 
 mod common;
@@ -28,23 +28,24 @@ fn set_get(
     common::set_get(tree, path, value);
 
     // Indices
-    let (idx, node): (Indices<[usize; 4]>, _) = Settings::transcode(Path::<_, '/'>::from(path))?;
-    assert!(node.is_leaf());
-    let idx = &idx[..node.depth()];
-    json::set_by_key(tree, idx, value)?;
+    let mut path = Path::<_, '/'>::from(path).into_keys().track();
+    let idx: Indices<[usize; 4]> = Settings::SCHEMA.transcode(&mut path).unwrap();
+    assert!(path.node().leaf);
+    json::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, idx, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let (idx, node): (Packed, _) = Settings::transcode(idx)?;
-    assert!(node.is_leaf());
-    json::set_by_key(tree, idx, value)?;
+    let mut idx = idx.into_keys().track();
+    let packed: Packed = Settings::SCHEMA.transcode(&mut idx).unwrap();
+    assert!(idx.node().leaf);
+    json::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, idx, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, packed, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
-    Ok(node.depth())
+    Ok(idx.node().depth)
 }
 
 #[test]
@@ -80,12 +81,12 @@ fn too_short() {
     let mut s = Settings::default();
     assert_eq!(
         json::set(&mut s, "/d", b"[1,2]"),
-        Err(KeyError::TooShort(1).into())
+        Err(KeyError::TooShort.into())
     );
     // Check precedence over `Inner`.
     assert_eq!(
         json::set(&mut s, "/d", b"[1,2,3]"),
-        Err(KeyError::TooShort(1).into())
+        Err(KeyError::TooShort.into())
     );
 }
 
@@ -94,19 +95,19 @@ fn too_long() {
     let mut s = Settings::default();
     assert_eq!(
         json::set(&mut s, "/a/1", b"7"),
-        Err(KeyError::TooLong(1).into())
+        Err(KeyError::TooLong.into())
     );
     assert_eq!(
         json::set(&mut s, "/d/0/b", b"7"),
-        Err(KeyError::TooLong(2).into())
+        Err(KeyError::TooLong.into())
     );
     assert_eq!(
         json::set(&mut s, "/dm/0/c", b"7"),
-        Err(KeyError::TooLong(2).into())
+        Err(KeyError::TooLong.into())
     );
     assert_eq!(
         json::set(&mut s, "/dm/0/d", b"7"),
-        Err(KeyError::TooLong(2).into())
+        Err(KeyError::TooLong.into())
     );
 }
 
@@ -115,21 +116,21 @@ fn not_found() {
     let mut s = Settings::default();
     assert_eq!(
         json::set(&mut s, "/d/3", b"7"),
-        Err(KeyError::NotFound(2).into())
+        Err(KeyError::NotFound.into())
     );
     assert_eq!(
         json::set(&mut s, "/b", b"7"),
-        Err(KeyError::NotFound(1).into())
+        Err(KeyError::NotFound.into())
     );
     assert_eq!(
         json::set(&mut s, "/aam/0/0/d", b"7"),
-        Err(KeyError::NotFound(4).into())
+        Err(KeyError::NotFound.into())
     );
 }
 
 #[test]
 fn metadata() {
-    let m: Metadata = Settings::traverse_all();
+    let m: Metadata = Settings::SCHEMA.metadata();
     assert_eq!(m.max_depth, 4);
     assert_eq!(m.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(m.count.get(), 11);

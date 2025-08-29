@@ -1,20 +1,20 @@
 use miniconf::{json, Packed, Path, TreeDeserialize, TreeKey, TreeSerialize};
 
-pub fn paths<M, const D: usize>() -> Vec<String>
-where
-    M: TreeKey,
-{
-    assert!(M::nodes::<_, D>()
+pub fn paths<T: TreeKey, const D: usize>() -> Vec<String> {
+    assert!(T::SCHEMA
+        .nodes::<_, D>()
         .exact_size()
         .collect::<Result<Vec<(Packed, _)>, _>>()
         .unwrap()
         .is_sorted());
-    M::nodes::<Path<String, '/'>, D>()
+    T::SCHEMA
+        .nodes::<Path<String, '/'>, D>()
         .exact_size()
         .map(|pn| {
             let (p, n) = pn.unwrap();
-            assert!(n.is_leaf());
-            assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n.depth());
+            println!("{p} {n:?}");
+            assert!(n.leaf);
+            assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n.depth);
             p.into_inner()
         })
         .collect()

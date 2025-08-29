@@ -148,6 +148,7 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 /// macros work.
 pub trait TreeKey {
     /// Schema for this tree level
+    // Reference for Option<T> to copy T::SCHEMA
     const SCHEMA: &'static Schema;
 }
 

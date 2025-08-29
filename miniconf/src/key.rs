@@ -595,7 +595,7 @@ impl<K: Keys> Keys for Track<K> {
     fn finalize(&mut self) -> Result<(), KeyError> {
         debug_assert!(!self.node.leaf);
         let f = self.inner.finalize();
-        self.node.leaf = f.is_ok();
+        self.node.leaf = matches!(f, Ok(_) | Err(KeyError::TooLong));
         f
     }
 }

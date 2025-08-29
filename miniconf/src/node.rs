@@ -229,6 +229,12 @@ impl<const D: usize, T> AsRef<[T]> for Indices<[T; D]> {
     }
 }
 
+impl<const D: usize, T> AsMut<[T]> for Indices<[T; D]> {
+    fn as_mut(&mut self) -> &mut [T] {
+        &mut self.data[..self.len]
+    }
+}
+
 impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
     type IntoKeys = KeysIter<slice::Iter<'a, usize>>;
     #[inline]
@@ -238,14 +244,25 @@ impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
 }
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
-    type Error = <[usize] as Transcode>::Error;
+    type Error = ();
     #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        self.data.as_mut()[..self.len].transcode(schema, keys)
+        let slic = self.data.as_mut();
+        self.len = slic.len();
+        let mut it = slic.iter_mut();
+        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+            if let Some((index, _internal)) = idx_schema {
+                let idx = it.next().ok_or(())?;
+                *idx = index;
+            }
+            Ok(())
+        })?;
+        self.len -= it.len();
+        Ok(())
     }
 }
 
