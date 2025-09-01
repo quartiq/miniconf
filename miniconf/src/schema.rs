@@ -1,10 +1,13 @@
 //! JSON Schema tools
 
+use core::convert::Infallible;
+use std::collections::BTreeMap;
+
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde_json::Map;
 use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
 
-use crate::{trace::Types, Packed, TreeKey};
+use crate::{trace::Types, Internal, Meta, Packed, Path, TreeKey};
 
 /// Disallow additional items and additional or missing properties
 pub fn strictify(schema: &mut Schema) {
@@ -201,68 +204,159 @@ impl ReflectJsonSchema for VariantFormat {
     }
 }
 
+fn build_schema(
+    idx: &mut [usize],
+    depth: usize,
+    root: &crate::Schema,
+    schema: &crate::Schema,
+    generator: &mut SchemaGenerator,
+    leaves: &BTreeMap<Packed, Option<Format>>,
+) -> Option<Schema> {
+    let mut sch = match schema.internal.as_ref() {
+        Some(Internal::Named(nameds)) => {
+            // No "object" to keep ordering.
+            let items: Option<Vec<_>> = nameds
+                .iter()
+                .enumerate()
+                .map(|(i, named)| {
+                    idx[depth] = i;
+                    build_schema(idx, depth + 1, root, named.schema, generator, leaves).map(
+                        |mut sch| {
+                            push_meta(&mut sch, "x-tree-outer", &named.meta);
+                            json_schema!({
+                                "type": "object",
+                                "properties": {
+                                    *named.name: sch
+                                },
+                            })
+                        },
+                    )
+                })
+                .collect();
+            json_schema!({
+                "type": "array",
+                "x-tree-ordered-object": true, // Allow transform to unordered object
+                "prefixItems": items?,
+            })
+        }
+        Some(crate::Internal::Numbered(numbereds)) => {
+            let items: Option<Vec<_>> = numbereds
+                .iter()
+                .enumerate()
+                .map(|(i, numbered)| {
+                    idx[depth] = i;
+                    build_schema(idx, depth + 1, root, numbered.schema, generator, leaves).map(
+                        |mut sch| {
+                            push_meta(&mut sch, "x-tree-outer", &numbered.meta);
+                            sch
+                        },
+                    )
+                })
+                .collect();
+            json_schema!({
+                    "type": "array",
+                    "prefixItems": items?,
+            })
+        }
+        Some(crate::Internal::Homogeneous(homogeneous)) => {
+            idx[depth] = 0;
+            let child = build_schema(idx, depth + 1, root, homogeneous.schema, generator, leaves)?;
+            let mut sch = json_schema!({
+                "type": "array",
+                "items": child,
+                "minItems": homogeneous.len,
+                "maxItems": homogeneous.len
+            });
+            push_meta(&mut sch, "x-tree-outer", &homogeneous.meta);
+            sch
+        }
+        None => {
+            let p: Packed = root.transcode(&idx[..depth]).unwrap();
+            let mut sch = leaves.get(&p)?.as_ref()?.json_schema(generator)?;
+            sch.insert("x-tree-leaf".into(), true.into());
+            sch
+        }
+    };
+    push_meta(&mut sch, "x-tree-inner", &schema.meta);
+    Some(sch)
+}
+
+fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
+    if let Some(meta) = meta {
+        sch.insert(
+            key.to_string(),
+            meta.iter()
+                .map(|(k, v)| [k.to_string(), v.to_string()])
+                .collect::<Vec<_>>()
+                .into(),
+        );
+    }
+}
+
+impl crate::Schema {
+    pub fn visit<T, E>(
+        &self,
+        idx: &mut [usize],
+        depth: usize,
+        func: &mut impl FnMut(&[usize], &Meta, Option<(&Internal, Vec<T>)>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        if let Some(internal) = self.internal.as_ref() {
+            let children: Result<Vec<_>, _> = match internal {
+                Internal::Homogeneous(h) => {
+                    idx[depth] = 0;
+                    [h.schema.visit(idx, depth + 1, func)].into_iter().collect()
+                }
+                Internal::Named(n) => n
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        idx[depth] = i;
+                        n.schema.visit(idx, depth + 1, func)
+                    })
+                    .collect(),
+                Internal::Numbered(n) => n
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        idx[depth] = i;
+                        n.schema.visit(idx, depth + 1, func)
+                    })
+                    .collect(),
+            };
+            func(&idx[..depth], &self.meta, Some((internal, children?)))
+        } else {
+            func(&idx[..depth], &self.meta, None)
+        }
+    }
+}
+
 impl<T: TreeKey> ReflectJsonSchema for Types<T, Format> {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        let idx = vec![0; T::SCHEMA.metadata().max_depth];
-        let mut schema = None;
-        T::SCHEMA.visit_schema(&mut idx, 0, &mut |idx, schema| {
-            match schema.internal.as_ref() {
-                None => {
-                    let p: Packed = T::SCHEMA.transcode(idx).unwrap();
-                    schema = self
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        T::SCHEMA
+            .visit(&mut idx, 0, &mut |idx, meta, internal_children| {
+                let mut sch = if let Some((internal, children)) = internal_children {
+                    match internal {
+                        Internal::Named(nameds) => todo!(),
+                        Internal::Numbered(numbereds) => todo!(),
+                        Internal::Homogeneous(homogeneous) => todo!(),
+                    }
+                } else {
+                    let p: Path<String, '/'> = T::SCHEMA.transcode(idx).unwrap();
+                    let mut sch = self
                         .leaves
-                        .get(&p)
+                        .get(&p.into_inner())
                         .unwrap()
                         .as_ref()
-                        .and_then(|f| f.json_schema(generator));
-                }
-                Some(internal) => {
-                    //     Node::Leaf(format) => {
-                    //         let mut sch = format.as_ref()?.json_schema(generator)?;
-                    //         sch.insert("x-tree-leaf".into(), true.into());
-                    //         sch
-                    //     }
-                    //     Node::Named(items) => {
-                    //         // No "object" to keep ordering.
-                    //         let items: Option<Vec<_>> = items
-                    //             .iter()
-                    //             .map(|(name, value)| {
-                    //                 value.json_schema(generator).map(|sch| {
-                    //                     json_schema!({
-                    //                         "type": "object",
-                    //                         "properties": {
-                    //                             *name: sch
-                    //                         },
-                    //                     })
-                    //                 })
-                    //             })
-                    //             .collect();
-                    //         json_schema!({
-                    //             "type": "array",
-                    //             "x-tree-ordered-object": true, // Allow transform to unordered object
-                    //             "prefixItems": items?,
-                    //         })
-                    //     }
-                    //     Node::Homogeneous { len, item } => json_schema!({
-                    //         "type": "array",
-                    //         "items": item.json_schema(generator)?,
-                    //         "minItems": len,
-                    //         "maxItems": len
-                    //     }),
-                    //     Node::Numbered(nodes) => {
-                    //         let items: Option<Vec<_>> =
-                    //             nodes.iter().map(|n| n.json_schema(generator)).collect();
-                    //         json_schema!({
-                    //                 "type": "array",
-                    //                 "prefixItems": items?,
-                    //         })
-                    //     }
-                    // })
-                }
-            }
-            Ok(())
-        });
-        schema
+                        .and_then(|s| s.json_schema(generator))
+                        .ok_or(())?;
+                    sch.insert("x-tree-leaf".into(), true.into());
+                    sch
+                };
+                push_meta(&mut sch, "x-tree-inner", meta);
+                Ok::<_, ()>(Some(sch))
+            })
+            .unwrap()
     }
 }
 

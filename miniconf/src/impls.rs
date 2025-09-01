@@ -22,6 +22,7 @@ macro_rules! impl_tuple {
 
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeSerialize),+> TreeSerialize for ($($t,)+) {
+            #[inline]
             fn serialize_by_key<S: Serializer>(
                 &self,
                 mut keys: impl Keys,
@@ -37,6 +38,7 @@ macro_rules! impl_tuple {
 
         #[allow(unreachable_code, unused_mut, unused)]
         impl<'de, $($t: TreeDeserialize<'de>),+> TreeDeserialize<'de> for ($($t,)+) {
+            #[inline]
             fn deserialize_by_key<D: Deserializer<'de>>(
                 &mut self,
                 mut keys: impl Keys,
@@ -49,6 +51,7 @@ macro_rules! impl_tuple {
                 }
             }
 
+            #[inline]
             fn probe_by_key<D: Deserializer<'de>>(
                 mut keys: impl Keys,
                 de: D
@@ -63,6 +66,7 @@ macro_rules! impl_tuple {
 
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeAny),+> TreeAny for ($($t,)+) {
+            #[inline]
             fn ref_any_by_key(
                 &self,
                 mut keys: impl Keys
@@ -74,6 +78,7 @@ macro_rules! impl_tuple {
                 }
             }
 
+            #[inline]
             fn mut_any_by_key(
                 &mut self,
                 mut keys: impl Keys
@@ -107,6 +112,7 @@ impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N]
 where
     Self: TreeKey,
 {
+    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -117,6 +123,7 @@ where
 }
 
 impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
+    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -125,6 +132,7 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
         self[Self::SCHEMA.next(&mut keys)?].deserialize_by_key(keys, de)
     }
 
+    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -135,10 +143,12 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
 }
 
 impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
+    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         self[Self::SCHEMA.next(&mut keys)?].ref_any_by_key(keys)
     }
 
+    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         self[Self::SCHEMA.next(&mut keys)?].mut_any_by_key(keys)
     }

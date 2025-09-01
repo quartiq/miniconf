@@ -7,27 +7,30 @@ use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
-use crate::{Keys, Packed, SerDeError, TreeDeserialize, TreeKey, TreeSerialize, ValueError};
+use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeKey, TreeSerialize, ValueError};
 
 /// Trace a leaf value
 pub fn trace_value(
     tracer: &mut Tracer,
     samples: &mut Samples,
-    keys: impl Keys,
+    keys: impl IntoKeys,
     value: &impl TreeSerialize,
 ) -> Result<(Format, Value), SerDeError<serde_reflection::Error>> {
-    value.serialize_by_key(keys, serde_reflection::Serializer::new(tracer, samples))
+    value.serialize_by_key(
+        keys.into_keys(),
+        serde_reflection::Serializer::new(tracer, samples),
+    )
 }
 
 /// Trace a leaf type once
 pub fn trace_type_once<'de, T: TreeDeserialize<'de>>(
     tracer: &mut Tracer,
     samples: &'de Samples,
-    keys: impl Keys,
+    keys: impl IntoKeys,
 ) -> Result<Format, SerDeError<serde_reflection::Error>> {
     let mut format = Format::unknown();
     T::probe_by_key(
-        keys,
+        keys.into_keys(),
         serde_reflection::Deserializer::new(tracer, samples, &mut format),
     )?;
     format.reduce();
@@ -38,7 +41,7 @@ pub fn trace_type_once<'de, T: TreeDeserialize<'de>>(
 pub fn trace_type<'de, T: TreeDeserialize<'de>>(
     tracer: &mut Tracer,
     samples: &'de Samples,
-    keys: impl Keys + Clone,
+    keys: impl IntoKeys + Clone,
 ) -> Result<Format, SerDeError<serde_reflection::Error>> {
     loop {
         let format = trace_type_once::<T>(tracer, samples, keys.clone())?;
@@ -59,12 +62,12 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Types<T, N> {
-    pub(crate) leaves: BTreeMap<Packed, Option<N>>,
+    pub(crate) leaves: BTreeMap<String, Option<N>>,
     _t: PhantomData<T>,
 }
 
 impl<T, N> Types<T, N> {
-    pub fn leaves(&self) -> &BTreeMap<Packed, Option<N>> {
+    pub fn leaves(&self) -> &BTreeMap<String, Option<N>> {
         &self.leaves
     }
 }
@@ -77,8 +80,8 @@ impl<T: TreeKey, N> Default for Types<T, N> {
         T::SCHEMA
             .visit_schema(&mut idx, 0, &mut |idx, schema| {
                 if schema.is_leaf() {
-                    let p = T::SCHEMA.transcode(idx).unwrap();
-                    leaves.insert(p, None);
+                    let p: Path<String, '/'> = T::SCHEMA.transcode(idx).unwrap();
+                    leaves.insert(p.into_inner(), None);
                 }
                 Ok::<_, Infallible>(())
             })
@@ -102,7 +105,7 @@ impl<T> Types<T, Format> {
         T: TreeSerialize,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_value(tracer, samples, *idx, value) {
+            match trace_value(tracer, samples, Path::<_, '/'>::from(idx), value) {
                 Ok((mut fmt, _value)) => {
                     fmt.reduce();
                     *format = Some(fmt);
@@ -125,7 +128,7 @@ impl<T> Types<T, Format> {
         T: TreeDeserialize<'de>,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_type::<T>(tracer, samples, *idx) {
+            match trace_type::<T>(tracer, samples, Path::<_, '/'>::from(idx)) {
                 Ok(mut fmt) => {
                     fmt.reduce();
                     *format = Some(fmt);

@@ -4,7 +4,7 @@ use serde::Serialize;
 use crate::{DescendError, KeyError, NodeIter, Packed, Shape, Transcode};
 
 // const a = a.max(b)
-macro_rules! max {
+macro_rules! assign_max {
     ($a:expr, $b:expr) => {{
         let b = $b;
         if $a < b {
@@ -16,7 +16,7 @@ macro_rules! max {
 pub type Meta = Option<&'static [(&'static str, &'static str)]>;
 
 /// Type of a node: leaf or internal
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize, Default)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Default)]
 pub struct Schema {
     /// Inner metadata
     pub meta: Meta,
@@ -78,10 +78,12 @@ impl Schema {
     }
 
     /// Visit all representative schemata with their indices
-    pub fn visit_schema<F, E>(&self, idx: &mut [usize], depth: usize, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&[usize], &Self) -> Result<(), E>,
-    {
+    pub fn visit_schema<'a, E>(
+        &'a self,
+        idx: &mut [usize],
+        depth: usize,
+        func: &mut impl FnMut(&[usize], &'a Self) -> Result<(), E>,
+    ) -> Result<(), E> {
         func(&idx[..depth], self)?;
         if let Some(internal) = self.internal.as_ref() {
             if depth < idx.len() {
@@ -109,10 +111,14 @@ impl Schema {
     }
 
     /// Visit all maximum length indices
-    pub fn visit_nodes<F, E>(&self, idx: &mut [usize], depth: usize, func: &mut F) -> Result<(), E>
-    where
-        F: FnMut(&[usize], &Self) -> Result<(), E>,
-    {
+    ///
+    /// THe recursive version of NodeIter
+    pub fn visit_nodes<'a, E>(
+        &'a self,
+        idx: &mut [usize],
+        depth: usize,
+        func: &mut impl FnMut(&[usize], &'a Self) -> Result<(), E>,
+    ) -> Result<(), E> {
         if let (Some(internal), Some(_)) = (self.internal.as_ref(), idx.get(depth)) {
             match internal {
                 Internal::Homogeneous(h) => {
@@ -180,14 +186,11 @@ impl Schema {
     /// # Design note
     /// Writing this to return an iterator instead of using a callback
     /// would have worse performance (O(n^2) instead of O(n) for matching)
-    pub fn descend<'a, F, R, E>(
+    pub fn descend<'a, E>(
         &'a self,
         mut keys: impl Keys,
-        func: &mut F,
-    ) -> Result<R, DescendError<E>>
-    where
-        F: FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<R, E>,
-    {
+        func: &mut impl FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<(), E>,
+    ) -> Result<(), DescendError<E>> {
         let mut schema = self;
         while let Some(internal) = schema.internal.as_ref() {
             let idx = keys.next(internal)?;
@@ -200,14 +203,15 @@ impl Schema {
 
     pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
         let mut outer = None;
-        let inner = self
-            .descend(keys.into_keys(), &mut |meta, idx_internal| {
-                if let Some((idx, internal)) = idx_internal {
-                    outer = Some(internal.get_meta(idx));
-                }
-                Ok::<_, Infallible>(meta)
-            })
-            .map_err(|e| e.try_into().unwrap())?;
+        let mut inner = &self.meta;
+        self.descend(keys.into_keys(), &mut |meta, idx_internal| {
+            if let Some((idx, internal)) = idx_internal {
+                outer = Some(internal.get_meta(idx));
+            }
+            inner = meta;
+            Ok::<_, Infallible>(())
+        })
+        .map_err(|e| e.try_into().unwrap())?;
         Ok((outer, inner))
     }
 
@@ -338,9 +342,9 @@ impl Schema {
                     while index < nameds.len() {
                         let named = &nameds[index];
                         let child = named.schema.shape();
-                        max!(m.max_depth, 1 + child.max_depth);
-                        max!(m.max_length, named.name.len() + child.max_length);
-                        max!(m.max_bits, bits + child.max_bits);
+                        assign_max!(m.max_depth, 1 + child.max_depth);
+                        assign_max!(m.max_length, named.name.len() + child.max_length);
+                        assign_max!(m.max_bits, bits + child.max_bits);
                         count += child.count.get();
                         index += 1;
                     }
@@ -357,9 +361,9 @@ impl Schema {
                             Some(len) => len as usize,
                         };
                         let child = numbered.schema.shape();
-                        max!(m.max_depth, 1 + child.max_depth);
-                        max!(m.max_length, len + child.max_length);
-                        max!(m.max_bits, bits + child.max_bits);
+                        assign_max!(m.max_depth, 1 + child.max_depth);
+                        assign_max!(m.max_length, len + child.max_length);
+                        assign_max!(m.max_bits, bits + child.max_bits);
                         count += child.count.get();
                         index += 1;
                     }
@@ -379,7 +383,7 @@ impl Schema {
 }
 
 /// A numbered schema item
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
     pub schema: &'static Schema,
     pub meta: Meta,
@@ -392,7 +396,7 @@ impl Numbered {
 }
 
 /// A named schema item
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Named {
     pub name: &'static str,
     pub schema: &'static Schema,
@@ -410,7 +414,7 @@ impl Named {
 }
 
 /// A representative schema item for a homogeneous array
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Homogeneous {
     pub len: NonZero<usize>,
     pub schema: &'static Schema,
@@ -434,7 +438,7 @@ impl Homogeneous {
 /// An internal node with children
 ///
 /// Always non-empty
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub enum Internal {
     /// Named children
     Named(&'static [Named]),
@@ -647,25 +651,6 @@ impl<T: Transcode> Transcode for Short<T> {
         }
     }
 }
-
-// /// Node information
-// #[derive(Copy, Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
-// pub struct Node {
-//     /// Depth of the node
-//     pub depth: usize,
-//     /// The node is a leaf
-//     pub leaf: bool,
-// }
-
-// impl Node {
-//     pub const fn leaf(depth: usize) -> Self {
-//         Self { depth, leaf: true }
-//     }
-
-//     pub const fn internal(depth: usize) -> Self {
-//         Self { depth, leaf: false }
-//     }
-// }
 
 /// Track keys consumption and leaf encounter
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]

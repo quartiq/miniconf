@@ -1,16 +1,8 @@
 use serde_json::to_string_pretty;
 use serde_reflection::{Samples, Tracer, TracerConfig};
 
-use miniconf::{
-    schema::{self, ReflectJsonSchema},
-    trace::Types,
-    TreeKey,
-};
-use schemars::{
-    generate::SchemaSettings,
-    transform::{RecursiveTransform, Transform},
-    SchemaGenerator,
-};
+use miniconf::{schema::ReflectJsonSchema, trace::Types, TreeKey};
+use schemars::{generate::SchemaSettings, SchemaGenerator};
 
 mod common;
 
@@ -54,9 +46,10 @@ fn main() -> anyhow::Result<()> {
     if let Some(meta_schema) = gen.settings().meta_schema.as_deref() {
         root.insert("$schema".into(), meta_schema.into());
     }
+    // use schemars::transform::{RecursiveTransform, Transform};
     // RecursiveTransform(schema::unordered).transform(&mut root);
     // RecursiveTransform(schema::strictify).transform(&mut root);
-    println!("{}", serde_json::to_string_pretty(&root)?);
+    println!("JSON Schema:\n{}", serde_json::to_string_pretty(&root)?);
     // jsonschema::meta::validate(&root.to_value()).unwrap();
     Ok(())
 }
