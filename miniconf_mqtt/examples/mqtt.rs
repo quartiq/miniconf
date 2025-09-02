@@ -1,5 +1,5 @@
 use heapless::String;
-use miniconf::{KeyError, Keys, Leaf, SerDeError, Tree, TreeDeserialize};
+use miniconf::{Keys, Leaf, SerDeError, Tree, TreeDeserialize, ValueError};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;

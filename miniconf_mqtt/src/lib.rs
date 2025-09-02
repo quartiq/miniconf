@@ -5,13 +5,13 @@
 #![forbid(unsafe_code)]
 //! The Minimq MQTT client for `miniconf``.
 
-use core::fmt::Display;
+use core::{fmt::Display, marker::PhantomData};
 
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, IntoKeys, KeyError, NodeIter, Path, Shape, TreeDeserializeOwned, TreeSchema,
-    TreeSerialize,
+    json, DescendError, IntoKeys, KeyError, NodeIter, Path, Schema, TreeDeserializeOwned,
+    TreeSchema, TreeSerialize, ValueError,
 };
 pub use minimq;
 use minimq::{
@@ -41,7 +41,7 @@ const SEPARATOR: char = '/';
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
     /// Miniconf
-    Miniconf(miniconf::KeyError),
+    Miniconf(miniconf::DescendError<()>),
     /// State machine
     State(sm::Error),
     /// Minimq
@@ -54,8 +54,8 @@ impl<E> From<sm::Error> for Error<E> {
     }
 }
 
-impl<E> From<miniconf::KeyError> for Error<E> {
-    fn from(value: miniconf::KeyError) -> Self {
+impl<E> From<miniconf::DescendError<()>> for Error<E> {
+    fn from(value: miniconf::DescendError<()>) -> Self {
         Self::Miniconf(value)
     }
 }
@@ -115,32 +115,32 @@ mod sm {
 }
 
 /// Cache correlation data and topic for multi-part responses.
-struct Multipart<M, const Y: usize> {
-    iter: NodeIter<M, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>, Y>,
+struct Multipart<const Y: usize> {
+    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
-impl<M: TreeSchema, const Y: usize> Default for Multipart<M, Y> {
-    fn default() -> Self {
+impl<const Y: usize> Multipart<Y> {
+    fn new(schema: &'static Schema) -> Self {
         Self {
-            iter: M::nodes(),
+            iter: schema.nodes(),
             response_topic: None,
             correlation_data: None,
         }
     }
 }
 
-impl<M: TreeSchema, const Y: usize> Multipart<M, Y> {
-    fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::KeyError> {
+impl<const Y: usize> Multipart<Y> {
+    fn root(mut self, keys: impl IntoKeys) -> Result<Self, DescendError<()>> {
         self.iter = self.iter.root(keys)?;
         Ok(self)
     }
-}
 
-impl<M: TreeSchema, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
-    type Error = &'static str;
-    fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
+    fn from_properties(
+        schema: &'static Schema,
+        value: &minimq::types::Properties<'_>,
+    ) -> Result<Self, &'static str> {
         let response_topic = value
             .into_iter()
             .response_topic()
@@ -159,7 +159,7 @@ impl<M: TreeSchema, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for 
             .transpose()
             .or(Err("Correlation data too long"))?;
         Ok(Self {
-            iter: M::nodes(),
+            iter: schema.nodes(),
             response_topic,
             correlation_data,
         })
@@ -226,7 +226,8 @@ where
     state: sm::StateMachine<sm::Context<Clock>>,
     prefix: &'a str,
     alive: &'a str,
-    pending: Multipart<Settings, Y>,
+    pending: Multipart<Y>,
+    _settings: PhantomData<Settings>,
 }
 
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
@@ -251,7 +252,7 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta: Shape = Settings::traverse_all();
+        let meta = Settings::SCHEMA.shape();
         assert!(meta.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
 
@@ -269,7 +270,8 @@ where
             state: sm::StateMachine::new(sm::Context::new(clock)),
             prefix,
             alive: "1",
-            pending: Multipart::default(),
+            pending: Multipart::new(Settings::SCHEMA),
+            _settings: PhantomData,
         })
     }
 
@@ -364,7 +366,7 @@ where
     /// This is intended to be used if modification of a setting had side effects that affected
     /// another setting.
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
-        let mut m = Multipart::default();
+        let mut m = Multipart::new(Settings::SCHEMA);
         if let Some(path) = path {
             m = m.root(Path::<_, SEPARATOR>::from(path))?;
         }
@@ -376,7 +378,7 @@ where
     fn iter_list(&mut self) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             let (code, path) = if let Some(path) = self.pending.iter.next() {
-                let (path, node) = match path {
+                let path = match path {
                     Ok(ok) => ok,
                     Err(err) => {
                         error!("Path iter error at depth: {err}");
@@ -384,7 +386,6 @@ where
                     }
                 };
 
-                debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
                 (ResponseCode::Continue, path.into_inner())
             } else {
                 (ResponseCode::Ok, String::new())
@@ -418,15 +419,13 @@ where
                 break;
             };
 
-            let (path, node) = match path {
+            let path = match path {
                 Ok(ok) => ok,
                 Err(err) => {
                     error!("Path iter error at depth: {err}");
                     continue;
                 }
             };
-
-            debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
 
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic
@@ -446,8 +445,8 @@ where
             }
 
             match self.mqtt.client().publish(response) {
-                Err(minimq::PubError::Serialization(miniconf::SerDeError::Key(
-                    KeyError::Absent(_depth) | KeyError::Access(_depth, _),
+                Err(minimq::PubError::Serialization(miniconf::SerDeError::Value(
+                    ValueError::Absent | ValueError::Access(_),
                 ))) => {}
 
                 Err(
@@ -521,12 +520,12 @@ where
                     .qos(QoS::AtLeastOnce),
                 ) {
                     match err {
-                        minimq::PubError::Serialization(miniconf::SerDeError::Key(
-                            KeyError::TooShort(_depth),
+                        minimq::PubError::Serialization(miniconf::SerDeError::Value(
+                            miniconf::ValueError::Key(KeyError::TooShort),
                         )) => {
                             // Internal node: Dump or List
                             if state.state() == &sm::States::Single {
-                                match Multipart::try_from(properties) {
+                                match Multipart::from_properties(Settings::SCHEMA, properties) {
                                     Ok(m) => {
                                         *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
