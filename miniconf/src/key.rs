@@ -571,22 +571,25 @@ pub trait Keys: Sized {
 
     /// Chain another `Keys` to this one.
     #[inline]
-    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
-    where
-        Self: Sized,
-    {
+    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys> {
         Chain::new(self, other.into_keys())
     }
 
     /// Track consumption
     #[inline]
     fn track(self) -> Track<Self> {
-        self.into()
+        Track {
+            inner: self,
+            depth: 0,
+        }
     }
 
     #[inline]
     fn short(self) -> Short<Self> {
-        self.into()
+        Short {
+            inner: self,
+            leaf: false,
+        }
     }
 }
 
@@ -596,16 +599,9 @@ pub struct Short<K> {
     pub leaf: bool,
 }
 
-impl<K> From<K> for Short<K> {
-    #[inline]
-    fn from(inner: K) -> Self {
+impl<K> Short<K> {
+    pub fn new(inner: K) -> Self {
         Self { inner, leaf: false }
-    }
-}
-
-impl<K> From<Short<K>> for (K, bool) {
-    fn from(value: Short<K>) -> Self {
-        (value.inner, value.leaf)
     }
 }
 
@@ -659,16 +655,9 @@ pub struct Track<K> {
     pub depth: usize,
 }
 
-impl<K> From<K> for Track<K> {
-    #[inline]
-    fn from(inner: K) -> Self {
+impl<K> Track<K> {
+    pub fn new(inner: K) -> Self {
         Self { inner, depth: 0 }
-    }
-}
-
-impl<K> From<Track<K>> for (K, usize) {
-    fn from(value: Track<K>) -> Self {
-        (value.inner, value.depth)
     }
 }
 

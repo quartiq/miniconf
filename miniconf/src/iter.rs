@@ -89,7 +89,7 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
         self.state = [0; D];
-        let mut tr = Track::from(&mut self.state[..]);
+        let mut tr = Track::new(&mut self.state[..]);
         match tr.transcode(self.schema, root) {
             Err(DescendError::Key(KeyError::TooShort)) | Ok(()) => {}
             ret => ret?,

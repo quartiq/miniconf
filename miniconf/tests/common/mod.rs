@@ -16,10 +16,10 @@ pub fn paths<const D: usize>(schema: &'static Schema) -> Vec<String> {
         .nodes::<Track<Path<String, '/'>>, D>()
         .exact_size()
         .map(|pn| {
-            let (p, n) = pn.unwrap().into();
-            println!("{p} {n:?}");
+            let pn = pn.unwrap();
+            println!("{pn:?}");
             // assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n);
-            p.into_inner()
+            pn.inner.into_inner()
         })
         .collect()
 }
