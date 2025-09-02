@@ -12,7 +12,7 @@ use crate::{
 /////////////////////////////////////////////////////////////////////////////////////////
 
 macro_rules! impl_tuple {
-    ($n:literal $($i:tt $t:ident)+) => {
+    ($($i:tt $t:ident)+) => {
         #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeSchema),+> TreeSchema for ($($t,)+) {
             const SCHEMA: &'static Schema = &Schema::numbered(&[$(
@@ -93,14 +93,14 @@ macro_rules! impl_tuple {
     }
 }
 // Note: internal nodes must have at least one leaf
-impl_tuple!(1 0 T0);
-impl_tuple!(2 0 T0 1 T1);
-impl_tuple!(3 0 T0 1 T1 2 T2);
-impl_tuple!(4 0 T0 1 T1 2 T2 3 T3);
-impl_tuple!(5 0 T0 1 T1 2 T2 3 T3 4 T4);
-impl_tuple!(6 0 T0 1 T1 2 T2 3 T3 4 T4 5 T5);
-impl_tuple!(7 0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6);
-impl_tuple!(8 0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
+impl_tuple!(0 T0);
+impl_tuple!(0 T0 1 T1);
+impl_tuple!(0 T0 1 T1 2 T2);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6);
+impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -364,10 +364,11 @@ impl<T: TreeSerialize> TreeSerialize for Range<T> {
         ser: S,
     ) -> Result<S::Ok, SerDeError<S::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.serialize_by_key(keys, ser),
-            1 => self.end.serialize_by_key(keys, ser),
+            0 => &self.start,
+            1 => &self.end,
             _ => unreachable!(),
         }
+        .serialize_by_key(keys, ser)
     }
 }
 
@@ -379,10 +380,11 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
         de: D,
     ) -> Result<(), SerDeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.deserialize_by_key(keys, de),
-            1 => self.end.deserialize_by_key(keys, de),
+            0 => &mut self.start,
+            1 => &mut self.end,
             _ => unreachable!(),
         }
+        .deserialize_by_key(keys, de)
     }
 
     #[inline]
@@ -401,19 +403,21 @@ impl<T: TreeAny> TreeAny for Range<T> {
     #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.ref_any_by_key(keys),
-            1 => self.end.ref_any_by_key(keys),
+            0 => &self.start,
+            1 => &self.end,
             _ => unreachable!(),
         }
+        .ref_any_by_key(keys)
     }
 
     #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.mut_any_by_key(keys),
-            1 => self.end.mut_any_by_key(keys),
+            0 => &mut self.start,
+            1 => &mut self.end,
             _ => unreachable!(),
         }
+        .mut_any_by_key(keys)
     }
 }
 
@@ -431,10 +435,11 @@ impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
         ser: S,
     ) -> Result<S::Ok, SerDeError<S::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start().serialize_by_key(keys, ser),
-            1 => self.end().serialize_by_key(keys, ser),
+            0 => self.start(),
+            1 => self.end(),
             _ => unreachable!(),
         }
+        .serialize_by_key(keys, ser)
     }
 }
 
@@ -689,7 +694,12 @@ impl<T: TreeAny> TreeAny for RefCell<T> {
 mod _alloc {
     use super::*;
     extern crate alloc;
-    use alloc::{borrow::Cow, boxed::Box, rc, rc::Rc, sync, sync::Arc};
+    use alloc::{
+        borrow::Cow,
+        boxed::Box,
+        rc::{Rc, Weak as RcWeak},
+        sync::{Arc, Weak as SyncWeak},
+    };
 
     impl<T: TreeSchema> TreeSchema for Box<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
@@ -839,11 +849,11 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeSchema> TreeSchema for rc::Weak<T> {
+    impl<T: TreeSchema> TreeSchema for RcWeak<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
-    impl<T: TreeSerialize> TreeSerialize for rc::Weak<T> {
+    impl<T: TreeSerialize> TreeSerialize for RcWeak<T> {
         #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
@@ -856,7 +866,7 @@ mod _alloc {
         }
     }
 
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for rc::Weak<T> {
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RcWeak<T> {
         #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
@@ -931,11 +941,11 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeSchema> TreeSchema for sync::Weak<T> {
+    impl<T: TreeSchema> TreeSchema for SyncWeak<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
-    impl<T: TreeSerialize> TreeSerialize for sync::Weak<T> {
+    impl<T: TreeSerialize> TreeSerialize for SyncWeak<T> {
         #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
@@ -948,7 +958,7 @@ mod _alloc {
         }
     }
 
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for sync::Weak<T> {
+    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for SyncWeak<T> {
         #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
