@@ -2,7 +2,7 @@
 
 use miniconf::{
     json, DescendError, IntoKeys, KeyError, Keys, Packed, Path, Schema, Track, Transcode,
-    TreeDeserialize, TreeKey, TreeSerialize,
+    TreeDeserialize, TreeSchema, TreeSerialize,
 };
 
 pub fn paths<const D: usize>(schema: &'static Schema) -> Vec<String> {

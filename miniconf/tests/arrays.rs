@@ -1,6 +1,6 @@
 use miniconf::{
     json, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerDeError, Serialize, Track, Tree,
-    TreeKey,
+    TreeSchema,
 };
 
 mod common;

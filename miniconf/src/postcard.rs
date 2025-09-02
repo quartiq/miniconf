@@ -2,7 +2,7 @@
 //!
 //! ```
 //! use ::postcard::{de_flavors::Slice, ser_flavors::AllocVec};
-//! use miniconf::{postcard, Leaf, Packed, Tree, TreeKey};
+//! use miniconf::{postcard, Leaf, Packed, Tree, TreeSchema};
 //!
 //! #[derive(Tree, Default, PartialEq, Debug)]
 //! struct S {

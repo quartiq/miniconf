@@ -159,8 +159,8 @@ impl Schema {
     /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
     ///
     /// ```
-    /// use miniconf::{IntoKeys, Leaf, TreeKey};
-    /// #[derive(TreeKey)]
+    /// use miniconf::{IntoKeys, Leaf, TreeSchema};
+    /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
@@ -226,8 +226,8 @@ impl Schema {
     /// an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
-    /// #[derive(TreeKey)]
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 5],
@@ -270,14 +270,14 @@ impl Schema {
     ///
     /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`TreeKey#option`]).
+    /// runtime (see [`TreeSchema#option`]).
     /// An iterator with an exact and trusted `size_hint()` can be obtained from
     /// this through [`NodeIter::exact_size()`].
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
-    /// #[derive(TreeKey)]
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],

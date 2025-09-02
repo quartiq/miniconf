@@ -37,7 +37,7 @@ impl<T> ExactSize<T> {
     }
 }
 
-// Even though general TreeKey iterations may well be longer than usize::MAX
+// Even though general TreeSchema iterations may well be longer than usize::MAX
 // we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
 
@@ -49,7 +49,7 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 
 /// Node iterator
 ///
-/// A managed indices state for iteration of nodes `N` in a `TreeKey`.
+/// A managed indices state for iteration of nodes `N` in a `TreeSchema`.
 ///
 /// `D` is the depth limit. Internal nodes will be returned on iteration where
 /// the depth limit is exceeded.

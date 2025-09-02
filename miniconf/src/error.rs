@@ -41,7 +41,7 @@ pub enum ValueError {
     ///
     /// An `enum` variant in the tree towards the node is currently absent.
     /// This is for example the case if an [`Option`] using the `Tree*`
-    /// traits is `None` at runtime. See also [`crate::TreeKey#option`].
+    /// traits is `None` at runtime. See also [`crate::TreeSchema#option`].
     #[error("Variant absent")]
     Absent,
 

@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Keys, Leaf, SerDeError, StrLeaf, Tree, TreeDeserialize, TreeKey, TreeSerialize,
+    json, Keys, Leaf, SerDeError, StrLeaf, Tree, TreeDeserialize, TreeSchema, TreeSerialize,
 };
 
 mod common;

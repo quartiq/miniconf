@@ -7,7 +7,7 @@ use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
-use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeKey, TreeSerialize, ValueError};
+use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError};
 
 /// Trace a leaf value
 pub fn trace_value(
@@ -72,7 +72,7 @@ impl<T, N> Types<T, N> {
     }
 }
 
-impl<T: TreeKey, N> Default for Types<T, N> {
+impl<T: TreeSchema, N> Default for Types<T, N> {
     fn default() -> Self {
         let meta = T::SCHEMA.shape();
         let mut idx = vec![0; meta.max_depth];

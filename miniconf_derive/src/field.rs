@@ -116,7 +116,7 @@ impl TreeField {
             None
         } else {
             match trtr {
-                TreeTrait::Key => Some(parse_quote!(::miniconf::TreeKey)),
+                TreeTrait::Key => Some(parse_quote!(::miniconf::TreeSchema)),
                 TreeTrait::Serialize => self
                     .deny
                     .serialize

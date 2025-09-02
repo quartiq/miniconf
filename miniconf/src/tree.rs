@@ -12,8 +12,8 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 ///
 /// There is a one-to-one relationship between nodes and keys.
 /// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
-/// obtained from other [`IntoKeys`] through [`Transcode`]/[`TreeKey::transcode()`].
-/// An iterator of keys for the nodes is available through [`TreeKey::nodes()`]/[`NodeIter`].
+/// obtained from other [`IntoKeys`] through [`Transcode`]/[`TreeSchema::transcode()`].
+/// An iterator of keys for the nodes is available through [`TreeSchema::nodes()`]/[`NodeIter`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
@@ -27,7 +27,7 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 /// # Derive macros
 ///
 /// Derive macros to automatically implement the correct traits on a struct or enum are available through
-/// [`macro@crate::TreeKey`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
+/// [`macro@crate::TreeSchema`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
 /// and [`macro@crate::TreeAny`].
 /// A shorthand derive macro that derives all four trait implementations is also available at
 /// [`macro@crate::Tree`].
@@ -40,7 +40,7 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 /// the `rename` derive macro attribute.
 ///
 /// ```
-/// use miniconf::{Leaf, Path, Tree, TreeKey};
+/// use miniconf::{Leaf, Path, Tree, TreeSchema};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(rename = "OTHER")]
@@ -70,7 +70,7 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 ///
 /// ## Type
 ///
-/// The type to use when accessing the field/variant through `TreeKey`/`TreeDeserialize::probe`
+/// The type to use when accessing the field/variant through `TreeSchema`/`TreeDeserialize::probe`
 /// can be overridden using the `typ` derive macro attribute (`#[tree(typ="[f32; 4]")]`).
 ///
 /// ## Deny
@@ -129,9 +129,9 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 /// Blanket implementations of the `Tree*` traits are provided for [`Option<T>`].
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
-/// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the
+/// iterators. The `TreeSchema` behavior of an [`Option`] is such that the `None` variant makes the
 /// corresponding part of the tree inaccessible at run-time. It will still be iterated over (e.g.
-/// by [`TreeKey::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
+/// by [`TreeSchema::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
 /// [`TreeDeserialize::deserialize_by_key()`], [`TreeAny::ref_any_by_key()`], or
 /// [`TreeAny::mut_any_by_key()`]) return the special [`Traversal::Absent`].
 ///
@@ -146,7 +146,7 @@ use crate::{IntoKeys, Keys, Schema, SerDeError, ValueError};
 ///
 /// See the [`crate`] documentation for a longer example showing how the traits and the derive
 /// macros work.
-pub trait TreeKey {
+pub trait TreeSchema {
     /// Schema for this tree level
     // Reference for Option<T> to copy T::SCHEMA
     const SCHEMA: &'static Schema;
@@ -158,8 +158,8 @@ pub trait TreeKey {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{Indices, IntoKeys, JsonPath, Leaf, TreeAny, TreeKey};
-/// #[derive(TreeKey, TreeAny, Default)]
+/// use miniconf::{Indices, IntoKeys, JsonPath, Leaf, TreeAny, TreeSchema};
+/// #[derive(TreeSchema, TreeAny, Default)]
 /// struct S {
 ///     foo: Leaf<u32>,
 ///     bar: [Leaf<u16>; 2],
@@ -181,7 +181,7 @@ pub trait TreeKey {
 /// let val: &u16 = s.ref_by_key(&JsonPath::from(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// ```
-pub trait TreeAny: TreeKey {
+pub trait TreeAny: TreeSchema {
     /// Obtain a reference to a `dyn Any` trait object for a leaf node.
     fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError>;
 
@@ -212,14 +212,14 @@ pub trait TreeAny: TreeKey {
 /// # Derive macro
 ///
 /// See [`macro@crate::TreeSerialize`].
-/// The derive macro attributes are described in the [`TreeKey`] trait.
-pub trait TreeSerialize: TreeKey {
+/// The derive macro attributes are described in the [`TreeSchema`] trait.
+pub trait TreeSerialize: TreeSchema {
     /// Serialize a node by keys.
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeKey, TreeSerialize};
-    /// #[derive(TreeKey, TreeSerialize)]
+    /// use miniconf::{IntoKeys, Leaf, TreeSchema, TreeSerialize};
+    /// #[derive(TreeSchema, TreeSerialize)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
@@ -254,14 +254,14 @@ pub trait TreeSerialize: TreeKey {
 /// # Derive macro
 ///
 /// See [`macro@crate::TreeDeserialize`].
-/// The derive macro attributes are described in the [`TreeKey`] trait.
-pub trait TreeDeserialize<'de>: TreeKey {
+/// The derive macro attributes are described in the [`TreeSchema`] trait.
+pub trait TreeDeserialize<'de>: TreeSchema {
     /// Deserialize a leaf node by its keys.
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
-    /// #[derive(Default, TreeKey, TreeDeserialize)]
+    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeSchema};
+    /// #[derive(Default, TreeSchema, TreeDeserialize)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
@@ -291,8 +291,8 @@ pub trait TreeDeserialize<'de>: TreeKey {
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
-    /// #[derive(Default, TreeKey, TreeDeserialize)]
+    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeSchema};
+    /// #[derive(Default, TreeSchema, TreeDeserialize)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
@@ -319,11 +319,11 @@ impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
 
 // Blanket impls for refs and muts
 
-impl<T: TreeKey> TreeKey for &T {
+impl<T: TreeSchema> TreeSchema for &T {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
-impl<T: TreeKey> TreeKey for &mut T {
+impl<T: TreeSchema> TreeSchema for &mut T {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 

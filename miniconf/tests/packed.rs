@@ -1,5 +1,5 @@
 use miniconf::{
-    Indices, KeyError, Leaf, Packed, Path, Shape, Short, Track, Tree, TreeKey, TreeSerialize,
+    Indices, KeyError, Leaf, Packed, Path, Shape, Short, Track, Tree, TreeSchema, TreeSerialize,
 };
 mod common;
 

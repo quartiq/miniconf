@@ -1,4 +1,4 @@
-use miniconf::{Indices, Leaf, NodeIter, Path, Short, Tree, TreeKey};
+use miniconf::{Indices, Leaf, NodeIter, Path, Short, Tree, TreeSchema};
 
 mod common;
 use common::*;

@@ -10,7 +10,8 @@ use core::fmt::Display;
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, IntoKeys, KeyError, NodeIter, Path, Shape, TreeDeserializeOwned, TreeKey, TreeSerialize,
+    json, IntoKeys, KeyError, NodeIter, Path, Shape, TreeDeserializeOwned, TreeSchema,
+    TreeSerialize,
 };
 pub use minimq;
 use minimq::{
@@ -120,7 +121,7 @@ struct Multipart<M, const Y: usize> {
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
-impl<M: TreeKey, const Y: usize> Default for Multipart<M, Y> {
+impl<M: TreeSchema, const Y: usize> Default for Multipart<M, Y> {
     fn default() -> Self {
         Self {
             iter: M::nodes(),
@@ -130,14 +131,14 @@ impl<M: TreeKey, const Y: usize> Default for Multipart<M, Y> {
     }
 }
 
-impl<M: TreeKey, const Y: usize> Multipart<M, Y> {
+impl<M: TreeSchema, const Y: usize> Multipart<M, Y> {
     fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::KeyError> {
         self.iter = self.iter.root(keys)?;
         Ok(self)
     }
 }
 
-impl<M: TreeKey, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
+impl<M: TreeSchema, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
     type Error = &'static str;
     fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
         let response_topic = value
@@ -184,7 +185,7 @@ impl From<ResponseCode> for minimq::Property<'static> {
 /// MQTT settings interface.
 ///
 /// # Design
-/// The MQTT client places the [TreeKey] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
+/// The MQTT client places the [TreeSchema] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
 /// where `<prefix>` is provided in the client constructor.
 ///
 /// By default it publishes its alive-ness as a `1` retained to `<prefix>/alive` and and clears it
@@ -231,7 +232,7 @@ where
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
     MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
-    Settings: TreeKey + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Broker: minimq::Broker,

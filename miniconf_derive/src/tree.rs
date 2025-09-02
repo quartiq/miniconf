@@ -223,7 +223,7 @@ impl Tree {
                 0
             ))
         } else {
-            quote!(<Self as ::miniconf::TreeKey>::SCHEMA.next(&mut keys))
+            quote!(<Self as ::miniconf::TreeSchema>::SCHEMA.next(&mut keys))
         }
     }
 
@@ -231,13 +231,13 @@ impl Tree {
         self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
     }
 
-    pub fn tree_key(&self) -> TokenStream {
+    pub fn tree_schema(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
         let schema = if self.flatten.is_present() {
             let typ = self.fields().first().unwrap().typ();
-            quote! { <#typ as ::miniconf::TreeKey>::SCHEMA }
+            quote! { <#typ as ::miniconf::TreeSchema>::SCHEMA }
         } else {
             let internal = match &self.data {
                 Data::Struct(fields) => {
@@ -249,7 +249,7 @@ impl Tree {
                                     let typ = f.typ();
                                     let meta = f.meta();
                                     quote_spanned! { f.span()=> ::miniconf::Numbered {
-                                        schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                        schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
                                         meta: Some(&[#meta]),
                                     }, }
                                 })
@@ -266,7 +266,7 @@ impl Tree {
                                     let meta = f.meta();
                                     quote_spanned! { name.span()=> ::miniconf::Named {
                                         name: stringify!(#name),
-                                        schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                        schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
                                         meta: Some(&[#meta]),
                                     }, }
                                 })
@@ -286,7 +286,7 @@ impl Tree {
                             let meta = v.meta();
                             quote_spanned! { v.field().span()=> ::miniconf::Named {
                                 name: stringify!(#name),
-                                schema: <#typ as ::miniconf::TreeKey>::SCHEMA,
+                                schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
                                 meta: Some(&[#meta]),
                             }, }
                         })
@@ -302,7 +302,7 @@ impl Tree {
         };
         quote! {
             #[automatically_derived]
-            impl #impl_generics ::miniconf::TreeKey for #ident #ty_generics #where_clause {
+            impl #impl_generics ::miniconf::TreeSchema for #ident #ty_generics #where_clause {
                 const SCHEMA: &'static ::miniconf::Schema = #schema;
             }
         }

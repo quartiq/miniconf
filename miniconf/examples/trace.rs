@@ -1,7 +1,7 @@
 use serde_json::to_string_pretty;
 use serde_reflection::{Samples, Tracer, TracerConfig};
 
-use miniconf::{schema::ReflectJsonSchema, trace::Types, TreeKey};
+use miniconf::{schema::ReflectJsonSchema, trace::Types, TreeSchema};
 use schemars::{generate::SchemaSettings, SchemaGenerator};
 
 mod common;

@@ -12,10 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DescendError, IntoKeys, KeysIter, Schema};
 
-/// Look up an `IntoKeys` in a `TreeKey` and transcode it.
+/// Look up an `IntoKeys` in a `TreeSchema` and transcode it.
 pub trait Transcode {
     type Error;
-    /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeKey<Y>` and transcode it.
+    /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeSchema` and transcode it.
     ///
     /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
     /// It returns a `Node` with node type and depth information.
@@ -57,7 +57,7 @@ impl Transcode for () {
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [TreeKey::traverse_all()] and `Metadata::max_length()` for upper bounds
+///   See also [TreeSchema::traverse_all()] and `Metadata::max_length()` for upper bounds
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`KeysIter`]).
 /// * `const S: char`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
@@ -199,7 +199,7 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
     }
 }
 
-/// Indices of `usize` to identify a node in a `TreeKey`
+/// Indices of `usize` to identify a node in a `TreeSchema`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Indices<T: ?Sized> {
     pub len: usize,

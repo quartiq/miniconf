@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Deserialize, IntoKeys, Leaf, Serialize, Tree, TreeAny, TreeDeserialize, TreeKey,
+    json, Deserialize, IntoKeys, Leaf, Serialize, Tree, TreeAny, TreeDeserialize, TreeSchema,
     TreeSerialize, ValueError,
 };
 
@@ -50,7 +50,7 @@ fn structs() {
 #[test]
 fn borrowed() {
     // Can't derive TreeAny
-    #[derive(TreeKey, TreeDeserialize, TreeSerialize)]
+    #[derive(TreeSchema, TreeDeserialize, TreeSerialize)]
     struct S<'a> {
         a: Leaf<&'a str>,
     }

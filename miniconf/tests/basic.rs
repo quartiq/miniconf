@@ -1,5 +1,4 @@
-/*
-use miniconf::{Indices, KeyError, Leaf, Node, Path, Shape, Track, Tree, TreeKey};
+use miniconf::{Indices, KeyError, Leaf, Path, Shape, Short, Track, Tree, TreeSchema};
 mod common;
 
 #[derive(Tree, Default)]
@@ -24,43 +23,42 @@ fn meta() {
 
 #[test]
 fn path() {
-    for (keys, path, depth) in [
-        (&[1usize][..], "/b", Node::leaf(1)),
-        (&[2, 0][..], "/c/inner", Node::leaf(2)),
-        (&[2][..], "/c", Node::internal(1)),
-        (&[][..], "", Node::internal(0)),
+    for (keys, path, depth, leaf) in [
+        (&[1usize][..], "/b", 1, true),
+        (&[2, 0][..], "/c/inner", 2, true),
+        (&[2][..], "/c", 1, false),
+        (&[][..], "", 0, false),
     ] {
-        let (s, node) = Settings::SCHEMA
-            .transcode::<Track<Path<String, '/'>>>(keys)
-            .unwrap()
-            .into();
-        assert_eq!(depth, node);
-        assert_eq!(s.as_str(), path);
+        let s = Settings::SCHEMA
+            .transcode::<Short<Track<Path<String, '/'>>>>(keys)
+            .unwrap();
+        assert_eq!(depth, s.inner.depth);
+        assert_eq!(leaf, s.leaf);
+        assert_eq!(s.inner.inner.as_str(), path);
     }
 }
 
 #[test]
 fn indices() {
-    for (keys, idx, depth) in [
-        ("", [0, 0], Node::internal(0)),
-        ("/b", [1, 0], Node::leaf(1)),
-        ("/c/inner", [2, 0], Node::leaf(2)),
-        ("/c", [2, 0], Node::internal(1)),
+    for (keys, idx, depth, leaf) in [
+        ("", [0, 0], 0, false),
+        ("/b", [1, 0], 1, true),
+        ("/c/inner", [2, 0], 2, true),
+        ("/c", [2, 0], 1, false),
     ] {
-        let (indices, node) = Settings::SCHEMA
-            .transcode::<Track<Indices<_>>>(Path::<_, '/'>::from(keys))
-            .unwrap()
-            .into();
-        assert_eq!(node, depth);
-        assert_eq!(indices.len, depth.depth);
-        assert_eq!(indices.data, idx);
+        let indices = Settings::SCHEMA
+            .transcode::<Short<Indices<_>>>(Path::<_, '/'>::from(keys))
+            .unwrap();
+        assert_eq!(indices.inner.len, depth);
+        assert_eq!(indices.leaf, leaf);
+        assert_eq!(indices.inner.data, idx);
     }
-    let (indices, node) = Option::<Leaf<i8>>::SCHEMA
-        .transcode::<Track<Indices<_>>>([0usize; 0])
-        .unwrap()
-        .into();
-    assert_eq!(indices.data, [0]);
-    assert_eq!(node, Node::leaf(0));
+    let indices = Option::<Leaf<i8>>::SCHEMA
+        .transcode::<Short<Indices<_>>>([0usize; 0])
+        .unwrap();
+    assert_eq!(indices.inner.data, [0]);
+    assert_eq!(indices.leaf, true);
+    assert_eq!(indices.inner.len, 0);
 
     let mut it = [0usize; 4].into_iter();
     assert_eq!(
@@ -90,4 +88,3 @@ fn cell() {
     let mut r = &c;
     common::set_get(&mut r, "", b"9");
 }
-*/

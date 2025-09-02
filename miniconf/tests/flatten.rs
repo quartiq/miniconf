@@ -1,4 +1,4 @@
-use miniconf::{json, Leaf, Tree, TreeKey};
+use miniconf::{json, Leaf, Tree, TreeSchema};
 
 mod common;
 use common::*;

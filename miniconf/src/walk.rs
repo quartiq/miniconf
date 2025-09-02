@@ -1,7 +1,6 @@
 use core::num::NonZero;
 
-// TODO: Rename to Summary
-/// Metadata about a `TreeKey` namespace.
+/// Metadata about a `TreeSchema` namespace.
 ///
 /// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
 #[non_exhaustive]
@@ -14,13 +13,13 @@ pub struct Shape {
     /// the maximum length including separators.
     pub max_length: usize,
 
-    /// The maximum key depth.
+    /// The maximum node depth.
     ///
     /// This is equal to the exact maximum number of path hierarchy separators.
     /// It's the exact maximum number of key indices.
     pub max_depth: usize,
 
-    /// The exact total number of keys.
+    /// The exact total number of leaf nodes.
     pub count: NonZero<usize>,
 
     /// The maximum number of bits (see [`crate::Packed`])

@@ -7,7 +7,7 @@ use core::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    Keys, Schema, SerDeError, TreeAny, TreeDeserialize, TreeKey, TreeSerialize, ValueError,
+    Keys, Schema, SerDeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
 /// `Serialize`/`Deserialize`/`Any` leaf
@@ -64,7 +64,7 @@ impl<T: Display> Display for Leaf<T> {
     }
 }
 
-impl<T: ?Sized> TreeKey for Leaf<T> {
+impl<T: ?Sized> TreeSchema for Leaf<T> {
     const SCHEMA: &'static Schema = &Schema::LEAF;
 }
 
@@ -184,7 +184,7 @@ impl<T> From<T> for StrLeaf<T> {
     }
 }
 
-impl<T: ?Sized> TreeKey for StrLeaf<T> {
+impl<T: ?Sized> TreeSchema for StrLeaf<T> {
     const SCHEMA: &'static Schema = &Schema::LEAF;
 }
 
@@ -285,11 +285,11 @@ impl<T> From<T> for Deny<T> {
     }
 }
 
-impl<T: TreeKey + ?Sized> TreeKey for Deny<T> {
+impl<T: TreeSchema + ?Sized> TreeSchema for Deny<T> {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
-impl<T: TreeKey + ?Sized> TreeSerialize for Deny<T> {
+impl<T: TreeSchema + ?Sized> TreeSerialize for Deny<T> {
     #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
@@ -300,7 +300,7 @@ impl<T: TreeKey + ?Sized> TreeSerialize for Deny<T> {
     }
 }
 
-impl<'de, T: TreeKey + ?Sized> TreeDeserialize<'de> for Deny<T> {
+impl<'de, T: TreeSchema + ?Sized> TreeDeserialize<'de> for Deny<T> {
     #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
@@ -319,7 +319,7 @@ impl<'de, T: TreeKey + ?Sized> TreeDeserialize<'de> for Deny<T> {
     }
 }
 
-impl<T: TreeKey + ?Sized> TreeAny for Deny<T> {
+impl<T: TreeSchema + ?Sized> TreeAny for Deny<T> {
     #[inline]
     fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
         Err(ValueError::Access("Denied"))

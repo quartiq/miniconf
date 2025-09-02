@@ -1,4 +1,4 @@
-use miniconf::{KeyError, Leaf, Path, Shape, Tree, TreeKey};
+use miniconf::{KeyError, Leaf, Path, Shape, Tree, TreeSchema};
 
 #[derive(Default)]
 pub struct SkippedType;

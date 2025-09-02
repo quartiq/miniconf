@@ -1,4 +1,4 @@
-use miniconf::{json, Deserialize, Leaf, Serialize, Shape, Tree, TreeKey};
+use miniconf::{json, Deserialize, Leaf, Serialize, Shape, Tree, TreeSchema};
 
 #[test]
 fn generic_type() {
@@ -91,10 +91,10 @@ fn test_depth() {
     #[derive(Tree)]
     struct S<T>(Option<Option<T>>);
 
-    // This works as array implements TreeKey
+    // This works as array implements TreeSchema
     S::<[Leaf<u32>; 1]>::SCHEMA.shape();
 
-    // This does not compile as u32 does not implement TreeKey
+    // This does not compile as u32 does not implement TreeSchema
     // S::<u32>::SCHEMA.shape();
 
     // Depth is always statically known

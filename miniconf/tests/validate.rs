@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Keys, Leaf, SerDeError, Tree, TreeDeserialize, TreeKey, TreeSerialize, ValueError,
+    json, Keys, Leaf, SerDeError, Tree, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 use serde::{Deserializer, Serializer};
 
@@ -42,7 +42,7 @@ fn validate() {
 fn paging() {
     // Demonstrate and test how a variable length `Vec` can be accessed
     // through a variable offset, fixed length array.
-    #[derive(Default, TreeKey, TreeDeserialize, TreeSerialize)]
+    #[derive(Default, TreeSchema, TreeDeserialize, TreeSerialize)]
     struct S {
         #[tree(typ="[Leaf<i32>; 4]", rename=arr,
             with(serialize=self.serialize_vec, deserialize=self.deserialize_vec))]
@@ -96,7 +96,7 @@ fn paging() {
 
 #[test]
 fn locked() {
-    #[derive(Default, TreeKey, TreeSerialize, TreeDeserialize)]
+    #[derive(Default, TreeSchema, TreeSerialize, TreeDeserialize)]
     struct S {
         #[tree(with(serialize=self.get, deserialize=self.set))]
         val: Leaf<i32>,

@@ -5,7 +5,7 @@ use core::ops::{Bound, Range, RangeFrom, RangeInclusive, RangeTo};
 use serde::{Deserializer, Serializer};
 
 use crate::{
-    Homogeneous, Keys, Named, Numbered, Schema, SerDeError, TreeAny, TreeDeserialize, TreeKey,
+    Homogeneous, Keys, Named, Numbered, Schema, SerDeError, TreeAny, TreeDeserialize, TreeSchema,
     TreeSerialize, ValueError,
 };
 
@@ -14,7 +14,7 @@ use crate::{
 macro_rules! impl_tuple {
     ($n:literal $($i:tt $t:ident)+) => {
         #[allow(unreachable_code, unused_mut, unused)]
-        impl<$($t: TreeKey),+> TreeKey for ($($t,)+) {
+        impl<$($t: TreeSchema),+> TreeSchema for ($($t,)+) {
             const SCHEMA: &'static Schema = &Schema::numbered(&[$(
                 Numbered::new($t::SCHEMA),
             )+]);
@@ -104,13 +104,13 @@ impl_tuple!(8 0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey, const N: usize> TreeKey for [T; N] {
+impl<T: TreeSchema, const N: usize> TreeSchema for [T; N] {
     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
 }
 
 impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N]
 where
-    Self: TreeKey,
+    Self: TreeSchema,
 {
     #[inline]
     fn serialize_by_key<S: Serializer>(
@@ -156,7 +156,7 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for Option<T> {
+impl<T: TreeSchema> TreeSchema for Option<T> {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
@@ -212,7 +212,7 @@ impl<T: TreeAny> TreeAny for Option<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey, E: TreeKey> TreeKey for Result<T, E> {
+impl<T: TreeSchema, E: TreeSchema> TreeSchema for Result<T, E> {
     const SCHEMA: &'static Schema =
         &Schema::named(&[Named::new("Ok", T::SCHEMA), Named::new("Err", E::SCHEMA)]);
 }
@@ -281,7 +281,7 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for Bound<T> {
+impl<T: TreeSchema> TreeSchema for Bound<T> {
     const SCHEMA: &'static Schema = &Schema::named(&[
         Named::new("Included", T::SCHEMA),
         Named::new("Excluded", T::SCHEMA),
@@ -351,7 +351,7 @@ impl<T: TreeAny> TreeAny for Bound<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for Range<T> {
+impl<T: TreeSchema> TreeSchema for Range<T> {
     const SCHEMA: &'static Schema =
         &Schema::named(&[Named::new("start", T::SCHEMA), Named::new("end", T::SCHEMA)]);
 }
@@ -419,7 +419,7 @@ impl<T: TreeAny> TreeAny for Range<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for RangeInclusive<T> {
+impl<T: TreeSchema> TreeSchema for RangeInclusive<T> {
     const SCHEMA: &'static Schema = Range::<T>::SCHEMA;
 }
 
@@ -440,7 +440,7 @@ impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for RangeFrom<T> {
+impl<T: TreeSchema> TreeSchema for RangeFrom<T> {
     const SCHEMA: &'static Schema = &Schema::named(&[Named::new("start", T::SCHEMA)]);
 }
 
@@ -503,7 +503,7 @@ impl<T: TreeAny> TreeAny for RangeFrom<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for RangeTo<T> {
+impl<T: TreeSchema> TreeSchema for RangeTo<T> {
     const SCHEMA: &'static Schema = &Schema::named(&[Named::new("end", T::SCHEMA)]);
 }
 
@@ -566,7 +566,7 @@ impl<T: TreeAny> TreeAny for RangeTo<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for Cell<T> {
+impl<T: TreeSchema> TreeSchema for Cell<T> {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
@@ -614,7 +614,7 @@ impl<T: TreeAny> TreeAny for Cell<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeKey> TreeKey for RefCell<T> {
+impl<T: TreeSchema> TreeSchema for RefCell<T> {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
@@ -691,7 +691,7 @@ mod _alloc {
     extern crate alloc;
     use alloc::{borrow::Cow, boxed::Box, rc, rc::Rc, sync, sync::Arc};
 
-    impl<T: TreeKey> TreeKey for Box<T> {
+    impl<T: TreeSchema> TreeSchema for Box<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -739,7 +739,7 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeKey + Clone> TreeKey for Cow<'_, T> {
+    impl<T: TreeSchema + Clone> TreeSchema for Cow<'_, T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -787,7 +787,7 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeKey> TreeKey for Rc<T> {
+    impl<T: TreeSchema> TreeSchema for Rc<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -839,7 +839,7 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeKey> TreeKey for rc::Weak<T> {
+    impl<T: TreeSchema> TreeSchema for rc::Weak<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -879,7 +879,7 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeKey> TreeKey for Arc<T> {
+    impl<T: TreeSchema> TreeSchema for Arc<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -931,7 +931,7 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeKey> TreeKey for sync::Weak<T> {
+    impl<T: TreeSchema> TreeSchema for sync::Weak<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -977,7 +977,7 @@ mod _std {
     use super::*;
     use std::sync::{Mutex, RwLock};
 
-    impl<T: TreeKey> TreeKey for Mutex<T> {
+    impl<T: TreeSchema> TreeSchema for Mutex<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
@@ -1053,7 +1053,7 @@ mod _std {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeKey> TreeKey for RwLock<T> {
+    impl<T: TreeSchema> TreeSchema for RwLock<T> {
         const SCHEMA: &'static Schema = T::SCHEMA;
     }
 
