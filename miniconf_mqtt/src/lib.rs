@@ -10,8 +10,8 @@ use core::{fmt::Display, marker::PhantomData};
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, DescendError, IntoKeys, KeyError, NodeIter, Path, Schema, TreeDeserializeOwned,
-    TreeSchema, TreeSerialize, ValueError,
+    json, DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerDeError, Track,
+    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
 };
 pub use minimq;
 use minimq::{
@@ -41,7 +41,7 @@ const SEPARATOR: char = '/';
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
     /// Miniconf
-    Miniconf(miniconf::DescendError<()>),
+    Miniconf(DescendError<()>),
     /// State machine
     State(sm::Error),
     /// Minimq
@@ -54,8 +54,8 @@ impl<E> From<sm::Error> for Error<E> {
     }
 }
 
-impl<E> From<miniconf::DescendError<()>> for Error<E> {
-    fn from(value: miniconf::DescendError<()>) -> Self {
+impl<E> From<DescendError<()>> for Error<E> {
+    fn from(value: DescendError<()>) -> Self {
         Self::Miniconf(value)
     }
 }
@@ -180,6 +180,29 @@ impl From<ResponseCode> for minimq::Property<'static> {
             minimq::types::Utf8String(value.into()),
         )
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct DepthError<E> {
+    inner: SerDeError<E>,
+    depth: usize,
+}
+
+impl<E> Display for DepthError<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} (depth {})", self.inner, self.depth)
+    }
+}
+
+fn track_depth<T, E, K: IntoKeys>(
+    keys: K,
+    func: impl FnOnce(&mut Track<K::IntoKeys>) -> Result<T, SerDeError<E>>,
+) -> Result<T, DepthError<E>> {
+    let mut tracked = keys.into_keys().track();
+    func(&mut tracked).map_err(|inner| DepthError {
+        inner,
+        depth: tracked.depth,
+    })
 }
 
 /// MQTT settings interface.
@@ -435,7 +458,7 @@ where
 
             let props = [ResponseCode::Ok.into()];
             let mut response = Publication::new(&topic, |buf: &mut [u8]| {
-                json::get_by_key(settings, &path, buf)
+                track_depth(&path, |k| json::get_by_key(settings, k, buf))
             })
             .properties(&props)
             .qos(QoS::AtLeastOnce);
@@ -445,9 +468,10 @@ where
             }
 
             match self.mqtt.client().publish(response) {
-                Err(minimq::PubError::Serialization(miniconf::SerDeError::Value(
-                    ValueError::Absent | ValueError::Access(_),
-                ))) => {}
+                Err(minimq::PubError::Serialization(DepthError {
+                    inner: SerDeError::Value(ValueError::Absent | ValueError::Access(_)),
+                    ..
+                })) => {}
 
                 Err(
                     minimq::PubError::Error(minimq::Error::Minimq(minimq::MinimqError::Protocol(
@@ -513,16 +537,17 @@ where
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
-                        json::get_by_key(settings, path, buf)
+                        track_depth(&path, |k| json::get_by_key(settings, k, buf))
                     })
                     .unwrap()
                     .properties(&[ResponseCode::Ok.into()])
                     .qos(QoS::AtLeastOnce),
                 ) {
                     match err {
-                        minimq::PubError::Serialization(miniconf::SerDeError::Value(
-                            miniconf::ValueError::Key(KeyError::TooShort),
-                        )) => {
+                        minimq::PubError::Serialization(DepthError {
+                            inner: SerDeError::Value(ValueError::Key(KeyError::TooShort)),
+                            ..
+                        }) => {
                             // Internal node: Dump or List
                             if state.state() == &sm::States::Single {
                                 match Multipart::from_properties(Settings::SCHEMA, properties) {
@@ -558,7 +583,7 @@ where
                 State::Unchanged
             } else {
                 // Set
-                match json::set_by_key(settings, path, payload) {
+                match track_depth(&path, |k| json::set_by_key(settings, k, payload)) {
                     Err(err) => {
                         Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged
