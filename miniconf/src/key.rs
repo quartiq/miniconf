@@ -1,4 +1,4 @@
-use core::{convert::Infallible, iter::Fuse, num::NonZero};
+use core::{convert::Infallible, iter::Fuse, num::NonZero, ops::ControlFlow};
 use serde::Serialize;
 
 use crate::{DescendError, KeyError, NodeIter, Packed, Shape, Transcode};
@@ -78,36 +78,43 @@ impl Schema {
     }
 
     /// Visit all representative schemata with their indices
-    pub fn visit_schema<'a, E>(
+    pub fn visit<'a, E>(
         &'a self,
         idx: &mut [usize],
         depth: usize,
-        func: &mut impl FnMut(&[usize], &'a Self) -> Result<(), E>,
-    ) -> Result<(), E> {
-        func(&idx[..depth], self)?;
+        func: &mut impl FnMut(&[usize], &'a Self) -> Result<ControlFlow<()>, E>,
+    ) -> Result<ControlFlow<()>, E> {
         if let Some(internal) = self.internal.as_ref() {
             if depth < idx.len() {
                 match internal {
                     Internal::Homogeneous(h) => {
-                        idx[depth] = 0; // at least one item guaranteed
-                        h.schema.visit_schema(idx, depth + 1, func)?;
+                        for i in 0..h.len.get() {
+                            idx[depth] = i;
+                            if h.schema.visit(idx, depth + 1, func)?.is_break() {
+                                break;
+                            }
+                        }
                     }
                     Internal::Named(n) => {
                         for (i, n) in n.iter().enumerate() {
                             idx[depth] = i;
-                            n.schema.visit_schema(idx, depth + 1, func)?;
+                            if n.schema.visit(idx, depth + 1, func)?.is_break() {
+                                break;
+                            }
                         }
                     }
                     Internal::Numbered(n) => {
                         for (i, n) in n.iter().enumerate() {
                             idx[depth] = i;
-                            n.schema.visit_schema(idx, depth + 1, func)?;
+                            if n.schema.visit(idx, depth + 1, func)?.is_break() {
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
-        Ok(())
+        func(&idx[..depth], self)
     }
 
     /// Visit all maximum length indices
@@ -117,33 +124,15 @@ impl Schema {
         &'a self,
         idx: &mut [usize],
         depth: usize,
-        func: &mut impl FnMut(&[usize], &'a Self) -> Result<(), E>,
-    ) -> Result<(), E> {
-        if let (Some(internal), Some(_)) = (self.internal.as_ref(), idx.get(depth)) {
-            match internal {
-                Internal::Homogeneous(h) => {
-                    for i in 0..h.len.get() {
-                        idx[depth] = i;
-                        h.schema.visit_nodes(idx, depth + 1, func)?;
-                    }
-                }
-                Internal::Named(n) => {
-                    for (i, n) in n.iter().enumerate() {
-                        idx[depth] = i;
-                        n.schema.visit_nodes(idx, depth + 1, func)?;
-                    }
-                }
-                Internal::Numbered(n) => {
-                    for (i, n) in n.iter().enumerate() {
-                        idx[depth] = i;
-                        n.schema.visit_nodes(idx, depth + 1, func)?;
-                    }
-                }
+        mut func: impl FnMut(&[usize], &'a Self) -> Result<ControlFlow<()>, E>,
+    ) -> Result<ControlFlow<()>, E> {
+        self.visit(idx, depth, &mut |idx, schema| {
+            if schema.is_leaf() {
+                func(idx, schema)
+            } else {
+                Ok(ControlFlow::Continue(()))
             }
-        } else {
-            func(&idx[..depth], self)?;
-        }
-        Ok(())
+        })
     }
 
     /// Traverse from the root to a leaf and call a function for each node.
@@ -189,7 +178,7 @@ impl Schema {
     pub fn descend<'a, E>(
         &'a self,
         mut keys: impl Keys,
-        func: &mut impl FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<(), E>,
+        mut func: impl FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<(), E>,
     ) -> Result<(), DescendError<E>> {
         let mut schema = self;
         while let Some(internal) = schema.internal.as_ref() {
@@ -201,10 +190,11 @@ impl Schema {
         func(&schema.meta, None).map_err(DescendError::Inner)
     }
 
+    /// Look up outer and inner metadata given keys.
     pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
         let mut outer = None;
         let mut inner = &self.meta;
-        self.descend(keys.into_keys(), &mut |meta, idx_internal| {
+        self.descend(keys.into_keys(), |meta, idx_internal| {
             if let Some((idx, internal)) = idx_internal {
                 outer = Some(internal.get_meta(idx));
             }

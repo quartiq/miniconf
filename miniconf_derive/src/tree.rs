@@ -162,9 +162,9 @@ impl Tree {
         }
     }
 
-    fn arms<F: FnMut(&TreeField, Option<usize>) -> TokenStream>(
+    fn arms(
         &self,
-        mut func: F,
+        mut func: impl FnMut(&TreeField, Option<usize>) -> TokenStream,
     ) -> (TokenStream, Vec<TokenStream>, TokenStream) {
         match &self.data {
             Data::Struct(fields) => (

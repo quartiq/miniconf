@@ -283,7 +283,7 @@ impl Transcode for Packed {
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 let bits = Packed::bits_for(internal.len().get() - 1);
                 self.push_lsb(bits, index).ok_or(())?;

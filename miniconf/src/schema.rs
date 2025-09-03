@@ -1,13 +1,12 @@
 //! JSON Schema tools
 
-use core::convert::Infallible;
 use std::collections::BTreeMap;
 
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde_json::Map;
 use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
 
-use crate::{trace::Types, Internal, Meta, Packed, Path, TreeSchema};
+use crate::{trace::Types, Internal, Meta, Path, TreeSchema};
 
 /// Disallow additional items and additional or missing properties
 pub fn strictify(schema: &mut Schema) {
@@ -210,7 +209,7 @@ fn build_schema(
     root: &crate::Schema,
     schema: &crate::Schema,
     generator: &mut SchemaGenerator,
-    leaves: &BTreeMap<Packed, Option<Format>>,
+    leaves: &BTreeMap<Path<String, '/'>, Option<Format>>,
 ) -> Option<Schema> {
     let mut sch = match schema.internal.as_ref() {
         Some(Internal::Named(nameds)) => {
@@ -271,8 +270,8 @@ fn build_schema(
             sch
         }
         None => {
-            let p: Packed = root.transcode(&idx[..depth]).unwrap();
-            let mut sch = leaves.get(&p)?.as_ref()?.json_schema(generator)?;
+            let p = root.transcode(&idx[..depth]).unwrap();
+            let mut sch = leaves.get(&p).unwrap().as_ref()?.json_schema(generator)?;
             sch.insert("x-tree-leaf".into(), true.into());
             sch
         }
@@ -293,70 +292,54 @@ fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
     }
 }
 
-impl crate::Schema {
-    pub fn visit<T, E>(
-        &self,
-        idx: &mut [usize],
-        depth: usize,
-        func: &mut impl FnMut(&[usize], &Meta, Option<(&Internal, Vec<T>)>) -> Result<T, E>,
-    ) -> Result<T, E> {
-        if let Some(internal) = self.internal.as_ref() {
-            let children: Result<Vec<_>, _> = match internal {
-                Internal::Homogeneous(h) => {
-                    idx[depth] = 0;
-                    [h.schema.visit(idx, depth + 1, func)].into_iter().collect()
-                }
-                Internal::Named(n) => n
-                    .iter()
-                    .enumerate()
-                    .map(|(i, n)| {
-                        idx[depth] = i;
-                        n.schema.visit(idx, depth + 1, func)
-                    })
-                    .collect(),
-                Internal::Numbered(n) => n
-                    .iter()
-                    .enumerate()
-                    .map(|(i, n)| {
-                        idx[depth] = i;
-                        n.schema.visit(idx, depth + 1, func)
-                    })
-                    .collect(),
-            };
-            func(&idx[..depth], &self.meta, Some((internal, children?)))
-        } else {
-            func(&idx[..depth], &self.meta, None)
-        }
-    }
-}
+// impl crate::Schema {
+//     pub fn visit<T, E>(
+//         &self,
+//         idx: &mut [usize],
+//         depth: usize,
+//         func: &mut impl FnMut(&[usize], &Meta, Option<(&Internal, Vec<T>)>) -> Result<T, E>,
+//     ) -> Result<T, E> {
+//         if let Some(internal) = self.internal.as_ref() {
+//             let children: Result<Vec<_>, _> = match internal {
+//                 Internal::Homogeneous(h) => {
+//                     idx[depth] = 0;
+//                     [h.schema.visit(idx, depth + 1, func)].into_iter().collect()
+//                 }
+//                 Internal::Named(n) => n
+//                     .iter()
+//                     .enumerate()
+//                     .map(|(i, n)| {
+//                         idx[depth] = i;
+//                         n.schema.visit(idx, depth + 1, func)
+//                     })
+//                     .collect(),
+//                 Internal::Numbered(n) => n
+//                     .iter()
+//                     .enumerate()
+//                     .map(|(i, n)| {
+//                         idx[depth] = i;
+//                         n.schema.visit(idx, depth + 1, func)
+//                     })
+//                     .collect(),
+//             };
+//             func(&idx[..depth], &self.meta, Some((internal, children?)))
+//         } else {
+//             func(&idx[..depth], &self.meta, None)
+//         }
+//     }
+// }
 
 impl<T: TreeSchema> ReflectJsonSchema for Types<T, Format> {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
         let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        T::SCHEMA
-            .visit(&mut idx, 0, &mut |idx, meta, internal_children| {
-                let mut sch = if let Some((internal, children)) = internal_children {
-                    match internal {
-                        Internal::Named(nameds) => todo!(),
-                        Internal::Numbered(numbereds) => todo!(),
-                        Internal::Homogeneous(homogeneous) => todo!(),
-                    }
-                } else {
-                    let p: Path<String, '/'> = T::SCHEMA.transcode(idx).unwrap();
-                    let mut sch = self
-                        .leaves
-                        .get(&p.into_inner())
-                        .unwrap()
-                        .as_ref()
-                        .and_then(|s| s.json_schema(generator))
-                        .ok_or(())?;
-                    sch.insert("x-tree-leaf".into(), true.into());
-                    sch
-                };
-                push_meta(&mut sch, "x-tree-inner", meta);
-                Ok::<_, ()>(Some(sch))
-            })
-            .unwrap()
+        build_schema(
+            &mut idx[..],
+            0,
+            T::SCHEMA,
+            T::SCHEMA,
+            generator,
+            &self.leaves,
+        )
     }
 }
 

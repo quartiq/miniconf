@@ -1,13 +1,15 @@
 //! Schema tracing
 
-use core::{convert::Infallible, marker::PhantomData};
+use core::{convert::Infallible, marker::PhantomData, ops::ControlFlow};
 use std::collections::BTreeMap;
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
-use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError};
+use crate::{
+    Internal, IntoKeys, Path, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+};
 
 /// Trace a leaf value
 pub fn trace_value(
@@ -62,12 +64,12 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Types<T, N> {
-    pub(crate) leaves: BTreeMap<String, Option<N>>,
+    pub(crate) leaves: BTreeMap<Path<String, '/'>, Option<N>>,
     _t: PhantomData<T>,
 }
 
 impl<T, N> Types<T, N> {
-    pub fn leaves(&self) -> &BTreeMap<String, Option<N>> {
+    pub fn leaves(&self) -> &BTreeMap<Path<String, '/'>, Option<N>> {
         &self.leaves
     }
 }
@@ -78,14 +80,18 @@ impl<T: TreeSchema, N> Default for Types<T, N> {
         let mut idx = vec![0; meta.max_depth];
         let mut leaves = BTreeMap::new(); // with_capacity(meta.count.get());
         T::SCHEMA
-            .visit_schema(&mut idx, 0, &mut |idx, schema| {
-                if schema.is_leaf() {
-                    let p: Path<String, '/'> = T::SCHEMA.transcode(idx).unwrap();
-                    leaves.insert(p.into_inner(), None);
+            .visit(&mut idx, 0, &mut |idx, schema| {
+                println!("{idx:?} {schema:?}");
+                if let Some(Internal::Homogeneous(..)) = schema.internal.as_ref() {
+                    return Ok(ControlFlow::Break(()));
                 }
-                Ok::<_, Infallible>(())
+                if schema.is_leaf() {
+                    leaves.insert(T::SCHEMA.transcode(idx).unwrap(), None);
+                }
+                Ok::<_, Infallible>(ControlFlow::Continue(()))
             })
-            .unwrap();
+            .unwrap()
+            .continue_value();
         Self {
             leaves,
             _t: PhantomData,
@@ -105,7 +111,7 @@ impl<T> Types<T, Format> {
         T: TreeSerialize,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_value(tracer, samples, Path::<_, '/'>::from(idx), value) {
+            match trace_value(tracer, samples, idx, value) {
                 Ok((mut fmt, _value)) => {
                     fmt.reduce();
                     *format = Some(fmt);
@@ -128,7 +134,7 @@ impl<T> Types<T, Format> {
         T: TreeDeserialize<'de>,
     {
         for (idx, format) in self.leaves.iter_mut() {
-            match trace_type::<T>(tracer, samples, Path::<_, '/'>::from(idx)) {
+            match trace_type::<T>(tracer, samples, idx) {
                 Ok(mut fmt) => {
                     fmt.reduce();
                     *format = Some(fmt);

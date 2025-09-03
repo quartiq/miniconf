@@ -183,7 +183,7 @@ impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 self.0.write_char(S)?;
                 let mut buf = itoa::Buffer::new();
@@ -272,7 +272,7 @@ macro_rules! impl_transcode_slice {
             type Error = ();
             fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError<Self::Error>> {
                 let mut it = self.iter_mut();
-                schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+                schema.descend(keys.into_keys(), |_meta, idx_schema| {
                     if let Some((index, internal)) = idx_schema {
                         debug_assert!(internal.len().get() <= <$t>::MAX as _);
                         let i = index.try_into().or(Err(()))?;
@@ -298,7 +298,7 @@ where
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
                 self.push(index.try_into()?);
             }
