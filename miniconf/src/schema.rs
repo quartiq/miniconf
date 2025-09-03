@@ -37,7 +37,7 @@ pub fn strictify(schema: &mut Schema) {
 /// Use before `strictify`
 pub fn unordered(schema: &mut Schema) {
     if let Some(o) = schema.as_object_mut() {
-        if o.remove("x-ordered-object") == Some(true.into()) {
+        if o.remove("x-object") == Some(true.into()) {
             if let Some(t) = o.insert("type".to_owned(), "object".into()) {
                 debug_assert_eq!(t, "array");
             }
@@ -128,7 +128,7 @@ impl ReflectJsonSchema for Vec<Named<Format>> {
             .map(|n| Some(json_schema!({"properties": {&n.name: n.value.json_schema(generator)?}})))
             .collect();
         Some(json_schema!({
-            "x-ordered-object": true, // Allow transform to unordered object
+            "x-object": true, // Allow transform to unordered object
             "prefixItems": items?,
         }))
     }
@@ -184,32 +184,32 @@ impl ReflectJsonSchema for VariantFormat {
     }
 }
 
-impl ReflectJsonSchema for Node<&'static crate::Schema, Format> {
+impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        let mut sch = match (self.tree.as_ref(), self.data.internal.as_ref()) {
-            (Ok(children), Some(internal)) => match internal {
+        let mut sch = if let Some(internal) = self.data.0.internal.as_ref() {
+            match internal {
                 Internal::Named(nameds) => {
                     let items: Option<Vec<_>> = nameds
                         .iter()
-                        .zip(children)
+                        .zip(&self.children)
                         .map(|(named, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "x-meta-outer", &named.meta);
+                            push_meta(&mut sch, "x-outer", &named.meta);
                             Some(json_schema!({"properties": {*named.name: sch}}))
                         })
                         .collect();
                     json_schema!({
-                        "x-ordered-object": true, // Allow transform to unordered object
+                        "x-object": true, // Allow transform to unordered object
                         "prefixItems": items?,
                     })
                 }
                 Internal::Numbered(numbereds) => {
                     let items: Option<Vec<_>> = numbereds
                         .iter()
-                        .zip(children)
+                        .zip(&self.children)
                         .map(|(numbered, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "x-meta-outer", &numbered.meta);
+                            push_meta(&mut sch, "x-outer", &numbered.meta);
                             Some(sch)
                         })
                         .collect();
@@ -217,40 +217,34 @@ impl ReflectJsonSchema for Node<&'static crate::Schema, Format> {
                 }
                 Internal::Homogeneous(homogeneous) => {
                     let mut sch = json_schema!({
-                        "items": children[0].json_schema(generator)?,
+                        "items": self.children[0].json_schema(generator)?,
                         "minItems": homogeneous.len,
                         "maxItems": homogeneous.len
                     });
-                    push_meta(&mut sch, "x-meta-outer", &homogeneous.meta);
+                    push_meta(&mut sch, "x-outer", &homogeneous.meta);
                     sch
                 }
-            },
-            (Err(format), None) => {
-                let mut sch = format.as_ref()?.json_schema(generator)?;
-                sch.insert("x-leaf".into(), true.into());
-                sch
             }
-            _ => unreachable!(),
-        };
-        push_meta(&mut sch, "x-meta-inner", &self.data.meta);
-        let name = self.data.meta.and_then(|meta| {
-            meta.iter()
-                .filter(|(key, _)| *key == "name")
-                .next()
-                .map(|(_, name)| format!("x-internal-{name}"))
-        });
-        if let Some(name) = name.as_ref() {
-            if let Some(existing) = generator.definitions().get(name) {
-                assert_eq!(existing, sch.as_value());
-            } else {
-                generator
-                    .definitions_mut()
-                    .insert(name.to_owned(), sch.into());
-            }
-            Some(Schema::new_ref(format!("#/$defs/{name}")))
         } else {
-            Some(sch)
+            let mut sch = self.data.1.as_ref()?.json_schema(generator)?;
+            sch.insert("x-leaf".into(), true.into());
+            sch
+        };
+        push_meta(&mut sch, "x-inner", &self.data.0.meta);
+        if let Some(meta) = self.data.0.meta {
+            if let Some((_, name)) = meta.iter().find(|(key, _)| *key == "name") {
+                let name = format!("x-internal-{name}");
+                if let Some(existing) = generator.definitions().get(&name) {
+                    assert_eq!(existing, sch.as_value());
+                } else {
+                    generator
+                        .definitions_mut()
+                        .insert(name.to_owned(), sch.into());
+                }
+                return Some(Schema::new_ref(format!("#/$defs/{name}")));
+            }
         }
+        Some(sch)
     }
 }
 
@@ -259,8 +253,8 @@ fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
         sch.insert(
             key.to_string(),
             meta.iter()
-                .map(|(k, v)| [k.to_string(), v.to_string()])
-                .collect::<Vec<_>>()
+                .map(|(k, v)| (k.to_string(), v.to_string().into()))
+                .collect::<Map<_, _>>()
                 .into(),
         );
     }

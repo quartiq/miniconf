@@ -61,42 +61,38 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct Node<I, L> {
-    pub data: I,
-    pub tree: Result<Vec<Node<I, L>>, Option<L>>,
+pub struct Node<D> {
+    pub data: D,
+    pub children: Vec<Node<D>>,
 }
 
-impl<I, L> Node<I, L> {
-    pub fn visit_leaves<E>(
+impl<D> Node<D> {
+    pub fn visit<E>(
         &mut self,
         idx: &mut [usize],
         depth: usize,
-        func: &mut impl FnMut(&[usize], &mut Option<L>) -> Result<(), E>,
+        func: &mut impl FnMut(&[usize], &mut D) -> Result<(), E>,
     ) -> Result<(), E> {
-        match &mut self.tree {
-            Err(t) => func(&idx[..depth], t),
-            Ok(c) => {
-                for (i, c) in c.iter_mut().enumerate() {
-                    idx[depth] = i;
-                    c.visit_leaves(idx, depth + 1, func)?;
-                }
-                Ok(())
-            }
+        for (i, c) in self.children.iter_mut().enumerate() {
+            idx[depth] = i;
+            c.visit(idx, depth + 1, func)?;
         }
+        func(&idx[..depth], &mut self.data)
     }
 }
 
-impl<L> From<&'static Schema> for Node<&'static Schema, L> {
+impl<L> From<&'static Schema> for Node<(&'static Schema, Option<L>)> {
     fn from(value: &'static Schema) -> Self {
         Self {
-            data: value,
-            tree: match value.internal.as_ref() {
-                Some(internal) => Ok(match internal {
+            data: (value, None),
+            children: if let Some(internal) = value.internal.as_ref() {
+                match internal {
                     Internal::Named(n) => n.iter().map(|n| n.schema.into()).collect(),
                     Internal::Numbered(n) => n.iter().map(|n| n.schema.into()).collect(),
                     Internal::Homogeneous(n) => vec![n.schema.into()],
-                }),
-                None => Err(None),
+                }
+            } else {
+                vec![]
             },
         }
     }
@@ -105,12 +101,12 @@ impl<L> From<&'static Schema> for Node<&'static Schema, L> {
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Types<T> {
-    pub(crate) root: Node<&'static Schema, Format>,
+    pub(crate) root: Node<(&'static Schema, Option<Format>)>,
     _t: PhantomData<T>,
 }
 
 impl<T> Types<T> {
-    pub fn root(&self) -> &Node<&'static Schema, Format> {
+    pub fn root(&self) -> &Node<(&'static Schema, Option<Format>)> {
         &self.root
     }
 }
@@ -136,18 +132,21 @@ impl<T> Types<T> {
         T: TreeSerialize,
     {
         let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        self.root.visit_leaves(&mut idx[..], 0, &mut |idx, format| {
-            match trace_value(tracer, samples, idx, value) {
-                Ok((mut fmt, _value)) => {
-                    fmt.reduce();
-                    *format = Some(fmt);
+        self.root
+            .visit(&mut idx[..], 0, &mut |idx, (schema, format)| {
+                if schema.is_leaf() {
+                    match trace_value(tracer, samples, idx, value) {
+                        Ok((mut fmt, _value)) => {
+                            fmt.reduce();
+                            *format = Some(fmt);
+                        }
+                        Err(SerDeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
+                        Err(SerDeError::Inner(e)) => Err(e)?,
+                        _ => unreachable!(),
+                    }
                 }
-                Err(SerDeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
-                Err(SerDeError::Inner(e)) => Err(e)?,
-                _ => unreachable!(),
-            }
-            Ok(())
-        })
+                Ok(())
+            })
     }
 
     /// Trace all leaf types until complete
@@ -160,20 +159,23 @@ impl<T> Types<T> {
         T: TreeDeserialize<'de>,
     {
         let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        self.root.visit_leaves(&mut idx[..], 0, &mut |idx, format| {
-            match trace_type::<T>(tracer, samples, idx) {
-                Ok(mut fmt) => {
-                    fmt.reduce();
-                    *format = Some(fmt);
+        self.root
+            .visit(&mut idx[..], 0, &mut |idx, (schema, format)| {
+                if schema.is_leaf() {
+                    match trace_type::<T>(tracer, samples, idx) {
+                        Ok(mut fmt) => {
+                            fmt.reduce();
+                            *format = Some(fmt);
+                        }
+                        Err(SerDeError::Value(ValueError::Access(_msg))) => {
+                            // probe access denied
+                        }
+                        Err(SerDeError::Inner(e) | SerDeError::Finalization(e)) => Err(e)?,
+                        _ => unreachable!(),
+                    }
                 }
-                Err(SerDeError::Value(ValueError::Access(_msg))) => {
-                    // probe access denied
-                }
-                Err(SerDeError::Inner(e) | SerDeError::Finalization(e)) => Err(e)?,
-                _ => unreachable!(),
-            }
-            Ok(())
-        })
+                Ok(())
+            })
     }
 
     /// Trace all leaf types assuming no samples are needed
