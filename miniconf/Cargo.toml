@@ -52,7 +52,7 @@ tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.27.1", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
-jsonschema = { version = "0.32.1", default-features = false }
+jsonschema = { version = "0.33.0", default-features = false }
 
 [[test]]
 name = "arrays"

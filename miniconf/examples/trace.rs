@@ -36,8 +36,8 @@ fn main() -> anyhow::Result<()> {
         .map(|(name, value)| (name.clone(), value.json_schema(&mut gen).into()))
         .collect::<Vec<_>>();
     gen.definitions_mut().extend(defs);
-    let mut root = types.json_schema(&mut gen).unwrap();
-    root.insert("title".into(), "Settings".into());
+    let mut root = types.root().json_schema(&mut gen).unwrap();
+    root.insert("title".into(), "Miniconf example: Settings".into());
     root.insert(
         "$id".into(),
         "https://quartiq.de/miniconf/example-settings".into(),

@@ -4,10 +4,7 @@ use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde_json::Map;
 use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
 
-use crate::{
-    trace::{Node, Types},
-    Internal, Meta, TreeSchema,
-};
+use crate::{trace::Node, Internal, Meta};
 
 /// Disallow additional items and additional or missing properties
 pub fn strictify(schema: &mut Schema) {
@@ -259,12 +256,3 @@ fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
         );
     }
 }
-
-impl<T: TreeSchema> ReflectJsonSchema for Types<T> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        self.root().json_schema(generator)
-    }
-}
-
-// TODO:
-// unit variant/struct: json_schema!({"type": "string", "const": name})

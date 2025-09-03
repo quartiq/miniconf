@@ -14,6 +14,7 @@ pub struct Inner {
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
+#[tree(meta(name = "Either"))]
 pub enum Either {
     #[default]
     Bad,
@@ -27,6 +28,7 @@ pub enum Either {
 pub struct Uni;
 
 #[derive(Tree, Default)]
+#[tree(meta(name = "Settings"))]
 pub struct Settings {
     foo: Leaf<bool>,
     enum_: Leaf<Either>,

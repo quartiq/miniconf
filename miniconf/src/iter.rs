@@ -29,14 +29,6 @@ impl<T: Iterator> Iterator for ExactSize<T> {
     }
 }
 
-impl<T> ExactSize<T> {
-    /// Return a reference to the inner iterator
-    #[inline]
-    pub fn inner(&self) -> &T {
-        &self.iter
-    }
-}
-
 // Even though general TreeSchema iterations may well be longer than usize::MAX
 // we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
@@ -70,6 +62,7 @@ pub struct NodeIter<N, const D: usize> {
 
 impl<N, const D: usize> NodeIter<N, D> {
     pub const fn with(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
+        assert!(root <= D);
         Self {
             schema,
             state,
