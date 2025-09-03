@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
 use crate::{
-    Internal, IntoKeys, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    Internal, IntoKeys, Schema, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
 /// Trace a leaf value
@@ -61,41 +61,21 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
-pub enum Node<T> {
-    Internal(Vec<Node<T>>),
-    Leaf(Option<T>),
+pub struct Node<I, L> {
+    pub data: I,
+    pub tree: Result<Vec<Node<I, L>>, Option<L>>,
 }
 
-impl<T> Node<T> {
-    pub fn get(&self, idx: &[usize]) -> &Option<T> {
-        match self {
-            Self::Internal(i) => i[idx[0]].get(&idx[1..]),
-            Self::Leaf(t) => {
-                debug_assert!(idx.is_empty());
-                t
-            }
-        }
-    }
-
-    pub fn get_mut(&mut self, idx: &[usize]) -> &mut Option<T> {
-        match self {
-            Self::Internal(i) => i[idx[0]].get_mut(&idx[1..]),
-            Self::Leaf(t) => {
-                debug_assert!(idx.is_empty());
-                t
-            }
-        }
-    }
-
+impl<I, L> Node<I, L> {
     pub fn visit_leaves<E>(
         &mut self,
         idx: &mut [usize],
         depth: usize,
-        func: &mut impl FnMut(&[usize], &mut Option<T>) -> Result<(), E>,
+        func: &mut impl FnMut(&[usize], &mut Option<L>) -> Result<(), E>,
     ) -> Result<(), E> {
-        match self {
-            Self::Leaf(t) => func(&idx[..depth], t),
-            Self::Internal(c) => {
+        match &mut self.tree {
+            Err(t) => func(&idx[..depth], t),
+            Ok(c) => {
                 for (i, c) in c.iter_mut().enumerate() {
                     idx[depth] = i;
                     c.visit_leaves(idx, depth + 1, func)?;
@@ -106,33 +86,36 @@ impl<T> Node<T> {
     }
 }
 
-impl<T> From<&crate::Schema> for Node<T> {
-    fn from(value: &crate::Schema) -> Self {
-        match value.internal.as_ref() {
-            Some(internal) => Self::Internal(match internal {
-                Internal::Named(n) => n.iter().map(|n| n.schema.into()).collect(),
-                Internal::Numbered(n) => n.iter().map(|n| n.schema.into()).collect(),
-                Internal::Homogeneous(n) => vec![n.schema.into()],
-            }),
-            None => Self::Leaf(None),
+impl<L> From<&'static Schema> for Node<&'static Schema, L> {
+    fn from(value: &'static Schema) -> Self {
+        Self {
+            data: value,
+            tree: match value.internal.as_ref() {
+                Some(internal) => Ok(match internal {
+                    Internal::Named(n) => n.iter().map(|n| n.schema.into()).collect(),
+                    Internal::Numbered(n) => n.iter().map(|n| n.schema.into()).collect(),
+                    Internal::Homogeneous(n) => vec![n.schema.into()],
+                }),
+                None => Err(None),
+            },
         }
     }
 }
 
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Types<T, N> {
-    pub(crate) root: Node<N>,
+pub struct Types<T> {
+    pub(crate) root: Node<&'static Schema, Format>,
     _t: PhantomData<T>,
 }
 
-impl<T, N> Types<T, N> {
-    pub fn root(&self) -> &Node<N> {
+impl<T> Types<T> {
+    pub fn root(&self) -> &Node<&'static Schema, Format> {
         &self.root
     }
 }
 
-impl<T: TreeSchema, N> Default for Types<T, N> {
+impl<T: TreeSchema> Default for Types<T> {
     fn default() -> Self {
         Self {
             root: T::SCHEMA.into(),
@@ -141,7 +124,7 @@ impl<T: TreeSchema, N> Default for Types<T, N> {
     }
 }
 
-impl<T> Types<T, Format> {
+impl<T> Types<T> {
     /// Trace all leaf values
     pub fn trace_values(
         &mut self,
