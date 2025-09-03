@@ -1,15 +1,13 @@
 //! Schema tracing
 
-use core::{convert::Infallible, marker::PhantomData, ops::ControlFlow};
+use core::{convert::Infallible, marker::PhantomData};
 use std::collections::BTreeMap;
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
-use crate::{
-    Internal, IntoKeys, Path, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
-};
+use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError};
 
 /// Trace a leaf value
 pub fn trace_value(
@@ -76,22 +74,14 @@ impl<T, N> Types<T, N> {
 
 impl<T: TreeSchema, N> Default for Types<T, N> {
     fn default() -> Self {
-        let meta = T::SCHEMA.shape();
-        let mut idx = vec![0; meta.max_depth];
-        let mut leaves = BTreeMap::new(); // with_capacity(meta.count.get());
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        let mut leaves = BTreeMap::new();
         T::SCHEMA
-            .visit(&mut idx, 0, &mut |idx, schema| {
-                println!("{idx:?} {schema:?}");
-                if let Some(Internal::Homogeneous(..)) = schema.internal.as_ref() {
-                    return Ok(ControlFlow::Break(()));
-                }
-                if schema.is_leaf() {
-                    leaves.insert(T::SCHEMA.transcode(idx).unwrap(), None);
-                }
-                Ok::<_, Infallible>(ControlFlow::Continue(()))
+            .visit_leaves(&mut idx, |idx, _schema| {
+                leaves.insert(T::SCHEMA.transcode(idx).unwrap(), None);
+                Ok::<_, Infallible>(())
             })
-            .unwrap()
-            .continue_value();
+            .unwrap();
         Self {
             leaves,
             _t: PhantomData,

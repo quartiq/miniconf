@@ -8,9 +8,50 @@ use darling::{
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{parse_quote, WhereClause};
+use syn::{parse_quote, spanned::Spanned, WhereClause};
 
-use crate::field::{doc_to_meta, TreeField, TreeTrait};
+use crate::field::{TreeField, TreeTrait};
+
+fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
+    attrs
+        .into_iter()
+        .filter_map(|a| {
+            if a.path().is_ident("doc") {
+                let syn::Expr::Lit(syn::ExprLit {
+                    lit: syn::Lit::Str(doc),
+                    ..
+                }) = &a.meta.require_name_value().unwrap().value
+                else {
+                    panic!("Unexpected `doc` attribute format");
+                };
+                return Some(doc.value().trim().to_owned());
+            }
+            None
+        })
+        .reduce(|mut a, b| {
+            a.push('\n');
+            a.push_str(&b);
+            a
+        })
+}
+
+fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) -> Result<()> {
+    if let Some(doc) = get_doc(&attrs) {
+        if let Some(old) = meta.insert("doc".to_owned(), doc) {
+            return Err(Error::custom(format!("Duplicate 'doc' meta")).with_span(&old.span()));
+        }
+    }
+    Ok(())
+}
+
+fn meta_to_tokens(meta: &BTreeMap<String, String>) -> TokenStream {
+    if !meta.is_empty() {
+        let meta: TokenStream = meta.iter().map(|(k, v)| quote!((#k, #v), )).collect();
+        quote!(::core::option::Option::Some(&[#meta]))
+    } else {
+        quote!(::core::option::Option::None)
+    }
+}
 
 #[derive(Debug, FromVariant, Clone)]
 #[darling(
@@ -18,14 +59,14 @@ use crate::field::{doc_to_meta, TreeField, TreeTrait};
     forward_attrs(doc),
     supports(newtype, tuple, unit),
     and_then=Self::parse)]
-pub struct TreeVariant {
+struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
     fields: ast::Fields<TreeField>,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
-    meta: BTreeMap<String, Option<String>>,
+    meta: BTreeMap<String, String>,
 }
 
 impl TreeVariant {
@@ -57,10 +98,6 @@ impl TreeVariant {
 
     fn name(&self) -> &syn::Ident {
         self.rename.as_ref().unwrap_or(&self.ident)
-    }
-
-    pub fn meta(&self) -> TokenStream {
-        self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
     }
 }
 
@@ -114,7 +151,7 @@ impl Tree {
                         )
                         .with_span(&v.ident.span()));
                     }
-                    if !v.field().meta().is_empty() {
+                    if !v.field().meta.is_empty() {
                         return Err(Error::custom(
                             "Outer metadata must be placed on the variant, not on the tuple field.",
                         )
@@ -227,10 +264,6 @@ impl Tree {
         }
     }
 
-    fn meta(&self) -> TokenStream {
-        self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
-    }
-
     pub fn tree_schema(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
@@ -247,10 +280,10 @@ impl Tree {
                                 .iter()
                                 .map(|f| {
                                     let typ = f.typ();
-                                    let meta = f.meta();
+                                    let meta = meta_to_tokens(&f.meta);
                                     quote_spanned! { f.span()=> ::miniconf::Numbered {
                                         schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
-                                        meta: Some(&[#meta]),
+                                        meta: #meta,
                                     }, }
                                 })
                                 .collect();
@@ -263,11 +296,11 @@ impl Tree {
                                     // ident is Some
                                     let name = f.name().unwrap();
                                     let typ = f.typ();
-                                    let meta = f.meta();
+                                    let meta = meta_to_tokens(&f.meta);
                                     quote_spanned! { name.span()=> ::miniconf::Named {
                                         name: stringify!(#name),
                                         schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
-                                        meta: Some(&[#meta]),
+                                        meta: #meta,
                                     }, }
                                 })
                                 .collect();
@@ -283,21 +316,21 @@ impl Tree {
                             let name = v.name();
                             // ident is Some
                             let typ = v.field().typ();
-                            let meta = v.meta();
+                            let meta = meta_to_tokens(&v.meta);
                             quote_spanned! { v.field().span()=> ::miniconf::Named {
                                 name: stringify!(#name),
                                 schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
-                                meta: Some(&[#meta]),
+                                meta: #meta,
                             }, }
                         })
                         .collect();
                     quote! { ::miniconf::Internal::Named(&[#named]) }
                 }
             };
-            let meta = self.meta();
+            let meta = meta_to_tokens(&self.meta);
             quote! { &::miniconf::Schema {
-                meta: Some(&[#meta]),
-                internal: Some(#internal),
+                meta: #meta,
+                internal: ::core::option::Option::Some(#internal),
             } }
         };
         quote! {

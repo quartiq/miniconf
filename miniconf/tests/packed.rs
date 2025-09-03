@@ -35,7 +35,7 @@ fn packed() {
         println!(
             "{path:?} {iter_path:?}, {:#06b} {} {:?}",
             packed.inner.get() >> 60,
-            packed.inner.into_lsb().get(),
+            packed.inner.into_lsb(),
             packed.depth
         );
     }
@@ -43,7 +43,7 @@ fn packed() {
         "{:?}",
         Settings::SCHEMA
             .nodes::<Packed, 2>()
-            .map(|p| p.unwrap().into_lsb().get())
+            .map(|p| p.unwrap().into_lsb())
             .collect::<Vec<_>>()
     );
 

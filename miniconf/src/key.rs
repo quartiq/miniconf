@@ -77,12 +77,13 @@ impl Schema {
         keys.next(self.internal.as_ref().unwrap())
     }
 
-    /// Visit all representative schemata with their indices
+    /// Visit all schemata with their indices
     pub fn visit<'a, E>(
         &'a self,
         idx: &mut [usize],
         depth: usize,
-        func: &mut impl FnMut(&[usize], &'a Self) -> Result<ControlFlow<()>, E>,
+        outer: Option<&'a Self>,
+        func: &mut impl FnMut(&[usize], Option<&'a Self>, &'a Self) -> Result<ControlFlow<()>, E>,
     ) -> Result<ControlFlow<()>, E> {
         if let Some(internal) = self.internal.as_ref() {
             if depth < idx.len() {
@@ -90,7 +91,7 @@ impl Schema {
                     Internal::Homogeneous(h) => {
                         for i in 0..h.len.get() {
                             idx[depth] = i;
-                            if h.schema.visit(idx, depth + 1, func)?.is_break() {
+                            if h.schema.visit(idx, depth + 1, Some(self), func)?.is_break() {
                                 break;
                             }
                         }
@@ -98,7 +99,7 @@ impl Schema {
                     Internal::Named(n) => {
                         for (i, n) in n.iter().enumerate() {
                             idx[depth] = i;
-                            if n.schema.visit(idx, depth + 1, func)?.is_break() {
+                            if n.schema.visit(idx, depth + 1, Some(self), func)?.is_break() {
                                 break;
                             }
                         }
@@ -106,7 +107,7 @@ impl Schema {
                     Internal::Numbered(n) => {
                         for (i, n) in n.iter().enumerate() {
                             idx[depth] = i;
-                            if n.schema.visit(idx, depth + 1, func)?.is_break() {
+                            if n.schema.visit(idx, depth + 1, Some(self), func)?.is_break() {
                                 break;
                             }
                         }
@@ -114,25 +115,32 @@ impl Schema {
                 }
             }
         }
-        func(&idx[..depth], self)
+        func(&idx[..depth], outer, self)
     }
 
-    /// Visit all maximum length indices
+    /// Visit all representative maximum length indices
     ///
-    /// THe recursive version of NodeIter
-    pub fn visit_nodes<'a, E>(
+    /// The recursive representative version of NodeIter
+    pub fn visit_leaves<'a, E>(
         &'a self,
         idx: &mut [usize],
-        depth: usize,
-        mut func: impl FnMut(&[usize], &'a Self) -> Result<ControlFlow<()>, E>,
-    ) -> Result<ControlFlow<()>, E> {
-        self.visit(idx, depth, &mut |idx, schema| {
-            if schema.is_leaf() {
-                func(idx, schema)
+        mut func: impl FnMut(&[usize], &'a Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let _ = self.visit(idx, 0, None, &mut |idx, outer, inner| {
+            if inner.is_leaf() {
+                func(idx, inner)?;
+            }
+            if outer
+                .and_then(|o| o.internal.as_ref())
+                .map(|i| matches!(i, Internal::Homogeneous(_)))
+                .unwrap_or_default()
+            {
+                Ok(ControlFlow::Break(()))
             } else {
                 Ok(ControlFlow::Continue(()))
             }
-        })
+        })?;
+        Ok(())
     }
 
     /// Traverse from the root to a leaf and call a function for each node.

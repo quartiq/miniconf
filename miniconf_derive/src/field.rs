@@ -4,43 +4,11 @@ use darling::{
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
     util::Flag,
-    Error, FromField, FromMeta, Result,
+    FromField, FromMeta,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned, ToTokens};
 use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
-
-fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
-    attrs
-        .into_iter()
-        .filter_map(|a| {
-            if a.path().is_ident("doc") {
-                let syn::Expr::Lit(syn::ExprLit {
-                    lit: syn::Lit::Str(doc),
-                    ..
-                }) = &a.meta.require_name_value().unwrap().value
-                else {
-                    panic!("Unexpected `doc` attribute format");
-                };
-                return Some(doc.value().trim().to_owned());
-            }
-            None
-        })
-        .reduce(|mut a, b| {
-            a.push('\n');
-            a.push_str(&b);
-            a
-        })
-}
-
-pub fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) -> Result<()> {
-    if let Some(doc) = get_doc(&attrs) {
-        if let Some(old) = meta.insert("doc".to_owned(), doc) {
-            return Err(Error::custom(format!("Duplicate 'doc' meta")).with_span(&old.span()));
-        }
-    }
-    Ok(())
-}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TreeTrait {
@@ -102,10 +70,6 @@ impl TreeField {
 
     pub fn typ(&self) -> &syn::Type {
         self.typ.as_ref().unwrap_or(&self.ty)
-    }
-
-    pub fn meta(&self) -> TokenStream {
-        self.meta.iter().map(|(k, v)| quote!((#k, #v), )).collect()
     }
 
     pub fn bound(&self, trtr: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {
