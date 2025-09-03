@@ -1,13 +1,14 @@
 //! Schema tracing
 
-use core::{convert::Infallible, marker::PhantomData};
-use std::collections::BTreeMap;
+use core::marker::PhantomData;
 
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
-use crate::{IntoKeys, Path, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError};
+use crate::{
+    Internal, IntoKeys, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+};
 
 /// Trace a leaf value
 pub fn trace_value(
@@ -59,31 +60,82 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
     }
 }
 
+#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
+pub enum Node<T> {
+    Internal(Vec<Node<T>>),
+    Leaf(Option<T>),
+}
+
+impl<T> Node<T> {
+    pub fn get(&self, idx: &[usize]) -> &Option<T> {
+        match self {
+            Self::Internal(i) => i[idx[0]].get(&idx[1..]),
+            Self::Leaf(t) => {
+                debug_assert!(idx.is_empty());
+                t
+            }
+        }
+    }
+
+    pub fn get_mut(&mut self, idx: &[usize]) -> &mut Option<T> {
+        match self {
+            Self::Internal(i) => i[idx[0]].get_mut(&idx[1..]),
+            Self::Leaf(t) => {
+                debug_assert!(idx.is_empty());
+                t
+            }
+        }
+    }
+
+    pub fn visit_leaves<E>(
+        &mut self,
+        idx: &mut [usize],
+        depth: usize,
+        func: &mut impl FnMut(&[usize], &mut Option<T>) -> Result<(), E>,
+    ) -> Result<(), E> {
+        match self {
+            Self::Leaf(t) => func(&idx[..depth], t),
+            Self::Internal(c) => {
+                for (i, c) in c.iter_mut().enumerate() {
+                    idx[depth] = i;
+                    c.visit_leaves(idx, depth + 1, func)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl<T> From<&crate::Schema> for Node<T> {
+    fn from(value: &crate::Schema) -> Self {
+        match value.internal.as_ref() {
+            Some(internal) => Self::Internal(match internal {
+                Internal::Named(n) => n.iter().map(|n| n.schema.into()).collect(),
+                Internal::Numbered(n) => n.iter().map(|n| n.schema.into()).collect(),
+                Internal::Homogeneous(n) => vec![n.schema.into()],
+            }),
+            None => Self::Leaf(None),
+        }
+    }
+}
+
 /// Graph of `Node` for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Types<T, N> {
-    pub(crate) leaves: BTreeMap<Path<String, '/'>, Option<N>>,
+    pub(crate) root: Node<N>,
     _t: PhantomData<T>,
 }
 
 impl<T, N> Types<T, N> {
-    pub fn leaves(&self) -> &BTreeMap<Path<String, '/'>, Option<N>> {
-        &self.leaves
+    pub fn root(&self) -> &Node<N> {
+        &self.root
     }
 }
 
 impl<T: TreeSchema, N> Default for Types<T, N> {
     fn default() -> Self {
-        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        let mut leaves = BTreeMap::new();
-        T::SCHEMA
-            .visit_leaves(&mut idx, |idx, _schema| {
-                leaves.insert(T::SCHEMA.transcode(idx).unwrap(), None);
-                Ok::<_, Infallible>(())
-            })
-            .unwrap();
         Self {
-            leaves,
+            root: T::SCHEMA.into(),
             _t: PhantomData,
         }
     }
@@ -100,7 +152,8 @@ impl<T> Types<T, Format> {
     where
         T: TreeSerialize,
     {
-        for (idx, format) in self.leaves.iter_mut() {
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        self.root.visit_leaves(&mut idx[..], 0, &mut |idx, format| {
             match trace_value(tracer, samples, idx, value) {
                 Ok((mut fmt, _value)) => {
                     fmt.reduce();
@@ -110,8 +163,8 @@ impl<T> Types<T, Format> {
                 Err(SerDeError::Inner(e)) => Err(e)?,
                 _ => unreachable!(),
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Trace all leaf types until complete
@@ -123,7 +176,8 @@ impl<T> Types<T, Format> {
     where
         T: TreeDeserialize<'de>,
     {
-        for (idx, format) in self.leaves.iter_mut() {
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        self.root.visit_leaves(&mut idx[..], 0, &mut |idx, format| {
             match trace_type::<T>(tracer, samples, idx) {
                 Ok(mut fmt) => {
                     fmt.reduce();
@@ -135,8 +189,8 @@ impl<T> Types<T, Format> {
                 Err(SerDeError::Inner(e) | SerDeError::Finalization(e)) => Err(e)?,
                 _ => unreachable!(),
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Trace all leaf types assuming no samples are needed

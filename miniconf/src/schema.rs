@@ -1,12 +1,13 @@
 //! JSON Schema tools
 
-use std::collections::BTreeMap;
-
 use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde_json::Map;
 use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
 
-use crate::{trace::Types, Internal, Meta, Path, TreeSchema};
+use crate::{
+    trace::{Node, Types},
+    Internal, Meta, TreeSchema,
+};
 
 /// Disallow additional items and additional or missing properties
 pub fn strictify(schema: &mut Schema) {
@@ -187,22 +188,10 @@ fn build_schema(
     // TODO: wrapper and impl
     idx: &mut [usize],
     depth: usize,
-    root: &crate::Schema,
     schema: &crate::Schema,
     generator: &mut SchemaGenerator,
-    leaves: &BTreeMap<Path<String, '/'>, Option<Format>>,
+    leaves: &Node<Format>,
 ) -> Option<Schema> {
-    let name = schema.meta.and_then(|meta| {
-        meta.iter()
-            .filter(|(key, _)| *key == "name")
-            .next()
-            .map(|(_, name)| format!("x-internal-{name}"))
-    });
-    if let Some(name) = name.as_ref() {
-        if generator.definitions().contains_key(name) {
-            return Some(Schema::new_ref(format!("#/$defs/{name}")));
-        }
-    }
     let mut sch = if let Some(internal) = schema.internal.as_ref() {
         match internal {
             Internal::Named(nameds) => {
@@ -212,7 +201,7 @@ fn build_schema(
                     .map(|(i, named)| {
                         idx[depth] = i;
                         let mut sch =
-                            build_schema(idx, depth + 1, root, named.schema, generator, leaves)?;
+                            build_schema(idx, depth + 1, named.schema, generator, leaves)?;
                         push_meta(&mut sch, "x-meta-outer", &named.meta);
                         Some(json_schema!({"properties": {*named.name: sch}}))
                     })
@@ -229,7 +218,7 @@ fn build_schema(
                     .map(|(i, numbered)| {
                         idx[depth] = i;
                         let mut sch =
-                            build_schema(idx, depth + 1, root, numbered.schema, generator, leaves)?;
+                            build_schema(idx, depth + 1, numbered.schema, generator, leaves)?;
                         push_meta(&mut sch, "x-meta-outer", &numbered.meta);
                         Some(sch)
                     })
@@ -239,7 +228,7 @@ fn build_schema(
             Internal::Homogeneous(homogeneous) => {
                 idx[depth] = 0;
                 let mut sch = json_schema!({
-                    "items": build_schema(idx, depth + 1, root, homogeneous.schema, generator, leaves)?,
+                    "items": build_schema(idx, depth + 1, homogeneous.schema, generator, leaves)?,
                     "minItems": homogeneous.len,
                     "maxItems": homogeneous.len
                 });
@@ -248,17 +237,25 @@ fn build_schema(
             }
         }
     } else {
-        let p = root.transcode(&idx[..depth]).unwrap();
-        let mut sch = leaves.get(&p).unwrap().as_ref()?.json_schema(generator)?;
+        let mut sch = leaves.get(&idx[..depth]).as_ref()?.json_schema(generator)?;
         sch.insert("x-leaf".into(), true.into());
         sch
     };
     push_meta(&mut sch, "x-meta-inner", &schema.meta);
-    if let Some(name) = name {
-        assert!(generator
-            .definitions_mut()
-            .insert(name.to_owned(), sch.into())
-            .is_none());
+    let name = schema.meta.and_then(|meta| {
+        meta.iter()
+            .filter(|(key, _)| *key == "name")
+            .next()
+            .map(|(_, name)| format!("x-internal-{name}"))
+    });
+    if let Some(name) = name.as_ref() {
+        if let Some(existing) = generator.definitions().get(name) {
+            assert_eq!(existing, sch.as_value());
+        } else {
+            generator
+                .definitions_mut()
+                .insert(name.to_owned(), sch.into());
+        }
         Some(Schema::new_ref(format!("#/$defs/{name}")))
     } else {
         Some(sch)
@@ -280,14 +277,7 @@ fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
 impl<T: TreeSchema> ReflectJsonSchema for Types<T, Format> {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
         let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        build_schema(
-            &mut idx[..],
-            0,
-            T::SCHEMA,
-            T::SCHEMA,
-            generator,
-            &self.leaves,
-        )
+        build_schema(&mut idx[..], 0, T::SCHEMA, generator, &self.root)
     }
 }
 

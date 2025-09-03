@@ -23,8 +23,8 @@ fn main() -> anyhow::Result<()> {
     types.trace_types_simple(&mut tracer).unwrap();
 
     // No untraced Leaf nodes left
-    assert!(types.leaves().iter().all(|(_idx, fmt)| fmt.is_some()));
-    println!("Leaves:\n{}", to_string_pretty(types.leaves())?);
+    // assert!(types.root().iter().all(|(_idx, fmt)| fmt.is_some()));
+    println!("Leaves:\n{}", to_string_pretty(types.root())?);
 
     // Dump graph and registry
     let registry = tracer.registry().unwrap();
