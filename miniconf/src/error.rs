@@ -54,7 +54,7 @@ pub enum ValueError {
 
 /// Compound errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum SerDeError<E> {
+pub enum SerdeError<E> {
     #[error(transparent)]
     Value(#[from] ValueError),
 
@@ -80,20 +80,20 @@ pub enum SerDeError<E> {
     Finalization(#[source] E),
 }
 
-impl<E> From<KeyError> for SerDeError<E> {
+impl<E> From<KeyError> for SerdeError<E> {
     #[inline]
     fn from(value: KeyError) -> Self {
-        SerDeError::Value(value.into())
+        SerdeError::Value(value.into())
     }
 }
 
 // Try to extract the Traversal from an Error
-impl<E> TryFrom<SerDeError<E>> for KeyError {
-    type Error = SerDeError<E>;
+impl<E> TryFrom<SerdeError<E>> for KeyError {
+    type Error = SerdeError<E>;
     #[inline]
-    fn try_from(value: SerDeError<E>) -> Result<Self, Self::Error> {
+    fn try_from(value: SerdeError<E>) -> Result<Self, Self::Error> {
         match value {
-            SerDeError::Value(ValueError::Key(e)) => Ok(e),
+            SerdeError::Value(ValueError::Key(e)) => Ok(e),
             e => Err(e),
         }
     }
@@ -124,13 +124,13 @@ impl<E> TryFrom<DescendError<E>> for KeyError {
 }
 
 // Try to extract the Traversal from an Error
-impl<E> TryFrom<SerDeError<E>> for ValueError {
+impl<E> TryFrom<SerdeError<E>> for ValueError {
     type Error = E;
     #[inline]
-    fn try_from(value: SerDeError<E>) -> Result<Self, Self::Error> {
+    fn try_from(value: SerdeError<E>) -> Result<Self, Self::Error> {
         match value {
-            SerDeError::Value(e) => Ok(e),
-            SerDeError::Finalization(e) | SerDeError::Inner(e) => Err(e),
+            SerdeError::Value(e) => Ok(e),
+            SerdeError::Finalization(e) | SerdeError::Inner(e) => Err(e),
         }
     }
 }

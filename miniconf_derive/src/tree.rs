@@ -355,7 +355,7 @@ impl Tree {
                     &self,
                     mut keys: impl ::miniconf::Keys,
                     ser: S
-                ) -> ::core::result::Result<S::Ok, ::miniconf::SerDeError<S::Error>>
+                ) -> ::core::result::Result<S::Ok, ::miniconf::SerdeError<S::Error>>
                 {
                     let index = #index?;
                     match #mat {
@@ -396,7 +396,7 @@ impl Tree {
                     &mut self,
                     mut keys: impl ::miniconf::Keys,
                     de: D
-                ) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
+                ) -> ::core::result::Result<(), ::miniconf::SerdeError<D::Error>>
                 {
                     let index = #index?;
                     match #mat {
@@ -408,7 +408,7 @@ impl Tree {
             fn probe_by_key<D: ::miniconf::Deserializer<'de>>(
                 mut keys: impl ::miniconf::Keys,
                 de: D
-            ) -> ::core::result::Result<(), ::miniconf::SerDeError<D::Error>>
+            ) -> ::core::result::Result<(), ::miniconf::SerdeError<D::Error>>
                 {
                     let index = #index?;
                     match index {

@@ -7,7 +7,7 @@ use core::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    Keys, Schema, SerDeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
 /// `Serialize`/`Deserialize`/`Any` leaf
@@ -74,9 +74,9 @@ impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         keys.finalize()?;
-        self.0.serialize(ser).map_err(SerDeError::Inner)
+        self.0.serialize(ser).map_err(SerdeError::Inner)
     }
 }
 
@@ -86,9 +86,9 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        self.0 = T::deserialize(de).map_err(SerDeError::Inner)?;
+        self.0 = T::deserialize(de).map_err(SerdeError::Inner)?;
         Ok(())
     }
 
@@ -96,9 +96,9 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        T::deserialize(de).map_err(SerDeError::Inner)?;
+        T::deserialize(de).map_err(SerdeError::Inner)?;
         Ok(())
     }
 }
@@ -194,10 +194,10 @@ impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         keys.finalize()?;
         let name = self.0.as_ref();
-        name.serialize(ser).map_err(SerDeError::Inner)
+        name.serialize(ser).map_err(SerdeError::Inner)
     }
 }
 
@@ -207,9 +207,9 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        let name = Deserialize::deserialize(de).map_err(SerDeError::Inner)?;
+        let name = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
         self.0 = T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
         Ok(())
     }
@@ -218,9 +218,9 @@ impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        let name = Deserialize::deserialize(de).map_err(SerDeError::Inner)?;
+        let name = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
         T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
         Ok(())
     }
@@ -295,7 +295,7 @@ impl<T: TreeSchema + ?Sized> TreeSerialize for Deny<T> {
         &self,
         _keys: impl Keys,
         _ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         Err(ValueError::Access("Denied").into())
     }
 }
@@ -306,7 +306,7 @@ impl<'de, T: TreeSchema + ?Sized> TreeDeserialize<'de> for Deny<T> {
         &mut self,
         _keys: impl Keys,
         _de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         Err(ValueError::Access("Denied").into())
     }
 
@@ -314,7 +314,7 @@ impl<'de, T: TreeSchema + ?Sized> TreeDeserialize<'de> for Deny<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         _keys: impl Keys,
         _de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         Err(ValueError::Access("Denied").into())
     }
 }

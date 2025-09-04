@@ -1,5 +1,5 @@
 use heapless::String;
-use miniconf::{Keys, Leaf, SerDeError, Tree, TreeDeserialize, ValueError};
+use miniconf::{Keys, Leaf, SerdeError, Tree, TreeDeserialize, ValueError};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
@@ -36,7 +36,7 @@ impl Settings {
         &mut self,
         keys: K,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         let old = *self.four;
         self.four.deserialize_by_key(keys, de)?;
         if *self.four < 4.0 {

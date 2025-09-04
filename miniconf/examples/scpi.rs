@@ -80,9 +80,9 @@ impl<'a> IntoIterator for ScpiPath<'a> {
 #[derive(thiserror::Error, Debug, Copy, Clone)]
 enum Error {
     #[error("While setting value")]
-    Set(#[from] miniconf::SerDeError<serde_json_core::de::Error>),
+    Set(#[from] miniconf::SerdeError<serde_json_core::de::Error>),
     #[error("While getting value")]
-    Get(#[from] miniconf::SerDeError<serde_json_core::ser::Error>),
+    Get(#[from] miniconf::SerdeError<serde_json_core::ser::Error>),
     #[error("Parse failure: {0}")]
     Parse(&'static str),
     #[error("Could not print value")]

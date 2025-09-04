@@ -10,7 +10,7 @@ use core::{fmt::Display, marker::PhantomData};
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerDeError, Track,
+    json, DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerdeError, Track,
     TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
 };
 pub use minimq;
@@ -184,7 +184,7 @@ impl From<ResponseCode> for minimq::Property<'static> {
 
 #[derive(Debug, Clone, PartialEq)]
 struct DepthError<E> {
-    inner: SerDeError<E>,
+    inner: SerdeError<E>,
     depth: usize,
 }
 
@@ -196,7 +196,7 @@ impl<E> Display for DepthError<E> {
 
 fn track_depth<T, E, K: IntoKeys>(
     keys: K,
-    func: impl FnOnce(&mut Track<K::IntoKeys>) -> Result<T, SerDeError<E>>,
+    func: impl FnOnce(&mut Track<K::IntoKeys>) -> Result<T, SerdeError<E>>,
 ) -> Result<T, DepthError<E>> {
     let mut tracked = keys.into_keys().track();
     func(&mut tracked).map_err(|inner| DepthError {
@@ -469,7 +469,7 @@ where
 
             match self.mqtt.client().publish(response) {
                 Err(minimq::PubError::Serialization(DepthError {
-                    inner: SerDeError::Value(ValueError::Absent | ValueError::Access(_)),
+                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
                     ..
                 })) => {}
 
@@ -545,7 +545,7 @@ where
                 ) {
                     match err {
                         minimq::PubError::Serialization(DepthError {
-                            inner: SerDeError::Value(ValueError::Key(KeyError::TooShort)),
+                            inner: SerdeError::Value(ValueError::Key(KeyError::TooShort)),
                             ..
                         }) => {
                             // Internal node: Dump or List

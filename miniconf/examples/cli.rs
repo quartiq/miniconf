@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{json, IntoKeys, Keys, Path, SerDeError, TreeSchema, ValueError};
+use miniconf::{json, IntoKeys, Keys, Path, SerdeError, TreeSchema, ValueError};
 
 mod common;
 
@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
                     core::str::from_utf8(&buf[..len]).unwrap()
                 );
             }
-            Err(SerDeError::Value(ValueError::Absent)) => {
+            Err(SerdeError::Value(ValueError::Absent)) => {
                 println!("-{} absent (depth: {})", key.as_str(), k.depth);
             }
             Err(e) => panic!("{e:?}"),

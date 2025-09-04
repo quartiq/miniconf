@@ -9,7 +9,7 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::{debug, hprintln};
 
 use crosstrait::{register, Cast};
-use miniconf::{self, json, IntoKeys, JsonPath, Leaf, Node, Packed, Path, Tree, TreeAny, TreeSchema};
+use miniconf::{self, json, IntoKeys, JsonPath, Leaf, Packed, Path, Tree, TreeAny, TreeSchema};
 
 use core::ops::{AddAssign, SubAssign};
 register! { i32 => dyn AddAssign<i32> }
@@ -44,7 +44,7 @@ fn main() -> ! {
 
     let mut s = Settings::default();
 
-    let path = Path::<_, '/'>::from("/i/1/val");
+    let path = Path::<_, '/'>("/i/1/val");
     json::set_by_key(&mut s, &path, b"3").unwrap();
 
     let packed: Packed = Settings::SCHEMA.transcode(&path).unwrap();
@@ -54,12 +54,14 @@ fn main() -> ! {
     let len = json::get_by_key(&s, packed, &mut buf).unwrap();
     assert_eq!(&buf[..len], b"3");
 
-    let key = JsonPath::from(".i[1].val");
+    let key = JsonPath(".i[1].val");
     let any = s.mut_any_by_key(key.into_keys()).unwrap();
 
     let val: &mut dyn AddAssign<i32> = any.cast().unwrap();
     *val += 5;
     assert_eq!(*s.i[1].val, 3 + 5);
+
+    hprintln!("Settings: {:?}", Settings::SCHEMA.shape());
 
     hprintln!("success!");
 

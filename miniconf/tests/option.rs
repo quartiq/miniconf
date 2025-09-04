@@ -1,4 +1,4 @@
-use miniconf::{json, KeyError, Leaf, SerDeError, Tree, TreeSchema, ValueError};
+use miniconf::{json, KeyError, Leaf, SerdeError, Tree, TreeSchema, ValueError};
 
 mod common;
 use common::*;
@@ -124,13 +124,13 @@ fn option_absent() {
     );
     assert!(matches!(
         json::set(&mut s, "/d", b""),
-        Err(SerDeError::Inner(_))
+        Err(SerdeError::Inner(_))
     ));
     assert_eq!(json::set(&mut s, "/d", b"7 "), Ok(2));
     assert_eq!(json::set(&mut s, "/d", b" 7"), Ok(2));
     assert!(matches!(
         json::set(&mut s, "/d", b"7i"),
-        Err(SerDeError::Finalization(_))
+        Err(SerdeError::Finalization(_))
     ));
 }
 

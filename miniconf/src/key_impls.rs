@@ -1,8 +1,6 @@
 use core::{
-    convert::Infallible,
     fmt::Write,
     ops::{Deref, DerefMut},
-    slice,
 };
 
 #[cfg(feature = "alloc")]
@@ -10,197 +8,23 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, IntoKeys, KeysIter, Schema};
+use crate::{DescendError, Internal, IntoKeys, Key, Schema, Transcode};
 
-/// Look up an `IntoKeys` in a `TreeSchema` and transcode it.
-pub trait Transcode {
-    type Error;
-    /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeSchema` and transcode it.
-    ///
-    /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
-    /// It returns a `Node` with node type and depth information.
-    ///
-    /// Returning `Err(Traversal::Absent)` indicates that there was insufficient
-    /// capacity and a key could not be encoded at the given depth.
-    fn transcode(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>>;
-}
-
-impl<T: Transcode + ?Sized> Transcode for &mut T {
-    type Error = T::Error;
-    fn transcode(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        (**self).transcode(schema, keys)
-    }
-}
-
-/// Shim to provide the bare lookup without transcoding target
-impl Transcode for () {
-    type Error = Infallible;
-    fn transcode(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), &mut |_, _| Ok(()))
-    }
-}
-
-/// Path with named keys separated by a separator char
-///
-/// The path will either be empty or start with the separator.
-///
-/// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [TreeSchema::traverse_all()] and `Metadata::max_length()` for upper bounds
-///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`KeysIter`]).
-/// * `const S: char`: The path hierarchy separator to be inserted before each name,
-///   e.g. `'/'`.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[repr(transparent)]
-#[serde(transparent)]
-pub struct Path<T: ?Sized, const S: char>(pub T);
-
-impl<T: ?Sized, const S: char> Path<T, S> {
-    /// The path hierarchy separator
-    #[inline]
-    pub const fn separator(&self) -> char {
-        S
-    }
-}
-
-impl<T, const S: char> Path<T, S> {
-    /// Extract just the path
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T: ?Sized, const S: char> Deref for Path<T, S> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: ?Sized, const S: char> DerefMut for Path<T, S> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T, const S: char> From<T> for Path<T, S> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Path(value)
-    }
-}
-
-impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
-    #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-/// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
-#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct PathIter<'a, const S: char>(Option<&'a str>);
-
-impl<'a, const S: char> PathIter<'a, S> {
-    /// Create a new `PathIter`
-    #[inline]
-    pub fn new(s: Option<&'a str>) -> Self {
-        Self(s)
-    }
-
-    /// Create a new `PathIter` starting at the root.
-    ///
-    /// This calls `next()` once to pop everything up to and including the first separator.
-    #[inline]
-    pub fn root(s: &'a str) -> Self {
-        let mut s = Self::new(Some(s));
-        // Skip the first part to disambiguate between
-        // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
-        // This is relevant in the case of e.g. `Option` and newtypes.
-        // See the corresponding unittests (`just_option`).
-        // It implies that Paths start with the separator
-        // or are empty. Everything before the first separator is ignored.
-        s.next();
-        s
-    }
-}
-
-impl<'a, const S: char> Iterator for PathIter<'a, S> {
-    type Item = &'a str;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.map(|s| {
-            let pos = s
-                .chars()
-                .map_while(|c| (c != S).then_some(c.len_utf8()))
-                .sum();
-            let (left, right) = s.split_at(pos);
-            self.0 = right.get(S.len_utf8()..);
-            left
-        })
-    }
-}
-
-impl<const S: char> core::iter::FusedIterator for PathIter<'_, S> {}
-
-impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
-    type IntoKeys = KeysIter<PathIter<'a, S>>;
-
-    #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        PathIter::<'a, S>::root(self.0.as_ref()).into_keys()
-    }
-}
-
-impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
-    type IntoKeys = KeysIter<PathIter<'a, S>>;
-
-    #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        Path(&self.0).into_keys()
-    }
-}
-
-impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
-    type Error = core::fmt::Error;
-    fn transcode(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
-            if let Some((index, internal)) = idx_schema {
-                self.0.write_char(S)?;
-                let mut buf = itoa::Buffer::new();
-                let name = internal
-                    .get_name(index)
-                    .unwrap_or_else(|| buf.format(index));
-                debug_assert!(!name.contains(S));
-                self.0.write_str(name)
-            } else {
-                Ok(())
+// index
+macro_rules! impl_key_integer {
+    ($($t:ty)+) => {$(
+        impl Key for $t {
+            #[inline]
+            fn find(&self, internal: &Internal) -> Option<usize> {
+                (*self).try_into().ok().filter(|i| *i < internal.len().get())
             }
-        })
-    }
+        }
+    )+};
 }
+impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 /// Indices of `usize` to identify a node in a `TreeSchema`
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub struct Indices<T: ?Sized> {
     pub len: usize,
     pub data: T,
@@ -213,13 +37,6 @@ impl<T> From<T> for Indices<T> {
             len: 0,
             data: value,
         }
-    }
-}
-
-impl<const D: usize, T: Copy + Default> Default for Indices<[T; D]> {
-    #[inline]
-    fn default() -> Self {
-        Self::from([Default::default(); D])
     }
 }
 
@@ -236,10 +53,10 @@ impl<const D: usize, T> AsMut<[T]> for Indices<[T; D]> {
 }
 
 impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
-    type IntoKeys = KeysIter<slice::Iter<'a, usize>>;
+    type IntoKeys = <&'a [usize] as IntoKeys>::IntoKeys;
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
-        self.data.as_ref()[..self.len].into_iter().into_keys()
+        self.data.as_ref().into_keys()
     }
 }
 
@@ -254,7 +71,7 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
         let slic = self.data.as_mut();
         self.len = slic.len();
         let mut it = slic.iter_mut();
-        let ret = schema.descend(keys.into_keys(), &mut |_meta, idx_schema| {
+        let ret = schema.descend(keys.into_keys(), |_meta, idx_schema| {
             if let Some((index, _internal)) = idx_schema {
                 let idx = it.next().ok_or(())?;
                 *idx = index;
@@ -303,6 +120,158 @@ where
                 self.push(index.try_into()?);
             }
             Ok(())
+        })
+    }
+}
+
+////////////////////////////////////////////////////////////////////
+
+// name
+impl Key for str {
+    #[inline]
+    fn find(&self, internal: &Internal) -> Option<usize> {
+        internal.get_index(self)
+    }
+}
+
+/// Path with named keys separated by a separator char
+///
+/// The path will either be empty or start with the separator.
+///
+/// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
+///   See also [TreeSchema::traverse_all()] and `Metadata::max_length()` for upper bounds
+///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`KeysIter`]).
+/// * `const S: char`: The path hierarchy separator to be inserted before each name,
+///   e.g. `'/'`.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct Path<T: ?Sized, const S: char>(pub T);
+
+impl<T: ?Sized, const S: char> Path<T, S> {
+    /// The path hierarchy separator
+    #[inline]
+    pub const fn separator(&self) -> char {
+        S
+    }
+}
+
+impl<T, const S: char> Path<T, S> {
+    /// Extract just the path
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T: ?Sized, const S: char> Deref for Path<T, S> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: ?Sized, const S: char> DerefMut for Path<T, S> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
+    #[inline]
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
+#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct PathIter<'a, const S: char>(Option<&'a str>);
+
+impl<'a, const S: char> PathIter<'a, S> {
+    /// Create a new `PathIter`
+    #[inline]
+    pub fn new(s: Option<&'a str>) -> Self {
+        Self(s)
+    }
+
+    /// Create a new `PathIter` starting at the root.
+    ///
+    /// This calls `next()` once to pop everything up to and including the first separator.
+    #[inline]
+    pub fn root(s: &'a str) -> Self {
+        let mut s = Self(Some(s));
+        // Skip the first part to disambiguate between
+        // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
+        // This is relevant in the case of e.g. `Option` and newtypes.
+        // See the corresponding unittests (`just_option`).
+        // It implies that Paths start with the separator
+        // or are empty. Everything before the first separator is ignored.
+        // This also means that paths can always be concatenated without having to
+        // worry about adding/trimming leading or trailing separators.
+        s.next();
+        s
+    }
+}
+
+impl<'a, const S: char> Iterator for PathIter<'a, S> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.map(|s| {
+            let pos = s
+                .chars()
+                .map_while(|c| (c != S).then_some(c.len_utf8()))
+                .sum();
+            let (left, right) = s.split_at(pos);
+            self.0 = right.get(S.len_utf8()..);
+            left
+        })
+    }
+}
+
+impl<const S: char> core::iter::FusedIterator for PathIter<'_, S> {}
+
+impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
+    type IntoKeys = <PathIter<'a, S> as IntoKeys>::IntoKeys;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        PathIter::root(self.0.as_ref()).into_keys()
+    }
+}
+
+impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
+    type IntoKeys = <Path<&'a str, S> as IntoKeys>::IntoKeys;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        Path(self.0.as_ref()).into_keys()
+    }
+}
+
+impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
+    type Error = core::fmt::Error;
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, internal)) = idx_schema {
+                self.0.write_char(S)?;
+                let mut buf = itoa::Buffer::new();
+                let name = internal
+                    .get_name(index)
+                    .unwrap_or_else(|| buf.format(index));
+                debug_assert!(!name.contains(S));
+                self.0.write_str(name)
+            } else {
+                Ok(())
+            }
         })
     }
 }

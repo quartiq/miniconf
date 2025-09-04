@@ -1,258 +1,380 @@
-//! JSON Schema tools
+use core::{convert::Infallible, num::NonZero};
+use serde::Serialize;
 
-use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
-use serde_json::Map;
-use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
+use crate::{DescendError, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
 
-use crate::{trace::Node, Internal, Meta};
+/// A numbered schema item
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
+pub struct Numbered {
+    pub schema: &'static Schema,
+    pub meta: Meta,
+}
 
-/// Disallow additional items and additional or missing properties
-pub fn strictify(schema: &mut Schema) {
-    if let Some(o) = schema.as_object_mut() {
-        if o.contains_key("prefixItems") {
-            debug_assert_eq!(o.insert("items".to_owned(), false.into()), None);
-        }
-        if o.contains_key("items") {
-            if let Some(old) = o.insert("type".to_owned(), "array".into()) {
-                debug_assert_eq!(old, "array");
-            }
-        }
-        if let Some(k) = o.get("properties") {
-            let k = k.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-            debug_assert_eq!(o.insert("required".into(), k.into()), None);
-            debug_assert_eq!(o.insert("additionalProperties".into(), false.into()), None);
-        }
-        if o.contains_key("additionalProperties") {
-            if let Some(old) = o.insert("type".to_owned(), "object".into()) {
-                debug_assert_eq!(old, "object");
-            }
-        }
+impl Numbered {
+    pub const fn new(schema: &'static Schema) -> Self {
+        Self { meta: None, schema }
     }
 }
 
-/// Converted ordered kay-value pairs to properties object
-/// Use before `strictify`
-pub fn unordered(schema: &mut Schema) {
-    if let Some(o) = schema.as_object_mut() {
-        if o.remove("x-object") == Some(true.into()) {
-            if let Some(t) = o.insert("type".to_owned(), "object".into()) {
-                debug_assert_eq!(t, "array");
-            }
-            let props: Map<_, _> = o
-                .remove("prefixItems")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| {
-                    v.as_object()
-                        .unwrap()
-                        .get("properties")
-                        .unwrap()
-                        .as_object()
-                        .unwrap()
-                        .clone()
-                        .into_iter()
-                        .next()
-                        .unwrap()
-                })
-                .collect();
-            o.insert("properties".into(), props.into());
+/// A named schema item
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
+pub struct Named {
+    pub name: &'static str,
+    pub schema: &'static Schema,
+    pub meta: Meta,
+}
+
+impl Named {
+    pub const fn new(name: &'static str, schema: &'static Schema) -> Self {
+        Self {
+            meta: None,
+            name,
+            schema,
         }
     }
 }
 
-/// Capability to convert serde-reflect formats and graph::Node to to JSON schemata
-pub trait ReflectJsonSchema {
-    /// Convert to JSON schema
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema>;
+/// A representative schema item for a homogeneous array
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
+pub struct Homogeneous {
+    pub len: NonZero<usize>,
+    pub schema: &'static Schema,
+    pub meta: Meta,
 }
 
-impl ReflectJsonSchema for Format {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        Some(match self {
-            Format::Variable(_variable) => None?, // Unresolved
-            Format::TypeName(name) => Schema::new_ref(format!("#/$defs/{name}")),
-            Format::Unit => <()>::json_schema(generator),
-            Format::Bool => bool::json_schema(generator),
-            Format::I8 => i8::json_schema(generator),
-            Format::I16 => i16::json_schema(generator),
-            Format::I32 => i32::json_schema(generator),
-            Format::I64 => i64::json_schema(generator),
-            Format::I128 => i128::json_schema(generator),
-            Format::U8 => u8::json_schema(generator),
-            Format::U16 => u16::json_schema(generator),
-            Format::U32 => u32::json_schema(generator),
-            Format::U64 => u64::json_schema(generator),
-            Format::U128 => u128::json_schema(generator),
-            Format::F32 => f32::json_schema(generator),
-            Format::F64 => f64::json_schema(generator),
-            Format::Char => char::json_schema(generator),
-            Format::Str => str::json_schema(generator),
-            Format::Bytes => <[u8]>::json_schema(generator),
-            Format::Option(format) => {
-                json_schema!({"oneOf": [format.json_schema(generator)?, {"const": null}]})
-            }
-            Format::Seq(format) => json_schema!({"items": format.json_schema(generator)?}),
-            Format::Map { key, value } => {
-                if matches!(**key, Format::Str) {
-                    json_schema!({"additionalProperties": value.json_schema(generator)?})
-                } else {
-                    json_schema!({
-                        "items": {
-                            "prefixItems": [
-                                key.json_schema(generator)?,
-                                value.json_schema(generator)?
-                            ],
-                        }
-                    })
-                }
-            }
-            Format::Tuple(formats) => formats.json_schema(generator)?,
-            Format::TupleArray { content, size } => json_schema!({
-                "items": content.json_schema(generator)?,
-                "minItems": size,
-                "maxItems": size
-            }),
-        })
-    }
-}
-
-impl ReflectJsonSchema for Vec<Named<Format>> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        let items: Option<Vec<_>> = self
-            .iter()
-            .map(|n| Some(json_schema!({"properties": {&n.name: n.value.json_schema(generator)?}})))
-            .collect();
-        Some(json_schema!({
-            "x-object": true, // Allow transform to unordered object
-            "prefixItems": items?,
-        }))
-    }
-}
-
-impl ReflectJsonSchema for Vec<Format> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        let items: Option<Vec<_>> = self.iter().map(|f| f.json_schema(generator)).collect();
-        Some(json_schema!({"prefixItems": items?}))
-    }
-}
-
-impl ReflectJsonSchema for ContainerFormat {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        match self {
-            ContainerFormat::UnitStruct => Some(<()>::json_schema(generator)), // TODO
-            ContainerFormat::NewTypeStruct(format) => format.json_schema(generator),
-            ContainerFormat::TupleStruct(formats) => formats.json_schema(generator),
-            ContainerFormat::Struct(nameds) => nameds.json_schema(generator),
-            ContainerFormat::Enum(map) => {
-                let variants: Option<Vec<_>> = map
-                    .values()
-                    .map(|n| {
-                        let mut sch = n.value.json_schema(generator)?;
-                        Some(if sch.as_bool() == Some(false) {
-                            // Unit variant
-                            json_schema!({"const": &n.name})
-                        } else {
-                            if generator.settings().untagged_enum_variant_titles {
-                                sch.insert("title".into(), n.name.clone().into());
-                                sch
-                            } else {
-                                json_schema!({"properties": {&n.name: sch}})
-                            }
-                        })
-                    })
-                    .collect();
-                variants.map(|v| json_schema!({"oneOf": v}))
-            }
-        }
-    }
-}
-
-impl ReflectJsonSchema for VariantFormat {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        match self {
-            VariantFormat::Variable(_variable) => None,
-            VariantFormat::Unit => Some(false.into()), // Hack picked up in ContainerFormat as ReflectJsonSchema
-            VariantFormat::NewType(format) => format.json_schema(generator),
-            VariantFormat::Tuple(formats) => formats.json_schema(generator),
-            VariantFormat::Struct(nameds) => nameds.json_schema(generator),
-        }
-    }
-}
-
-impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
-        let mut sch = if let Some(internal) = self.data.0.internal.as_ref() {
-            match internal {
-                Internal::Named(nameds) => {
-                    let items: Option<Vec<_>> = nameds
-                        .iter()
-                        .zip(&self.children)
-                        .map(|(named, child)| {
-                            let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "x-outer", &named.meta);
-                            Some(json_schema!({"properties": {*named.name: sch}}))
-                        })
-                        .collect();
-                    json_schema!({
-                        "x-object": true, // Allow transform to unordered object
-                        "prefixItems": items?,
-                    })
-                }
-                Internal::Numbered(numbereds) => {
-                    let items: Option<Vec<_>> = numbereds
-                        .iter()
-                        .zip(&self.children)
-                        .map(|(numbered, child)| {
-                            let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "x-outer", &numbered.meta);
-                            Some(sch)
-                        })
-                        .collect();
-                    json_schema!({"prefixItems": items?})
-                }
-                Internal::Homogeneous(homogeneous) => {
-                    let mut sch = json_schema!({
-                        "items": self.children[0].json_schema(generator)?,
-                        "minItems": homogeneous.len,
-                        "maxItems": homogeneous.len
-                    });
-                    push_meta(&mut sch, "x-outer", &homogeneous.meta);
-                    sch
-                }
-            }
-        } else {
-            let mut sch = self.data.1.as_ref()?.json_schema(generator)?;
-            sch.insert("x-leaf".into(), true.into());
-            sch
+impl Homogeneous {
+    pub const fn new(len: usize, schema: &'static Schema) -> Self {
+        let len = match NonZero::new(len) {
+            Some(len) => len,
+            None => panic!("Must have at least one child"),
         };
-        push_meta(&mut sch, "x-inner", &self.data.0.meta);
-        if let Some(meta) = self.data.0.meta {
-            if let Some((_, name)) = meta.iter().find(|(key, _)| *key == "name") {
-                let name = format!("x-internal-{name}");
-                if let Some(existing) = generator.definitions().get(&name) {
-                    assert_eq!(existing, sch.as_value());
-                } else {
-                    generator
-                        .definitions_mut()
-                        .insert(name.to_owned(), sch.into());
-                }
-                return Some(Schema::new_ref(format!("#/$defs/{name}")));
-            }
+        Self {
+            meta: None,
+            len,
+            schema,
         }
-        Some(sch)
     }
 }
 
-fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
-    if let Some(meta) = meta {
-        sch.insert(
-            key.to_string(),
-            meta.iter()
-                .map(|(k, v)| (k.to_string(), v.to_string().into()))
-                .collect::<Map<_, _>>()
-                .into(),
-        );
+/// An internal node with children
+///
+/// Always non-empty
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
+pub enum Internal {
+    /// Named children
+    Named(&'static [Named]),
+    /// Numbered heterogeneous children
+    Numbered(&'static [Numbered]),
+    /// Homogeneous numbered children
+    Homogeneous(Homogeneous),
+}
+
+impl Internal {
+    /// Return the number of direct child nodes
+    pub const fn len(&self) -> NonZero<usize> {
+        match self {
+            Self::Named(n) => NonZero::new(n.len()).expect("Must have at least one child"),
+            Self::Numbered(n) => NonZero::new(n.len()).expect("Must have at least one child"),
+            Self::Homogeneous(h) => h.len,
+        }
+    }
+
+    /// Return the child schema at the given index
+    ///
+    /// # Panics
+    /// If the index is out of bounds
+    pub const fn get_schema(&self, idx: usize) -> &Schema {
+        match self {
+            Self::Named(nameds) => nameds[idx].schema,
+            Self::Numbered(numbereds) => numbereds[idx].schema,
+            Self::Homogeneous(homogeneous) => homogeneous.schema,
+        }
+    }
+
+    /// Return the outer metadata for the given child
+    ///
+    /// # Panics
+    /// If the index is out of bounds
+    pub const fn get_meta(&self, idx: usize) -> &Meta {
+        match self {
+            Internal::Named(nameds) => &nameds[idx].meta,
+            Internal::Numbered(numbereds) => &numbereds[idx].meta,
+            Internal::Homogeneous(homogeneous) => &homogeneous.meta,
+        }
+    }
+
+    /// Perform a index-to-name lookup
+    ///
+    /// If this succeeds with None, it's a numbered or homogeneous internal node and the
+    /// name is the formatted index.
+    ///
+    /// # Panics
+    /// If the index is out of bounds
+    pub const fn get_name(&self, idx: usize) -> Option<&str> {
+        if let Self::Named(n) = self {
+            Some(n[idx].name)
+        } else {
+            None
+        }
+    }
+
+    /// Perform a name-to-index lookup
+    pub fn get_index(&self, name: &str) -> Option<usize> {
+        match self {
+            Internal::Named(n) => n.iter().position(|n| n.name == name),
+            Internal::Numbered(n) => name.parse().ok().filter(|i| *i < n.len()),
+            Internal::Homogeneous(h, ..) => name.parse().ok().filter(|i| *i < h.len.get()),
+        }
+    }
+}
+
+pub type Meta = Option<&'static [(&'static str, &'static str)]>;
+
+/// Type of a node: leaf or internal
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Default)]
+pub struct Schema {
+    /// Inner metadata
+    pub meta: Meta,
+
+    /// Internal schemata
+    pub internal: Option<Internal>,
+}
+
+impl Schema {
+    /// A leaf without metadata
+    pub const LEAF: Self = Self {
+        meta: None,
+        internal: None,
+    };
+
+    pub const fn numbered(numbered: &'static [Numbered]) -> Self {
+        Self {
+            meta: None,
+            internal: Some(Internal::Numbered(numbered)),
+        }
+    }
+
+    pub const fn named(named: &'static [Named]) -> Self {
+        Self {
+            meta: None,
+            internal: Some(Internal::Named(named)),
+        }
+    }
+
+    pub const fn homogeneous(homogeneous: Homogeneous) -> Self {
+        Self {
+            meta: None,
+            internal: Some(Internal::Homogeneous(homogeneous)),
+        }
+    }
+
+    /// Whether this node is a leaf
+    #[inline]
+    pub const fn is_leaf(&self) -> bool {
+        self.internal.is_none()
+    }
+
+    /// Number of child nodes
+    #[inline]
+    pub const fn len(&self) -> usize {
+        match &self.internal {
+            None => 0,
+            Some(i) => i.len().get(),
+        }
+    }
+
+    /// Look up the next item from keys and return a child index
+    ///
+    /// # Panics
+    /// On a leaf Schema.
+    #[inline]
+    pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
+        keys.next(self.internal.as_ref().unwrap())
+    }
+
+    /// Traverse from the root to a leaf and call a function for each node.
+    ///
+    /// If a leaf is found early (`keys` being longer than required)
+    /// `Err(Traversal(TooLong(depth)))` is returned.
+    /// If `keys` is exhausted before reaching a leaf node,
+    /// `Err(Traversal(TooShort(depth)))` is returned.
+    /// `Traversal::Access/Invalid/Absent/Finalization` are never returned.
+    ///
+    /// This method should fail if and only if the key is invalid.
+    /// It should succeed at least when any of the other key based methods
+    /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
+    ///
+    /// ```
+    /// use miniconf::{IntoKeys, Leaf, TreeSchema};
+    /// #[derive(TreeSchema)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    /// let mut ret = [(1, Some("bar"), 2), (0, None, 2)].into_iter();
+    /// let func = |index, name, len: core::num::NonZero<usize>| -> Result<(), ()> {
+    ///     assert_eq!(ret.next().unwrap(), (index, name, len.get()));
+    ///     Ok(())
+    /// };
+    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
+    ///   Its arguments are the index and the optional name of the node and the number
+    ///   of top-level nodes at the given depth. Returning `Err(E)` aborts the traversal.
+    ///   Returning `Ok(())` continues the downward traversal.
+    ///
+    /// # Returns
+    /// Node depth on success (number of keys consumed/number of calls to `func`)
+    ///
+    /// # Design note
+    /// Writing this to return an iterator instead of using a callback
+    /// would have worse performance (O(n^2) instead of O(n) for matching)
+    pub fn descend<'a, E>(
+        &'a self,
+        mut keys: impl Keys,
+        mut func: impl FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<(), E>,
+    ) -> Result<(), DescendError<E>> {
+        let mut schema = self;
+        while let Some(internal) = schema.internal.as_ref() {
+            let idx = keys.next(internal)?;
+            func(&schema.meta, Some((idx, internal))).map_err(DescendError::Inner)?;
+            schema = internal.get_schema(idx);
+        }
+        keys.finalize()?;
+        func(&schema.meta, None).map_err(DescendError::Inner)
+    }
+
+    /// Look up outer and inner metadata given keys.
+    pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
+        let mut outer = None;
+        let mut inner = &self.meta;
+        self.descend(keys.into_keys(), |meta, idx_internal| {
+            if let Some((idx, internal)) = idx_internal {
+                outer = Some(internal.get_meta(idx));
+            }
+            inner = meta;
+            Ok::<_, Infallible>(())
+        })
+        .map_err(|e| e.try_into().unwrap())?;
+        Ok((outer, inner))
+    }
+
+    /// Transcode keys to a new keys type representation
+    ///
+    /// The keys can be
+    /// * too short: the internal node is returned
+    /// * matched length: the leaf node is returned
+    /// * too long: Err(TooLong(depth)) is returned
+    ///
+    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
+    /// an existing `&mut N`.
+    ///
+    /// ```
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// #[derive(TreeSchema)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 5],
+    /// };
+    ///
+    /// let idx = [1, 1];
+    ///
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(idx).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/1");
+    /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
+    /// assert_eq!(path.as_str(), ".bar[1]");
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
+    /// assert_eq!(&indices[..node.depth()], idx);
+    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
+    /// assert_eq!(&indices[..node.depth()], [1, 1]);
+    /// let (packed, node) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
+    /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
+    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
+    /// assert_eq!(path.as_str(), "/bar/4");
+    /// let ((), node) = S::transcode(&path).unwrap();
+    /// assert_eq!(node, Node::leaf(2));
+    /// ```
+    ///
+    /// # Args
+    /// * `keys`: `IntoKeys` to identify the node.
+    ///
+    /// # Returns
+    /// Transcoded target and node information on success
+    #[inline]
+    pub fn transcode<N: Transcode + Default>(
+        &self,
+        keys: impl IntoKeys,
+    ) -> Result<N, DescendError<N::Error>> {
+        let mut target = N::default();
+        target.transcode(self, keys)?;
+        Ok(target)
+    }
+
+    /// Return an iterator over nodes of a given type
+    ///
+    /// This is a walk of all leaf nodes.
+    /// The iterator will walk all paths, including those that may be absent at
+    /// runtime (see [`TreeSchema#option`]).
+    /// An iterator with an exact and trusted `size_hint()` can be obtained from
+    /// this through [`NodeIter::exact_size()`].
+    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
+    ///
+    /// ```
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// #[derive(TreeSchema)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    ///
+    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
+    ///
+    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
+    ///
+    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| {
+    ///         let (idx, node) = p.unwrap();
+    ///         (idx.into_inner(), node.depth)
+    ///     })
+    ///     .collect();
+    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
+    ///
+    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_lsb().get())
+    ///     .collect();
+    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
+    ///
+    /// let nodes: Vec<_> = S::nodes::<(), 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().1)
+    ///     .collect();
+    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
+    /// ```
+    ///
+    #[inline]
+    pub fn nodes<N, const D: usize>(&'static self) -> NodeIter<N, D>
+    where
+        N: Transcode + Default,
+    {
+        NodeIter::new(self)
+    }
+
+    /// Compute metadata
+    #[inline]
+    pub const fn shape(&self) -> Shape {
+        Shape::new(self)
     }
 }

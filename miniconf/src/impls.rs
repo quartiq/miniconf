@@ -5,7 +5,7 @@ use core::ops::{Bound, Range, RangeFrom, RangeInclusive, RangeTo};
 use serde::{Deserializer, Serializer};
 
 use crate::{
-    Homogeneous, Keys, Named, Numbered, Schema, SerDeError, TreeAny, TreeDeserialize, TreeSchema,
+    Homogeneous, Keys, Named, Numbered, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema,
     TreeSerialize, ValueError,
 };
 
@@ -27,7 +27,7 @@ macro_rules! impl_tuple {
                 &self,
                 mut keys: impl Keys,
                 ser: S
-            ) -> Result<S::Ok, SerDeError<S::Error>>
+            ) -> Result<S::Ok, SerdeError<S::Error>>
             {
                 match Self::SCHEMA.next(&mut keys)? {
                     $($i => self.$i.serialize_by_key(keys, ser),)+
@@ -43,7 +43,7 @@ macro_rules! impl_tuple {
                 &mut self,
                 mut keys: impl Keys,
                 de: D
-            ) -> Result<(), SerDeError<D::Error>>
+            ) -> Result<(), SerdeError<D::Error>>
             {
                 match Self::SCHEMA.next(&mut keys)? {
                     $($i => self.$i.deserialize_by_key(keys, de),)+
@@ -55,7 +55,7 @@ macro_rules! impl_tuple {
             fn probe_by_key<D: Deserializer<'de>>(
                 mut keys: impl Keys,
                 de: D
-            ) -> Result<(), SerDeError<D::Error>>
+            ) -> Result<(), SerdeError<D::Error>>
             {
                 match Self::SCHEMA.next(&mut keys)? {
                     $($i => $t::probe_by_key(keys, de),)+
@@ -117,7 +117,7 @@ where
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         self[Self::SCHEMA.next(&mut keys)?].serialize_by_key(keys, ser)
     }
 }
@@ -128,7 +128,7 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         self[Self::SCHEMA.next(&mut keys)?].deserialize_by_key(keys, de)
     }
 
@@ -136,7 +136,7 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         Self::SCHEMA.next(&mut keys)?;
         T::probe_by_key(keys, de)
     }
@@ -166,7 +166,7 @@ impl<T: TreeSerialize> TreeSerialize for Option<T> {
         &self,
         keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         self.as_ref()
             .ok_or(ValueError::Absent)?
             .serialize_by_key(keys, ser)
@@ -179,7 +179,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         self.as_mut()
             .ok_or(ValueError::Absent)?
             .deserialize_by_key(keys, de)
@@ -189,7 +189,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 }
@@ -223,7 +223,7 @@ impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Ok(value), 0) => value.serialize_by_key(keys, ser),
             (Err(value), 1) => value.serialize_by_key(keys, ser),
@@ -238,7 +238,7 @@ impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de>
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Ok(value), 0) => value.deserialize_by_key(keys, de),
             (Err(value), 1) => value.deserialize_by_key(keys, de),
@@ -250,7 +250,7 @@ impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de>
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => T::probe_by_key(keys, de),
             1 => E::probe_by_key(keys, de),
@@ -294,7 +294,7 @@ impl<T: TreeSerialize> TreeSerialize for Bound<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Self::Included(value), 0) | (Self::Excluded(value), 1) => {
                 value.serialize_by_key(keys, ser)
@@ -310,7 +310,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Self::Included(value), 0) | (Self::Excluded(value), 1) => {
                 value.deserialize_by_key(keys, de)
@@ -323,7 +323,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0..=1 => T::probe_by_key(keys, de),
             _ => unreachable!(),
@@ -362,7 +362,7 @@ impl<T: TreeSerialize> TreeSerialize for Range<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => &self.start,
             1 => &self.end,
@@ -378,7 +378,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => &mut self.start,
             1 => &mut self.end,
@@ -391,7 +391,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0..=1 => T::probe_by_key(keys, de),
             _ => unreachable!(),
@@ -433,7 +433,7 @@ impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.start(),
             1 => self.end(),
@@ -455,7 +455,7 @@ impl<T: TreeSerialize> TreeSerialize for RangeFrom<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.start.serialize_by_key(keys, ser),
             _ => unreachable!(),
@@ -469,7 +469,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.start.deserialize_by_key(keys, de),
             _ => unreachable!(),
@@ -480,7 +480,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => T::probe_by_key(keys, de),
             _ => unreachable!(),
@@ -518,7 +518,7 @@ impl<T: TreeSerialize> TreeSerialize for RangeTo<T> {
         &self,
         mut keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.end.serialize_by_key(keys, ser),
             _ => unreachable!(),
@@ -532,7 +532,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
         &mut self,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.end.deserialize_by_key(keys, de),
             _ => unreachable!(),
@@ -543,7 +543,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => T::probe_by_key(keys, de),
             _ => unreachable!(),
@@ -581,7 +581,7 @@ impl<T: TreeSerialize + Copy> TreeSerialize for Cell<T> {
         &self,
         keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         self.get().serialize_by_key(keys, ser)
     }
 }
@@ -592,7 +592,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         self.get_mut().deserialize_by_key(keys, de)
     }
 
@@ -600,7 +600,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 }
@@ -629,7 +629,7 @@ impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
         &self,
         keys: impl Keys,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         self.try_borrow()
             .or(Err(ValueError::Access("Borrowed")))?
             .serialize_by_key(keys, ser)
@@ -642,7 +642,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         self.get_mut().deserialize_by_key(keys, de)
     }
 
@@ -650,7 +650,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 }
@@ -661,7 +661,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         self.try_borrow_mut()
             .or(Err(ValueError::Access("Borrowed")))?
             .deserialize_by_key(keys, de)
@@ -671,7 +671,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 }
@@ -711,7 +711,7 @@ mod _alloc {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             (**self).serialize_by_key(keys, ser)
         }
     }
@@ -722,7 +722,7 @@ mod _alloc {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             (**self).deserialize_by_key(keys, de)
         }
 
@@ -730,7 +730,7 @@ mod _alloc {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -759,7 +759,7 @@ mod _alloc {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             (**self).serialize_by_key(keys, ser)
         }
     }
@@ -770,7 +770,7 @@ mod _alloc {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             self.to_mut().deserialize_by_key(keys, de)
         }
 
@@ -778,7 +778,7 @@ mod _alloc {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -807,7 +807,7 @@ mod _alloc {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             (**self).serialize_by_key(keys, ser)
         }
     }
@@ -818,7 +818,7 @@ mod _alloc {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             Rc::get_mut(self)
                 .ok_or(ValueError::Access("Reference is taken"))?
                 .deserialize_by_key(keys, de)
@@ -828,7 +828,7 @@ mod _alloc {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -859,7 +859,7 @@ mod _alloc {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             self.upgrade()
                 .ok_or(ValueError::Absent)?
                 .serialize_by_key(keys, ser)
@@ -872,7 +872,7 @@ mod _alloc {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             self.upgrade()
                 .ok_or(ValueError::Absent)?
                 .deserialize_by_key(keys, de)
@@ -882,7 +882,7 @@ mod _alloc {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -899,7 +899,7 @@ mod _alloc {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             (**self).serialize_by_key(keys, ser)
         }
     }
@@ -910,7 +910,7 @@ mod _alloc {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             Arc::get_mut(self)
                 .ok_or(ValueError::Access("Reference is taken"))?
                 .deserialize_by_key(keys, de)
@@ -920,7 +920,7 @@ mod _alloc {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -951,7 +951,7 @@ mod _alloc {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             self.upgrade()
                 .ok_or(ValueError::Absent)?
                 .serialize_by_key(keys, ser)
@@ -964,7 +964,7 @@ mod _alloc {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             self.upgrade()
                 .ok_or(ValueError::Absent)?
                 .deserialize_by_key(keys, de)
@@ -974,7 +974,7 @@ mod _alloc {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -997,7 +997,7 @@ mod _std {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             self.lock()
                 .or(Err(ValueError::Access("Poisoned")))?
                 .serialize_by_key(keys, ser)
@@ -1010,7 +1010,7 @@ mod _std {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             self.get_mut()
                 .or(Err(ValueError::Access("Poisoned")))?
                 .deserialize_by_key(keys, de)
@@ -1020,7 +1020,7 @@ mod _std {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -1031,7 +1031,7 @@ mod _std {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             (*self)
                 .lock()
                 .or(Err(ValueError::Access("Poisoned")))?
@@ -1042,7 +1042,7 @@ mod _std {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -1073,7 +1073,7 @@ mod _std {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             self.read()
                 .or(Err(ValueError::Access("Poisoned")))?
                 .serialize_by_key(keys, ser)
@@ -1086,7 +1086,7 @@ mod _std {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             self.write()
                 .or(Err(ValueError::Access("Poisoned")))?
                 .deserialize_by_key(keys, de)
@@ -1096,7 +1096,7 @@ mod _std {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }
@@ -1107,7 +1107,7 @@ mod _std {
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             self.get_mut()
                 .or(Err(ValueError::Access("Poisoned")))?
                 .deserialize_by_key(keys, de)
@@ -1117,7 +1117,7 @@ mod _std {
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             T::probe_by_key(keys, de)
         }
     }

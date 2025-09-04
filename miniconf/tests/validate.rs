@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Keys, Leaf, SerDeError, Tree, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    json, Keys, Leaf, SerdeError, Tree, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 use serde::{Deserializer, Serializer};
 
@@ -14,7 +14,7 @@ impl Settings {
         &mut self,
         keys: K,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         let old = *self.v;
         self.v.deserialize_by_key(keys, de)?;
         if *self.v >= 0.0 {
@@ -55,7 +55,7 @@ fn paging() {
             &self,
             keys: impl Keys,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             let arr: &[Leaf<i32>; 4] = self
                 .vec
                 .get(*self.offset..*self.offset + 4)
@@ -69,7 +69,7 @@ fn paging() {
             &mut self,
             keys: K,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             let arr: &mut [Leaf<i32>; 4] = self
                 .vec
                 .get_mut(*self.offset..*self.offset + 4)
@@ -109,7 +109,7 @@ fn locked() {
             &self,
             keys: K,
             ser: S,
-        ) -> Result<S::Ok, SerDeError<S::Error>> {
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
             if !*self.read {
                 return Err(ValueError::Access("not readable").into());
             }
@@ -119,7 +119,7 @@ fn locked() {
             &mut self,
             keys: K,
             de: D,
-        ) -> Result<(), SerDeError<D::Error>> {
+        ) -> Result<(), SerdeError<D::Error>> {
             if !*self.write {
                 return Err(ValueError::Access("not writable").into());
             }

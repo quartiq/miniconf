@@ -47,14 +47,14 @@ fn indices() {
         ("/c", [2, 0], 1, false),
     ] {
         let indices = Settings::SCHEMA
-            .transcode::<Short<Indices<_>>>(Path::<_, '/'>::from(keys))
+            .transcode::<Short<Indices<[_; 2]>>>(Path::<_, '/'>(keys))
             .unwrap();
         assert_eq!(indices.inner.len, depth);
         assert_eq!(indices.leaf, leaf);
         assert_eq!(indices.inner.data, idx);
     }
     let indices = Option::<Leaf<i8>>::SCHEMA
-        .transcode::<Short<Indices<_>>>([0usize; 0])
+        .transcode::<Short<Indices<[_; 1]>>>([0usize; 0])
         .unwrap();
     assert_eq!(indices.inner.data, [0]);
     assert_eq!(indices.leaf, true);

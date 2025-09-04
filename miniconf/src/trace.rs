@@ -7,7 +7,7 @@ use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 
 use crate::{
-    Internal, IntoKeys, Schema, SerDeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    Internal, IntoKeys, Schema, SerdeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
 /// Trace a leaf value
@@ -16,7 +16,7 @@ pub fn trace_value(
     samples: &mut Samples,
     keys: impl IntoKeys,
     value: &impl TreeSerialize,
-) -> Result<(Format, Value), SerDeError<serde_reflection::Error>> {
+) -> Result<(Format, Value), SerdeError<serde_reflection::Error>> {
     value.serialize_by_key(
         keys.into_keys(),
         serde_reflection::Serializer::new(tracer, samples),
@@ -28,7 +28,7 @@ pub fn trace_type_once<'de, T: TreeDeserialize<'de>>(
     tracer: &mut Tracer,
     samples: &'de Samples,
     keys: impl IntoKeys,
-) -> Result<Format, SerDeError<serde_reflection::Error>> {
+) -> Result<Format, SerdeError<serde_reflection::Error>> {
     let mut format = Format::unknown();
     T::probe_by_key(
         keys.into_keys(),
@@ -43,7 +43,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
     tracer: &mut Tracer,
     samples: &'de Samples,
     keys: impl IntoKeys + Clone,
-) -> Result<Format, SerDeError<serde_reflection::Error>> {
+) -> Result<Format, SerdeError<serde_reflection::Error>> {
     loop {
         let format = trace_type_once::<T>(tracer, samples, keys.clone())?;
         if let Format::TypeName(name) = &format {
@@ -73,18 +73,20 @@ impl<D> Node<D> {
         depth: usize,
         func: &mut impl FnMut(&[usize], &mut D) -> Result<(), E>,
     ) -> Result<(), E> {
-        for (i, c) in self.children.iter_mut().enumerate() {
-            idx[depth] = i;
-            c.visit(idx, depth + 1, func)?;
+        if depth < idx.len() {
+            for (i, c) in self.children.iter_mut().enumerate() {
+                idx[depth] = i;
+                c.visit(idx, depth + 1, func)?;
+            }
         }
         func(&idx[..depth], &mut self.data)
     }
 }
 
-impl<L> From<&'static Schema> for Node<(&'static Schema, Option<L>)> {
+impl<L: Default> From<&'static Schema> for Node<(&'static Schema, L)> {
     fn from(value: &'static Schema) -> Self {
         Self {
-            data: (value, None),
+            data: (value, L::default()),
             children: if let Some(internal) = value.internal.as_ref() {
                 match internal {
                     Internal::Named(n) => n.iter().map(|n| n.schema.into()).collect(),
@@ -114,7 +116,7 @@ impl<T> Types<T> {
 impl<T: TreeSchema> Default for Types<T> {
     fn default() -> Self {
         Self {
-            root: T::SCHEMA.into(),
+            root: Node::from(T::SCHEMA),
             _t: PhantomData,
         }
     }
@@ -140,8 +142,8 @@ impl<T> Types<T> {
                             fmt.reduce();
                             *format = Some(fmt);
                         }
-                        Err(SerDeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
-                        Err(SerDeError::Inner(e)) => Err(e)?,
+                        Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
+                        Err(SerdeError::Inner(e)) => Err(e)?,
                         _ => unreachable!(),
                     }
                 }
@@ -167,10 +169,10 @@ impl<T> Types<T> {
                             fmt.reduce();
                             *format = Some(fmt);
                         }
-                        Err(SerDeError::Value(ValueError::Access(_msg))) => {
+                        Err(SerdeError::Value(ValueError::Access(_msg))) => {
                             // probe access denied
                         }
-                        Err(SerDeError::Inner(e) | SerDeError::Finalization(e)) => Err(e)?,
+                        Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
                         _ => unreachable!(),
                     }
                 }

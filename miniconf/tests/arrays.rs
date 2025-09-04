@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerDeError, Serialize, Track, Tree,
+    json, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Track, Tree,
     TreeSchema,
 };
 
@@ -23,13 +23,13 @@ fn set_get(
     tree: &mut Settings,
     path: &str,
     value: &[u8],
-) -> Result<usize, SerDeError<serde_json_core::de::Error>> {
+) -> Result<usize, SerdeError<serde_json_core::de::Error>> {
     // Path
     common::set_get(tree, path, value);
 
     // Indices
     let idx = Settings::SCHEMA
-        .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>::from(path))
+        .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>(path))
         .unwrap();
     assert_eq!(idx.depth, idx.inner.len);
     json::set_by_key(tree, &idx.inner, value)?;

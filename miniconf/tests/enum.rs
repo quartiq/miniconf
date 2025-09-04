@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Keys, Leaf, SerDeError, StrLeaf, Tree, TreeDeserialize, TreeSchema, TreeSerialize,
+    json, Keys, Leaf, SerdeError, StrLeaf, Tree, TreeDeserialize, TreeSchema, TreeSerialize,
 };
 
 mod common;
@@ -53,7 +53,7 @@ impl Settings {
         &self,
         keys: K,
         ser: S,
-    ) -> Result<S::Ok, SerDeError<S::Error>> {
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         Leaf(EnumDiscriminants::from(&self.enu)).serialize_by_key(keys, ser)
     }
 
@@ -61,7 +61,7 @@ impl Settings {
         &mut self,
         keys: K,
         de: D,
-    ) -> Result<(), SerDeError<D::Error>> {
+    ) -> Result<(), SerdeError<D::Error>> {
         let mut v = Leaf(EnumDiscriminants::from(&self.enu));
         v.deserialize_by_key(keys, de)?;
         self.enu = Enum::from_repr(*v as _).unwrap();
@@ -76,7 +76,7 @@ fn enum_switch() {
     set_get(&mut s, "/tag", b"\"foo\"");
     assert_eq!(
         json::set(&mut s, "/tag", b"\"bar\""),
-        Err(SerDeError::Inner(serde_json_core::de::Error::CustomError))
+        Err(SerdeError::Inner(serde_json_core::de::Error::CustomError))
     );
     assert_eq!(s.enu, Enum::A(0.into()));
     set_get(&mut s, "/enu/foo", b"99");
