@@ -23,14 +23,19 @@ pub enum KeyError {
     TooLong,
 }
 
+/// Errors that can occur while visting nodes with [`crate::Schema::descend`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DescendError<E> {
+    /// The key is invalid.
     #[error(transparent)]
     Key(#[from] KeyError),
+
+    /// The visitor callback returned an error.
     #[error("Visitor failed")]
     Inner(#[source] E),
 }
 
+/// Errors that can occur while accessing a value.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ValueError {
     /// Tree traversal error
@@ -55,6 +60,7 @@ pub enum ValueError {
 /// Compound errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SerdeError<E> {
+    /// The value could not be accessed.
     #[error(transparent)]
     Value(#[from] ValueError),
 

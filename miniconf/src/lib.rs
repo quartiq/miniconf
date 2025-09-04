@@ -3,7 +3,7 @@
 #![cfg_attr(not(all(feature = "derive", feature = "json-core")), doc = "Miniconf")]
 #![deny(rust_2018_compatibility)]
 #![deny(rust_2018_idioms)]
-// #![warn(missing_docs)]
+#![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
 /// Traversal, iteration of keys in a tree.
