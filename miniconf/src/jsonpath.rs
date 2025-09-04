@@ -21,11 +21,11 @@ use crate::{DescendError, IntoKeys, KeysIter, Schema, Transcode};
 ///     "['foo']['bar'][4]['baz'][5][6]",
 ///     ".foo['bar'].4.'baz'['5'].'6'",
 /// ] {
-///     assert_eq!(&path[..], JsonPathIter::from(valid).collect::<Vec<_>>());
+///     assert_eq!(&path[..], JsonPathIter::new(valid).collect::<Vec<_>>());
 /// }
 ///
 /// for short in ["'", "[", "['"] {
-///     assert!(JsonPathIter::from(short).next().is_none());
+///     assert!(JsonPathIter::new(short).next().is_none());
 /// }
 /// ```
 ///
@@ -37,6 +37,12 @@ use crate::{DescendError, IntoKeys, KeysIter, Schema, Transcode};
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct JsonPathIter<'a>(&'a str);
+
+impl<'a> JsonPathIter<'a> {
+    pub fn new(value: &'a str) -> Self {
+        Self(value)
+    }
+}
 
 impl core::fmt::Display for JsonPathIter<'_> {
     #[inline]

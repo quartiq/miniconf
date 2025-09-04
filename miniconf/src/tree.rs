@@ -22,7 +22,7 @@ pub trait TreeSchema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Leaf, Short, Track, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: Leaf<u32>,
@@ -30,37 +30,32 @@ pub trait TreeSchema {
     /// };
     ///
     /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     ///
     /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
     ///
     /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| {
-    ///         let (idx, node) = p.unwrap();
-    ///         (idx.into_inner(), node.depth)
-    ///     })
+    ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     ///
     /// let packed: Vec<_> = S::nodes::<Packed, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_lsb().get())
+    ///     .map(|p| p.unwrap().into_lsb().get())
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     ///
-    /// let nodes: Vec<_> = S::nodes::<(), 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().1)
+    /// let nodes: Vec<_> = S::nodes::<Short<Track<()>>, 2>()
+    ///     .map(|p| {
+    ///         let p = p.unwrap();
+    ///         (p.leaf, p.inner.depth)
+    ///     })
     ///     .collect();
-    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
+    /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
     /// ```
     ///
     fn nodes<N: Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
@@ -82,19 +77,16 @@ pub trait TreeSchema {
 /// };
 /// let mut s = S::default();
 ///
-/// for node in S::nodes::<Indices<[_; 2]>, 2>() {
-///     let (key, node) = node.unwrap();
-///     let a = s
-///         .ref_any_by_key(key.into_iter().take(node.depth()).into_keys())
-///         .unwrap();
+/// for key in S::nodes::<Indices<[_; 2]>, 2>() {
+///     let a = s.ref_any_by_key(key.unwrap().into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
-/// let val: &mut u16 = s.mut_by_key(&JsonPath::from(".bar[1]")).unwrap();
+/// let val: &mut u16 = s.mut_by_key(&JsonPath(".bar[1]")).unwrap();
 /// *val = 3;
 /// assert_eq!(*s.bar[1], 3);
 ///
-/// let val: &u16 = s.ref_by_key(&JsonPath::from(".bar[1]")).unwrap();
+/// let val: &u16 = s.ref_by_key(&JsonPath(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// ```
 pub trait TreeAny: TreeSchema {

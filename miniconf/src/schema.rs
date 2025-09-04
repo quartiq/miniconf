@@ -210,18 +210,23 @@ impl Schema {
     /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
     ///
     /// ```
+    /// # use core::convert::Infallible;
     /// use miniconf::{IntoKeys, Leaf, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: Leaf<u32>,
     ///     bar: [Leaf<u16>; 2],
     /// };
-    /// let mut ret = [(1, Some("bar"), 2), (0, None, 2)].into_iter();
-    /// let func = |index, name, len: core::num::NonZero<usize>| -> Result<(), ()> {
-    ///     assert_eq!(ret.next().unwrap(), (index, name, len.get()));
-    ///     Ok(())
+    /// let mut ret = [
+    ///     (S::SCHEMA, Some(1usize)),
+    ///     (<[Leaf<u16>; 2]>::SCHEMA, Some(0)),
+    ///     (Leaf::<u16>::SCHEMA, None),
+    /// ].into_iter();
+    /// let func = |schema, idx_internal: Option<_>| {
+    ///     assert_eq!(ret.next().unwrap(), (schema, idx_internal.map(|(i, _)| i)));
+    ///     Ok::<_, Infallible>(())
     /// };
-    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
+    /// assert_eq!(S::SCHEMA.descend(["bar", "0"].into_keys(), func), Ok(()));
     /// ```
     ///
     /// # Args
@@ -289,7 +294,7 @@ impl Schema {
     /// an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Leaf, Packed, Track, Short, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: Leaf<u32>,
@@ -297,21 +302,23 @@ impl Schema {
     /// };
     ///
     /// let idx = [1, 1];
+    /// let sch = S::SCHEMA;
     ///
-    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(idx).unwrap();
+    /// let path = sch.transcode::<Path<String, '/'>>(idx).unwrap();
     /// assert_eq!(path.as_str(), "/bar/1");
-    /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
+    /// let path = sch.transcode::<JsonPath<String>>(idx).unwrap();
     /// assert_eq!(path.as_str(), ".bar[1]");
-    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
-    /// assert_eq!(&indices[..node.depth()], idx);
-    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
-    /// assert_eq!(&indices[..node.depth()], [1, 1]);
-    /// let (packed, node) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
+    /// let indices = sch.transcode::<Indices<[usize; 2]>>(&path).unwrap();
+    /// assert_eq!(indices.as_ref(), idx);
+    /// let indices = sch.transcode::<Indices<[usize; 2]>>(["bar", "1"]).unwrap();
+    /// assert_eq!(indices.as_ref(), [1, 1]);
+    /// let packed = sch.transcode::<Packed>(["bar", "4"]).unwrap();
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
-    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
+    /// let path = sch.transcode::<Path<String, '/'>>(packed).unwrap();
     /// assert_eq!(path.as_str(), "/bar/4");
-    /// let ((), node) = S::transcode(&path).unwrap();
-    /// assert_eq!(node, Node::leaf(2));
+    /// let node = sch.transcode::<Short<Track<()>>>(&path).unwrap();
+    /// assert!(node.leaf);
+    /// assert_eq!(node.inner.depth, 2);
     /// ```
     ///
     /// # Args

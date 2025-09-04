@@ -48,7 +48,7 @@
 ///     #[tree(rename = "OTHER")]
 ///     a: Leaf<f32>,
 /// };
-/// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0usize]).unwrap();
+/// let name = S::SCHEMA.transcode::<Path<String, '/'>>([0usize]).unwrap();
 /// assert_eq!(name.as_str(), "/OTHER");
 /// ```
 ///
@@ -95,7 +95,7 @@
 /// taking the arguments of the respective trait's method.
 ///
 /// ```
-/// # use miniconf::{Error, Leaf, Tree, Keys, Traversal, TreeDeserialize};
+/// # use miniconf::{SerdeError, Leaf, Tree, Keys, ValueError, TreeDeserialize};
 /// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
 /// struct S {
@@ -103,13 +103,13 @@
 ///     b: Leaf<f32>,
 /// };
 /// impl S {
-///     fn check<'de, K: Keys, D: Deserializer<'de>>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>> {
-///         let old = *self.b;
-///         self.b.deserialize_by_key(keys, de)?;
-///         if *self.b < 0.0 {
-///             *self.b = old;
-///             Err(Traversal::Access(0, "fail").into())
+///     fn check<'de, K: Keys, D: Deserializer<'de>>(&mut self, keys: K, de: D) -> Result<(), SerdeError<D::Error>> {
+///         let mut new = self.b;
+///         new.deserialize_by_key(keys, de)?;
+///         if *new < 0.0 {
+///             Err(ValueError::Access("fail").into())
 ///         } else {
+///             self.b = new;
 ///             Ok(())
 ///         }
 ///     }

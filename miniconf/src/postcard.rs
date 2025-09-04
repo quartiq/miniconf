@@ -11,12 +11,12 @@
 //! };
 //!
 //! let source = S {
-//!     foo: 9.into(),
-//!     bar: [7.into(), 11.into()],
+//!     foo: Leaf(9),
+//!     bar: [Leaf(7), Leaf(11)],
 //! };
 //! let kv: Vec<_> = S::nodes::<Packed, 2>()
 //!     .map(|p| {
-//!         let (p, _node) = p.unwrap();
+//!         let p = p.unwrap();
 //!         let v = postcard::get_by_key(&source, p, AllocVec::new()).unwrap();
 //!         (p.into_lsb().get(), v)
 //!     })

@@ -19,7 +19,7 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf, Metadata};
+use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
@@ -80,15 +80,14 @@ json::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
 json::set_by_key(&mut settings, [8, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, node): (Packed, _) = Settings::transcode([8, 1, 0]).unwrap();
+let packed: Packed = Settings::SCHEMA.transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
-assert_eq!(node, Node::leaf(3));
 json::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
 json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
-assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(Traversal::Absent(1).into()));
+assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
 settings.option_tree = Some(0.into());
 json::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
@@ -105,25 +104,23 @@ let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-let meta: Metadata = Settings::traverse_all();
-assert!(meta.max_depth <= 6);
-assert!(meta.max_length("/") <= 32);
+assert!(Settings::SHAPE.max_depth <= 6);
+assert!(Settings::SHAPE.max_length("/") <= 32);
 
 // Iterating over all leaf paths
 for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
-    let (path, node) = path.unwrap();
-    assert!(node.is_leaf());
+    let path = path.unwrap();
     // Serialize each
     match json::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
         Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
         // Some Options are `None`, some enum variants are absent
-        Err(Error::Traversal(Traversal::Absent(_))) => {}
+        Err(SerdeError::Value(ValueError::Absent)) => {}
         e => { e.unwrap(); }
     }
 }
 
-# Ok::<(), Error<serde_json_core::de::Error>>(())
+# Ok::<(), SerdeError<serde_json_core::de::Error>>(())
 ```
 
 ## Settings management
