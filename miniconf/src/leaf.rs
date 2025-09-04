@@ -330,3 +330,116 @@ impl<T: TreeSchema + ?Sized> TreeAny for Deny<T> {
         Err(ValueError::Access("Denied"))
     }
 }
+
+#[derive(
+    Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
+)]
+#[serde(transparent)]
+#[repr(transparent)]
+pub struct RangeLeaf<T: ?Sized, const MIN: isize, const MAX: isize>(T);
+
+impl<T: ?Sized, const MIN: isize, const MAX: isize> Deref for RangeLeaf<T, MIN, MAX> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T: Copy + Into<isize>, const MIN: isize, const MAX: isize> RangeLeaf<T, MIN, MAX> {
+    pub const RANGE: core::ops::RangeInclusive<isize> = MIN..=MAX;
+
+    pub fn new(value: T) -> Option<Self> {
+        Some(Self(Self::check(value).ok()?))
+    }
+
+    pub fn set(&mut self, value: T) -> Option<T> {
+        self.0 = Self::check(value).ok()?;
+        Some(self.0)
+    }
+
+    fn check(value: T) -> Result<T, ValueError> {
+        if Self::RANGE.contains(&value.into()) {
+            Ok(value)
+        } else {
+            Err(ValueError::Access("Out of range"))
+        }
+    }
+
+    /// Extract just the inner
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T, const MIN: isize, const MAX: isize> From<T> for RangeLeaf<T, MIN, MAX> {
+    #[inline]
+    fn from(value: T) -> Self {
+        Self(value)
+    }
+}
+
+impl<T, const MIN: isize, const MAX: isize> TreeSchema for RangeLeaf<T, MIN, MAX> {
+    const SCHEMA: &'static Schema = &Schema {
+        meta: Some(&[("min", stringify!(MIN)), ("max", stringify!(MAX))]),
+        internal: None,
+    };
+}
+
+impl<T: Serialize + Into<isize> + Copy, const MIN: isize, const MAX: isize> TreeSerialize
+    for RangeLeaf<T, MIN, MAX>
+{
+    fn serialize_by_key<S: Serializer>(
+        &self,
+        mut keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        keys.finalize()?;
+        Self::check(self.0)?
+            .serialize(ser)
+            .map_err(SerdeError::Inner)
+    }
+}
+
+impl<'de, T: Deserialize<'de> + Into<isize> + Copy, const MIN: isize, const MAX: isize>
+    TreeDeserialize<'de> for RangeLeaf<T, MIN, MAX>
+{
+    #[inline]
+    fn deserialize_by_key<D: Deserializer<'de>>(
+        &mut self,
+        mut keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        keys.finalize()?;
+        self.0 = Self::check(T::deserialize(de).map_err(SerdeError::Inner)?)?;
+        Ok(())
+    }
+
+    #[inline]
+    fn probe_by_key<D: Deserializer<'de>>(
+        mut keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        keys.finalize()?;
+        Self::check(T::deserialize(de).map_err(SerdeError::Inner)?)?;
+        Ok(())
+    }
+}
+
+impl<T: Any + Into<isize> + Copy, const MIN: isize, const MAX: isize> TreeAny
+    for RangeLeaf<T, MIN, MAX>
+{
+    #[inline]
+    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
+        keys.finalize()?;
+        Self::check(self.0)?;
+        Ok(&self.0)
+    }
+
+    #[inline]
+    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+        keys.finalize()?;
+        Err(ValueError::Access("No unchecked mutable borrow"))
+    }
+}
