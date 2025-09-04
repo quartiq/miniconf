@@ -60,6 +60,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
     }
 }
 
+/// A node in a graph
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Node<D> {
     pub data: D,
@@ -67,12 +68,13 @@ pub struct Node<D> {
 }
 
 impl<D> Node<D> {
-    pub fn visit<E>(
+    /// Mutably visit all nodes
+    pub fn visit<T, E>(
         &mut self,
         idx: &mut [usize],
         depth: usize,
-        func: &mut impl FnMut(&[usize], &mut D) -> Result<(), E>,
-    ) -> Result<(), E> {
+        func: &mut impl FnMut(&[usize], &mut D) -> Result<T, E>,
+    ) -> Result<T, E> {
         if depth < idx.len() {
             for (i, c) in self.children.iter_mut().enumerate() {
                 idx[depth] = i;
@@ -87,15 +89,15 @@ impl<L: Default> From<&'static Schema> for Node<(&'static Schema, L)> {
     fn from(value: &'static Schema) -> Self {
         Self {
             data: (value, L::default()),
-            children: if let Some(internal) = value.internal.as_ref() {
-                match internal {
-                    Internal::Named(n) => n.iter().map(|n| n.schema.into()).collect(),
-                    Internal::Numbered(n) => n.iter().map(|n| n.schema.into()).collect(),
-                    Internal::Homogeneous(n) => vec![n.schema.into()],
-                }
-            } else {
-                vec![]
-            },
+            children: value
+                .internal
+                .as_ref()
+                .map(|internal| match internal {
+                    Internal::Named(n) => n.iter().map(|n| Self::from(n.schema)).collect(),
+                    Internal::Numbered(n) => n.iter().map(|n| Self::from(n.schema)).collect(),
+                    Internal::Homogeneous(n) => vec![Self::from(n.schema)],
+                })
+                .unwrap_or_default(),
         }
     }
 }
@@ -133,7 +135,7 @@ impl<T> Types<T> {
     where
         T: TreeSerialize,
     {
-        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        let mut idx = vec![0; T::SHAPE.max_depth];
         self.root
             .visit(&mut idx[..], 0, &mut |idx, (schema, format)| {
                 if schema.is_leaf() {
@@ -160,7 +162,7 @@ impl<T> Types<T> {
     where
         T: TreeDeserialize<'de>,
     {
-        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        let mut idx = vec![0; T::SHAPE.max_depth];
         self.root
             .visit(&mut idx[..], 0, &mut |idx, (schema, format)| {
                 if schema.is_leaf() {

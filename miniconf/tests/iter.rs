@@ -19,7 +19,7 @@ struct Settings {
 #[test]
 fn struct_iter() {
     assert_eq!(
-        paths::<3>(Settings::SCHEMA),
+        paths::<Settings, 3>(),
         ["/b/0", "/b/1", "/c/inner", "/d/0/inner", "/a"]
     );
 }
@@ -34,13 +34,8 @@ fn struct_iter_indices() {
         ([3, 0, 0], 1),
     ];
     assert_eq!(
-        Settings::SCHEMA
-            .nodes::<Indices<[usize; 3]>, 3>()
-            .exact_size()
-            .map(|have| {
-                let Indices { len, data } = have.unwrap();
-                (data, len)
-            })
+        Settings::nodes::<Indices<[usize; 3]>, 3>()
+            .map(|have| have.unwrap().into_inner())
             .collect::<Vec<_>>(),
         paths
     );
@@ -50,7 +45,7 @@ fn struct_iter_indices() {
 fn array_iter() {
     let mut s = Settings::default();
 
-    for field in paths::<3>(Settings::SCHEMA) {
+    for field in paths::<Settings, 3>() {
         set_get(&mut s, &field, b"true");
     }
 
@@ -83,36 +78,17 @@ fn short_iter() {
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    <[[Leaf<u32>; 1]; 1]>::SCHEMA.nodes::<(), 1>().exact_size();
-}
-
-#[test]
-#[should_panic]
-fn panic_started_iter() {
-    let mut it = <[[Leaf<u32>; 1]; 1]>::SCHEMA.nodes::<(), 2>();
-    it.next();
-    it.exact_size();
-}
-
-#[test]
-#[should_panic]
-fn panic_rooted_iter() {
-    <[[Leaf<u32>; 1]; 1]>::SCHEMA
-        .nodes::<(), 2>()
-        .root([0usize])
-        .unwrap()
-        .exact_size();
+    <[[Leaf<u32>; 1]; 1]>::nodes::<(), 1>();
 }
 
 #[test]
 fn root() {
     assert_eq!(
-        Settings::SCHEMA
-            .nodes::<Path<String, '/'>, 3>()
-            .root(["b"])
+        NodeIter::<Path<String, '/'>, 3>::new(Settings::SCHEMA)
+            .with_root(["b"])
             .unwrap()
             .map(|p| p.unwrap().into_inner())
-            .collect::<Vec<String>>(),
+            .collect::<Vec<_>>(),
         ["/b/0", "/b/1"]
     );
 }

@@ -13,7 +13,7 @@ struct Settings {
 
 #[test]
 fn meta() {
-    let meta: Shape = Settings::SCHEMA.shape();
+    let meta: Shape = Settings::SHAPE;
     assert_eq!(meta.max_depth, 1);
     assert_eq!(meta.max_length("/"), "/value".len());
     assert_eq!(meta.count.get(), 1);

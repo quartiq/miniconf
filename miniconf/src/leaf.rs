@@ -331,12 +331,30 @@ impl<T: TreeSchema + ?Sized> TreeAny for Deny<T> {
     }
 }
 
-#[derive(
-    Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[serde(transparent)]
 #[repr(transparent)]
 pub struct RangeLeaf<T: ?Sized, const MIN: isize, const MAX: isize>(T);
+
+impl<T, const MIN: isize, const MAX: isize> Default for RangeLeaf<T, MIN, MAX>
+where
+    T: Copy + Default + TryInto<isize> + TryFrom<isize>,
+{
+    fn default() -> Self {
+        assert!(MIN <= MAX);
+        Self(
+            T::default()
+                .try_into()
+                .ok()
+                .unwrap_or(MIN + (MAX - MIN) / 2)
+                .max(MIN)
+                .min(MAX)
+                .try_into()
+                .ok()
+                .unwrap(),
+        )
+    }
+}
 
 impl<T: ?Sized, const MIN: isize, const MAX: isize> Deref for RangeLeaf<T, MIN, MAX> {
     type Target = T;
@@ -346,20 +364,25 @@ impl<T: ?Sized, const MIN: isize, const MAX: isize> Deref for RangeLeaf<T, MIN, 
     }
 }
 
-impl<T: Copy + Into<isize>, const MIN: isize, const MAX: isize> RangeLeaf<T, MIN, MAX> {
+impl<T: Copy + TryInto<isize>, const MIN: isize, const MAX: isize> RangeLeaf<T, MIN, MAX> {
     pub const RANGE: core::ops::RangeInclusive<isize> = MIN..=MAX;
 
+    #[inline]
     pub fn new(value: T) -> Option<Self> {
         Some(Self(Self::check(value).ok()?))
     }
 
+    #[inline]
     pub fn set(&mut self, value: T) -> Option<T> {
         self.0 = Self::check(value).ok()?;
         Some(self.0)
     }
 
     fn check(value: T) -> Result<T, ValueError> {
-        if Self::RANGE.contains(&value.into()) {
+        let v = value
+            .try_into()
+            .or(Err(ValueError::Access("Can't convert")))?;
+        if Self::RANGE.contains(&v) {
             Ok(value)
         } else {
             Err(ValueError::Access("Out of range"))
@@ -382,14 +405,19 @@ impl<T, const MIN: isize, const MAX: isize> From<T> for RangeLeaf<T, MIN, MAX> {
 
 impl<T, const MIN: isize, const MAX: isize> TreeSchema for RangeLeaf<T, MIN, MAX> {
     const SCHEMA: &'static Schema = &Schema {
-        meta: Some(&[("min", stringify!(MIN)), ("max", stringify!(MAX))]),
+        meta: Some(&[
+            // FIXME const_format
+            ("min", stringify!(MIN)),
+            ("max", stringify!(MAX)),
+        ]),
         internal: None,
     };
 }
 
-impl<T: Serialize + Into<isize> + Copy, const MIN: isize, const MAX: isize> TreeSerialize
+impl<T: Serialize + TryInto<isize> + Copy, const MIN: isize, const MAX: isize> TreeSerialize
     for RangeLeaf<T, MIN, MAX>
 {
+    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -402,7 +430,7 @@ impl<T: Serialize + Into<isize> + Copy, const MIN: isize, const MAX: isize> Tree
     }
 }
 
-impl<'de, T: Deserialize<'de> + Into<isize> + Copy, const MIN: isize, const MAX: isize>
+impl<'de, T: Deserialize<'de> + TryInto<isize> + Copy, const MIN: isize, const MAX: isize>
     TreeDeserialize<'de> for RangeLeaf<T, MIN, MAX>
 {
     #[inline]
@@ -427,7 +455,7 @@ impl<'de, T: Deserialize<'de> + Into<isize> + Copy, const MIN: isize, const MAX:
     }
 }
 
-impl<T: Any + Into<isize> + Copy, const MIN: isize, const MAX: isize> TreeAny
+impl<T: Any + TryInto<isize> + Copy, const MIN: isize, const MAX: isize> TreeAny
     for RangeLeaf<T, MIN, MAX>
 {
     #[inline]

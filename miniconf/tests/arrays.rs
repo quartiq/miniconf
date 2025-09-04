@@ -31,7 +31,7 @@ fn set_get(
     let idx = Settings::SCHEMA
         .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>(path))
         .unwrap();
-    assert_eq!(idx.depth, idx.inner.len);
+    assert_eq!(idx.depth, idx.inner.len());
     json::set_by_key(tree, &idx.inner, value)?;
     let mut buf = vec![0; value.len()];
     let len = json::get_by_key(tree, &idx.inner, &mut buf[..]).unwrap();
@@ -41,7 +41,7 @@ fn set_get(
     let packed = Settings::SCHEMA
         .transcode::<Track<Packed>>(&idx.inner)
         .unwrap();
-    assert_eq!(packed.depth, idx.inner.len);
+    assert_eq!(packed.depth, idx.inner.len());
     json::set_by_key(tree, packed.inner, value)?;
     let mut buf = vec![0; value.len()];
     let len = json::get_by_key(tree, packed.inner, &mut buf[..]).unwrap();
@@ -52,7 +52,7 @@ fn set_get(
 
 #[test]
 fn paths() {
-    common::paths::<4>(Settings::SCHEMA);
+    common::paths::<Settings, 4>();
 }
 
 #[test]
@@ -132,8 +132,7 @@ fn not_found() {
 
 #[test]
 fn metadata() {
-    let m = Settings::SCHEMA.shape();
-    assert_eq!(m.max_depth, 4);
-    assert_eq!(m.max_length("/"), "/aam/0/0/c".len());
-    assert_eq!(m.count.get(), 11);
+    assert_eq!(Settings::SHAPE.max_depth, 4);
+    assert_eq!(Settings::SHAPE.max_length("/"), "/aam/0/0/c".len());
+    assert_eq!(Settings::SHAPE.count.get(), 11);
 }

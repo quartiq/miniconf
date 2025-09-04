@@ -36,7 +36,6 @@ use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
 use crate::{IntoKeys, SerdeError, TreeDeserialize, TreeSerialize};
 
 /// Deserialize and set a node value from a `postcard` flavor.
-#[inline]
 pub fn set_by_key<'de, F: de_flavors::Flavor<'de>>(
     tree: &mut (impl TreeDeserialize<'de> + ?Sized),
     keys: impl IntoKeys,
@@ -48,7 +47,6 @@ pub fn set_by_key<'de, F: de_flavors::Flavor<'de>>(
 }
 
 /// Get and serialize a node value into a `postcard` flavor.
-#[inline]
 pub fn get_by_key<F: ser_flavors::Flavor>(
     tree: &(impl TreeSerialize + ?Sized),
     keys: impl IntoKeys,

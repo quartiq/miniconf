@@ -1,4 +1,4 @@
-use miniconf::{Leaf, Tree};
+use miniconf::{Leaf, RangeLeaf, Tree};
 use serde::{Deserialize, Serialize};
 
 // Either/Inner/Settings are straight from README.md
@@ -11,6 +11,8 @@ pub struct Inner {
     a: Leaf<i32>,
     /// Outer doc
     b: Leaf<i32>,
+    /// Range limited
+    c: RangeLeaf<u16, 0, 100>,
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]

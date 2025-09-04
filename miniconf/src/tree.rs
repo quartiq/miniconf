@@ -2,12 +2,70 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
+use crate::{
+    ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Shape, Transcode, ValueError,
+};
 
 pub trait TreeSchema {
     /// Schema for this tree level
     // Reference for Option<T> to copy T::SCHEMA
     const SCHEMA: &'static Schema;
+    const SHAPE: Shape = Shape::new(Self::SCHEMA);
+
+    /// Return an iterator over nodes of a given type
+    ///
+    /// This is a walk of all leaf nodes.
+    /// The iterator will walk all paths, including those that may be absent at
+    /// runtime (see [`TreeSchema#option`]).
+    /// An iterator with an exact and trusted `size_hint()` can be obtained from
+    /// this through [`NodeIter::exact_size()`].
+    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
+    ///
+    /// ```
+    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
+    /// #[derive(TreeSchema)]
+    /// struct S {
+    ///     foo: Leaf<u32>,
+    ///     bar: [Leaf<u16>; 2],
+    /// };
+    ///
+    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
+    ///
+    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
+    ///
+    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
+    ///     .exact_size()
+    ///     .map(|p| {
+    ///         let (idx, node) = p.unwrap();
+    ///         (idx.into_inner(), node.depth)
+    ///     })
+    ///     .collect();
+    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
+    ///
+    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().0.into_lsb().get())
+    ///     .collect();
+    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
+    ///
+    /// let nodes: Vec<_> = S::nodes::<(), 2>()
+    ///     .exact_size()
+    ///     .map(|p| p.unwrap().1)
+    ///     .collect();
+    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
+    /// ```
+    ///
+    fn nodes<N: Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+        NodeIter::exact_size::<Self>()
+    }
 }
 
 /// Access any node by keys.

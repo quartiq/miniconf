@@ -63,7 +63,7 @@ impl Shape {
                     let mut count = 0;
                     while index < nameds.len() {
                         let named = &nameds[index];
-                        let child = named.schema.shape();
+                        let child = Self::new(named.schema);
                         assign_max!(m.max_depth, 1 + child.max_depth);
                         assign_max!(m.max_length, named.name.len() + child.max_length);
                         assign_max!(m.max_bits, bits + child.max_bits);
@@ -92,7 +92,7 @@ impl Shape {
                     m.count = NonZero::new(count).unwrap();
                 }
                 Internal::Homogeneous(homogeneous) => {
-                    m = homogeneous.schema.shape();
+                    m = Self::new(homogeneous.schema);
                     m.max_depth += 1;
                     m.max_length += 1 + homogeneous.len.ilog10() as usize;
                     m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);

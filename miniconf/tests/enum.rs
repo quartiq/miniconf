@@ -1,6 +1,4 @@
-use miniconf::{
-    json, Keys, Leaf, SerdeError, StrLeaf, Tree, TreeDeserialize, TreeSchema, TreeSerialize,
-};
+use miniconf::{json, Keys, Leaf, SerdeError, StrLeaf, Tree, TreeDeserialize, TreeSerialize};
 
 mod common;
 use common::*;
@@ -90,7 +88,7 @@ fn enum_switch() {
     assert_eq!(s.enu, Enum::B(Inner { a: 8.into() }));
 
     assert_eq!(
-        paths::<3>(Settings::SCHEMA),
+        paths::<Settings, 3>(),
         [
             "/tag",
             "/enu/foo",
@@ -115,7 +113,7 @@ fn enum_skip() {
         C,
         D,
     }
-    assert_eq!(paths::<1>(E::SCHEMA), ["/A"]);
+    assert_eq!(paths::<E, 1>(), ["/A"]);
 }
 
 #[test]
@@ -129,9 +127,9 @@ fn option() {
         None,
         Some(T),
     }
-    assert_eq!(paths::<1>(Option::<[Leaf<i32>; 1]>::SCHEMA), ["/0"]);
+    assert_eq!(paths::<Option::<[Leaf<i32>; 1]>, 1>(), ["/0"]);
     assert_eq!(
-        paths::<1>(Option::<::core::option::Option<Leaf<i32>>>::SCHEMA),
+        paths::<Option::<::core::option::Option<Leaf<i32>>>, 1>(),
         [""]
     );
 }

@@ -20,11 +20,7 @@ fn packed() {
     );
 
     // Check path-packed round trip.
-    for iter_path in Settings::SCHEMA
-        .nodes::<Path<String, '/'>, 2>()
-        .exact_size()
-        .map(Result::unwrap)
-    {
+    for iter_path in Settings::nodes::<Path<String, '/'>, 2>().map(Result::unwrap) {
         let packed = Settings::SCHEMA
             .transcode::<Track<Packed>>(&iter_path)
             .unwrap();
@@ -41,8 +37,7 @@ fn packed() {
     }
     println!(
         "{:?}",
-        Settings::SCHEMA
-            .nodes::<Packed, 2>()
+        Settings::nodes::<Packed, 2>()
             .map(|p| p.unwrap().into_lsb())
             .collect::<Vec<_>>()
     );
@@ -64,33 +59,21 @@ fn top() {
         foo: Leaf<i32>,
     }
     assert_eq!(
-        S::SCHEMA
-            .nodes::<Path<String, '/'>, 2>()
+        S::nodes::<Path<String, '/'>, 2>()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/baz/0", "/foo"]
     );
     assert_eq!(
-        S::SCHEMA
-            .nodes::<Indices<_>, 2>()
+        S::nodes::<Indices<_>, 2>()
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
-        [
-            Indices {
-                data: [0, 0],
-                len: 2
-            },
-            Indices {
-                data: [1, 0],
-                len: 1
-            },
-        ]
+        [Indices::new([0, 0], 2), Indices::new([1, 0], 1)]
     );
     let p = S::SCHEMA.transcode::<Track<Packed>>([1usize]).unwrap();
     assert_eq!((p.inner.into_lsb().get(), p.depth), (0b11, 1));
     assert_eq!(
-        S::SCHEMA
-            .nodes::<Packed, 2>()
+        S::nodes::<Packed, 2>()
             .map(|p| p.unwrap().into_lsb().get())
             .collect::<Vec<_>>(),
         [0b100, 0b11]
@@ -100,8 +83,7 @@ fn top() {
 #[test]
 fn zero_key() {
     assert_eq!(
-        Option::<Leaf<()>>::SCHEMA
-            .nodes::<Packed, 2>()
+        Option::<Leaf<()>>::nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -111,8 +93,7 @@ fn zero_key() {
     );
 
     assert_eq!(
-        <[Leaf<usize>; 1]>::SCHEMA
-            .nodes::<Packed, 2>()
+        <[Leaf<usize>; 1]>::nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -172,7 +153,7 @@ fn size() {
         .unwrap();
     assert_eq!(path.depth, 31);
     assert_eq!(path.inner.as_str().len(), 2 * 31);
-    let meta: Shape = A31::SCHEMA.shape();
+    let meta: Shape = A31::SHAPE;
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 31);
     assert_eq!(meta.count.get(), 1usize.pow(31));
@@ -189,7 +170,7 @@ fn size() {
         .unwrap();
     assert_eq!(path.depth, 16);
     assert_eq!(path.inner.as_str().len(), 2 * 16);
-    let meta: Shape = A16::SCHEMA.shape();
+    let meta: Shape = A16::SHAPE;
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 16);
     assert_eq!(meta.count.get(), 3usize.pow(15));

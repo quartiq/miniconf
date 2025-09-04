@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Track, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode, TreeSchema};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,6 +61,7 @@ pub struct NodeIter<N, const D: usize> {
 }
 
 impl<N, const D: usize> NodeIter<N, D> {
+    #[inline]
     pub const fn with(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
         assert!(root <= D);
         Self {
@@ -73,6 +74,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         }
     }
 
+    #[inline]
     pub const fn new(schema: &'static Schema) -> Self {
         Self::with(schema, [0; D], 0)
     }
@@ -80,14 +82,11 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
-    pub fn root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
+    pub fn with_root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
         self.state = [0; D];
-        let mut tr = Track::new(&mut self.state[..]);
-        match tr.transcode(self.schema, root) {
-            Err(DescendError::Key(KeyError::TooShort)) | Ok(()) => {}
-            ret => ret?,
-        }
-        self.root = tr.depth;
+        let mut tr = Short::new(Track::new(&mut self.state[..]));
+        tr.transcode(self.schema, root)?;
+        self.root = tr.inner.depth;
         self.depth = D + 1;
         Ok(self)
     }
@@ -99,38 +98,31 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// if the iteration depth has been limited or if the iteration root
     /// is not the tree root.
     ///
-    // TODO: improve by e.g. changing schema
-    pub fn exact_size(self) -> ExactSize<Self> {
-        assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
-        assert_eq!(self.root, 0, "NodeIter on sub-tree");
-        debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta = self.schema.shape();
-        assert!(
-            D >= meta.max_depth,
-            "depth D = {D} must be at least {}",
-            meta.max_depth
-        );
+    #[inline]
+    pub const fn exact_size<T: TreeSchema + ?Sized>() -> ExactSize<Self> {
+        if D < T::SHAPE.max_depth {
+            panic!("insufficient depth for exact size iteration");
+        }
         ExactSize {
-            iter: self,
-            count: meta.count.get(),
+            iter: Self::new(T::SCHEMA),
+            count: T::SHAPE.count.get(),
         }
     }
 
-    /// Return the current iteration depth
-    pub const fn current_depth(&self) -> usize {
-        self.depth
+    /// Return the current state
+    #[inline]
+    pub fn state(&self) -> Option<&[usize]> {
+        self.state.get(..self.depth)
     }
 
     /// Return the root depth
-    pub const fn root_depth(&self) -> usize {
+    #[inline]
+    pub const fn root(&self) -> usize {
         self.root
     }
 }
 
-impl<N, const D: usize> Iterator for NodeIter<N, D>
-where
-    N: Transcode + Default,
-{
+impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
     type Item = Result<N, N::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -147,12 +139,12 @@ where
             }
             let mut path = N::default();
             let mut idx = self.state.iter().into_keys().track();
-            let ret = path.transcode(&self.schema, &mut idx);
+            let ret = path.transcode(self.schema, &mut idx);
+            // Track() counts is the number of successful Keys::next()
             let depth = idx.depth;
             return match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
                     // Reset index at NotFound depth, then retry with incremented earlier index or terminate
-                    // Track() counts is the number of successful Keys::next()
                     self.state[depth] = 0;
                     self.depth = depth.max(self.root);
                     continue;
@@ -163,6 +155,7 @@ where
                     Some(Ok(path))
                 }
                 Err(DescendError::Key(KeyError::TooShort)) => {
+                    // Use Short<N> to also get internal short nodes
                     self.depth = depth;
                     continue;
                 }

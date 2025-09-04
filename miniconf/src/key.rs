@@ -109,6 +109,7 @@ pub trait Transcode {
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
     type Error = T::Error;
+    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -125,6 +126,7 @@ pub struct Short<K> {
 }
 
 impl<K> Short<K> {
+    #[inline]
     pub fn new(inner: K) -> Self {
         Self { inner, leaf: false }
     }
@@ -157,6 +159,7 @@ impl<K: Keys> Keys for Short<K> {
 impl<T: Transcode> Transcode for Short<T> {
     type Error = T::Error;
 
+    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -182,6 +185,7 @@ pub struct Track<K> {
 }
 
 impl<K> Track<K> {
+    #[inline]
     pub fn new(inner: K) -> Self {
         Self { inner, depth: 0 }
     }
@@ -216,6 +220,7 @@ impl<K: Keys> Keys for Track<K> {
 impl<T: Transcode> Transcode for Track<T> {
     type Error = T::Error;
 
+    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -232,6 +237,7 @@ impl<T: Transcode> Transcode for Track<T> {
 /// Shim to provide the bare lookup/Track/Short without transcoding target
 impl Transcode for () {
     type Error = Infallible;
+    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,

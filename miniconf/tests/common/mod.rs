@@ -5,16 +5,12 @@ use miniconf::{
     TreeDeserialize, TreeSchema, TreeSerialize,
 };
 
-pub fn paths<const D: usize>(schema: &'static Schema) -> Vec<String> {
-    assert!(schema
-        .nodes::<Packed, D>()
-        .exact_size()
+pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
+    assert!(T::nodes::<Packed, D>()
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
         .is_sorted());
-    schema
-        .nodes::<Track<Path<String, '/'>>, D>()
-        .exact_size()
+    T::nodes::<Track<Path<String, '/'>>, D>()
         .map(|pn| {
             let pn = pn.unwrap();
             println!("{pn:?}");

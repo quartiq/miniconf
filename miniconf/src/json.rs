@@ -65,7 +65,6 @@ pub fn get(
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [Error].
-#[inline]
 pub fn set_by_key<'de>(
     tree: &mut (impl TreeDeserialize<'de> + ?Sized),
     keys: impl IntoKeys,
@@ -80,7 +79,6 @@ pub fn set_by_key<'de>(
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [Error].
-#[inline]
 pub fn get_by_key(
     tree: &(impl TreeSerialize + ?Sized),
     keys: impl IntoKeys,

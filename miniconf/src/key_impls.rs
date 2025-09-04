@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, Internal, IntoKeys, Key, Schema, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, Schema, Track, Transcode};
 
 // index
 macro_rules! impl_key_integer {
@@ -26,8 +26,22 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 /// Indices of `usize` to identify a node in a `TreeSchema`
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub struct Indices<T: ?Sized> {
-    pub len: usize,
-    pub data: T,
+    len: usize,
+    data: T,
+}
+
+impl<T> Indices<T> {
+    pub fn new(data: T, len: usize) -> Self {
+        Self { len, data }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn into_inner(self) -> (T, usize) {
+        (self.data, self.len)
+    }
 }
 
 impl<T> From<T> for Indices<T> {
@@ -40,45 +54,38 @@ impl<T> From<T> for Indices<T> {
     }
 }
 
-impl<const D: usize, T> AsRef<[T]> for Indices<[T; D]> {
-    fn as_ref(&self) -> &[T] {
-        &self.data[..self.len]
-    }
-}
-
-impl<const D: usize, T> AsMut<[T]> for Indices<[T; D]> {
-    fn as_mut(&mut self) -> &mut [T] {
-        &mut self.data[..self.len]
-    }
-}
-
-impl<'a, T: AsRef<[usize]> + ?Sized> IntoKeys for &'a Indices<T> {
-    type IntoKeys = <&'a [usize] as IntoKeys>::IntoKeys;
+impl<U, T: AsRef<[U]> + ?Sized> AsRef<[U]> for Indices<T> {
     #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        self.data.as_ref().into_keys()
+    fn as_ref(&self) -> &[U] {
+        &self.data.as_ref()[..self.len]
+    }
+}
+
+impl<'a, U, T: ?Sized> IntoIterator for &'a Indices<T>
+where
+    &'a T: IntoIterator<Item = U>,
+{
+    type Item = U;
+
+    type IntoIter = core::iter::Take<<&'a T as IntoIterator>::IntoIter>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.data).into_iter().take(self.len)
     }
 }
 
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
-    type Error = ();
-    #[inline]
+    type Error = <[usize] as Transcode>::Error;
+
     fn transcode(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        let slic = self.data.as_mut();
-        self.len = slic.len();
-        let mut it = slic.iter_mut();
-        let ret = schema.descend(keys.into_keys(), |_meta, idx_schema| {
-            if let Some((index, _internal)) = idx_schema {
-                let idx = it.next().ok_or(())?;
-                *idx = index;
-            }
-            Ok(())
-        });
-        self.len -= it.len();
+        let mut slic = Track::new(self.data.as_mut());
+        let ret = slic.transcode(schema, keys);
+        self.len = slic.depth;
         ret
     }
 }
@@ -87,6 +94,7 @@ macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
             type Error = ();
+
             fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError<Self::Error>> {
                 let mut it = self.iter_mut();
                 schema.descend(keys.into_keys(), |_meta, idx_schema| {

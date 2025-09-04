@@ -124,7 +124,7 @@ struct Multipart<const Y: usize> {
 impl<const Y: usize> Multipart<Y> {
     fn new(schema: &'static Schema) -> Self {
         Self {
-            iter: schema.nodes(),
+            iter: NodeIter::new(schema),
             response_topic: None,
             correlation_data: None,
         }
@@ -133,7 +133,7 @@ impl<const Y: usize> Multipart<Y> {
 
 impl<const Y: usize> Multipart<Y> {
     fn root(mut self, keys: impl IntoKeys) -> Result<Self, DescendError<()>> {
-        self.iter = self.iter.root(keys)?;
+        self.iter = self.iter.with_root(keys)?;
         Ok(self)
     }
 
@@ -159,7 +159,7 @@ impl<const Y: usize> Multipart<Y> {
             .transpose()
             .or(Err("Correlation data too long"))?;
         Ok(Self {
-            iter: schema.nodes(),
+            iter: NodeIter::new(schema),
             response_topic,
             correlation_data,
         })
@@ -275,9 +275,10 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta = Settings::SCHEMA.shape();
-        assert!(meta.max_depth <= Y);
-        assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
+        assert!(Settings::SHAPE.max_depth <= Y);
+        assert!(
+            prefix.len() + "/settings".len() + Settings::SHAPE.max_length("/") <= MAX_TOPIC_LENGTH
+        );
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
@@ -391,7 +392,7 @@ where
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
         let mut m = Multipart::new(Settings::SCHEMA);
         if let Some(path) = path {
-            m = m.root(Path::<_, SEPARATOR>::from(path))?;
+            m = m.root(Path::<_, SEPARATOR>(path))?;
         }
         self.state.process_event(sm::Events::Multipart)?;
         self.pending = m;
@@ -526,7 +527,7 @@ where
             let Some(path) = topic
                 .strip_prefix(*prefix)
                 .and_then(|p| p.strip_prefix("/settings"))
-                .map(Path::<_, SEPARATOR>::from)
+                .map(Path::<_, SEPARATOR>)
             else {
                 info!("Unexpected topic: {topic}");
                 return State::Unchanged;

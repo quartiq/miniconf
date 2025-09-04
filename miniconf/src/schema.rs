@@ -1,7 +1,7 @@
 use core::{convert::Infallible, num::NonZero};
 use serde::Serialize;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Transcode};
 
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
@@ -71,6 +71,7 @@ pub enum Internal {
 
 impl Internal {
     /// Return the number of direct child nodes
+    #[inline]
     pub const fn len(&self) -> NonZero<usize> {
         match self {
             Self::Named(n) => NonZero::new(n.len()).expect("Must have at least one child"),
@@ -83,6 +84,7 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
+    #[inline]
     pub const fn get_schema(&self, idx: usize) -> &Schema {
         match self {
             Self::Named(nameds) => nameds[idx].schema,
@@ -95,6 +97,7 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
+    #[inline]
     pub const fn get_meta(&self, idx: usize) -> &Meta {
         match self {
             Internal::Named(nameds) => &nameds[idx].meta,
@@ -110,6 +113,7 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
+    #[inline]
     pub const fn get_name(&self, idx: usize) -> Option<&str> {
         if let Self::Named(n) = self {
             Some(n[idx].name)
@@ -119,6 +123,7 @@ impl Internal {
     }
 
     /// Perform a name-to-index lookup
+    #[inline]
     pub fn get_index(&self, name: &str) -> Option<usize> {
         match self {
             Internal::Named(n) => n.iter().position(|n| n.name == name),
@@ -232,34 +237,45 @@ impl Schema {
     /// # Design note
     /// Writing this to return an iterator instead of using a callback
     /// would have worse performance (O(n^2) instead of O(n) for matching)
-    pub fn descend<'a, E>(
+    #[inline]
+    pub fn descend<'a, T, E>(
         &'a self,
         mut keys: impl Keys,
-        mut func: impl FnMut(&'a Meta, Option<(usize, &'a Internal)>) -> Result<(), E>,
-    ) -> Result<(), DescendError<E>> {
+        mut func: impl FnMut(&'a Self, Option<(usize, &'a Internal)>) -> Result<T, E>,
+    ) -> Result<T, DescendError<E>> {
         let mut schema = self;
         while let Some(internal) = schema.internal.as_ref() {
             let idx = keys.next(internal)?;
-            func(&schema.meta, Some((idx, internal))).map_err(DescendError::Inner)?;
+            func(schema, Some((idx, internal))).map_err(DescendError::Inner)?;
             schema = internal.get_schema(idx);
         }
         keys.finalize()?;
-        func(&schema.meta, None).map_err(DescendError::Inner)
+        func(schema, None).map_err(DescendError::Inner)
     }
 
     /// Look up outer and inner metadata given keys.
     pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
         let mut outer = None;
         let mut inner = &self.meta;
-        self.descend(keys.into_keys(), |meta, idx_internal| {
+        self.descend(keys.into_keys(), |schema, idx_internal| {
             if let Some((idx, internal)) = idx_internal {
                 outer = Some(internal.get_meta(idx));
             }
-            inner = meta;
+            inner = &schema.meta;
             Ok::<_, Infallible>(())
         })
         .map_err(|e| e.try_into().unwrap())?;
         Ok((outer, inner))
+    }
+
+    pub fn get(&self, keys: impl IntoKeys) -> Result<&Self, KeyError> {
+        let mut schema = self;
+        self.descend(keys.into_keys(), |s, _idx_internal| {
+            schema = s;
+            Ok::<_, Infallible>(())
+        })
+        .map_err(|e| e.try_into().unwrap())?;
+        Ok(schema)
     }
 
     /// Transcode keys to a new keys type representation
@@ -311,70 +327,5 @@ impl Schema {
         let mut target = N::default();
         target.transcode(self, keys)?;
         Ok(target)
-    }
-
-    /// Return an iterator over nodes of a given type
-    ///
-    /// This is a walk of all leaf nodes.
-    /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`TreeSchema#option`]).
-    /// An iterator with an exact and trusted `size_hint()` can be obtained from
-    /// this through [`NodeIter::exact_size()`].
-    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
-    ///
-    /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeSchema};
-    /// #[derive(TreeSchema)]
-    /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
-    /// };
-    ///
-    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_inner())
-    ///     .collect();
-    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
-    ///
-    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_inner())
-    ///     .collect();
-    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
-    ///
-    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| {
-    ///         let (idx, node) = p.unwrap();
-    ///         (idx.into_inner(), node.depth)
-    ///     })
-    ///     .collect();
-    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
-    ///
-    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_lsb().get())
-    ///     .collect();
-    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
-    ///
-    /// let nodes: Vec<_> = S::nodes::<(), 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().1)
-    ///     .collect();
-    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
-    /// ```
-    ///
-    #[inline]
-    pub fn nodes<N, const D: usize>(&'static self) -> NodeIter<N, D>
-    where
-        N: Transcode + Default,
-    {
-        NodeIter::new(self)
-    }
-
-    /// Compute metadata
-    #[inline]
-    pub const fn shape(&self) -> Shape {
-        Shape::new(self)
     }
 }
