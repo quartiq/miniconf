@@ -27,7 +27,7 @@ schemars = { version = "1.0.4", optional = true, default-features = false }
 serde_json = { version = "1.0.133", optional = true }
 
 [features]
-default = ["derive", "trace"]
+default = ["derive"]
 alloc = []
 std = ["alloc"]
 json-core = ["dep:serde-json-core"]

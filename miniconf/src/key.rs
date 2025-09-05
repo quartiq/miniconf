@@ -31,7 +31,7 @@ where
 }
 
 /// Capability to yield and look up [`Key`]s
-pub trait Keys: Sized {
+pub trait Keys {
     /// Look up the next key in a [`Internal`] and convert to `usize` index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
@@ -44,13 +44,19 @@ pub trait Keys: Sized {
 
     /// Chain another `Keys` to this one.
     #[inline]
-    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys> {
+    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
+    where
+        Self: Sized,
+    {
         Chain(self, other.into_keys())
     }
 
     /// Track depth
     #[inline]
-    fn track(self) -> Track<Self> {
+    fn track(self) -> Track<Self>
+    where
+        Self: Sized,
+    {
         Track {
             inner: self,
             depth: 0,
@@ -59,7 +65,10 @@ pub trait Keys: Sized {
 
     /// Track whether a leaf node is reached
     #[inline]
-    fn short(self) -> Short<Self> {
+    fn short(self) -> Short<Self>
+    where
+        Self: Sized,
+    {
         Short {
             inner: self,
             leaf: false,
@@ -67,10 +76,7 @@ pub trait Keys: Sized {
     }
 }
 
-impl<T> Keys for &mut T
-where
-    T: Keys + ?Sized,
-{
+impl<T: Keys + ?Sized> Keys for &mut T {
     #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         (**self).next(internal)

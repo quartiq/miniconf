@@ -156,13 +156,11 @@ impl ReflectJsonSchema for ContainerFormat {
                         Some(if sch.as_bool() == Some(false) {
                             // Unit variant
                             json_schema!({"const": &n.name})
+                        } else if generator.settings().untagged_enum_variant_titles {
+                            sch.insert("title".to_string(), n.name.clone().into());
+                            sch
                         } else {
-                            if generator.settings().untagged_enum_variant_titles {
-                                sch.insert("title".to_string(), n.name.clone().into());
-                                sch
-                            } else {
-                                json_schema!({"properties": {&n.name: sch}})
-                            }
+                            json_schema!({"properties": {&n.name: sch}})
                         })
                     })
                     .collect();
@@ -248,7 +246,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
     }
 }
 
-fn push_meta(sch: &mut Schema, key: &str, meta: &Meta) {
+fn push_meta(sch: &mut Schema, key: &str, meta: &Option<Meta>) {
     if let Some(meta) = meta {
         sch.insert(
             key.to_string(),

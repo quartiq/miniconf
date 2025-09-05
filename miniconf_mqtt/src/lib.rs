@@ -538,7 +538,7 @@ where
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
-                        track_depth(&path, |k| json::get_by_key(settings, k, buf))
+                        track_depth(path, |k| json::get_by_key(settings, k, buf))
                     })
                     .unwrap()
                     .properties(&[ResponseCode::Ok.into()])
@@ -584,7 +584,7 @@ where
                 State::Unchanged
             } else {
                 // Set
-                match track_depth(&path, |k| json::set_by_key(settings, k, payload)) {
+                match track_depth(path, |k| json::set_by_key(settings, k, payload)) {
                     Err(err) => {
                         Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged

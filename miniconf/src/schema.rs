@@ -9,7 +9,7 @@ pub struct Numbered {
     /// The child schema
     pub schema: &'static Schema,
     /// The outer metadata
-    pub meta: Meta,
+    pub meta: Option<Meta>,
 }
 
 impl Numbered {
@@ -27,7 +27,7 @@ pub struct Named {
     /// The child schema
     pub schema: &'static Schema,
     /// The outer metadata
-    pub meta: Meta,
+    pub meta: Option<Meta>,
 }
 
 impl Named {
@@ -49,7 +49,7 @@ pub struct Homogeneous {
     /// The schema of the child nodes
     pub schema: &'static Schema,
     /// The outer metadata
-    pub meta: Meta,
+    pub meta: Option<Meta>,
 }
 
 impl Homogeneous {
@@ -109,7 +109,7 @@ impl Internal {
     /// # Panics
     /// If the index is out of bounds
     #[inline]
-    pub const fn get_meta(&self, idx: usize) -> &Meta {
+    pub const fn get_meta(&self, idx: usize) -> &Option<Meta> {
         match self {
             Internal::Named(nameds) => &nameds[idx].meta,
             Internal::Numbered(numbereds) => &numbereds[idx].meta,
@@ -146,13 +146,13 @@ impl Internal {
 
 /// The metadata type
 // TODO: move the option elsewhere and make this a feature
-pub type Meta = Option<&'static [(&'static str, &'static str)]>;
+pub type Meta = &'static [(&'static str, &'static str)];
 
 /// Type of a node: leaf or internal
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Default)]
 pub struct Schema {
     /// Inner metadata
-    pub meta: Meta,
+    pub meta: Option<Meta>,
 
     /// Internal schemata
     pub internal: Option<Internal>,
@@ -202,6 +202,12 @@ impl Schema {
             None => 0,
             Some(i) => i.len().get(),
         }
+    }
+
+    /// See [`Self::is_leaf()`]
+    #[inline]
+    pub const fn is_empty(&self) -> bool {
+        self.is_leaf()
     }
 
     /// Look up the next item from keys and return a child index
@@ -274,7 +280,10 @@ impl Schema {
     }
 
     /// Look up outer and inner metadata given keys.
-    pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
+    pub fn get_meta(
+        &self,
+        keys: impl IntoKeys,
+    ) -> Result<(Option<&Option<Meta>>, &Option<Meta>), KeyError> {
         let mut outer = None;
         let mut inner = &self.meta;
         self.descend(keys.into_keys(), |schema, idx_internal| {

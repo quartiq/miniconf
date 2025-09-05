@@ -41,6 +41,11 @@ impl<T> Indices<T> {
         self.len
     }
 
+    /// See [`Self::len()`]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Split indices into data and length
     pub fn into_inner(self) -> (T, usize) {
         (self.data, self.len)
@@ -121,6 +126,7 @@ where
     usize: TryInto<T>,
 {
     type Error = <usize as TryInto<T>>::Error;
+
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -266,6 +272,7 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 
 impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
     type Error = core::fmt::Error;
+
     fn transcode(
         &mut self,
         schema: &Schema,

@@ -14,7 +14,7 @@ use crate::field::{TreeField, TreeTrait};
 
 fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
     attrs
-        .into_iter()
+        .iter()
         .filter_map(|a| {
             if a.path().is_ident("doc") {
                 let syn::Expr::Lit(syn::ExprLit {
@@ -36,9 +36,9 @@ fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
 }
 
 fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) -> Result<()> {
-    if let Some(doc) = get_doc(&attrs) {
+    if let Some(doc) = get_doc(attrs) {
         if let Some(old) = meta.insert("doc".to_owned(), doc) {
-            return Err(Error::custom(format!("Duplicate 'doc' meta")).with_span(&old.span()));
+            return Err(Error::custom("Duplicate 'doc' meta").with_span(&old.span()));
         }
     }
     Ok(())
