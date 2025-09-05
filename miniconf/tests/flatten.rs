@@ -49,7 +49,7 @@ fn enum_flatten() {
     assert_eq!(paths::<E1, 1>(), [""]);
     let mut e = E1::A(Leaf(0));
     set_get(&mut e, "", b"1");
-    assert_eq!(e, E1::A(1.into()));
+    assert_eq!(e, E1::A(Leaf(1)));
     assert_eq!(
         json::set(&mut E1::None, "", b"1").unwrap_err(),
         miniconf::ValueError::Absent.into()

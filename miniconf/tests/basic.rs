@@ -76,7 +76,7 @@ fn tuple() {
     for p in paths {
         common::set_get(&mut s, p.as_str(), b"9");
     }
-    assert_eq!(s, (9.into(), (9.into(), 9.into()), [9.into(); 3]));
+    assert_eq!(s, (Leaf(9), (Leaf(9), Leaf(9)), [Leaf(9); 3]));
 }
 
 #[test]

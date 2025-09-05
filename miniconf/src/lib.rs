@@ -25,8 +25,8 @@ pub use tree::*;
 mod iter;
 pub use iter::*;
 mod impls;
-mod leaf;
-pub use leaf::*;
+mod leaves;
+pub use leaves::*;
 
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;

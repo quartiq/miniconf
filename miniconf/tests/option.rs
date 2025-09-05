@@ -45,7 +45,7 @@ fn option_get_set_some() {
     let mut settings = Settings::default();
 
     // Check that if the option is Some, the value can be get or set.
-    settings.value.replace(Inner { data: 5.into() });
+    settings.value.replace(Inner { data: Leaf(5) });
 
     set_get(&mut settings, "/value/data", b"7");
     assert_eq!(*settings.value.unwrap().data, 7);
@@ -86,9 +86,9 @@ fn option_test_defer_option() {
     assert!(s.data.is_none());
 
     assert!(json::set(&mut s, "/data", b"7").is_err());
-    s.data = Some(0.into());
+    s.data = Some(Leaf(0));
     set_get(&mut s, "/data", b"7");
-    assert_eq!(s.data, Some(7.into()));
+    assert_eq!(s.data, Some(Leaf(7)));
 
     assert!(json::set(&mut s, "/data", b"null").is_err());
 }
@@ -116,7 +116,7 @@ fn option_absent() {
         Err(ValueError::Absent.into())
     );
     assert_eq!(json::set(&mut s, "", b"7"), Err(KeyError::TooShort.into()));
-    s.d = Some(3.into());
+    s.d = Some(Leaf(3));
     assert_eq!(json::set(&mut s, "/d", b"7"), Ok(1));
     assert_eq!(
         json::set(&mut s, "/d/foo", b"7"),

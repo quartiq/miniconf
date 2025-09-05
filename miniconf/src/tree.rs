@@ -277,8 +277,8 @@ pub trait TreeSerialize: TreeSchema {
     ///     bar: [Leaf<u16>; 2],
     /// };
     /// let s = S {
-    ///     foo: 9.into(),
-    ///     bar: [11.into(), 3.into()],
+    ///     foo: Leaf(9),
+    ///     bar: [Leaf(11), Leaf(3)],
     /// };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);

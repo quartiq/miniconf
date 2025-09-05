@@ -76,16 +76,16 @@ fn enum_switch() {
         json::set(&mut s, "/tag", b"\"bar\""),
         Err(SerdeError::Inner(serde_json_core::de::Error::CustomError))
     );
-    assert_eq!(s.enu, Enum::A(0.into()));
+    assert_eq!(s.enu, Enum::A(Leaf(0)));
     set_get(&mut s, "/enu/foo", b"99");
-    assert_eq!(s.enu, Enum::A(99.into()));
+    assert_eq!(s.enu, Enum::A(Leaf(99)));
     assert_eq!(
         json::set(&mut s, "/enu/B/a", b"99"),
         Err(miniconf::ValueError::Absent.into())
     );
     set_get(&mut s, "/tag", b"\"B\"");
     set_get(&mut s, "/enu/B/a", b"8");
-    assert_eq!(s.enu, Enum::B(Inner { a: 8.into() }));
+    assert_eq!(s.enu, Enum::B(Inner { a: Leaf(8) }));
 
     assert_eq!(
         paths::<Settings, 3>(),

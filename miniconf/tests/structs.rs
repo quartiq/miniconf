@@ -35,8 +35,8 @@ fn structs() {
     // It is not allowed to set a non-terminal node.
     assert!(json::set(&mut settings, "/d", b"{\"a\": 5").is_err());
 
-    assert_eq!(*settings.c, Inner { a: 5.into() });
-    assert_eq!(settings.d, Inner { a: 3.into() });
+    assert_eq!(*settings.c, Inner { a: Leaf(5) });
+    assert_eq!(settings.d, Inner { a: Leaf(3) });
 
     // Check that metadata is correct.
     let metadata = Settings::SHAPE;
@@ -54,9 +54,9 @@ fn borrowed() {
     struct S<'a> {
         a: Leaf<&'a str>,
     }
-    let mut s = S { a: "foo".into() };
+    let mut s = S { a: Leaf("foo") };
     set_get(&mut s, "/a", br#""bar""#);
-    assert_eq!(s.a, "bar".into());
+    assert_eq!(s.a, Leaf("bar"));
 }
 
 #[test]
@@ -86,9 +86,9 @@ fn deny_access() {
         #[tree(deny(ref_any = "no any", mut_any = "no any"))]
         cell: &'a RefCell<Leaf<i32>>,
     }
-    let cell = RefCell::new(2.into());
+    let cell = RefCell::new(Leaf(2));
     let mut s = S {
-        field: 1.into(),
+        field: Leaf(1),
         cell: &cell,
     };
     common::set_get(&mut s, "/cell", b"3");

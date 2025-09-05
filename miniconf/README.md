@@ -88,7 +88,7 @@ json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
-settings.option_tree = Some(0.into());
+settings.option_tree = Some(Leaf(0));
 json::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());

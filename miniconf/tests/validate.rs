@@ -80,10 +80,10 @@ fn paging() {
         }
     }
     let mut s = S::default();
-    s.vec.resize(10, 0.into());
+    s.vec.resize(10, Leaf(0));
     json::set(&mut s, "/offset", b"3").unwrap();
     json::set(&mut s, "/arr/1", b"5").unwrap();
-    assert_eq!(s.vec[*s.offset + 1], 5.into());
+    assert_eq!(s.vec[*s.offset + 1], Leaf(5));
     let mut buf = [0; 10];
     let len = json::get(&s, "/arr/1", &mut buf[..]).unwrap();
     assert_eq!(buf[..len], b"5"[..]);

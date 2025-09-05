@@ -10,6 +10,67 @@ use crate::{
     Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
+/// Handler module for leaf fields without [`Leaf`] newtype
+///
+/// To be used as a derive macros attribute `#[tree(with=miniconf::leaf)]`.
+pub mod leaf {
+    use super::*;
+
+    /// [`TreeSchema::SCHEMA`]
+    pub const SCHEMA: &'static Schema = &Schema::LEAF;
+
+    /// [`TreeSerialize::serialize_by_key()`]
+    #[inline]
+    pub fn serialize_by_key<T: Serialize + ?Sized, S: Serializer>(
+        value: &T,
+        mut keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        keys.finalize()?;
+        value.serialize(ser).map_err(SerdeError::Inner)
+    }
+
+    /// [`TreeDeserialize::deserialize_by_key()`]
+    #[inline]
+    pub fn deserialize_by_key<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        value: &mut T,
+        mut keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        keys.finalize()?;
+        *value = T::deserialize(de).map_err(SerdeError::Inner)?;
+        Ok(())
+    }
+
+    /// [`TreeDeserialize::probe_by_key()`]
+    #[inline]
+    pub fn probe_by_key<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+        mut keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        keys.finalize()?;
+        T::deserialize(de).map_err(SerdeError::Inner)?;
+        Ok(())
+    }
+
+    /// [`TreeAny::ref_any_by_key()`]
+    #[inline]
+    pub fn ref_any_by_key(value: &impl Any, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
+        keys.finalize()?;
+        Ok(value)
+    }
+
+    /// [`TreeAny::mut_any_by_key()`]
+    #[inline]
+    pub fn mut_any_by_key(
+        value: &mut impl Any,
+        mut keys: impl Keys,
+    ) -> Result<&mut dyn Any, ValueError> {
+        keys.finalize()?;
+        Ok(value)
+    }
+}
+
 /// `Serialize`/`Deserialize`/`Any` leaf
 ///
 /// This wraps [`Serialize`], [`Deserialize`], and [`Any`] into `Tree` a leaf node.
@@ -42,13 +103,6 @@ impl<T: ?Sized> DerefMut for Leaf<T> {
     }
 }
 
-impl<T> From<T> for Leaf<T> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self(value)
-    }
-}
-
 impl<T: Display> Display for Leaf<T> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -57,18 +111,17 @@ impl<T: Display> Display for Leaf<T> {
 }
 
 impl<T: ?Sized> TreeSchema for Leaf<T> {
-    const SCHEMA: &'static Schema = &Schema::LEAF;
+    const SCHEMA: &'static Schema = leaf::SCHEMA;
 }
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
     #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
-        mut keys: impl Keys,
+        keys: impl Keys,
         ser: S,
     ) -> Result<S::Ok, SerdeError<S::Error>> {
-        keys.finalize()?;
-        self.0.serialize(ser).map_err(SerdeError::Inner)
+        leaf::serialize_by_key(&self.0, keys, ser)
     }
 }
 
@@ -76,36 +129,30 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
     #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
-        mut keys: impl Keys,
+        keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        keys.finalize()?;
-        self.0 = T::deserialize(de).map_err(SerdeError::Inner)?;
-        Ok(())
+        leaf::deserialize_by_key(&mut self.0, keys, de)
     }
 
     #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
-        mut keys: impl Keys,
+        keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        keys.finalize()?;
-        T::deserialize(de).map_err(SerdeError::Inner)?;
-        Ok(())
+        leaf::probe_by_key::<T, _>(keys, de)
     }
 }
 
 impl<T: Any> TreeAny for Leaf<T> {
     #[inline]
-    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        keys.finalize()?;
-        Ok(&self.0)
+    fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+        leaf::ref_any_by_key(&self.0, keys)
     }
 
     #[inline]
-    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-        keys.finalize()?;
-        Ok(&mut self.0)
+    fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+        leaf::mut_any_by_key(&mut self.0, keys)
     }
 }
 
@@ -132,7 +179,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 ///     t: (),
 /// }
 /// let mut s = S {
-///     e: StrLeaf(En::A(9.into())),
+///     e: StrLeaf(En::A(Leaf(9))),
 ///     t: (),
 /// };
 /// json::set(&mut s, "/e", b"\"B\"").unwrap();
@@ -158,21 +205,6 @@ impl<T: ?Sized> DerefMut for StrLeaf<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl<T> StrLeaf<T> {
-    /// Extract just the inner
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T> From<T> for StrLeaf<T> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self(value)
     }
 }
 
@@ -259,21 +291,6 @@ impl<T: ?Sized> DerefMut for Deny<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
-    }
-}
-
-impl<T> Deny<T> {
-    /// Extract just the inner
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T> From<T> for Deny<T> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self(value)
     }
 }
 
@@ -389,13 +406,6 @@ impl<T: Copy + TryInto<isize>, const MIN: isize, const MAX: isize> RangeLeaf<T, 
     #[inline]
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T, const MIN: isize, const MAX: isize> From<T> for RangeLeaf<T, MIN, MAX> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self(value)
     }
 }
 
