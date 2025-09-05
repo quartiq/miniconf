@@ -49,7 +49,7 @@ use crate::{
 ///     a: Leaf<f32>,
 /// };
 /// let name = S::SCHEMA.transcode::<Path<String, '/'>>([0usize]).unwrap();
-/// assert_eq!(name.as_str(), "/OTHER");
+/// assert_eq!(name.0.as_str(), "/OTHER");
 /// ```
 ///
 /// ## Skip

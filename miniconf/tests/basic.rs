@@ -33,7 +33,7 @@ fn path() {
             .unwrap();
         assert_eq!(depth, s.inner.depth);
         assert_eq!(leaf, s.leaf);
-        assert_eq!(s.inner.inner.as_str(), path);
+        assert_eq!(s.inner.inner.0.as_str(), path);
     }
 }
 

@@ -109,7 +109,7 @@ assert!(Settings::SHAPE.max_length("/") <= 32);
 
 // Iterating over all leaf paths
 for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
-    let path = path.unwrap();
+    let path = path.unwrap().0;
     // Serialize each
     match json::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again

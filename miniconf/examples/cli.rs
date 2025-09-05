@@ -31,12 +31,12 @@ fn main() -> anyhow::Result<()> {
             Ok(len) => {
                 println!(
                     "-{} {}",
-                    key.as_str(),
+                    key.0.as_str(),
                     core::str::from_utf8(&buf[..len]).unwrap()
                 );
             }
             Err(SerdeError::Value(ValueError::Absent)) => {
-                println!("-{} absent (depth: {})", key.as_str(), k.depth);
+                println!("-{} absent (depth: {})", key.0.as_str(), k.depth);
             }
             Err(e) => panic!("{e:?}"),
         }

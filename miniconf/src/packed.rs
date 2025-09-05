@@ -1,7 +1,4 @@
-use core::{
-    num::NonZero,
-    ops::{Deref, DerefMut},
-};
+use core::num::NonZero;
 
 use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
@@ -66,42 +63,12 @@ use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Trans
 )]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Packed(NonZero<usize>);
+pub struct Packed(pub NonZero<usize>);
 
 impl Default for Packed {
     #[inline]
     fn default() -> Self {
         Self::EMPTY
-    }
-}
-
-impl From<NonZero<usize>> for Packed {
-    #[inline]
-    fn from(value: NonZero<usize>) -> Self {
-        Self(value)
-    }
-}
-
-impl From<Packed> for NonZero<usize> {
-    #[inline]
-    fn from(value: Packed) -> Self {
-        value.0
-    }
-}
-
-impl Deref for Packed {
-    type Target = NonZero<usize>;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Packed {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -140,6 +107,12 @@ impl Packed {
             Some(value) => Some(Self::from_lsb(value)),
             None => None,
         }
+    }
+
+    /// The value is empty.
+    #[inline]
+    pub const fn get(&self) -> usize {
+        self.0.get()
     }
 
     /// The value is empty.
@@ -227,7 +200,7 @@ impl Packed {
     /// * `value`: Value to push. `value >> bits == 0`
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
-        let mut n = self.trailing_zeros();
+        let mut n = self.0.trailing_zeros();
         let old_marker = 1 << n;
         Self::new(old_marker >> bits).map(|new_marker| {
             n -= bits;

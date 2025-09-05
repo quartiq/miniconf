@@ -330,9 +330,9 @@ impl Schema {
     /// let sch = S::SCHEMA;
     ///
     /// let path = sch.transcode::<Path<String, '/'>>(idx).unwrap();
-    /// assert_eq!(path.as_str(), "/bar/1");
+    /// assert_eq!(path.0.as_str(), "/bar/1");
     /// let path = sch.transcode::<JsonPath<String>>(idx).unwrap();
-    /// assert_eq!(path.as_str(), ".bar[1]");
+    /// assert_eq!(path.0.as_str(), ".bar[1]");
     /// let indices = sch.transcode::<Indices<[usize; 2]>>(&path).unwrap();
     /// assert_eq!(indices.as_ref(), idx);
     /// let indices = sch.transcode::<Indices<[usize; 2]>>(["bar", "1"]).unwrap();
@@ -340,7 +340,7 @@ impl Schema {
     /// let packed = sch.transcode::<Packed>(["bar", "4"]).unwrap();
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let path = sch.transcode::<Path<String, '/'>>(packed).unwrap();
-    /// assert_eq!(path.as_str(), "/bar/4");
+    /// assert_eq!(path.0.as_str(), "/bar/4");
     /// let node = sch.transcode::<Short<Track<()>>>(&path).unwrap();
     /// assert!(node.leaf);
     /// assert_eq!(node.inner.depth, 2);

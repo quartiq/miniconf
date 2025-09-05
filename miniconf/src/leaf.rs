@@ -42,14 +42,6 @@ impl<T: ?Sized> DerefMut for Leaf<T> {
     }
 }
 
-impl<T> Leaf<T> {
-    /// Extract just the inner
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
 impl<T> From<T> for Leaf<T> {
     #[inline]
     fn from(value: T) -> Self {

@@ -1,7 +1,4 @@
-use core::{
-    fmt::Write,
-    ops::{ControlFlow::*, Deref, DerefMut},
-};
+use core::{fmt::Write, ops::ControlFlow::*};
 
 use serde::{Deserialize, Serialize};
 
@@ -97,21 +94,6 @@ impl<T> JsonPath<T> {
     #[inline]
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T: ?Sized> Deref for JsonPath<T> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: ?Sized> DerefMut for JsonPath<T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

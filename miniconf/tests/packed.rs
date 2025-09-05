@@ -48,7 +48,7 @@ fn packed() {
         .transcode::<Track<Path<String, '/'>>>(a)
         .unwrap();
     assert_eq!(path.depth, 1);
-    assert_eq!(path.inner.as_str(), "/a");
+    assert_eq!(path.inner.0.as_str(), "/a");
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn size() {
         .transcode::<Track<Path<String, '/'>>>(packed)
         .unwrap();
     assert_eq!(path.depth, 31);
-    assert_eq!(path.inner.as_str().len(), 2 * 31);
+    assert_eq!(path.inner.0.as_str().len(), 2 * 31);
     let meta: Shape = A31::SHAPE;
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 31);
@@ -169,7 +169,7 @@ fn size() {
         .transcode::<Track<Path<String, '/'>>>(packed)
         .unwrap();
     assert_eq!(path.depth, 16);
-    assert_eq!(path.inner.as_str().len(), 2 * 16);
+    assert_eq!(path.inner.0.as_str().len(), 2 * 16);
     let meta: Shape = A16::SHAPE;
     assert_eq!(meta.max_bits, 31);
     assert_eq!(meta.max_depth, 16);

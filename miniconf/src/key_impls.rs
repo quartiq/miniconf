@@ -1,7 +1,4 @@
-use core::{
-    fmt::Write,
-    ops::{Deref, DerefMut},
-};
+use core::fmt::Write;
 
 #[cfg(feature = "alloc")]
 use alloc::vec::Vec;
@@ -178,21 +175,6 @@ impl<T, const S: char> Path<T, S> {
     #[inline]
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T: ?Sized, const S: char> Deref for Path<T, S> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: ?Sized, const S: char> DerefMut for Path<T, S> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 

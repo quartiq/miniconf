@@ -454,7 +454,7 @@ where
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic
                 .push_str("/settings")
-                .and_then(|_| topic.push_str(&path))
+                .and_then(|_| topic.push_str(&path.0))
                 .unwrap();
 
             let props = [ResponseCode::Ok.into()];
