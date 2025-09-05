@@ -20,7 +20,6 @@ pub(crate) enum TreeTrait {
 
 #[derive(Debug, FromMeta, PartialEq, Clone, Default)]
 struct Deny {
-    traverse: Option<String>,
     serialize: Option<String>,
     deserialize: Option<String>,
     probe: Option<String>,
@@ -30,8 +29,6 @@ struct Deny {
 
 #[derive(Debug, FromMeta, PartialEq, Clone, Default)]
 struct With {
-    traverse: Option<syn::Path>,
-    traverse_all: Option<syn::Path>,
     serialize: Option<syn::Expr>,
     deserialize: Option<syn::Expr>,
     probe: Option<syn::Path>,

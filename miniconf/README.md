@@ -11,7 +11,7 @@ and access within a tree of heterogeneous types by keys.
 ## Example
 
 See below for an example showing some of the features of the `Tree*` traits.
-See also the documentation and doctests of the [`TreeKey`] trait for a detailed description.
+See also the documentation and doctests of the [`TreeSchema`] trait for a detailed description.
 
 Note that the example below focuses on JSON and slash-separated paths while in fact
 any `serde` backend (or `dyn Any` trait objects) and many different `Keys`/`Transcode`
@@ -161,15 +161,15 @@ python -m miniconf -d quartiq/application/+ /foo=true
 
 ## Derive macros
 
-For structs `miniconf` offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and [`macro@TreeAny`].
-The macros implements the [`TreeKey`], [`TreeSerialize`], [`TreeDeserialize`], and [`TreeAny`] traits.
+For structs `miniconf` offers derive macros for [`macro@TreeSchema`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and [`macro@TreeAny`].
+The macros implements the [`TreeSchema`], [`TreeSerialize`], [`TreeDeserialize`], and [`TreeAny`] traits.
 Fields/variants that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize,Any}` trait.
 Leaf fields/items need to support the respective [`serde`] (and the desired `serde::Serializer`/`serde::Deserializer`
 backend) or [`core::any`] trait.
 
 Structs, enums, arrays, Options, and many other containers can then be cascaded to construct more complex trees.
 
-See also the [`TreeKey`] trait documentation for details.
+See also the [`TreeSchema`] trait documentation for details.
 
 ## Keys and paths
 

@@ -4,7 +4,7 @@ use crate::{Internal, Packed, Schema};
 
 /// Metadata about a `TreeSchema` namespace.
 ///
-/// Metadata includes paths that may be [`crate::Traversal::Absent`] at runtime.
+/// Metadata includes paths that may be [`crate::ValueError::Absent`] at runtime.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Shape {
@@ -48,6 +48,7 @@ impl Shape {
         self.max_length + self.max_depth * separator.len()
     }
 
+    /// Recursively compute Shape for a Schema.
     pub const fn new(schema: &Schema) -> Self {
         let mut m = Self {
             max_depth: 0,

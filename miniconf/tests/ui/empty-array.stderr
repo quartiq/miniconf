@@ -1,0 +1,10 @@
+error[E0412]: cannot find type `Leaf` in this scope
+ --> tests/ui/empty-array.rs:4:15
+  |
+4 |     let _ = <[Leaf<usize>; 0]>::SHAPE;
+  |               ^^^^ not found in this scope
+  |
+help: consider importing this struct
+  |
+1 + use miniconf::Leaf;
+  |

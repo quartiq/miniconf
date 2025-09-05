@@ -61,7 +61,7 @@ fn main() -> ! {
     *val += 5;
     assert_eq!(*s.i[1].val, 3 + 5);
 
-    hprintln!("Settings: {:?}", Settings::SCHEMA.shape());
+    hprintln!("Settings: {:?}", Settings::SHAPE);
 
     hprintln!("success!");
 

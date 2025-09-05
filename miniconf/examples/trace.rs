@@ -12,14 +12,17 @@ fn main() -> anyhow::Result<()> {
     let mut types = Types::default();
     let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
 
-    // Using TreeSerialize
+    // Trace using TreeSerialize
+    // If the value does not contain a value for a leaf node (e.g. KeyError::Absent),
+    // it will leave the leaf node format unresolved.
     let mut samples = Samples::new();
     let settings = common::Settings::new();
     types
         .trace_values(&mut tracer, &mut samples, &settings)
         .unwrap();
 
-    // Using TreeDeserialize
+    // Trace using TreeDeserialize assuming no samples are needed
+    // If the Deserialize can't conjure up a value, it will leave the leaf node format unresolved.
     types.trace_types_simple(&mut tracer).unwrap();
 
     // No untraced Leaf nodes left
@@ -37,14 +40,10 @@ fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
     gen.definitions_mut().extend(defs);
     let mut root = types.root().json_schema(&mut gen).unwrap();
-    root.insert("title".into(), "Miniconf example: Settings".into());
-    root.insert(
-        "$id".into(),
-        "https://quartiq.de/miniconf/example-settings".into(),
-    );
-    root.insert("$defs".into(), gen.definitions().clone().into());
+    root.insert("title".to_string(), "Miniconf example: Settings".into());
+    root.insert("$defs".to_string(), gen.definitions().clone().into());
     if let Some(meta_schema) = gen.settings().meta_schema.as_deref() {
-        root.insert("$schema".into(), meta_schema.into());
+        root.insert("$schema".to_string(), meta_schema.into());
     }
     // use schemars::transform::{RecursiveTransform, Transform};
     // RecursiveTransform(miniconf::json_schema::unordered).transform(&mut root);

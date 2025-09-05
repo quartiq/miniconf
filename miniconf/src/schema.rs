@@ -6,11 +6,14 @@ use crate::{DescendError, IntoKeys, KeyError, Keys, Transcode};
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
+    /// The child schema
     pub schema: &'static Schema,
+    /// The outer metadata
     pub meta: Meta,
 }
 
 impl Numbered {
+    /// Create a new Numbered schema item with no outer metadata.
     pub const fn new(schema: &'static Schema) -> Self {
         Self { meta: None, schema }
     }
@@ -19,12 +22,16 @@ impl Numbered {
 /// A named schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Named {
+    /// The name of the item
     pub name: &'static str,
+    /// The child schema
     pub schema: &'static Schema,
+    /// The outer metadata
     pub meta: Meta,
 }
 
 impl Named {
+    /// Create a new Named schema item with no outer metadata.
     pub const fn new(name: &'static str, schema: &'static Schema) -> Self {
         Self {
             meta: None,
@@ -37,12 +44,16 @@ impl Named {
 /// A representative schema item for a homogeneous array
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Homogeneous {
+    /// The number of items
     pub len: NonZero<usize>,
+    /// The schema of the child nodes
     pub schema: &'static Schema,
+    /// The outer metadata
     pub meta: Meta,
 }
 
 impl Homogeneous {
+    /// Create a new Homogeneous schema item with no outer metadata.
     pub const fn new(len: usize, schema: &'static Schema) -> Self {
         let len = match NonZero::new(len) {
             Some(len) => len,
@@ -133,6 +144,8 @@ impl Internal {
     }
 }
 
+/// The metadata type
+// TODO: move the option elsewhere and make this a feature
 pub type Meta = Option<&'static [(&'static str, &'static str)]>;
 
 /// Type of a node: leaf or internal
@@ -152,6 +165,7 @@ impl Schema {
         internal: None,
     };
 
+    /// Create a new internal node schema with named children and without innner metadata
     pub const fn numbered(numbered: &'static [Numbered]) -> Self {
         Self {
             meta: None,
@@ -159,6 +173,7 @@ impl Schema {
         }
     }
 
+    /// Create a new internal node schema with numbered children and without innner metadata
     pub const fn named(named: &'static [Named]) -> Self {
         Self {
             meta: None,
@@ -166,6 +181,7 @@ impl Schema {
         }
     }
 
+    /// Create a new internal node schema with homogenous children and without innner metadata
     pub const fn homogeneous(homogeneous: Homogeneous) -> Self {
         Self {
             meta: None,
@@ -200,10 +216,9 @@ impl Schema {
     /// Traverse from the root to a leaf and call a function for each node.
     ///
     /// If a leaf is found early (`keys` being longer than required)
-    /// `Err(Traversal(TooLong(depth)))` is returned.
+    /// `Err(KeyError::TooLong)` is returned.
     /// If `keys` is exhausted before reaching a leaf node,
-    /// `Err(Traversal(TooShort(depth)))` is returned.
-    /// `Traversal::Access/Invalid/Absent/Finalization` are never returned.
+    /// `Err(KeyError::TooShort)` is returned.
     ///
     /// This method should fail if and only if the key is invalid.
     /// It should succeed at least when any of the other key based methods
@@ -273,6 +288,7 @@ impl Schema {
         Ok((outer, inner))
     }
 
+    /// Get the schema of the node identified by keys.
     pub fn get(&self, keys: impl IntoKeys) -> Result<&Self, KeyError> {
         let mut schema = self;
         self.descend(keys.into_keys(), |s, _idx_internal| {

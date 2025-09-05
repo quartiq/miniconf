@@ -31,14 +31,17 @@ pub struct Indices<T: ?Sized> {
 }
 
 impl<T> Indices<T> {
+    /// Create a new `Indices`
     pub fn new(data: T, len: usize) -> Self {
         Self { len, data }
     }
 
+    /// The length of the indices keys
     pub fn len(&self) -> usize {
         self.len
     }
 
+    /// Split indices into data and length
     pub fn into_inner(self) -> (T, usize) {
         (self.data, self.len)
     }
@@ -147,8 +150,8 @@ impl Key for str {
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [TreeSchema::traverse_all()] and `Metadata::max_length()` for upper bounds
-///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`KeysIter`]).
+///   See also [Schema::transcode()] and `Shape.max_length` for upper bounds
+///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
 /// * `const S: char`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

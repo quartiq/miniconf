@@ -10,20 +10,23 @@ use crate::{trace::Node, Internal, Meta};
 pub fn strictify(schema: &mut Schema) {
     if let Some(o) = schema.as_object_mut() {
         if o.contains_key("prefixItems") {
-            debug_assert_eq!(o.insert("items".to_owned(), false.into()), None);
+            debug_assert_eq!(o.insert("items".to_string(), false.into()), None);
         }
         if o.contains_key("items") {
-            if let Some(old) = o.insert("type".to_owned(), "array".into()) {
+            if let Some(old) = o.insert("type".to_string(), "array".into()) {
                 debug_assert_eq!(old, "array");
             }
         }
         if let Some(k) = o.get("properties") {
             let k = k.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-            debug_assert_eq!(o.insert("required".into(), k.into()), None);
-            debug_assert_eq!(o.insert("additionalProperties".into(), false.into()), None);
+            debug_assert_eq!(o.insert("required".to_string(), k.into()), None);
+            debug_assert_eq!(
+                o.insert("additionalProperties".to_string(), false.into()),
+                None
+            );
         }
         if o.contains_key("additionalProperties") {
-            if let Some(old) = o.insert("type".to_owned(), "object".into()) {
+            if let Some(old) = o.insert("type".to_string(), "object".into()) {
                 debug_assert_eq!(old, "object");
             }
         }
@@ -35,7 +38,7 @@ pub fn strictify(schema: &mut Schema) {
 pub fn unordered(schema: &mut Schema) {
     if let Some(o) = schema.as_object_mut() {
         if o.remove("x-object") == Some(true.into()) {
-            if let Some(t) = o.insert("type".to_owned(), "object".into()) {
+            if let Some(t) = o.insert("type".to_string(), "object".into()) {
                 debug_assert_eq!(t, "array");
             }
             let props: Map<_, _> = o
@@ -57,7 +60,7 @@ pub fn unordered(schema: &mut Schema) {
                         .unwrap()
                 })
                 .collect();
-            o.insert("properties".into(), props.into());
+            o.insert("properties".to_string(), props.into());
         }
     }
 }
@@ -155,7 +158,7 @@ impl ReflectJsonSchema for ContainerFormat {
                             json_schema!({"const": &n.name})
                         } else {
                             if generator.settings().untagged_enum_variant_titles {
-                                sch.insert("title".into(), n.name.clone().into());
+                                sch.insert("title".to_string(), n.name.clone().into());
                                 sch
                             } else {
                                 json_schema!({"properties": {&n.name: sch}})
@@ -224,7 +227,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
             }
         } else {
             let mut sch = self.data.1.as_ref()?.json_schema(generator)?;
-            sch.insert("x-leaf".into(), true.into());
+            sch.insert("x-leaf".to_string(), true.into());
             sch
         };
         push_meta(&mut sch, "x-inner", &self.data.0.meta);
@@ -236,7 +239,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                 } else {
                     generator
                         .definitions_mut()
-                        .insert(name.to_owned(), sch.into());
+                        .insert(name.to_string(), sch.into());
                 }
                 return Some(Schema::new_ref(format!("#/$defs/{name}")));
             }

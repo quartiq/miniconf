@@ -39,6 +39,7 @@ use crate::{DescendError, IntoKeys, KeysIter, Schema, Transcode};
 pub struct JsonPathIter<'a>(&'a str);
 
 impl<'a> JsonPathIter<'a> {
+    /// Interpret a str as a JSON path to be iterated over.
     pub fn new(value: &'a str) -> Self {
         Self(value)
     }

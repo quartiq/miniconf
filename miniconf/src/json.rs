@@ -33,7 +33,7 @@ use crate::{IntoKeys, Path, SerdeError, TreeDeserialize, TreeSerialize};
 /// * `data` - The serialized data making up the content.
 ///
 /// # Returns
-/// The number of bytes consumed from `data` or an [Error].
+/// The number of bytes consumed from `data` or an [SerdeError].
 #[inline]
 pub fn set<'de>(
     tree: &mut (impl TreeDeserialize<'de> + ?Sized),
@@ -51,7 +51,7 @@ pub fn set<'de>(
 /// * `data` - The buffer to serialize the data into.
 ///
 /// # Returns
-/// The number of bytes used in the `data` buffer or an [Error].
+/// The number of bytes used in the `data` buffer or an [SerdeError].
 #[inline]
 pub fn get(
     tree: &(impl TreeSerialize + ?Sized),
@@ -64,7 +64,7 @@ pub fn get(
 /// Update a node by key.
 ///
 /// # Returns
-/// The number of bytes consumed from `data` or an [Error].
+/// The number of bytes consumed from `data` or an [SerdeError].
 pub fn set_by_key<'de>(
     tree: &mut (impl TreeDeserialize<'de> + ?Sized),
     keys: impl IntoKeys,
@@ -78,7 +78,7 @@ pub fn set_by_key<'de>(
 /// Retrieve a serialized value by key.
 ///
 /// # Returns
-/// The number of bytes used in the `data` buffer or an [Error].
+/// The number of bytes used in the `data` buffer or an [SerdeError].
 pub fn get_by_key(
     tree: &(impl TreeSerialize + ?Sized),
     keys: impl IntoKeys,

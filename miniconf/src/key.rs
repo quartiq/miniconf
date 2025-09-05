@@ -48,7 +48,7 @@ pub trait Keys: Sized {
         Chain(self, other.into_keys())
     }
 
-    /// Track consumption
+    /// Track depth
     #[inline]
     fn track(self) -> Track<Self> {
         Track {
@@ -57,6 +57,7 @@ pub trait Keys: Sized {
         }
     }
 
+    /// Track whether a leaf node is reached
     #[inline]
     fn short(self) -> Short<Self> {
         Short {
@@ -90,15 +91,19 @@ pub trait IntoKeys {
     fn into_keys(self) -> Self::IntoKeys;
 }
 
-/// Look up an `IntoKeys` in a `TreeSchema` and transcode it.
+/// Look up an `IntoKeys` in a `Schema` and transcode it.
 pub trait Transcode {
+    /// The possible error when transcoding.
+    ///
+    /// Use this to indicate no space or unencodable/invalid values
     type Error;
-    /// Perform a node lookup of a `K: IntoKeys` on a `M: TreeSchema` and transcode it.
+
+    /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
     ///
     /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
     /// It returns a `Node` with node type and depth information.
     ///
-    /// Returning `Err(Traversal::Absent)` indicates that there was insufficient
+    /// Returning `Err(ValueError::Absent)` indicates that there was insufficient
     /// capacity and a key could not be encoded at the given depth.
     fn transcode(
         &mut self,
@@ -119,16 +124,40 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
     }
 }
 
+/// Track leaf node encounter
+///
+/// This records whether a leaf node has been reached during [`Keys`] and [`Transcode`].
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Short<K> {
+    /// The inner Keys
     pub inner: K,
+    /// The inner keys terminates at a leaf node
     pub leaf: bool,
 }
 
 impl<K> Short<K> {
+    /// Create a new `Short`
     #[inline]
     pub fn new(inner: K) -> Self {
         Self { inner, leaf: false }
+    }
+
+    /// Whether a leaf node as been encountered
+    #[inline]
+    pub fn leaf(&self) -> bool {
+        self.leaf
+    }
+
+    /// Borrow the inner `Keys`
+    #[inline]
+    pub fn inner(&self) -> &K {
+        &self.inner
+    }
+
+    /// Split into inner `Keys` and leaf node flag
+    #[inline]
+    pub fn into_inner(self) -> (K, bool) {
+        (self.inner, self.leaf)
     }
 }
 
@@ -177,17 +206,40 @@ impl<T: Transcode> Transcode for Short<T> {
     }
 }
 
-/// Track keys consumption and leaf encounter
+/// Track key depth
+///
+/// This tracks the depth during [`Keys`] and [`Transcode`].
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Track<K> {
+    /// The inner keys
     pub inner: K,
+    /// The keys terminate at the given depth
     pub depth: usize,
 }
 
 impl<K> Track<K> {
+    /// Create a new `Track`
     #[inline]
     pub fn new(inner: K) -> Self {
         Self { inner, depth: 0 }
+    }
+
+    /// Whether a leaf node as been encountered
+    #[inline]
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Borrow the inner `Keys`
+    #[inline]
+    pub fn inner(&self) -> &K {
+        &self.inner
+    }
+
+    /// Split into inner `Keys` and leaf node flag
+    #[inline]
+    pub fn into_inner(self) -> (K, usize) {
+        (self.inner, self.depth)
     }
 }
 

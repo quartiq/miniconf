@@ -63,7 +63,11 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
 /// A node in a graph
 #[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Node<D> {
+    /// Data associated witht this node
     pub data: D,
+    /// Children of this node.
+    ///
+    /// Empty for leaf nodes.
     pub children: Vec<Node<D>>,
 }
 
@@ -81,10 +85,11 @@ impl<D> Node<D> {
                 c.visit(idx, depth + 1, func)?;
             }
         }
-        func(&idx[..depth], &mut self.data)
+        (*func)(&idx[..depth], &mut self.data)
     }
 }
 
+// Convert a Schema graph into a Node graph to be able to attach additional data to nodes.
 impl<L: Default> From<&'static Schema> for Node<(&'static Schema, L)> {
     fn from(value: &'static Schema) -> Self {
         Self {
@@ -102,7 +107,7 @@ impl<L: Default> From<&'static Schema> for Node<(&'static Schema, L)> {
     }
 }
 
-/// Graph of `Node` for a Tree type
+/// Graph of `Node`s for a Tree type
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Types<T> {
     pub(crate) root: Node<(&'static Schema, Option<Format>)>,
@@ -110,6 +115,7 @@ pub struct Types<T> {
 }
 
 impl<T> Types<T> {
+    /// Borrow the root node
     pub fn root(&self) -> &Node<(&'static Schema, Option<Format>)> {
         &self.root
     }
@@ -136,21 +142,21 @@ impl<T> Types<T> {
         T: TreeSerialize,
     {
         let mut idx = vec![0; T::SHAPE.max_depth];
-        self.root
-            .visit(&mut idx[..], 0, &mut |idx, (schema, format)| {
-                if schema.is_leaf() {
-                    match trace_value(tracer, samples, idx, value) {
-                        Ok((mut fmt, _value)) => {
-                            fmt.reduce();
-                            *format = Some(fmt);
-                        }
-                        Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
-                        Err(SerdeError::Inner(e)) => Err(e)?,
-                        _ => unreachable!(),
+        self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
+            if schema.is_leaf() {
+                match trace_value(tracer, samples, idx, value) {
+                    Ok((mut fmt, _value)) => {
+                        fmt.reduce();
+                        *format = Some(fmt);
                     }
+                    Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
+                    Err(SerdeError::Inner(e)) => Err(e)?,
+                    // KeyError: Keys are all valid leaves by construction
+                    _ => unreachable!(),
                 }
-                Ok(())
-            })
+            }
+            Ok(())
+        })
     }
 
     /// Trace all leaf types until complete
@@ -163,23 +169,24 @@ impl<T> Types<T> {
         T: TreeDeserialize<'de>,
     {
         let mut idx = vec![0; T::SHAPE.max_depth];
-        self.root
-            .visit(&mut idx[..], 0, &mut |idx, (schema, format)| {
-                if schema.is_leaf() {
-                    match trace_type::<T>(tracer, samples, idx) {
-                        Ok(mut fmt) => {
-                            fmt.reduce();
-                            *format = Some(fmt);
-                        }
-                        Err(SerdeError::Value(ValueError::Access(_msg))) => {
-                            // probe access denied
-                        }
-                        Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
-                        _ => unreachable!(),
+        self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
+            if schema.is_leaf() {
+                match trace_type::<T>(tracer, samples, idx) {
+                    Ok(mut fmt) => {
+                        fmt.reduce();
+                        *format = Some(fmt);
                     }
+                    Err(SerdeError::Value(ValueError::Access(_msg))) => {
+                        // probe access denied
+                    }
+                    Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
+                    // ValueError::Absent: Nodes are never absent on probe
+                    // KeyError: Keys are all valid leaves by construction
+                    _ => unreachable!(),
                 }
-                Ok(())
-            })
+            }
+            Ok(())
+        })
     }
 
     /// Trace all leaf types assuming no samples are needed

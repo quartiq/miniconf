@@ -61,6 +61,10 @@ pub struct NodeIter<N, const D: usize> {
 }
 
 impl<N, const D: usize> NodeIter<N, D> {
+    /// Create a new iterator.
+    ///
+    /// # Panic
+    /// If the root depth exceeds the state length.
     #[inline]
     pub const fn with(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
         assert!(root <= D);
@@ -74,6 +78,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         }
     }
 
+    /// Create a new iterator with default root and initial state.
     #[inline]
     pub const fn new(schema: &'static Schema) -> Self {
         Self::with(schema, [0; D], 0)

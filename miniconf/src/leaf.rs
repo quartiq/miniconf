@@ -331,6 +331,7 @@ impl<T: TreeSchema + ?Sized> TreeAny for Deny<T> {
     }
 }
 
+/// (Draft) An integer with a limited range of valid values
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[serde(transparent)]
 #[repr(transparent)]
@@ -365,13 +366,16 @@ impl<T: ?Sized, const MIN: isize, const MAX: isize> Deref for RangeLeaf<T, MIN, 
 }
 
 impl<T: Copy + TryInto<isize>, const MIN: isize, const MAX: isize> RangeLeaf<T, MIN, MAX> {
+    /// The range of valid values
     pub const RANGE: core::ops::RangeInclusive<isize> = MIN..=MAX;
 
+    /// Create a new RangeLeaf
     #[inline]
     pub fn new(value: T) -> Option<Self> {
         Some(Self(Self::check(value).ok()?))
     }
 
+    /// Check and set the inner value
     #[inline]
     pub fn set(&mut self, value: T) -> Option<T> {
         self.0 = Self::check(value).ok()?;
