@@ -65,8 +65,13 @@ impl TreeField {
             .unwrap_or(self.ty.span())
     }
 
-    pub fn typ(&self) -> &syn::Type {
+    fn typ(&self) -> &syn::Type {
         self.typ.as_ref().unwrap_or(&self.ty)
+    }
+
+    pub fn schema(&self) -> TokenStream {
+        let typ = self.typ();
+        quote_spanned!(self.span()=> <#typ as ::miniconf::TreeSchema>::SCHEMA)
     }
 
     pub fn bound(&self, trtr: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {

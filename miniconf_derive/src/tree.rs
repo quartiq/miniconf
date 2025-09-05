@@ -269,8 +269,7 @@ impl Tree {
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
         let schema = if self.flatten.is_present() {
-            let typ = self.fields().first().unwrap().typ();
-            quote! { <#typ as ::miniconf::TreeSchema>::SCHEMA }
+            self.fields().first().unwrap().schema()
         } else {
             let internal = match &self.data {
                 Data::Struct(fields) => {
@@ -279,10 +278,10 @@ impl Tree {
                             let numbered: TokenStream = fields
                                 .iter()
                                 .map(|f| {
-                                    let typ = f.typ();
+                                    let schema = f.schema();
                                     let meta = meta_to_tokens(&f.meta);
                                     quote_spanned! { f.span()=> ::miniconf::Numbered {
-                                        schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
+                                        schema: #schema,
                                         meta: #meta,
                                     }, }
                                 })
@@ -295,11 +294,11 @@ impl Tree {
                                 .map(|f| {
                                     // ident is Some
                                     let name = f.name().unwrap();
-                                    let typ = f.typ();
+                                    let schema = f.schema();
                                     let meta = meta_to_tokens(&f.meta);
                                     quote_spanned! { name.span()=> ::miniconf::Named {
                                         name: stringify!(#name),
-                                        schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
+                                        schema: #schema,
                                         meta: #meta,
                                     }, }
                                 })
@@ -315,11 +314,11 @@ impl Tree {
                         .map(|v| {
                             let name = v.name();
                             // ident is Some
-                            let typ = v.field().typ();
+                            let schema = v.field().schema();
                             let meta = meta_to_tokens(&v.meta);
                             quote_spanned! { v.field().span()=> ::miniconf::Named {
                                 name: stringify!(#name),
-                                schema: <#typ as ::miniconf::TreeSchema>::SCHEMA,
+                                schema: #schema,
                                 meta: #meta,
                             }, }
                         })
