@@ -7,7 +7,7 @@ use darling::{
     FromField, FromMeta,
 };
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, quote_spanned, ToTokens};
+use quote::{quote, quote_spanned};
 use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -34,6 +34,7 @@ struct With {
     probe: Option<syn::Path>,
     ref_any: Option<syn::Expr>,
     mut_any: Option<syn::Expr>,
+    all: Option<syn::Path>,
 }
 
 #[derive(Debug, FromField, Clone)]
@@ -70,14 +71,19 @@ impl TreeField {
     }
 
     pub fn schema(&self) -> TokenStream {
-        let typ = self.typ();
-        quote_spanned!(self.span()=> <#typ as ::miniconf::TreeSchema>::SCHEMA)
+        if let Some(all) = self.with.all.as_ref() {
+            quote_spanned!(self.span()=> #all::SCHEMA)
+        } else {
+            let typ = self.typ();
+            quote_spanned!(self.span()=> <#typ as ::miniconf::TreeSchema>::SCHEMA)
+        }
     }
 
     pub fn bound(&self, trtr: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {
         if self
             .uses_type_params(&Purpose::BoundImpl.into(), type_set)
             .is_empty()
+            || self.with.all.is_some()
         {
             None
         } else {
@@ -131,11 +137,12 @@ impl TreeField {
             let value = self.value(i);
             let imp = self
                 .with
-                .serialize
+                .all
                 .as_ref()
-                .map(|p| p.to_token_stream())
-                .unwrap_or(quote!(#value.serialize_by_key));
-            quote_spanned! { self.span()=> #imp(keys, ser) }
+                .map(|m| quote!(#m::serialize_by_key(&#value, keys, ser)))
+                .or(self.with.serialize.as_ref().map(|p| quote!(#p(keys, ser))))
+                .unwrap_or(quote!(#value.serialize_by_key(keys, ser)));
+            quote_spanned! { self.span()=> #imp }
         }
     }
 
@@ -149,11 +156,12 @@ impl TreeField {
             let value = self.value(i);
             let imp = self
                 .with
-                .deserialize
+                .all
                 .as_ref()
-                .map(|p| p.to_token_stream())
-                .unwrap_or(quote!(#value.deserialize_by_key));
-            quote_spanned! { self.span()=> #imp(keys, de) }
+                .map(|m| quote!(#m::deserialize_by_key(&mut #value, keys, de)))
+                .or(self.with.deserialize.as_ref().map(|p| quote!(#p(keys, de))))
+                .unwrap_or(quote!(#value.deserialize_by_key(keys, de)));
+            quote_spanned! { self.span()=> #imp }
         }
     }
 
@@ -167,11 +175,14 @@ impl TreeField {
             let typ = self.typ();
             let imp = self
                 .with
-                .probe
+                .all
                 .as_ref()
-                .map(|i| i.to_token_stream())
-                .unwrap_or(quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key));
-            quote_spanned!(self.span()=> #i => #imp(keys, de))
+                .map(|m| quote!(#m::probe_by_key::<'de, #typ, _>(keys, de)))
+                .or(self.with.probe.as_ref().map(|p| quote!(#p(keys, de))))
+                .unwrap_or(
+                    quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)),
+                );
+            quote_spanned! { self.span()=> #i => #imp }
         }
     }
 
@@ -185,11 +196,12 @@ impl TreeField {
             let value = self.value(i);
             let imp = self
                 .with
-                .ref_any
+                .all
                 .as_ref()
-                .map(|p| p.to_token_stream())
-                .unwrap_or(quote!(#value.ref_any_by_key));
-            quote_spanned! { self.span()=> #imp(keys) }
+                .map(|m| quote!(#m::ref_any_by_key(&#value, keys)))
+                .or(self.with.ref_any.as_ref().map(|p| quote!(#p(keys))))
+                .unwrap_or(quote!(#value.ref_any_by_key(keys)));
+            quote_spanned! { self.span()=> #imp }
         }
     }
 
@@ -203,11 +215,12 @@ impl TreeField {
             let value = self.value(i);
             let imp = self
                 .with
-                .mut_any
+                .all
                 .as_ref()
-                .map(|p| p.to_token_stream())
-                .unwrap_or(quote!(#value.mut_any_by_key));
-            quote_spanned! { self.span()=> #imp(keys) }
+                .map(|m| quote!(#m::mut_any_by_key(&mut #value, keys)))
+                .or(self.with.mut_any.as_ref().map(|p| quote!(#p(keys))))
+                .unwrap_or(quote!(#value.mut_any_by_key(keys)));
+            quote_spanned! { self.span()=> #imp }
         }
     }
 }
