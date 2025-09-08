@@ -9,7 +9,7 @@ use cortex_m_rt::entry;
 use cortex_m_semihosting::{debug, hprintln};
 
 use crosstrait::{register, Cast};
-use miniconf::{self, json, IntoKeys, JsonPath, Packed, Path, Tree, TreeAny, TreeSchema};
+use miniconf::{self, json, IntoKeys, JsonPath, Packed, Path, Shape, Tree, TreeAny, TreeSchema};
 
 use core::ops::{AddAssign, SubAssign};
 register! { i32 => dyn AddAssign<i32> }
@@ -61,7 +61,8 @@ fn main() -> ! {
     *val += 5;
     assert_eq!(s.i[1].val, 3 + 5);
 
-    hprintln!("Settings: {:?}", Settings::SHAPE);
+    const SHAPE: Shape = Settings::SCHEMA.shape();
+    hprintln!("Settings: {:?}", SHAPE);
 
     hprintln!("success!");
 

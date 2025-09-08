@@ -1,7 +1,7 @@
 use core::{convert::Infallible, num::NonZero};
 use serde::Serialize;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Transcode};
+use crate::{DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
 
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
@@ -359,5 +359,63 @@ impl Schema {
         let mut target = N::default();
         target.transcode(self, keys)?;
         Ok(target)
+    }
+
+    /// The Shape of the schema
+    #[inline]
+    pub const fn shape(&self) -> Shape {
+        Shape::new(self)
+    }
+
+    /// Return an iterator over nodes of a given type
+    ///
+    /// This is a walk of all leaf nodes.
+    /// The iterator will walk all paths, including those that may be absent at
+    /// runtime (see [`crate::TreeSchema#option`]).
+    /// An iterator with an exact and trusted `size_hint()` can be obtained from
+    /// this through [`NodeIter::exact_size()`].
+    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
+    ///
+    /// ```
+    /// use miniconf::{Indices, JsonPath, Short, Track, Packed, Path, TreeSchema};
+    /// #[derive(TreeSchema)]
+    /// struct S {
+    ///     foo: u32,
+    ///     bar: [u16; 2],
+    /// };
+    ///
+    /// let paths: Vec<_> = S::SCHEMA.nodes::<Path<String, '/'>, 2>()
+    ///     .map(|p| p.unwrap().into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
+    ///
+    /// let paths: Vec<_> = S::SCHEMA.nodes::<JsonPath<String>, 2>()
+    ///     .map(|p| p.unwrap().into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
+    ///
+    /// let indices: Vec<_> = S::SCHEMA.nodes::<Indices<[_; 2]>, 2>()
+    ///     .map(|p| p.unwrap().into_inner())
+    ///     .collect();
+    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
+    ///
+    /// let packed: Vec<_> = S::SCHEMA.nodes::<Packed, 2>()
+    ///     .map(|p| p.unwrap().into_lsb().get())
+    ///     .collect();
+    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
+    ///
+    /// let nodes: Vec<_> = S::SCHEMA.nodes::<Short<Track<()>>, 2>()
+    ///     .map(|p| {
+    ///         let p = p.unwrap();
+    ///         (p.leaf, p.inner.depth)
+    ///     })
+    ///     .collect();
+    /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
+    /// ```
+    #[inline]
+    pub const fn nodes<N: Transcode + Default, const D: usize>(
+        &'static self,
+    ) -> ExactSize<NodeIter<N, D>> {
+        NodeIter::exact_size(self)
     }
 }

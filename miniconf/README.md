@@ -19,7 +19,7 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, leaf};
+use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Shape, leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
@@ -108,11 +108,12 @@ let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-assert!(Settings::SHAPE.max_depth <= 6);
-assert!(Settings::SHAPE.max_length("/") <= 32);
+const SHAPE: Shape = Settings::SCHEMA.shape();
+assert!(SHAPE.max_depth <= 6);
+assert!(SHAPE.max_length("/") <= 32);
 
 // Iterating over all leaf paths
-for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
+for path in Settings::SCHEMA.nodes::<Path<heapless::String<32>, '/'>, 6>() {
     let path = path.unwrap().0;
     // Serialize each
     match json::get(&settings, &path, &mut buf) {

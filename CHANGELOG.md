@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TreeKey::traverse_all()` -> `Schema::visit()`,
   `TreeKey::traverse()` -> `Schema::descend()`,
   `TreeKey::transcode()` -> `Schema::transcode()`,
+  `TreeKey::nodes()` -> `Schema::nodes()`
 * `#[tree(with=module_path)]` only takes one module to cover all operations
 * Errors reorganization: `Traversal` -> `KeyError`/`ValueError`, `Error` -> `SerdeError`/`DescendError`.
   This makes several matches naturally exhaustive.

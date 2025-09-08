@@ -2,9 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{
-    ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Shape, Transcode, ValueError,
-};
+use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -15,7 +13,7 @@ use crate::{
 /// There is a one-to-one relationship between nodes and keys.
 /// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
 /// obtained from other [`IntoKeys`] through [`Transcode`]/[`Schema::transcode()`].
-/// An iterator of keys for the nodes is available through [`TreeSchema::nodes()`]/[`NodeIter`].
+/// An iterator of keys for the nodes is available through [`Schema::nodes()`]/[`NodeIter`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
@@ -131,7 +129,7 @@ use crate::{
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
 /// iterators. The `TreeSchema` behavior of an [`Option`] is such that the `None` variant makes the
 /// corresponding part of the tree inaccessible at run-time. It will still be iterated over (e.g.
-/// by [`TreeSchema::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
+/// by [`Schema::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
 /// [`TreeDeserialize::deserialize_by_key()`], [`TreeAny::ref_any_by_key()`], or
 /// [`TreeAny::mut_any_by_key()`]) return the special [`ValueError::Absent`].
 ///
@@ -150,59 +148,6 @@ pub trait TreeSchema {
     /// Schema for this tree level
     // Reference for Option<T> to copy T::SCHEMA
     const SCHEMA: &'static Schema;
-
-    /// Shape data of the Schema.
-    const SHAPE: Shape = Shape::new(Self::SCHEMA);
-
-    /// Return an iterator over nodes of a given type
-    ///
-    /// This is a walk of all leaf nodes.
-    /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`TreeSchema#option`]).
-    /// An iterator with an exact and trusted `size_hint()` can be obtained from
-    /// this through [`NodeIter::exact_size()`].
-    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
-    ///
-    /// ```
-    /// use miniconf::{Indices, JsonPath, Short, Track, Packed, Path, TreeSchema};
-    /// #[derive(TreeSchema)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: [u16; 2],
-    /// };
-    ///
-    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
-    ///     .map(|p| p.unwrap().into_inner())
-    ///     .collect();
-    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
-    ///
-    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
-    ///     .map(|p| p.unwrap().into_inner())
-    ///     .collect();
-    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
-    ///
-    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
-    ///     .map(|p| p.unwrap().into_inner())
-    ///     .collect();
-    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
-    ///
-    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
-    ///     .map(|p| p.unwrap().into_lsb().get())
-    ///     .collect();
-    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
-    ///
-    /// let nodes: Vec<_> = S::nodes::<Short<Track<()>>, 2>()
-    ///     .map(|p| {
-    ///         let p = p.unwrap();
-    ///         (p.leaf, p.inner.depth)
-    ///     })
-    ///     .collect();
-    /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
-    /// ```
-    ///
-    fn nodes<N: Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
-        NodeIter::exact_size::<Self>()
-    }
 }
 
 /// Access any node by keys.
@@ -219,7 +164,7 @@ pub trait TreeSchema {
 /// };
 /// let mut s = S::default();
 ///
-/// for key in S::nodes::<Indices<[_; 2]>, 2>() {
+/// for key in S::SCHEMA.nodes::<Indices<[_; 2]>, 2>() {
 ///     let a = s.ref_any_by_key(key.unwrap().into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }

@@ -4,7 +4,7 @@
 //! as serialization/deserialization payload format.
 //!
 //! Paths used here are reciprocal to `TreeSchema::lookup::<Path<_, '/'>, _>(...)`/
-//! `TreeSchema::nodes::<Path<_, '/'>>()`.
+//! `TreeSchema::SCHEMA.nodes::<Path<_, '/'>>()`.
 //!
 //! ```
 //! use miniconf::{json, Tree};

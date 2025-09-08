@@ -6,11 +6,13 @@ use miniconf::{
 };
 
 pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
-    assert!(T::nodes::<Packed, D>()
+    assert!(T::SCHEMA
+        .nodes::<Packed, D>()
         .collect::<Result<Vec<_>, _>>()
         .unwrap()
         .is_sorted());
-    T::nodes::<Track<Path<String, '/'>>, D>()
+    T::SCHEMA
+        .nodes::<Track<Path<String, '/'>>, D>()
         .map(|pn| {
             let pn = pn.unwrap();
             println!("{pn:?}");

@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode, TreeSchema};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,13 +104,14 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// is not the tree root.
     ///
     #[inline]
-    pub const fn exact_size<T: TreeSchema + ?Sized>() -> ExactSize<Self> {
-        if D < T::SHAPE.max_depth {
+    pub const fn exact_size(schema: &'static Schema) -> ExactSize<Self> {
+        let shape = schema.shape();
+        if D < shape.max_depth {
             panic!("insufficient depth for exact size iteration");
         }
         ExactSize {
-            iter: Self::new(T::SCHEMA),
-            count: T::SHAPE.count.get(),
+            iter: Self::new(schema),
+            count: shape.count.get(),
         }
     }
 

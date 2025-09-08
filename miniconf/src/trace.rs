@@ -141,7 +141,7 @@ impl<T> Types<T> {
     where
         T: TreeSerialize,
     {
-        let mut idx = vec![0; T::SHAPE.max_depth];
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
         self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
             if schema.is_leaf() {
                 match trace_value(tracer, samples, idx, value) {
@@ -168,7 +168,7 @@ impl<T> Types<T> {
     where
         T: TreeDeserialize<'de>,
     {
-        let mut idx = vec![0; T::SHAPE.max_depth];
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
         self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
             if schema.is_leaf() {
                 match trace_type::<T>(tracer, samples, idx) {

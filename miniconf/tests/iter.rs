@@ -34,7 +34,8 @@ fn struct_iter_indices() {
         ([3, 0, 0], 1),
     ];
     assert_eq!(
-        Settings::nodes::<Indices<[usize; 3]>, 3>()
+        Settings::SCHEMA
+            .nodes::<Indices<[usize; 3]>, 3>()
             .map(|have| have.unwrap().into_inner())
             .collect::<Vec<_>>(),
         paths
@@ -78,7 +79,7 @@ fn short_iter() {
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    <[[u32; 1]; 1]>::nodes::<(), 1>();
+    <[[u32; 1]; 1]>::SCHEMA.nodes::<(), 1>();
 }
 
 #[test]

@@ -20,7 +20,10 @@ fn packed() {
     );
 
     // Check path-packed round trip.
-    for iter_path in Settings::nodes::<Path<String, '/'>, 2>().map(Result::unwrap) {
+    for iter_path in Settings::SCHEMA
+        .nodes::<Path<String, '/'>, 2>()
+        .map(Result::unwrap)
+    {
         let packed: Track<Packed> = Settings::SCHEMA.transcode(&iter_path).unwrap();
         let path: Path<String, '/'> = Settings::SCHEMA.transcode(packed.inner).unwrap();
         assert_eq!(path, iter_path);
@@ -33,7 +36,8 @@ fn packed() {
     }
     println!(
         "{:?}",
-        Settings::nodes::<Packed, 2>()
+        Settings::SCHEMA
+            .nodes::<Packed, 2>()
             .map(|p| p.unwrap().into_lsb())
             .collect::<Vec<_>>()
     );
@@ -53,13 +57,15 @@ fn top() {
         foo: i32,
     }
     assert_eq!(
-        S::nodes::<Path<String, '/'>, 2>()
+        S::SCHEMA
+            .nodes::<Path<String, '/'>, 2>()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/baz/0", "/foo"]
     );
     assert_eq!(
-        S::nodes::<Indices<_>, 2>()
+        S::SCHEMA
+            .nodes::<Indices<_>, 2>()
             .map(|p| p.unwrap())
             .collect::<Vec<_>>(),
         [Indices::new([0, 0], 2), Indices::new([1, 0], 1)]
@@ -67,7 +73,8 @@ fn top() {
     let p: Track<Packed> = S::SCHEMA.transcode([1usize]).unwrap();
     assert_eq!((p.inner.into_lsb().get(), p.depth), (0b11, 1));
     assert_eq!(
-        S::nodes::<Packed, 2>()
+        S::SCHEMA
+            .nodes::<Packed, 2>()
             .map(|p| p.unwrap().into_lsb().get())
             .collect::<Vec<_>>(),
         [0b100, 0b11]
@@ -77,7 +84,8 @@ fn top() {
 #[test]
 fn zero_key() {
     assert_eq!(
-        Option::<()>::nodes::<Packed, 2>()
+        Option::<()>::SCHEMA
+            .nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -87,7 +95,8 @@ fn zero_key() {
     );
 
     assert_eq!(
-        <[usize; 1]>::nodes::<Packed, 2>()
+        <[usize; 1]>::SCHEMA
+            .nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -147,11 +156,11 @@ fn size() {
         .unwrap();
     assert_eq!(path.depth, 31);
     assert_eq!(path.inner.0.as_str().len(), 2 * 31);
-    let meta: Shape = A31::SHAPE;
-    assert_eq!(meta.max_bits, 31);
-    assert_eq!(meta.max_depth, 31);
-    assert_eq!(meta.count.get(), 1usize.pow(31));
-    assert_eq!(meta.max_length, 31);
+    const META: Shape = A31::SCHEMA.shape();
+    assert_eq!(META.max_bits, 31);
+    assert_eq!(META.max_depth, 31);
+    assert_eq!(META.count.get(), 1usize.pow(31));
+    assert_eq!(META.max_length, 31);
 
     // Another way to get to 32 bit is to take 15 length-3 (2 bit) levels and one length-1 (1 bit) level to fill it, needing (3**15 ~ 14 M) storage.
     // With the unit as type, we need 0 storage but can't do much.
@@ -163,9 +172,9 @@ fn size() {
         .unwrap();
     assert_eq!(path.depth, 16);
     assert_eq!(path.inner.0.as_str().len(), 2 * 16);
-    let meta: Shape = A16::SHAPE;
-    assert_eq!(meta.max_bits, 31);
-    assert_eq!(meta.max_depth, 16);
-    assert_eq!(meta.count.get(), 3usize.pow(15));
-    assert_eq!(meta.max_length, 16);
+    const META16: Shape = A16::SCHEMA.shape();
+    assert_eq!(META16.max_bits, 31);
+    assert_eq!(META16.max_depth, 16);
+    assert_eq!(META16.count.get(), 3usize.pow(15));
+    assert_eq!(META16.max_length, 16);
 }

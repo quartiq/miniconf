@@ -11,11 +11,10 @@ fn generic_type() {
     json::set(&mut settings, "/data", b"3.0").unwrap();
     assert_eq!(settings.data, 3.0);
 
-    // Test metadata
-    let metadata: Shape = Settings::<f32>::SHAPE;
-    assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length, "data".len());
-    assert_eq!(metadata.count.get(), 1);
+    const SHAPE: Shape = Settings::<f32>::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 1);
+    assert_eq!(SHAPE.max_length, "data".len());
+    assert_eq!(SHAPE.count.get(), 1);
 }
 
 #[test]
@@ -30,11 +29,10 @@ fn generic_array() {
 
     assert_eq!(settings.data[0], 3.0);
 
-    // Test metadata
-    let metadata: Shape = Settings::<f32>::SHAPE;
-    assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length("/"), "/data/0".len());
-    assert_eq!(metadata.count.get(), 2);
+    const SHAPE: Shape = Settings::<f32>::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 2);
+    assert_eq!(SHAPE.max_length("/"), "/data/0".len());
+    assert_eq!(SHAPE.count.get(), 2);
 }
 
 #[test]
@@ -54,11 +52,10 @@ fn generic_struct() {
 
     assert_eq!(settings.inner.data, 3.0);
 
-    // Test metadata
-    let metadata: Shape = Settings::<Leaf<Inner>>::SHAPE;
-    assert_eq!(metadata.max_depth, 1);
-    assert_eq!(metadata.max_length("/"), "/inner".len());
-    assert_eq!(metadata.count.get(), 1);
+    const SHAPE: Shape = Settings::<f32>::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 1);
+    assert_eq!(SHAPE.max_length("/"), "/inner".len());
+    assert_eq!(SHAPE.count.get(), 1);
 }
 
 #[test]
@@ -81,9 +78,9 @@ fn generic_atomic() {
     assert_eq!(settings.atomic.inner[0], 3.0);
 
     // Test metadata
-    let metadata: Shape = Settings::<f32>::SHAPE;
-    assert_eq!(metadata.max_depth, 3);
-    assert_eq!(metadata.max_length("/"), "/opt1/0/0".len());
+    const SHAPE: Shape = Settings::<f32>::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 3);
+    assert_eq!(SHAPE.max_length("/"), "/opt1/0/0".len());
 }
 
 #[test]
@@ -92,15 +89,15 @@ fn test_depth() {
     struct S<T>(Option<Option<T>>);
 
     // This works as array implements TreeSchema
-    let _ = S::<[u32; 1]>::SHAPE;
+    let _ = S::<[u32; 1]>::SCHEMA.shape();
 
     // u32 implements TreeSchema as well
-    let _ = S::<u32>::SHAPE;
+    let _ = S::<u32>::SCHEMA.shape();
 
     // Depth is always statically known
     // .. but can't be used in const generics yet,
     //    i.e. we can't name the type.
-    let _ = [0usize; S::<[u32; 1]>::SHAPE.max_depth];
+    let _ = [0usize; S::<[u32; 1]>::SCHEMA.shape().max_depth];
 
-    const _: ExactSize<NodeIter<(), 2>> = NodeIter::exact_size::<S<[u32; 1]>>();
+    const _: ExactSize<NodeIter<(), 2>> = <S<[u32; 1]>>::SCHEMA.nodes();
 }

@@ -1,6 +1,6 @@
 use miniconf::{
-    json, Deserialize, IntoKeys, Leaf, Serialize, Tree, TreeAny, TreeDeserialize, TreeSchema,
-    TreeSerialize, ValueError,
+    json, Deserialize, IntoKeys, Leaf, Serialize, Shape, Tree, TreeAny, TreeDeserialize,
+    TreeSchema, TreeSerialize, ValueError,
 };
 
 mod common;
@@ -39,10 +39,10 @@ fn structs() {
     assert_eq!(settings.d, Inner { a: 3 });
 
     // Check that metadata is correct.
-    let metadata = Settings::SHAPE;
-    assert_eq!(metadata.max_depth, 2);
-    assert_eq!(metadata.max_length("/"), "/d/a".len());
-    assert_eq!(metadata.count.get(), 4);
+    const SHAPE: Shape = Settings::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 2);
+    assert_eq!(SHAPE.max_length("/"), "/d/a".len());
+    assert_eq!(SHAPE.count.get(), 4);
 
     assert_eq!(paths::<Settings, 2>(), ["/a", "/b", "/c", "/d/a"]);
 }

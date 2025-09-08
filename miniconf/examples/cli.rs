@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    for item in common::Settings::nodes::<Path<String, '-'>, 8>() {
+    for item in common::Settings::SCHEMA.nodes::<Path<String, '-'>, 8>() {
         let key = item.unwrap();
         let mut k = key.into_keys().track();
         match json::get_by_key(&settings, &mut k, &mut buf[..]) {

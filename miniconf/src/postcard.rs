@@ -14,7 +14,7 @@
 //!     foo: 9,
 //!     bar: [7, 11],
 //! };
-//! let kv: Vec<_> = S::nodes::<Packed, 2>()
+//! let kv: Vec<_> = S::SCHEMA.nodes::<Packed, 2>()
 //!     .map(|p| {
 //!         let p = p.unwrap();
 //!         let v = postcard::get_by_key(&source, p, AllocVec::new()).unwrap();

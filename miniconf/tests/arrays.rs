@@ -1,6 +1,6 @@
 use miniconf::{
-    json, leaf, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Track,
-    Tree, TreeSchema,
+    json, leaf, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Shape,
+    Track, Tree, TreeSchema,
 };
 
 mod common;
@@ -133,7 +133,8 @@ fn not_found() {
 
 #[test]
 fn metadata() {
-    assert_eq!(Settings::SHAPE.max_depth, 4);
-    assert_eq!(Settings::SHAPE.max_length("/"), "/aam/0/0/c".len());
-    assert_eq!(Settings::SHAPE.count.get(), 11);
+    const SHAPE: Shape = Settings::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 4);
+    assert_eq!(SHAPE.max_length("/"), "/aam/0/0/c".len());
+    assert_eq!(SHAPE.count.get(), 11);
 }

@@ -1,4 +1,4 @@
-use miniconf::{Indices, KeyError, Path, Short, Track, Tree, TreeSchema};
+use miniconf::{Indices, KeyError, Path, Shape, Short, Track, Tree, TreeSchema};
 mod common;
 
 #[derive(Tree, Default)]
@@ -15,9 +15,10 @@ struct Settings {
 
 #[test]
 fn meta() {
-    assert_eq!(Settings::SHAPE.max_depth, 2);
-    assert_eq!(Settings::SHAPE.max_length("/"), "/c/inner".len());
-    assert_eq!(Settings::SHAPE.count.get(), 3);
+    const SHAPE: Shape = Settings::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 2);
+    assert_eq!(SHAPE.max_length("/"), "/c/inner".len());
+    assert_eq!(SHAPE.count.get(), 3);
 }
 
 #[test]

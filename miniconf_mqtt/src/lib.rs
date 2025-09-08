@@ -275,10 +275,9 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        assert!(Settings::SHAPE.max_depth <= Y);
-        assert!(
-            prefix.len() + "/settings".len() + Settings::SHAPE.max_length("/") <= MAX_TOPIC_LENGTH
-        );
+        let shape = Settings::SCHEMA.shape();
+        assert!(shape.max_depth <= Y);
+        assert!(prefix.len() + "/settings".len() + shape.max_length("/") <= MAX_TOPIC_LENGTH);
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
