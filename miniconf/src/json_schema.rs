@@ -144,7 +144,7 @@ impl ReflectJsonSchema for Vec<Format> {
 impl ReflectJsonSchema for ContainerFormat {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
         match self {
-            ContainerFormat::UnitStruct => Some(<()>::json_schema(generator)), // TODO
+            ContainerFormat::UnitStruct => Some(<()>::json_schema(generator)),
             ContainerFormat::NewTypeStruct(format) => format.json_schema(generator),
             ContainerFormat::TupleStruct(formats) => formats.json_schema(generator),
             ContainerFormat::Struct(nameds) => nameds.json_schema(generator),

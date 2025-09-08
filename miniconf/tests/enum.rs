@@ -1,4 +1,4 @@
-use miniconf::{json, Keys, Leaf, SerdeError, StrLeaf, Tree, TreeDeserialize, TreeSerialize};
+use miniconf::{json, str_leaf, Keys, Leaf, SerdeError, Tree, TreeDeserialize, TreeSerialize};
 
 mod common;
 use common::*;
@@ -33,17 +33,18 @@ enum Enum {
 
 #[derive(Tree, Default, Debug)]
 struct Settings {
+    // note the order allows sequential deseserialization
     #[tree(typ="Leaf<EnumDiscriminants>", rename=tag,
         with(serialize=self.enum_serialize, deserialize=self.enum_deserialize),
         deny(ref_any="deny", mut_any="deny"))]
     _tag: (),
     enu: Enum,
 
-    // Alternative with StrLeaf
-    #[tree(rename = "tag_str")]
-    enu_str: StrLeaf<Enum>,
-    #[tree(rename = "enu_str", typ = "Enum", defer = "(*self.enu_str)")]
-    _enu_str: (),
+    // Alternative with str_leaf
+    // note the order allows sequential deseserialization
+    #[tree(rename="tag_str", with(all=str_leaf), defer=self.enu_str, typ="Enum")]
+    _tag_str: (),
+    enu_str: Enum,
 }
 
 impl Settings {

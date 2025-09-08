@@ -334,10 +334,6 @@ mod heapless_impls {
     }
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////
-
-// TODO: port to module
-
 /// `TryFrom<&str>`/`AsRef<str>` leaf
 ///
 /// This wraps [`TryFrom<&str>`] and [`AsRef<str>`] into a `Tree*` leaf.
@@ -346,107 +342,115 @@ mod heapless_impls {
 /// Inner enum variant field access can be implemented using `defer`.
 ///
 /// ```
-/// use miniconf::{json, Leaf, StrLeaf, Tree};
+/// use miniconf::{json, str_leaf, Tree};
 /// #[derive(Tree, strum::AsRefStr, strum::EnumString)]
 /// enum En {
-///     A(Leaf<i32>),
-///     B(Leaf<f32>),
+///     A(i32),
+///     B(f32),
 /// }
 /// #[derive(Tree)]
 /// struct S {
-///     e: StrLeaf<En>,
-///     #[tree(typ="En", defer=(*self.e))]
-///     t: (),
+///     #[tree(rename="t", with(all=str_leaf), defer=self.e, typ="En")]
+///     _t: (),
+///     e: En,
 /// }
 /// let mut s = S {
-///     e: StrLeaf(En::A(Leaf(9))),
-///     t: (),
+///     _t: (),
+///     e: En::A(9),
 /// };
-/// json::set(&mut s, "/e", b"\"B\"").unwrap();
-/// json::set(&mut s, "/t/B", b"1.2").unwrap();
-/// assert!(matches!(*s.e, En::B(Leaf(1.2))));
+/// json::set(&mut s, "/t", b"\"B\"").unwrap();
+/// json::set(&mut s, "/e/B", b"1.2").unwrap();
+/// assert!(matches!(s.e, En::B(1.2)));
 /// ```
-#[derive(
-    Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
-)]
-#[serde(transparent)]
-#[repr(transparent)]
-pub struct StrLeaf<T: ?Sized>(pub T);
+pub mod str_leaf {
+    use super::*;
 
-impl<T: ?Sized> Deref for StrLeaf<T> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+    pub use deny::{mut_any_by_key, ref_any_by_key};
+    pub use leaf::SCHEMA;
 
-impl<T: ?Sized> DerefMut for StrLeaf<T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl<T: ?Sized> TreeSchema for StrLeaf<T> {
-    const SCHEMA: &'static Schema = &Schema::LEAF;
-}
-
-impl<T: AsRef<str> + ?Sized> TreeSerialize for StrLeaf<T> {
-    #[inline]
-    fn serialize_by_key<S: Serializer>(
-        &self,
+    /// [`TreeSerialize::serialize_by_key()`]
+    pub fn serialize_by_key<S: Serializer>(
+        value: &(impl AsRef<str> + ?Sized),
         mut keys: impl Keys,
         ser: S,
     ) -> Result<S::Ok, SerdeError<S::Error>> {
         keys.finalize()?;
-        let name = self.0.as_ref();
-        name.serialize(ser).map_err(SerdeError::Inner)
+        value.as_ref().serialize(ser).map_err(SerdeError::Inner)
     }
-}
 
-impl<'de, T: TryFrom<&'de str>> TreeDeserialize<'de> for StrLeaf<T> {
-    #[inline]
-    fn deserialize_by_key<D: Deserializer<'de>>(
-        &mut self,
+    /// [`TreeDeserialize::deserialize_by_key()`]
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        value: &mut impl TryFrom<&'de str>,
         mut keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        let name = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
-        self.0 = T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
+        let name: &str = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
+        *value = name
+            .try_into()
+            .or(Err(ValueError::Access("Could not convert from str")))?;
         Ok(())
     }
 
-    #[inline]
-    fn probe_by_key<D: Deserializer<'de>>(
+    /// [`TreeDeserialize::probe_by_key()`]
+    pub fn probe_by_key<'de, T: TryFrom<&'de str>, D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        let name = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
+        let name: &str = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
         T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
         Ok(())
     }
 }
 
-impl<T> TreeAny for StrLeaf<T> {
+/// Deny access tools.
+///
+/// These return early without consuming keys or finalizing them.
+pub mod deny {
+    use super::*;
+
+    pub use leaf::SCHEMA;
+
+    /// [`TreeSerialize::serialize_by_key()`]
     #[inline]
-    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        keys.finalize()?;
-        Err(ValueError::Access("No Any access for StrLeaf"))
+    pub fn serialize_by_key<S: Serializer>(
+        _value: &impl ?Sized,
+        _keys: impl Keys,
+        _ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        Err(ValueError::Access("Denied").into())
     }
 
-    #[inline]
-    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-        keys.finalize()?;
-        Err(ValueError::Access("No Any access for StrLeaf"))
+    /// [`TreeDeserialize::deserialize_by_key()`]
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        _value: &mut impl ?Sized,
+        _keys: impl Keys,
+        _de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        Err(ValueError::Access("Denied").into())
     }
-}
 
-impl<T: Display> Display for StrLeaf<T> {
+    /// [`TreeDeserialize::probe_by_key()`]
+    pub fn probe_by_key<'de, T: ?Sized, D: Deserializer<'de>>(
+        _keys: impl Keys,
+        _de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        Err(ValueError::Access("Denied").into())
+    }
+
+    /// [`TreeAny::ref_any_by_key()`]
     #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        self.0.fmt(f)
+    pub fn ref_any_by_key(_value: &impl ?Sized, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
+        Err(ValueError::Access("Denied").into())
+    }
+
+    /// [`TreeAny::mut_any_by_key()`]
+    #[inline]
+    pub fn mut_any_by_key(
+        _value: &mut impl ?Sized,
+        _keys: impl Keys,
+    ) -> Result<&mut dyn Any, ValueError> {
+        Err(ValueError::Access("Denied").into())
     }
 }
