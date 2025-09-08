@@ -24,10 +24,10 @@ struct Settings {
     afe: [Leaf<Gain>; 2],
     inner: Inner,
     values: [f32; 2],
-    #[tree(with(all=leaf))]
+    #[tree(with=leaf)]
     array: [i32; 4],
     opt: Option<i32>,
-    #[tree(with(all=four))]
+    #[tree(with=four)]
     four: f32,
     exit: bool,
 }

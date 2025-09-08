@@ -33,7 +33,7 @@ enum Enum {
 #[derive(Tree, Default, Debug)]
 struct Settings {
     // note the order allows sequential deseserialization
-    #[tree(rename="tag", with(all=str_leaf), defer=self.enu, typ="Enum")]
+    #[tree(rename="tag", with=str_leaf, defer=self.enu, typ="Enum")]
     _tag: (),
     enu: Enum,
 }

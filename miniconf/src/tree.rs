@@ -75,30 +75,22 @@ use crate::{
 /// The type to use when accessing the field/variant through `TreeDeserialize::probe`
 /// can be overridden using the `typ` derive macro attribute (`#[tree(typ="[f32; 4]")]`).
 ///
-/// ## Deny
-///
-/// `#[tree(deny(operation="message", ...))]`
-///
-/// This returns `Err(`[`ValueError::Access`]`)` for the respective operation
-/// (`traverse`, `serialize`, `deserialize`, `probe`, `ref_any`, `mut_any`) on a
-/// field/variant and suppresses the respective traits bounds on type paramters
-/// of the struct/enum.
-///
 /// ## Implementation overrides
 ///
-/// `#[tree(with(path))]`
+/// `#[tree(with=path)]`
 ///
 /// This overrides the calls to the child node/variant traits using pub functions
 /// and constants in the module at the given path:
 /// (`SCHEMA`, `serialize_by_key`, `deserialize_by_key`, `probe_by_key`,
 /// `ref_any_by_key`, `mut_any_by_key`).
 ///
+/// Also use this to relax bounds and deny operations.
 /// ```
 /// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
 /// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(with(all=check))]
+///     #[tree(with=check)]
 ///     b: f32,
 /// }
 /// mod check {

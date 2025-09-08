@@ -67,6 +67,7 @@ struct TreeVariant {
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
     meta: BTreeMap<String, String>,
+    // TODO: bounds in derive
 }
 
 impl TreeVariant {

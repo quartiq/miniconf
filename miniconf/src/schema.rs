@@ -145,7 +145,7 @@ impl Internal {
 }
 
 /// The metadata type
-// TODO: move the option elsewhere and make this a feature
+// TODO: make this a feature
 pub type Meta = &'static [(&'static str, &'static str)];
 
 /// Type of a node: leaf or internal

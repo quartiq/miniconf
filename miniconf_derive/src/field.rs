@@ -4,7 +4,7 @@ use darling::{
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
     util::Flag,
-    FromField, FromMeta,
+    FromField,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
@@ -18,25 +18,6 @@ pub(crate) enum TreeTrait {
     Any,
 }
 
-#[derive(Debug, FromMeta, PartialEq, Clone, Default)]
-struct Deny {
-    serialize: Option<String>,
-    deserialize: Option<String>,
-    probe: Option<String>,
-    ref_any: Option<String>,
-    mut_any: Option<String>,
-}
-
-#[derive(Debug, FromMeta, PartialEq, Clone, Default)]
-struct With {
-    serialize: Option<syn::Expr>,
-    deserialize: Option<syn::Expr>,
-    probe: Option<syn::Path>,
-    ref_any: Option<syn::Expr>,
-    mut_any: Option<syn::Expr>,
-    all: Option<syn::Path>,
-}
-
 #[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree), forward_attrs(doc))]
 pub(crate) struct TreeField {
@@ -47,9 +28,7 @@ pub(crate) struct TreeField {
     rename: Option<syn::Ident>,
     defer: Option<syn::Expr>, // Value to defer to
     #[darling(default)]
-    with: With,
-    #[darling(default)]
-    deny: Deny,
+    with: Option<syn::Path>,
     #[darling(default)]
     pub meta: BTreeMap<String, String>,
     pub attrs: Vec<syn::Attribute>,
@@ -71,7 +50,7 @@ impl TreeField {
     }
 
     pub fn schema(&self) -> TokenStream {
-        if let Some(all) = self.with.all.as_ref() {
+        if let Some(all) = self.with.as_ref() {
             quote_spanned!(self.span()=> #all::SCHEMA)
         } else {
             let typ = self.typ();
@@ -83,27 +62,18 @@ impl TreeField {
         if self
             .uses_type_params(&Purpose::BoundImpl.into(), type_set)
             .is_empty()
-            || self.with.all.is_some()
+            || self.with.is_some()
         {
             None
         } else {
-            match trtr {
-                TreeTrait::Key => Some(parse_quote!(::miniconf::TreeSchema)),
-                TreeTrait::Serialize => self
-                    .deny
-                    .serialize
-                    .is_none()
-                    .then_some(parse_quote!(::miniconf::TreeSerialize)),
-                TreeTrait::Deserialize => (self.deny.deserialize.is_none()
-                    || self.deny.probe.is_none())
-                .then_some(parse_quote!(::miniconf::TreeDeserialize<'de>)),
-                TreeTrait::Any => (self.deny.ref_any.is_none() || self.deny.mut_any.is_none())
-                    .then_some(parse_quote!(::miniconf::TreeAny)),
-            }
-            .map(|bound: syn::TraitBound| {
-                let ty = self.typ();
-                quote_spanned!(self.span()=> #ty: #bound,)
-            })
+            let bound: syn::TraitBound = match trtr {
+                TreeTrait::Key => parse_quote!(::miniconf::TreeSchema),
+                TreeTrait::Serialize => parse_quote!(::miniconf::TreeSerialize),
+                TreeTrait::Deserialize => parse_quote!(::miniconf::TreeDeserialize<'de>),
+                TreeTrait::Any => parse_quote!(::miniconf::TreeAny),
+            };
+            let ty = self.typ();
+            Some(quote_spanned!(self.span()=> #ty: #bound,))
         }
     }
 
@@ -129,98 +99,58 @@ impl TreeField {
 
     pub fn serialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `serialize_by_key()` args available.
-        if let Some(msg) = &self.deny.serialize {
-            quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::ValueError::Access(#msg).into())
-            }
-        } else {
-            let value = self.value(i);
-            let imp = self
-                .with
-                .all
-                .as_ref()
-                .map(|m| quote!(#m::serialize_by_key(&#value, keys, ser)))
-                .or(self.with.serialize.as_ref().map(|p| quote!(#p(keys, ser))))
-                .unwrap_or(quote!(#value.serialize_by_key(keys, ser)));
-            quote_spanned! { self.span()=> #imp }
-        }
+        let value = self.value(i);
+        let imp = self
+            .with
+            .as_ref()
+            .map(|m| quote!(#m::serialize_by_key(&#value, keys, ser)))
+            .unwrap_or(quote!(#value.serialize_by_key(keys, ser)));
+        quote_spanned! { self.span()=> #imp }
     }
 
     pub fn deserialize_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `deserialize_by_key()` args available.
-        if let Some(msg) = &self.deny.deserialize {
-            quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::ValueError::Access(#msg).into())
-            }
-        } else {
-            let value = self.value(i);
-            let imp = self
-                .with
-                .all
-                .as_ref()
-                .map(|m| quote!(#m::deserialize_by_key(&mut #value, keys, de)))
-                .or(self.with.deserialize.as_ref().map(|p| quote!(#p(keys, de))))
-                .unwrap_or(quote!(#value.deserialize_by_key(keys, de)));
-            quote_spanned! { self.span()=> #imp }
-        }
+        let value = self.value(i);
+        let imp = self
+            .with
+            .as_ref()
+            .map(|m| quote!(#m::deserialize_by_key(&mut #value, keys, de)))
+            .unwrap_or(quote!(#value.deserialize_by_key(keys, de)));
+        quote_spanned! { self.span()=> #imp }
     }
 
     pub fn probe_by_key(&self, i: usize) -> TokenStream {
         // Quote context is a match of the field index with `probe_by_key()` args available.
-        if let Some(msg) = &self.deny.probe {
-            quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::ValueError::Access(#msg).into())
-            }
-        } else {
-            let typ = self.typ();
-            let imp = self
-                .with
-                .all
-                .as_ref()
-                .map(|m| quote!(#m::probe_by_key::<'de, #typ, _>(keys, de)))
-                .or(self.with.probe.as_ref().map(|p| quote!(#p(keys, de))))
-                .unwrap_or(
-                    quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)),
-                );
-            quote_spanned! { self.span()=> #i => #imp }
-        }
+        let typ = self.typ();
+        let imp = self
+            .with
+            .as_ref()
+            .map(|m| quote!(#m::probe_by_key::<'de, #typ, _>(keys, de)))
+            .unwrap_or(
+                quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)),
+            );
+        quote_spanned! { self.span()=> #i => #imp }
     }
 
     pub fn ref_any_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        if let Some(msg) = &self.deny.ref_any {
-            quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::ValueError::Access(#msg))
-            }
-        } else {
-            let value = self.value(i);
-            let imp = self
-                .with
-                .all
-                .as_ref()
-                .map(|m| quote!(#m::ref_any_by_key(&#value, keys)))
-                .or(self.with.ref_any.as_ref().map(|p| quote!(#p(keys))))
-                .unwrap_or(quote!(#value.ref_any_by_key(keys)));
-            quote_spanned! { self.span()=> #imp }
-        }
+        let value = self.value(i);
+        let imp = self
+            .with
+            .as_ref()
+            .map(|m| quote!(#m::ref_any_by_key(&#value, keys)))
+            .unwrap_or(quote!(#value.ref_any_by_key(keys)));
+        quote_spanned! { self.span()=> #imp }
     }
 
     pub fn mut_any_by_key(&self, i: Option<usize>) -> TokenStream {
         // Quote context is a match of the field index with `get_mut_by_key()` args available.
-        if let Some(msg) = &self.deny.mut_any {
-            quote_spanned! { self.span()=> ::core::result::Result::Err(
-                ::miniconf::ValueError::Access(#msg))
-            }
-        } else {
-            let value = self.value(i);
-            let imp = self
-                .with
-                .all
-                .as_ref()
-                .map(|m| quote!(#m::mut_any_by_key(&mut #value, keys)))
-                .or(self.with.mut_any.as_ref().map(|p| quote!(#p(keys))))
-                .unwrap_or(quote!(#value.mut_any_by_key(keys)));
-            quote_spanned! { self.span()=> #imp }
-        }
+        let value = self.value(i);
+        let imp = self
+            .with
+            .as_ref()
+            .map(|m| quote!(#m::mut_any_by_key(&mut #value, keys)))
+            .unwrap_or(quote!(#value.mut_any_by_key(keys)));
+        quote_spanned! { self.span()=> #imp }
     }
 }

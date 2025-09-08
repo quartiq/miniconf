@@ -81,9 +81,9 @@ fn deny_access() {
     use core::cell::RefCell;
     #[derive(Tree)]
     struct S<'a> {
-        #[tree(deny(deserialize = "no de", mut_any = "no any"))]
+        #[tree(with=deny_write)]
         field: i32,
-        #[tree(deny(ref_any = "no any", mut_any = "no any"))]
+        #[tree(with=deny_ref)]
         cell: &'a RefCell<i32>,
     }
     let cell = RefCell::new(2);
@@ -91,10 +91,27 @@ fn deny_access() {
         field: 1,
         cell: &cell,
     };
+    mod deny_write {
+        pub use miniconf::{
+            deny::{deserialize_by_key, mut_any_by_key},
+            leaf::{probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA},
+        };
+    }
+    mod deny_ref {
+        use std::cell::RefCell;
+
+        pub use miniconf::{
+            deny::{mut_any_by_key, ref_any_by_key},
+            passthrough::{deserialize_by_key, probe_by_key, serialize_by_key},
+        };
+        use miniconf::{Schema, TreeSchema};
+        pub const SCHEMA: &Schema = <RefCell<i32>>::SCHEMA;
+    }
+
     common::set_get(&mut s, "/cell", b"3");
     s.ref_any_by_key([0].into_keys()).unwrap();
     assert!(matches!(
         s.mut_any_by_key([0].into_keys()),
-        Err(ValueError::Access("no any"))
+        Err(ValueError::Access("Denied"))
     ));
 }

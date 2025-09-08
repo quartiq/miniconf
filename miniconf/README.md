@@ -40,13 +40,13 @@ pub enum Either {
 #[derive(Tree, Default)]
 pub struct Settings {
     foo: bool,
-    #[tree(with(all=leaf))]
+    #[tree(with=leaf)]
     enum_: Either,
-    #[tree(with(all=leaf))]
+    #[tree(with=leaf)]
     struct_: Inner,
-    #[tree(with(all=leaf))]
+    #[tree(with=leaf)]
     array: [i32; 2],
-    #[tree(with(all=leaf))]
+    #[tree(with=leaf)]
     option: Option<i32>,
 
     #[tree(skip)]

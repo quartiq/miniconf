@@ -2,7 +2,7 @@ use miniconf::{json, Tree, ValueError};
 
 #[derive(Tree, Default)]
 struct Check {
-    #[tree(with(all=check))]
+    #[tree(with=check)]
     v: f32,
 }
 
@@ -45,7 +45,7 @@ fn validate() {
 // through a variable offset, fixed length array.
 #[derive(Default, Tree)]
 struct Page {
-    #[tree(typ="[i32; 4]", rename=arr, defer=*self, with(all=page4))]
+    #[tree(typ="[i32; 4]", rename=arr, defer=*self, with=page4)]
     vec: Vec<i32>,
     offset: usize,
 }
@@ -112,7 +112,7 @@ fn paging() {
 
 #[derive(Default, Tree)]
 struct Lock {
-    #[tree(with(all=lock), defer=*self)]
+    #[tree(with=lock, defer=*self)]
     val: i32,
     read: bool,
     write: bool,

@@ -10,6 +10,55 @@ use crate::{
     Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
+/// Passthrough Tree*
+pub mod passthrough {
+    use super::*;
+
+    /// [`TreeSerialize::serialize_by_key()`]
+    #[inline]
+    pub fn serialize_by_key<T: TreeSerialize + ?Sized, S: Serializer>(
+        value: &T,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        value.serialize_by_key(keys, ser)
+    }
+
+    /// [`TreeDeserialize::deserialize_by_key()`]
+    #[inline]
+    pub fn deserialize_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: Deserializer<'de>>(
+        value: &mut T,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        value.deserialize_by_key(keys, de)
+    }
+
+    /// [`TreeDeserialize::probe_by_key()`]
+    #[inline]
+    pub fn probe_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: Deserializer<'de>>(
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        T::probe_by_key(keys, de)
+    }
+
+    /// [`TreeAny::ref_any_by_key()`]
+    #[inline]
+    pub fn ref_any_by_key(value: &impl TreeAny, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+        value.ref_any_by_key(keys)
+    }
+
+    /// [`TreeAny::mut_any_by_key()`]
+    #[inline]
+    pub fn mut_any_by_key(
+        value: &mut impl TreeAny,
+        keys: impl Keys,
+    ) -> Result<&mut dyn Any, ValueError> {
+        value.mut_any_by_key(keys)
+    }
+}
+
 /// Leaf implementation using serde::{Serialize, Deserialize}
 ///
 /// To be used as a derive macros attribute `#[tree(with=leaf)]`.
@@ -351,7 +400,7 @@ mod heapless_impls {
 /// }
 /// #[derive(Tree)]
 /// struct S {
-///     #[tree(rename="t", with(all=str_leaf), defer=self.e, typ="En")]
+///     #[tree(rename="t", with=str_leaf, defer=self.e, typ="En")]
 ///     _t: (),
 ///     e: En,
 /// }

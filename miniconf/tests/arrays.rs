@@ -12,7 +12,7 @@ struct Inner {
 
 #[derive(Debug, Default, Tree)]
 struct Settings {
-    #[tree(with(all=leaf))]
+    #[tree(with=leaf)]
     a: [u8; 2],
     d: [u8; 2],
     dm: [Leaf<Inner>; 2],
