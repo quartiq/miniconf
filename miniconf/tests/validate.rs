@@ -1,5 +1,5 @@
 use miniconf::{
-    json, Keys, Leaf, SerdeError, Tree, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    json, Keys, SerdeError, Tree, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 use serde::{Deserializer, Serializer};
 
@@ -44,7 +44,7 @@ fn paging() {
     // through a variable offset, fixed length array.
     #[derive(Default, TreeSchema, TreeDeserialize, TreeSerialize)]
     struct S {
-        #[tree(typ="[Leaf<i32>; 4]", rename=arr,
+        #[tree(typ="[i32; 4]", rename=arr,
             with(serialize=self.serialize_vec, deserialize=self.deserialize_vec))]
         vec: Vec<i32>,
         offset: usize,

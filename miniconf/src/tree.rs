@@ -270,15 +270,15 @@ pub trait TreeSerialize: TreeSchema {
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeSchema, TreeSerialize};
+    /// use miniconf::{IntoKeys, TreeSchema, TreeSerialize};
     /// #[derive(TreeSchema, TreeSerialize)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let s = S {
-    ///     foo: Leaf(9),
-    ///     bar: [Leaf(11), Leaf(3)],
+    ///     foo: 9,
+    ///     bar: [11, 3],
     /// };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
@@ -312,18 +312,18 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeSchema};
+    /// use miniconf::{IntoKeys, TreeDeserialize, TreeSchema};
     /// #[derive(Default, TreeSchema, TreeDeserialize)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
     /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de)
     ///     .unwrap();
     /// de.end().unwrap();
-    /// assert_eq!(*s.bar[0], 7);
+    /// assert_eq!(s.bar[0], 7);
     /// # }
     /// ```
     ///
@@ -343,11 +343,11 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeSchema};
+    /// use miniconf::{IntoKeys, TreeDeserialize, TreeSchema};
     /// #[derive(Default, TreeSchema, TreeDeserialize)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
     /// S::probe_by_key(["bar", "0"].into_keys(), &mut de)

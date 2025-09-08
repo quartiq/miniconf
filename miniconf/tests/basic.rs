@@ -1,4 +1,4 @@
-use miniconf::{Indices, KeyError, Leaf, Path, Short, Track, Tree, TreeSchema};
+use miniconf::{Indices, KeyError, Path, Short, Track, Tree, TreeSchema};
 mod common;
 
 #[derive(Tree, Default)]
@@ -52,7 +52,7 @@ fn indices() {
         assert_eq!(indices.leaf, leaf);
         assert_eq!(indices.inner.as_ref(), idx);
     }
-    let indices = Option::<Leaf<i8>>::SCHEMA
+    let indices = Option::<i8>::SCHEMA
         .transcode::<Short<Indices<[usize; 1]>>>([0usize; 0])
         .unwrap();
     assert_eq!(indices.inner.as_ref(), [0usize; 0]);
@@ -69,21 +69,21 @@ fn indices() {
 
 #[test]
 fn tuple() {
-    type T = (Leaf<u32>, (Leaf<i32>, Leaf<u8>), [Leaf<u16>; 3]);
+    type T = (u32, (i32, u8), [u16; 3]);
     let paths = common::paths::<T, 3>();
     assert_eq!(paths.len(), 6);
     let mut s: T = Default::default();
     for p in paths {
         common::set_get(&mut s, p.as_str(), b"9");
     }
-    assert_eq!(s, (Leaf(9), (Leaf(9), Leaf(9)), [Leaf(9); 3]));
+    assert_eq!(s, (9, (9, 9), [9; 3]));
 }
 
 #[test]
 fn cell() {
     use core::cell::RefCell;
 
-    let c: RefCell<Leaf<i32>> = Default::default();
+    let c: RefCell<i32> = Default::default();
     let mut r = &c;
     common::set_get(&mut r, "", b"9");
 }

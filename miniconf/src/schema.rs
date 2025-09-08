@@ -319,11 +319,11 @@ impl Schema {
     /// an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Packed, Track, Short, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Packed, Track, Short, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 5],
+    ///     foo: u32,
+    ///     bar: [u16; 5],
     /// };
     ///
     /// let idx = [1, 1];
