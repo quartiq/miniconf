@@ -3,13 +3,13 @@ mod common;
 
 #[derive(Tree, Default)]
 struct Inner {
-    inner: Leaf<f32>,
+    inner: f32,
 }
 
 #[derive(Tree, Default)]
 struct Settings {
-    a: Leaf<f32>,
-    b: Leaf<i32>,
+    a: f32,
+    b: i32,
     c: Inner,
 }
 

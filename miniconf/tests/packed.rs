@@ -1,12 +1,12 @@
 use miniconf::{
-    Indices, KeyError, Leaf, Packed, Path, Shape, Short, Track, Tree, TreeSchema, TreeSerialize,
+    Indices, KeyError, Packed, Path, Shape, Short, Track, Tree, TreeSchema, TreeSerialize,
 };
 mod common;
 
 #[derive(Tree, Default)]
 struct Settings {
-    a: Leaf<f32>,
-    b: [Leaf<f32>; 2],
+    a: f32,
+    b: [f32; 2],
 }
 
 #[test]
@@ -55,8 +55,8 @@ fn packed() {
 fn top() {
     #[derive(Tree)]
     struct S {
-        baz: [Leaf<i32>; 1],
-        foo: Leaf<i32>,
+        baz: [i32; 1],
+        foo: i32,
     }
     assert_eq!(
         S::nodes::<Path<String, '/'>, 2>()
@@ -83,7 +83,7 @@ fn top() {
 #[test]
 fn zero_key() {
     assert_eq!(
-        Option::<Leaf<()>>::nodes::<Packed, 2>()
+        Option::<()>::nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -93,7 +93,7 @@ fn zero_key() {
     );
 
     assert_eq!(
-        <[Leaf<usize>; 1]>::nodes::<Packed, 2>()
+        <[usize; 1]>::nodes::<Packed, 2>()
             .next()
             .unwrap()
             .unwrap()
@@ -104,8 +104,8 @@ fn zero_key() {
 
     // Check the corner case of a len=1 index where (len - 1) = 0 and zero bits would be required to encode.
     // Hence the Packed values for len=1 and len=2 are the same.
-    let mut a11 = [[Leaf(0)]];
-    let mut a22 = [[Leaf(0); 2]; 2];
+    let mut a11 = [[0]];
+    let mut a22 = [[0; 2]; 2];
     let mut buf = [0u8; 100];
     let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
     for (depth, result) in [
@@ -144,8 +144,8 @@ fn size() {
     // so won't recurse in Transcode or consume from Keys
     // Then [T; 1] which takes one bit per level (not 0 bits, to distinguish empty Packed)
     // Worst case for a 32 bit usize we need 31 array levels (marker bit).
-    type A31 = [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[Leaf<()>; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1];
-        1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1];
+    type A31 = [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[(); 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1];
+        1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1];
     assert_eq!(core::mem::size_of::<A31>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let path = A31::SCHEMA
@@ -161,8 +161,7 @@ fn size() {
 
     // Another way to get to 32 bit is to take 15 length-3 (2 bit) levels and one length-1 (1 bit) level to fill it, needing (3**15 ~ 14 M) storage.
     // With the unit as type, we need 0 storage but can't do much.
-    type A16 =
-        [[[[[[[[[[[[[[[[Leaf<()>; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 1];
+    type A16 = [[[[[[[[[[[[[[[[(); 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 1];
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let path = A16::SCHEMA

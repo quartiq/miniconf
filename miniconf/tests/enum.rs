@@ -6,7 +6,7 @@ use serde::{Deserializer, Serializer};
 
 #[derive(Tree, Default, PartialEq, Debug)]
 struct Inner {
-    a: Leaf<i32>,
+    a: i32,
 }
 
 #[derive(
@@ -27,7 +27,7 @@ enum Enum {
     #[strum(serialize = "foo")]
     #[strum_discriminants(serde(rename = "foo"))]
     #[tree(rename = "foo")]
-    A(Leaf<i32>),
+    A(i32),
     B(Inner),
 }
 
@@ -76,16 +76,16 @@ fn enum_switch() {
         json::set(&mut s, "/tag", b"\"bar\""),
         Err(SerdeError::Inner(serde_json_core::de::Error::CustomError))
     );
-    assert_eq!(s.enu, Enum::A(Leaf(0)));
+    assert_eq!(s.enu, Enum::A(0));
     set_get(&mut s, "/enu/foo", b"99");
-    assert_eq!(s.enu, Enum::A(Leaf(99)));
+    assert_eq!(s.enu, Enum::A(99));
     assert_eq!(
         json::set(&mut s, "/enu/B/a", b"99"),
         Err(miniconf::ValueError::Absent.into())
     );
     set_get(&mut s, "/tag", b"\"B\"");
     set_get(&mut s, "/enu/B/a", b"8");
-    assert_eq!(s.enu, Enum::B(Inner { a: Leaf(8) }));
+    assert_eq!(s.enu, Enum::B(Inner { a: 8 }));
 
     assert_eq!(
         paths::<Settings, 3>(),
@@ -107,7 +107,7 @@ fn enum_skip() {
     #[allow(dead_code)]
     #[derive(Tree)]
     enum E {
-        A(Leaf<i32>, #[tree(skip)] i32),
+        A(i32, #[tree(skip)] i32),
         #[tree(skip)]
         B(S),
         C,
@@ -127,9 +127,6 @@ fn option() {
         None,
         Some(T),
     }
-    assert_eq!(paths::<Option::<[Leaf<i32>; 1]>, 1>(), ["/0"]);
-    assert_eq!(
-        paths::<Option::<::core::option::Option<Leaf<i32>>>, 1>(),
-        [""]
-    );
+    assert_eq!(paths::<Option::<[i32; 1]>, 1>(), ["/0"]);
+    assert_eq!(paths::<Option::<::core::option::Option<i32>>, 1>(), [""]);
 }

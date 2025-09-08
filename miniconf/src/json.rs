@@ -7,15 +7,15 @@
 //! `TreeSchema::nodes::<Path<_, '/'>>()`.
 //!
 //! ```
-//! use miniconf::{json, Leaf, Tree};
+//! use miniconf::{json, Tree};
 //! #[derive(Tree, Default)]
 //! struct S {
-//!     foo: Leaf<u32>,
-//!     bar: [Leaf<u16>; 2],
+//!     foo: u32,
+//!     bar: [u16; 2],
 //! };
 //! let mut s = S::default();
 //! json::set(&mut s, "/bar/1", b"9").unwrap();
-//! assert_eq!(*s.bar[1], 9);
+//! assert_eq!(s.bar[1], 9);
 //! let mut buf = [0u8; 10];
 //! let len = json::get(&mut s, "/bar/1", &mut buf[..]).unwrap();
 //! assert_eq!(&buf[..len], b"9");

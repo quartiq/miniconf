@@ -10,13 +10,13 @@ use common::*;
 fn structs() {
     #[derive(Serialize, Deserialize, Tree, Default, PartialEq, Debug)]
     struct Inner {
-        a: Leaf<u32>,
+        a: u32,
     }
 
     #[derive(Tree, Default, PartialEq, Debug)]
     struct Settings {
-        a: Leaf<f32>,
-        b: Leaf<bool>,
+        a: f32,
+        b: bool,
         c: Leaf<Inner>,
         d: Inner,
     }
@@ -35,8 +35,8 @@ fn structs() {
     // It is not allowed to set a non-terminal node.
     assert!(json::set(&mut settings, "/d", b"{\"a\": 5").is_err());
 
-    assert_eq!(*settings.c, Inner { a: Leaf(5) });
-    assert_eq!(settings.d, Inner { a: Leaf(3) });
+    assert_eq!(*settings.c, Inner { a: 5 });
+    assert_eq!(settings.d, Inner { a: 3 });
 
     // Check that metadata is correct.
     let metadata = Settings::SHAPE;
@@ -52,24 +52,24 @@ fn borrowed() {
     // Can't derive TreeAny
     #[derive(TreeSchema, TreeDeserialize, TreeSerialize)]
     struct S<'a> {
-        a: Leaf<&'a str>,
+        a: &'a str,
     }
-    let mut s = S { a: Leaf("foo") };
+    let mut s = S { a: "foo" };
     set_get(&mut s, "/a", br#""bar""#);
-    assert_eq!(s.a, Leaf("bar"));
+    assert_eq!(s.a, "bar");
 }
 
 #[test]
 fn tuple_struct() {
     #[derive(Tree, Default)]
-    struct Settings(Leaf<i32>, Leaf<f32>);
+    struct Settings(i32, f32);
 
     let mut s = Settings::default();
 
     set_get(&mut s, "/0", br#"2"#);
-    assert_eq!(*s.0, 2);
+    assert_eq!(s.0, 2);
     set_get(&mut s, "/1", br#"3.0"#);
-    assert_eq!(*s.1, 3.0);
+    assert_eq!(s.1, 3.0);
     json::set(&mut s, "/2", b"3.0").unwrap_err();
     json::set(&mut s, "/foo", b"3.0").unwrap_err();
 
@@ -82,13 +82,13 @@ fn deny_access() {
     #[derive(Tree)]
     struct S<'a> {
         #[tree(deny(deserialize = "no de", mut_any = "no any"))]
-        field: Leaf<i32>,
+        field: i32,
         #[tree(deny(ref_any = "no any", mut_any = "no any"))]
-        cell: &'a RefCell<Leaf<i32>>,
+        cell: &'a RefCell<i32>,
     }
-    let cell = RefCell::new(Leaf(2));
+    let cell = RefCell::new(2);
     let mut s = S {
-        field: Leaf(1),
+        field: 1,
         cell: &cell,
     };
     common::set_get(&mut s, "/cell", b"3");

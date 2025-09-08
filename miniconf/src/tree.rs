@@ -42,11 +42,11 @@ use crate::{
 /// the `rename` derive macro attribute.
 ///
 /// ```
-/// use miniconf::{Leaf, Path, Tree, TreeSchema};
+/// use miniconf::{Path, Tree, TreeSchema};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(rename = "OTHER")]
-///     a: Leaf<f32>,
+///     a: f32,
 /// };
 /// let name = S::SCHEMA.transcode::<Path<String, '/'>>([0usize]).unwrap();
 /// assert_eq!(name.0.as_str(), "/OTHER");
@@ -59,15 +59,15 @@ use crate::{
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```
-/// use miniconf::{Leaf, Tree};
+/// use miniconf::{Tree};
 /// #[derive(Tree)]
-/// struct S(Leaf<i32>, #[tree(skip)] ());
+/// struct S(i32, #[tree(skip)] ());
 /// ```
 ///
 /// ```compile_fail
-/// use miniconf::{Tree, Leaf};
+/// use miniconf::{Tree};
 /// #[derive(Tree)]
-/// struct S(#[tree(skip)] (), Leaf<i32>);
+/// struct S(#[tree(skip)] (), i32);
 /// ```
 ///
 /// ## Type
@@ -95,18 +95,18 @@ use crate::{
 /// taking the arguments of the respective trait's method.
 ///
 /// ```
-/// # use miniconf::{SerdeError, Leaf, Tree, Keys, ValueError, TreeDeserialize};
+/// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
 /// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(with(deserialize=self.check))]
-///     b: Leaf<f32>,
+///     b: f32,
 /// };
 /// impl S {
 ///     fn check<'de, K: Keys, D: Deserializer<'de>>(&mut self, keys: K, de: D) -> Result<(), SerdeError<D::Error>> {
 ///         let mut new = self.b;
 ///         new.deserialize_by_key(keys, de)?;
-///         if *new < 0.0 {
+///         if new < 0.0 {
 ///             Err(ValueError::Access("fail").into())
 ///         } else {
 ///             self.b = new;
@@ -166,11 +166,11 @@ pub trait TreeSchema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Short, Track, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Short, Track, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     ///
     /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
@@ -213,11 +213,11 @@ pub trait TreeSchema {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{Indices, IntoKeys, JsonPath, Leaf, TreeAny, TreeSchema};
+/// use miniconf::{Indices, IntoKeys, JsonPath, TreeAny, TreeSchema};
 /// #[derive(TreeSchema, TreeAny, Default)]
 /// struct S {
-///     foo: Leaf<u32>,
-///     bar: [Leaf<u16>; 2],
+///     foo: u32,
+///     bar: [u16; 2],
 /// };
 /// let mut s = S::default();
 ///
@@ -228,7 +228,7 @@ pub trait TreeSchema {
 ///
 /// let val: &mut u16 = s.mut_by_key(&JsonPath(".bar[1]")).unwrap();
 /// *val = 3;
-/// assert_eq!(*s.bar[1], 3);
+/// assert_eq!(s.bar[1], 3);
 ///
 /// let val: &u16 = s.ref_by_key(&JsonPath(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);

@@ -6,13 +6,13 @@
 //!
 //! #[derive(Tree, Default, PartialEq, Debug)]
 //! struct S {
-//!     foo: Leaf<u32>,
-//!     bar: [Leaf<u16>; 2],
+//!     foo: u32,
+//!     bar: [u16; 2],
 //! };
 //!
 //! let source = S {
-//!     foo: Leaf(9),
-//!     bar: [Leaf(7), Leaf(11)],
+//!     foo: 9,
+//!     bar: [7, 11],
 //! };
 //! let kv: Vec<_> = S::nodes::<Packed, 2>()
 //!     .map(|p| {

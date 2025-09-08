@@ -20,7 +20,6 @@ pub mod leaf {
     pub const SCHEMA: &'static Schema = &Schema::LEAF;
 
     /// [`TreeSerialize::serialize_by_key()`]
-    #[inline]
     pub fn serialize_by_key<T: Serialize + ?Sized, S: Serializer>(
         value: &T,
         mut keys: impl Keys,
@@ -31,7 +30,6 @@ pub mod leaf {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    #[inline]
     pub fn deserialize_by_key<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
         value: &mut T,
         mut keys: impl Keys,
@@ -43,7 +41,6 @@ pub mod leaf {
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    #[inline]
     pub fn probe_by_key<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -54,14 +51,12 @@ pub mod leaf {
     }
 
     /// [`TreeAny::ref_any_by_key()`]
-    #[inline]
     pub fn ref_any_by_key(value: &impl Any, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         keys.finalize()?;
         Ok(value)
     }
 
     /// [`TreeAny::mut_any_by_key()`]
-    #[inline]
     pub fn mut_any_by_key(
         value: &mut impl Any,
         mut keys: impl Keys,
@@ -157,6 +152,198 @@ impl<T: Any> TreeAny for Leaf<T> {
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+macro_rules! impl_leaf {
+    ($ty0:ty, $($ty:ty), +) => {
+        impl_leaf! {$ty0}
+        impl_leaf! {$($ty),+}
+    };
+    ($ty:ty) => {
+        impl TreeSchema for $ty {
+            const SCHEMA: &'static Schema = leaf::SCHEMA;
+        }
+
+        impl TreeSerialize for $ty {
+            #[inline]
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                leaf::serialize_by_key(self, keys, ser)
+            }
+        }
+
+        impl<'de> TreeDeserialize<'de> for $ty {
+            #[inline]
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::deserialize_by_key(self, keys, de)
+            }
+
+            #[inline]
+            fn probe_by_key<D: Deserializer<'de>>(
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::probe_by_key::<Self, _>(keys, de)
+            }
+        }
+
+        impl TreeAny for $ty {
+            #[inline]
+            fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+                leaf::ref_any_by_key(self, keys)
+            }
+
+            #[inline]
+            fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+                leaf::mut_any_by_key(self, keys)
+            }
+        }
+    };
+}
+
+impl_leaf! {
+    (), bool, char, f32, f64,
+    i8, i16, i32, i64, i128, isize,
+    u8, u16, u32, u64, u128, usize
+}
+use core::sync::atomic::{
+    AtomicBool, AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicIsize, AtomicU16, AtomicU32,
+    AtomicU64, AtomicU8, AtomicUsize,
+};
+impl_leaf! {
+    AtomicBool,
+    AtomicI8, AtomicI16, AtomicI32, AtomicI64, AtomicIsize,
+    AtomicU8, AtomicU16, AtomicU32, AtomicU64, AtomicUsize
+}
+use core::net::{SocketAddr, SocketAddrV4, SocketAddrV6};
+impl_leaf! {SocketAddr, SocketAddrV4, SocketAddrV6}
+impl_leaf! {core::time::Duration}
+
+macro_rules! impl_unsized_leaf {
+    ($ty:ty) => {
+        impl TreeSchema for $ty {
+            const SCHEMA: &'static Schema = leaf::SCHEMA;
+        }
+
+        impl TreeSchema for &$ty {
+            const SCHEMA: &'static Schema = leaf::SCHEMA;
+        }
+
+        impl TreeSerialize for $ty {
+            #[inline]
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                leaf::serialize_by_key(self, keys, ser)
+            }
+        }
+
+        impl<'a, 'de: 'a> TreeDeserialize<'de> for &'a $ty {
+            #[inline]
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::deserialize_by_key(self, keys, de)
+            }
+
+            #[inline]
+            fn probe_by_key<D: Deserializer<'de>>(
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::probe_by_key::<Self, _>(keys, de)
+            }
+        }
+    };
+}
+
+impl_unsized_leaf! {str}
+impl_unsized_leaf! {[u8]}
+
+#[cfg(feature = "alloc")]
+impl_leaf! {String}
+
+#[cfg(feature = "std")]
+mod std_impls {
+    use std::{
+        ffi::{CString, OsString},
+        path::{Path, PathBuf},
+        time::SystemTime,
+    };
+
+    use super::*;
+
+    impl_leaf! {CString, OsString}
+    impl_leaf! {PathBuf}
+    impl_leaf! {SystemTime}
+    impl_unsized_leaf! {Path}
+}
+
+#[cfg(feature = "heapless")]
+mod heapless_impls {
+    use super::*;
+    use heapless::String;
+
+    impl<const N: usize> TreeSchema for String<N> {
+        const SCHEMA: &'static Schema = leaf::SCHEMA;
+    }
+
+    impl<const N: usize> TreeSerialize for String<N> {
+        #[inline]
+        fn serialize_by_key<S: Serializer>(
+            &self,
+            keys: impl Keys,
+            ser: S,
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
+            leaf::serialize_by_key(self, keys, ser)
+        }
+    }
+
+    impl<'de, const N: usize> TreeDeserialize<'de> for String<N> {
+        #[inline]
+        fn deserialize_by_key<D: Deserializer<'de>>(
+            &mut self,
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::deserialize_by_key(self, keys, de)
+        }
+
+        #[inline]
+        fn probe_by_key<D: Deserializer<'de>>(
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::probe_by_key::<String<N>, _>(keys, de)
+        }
+    }
+
+    impl<const N: usize> TreeAny for String<N> {
+        #[inline]
+        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+            leaf::ref_any_by_key(self, keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+            leaf::mut_any_by_key(self, keys)
+        }
+    }
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
+
+// TODO: port to module
 
 /// `TryFrom<&str>`/`AsRef<str>` leaf
 ///
@@ -271,6 +458,8 @@ impl<T: Display> Display for StrLeaf<T> {
     }
 }
 
+// TODO: remove
+
 /// Deny any value access
 #[derive(
     Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
@@ -339,6 +528,8 @@ impl<T: TreeSchema + ?Sized> TreeAny for Deny<T> {
         Err(ValueError::Access("Denied"))
     }
 }
+
+// TODO: remove
 
 /// (Draft) An integer with a limited range of valid values
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]

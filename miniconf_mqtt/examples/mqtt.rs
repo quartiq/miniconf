@@ -7,7 +7,7 @@ use std_embedded_time::StandardClock;
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Inner {
-    a: Leaf<u32>,
+    a: u32,
 }
 
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
@@ -20,15 +20,15 @@ enum Gain {
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Settings {
-    stream: Leaf<String<32>>,
+    stream: String<32>,
     afe: [Leaf<Gain>; 2],
     inner: Inner,
-    values: [Leaf<f32>; 2],
+    values: [f32; 2],
     array: Leaf<[i32; 4]>,
-    opt: Option<Leaf<i32>>,
+    opt: Option<i32>,
     #[tree(with(deserialize=self.deserialize_four))]
-    four: Leaf<f32>,
-    exit: Leaf<bool>,
+    four: f32,
+    exit: bool,
 }
 
 impl Settings {
@@ -37,10 +37,10 @@ impl Settings {
         keys: K,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        let old = *self.four;
+        let old = self.four;
         self.four.deserialize_by_key(keys, de)?;
-        if *self.four < 4.0 {
-            *self.four = old;
+        if self.four < 4.0 {
+            self.four = old;
             Err(ValueError::Access("Less than four").into())
         } else {
             Ok(())
@@ -67,7 +67,7 @@ async fn main() {
     client.set_alive("\"hello\"");
 
     let mut settings = Settings::default();
-    while !*settings.exit {
+    while !settings.exit {
         tokio::time::sleep(Duration::from_millis(10)).await;
         if client.update(&mut settings).unwrap() {
             println!("Settings updated: {:?}", settings);

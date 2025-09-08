@@ -1,4 +1,4 @@
-use miniconf::{leaf, Leaf, RangeLeaf, Tree};
+use miniconf::{Leaf, Tree};
 use serde::{Deserialize, Serialize};
 
 // Either/Inner/Settings are straight from README.md
@@ -8,14 +8,9 @@ use serde::{Deserialize, Serialize};
 #[tree(doc, meta(name = "Inner"))]
 pub struct Inner {
     #[tree(meta(max = "10"))]
-    a: Leaf<i32>,
+    a: i32,
     /// Outer doc
-    b: Leaf<i32>,
-    /// Range limited
-    c: RangeLeaf<u16, 0, 100>,
-    /// With-all-mod example
-    #[tree(with(all=leaf))]
-    d: i16,
+    b: i32,
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
@@ -24,7 +19,7 @@ pub enum Either {
     #[default]
     Bad,
     Good,
-    A(Leaf<i32>),
+    A(i32),
     B(Inner),
     C([Inner; 2]),
 }
@@ -35,7 +30,7 @@ pub struct Uni;
 #[derive(Tree, Default)]
 #[tree(meta(name = "Settings"))]
 pub struct Settings {
-    foo: Leaf<bool>,
+    foo: bool,
     enum_: Leaf<Either>,
     struct_: Leaf<Inner>,
     array: Leaf<[i32; 2]>,
@@ -48,10 +43,10 @@ pub struct Settings {
 
     struct_tree: Inner,
     enum_tree: Either,
-    array_tree: [Leaf<i32>; 2],
+    array_tree: [i32; 2],
     array_tree2: [Inner; 2],
-    tuple_tree: (Leaf<i32>, Inner),
-    option_tree: Option<Leaf<i32>>,
+    tuple_tree: (i32, Inner),
+    option_tree: Option<i32>,
     option_tree2: Option<Inner>,
     array_option_tree: [Option<Inner>; 2],
 }
@@ -66,7 +61,7 @@ impl Settings {
 
     /// Fill some of the Options
     pub fn enable(&mut self) {
-        self.option_tree = Some(Leaf(8));
+        self.option_tree = Some(8);
         // self.enum_tree = Either::B(Default::default());
         self.enum_tree = Either::C(Default::default());
         self.option_tree2 = Some(Default::default());

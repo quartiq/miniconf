@@ -1136,3 +1136,59 @@ mod _std {
         }
     }
 }
+
+/////////////////////////////////////////////////////////////////////////////////////////
+// Transparent newtypes
+
+macro_rules! impl_newtype {
+    ($ty:ty, $gen:tt) => {
+        impl<$gen: TreeSchema> TreeSchema for $ty {
+            const SCHEMA: &'static Schema = T::SCHEMA;
+        }
+
+        impl<$gen: TreeSerialize> TreeSerialize for $ty {
+            #[inline]
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                self.0.serialize_by_key(keys, ser)
+            }
+        }
+
+        impl<'de, $gen: TreeDeserialize<'de>> TreeDeserialize<'de> for $ty {
+            #[inline]
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                self.0.deserialize_by_key(keys, de)
+            }
+
+            #[inline]
+            fn probe_by_key<D: Deserializer<'de>>(
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                $gen::probe_by_key(keys, de)
+            }
+        }
+
+        impl<$gen: TreeAny> TreeAny for $ty {
+            #[inline]
+            fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+                self.0.ref_any_by_key(keys)
+            }
+
+            #[inline]
+            fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+                self.0.mut_any_by_key(keys)
+            }
+        }
+    };
+}
+
+use core::num::Wrapping;
+impl_newtype! {Wrapping<T>, T}

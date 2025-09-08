@@ -1,19 +1,20 @@
 use miniconf::{
-    json, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Track, Tree,
-    TreeSchema,
+    json, leaf, Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Track,
+    Tree, TreeSchema,
 };
 
 mod common;
 
 #[derive(Debug, Copy, Clone, Default, Tree, Deserialize, Serialize)]
 struct Inner {
-    c: Leaf<u8>,
+    c: u8,
 }
 
 #[derive(Debug, Default, Tree)]
 struct Settings {
-    a: Leaf<[u8; 2]>,
-    d: [Leaf<u8>; 2],
+    #[tree(with(all=leaf))]
+    a: [u8; 2],
+    d: [u8; 2],
     dm: [Leaf<Inner>; 2],
     am: [Inner; 2],
     aam: [[Inner; 2]; 2],
@@ -59,23 +60,23 @@ fn paths() {
 fn atomic() {
     let mut s = Settings::default();
     set_get(&mut s, "/a", b"[1,2]").unwrap();
-    assert_eq!(*s.a, [1, 2]);
+    assert_eq!(s.a, [1, 2]);
 }
 
 #[test]
 fn defer() {
     let mut s = Settings::default();
     set_get(&mut s, "/d/1", b"99").unwrap();
-    assert_eq!(*s.d[1], 99);
+    assert_eq!(s.d[1], 99);
 }
 
 #[test]
 fn defer_miniconf() {
     let mut s = Settings::default();
     set_get(&mut s, "/am/0/c", b"1").unwrap();
-    assert_eq!(*s.am[0].c, 1);
+    assert_eq!(s.am[0].c, 1);
     set_get(&mut s, "/aam/0/0/c", b"3").unwrap();
-    assert_eq!(*s.aam[0][0].c, 3);
+    assert_eq!(s.aam[0][0].c, 3);
 }
 
 #[test]

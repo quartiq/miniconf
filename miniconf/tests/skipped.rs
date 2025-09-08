@@ -1,4 +1,4 @@
-use miniconf::{KeyError, Leaf, Path, Shape, Tree, TreeSchema};
+use miniconf::{KeyError, Path, Shape, Tree, TreeSchema};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -8,7 +8,7 @@ struct Settings {
     #[tree(skip)]
     _long_skipped_type: SkippedType,
 
-    value: Leaf<f32>,
+    value: f32,
 }
 
 #[test]
@@ -36,5 +36,5 @@ fn skip_struct() {
     #[allow(dead_code)]
     #[derive(Tree)]
     #[tree(flatten)]
-    pub struct S(Leaf<i32>, #[tree(skip)] i32);
+    pub struct S(i32, #[tree(skip)] i32);
 }

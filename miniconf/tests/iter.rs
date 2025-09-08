@@ -1,19 +1,19 @@
-use miniconf::{Indices, Leaf, NodeIter, Path, Short, Tree, TreeSchema};
+use miniconf::{Indices, NodeIter, Path, Short, Tree, TreeSchema};
 
 mod common;
 use common::*;
 
 #[derive(Tree, Default, PartialEq, Debug)]
 struct Inner {
-    inner: Leaf<bool>,
+    inner: bool,
 }
 
 #[derive(Tree, Default, PartialEq, Debug)]
 struct Settings {
-    b: [Leaf<bool>; 2],
+    b: [bool; 2],
     c: Inner,
     d: [Inner; 1],
-    a: Leaf<bool>,
+    a: bool,
 }
 
 #[test]
@@ -49,10 +49,10 @@ fn array_iter() {
         set_get(&mut s, &field, b"true");
     }
 
-    assert!(*s.a);
-    assert!(s.b.iter().all(|x| **x));
-    assert!(*s.c.inner);
-    assert!(s.d.iter().all(|i| *i.inner));
+    assert!(s.a);
+    assert!(s.b.iter().all(|x| *x));
+    assert!(s.c.inner);
+    assert!(s.d.iter().all(|i| i.inner));
 }
 
 #[test]
@@ -78,7 +78,7 @@ fn short_iter() {
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    <[[Leaf<u32>; 1]; 1]>::nodes::<(), 1>();
+    <[[u32; 1]; 1]>::nodes::<(), 1>();
 }
 
 #[test]

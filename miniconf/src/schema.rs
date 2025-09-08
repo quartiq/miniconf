@@ -232,16 +232,16 @@ impl Schema {
     ///
     /// ```
     /// # use core::convert::Infallible;
-    /// use miniconf::{IntoKeys, Leaf, TreeSchema};
+    /// use miniconf::{IntoKeys, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let mut ret = [
     ///     (S::SCHEMA, Some(1usize)),
-    ///     (<[Leaf<u16>; 2]>::SCHEMA, Some(0)),
-    ///     (Leaf::<u16>::SCHEMA, None),
+    ///     (<[u16; 2]>::SCHEMA, Some(0)),
+    ///     (u16::SCHEMA, None),
     /// ].into_iter();
     /// let func = |schema, idx_internal: Option<_>| {
     ///     assert_eq!(ret.next().unwrap(), (schema, idx_internal.map(|(i, _)| i)));

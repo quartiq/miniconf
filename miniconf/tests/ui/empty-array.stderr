@@ -1,10 +1,29 @@
-error[E0412]: cannot find type `Leaf` in this scope
- --> tests/ui/empty-array.rs:4:15
+error[E0080]: evaluation panicked: Must have at least one child
+ --> src/impls.rs
   |
-4 |     let _ = <[Leaf<usize>; 0]>::SHAPE;
-  |               ^^^^ not found in this scope
+  |     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
+  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `miniconf::impls::<impl miniconf::TreeSchema for [usize; 0]>::SCHEMA` failed inside this call
   |
-help: consider importing this struct
+note: inside `miniconf::Homogeneous::new`
+ --> src/schema.rs
   |
-1 + use miniconf::Leaf;
+  |             None => panic!("Must have at least one child"),
+  |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+
+note: erroneous constant encountered
+   --> src/impls.rs
+    |
+    |     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+   --> src/tree.rs
+    |
+    |     const SHAPE: Shape = Shape::new(Self::SCHEMA);
+    |                                     ^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> tests/ui/empty-array.rs:4:22
   |
+4 |     const _: usize = <[usize; 0]>::SHAPE.max_depth;
+  |                      ^^^^^^^^^^^^^^^^^^^

@@ -224,7 +224,7 @@ fn track_depth<T, E, K: IntoKeys>(
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
-///     foo: Leaf<bool>,
+///     foo: bool,
 /// }
 ///
 /// let mut buffer = [0u8; 1024];

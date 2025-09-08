@@ -4,12 +4,12 @@ use miniconf::{json, Deserialize, Leaf, Serialize, Shape, Tree, TreeSchema};
 fn generic_type() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        pub data: Leaf<T>,
+        pub data: T,
     }
 
     let mut settings = Settings::<f32>::default();
     json::set(&mut settings, "/data", b"3.0").unwrap();
-    assert_eq!(*settings.data, 3.0);
+    assert_eq!(settings.data, 3.0);
 
     // Test metadata
     let metadata: Shape = Settings::<f32>::SHAPE;
@@ -22,13 +22,13 @@ fn generic_type() {
 fn generic_array() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        pub data: [Leaf<T>; 2],
+        pub data: [T; 2],
     }
 
     let mut settings = Settings::<f32>::default();
     json::set(&mut settings, "/data/0", b"3.0").unwrap();
 
-    assert_eq!(*settings.data[0], 3.0);
+    assert_eq!(settings.data[0], 3.0);
 
     // Test metadata
     let metadata: Shape = Settings::<f32>::SHAPE;
@@ -41,7 +41,7 @@ fn generic_array() {
 fn generic_struct() {
     #[derive(Tree, Default)]
     struct Settings<T> {
-        pub inner: Leaf<T>,
+        pub inner: T,
     }
 
     #[derive(Serialize, Deserialize, Default)]
@@ -49,13 +49,13 @@ fn generic_struct() {
         pub data: f32,
     }
 
-    let mut settings = Settings::<Inner>::default();
+    let mut settings = Settings::<Leaf<Inner>>::default();
     json::set(&mut settings, "/inner", b"{\"data\": 3.0}").unwrap();
 
     assert_eq!(settings.inner.data, 3.0);
 
     // Test metadata
-    let metadata: Shape = Settings::<Inner>::SHAPE;
+    let metadata: Shape = Settings::<Leaf<Inner>>::SHAPE;
     assert_eq!(metadata.max_depth, 1);
     assert_eq!(metadata.max_length("/"), "/inner".len());
     assert_eq!(metadata.count.get(), 1);
@@ -67,7 +67,7 @@ fn generic_atomic() {
     struct Settings<T> {
         atomic: Leaf<Inner<T>>,
         opt: [[Leaf<Option<T>>; 1]; 1],
-        opt1: [[Option<Leaf<T>>; 1]; 1],
+        opt1: [[Option<T>; 1]; 1],
     }
 
     #[derive(Deserialize, Serialize, Default)]
@@ -92,13 +92,13 @@ fn test_depth() {
     struct S<T>(Option<Option<T>>);
 
     // This works as array implements TreeSchema
-    let _ = S::<[Leaf<u32>; 1]>::SHAPE;
+    let _ = S::<[u32; 1]>::SHAPE;
 
-    // This does not compile as u32 does not implement TreeSchema
-    //let _ = S::<u32>::SHAPE;
+    // u32 implements TreeSchema as well
+    let _ = S::<u32>::SHAPE;
 
     // Depth is always statically known
     // .. but can't be used in const generics yet,
     //    i.e. we can't name the type.
-    let _idx = [0usize; S::<[Leaf<u32>; 1]>::SHAPE.max_depth];
+    let _idx = [0usize; S::<[u32; 1]>::SHAPE.max_depth];
 }

@@ -23,8 +23,8 @@ use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchem
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
-    a: Leaf<i32>,
-    b: Leaf<i32>,
+    a: i32,
+    b: i32,
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
@@ -32,14 +32,14 @@ pub enum Either {
     #[default]
     Bad,
     Good,
-    A(Leaf<i32>),
+    A(i32),
     B(Inner),
     C([Inner; 2]),
 }
 
 #[derive(Tree, Default)]
 pub struct Settings {
-    foo: Leaf<bool>,
+    foo: bool,
     enum_: Leaf<Either>,
     struct_: Leaf<Inner>,
     array: Leaf<[i32; 2]>,
@@ -51,10 +51,10 @@ pub struct Settings {
 
     struct_tree: Inner,
     enum_tree: Either,
-    array_tree: [Leaf<i32>; 2],
+    array_tree: [i32; 2],
     array_tree2: [Inner; 2],
-    tuple_tree: (Leaf<i32>, Inner),
-    option_tree: Option<Leaf<i32>>,
+    tuple_tree: (i32, Inner),
+    option_tree: Option<i32>,
     option_tree2: Option<Inner>,
     array_option_tree: [Option<Inner>; 2],
 }
@@ -63,7 +63,7 @@ let mut settings = Settings::default();
 
 // Access nodes by field name
 json::set(&mut settings,"/foo", b"true")?;
-assert_eq!(*settings.foo, true);
+assert_eq!(settings.foo, true);
 json::set(&mut settings, "/enum_", br#""Good""#)?;
 json::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
 json::set(&mut settings, "/array", b"[6, 6]")?;
@@ -88,7 +88,7 @@ json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
-settings.option_tree = Some(Leaf(0));
+settings.option_tree = Some(0);
 json::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());
