@@ -21,12 +21,8 @@ fn packed() {
 
     // Check path-packed round trip.
     for iter_path in Settings::nodes::<Path<String, '/'>, 2>().map(Result::unwrap) {
-        let packed = Settings::SCHEMA
-            .transcode::<Track<Packed>>(&iter_path)
-            .unwrap();
-        let path = Settings::SCHEMA
-            .transcode::<Path<String, '/'>>(packed.inner)
-            .unwrap();
+        let packed: Track<Packed> = Settings::SCHEMA.transcode(&iter_path).unwrap();
+        let path: Path<String, '/'> = Settings::SCHEMA.transcode(packed.inner).unwrap();
         assert_eq!(path, iter_path);
         println!(
             "{path:?} {iter_path:?}, {:#06b} {} {:?}",
@@ -44,9 +40,7 @@ fn packed() {
 
     // Check that Packed `marker + 0b0` is equivalent to `/a`
     let a = Packed::from_lsb(0b10.try_into().unwrap());
-    let path = Settings::SCHEMA
-        .transcode::<Track<Path<String, '/'>>>(a)
-        .unwrap();
+    let path: Track<Path<String, '/'>> = Settings::SCHEMA.transcode(a).unwrap();
     assert_eq!(path.depth, 1);
     assert_eq!(path.inner.0.as_str(), "/a");
 }
@@ -70,7 +64,7 @@ fn top() {
             .collect::<Vec<_>>(),
         [Indices::new([0, 0], 2), Indices::new([1, 0], 1)]
     );
-    let p = S::SCHEMA.transcode::<Track<Packed>>([1usize]).unwrap();
+    let p: Track<Packed> = S::SCHEMA.transcode([1usize]).unwrap();
     assert_eq!((p.inner.into_lsb().get(), p.depth), (0b11, 1));
     assert_eq!(
         S::nodes::<Packed, 2>()

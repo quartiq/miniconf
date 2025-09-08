@@ -1,0 +1,11 @@
+error[E0080]: evaluation panicked: insufficient depth for exact size iteration
+ --> tests/ui/exact_size_iter.rs:3:39
+  |
+3 | const _: ExactSize<NodeIter<(), 0>> = NodeIter::exact_size::<[(); 1]>();
+  |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed inside this call
+  |
+note: inside `NodeIter::<(), 0>::exact_size::<[(); 1]>`
+ --> src/iter.rs
+  |
+  |             panic!("insufficient depth for exact size iteration");
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here

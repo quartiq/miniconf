@@ -109,7 +109,7 @@ impl Packed {
         }
     }
 
-    /// The value is empty.
+    /// The primitive value
     #[inline]
     pub const fn get(&self) -> usize {
         self.0.get()

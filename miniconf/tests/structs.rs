@@ -100,12 +100,13 @@ fn deny_access() {
     mod deny_ref {
         use std::cell::RefCell;
 
+        use miniconf::{Schema, TreeSchema};
+
+        pub const SCHEMA: &Schema = <&RefCell<i32>>::SCHEMA;
         pub use miniconf::{
             deny::{mut_any_by_key, ref_any_by_key},
             passthrough::{deserialize_by_key, probe_by_key, serialize_by_key},
         };
-        use miniconf::{Schema, TreeSchema};
-        pub const SCHEMA: &Schema = <RefCell<i32>>::SCHEMA;
     }
 
     common::set_get(&mut s, "/cell", b"3");

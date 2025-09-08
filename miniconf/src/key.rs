@@ -136,9 +136,9 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Short<K> {
     /// The inner Keys
-    pub inner: K,
+    pub inner: K, // TODO: not pub
     /// The inner keys terminates at a leaf node
-    pub leaf: bool,
+    pub leaf: bool, // TODO: not put
 }
 
 impl<K> Short<K> {
@@ -218,9 +218,9 @@ impl<T: Transcode> Transcode for Short<T> {
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
 pub struct Track<K> {
     /// The inner keys
-    pub inner: K,
+    pub inner: K, // TODO: not put
     /// The keys terminate at the given depth
-    pub depth: usize,
+    pub depth: usize, // TODO: not put
 }
 
 impl<K> Track<K> {

@@ -1,4 +1,4 @@
-use miniconf::{json, Deserialize, Leaf, Serialize, Shape, Tree, TreeSchema};
+use miniconf::{json, Deserialize, ExactSize, Leaf, NodeIter, Serialize, Shape, Tree, TreeSchema};
 
 #[test]
 fn generic_type() {
@@ -100,5 +100,7 @@ fn test_depth() {
     // Depth is always statically known
     // .. but can't be used in const generics yet,
     //    i.e. we can't name the type.
-    let _idx = [0usize; S::<[u32; 1]>::SHAPE.max_depth];
+    let _ = [0usize; S::<[u32; 1]>::SHAPE.max_depth];
+
+    const _: ExactSize<NodeIter<(), 2>> = NodeIter::exact_size::<S<[u32; 1]>>();
 }
