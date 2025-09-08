@@ -1,34 +1,37 @@
-use miniconf::{
-    json, Keys, SerdeError, Tree, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
-};
-use serde::{Deserializer, Serializer};
+use miniconf::{json, Tree, ValueError};
 
 #[derive(Tree, Default)]
-struct Settings {
-    #[tree(with(deserialize=self.deserialize_v))]
+struct Check {
+    #[tree(with(all=check))]
     v: f32,
 }
 
-impl Settings {
-    fn deserialize_v<'de, K: Keys, D: Deserializer<'de>>(
-        &mut self,
-        keys: K,
+mod check {
+    use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
+
+    pub use miniconf::leaf::{
+        mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA,
+    };
+
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        value: &mut f32,
+        keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        let old = self.v;
-        self.v.deserialize_by_key(keys, de)?;
-        if self.v >= 0.0 {
-            Ok(())
-        } else {
-            self.v = old;
+        let mut old = *value;
+        old.deserialize_by_key(keys, de)?;
+        if old < 0.0 {
             Err(ValueError::Access("").into())
+        } else {
+            *value = old;
+            Ok(())
         }
     }
 }
 
 #[test]
 fn validate() {
-    let mut s = Settings::default();
+    let mut s = Check::default();
     json::set(&mut s, "/v", b"1.0").unwrap();
     assert_eq!(s.v, 1.0);
     assert_eq!(
@@ -38,48 +41,61 @@ fn validate() {
     assert_eq!(s.v, 1.0); // remains unchanged
 }
 
+// Demonstrate and test how a variable length `Vec` can be accessed
+// through a variable offset, fixed length array.
+#[derive(Default, Tree)]
+struct Page {
+    #[tree(typ="[i32; 4]", rename=arr, defer=*self, with(all=page4))]
+    vec: Vec<i32>,
+    offset: usize,
+}
+
+mod page4 {
+    use super::Page;
+
+    use miniconf::{
+        Deserializer, Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeSchema,
+        TreeSerialize, ValueError,
+    };
+
+    const LENGTH: usize = 4;
+
+    pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
+
+    pub const SCHEMA: &Schema = <[i32; LENGTH] as TreeSchema>::SCHEMA;
+
+    pub fn serialize_by_key<S: Serializer>(
+        value: &Page,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        let arr: &[i32; LENGTH] = value
+            .vec
+            .get(value.offset..value.offset + LENGTH)
+            .ok_or(ValueError::Access("range"))?
+            .try_into()
+            .unwrap();
+        arr.serialize_by_key(keys, ser)
+    }
+
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        value: &mut Page,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        let arr: &mut [i32; LENGTH] = value
+            .vec
+            .get_mut(value.offset..value.offset + LENGTH)
+            .ok_or(ValueError::Access("range"))?
+            .try_into()
+            .unwrap();
+        arr.deserialize_by_key(keys, de)
+    }
+}
+
 #[test]
 fn paging() {
-    // Demonstrate and test how a variable length `Vec` can be accessed
-    // through a variable offset, fixed length array.
-    #[derive(Default, TreeSchema, TreeDeserialize, TreeSerialize)]
-    struct S {
-        #[tree(typ="[i32; 4]", rename=arr,
-            with(serialize=self.serialize_vec, deserialize=self.deserialize_vec))]
-        vec: Vec<i32>,
-        offset: usize,
-    }
-
-    impl S {
-        fn serialize_vec<S: Serializer>(
-            &self,
-            keys: impl Keys,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            let arr: &[i32; 4] = self
-                .vec
-                .get(self.offset..self.offset + 4)
-                .ok_or(ValueError::Access("range"))?
-                .try_into()
-                .unwrap();
-            arr.serialize_by_key(keys, ser)
-        }
-
-        fn deserialize_vec<'de, K: Keys, D: Deserializer<'de>>(
-            &mut self,
-            keys: K,
-            de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
-            let arr: &mut [i32; 4] = self
-                .vec
-                .get_mut(self.offset..self.offset + 4)
-                .ok_or(ValueError::Access("range"))?
-                .try_into()
-                .unwrap();
-            arr.deserialize_by_key(keys, de)
-        }
-    }
-    let mut s = S::default();
+    let mut s = Page::default();
     s.vec.resize(10, 0);
     json::set(&mut s, "/offset", b"3").unwrap();
     json::set(&mut s, "/arr/1", b"5").unwrap();
@@ -94,40 +110,50 @@ fn paging() {
     );
 }
 
+#[derive(Default, Tree)]
+struct Lock {
+    #[tree(with(all=lock), defer=*self)]
+    val: i32,
+    read: bool,
+    write: bool,
+}
+
+mod lock {
+    use super::Lock;
+    use miniconf::{
+        Deserializer, Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeSerialize,
+        ValueError,
+    };
+
+    pub const SCHEMA: &Schema = miniconf::leaf::SCHEMA;
+    pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
+
+    pub fn serialize_by_key<S: Serializer>(
+        value: &Lock,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        if !value.read {
+            return Err(ValueError::Access("not readable").into());
+        }
+        value.val.serialize_by_key(keys, ser)
+    }
+
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        value: &mut Lock,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        if !value.write {
+            return Err(ValueError::Access("not writable").into());
+        }
+        value.val.deserialize_by_key(keys, de)
+    }
+}
+
 #[test]
 fn locked() {
-    #[derive(Default, TreeSchema, TreeSerialize, TreeDeserialize)]
-    struct S {
-        #[tree(with(serialize=self.get, deserialize=self.set))]
-        val: i32,
-        read: bool,
-        write: bool,
-    }
-
-    impl S {
-        fn get<K: Keys, S: Serializer>(
-            &self,
-            keys: K,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            if !self.read {
-                return Err(ValueError::Access("not readable").into());
-            }
-            self.val.serialize_by_key(keys, ser)
-        }
-        fn set<'de, K: Keys, D: Deserializer<'de>>(
-            &mut self,
-            keys: K,
-            de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
-            if !self.write {
-                return Err(ValueError::Access("not writable").into());
-            }
-            self.val.deserialize_by_key(keys, de)
-        }
-    }
-
-    let mut s = S::default();
+    let mut s = Lock::default();
     json::set(&mut s, "/write", b"true").unwrap();
     json::set(&mut s, "/val", b"1").unwrap();
     assert_eq!(s.val, 1);

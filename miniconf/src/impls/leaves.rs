@@ -285,6 +285,7 @@ mod std_impls {
 #[cfg(feature = "heapless")]
 mod heapless_impls {
     use super::*;
+
     use heapless::String;
 
     impl<const N: usize> TreeSchema for String<N> {
@@ -369,6 +370,7 @@ pub mod str_leaf {
     pub use leaf::SCHEMA;
 
     /// [`TreeSerialize::serialize_by_key()`]
+    #[inline]
     pub fn serialize_by_key<S: Serializer>(
         value: &(impl AsRef<str> + ?Sized),
         mut keys: impl Keys,
@@ -379,6 +381,7 @@ pub mod str_leaf {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
+    #[inline]
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
         value: &mut impl TryFrom<&'de str>,
         mut keys: impl Keys,
@@ -393,6 +396,7 @@ pub mod str_leaf {
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
+    #[inline]
     pub fn probe_by_key<'de, T: TryFrom<&'de str>, D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -423,6 +427,7 @@ pub mod deny {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
+    #[inline]
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
         _value: &mut impl ?Sized,
         _keys: impl Keys,
@@ -432,6 +437,7 @@ pub mod deny {
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
+    #[inline]
     pub fn probe_by_key<'de, T: ?Sized, D: Deserializer<'de>>(
         _keys: impl Keys,
         _de: D,

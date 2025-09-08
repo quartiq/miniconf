@@ -86,30 +86,36 @@ use crate::{
 ///
 /// ## Implementation overrides
 ///
-/// `#[tree(with(operation=expr, ...))]`
+/// `#[tree(with(path))]`
 ///
-/// This overrides the call to the child node/variant trait for the given `operation`
-/// (`serialize`, `deserialize`, `probe`, `ref_any`, `mut_any`).
-/// `expr` should be a method on `self` (not the field!) or `value`
-/// (associated function for `probe`)
-/// taking the arguments of the respective trait's method.
+/// This overrides the calls to the child node/variant traits using pub functions
+/// and constants in the module at the given path:
+/// (`SCHEMA`, `serialize_by_key`, `deserialize_by_key`, `probe_by_key`,
+/// `ref_any_by_key`, `mut_any_by_key`).
 ///
 /// ```
 /// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
 /// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(with(deserialize=self.check))]
+///     #[tree(with(all=check))]
 ///     b: f32,
-/// };
-/// impl S {
-///     fn check<'de, K: Keys, D: Deserializer<'de>>(&mut self, keys: K, de: D) -> Result<(), SerdeError<D::Error>> {
-///         let mut new = self.b;
+/// }
+/// mod check {
+///     use miniconf::{SerdeError, Deserializer, TreeDeserialize, ValueError, Keys};
+///     pub use miniconf::leaf::{SCHEMA, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
+///
+///     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+///         value: &mut f32,
+///         keys: impl Keys,
+///         de: D
+///     ) -> Result<(), SerdeError<D::Error>> {
+///         let mut new = *value;
 ///         new.deserialize_by_key(keys, de)?;
 ///         if new < 0.0 {
 ///             Err(ValueError::Access("fail").into())
 ///         } else {
-///             self.b = new;
+///             *value = new;
 ///             Ok(())
 ///         }
 ///     }

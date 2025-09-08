@@ -202,6 +202,12 @@ impl<T, const S: char> Path<T, S> {
     }
 }
 
+impl<T: AsRef<str> + ?Sized, const S: char> AsRef<str> for Path<T, S> {
+    fn as_ref(&self) -> &str {
+        self.0.as_ref()
+    }
+}
+
 impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

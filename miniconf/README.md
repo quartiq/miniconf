@@ -19,12 +19,12 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Leaf};
+use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
     a: i32,
-    b: i32,
+    b: u16,
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
@@ -40,10 +40,14 @@ pub enum Either {
 #[derive(Tree, Default)]
 pub struct Settings {
     foo: bool,
-    enum_: Leaf<Either>,
-    struct_: Leaf<Inner>,
-    array: Leaf<[i32; 2]>,
-    option: Leaf<Option<i32>>,
+    #[tree(with(all=leaf))]
+    enum_: Either,
+    #[tree(with(all=leaf))]
+    struct_: Inner,
+    #[tree(with(all=leaf))]
+    array: [i32; 2],
+    #[tree(with(all=leaf))]
+    option: Option<i32>,
 
     #[tree(skip)]
     #[allow(unused)]

@@ -1,6 +1,6 @@
 use heapless::String;
-use miniconf::{Keys, Leaf, SerdeError, Tree, TreeDeserialize, ValueError};
-use serde::{Deserialize, Deserializer, Serialize};
+use miniconf::{leaf, Leaf, Tree};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
 use std_embedded_time::StandardClock;
@@ -24,25 +24,30 @@ struct Settings {
     afe: [Leaf<Gain>; 2],
     inner: Inner,
     values: [f32; 2],
-    array: Leaf<[i32; 4]>,
+    #[tree(with(all=leaf))]
+    array: [i32; 4],
     opt: Option<i32>,
-    #[tree(with(deserialize=self.deserialize_four))]
+    #[tree(with(all=four))]
     four: f32,
     exit: bool,
 }
 
-impl Settings {
-    fn deserialize_four<'de, K: Keys, D: Deserializer<'de>>(
-        &mut self,
-        keys: K,
+mod four {
+    use miniconf::{leaf, Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
+
+    pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA};
+
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        value: &mut f32,
+        keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        let old = self.four;
-        self.four.deserialize_by_key(keys, de)?;
-        if self.four < 4.0 {
-            self.four = old;
+        let mut old = *value;
+        old.deserialize_by_key(keys, de)?;
+        if old < 4.0 {
             Err(ValueError::Access("Less than four").into())
         } else {
+            *value = old;
             Ok(())
         }
     }
