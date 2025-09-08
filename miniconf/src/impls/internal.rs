@@ -92,7 +92,6 @@ macro_rules! impl_tuple {
         }
     }
 }
-// Note: internal nodes must have at least one leaf
 impl_tuple!(0 T0);
 impl_tuple!(0 T0 1 T1);
 impl_tuple!(0 T0 1 T1 2 T2);
@@ -1141,9 +1140,9 @@ mod _std {
 // Transparent newtypes
 
 macro_rules! impl_newtype {
-    ($ty:ty, $gen:tt) => {
+    (($gen:ident), $ty:ty) => {
         impl<$gen: TreeSchema> TreeSchema for $ty {
-            const SCHEMA: &'static Schema = T::SCHEMA;
+            const SCHEMA: &'static Schema = $gen::SCHEMA;
         }
 
         impl<$gen: TreeSerialize> TreeSerialize for $ty {
@@ -1190,5 +1189,4 @@ macro_rules! impl_newtype {
     };
 }
 
-use core::num::Wrapping;
-impl_newtype! {Wrapping<T>, T}
+impl_newtype! {(T), core::num::Wrapping<T>}

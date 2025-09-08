@@ -10,8 +10,6 @@ mod error;
 pub use error::*;
 mod key;
 pub use key::*;
-mod key_impls;
-pub use key_impls::*;
 mod schema;
 pub use schema::*;
 mod shape;
@@ -25,8 +23,7 @@ pub use tree::*;
 mod iter;
 pub use iter::*;
 mod impls;
-mod leaves;
-pub use leaves::*;
+pub use impls::*;
 
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;

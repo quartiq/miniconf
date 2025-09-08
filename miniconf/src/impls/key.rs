@@ -34,11 +34,13 @@ impl<T> Indices<T> {
     }
 
     /// The length of the indices keys
+    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// See [`Self::len()`]
+    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -132,6 +134,28 @@ where
         schema.descend(keys.into_keys(), |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
                 self.push(index.try_into()?);
+            }
+            Ok(())
+        })
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<T, const N: usize> Transcode for heapless::Vec<T, N>
+where
+    usize: TryInto<T>,
+{
+    type Error = ();
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, _schema)) = idx_schema {
+                let i = index.try_into().or(Err(()))?;
+                self.push(i).or(Err(()))?;
             }
             Ok(())
         })

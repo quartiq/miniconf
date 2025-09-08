@@ -1,8 +1,8 @@
 error[E0080]: evaluation panicked: Must have at least one child
- --> src/impls.rs
+ --> src/impls/internal.rs
   |
   |     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
-  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `miniconf::impls::<impl miniconf::TreeSchema for [usize; 0]>::SCHEMA` failed inside this call
+  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `miniconf::impls::internal::<impl miniconf::TreeSchema for [usize; 0]>::SCHEMA` failed inside this call
   |
 note: inside `miniconf::Homogeneous::new`
  --> src/schema.rs
@@ -11,7 +11,7 @@ note: inside `miniconf::Homogeneous::new`
   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
 
 note: erroneous constant encountered
-   --> src/impls.rs
+   --> src/impls/internal.rs
     |
     |     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
     |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
