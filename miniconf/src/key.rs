@@ -10,20 +10,14 @@ pub trait Key {
     fn find(&self, internal: &Internal) -> Option<usize>;
 }
 
-impl<T: Key> Key for &T
-where
-    T: Key + ?Sized,
-{
+impl<T: Key + ?Sized> Key for &T {
     #[inline]
     fn find(&self, internal: &Internal) -> Option<usize> {
         (**self).find(internal)
     }
 }
 
-impl<T: Key> Key for &mut T
-where
-    T: Key + ?Sized,
-{
+impl<T: Key + ?Sized> Key for &mut T {
     #[inline]
     fn find(&self, internal: &Internal) -> Option<usize> {
         (**self).find(internal)

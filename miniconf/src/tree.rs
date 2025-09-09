@@ -147,7 +147,7 @@ use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
 pub trait TreeSchema {
     /// Schema for this tree level
     // Reference for Option<T> to copy T::SCHEMA
-    const SCHEMA: &'static Schema;
+    const SCHEMA: &Schema;
 }
 
 /// Access any node by keys.
@@ -314,15 +314,15 @@ impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
 
 // Blanket impls for refs and muts
 
-impl<T: TreeSchema> TreeSchema for &T {
+impl<T: TreeSchema + ?Sized> TreeSchema for &T {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
-impl<T: TreeSchema> TreeSchema for &mut T {
+impl<T: TreeSchema + ?Sized> TreeSchema for &mut T {
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
-impl<T: TreeSerialize> TreeSerialize for &T {
+impl<T: TreeSerialize + ?Sized> TreeSerialize for &T {
     #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
@@ -333,7 +333,7 @@ impl<T: TreeSerialize> TreeSerialize for &T {
     }
 }
 
-impl<T: TreeSerialize> TreeSerialize for &mut T {
+impl<T: TreeSerialize + ?Sized> TreeSerialize for &mut T {
     #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
@@ -344,7 +344,7 @@ impl<T: TreeSerialize> TreeSerialize for &mut T {
     }
 }
 
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
+impl<'de, T: TreeDeserialize<'de> + ?Sized> TreeDeserialize<'de> for &mut T {
     #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
@@ -363,7 +363,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
     }
 }
 
-impl<T: TreeAny> TreeAny for &mut T {
+impl<T: TreeAny + ?Sized> TreeAny for &mut T {
     #[inline]
     fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
         (**self).ref_any_by_key(keys)

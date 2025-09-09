@@ -11,11 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * `const SCHEMA` with `Shape` statically known
-* Reflective `Tree*` tracing and leaf schema discovery
-* JSON Schema generation for leaves and the entire tree structure
-* `Tree*` impls for `heapless::{Vec, String}`, many `core` and `alloc/std` types
-  removing the need for `Leaf` newtype usage in many cases.
-* `Transcode::Error`
+* Reflective tracing and leaf schema discovery, schema graph conversion tooling
+* JSON Schema generation both for leaves and the entire tree structure
+* Trait impls for `heapless::{Vec, String}`, and `core/alloc/std` leaf types
+  This removes the need for `Leaf` newtype usage in many cases.
+* impl specific `Transcode::Error`
 * `mod passthrough/str_leaf/leaf/deny` for composition with `#[tree(with=...)]`
 * `meta-str` feature: Inner and outer metadata in `Schema`, including
   on-demand docstring to `Meta` entry conversion.

@@ -55,13 +55,9 @@ pub struct Homogeneous {
 impl Homogeneous {
     /// Create a new Homogeneous schema item with no outer metadata.
     pub const fn new(len: usize, schema: &'static Schema) -> Self {
-        let len = match NonZero::new(len) {
-            Some(len) => len,
-            None => panic!("Must have at least one child"),
-        };
         Self {
             meta: None,
-            len,
+            len: NonZero::new(len).expect("Must have at least one child"),
             schema,
         }
     }
@@ -145,11 +141,15 @@ impl Internal {
 }
 
 /// The metadata type
+///
+/// A slice of key-value pairs
 #[cfg(feature = "meta-str")]
 pub type Meta = &'static [(&'static str, &'static str)];
 #[cfg(not(any(feature = "meta-str")))]
 #[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize)]
 /// The metadata type
+///
+/// Uninhabited
 pub enum Meta {}
 
 /// Type of a node: leaf or internal

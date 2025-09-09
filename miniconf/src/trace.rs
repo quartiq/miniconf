@@ -15,12 +15,14 @@ pub fn trace_value(
     tracer: &mut Tracer,
     samples: &mut Samples,
     keys: impl IntoKeys,
-    value: &impl TreeSerialize,
+    value: impl TreeSerialize,
 ) -> Result<(Format, Value), SerdeError<serde_reflection::Error>> {
-    value.serialize_by_key(
+    let (mut format, sample) = value.serialize_by_key(
         keys.into_keys(),
         serde_reflection::Serializer::new(tracer, samples),
-    )
+    )?;
+    format.reduce();
+    Ok((format, sample))
 }
 
 /// Trace a leaf type once
@@ -145,14 +147,13 @@ impl<T> Types<T> {
         self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
             if schema.is_leaf() {
                 match trace_value(tracer, samples, idx, value) {
-                    Ok((mut fmt, _value)) => {
-                        fmt.reduce();
+                    Ok((fmt, _value)) => {
                         *format = Some(fmt);
                     }
                     Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
-                    Err(SerdeError::Inner(e)) => Err(e)?,
+                    Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
                     // KeyError: Keys are all valid leaves by construction
-                    _ => unreachable!(),
+                    Err(SerdeError::Value(ValueError::Key(_))) => unreachable!(),
                 }
             }
             Ok(())
@@ -172,17 +173,17 @@ impl<T> Types<T> {
         self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
             if schema.is_leaf() {
                 match trace_type::<T>(tracer, samples, idx) {
-                    Ok(mut fmt) => {
-                        fmt.reduce();
+                    Ok(fmt) => {
                         *format = Some(fmt);
                     }
-                    Err(SerdeError::Value(ValueError::Access(_msg))) => {
-                        // probe access denied
-                    }
+                    // probe access denied
+                    Err(SerdeError::Value(ValueError::Access(_))) => {}
                     Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
                     // ValueError::Absent: Nodes are never absent on probe
                     // KeyError: Keys are all valid leaves by construction
-                    _ => unreachable!(),
+                    Err(SerdeError::Value(ValueError::Absent | ValueError::Key(_))) => {
+                        unreachable!()
+                    }
                 }
             }
             Ok(())

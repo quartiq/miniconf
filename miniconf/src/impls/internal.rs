@@ -13,14 +13,12 @@ use crate::{
 
 macro_rules! impl_tuple {
     ($($i:tt $t:ident)+) => {
-        #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeSchema),+> TreeSchema for ($($t,)+) {
             const SCHEMA: &'static Schema = &Schema::numbered(&[$(
                 Numbered::new($t::SCHEMA),
             )+]);
         }
 
-        #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeSerialize),+> TreeSerialize for ($($t,)+) {
             #[inline]
             fn serialize_by_key<S: Serializer>(
@@ -36,7 +34,6 @@ macro_rules! impl_tuple {
             }
         }
 
-        #[allow(unreachable_code, unused_mut, unused)]
         impl<'de, $($t: TreeDeserialize<'de>),+> TreeDeserialize<'de> for ($($t,)+) {
             #[inline]
             fn deserialize_by_key<D: Deserializer<'de>>(
@@ -64,7 +61,6 @@ macro_rules! impl_tuple {
             }
         }
 
-        #[allow(unreachable_code, unused_mut, unused)]
         impl<$($t: TreeAny),+> TreeAny for ($($t,)+) {
             #[inline]
             fn ref_any_by_key(

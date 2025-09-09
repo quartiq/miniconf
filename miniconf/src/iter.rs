@@ -152,7 +152,7 @@ impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
                 self.state[self.depth - 1] += 1;
             }
             let mut item = Track::new(N::default());
-            let ret = item.transcode(self.schema, &self.state);
+            let ret = item.transcode(self.schema, &self.state[..]);
             // Track<N> counts is the number of successful Keys::next()
             let (item, depth) = item.into_inner();
             return match ret {

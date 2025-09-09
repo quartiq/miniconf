@@ -66,7 +66,7 @@ pub mod leaf {
     use super::*;
 
     /// [`TreeSchema::SCHEMA`]
-    pub const SCHEMA: &'static Schema = &Schema::LEAF;
+    pub const SCHEMA: &Schema = &Schema::LEAF;
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<T: Serialize + ?Sized, S: Serializer>(
@@ -267,10 +267,6 @@ impl_leaf! {core::time::Duration}
 macro_rules! impl_unsized_leaf {
     ($ty:ty) => {
         impl TreeSchema for $ty {
-            const SCHEMA: &'static Schema = leaf::SCHEMA;
-        }
-
-        impl TreeSchema for &$ty {
             const SCHEMA: &'static Schema = leaf::SCHEMA;
         }
 
@@ -497,7 +493,7 @@ pub mod deny {
     /// [`TreeAny::ref_any_by_key()`]
     #[inline]
     pub fn ref_any_by_key(_value: &impl ?Sized, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        Err(ValueError::Access("Denied").into())
+        Err(ValueError::Access("Denied"))
     }
 
     /// [`TreeAny::mut_any_by_key()`]
@@ -506,6 +502,6 @@ pub mod deny {
         _value: &mut impl ?Sized,
         _keys: impl Keys,
     ) -> Result<&mut dyn Any, ValueError> {
-        Err(ValueError::Access("Denied").into())
+        Err(ValueError::Access("Denied"))
     }
 }

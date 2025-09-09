@@ -5,9 +5,14 @@ use miniconf::{json_schema::ReflectJsonSchema, trace::Types, TreeSchema};
 use schemars::{generate::SchemaSettings, SchemaGenerator};
 
 mod common;
+use common::Settings;
+
+/// Showcase for reflection and schema building
+///
+/// This
 
 fn main() -> anyhow::Result<()> {
-    println!("Schema:\n{}", to_string_pretty(common::Settings::SCHEMA)?);
+    println!("Schema:\n{}", to_string_pretty(Settings::SCHEMA)?);
 
     let mut types = Types::default();
     let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
@@ -16,7 +21,7 @@ fn main() -> anyhow::Result<()> {
     // If the value does not contain a value for a leaf node (e.g. KeyError::Absent),
     // it will leave the leaf node format unresolved.
     let mut samples = Samples::new();
-    let settings = common::Settings::new();
+    let settings = Settings::new();
     types
         .trace_values(&mut tracer, &mut samples, &settings)
         .unwrap();
@@ -50,5 +55,6 @@ fn main() -> anyhow::Result<()> {
     // RecursiveTransform(miniconf::json_schema::strictify).transform(&mut root);
     println!("JSON Schema:\n{}", serde_json::to_string_pretty(&root)?);
     jsonschema::meta::validate(&root.to_value()).unwrap();
+
     Ok(())
 }

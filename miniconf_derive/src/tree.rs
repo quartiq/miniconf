@@ -44,13 +44,14 @@ fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) ->
     Ok(())
 }
 
-#[allow(unused_variables)]
 fn meta_to_tokens(meta: &BTreeMap<String, String>) -> TokenStream {
     #[cfg(feature = "meta-str")]
     if !meta.is_empty() {
         let meta: TokenStream = meta.iter().map(|(k, v)| quote!((#k, #v), )).collect();
         return quote!(::core::option::Option::Some(&[#meta]));
     }
+    #[cfg(not(any(feature = "meta-str")))]
+    let _ = meta;
     quote!(::core::option::Option::None)
 }
 
@@ -68,7 +69,7 @@ struct TreeVariant {
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
     meta: BTreeMap<String, String>,
-    // TODO: bounds in derive
+    // TODO: bounds
 }
 
 impl TreeVariant {

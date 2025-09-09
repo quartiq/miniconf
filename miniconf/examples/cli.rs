@@ -2,44 +2,41 @@ use anyhow::Context;
 use miniconf::{json, IntoKeys, Keys, Path, SerdeError, TreeSchema, ValueError};
 
 mod common;
+use common::Settings;
 
-// Simple command line interface example for miniconf.
-// This exposes all leaf nodes as long options, parses the command line,
-// and then prints the settings struct as a list of option key-value pairs.
+/// Simple command line interface example for miniconf
+///
+/// This exposes the leaf nodes in `Settings` as long options, parses the command line,
+/// and then prints the settings struct as a list of option key-value pairs.
 
 fn main() -> anyhow::Result<()> {
-    let mut settings = common::Settings::new();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&common::Settings::SCHEMA)?
-    );
+    let mut settings = Settings::new();
+    settings.enable();
     // Parse args
     let mut args = std::env::args().skip(1);
     while let Some(key) = args.next() {
-        let key = key.strip_prefix('-').context("key must start with `-`")?;
-        let value = args.next().context("missing value")?;
+        let key = key.strip_prefix('-').context("stripping initial dash")?;
+        let value = args.next().context("looking for value")?;
         json::set_by_key(&mut settings, Path::<_, '-'>(key), value.as_bytes())
             .context("lookup/deserialize")?;
     }
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    const MAX_DEPTH: usize = common::Settings::SCHEMA.shape().max_depth;
-    for item in common::Settings::SCHEMA.nodes::<Path<String, '-'>, MAX_DEPTH>() {
+    const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+    for item in Settings::SCHEMA.nodes::<Path<String, '-'>, MAX_DEPTH>() {
         let key = item.unwrap();
         let mut k = key.into_keys().track();
         match json::get_by_key(&settings, &mut k, &mut buf[..]) {
             Ok(len) => {
-                println!(
-                    "-{} {}",
-                    key.0.as_str(),
-                    core::str::from_utf8(&buf[..len]).unwrap()
-                );
+                println!("-{} {}", key, core::str::from_utf8(&buf[..len]).unwrap());
             }
             Err(SerdeError::Value(ValueError::Absent)) => {
-                println!("-{} absent (depth: {})", key.as_ref(), k.depth());
+                println!("-{} absent (depth: {})", key, k.depth());
             }
-            Err(e) => panic!("{e:?}"),
+            err => {
+                err.unwrap();
+            }
         }
     }
 

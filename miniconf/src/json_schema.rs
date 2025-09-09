@@ -1,13 +1,13 @@
 //! JSON Schema tools
 
-use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
+use schemars::{json_schema, JsonSchema, SchemaGenerator};
 use serde_json::Map;
 use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
 
 use crate::{trace::Node, Internal, Meta};
 
 /// Disallow additional items and additional or missing properties
-pub fn strictify(schema: &mut Schema) {
+pub fn strictify(schema: &mut schemars::Schema) {
     if let Some(o) = schema.as_object_mut() {
         if o.contains_key("prefixItems") {
             debug_assert_eq!(o.insert("items".to_string(), false.into()), None);
@@ -35,7 +35,7 @@ pub fn strictify(schema: &mut Schema) {
 
 /// Converted ordered kay-value pairs to properties object
 /// Use before `strictify`
-pub fn unordered(schema: &mut Schema) {
+pub fn unordered(schema: &mut schemars::Schema) {
     if let Some(o) = schema.as_object_mut() {
         if o.remove("x-object") == Some(true.into()) {
             if let Some(t) = o.insert("type".to_string(), "object".into()) {
@@ -68,14 +68,14 @@ pub fn unordered(schema: &mut Schema) {
 /// Capability to convert serde-reflect formats and graph::Node to to JSON schemata
 pub trait ReflectJsonSchema {
     /// Convert to JSON schema
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema>;
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema>;
 }
 
 impl ReflectJsonSchema for Format {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         Some(match self {
             Format::Variable(_variable) => None?, // Unresolved
-            Format::TypeName(name) => Schema::new_ref(format!("#/$defs/{name}")),
+            Format::TypeName(name) => schemars::Schema::new_ref(format!("#/$defs/{name}")),
             Format::Unit => <()>::json_schema(generator),
             Format::Bool => bool::json_schema(generator),
             Format::I8 => i8::json_schema(generator),
@@ -122,7 +122,7 @@ impl ReflectJsonSchema for Format {
 }
 
 impl ReflectJsonSchema for Vec<Named<Format>> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         let items: Option<Vec<_>> = self
             .iter()
             .map(|n| Some(json_schema!({"properties": {&n.name: n.value.json_schema(generator)?}})))
@@ -135,14 +135,14 @@ impl ReflectJsonSchema for Vec<Named<Format>> {
 }
 
 impl ReflectJsonSchema for Vec<Format> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         let items: Option<Vec<_>> = self.iter().map(|f| f.json_schema(generator)).collect();
         Some(json_schema!({"prefixItems": items?}))
     }
 }
 
 impl ReflectJsonSchema for ContainerFormat {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         match self {
             ContainerFormat::UnitStruct => Some(<()>::json_schema(generator)),
             ContainerFormat::NewTypeStruct(format) => format.json_schema(generator),
@@ -171,7 +171,7 @@ impl ReflectJsonSchema for ContainerFormat {
 }
 
 impl ReflectJsonSchema for VariantFormat {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         match self {
             VariantFormat::Variable(_variable) => None,
             VariantFormat::Unit => Some(false.into()), // Hack picked up in ContainerFormat as ReflectJsonSchema
@@ -183,7 +183,7 @@ impl ReflectJsonSchema for VariantFormat {
 }
 
 impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<Schema> {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         let mut sch = if let Some(internal) = self.data.0.internal.as_ref() {
             match internal {
                 Internal::Named(nameds) => {
@@ -240,17 +240,16 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                         .definitions_mut()
                         .insert(name.to_string(), sch.into());
                 }
-                return Some(Schema::new_ref(format!("#/$defs/{name}")));
+                return Some(schemars::Schema::new_ref(format!("#/$defs/{name}")));
             }
         }
         Some(sch)
     }
 }
 
-#[allow(unused_variables)]
-fn push_meta(sch: &mut Schema, key: &str, meta: &Option<Meta>) {
-    #[cfg(feature = "meta-str")]
+fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
     if let Some(meta) = meta {
+        #[cfg(feature = "meta-str")]
         sch.insert(
             key.to_string(),
             meta.iter()
@@ -258,5 +257,7 @@ fn push_meta(sch: &mut Schema, key: &str, meta: &Option<Meta>) {
                 .collect::<Map<_, _>>()
                 .into(),
         );
+        #[cfg(not(any(feature = "meta-str")))]
+        let _ = (sch, meta, key);
     }
 }
