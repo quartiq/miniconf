@@ -229,6 +229,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
             sch
         };
         push_meta(&mut sch, "x-inner", &self.data.0.meta);
+        #[cfg(feature = "meta-str")]
         if let Some(meta) = self.data.0.meta {
             if let Some((_, name)) = meta.iter().find(|(key, _)| *key == "name") {
                 let name = format!("x-internal-{name}");
@@ -246,7 +247,9 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
     }
 }
 
+#[allow(unused_variables)]
 fn push_meta(sch: &mut Schema, key: &str, meta: &Option<Meta>) {
+    #[cfg(feature = "meta-str")]
     if let Some(meta) = meta {
         sch.insert(
             key.to_string(),

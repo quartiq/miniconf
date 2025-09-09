@@ -44,13 +44,14 @@ fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) ->
     Ok(())
 }
 
+#[allow(unused_variables)]
 fn meta_to_tokens(meta: &BTreeMap<String, String>) -> TokenStream {
+    #[cfg(feature = "meta-str")]
     if !meta.is_empty() {
         let meta: TokenStream = meta.iter().map(|(k, v)| quote!((#k, #v), )).collect();
-        quote!(::core::option::Option::Some(&[#meta]))
-    } else {
-        quote!(::core::option::Option::None)
+        return quote!(::core::option::Option::Some(&[#meta]));
     }
+    quote!(::core::option::Option::None)
 }
 
 #[derive(Debug, FromVariant, Clone)]

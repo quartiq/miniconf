@@ -145,8 +145,12 @@ impl Internal {
 }
 
 /// The metadata type
-// TODO: make this a feature
+#[cfg(feature = "meta-str")]
 pub type Meta = &'static [(&'static str, &'static str)];
+#[cfg(not(any(feature = "meta-str")))]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize)]
+/// The metadata type
+pub enum Meta {}
 
 /// Type of a node: leaf or internal
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Default)]

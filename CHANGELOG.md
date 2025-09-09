@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removing the need for `Leaf` newtype usage in many cases.
 * `Transcode::Error`
 * `mod passthrough/str_leaf/leaf/deny` for composition with `#[tree(with=...)]`
-* Inner and outer `Meta` for in `Schema`.
-* Automatic docstring to `Meta` entry conversion.
+* `meta-str` feature: Inner and outer metadata in `Schema`, including
+  on-demand docstring to `Meta` entry conversion.
 
 ### Changed
 

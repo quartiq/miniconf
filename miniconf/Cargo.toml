@@ -28,15 +28,16 @@ serde_json = { version = "1.0.133", optional = true }
 heapless = { version = "0.8", optional = true }
 
 [features]
-default = ["derive"]
+default = ["derive", "meta-str"]
 alloc = []
 std = ["alloc"]
+meta-str = ["miniconf_derive/meta-str"]
 json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 heapless = ["dep:heapless"]
 derive = ["dep:miniconf_derive", "serde/derive"]
 trace = ["std", "dep:serde-reflection", "dep:once_cell"]
-schema = ["dep:schemars", "dep:serde_json", "trace"]
+schema = ["trace", "dep:schemars", "dep:serde_json"]
 
 [package.metadata.docs.rs]
 all-features = true

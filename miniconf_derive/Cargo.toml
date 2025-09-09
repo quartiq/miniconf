@@ -12,6 +12,10 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 [lib]
 proc-macro = true
 
+[features]
+default = []
+meta-str = []
+
 [dependencies]
 syn = "2.0"
 quote = "1.0"
