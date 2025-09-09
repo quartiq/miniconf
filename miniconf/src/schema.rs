@@ -244,25 +244,21 @@ impl Schema {
     ///     (u16::SCHEMA, None),
     /// ].into_iter();
     /// let func = |schema, idx_internal: Option<_>| {
-    ///     assert_eq!(ret.next().unwrap(), (schema, idx_internal.map(|(i, _)| i)));
+    ///     assert_eq!(ret.next().unwrap(), (schema, idx_internal.map(|(idx, _)| idx)));
     ///     Ok::<_, Infallible>(())
     /// };
     /// assert_eq!(S::SCHEMA.descend(["bar", "0"].into_keys(), func), Ok(()));
     /// ```
     ///
     /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
+    /// * `keys`: A `Key`s identifying the node.
     /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
-    ///   Its arguments are the index and the optional name of the node and the number
-    ///   of top-level nodes at the given depth. Returning `Err(E)` aborts the traversal.
-    ///   Returning `Ok(())` continues the downward traversal.
+    ///   Its arguments are outer schema and optionally the inner index and internal schema.
+    ///   Returning `Err(E)` aborts the traversal.
+    ///   Returning `Ok(T)` continues the downward traversal.
     ///
     /// # Returns
-    /// Node depth on success (number of keys consumed/number of calls to `func`)
-    ///
-    /// # Design note
-    /// Writing this to return an iterator instead of using a callback
-    /// would have worse performance (O(n^2) instead of O(n) for matching)
+    /// The leaf `func` invokation Ok(T).
     #[inline]
     pub fn descend<'a, T, E>(
         &'a self,
