@@ -108,12 +108,13 @@ let len = json::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-const SHAPE: Shape = Settings::SCHEMA.shape();
-assert!(SHAPE.max_depth <= 6);
-assert!(SHAPE.max_length("/") <= 32);
+const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+const MAX_LENGTH: usize = Settings::SCHEMA.shape().max_length("/");
+assert!(MAX_DEPTH <= 6);
+assert!(MAX_LENGTH <= 32);
 
 // Iterating over all leaf paths
-for path in Settings::SCHEMA.nodes::<Path<heapless::String<32>, '/'>, 6>() {
+for path in Settings::SCHEMA.nodes::<Path<heapless::String<MAX_LENGTH>, '/'>, MAX_DEPTH>() {
     let path = path.unwrap().0;
     // Serialize each
     match json::get(&settings, &path, &mut buf) {

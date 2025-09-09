@@ -220,7 +220,7 @@ fn track_depth<T, E, K: IntoKeys>(
 ///
 /// # Example
 /// ```
-/// use miniconf::{Leaf, Tree};
+/// use miniconf::{Leaf, Tree, TreeSchema};
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
@@ -229,7 +229,8 @@ fn track_depth<T, E, K: IntoKeys>(
 ///
 /// let mut buffer = [0u8; 1024];
 /// let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
-/// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 1>::new(
+/// const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+/// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, MAX_DEPTH>::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),

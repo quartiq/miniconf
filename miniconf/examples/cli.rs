@@ -24,7 +24,8 @@ fn main() -> anyhow::Result<()> {
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    for item in common::Settings::SCHEMA.nodes::<Path<String, '-'>, 8>() {
+    const MAX_DEPTH: usize = common::Settings::SCHEMA.shape().max_depth;
+    for item in common::Settings::SCHEMA.nodes::<Path<String, '-'>, MAX_DEPTH>() {
         let key = item.unwrap();
         let mut k = key.into_keys().track();
         match json::get_by_key(&settings, &mut k, &mut buf[..]) {

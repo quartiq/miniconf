@@ -1,6 +1,9 @@
 use core::str;
 
-use miniconf::{json, IntoKeys, Keys, PathIter, TreeDeserializeOwned, TreeSerialize};
+use miniconf::{
+    json, IntoKeys, Keys, Path, PathIter, SerdeError, TreeDeserializeOwned, TreeSchema,
+    TreeSerialize, ValueError,
+};
 
 mod common;
 
@@ -97,7 +100,7 @@ impl<M: TreeSerialize + TreeDeserializeOwned> ScpiCtrl<M> {
     }
 
     fn cmd(&mut self, cmds: &str) -> Result<(), Error> {
-        let mut buf = [0; 1024];
+        let mut buf = vec![0; 1024];
         let root = ScpiPath(None);
         let mut abs = root;
         for cmd in cmds.split_terminator(';').map(|cmd| cmd.trim()) {
@@ -127,6 +130,10 @@ impl<M: TreeSerialize + TreeDeserializeOwned> ScpiCtrl<M> {
         }
         Ok(())
     }
+
+    fn settings(&self) -> &M {
+        &self.0
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -136,6 +143,25 @@ fn main() -> anyhow::Result<()> {
     ctrl.cmd("fO?; foo?; FOO?; :FOO?; :ARRAY_OPT:1:A?; A?; A?; A 1; A?; :FOO?")?;
     ctrl.cmd("FO?; STRUCT_TREE:B 3; STRUCT_TREE:B?")?;
 
-    ctrl.cmd(":STRUCT_ 42")?;
+    ctrl.cmd(":STRUCT_ 42").unwrap_err();
+
+    const MAX_DEPTH: usize = common::Settings::SCHEMA.shape().max_depth;
+    let mut buf = vec![0; 1024];
+    for path in common::Settings::SCHEMA.nodes::<Path<String, ':'>, MAX_DEPTH>() {
+        let path = path?;
+        match json::get_by_key(ctrl.settings(), &path, &mut buf) {
+            Ok(len) => println!(
+                "{} {}",
+                path.0.to_uppercase(),
+                core::str::from_utf8(&buf[..len])?
+            ),
+            Err(SerdeError::Value(ValueError::Absent)) => {
+                continue;
+            }
+            err => {
+                err?;
+            }
+        }
+    }
     Ok(())
 }

@@ -1,5 +1,5 @@
 use heapless::String;
-use miniconf::{leaf, Leaf, Tree};
+use miniconf::{leaf, Leaf, Tree, TreeSchema};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
@@ -60,8 +60,10 @@ async fn main() {
     let mut buffer = [0u8; 1024];
     let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
 
+    const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+
     // Construct a settings configuration interface.
-    let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 4>::new(
+    let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, MAX_DEPTH>::new(
         Stack,
         "test/id",
         StandardClock::default(),
