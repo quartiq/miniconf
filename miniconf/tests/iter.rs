@@ -86,8 +86,7 @@ fn panic_short_iter() {
 #[test]
 fn root() {
     assert_eq!(
-        NodeIter::<Path<String, '/'>, 3>::new(Settings::SCHEMA)
-            .with_root(["b"])
+        NodeIter::<Path<String, '/'>, 3>::with_root(Settings::SCHEMA, ["b"])
             .unwrap()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),

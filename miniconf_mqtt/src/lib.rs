@@ -133,7 +133,7 @@ impl<const Y: usize> Multipart<Y> {
 
 impl<const Y: usize> Multipart<Y> {
     fn root(mut self, keys: impl IntoKeys) -> Result<Self, DescendError<()>> {
-        self.iter = self.iter.with_root(keys)?;
+        self.iter = NodeIter::with_root(self.iter.schema(), keys)?;
         Ok(self)
     }
 
