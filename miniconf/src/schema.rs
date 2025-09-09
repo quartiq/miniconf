@@ -342,8 +342,7 @@ impl Schema {
     /// let path = sch.transcode::<Path<String, '/'>>(packed).unwrap();
     /// assert_eq!(path.0.as_str(), "/bar/4");
     /// let node = sch.transcode::<Short<Track<()>>>(&path).unwrap();
-    /// assert!(node.leaf);
-    /// assert_eq!(node.inner.depth, 2);
+    /// assert_eq!((node.leaf(), node.inner().depth()), (true, 2));
     /// ```
     ///
     /// # Args
@@ -407,7 +406,7 @@ impl Schema {
     /// let nodes: Vec<_> = S::SCHEMA.nodes::<Short<Track<()>>, 2>()
     ///     .map(|p| {
     ///         let p = p.unwrap();
-    ///         (p.leaf, p.inner.depth)
+    ///         (p.leaf(), p.inner().depth())
     ///     })
     ///     .collect();
     /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);

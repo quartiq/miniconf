@@ -201,7 +201,7 @@ fn track_depth<T, E, K: IntoKeys>(
     let mut tracked = keys.into_keys().track();
     func(&mut tracked).map_err(|inner| DepthError {
         inner,
-        depth: tracked.depth,
+        depth: tracked.depth(),
     })
 }
 

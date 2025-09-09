@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Short, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -89,9 +89,10 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn with_root(mut self, root: impl IntoKeys) -> Result<Self, DescendError<()>> {
         self.state = [0; D];
-        let mut tr = Short::new(Track::new(&mut self.state[..]));
-        tr.transcode(self.schema, root)?;
-        self.root = tr.inner.depth;
+        let mut root = root.into_keys().track();
+        let mut tr = Short::new(&mut self.state[..]);
+        tr.transcode(self.schema, &mut root)?;
+        self.root = root.depth();
         self.depth = D + 1;
         Ok(self)
     }
@@ -147,7 +148,7 @@ impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
             let mut idx = self.state.iter().into_keys().track();
             let ret = path.transcode(self.schema, &mut idx);
             // Track() counts is the number of successful Keys::next()
-            let depth = idx.depth;
+            let depth = idx.depth();
             return match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
                     // Reset index at NotFound depth, then retry with incremented earlier index or terminate

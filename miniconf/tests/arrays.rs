@@ -29,26 +29,29 @@ fn set_get(
     common::set_get(tree, path, value);
 
     // Indices
-    let idx = Settings::SCHEMA
+    let (idx, depth) = Settings::SCHEMA
         .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>(path))
-        .unwrap();
-    assert_eq!(idx.depth, idx.inner.len());
-    json::set_by_key(tree, &idx.inner, value)?;
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(depth, idx.len());
+    json::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, &idx.inner, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let packed = Settings::SCHEMA
-        .transcode::<Track<Packed>>(&idx.inner)
-        .unwrap();
-    assert_eq!(packed.depth, idx.inner.len());
-    json::set_by_key(tree, packed.inner, value)?;
+    let (packed, depth) = Settings::SCHEMA
+        .transcode::<Track<Packed>>(&idx)
+        .unwrap()
+        .into_inner();
+    assert_eq!(depth, idx.len());
+    json::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, packed.inner, &mut buf[..]).unwrap();
+    let len = json::get_by_key(tree, packed, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
-    Ok(packed.depth)
+    Ok(depth)
 }
 
 #[test]

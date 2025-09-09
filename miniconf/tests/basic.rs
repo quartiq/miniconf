@@ -32,9 +32,9 @@ fn path() {
         let s = Settings::SCHEMA
             .transcode::<Short<Track<Path<String, '/'>>>>(keys)
             .unwrap();
-        assert_eq!(depth, s.inner.depth);
-        assert_eq!(leaf, s.leaf);
-        assert_eq!(s.inner.inner.0.as_str(), path);
+        assert_eq!(depth, s.inner().depth());
+        assert_eq!(leaf, s.leaf());
+        assert_eq!(s.inner().inner().as_ref(), path);
     }
 }
 
@@ -50,15 +50,15 @@ fn indices() {
             .transcode::<Short<Indices<[usize; 2]>>>(Path::<_, '/'>(keys))
             .unwrap();
         println!("{keys} {indices:?}");
-        assert_eq!(indices.leaf, leaf);
-        assert_eq!(indices.inner.as_ref(), idx);
+        assert_eq!(indices.leaf(), leaf);
+        assert_eq!(indices.inner().as_ref(), idx);
     }
     let indices = Option::<i8>::SCHEMA
         .transcode::<Short<Indices<[usize; 1]>>>([0usize; 0])
         .unwrap();
-    assert_eq!(indices.inner.as_ref(), [0usize; 0]);
-    assert_eq!(indices.leaf, true);
-    assert_eq!(indices.inner.len(), 0);
+    assert_eq!(indices.inner().as_ref(), [0usize; 0]);
+    assert_eq!(indices.leaf(), true);
+    assert_eq!(indices.inner().len(), 0);
 
     let mut it = [0usize; 4].into_iter();
     assert_eq!(

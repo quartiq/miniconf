@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 * `const SCHEMA` with `Shape` statically known
-* Reflective `Tree*` tracing and schema discovery based on `serde-reflection`
-* JSON Schema generation using `schemars` and tracing
+* Reflective `Tree*` tracing and leaf schema discovery
+* JSON Schema generation for leaves and the entire tree structure
 * `Tree*` impls for `heapless::{Vec, String}`, many `core` and `alloc/std` types
   removing the need for `Leaf` newtype usage in many cases.
 * `Transcode::Error`
@@ -22,16 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* `TreeKey` -> `TreeSchema` roughly, but with several design changes:
-  `TreeKey::traverse_all()` -> `Schema::visit()`,
-  `TreeKey::traverse()` -> `Schema::descend()`,
-  `TreeKey::transcode()` -> `Schema::transcode()`,
-  `TreeKey::nodes()` -> `Schema::nodes()`
-* `#[tree(with=module_path)]` only takes one module to cover all operations
-* Errors reorganization: `Traversal` -> `KeyError`/`ValueError`, `Error` -> `SerdeError`/`DescendError`.
+* `TreeKey` -> `TreeSchema` with several design changes, including
+  `TreeKey::traverse_all()` -> `Schema::visit()`, `TreeKey::traverse()` -> `Schema::descend()`
+* `#[tree(with=module_path)]` only takes one module to cover all operations.
+  This supports simpler composition of handlers.
+* Errors reorganization: `Traversal` -> `KeyError`/`ValueError` and
+  `Error` -> `SerdeError`/`DescendError`.
   This makes several matches naturally exhaustive.
-* Removal of the depth field on errors. Use `Keys::track()``Keys::short()` to obtain
-  termination depth and node type.
+* Removal of the depth field on errors and `NodeIter` items.
+  Use `Keys::track()``Keys::short()` to obtain termination depth and node type.
 * `Indices` keeps depth
 * `NodeIter` is not generic over the `Tree*` type anymore
 * Lots of `const`-ness with `const SCHEMA`.
@@ -43,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `menu` and `postcard_schema` examples
 * `Deny`, `StrLeaf` newtypes
 * `Node` and `NodeType`: see `Track`/`Short`
-* `#[tree(deny(...))]` in favor of composition using `with=module_path`
+* `#[tree(deny(...))]` in favor of composition using `with=module_path` and `mod deny`
 * Several potentially confusing `Deref`/`DerefMut`/`From` impls on newtypes.
 
 ## [0.19.0](https://github.com/quartiq/miniconf/compare/v0.18.0...v0.19.0) - 2025-05-20

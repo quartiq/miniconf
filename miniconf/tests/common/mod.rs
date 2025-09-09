@@ -17,7 +17,7 @@ pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
             let pn = pn.unwrap();
             println!("{pn:?}");
             // assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n);
-            pn.inner.into_inner()
+            pn.into_inner().0.into_inner()
         })
         .collect()
 }

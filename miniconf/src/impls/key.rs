@@ -92,7 +92,7 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     ) -> Result<(), DescendError<Self::Error>> {
         let mut slic = Track::new(self.data.as_mut());
         let ret = slic.transcode(schema, keys);
-        self.len = slic.depth;
+        self.len = slic.depth();
         ret
     }
 }

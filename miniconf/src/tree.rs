@@ -12,8 +12,8 @@ use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
 ///
 /// There is a one-to-one relationship between nodes and keys.
 /// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
-/// obtained from other [`IntoKeys`] through [`Transcode`]/[`Schema::transcode()`].
-/// An iterator of keys for the nodes is available through [`Schema::nodes()`]/[`NodeIter`].
+/// obtained from other [`IntoKeys`] through [`Schema::transcode()`].
+/// An iterator of keys for the nodes is available through [`Schema::nodes()`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated

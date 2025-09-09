@@ -60,7 +60,7 @@ fn array_iter() {
 fn short_iter() {
     assert_eq!(
         NodeIter::<Short<Path<String, '/'>>, 1>::new(Settings::SCHEMA)
-            .map(|p| p.unwrap().inner.into_inner())
+            .map(|p| p.unwrap().into_inner().0.into_inner())
             .collect::<Vec<_>>(),
         ["/b", "/c", "/d", "/a"]
     );
@@ -70,7 +70,8 @@ fn short_iter() {
             .next()
             .unwrap()
             .unwrap()
-            .inner
+            .into_inner()
+            .0
             .into_inner(),
         ""
     );

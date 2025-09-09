@@ -37,7 +37,7 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             Err(SerdeError::Value(ValueError::Absent)) => {
-                println!("-{} absent (depth: {})", key.0.as_str(), k.depth);
+                println!("-{} absent (depth: {})", key.as_ref(), k.depth());
             }
             Err(e) => panic!("{e:?}"),
         }
