@@ -4,7 +4,7 @@ use darling::{
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
     util::Flag,
-    FromField,
+    FromField, FromMeta,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
@@ -12,7 +12,7 @@ use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TreeTrait {
-    Key,
+    Schema,
     Serialize,
     Deserialize,
     Any,
@@ -30,12 +30,22 @@ pub(crate) struct TreeField {
     #[darling(default)]
     with: Option<syn::Path>,
     #[darling(default)]
+    bounds: Bounds,
+    #[darling(default)]
     pub meta: BTreeMap<String, String>,
     pub attrs: Vec<syn::Attribute>,
 }
 
 uses_type_params!(TreeField, ty, typ);
 uses_lifetimes!(TreeField, ty, typ);
+
+#[derive(Debug, Default, FromMeta, Clone)]
+struct Bounds {
+    schema: Option<Vec<syn::WherePredicate>>,
+    serialize: Option<Vec<syn::WherePredicate>>,
+    deserialize: Option<Vec<syn::WherePredicate>>,
+    any: Option<Vec<syn::WherePredicate>>,
+}
 
 impl TreeField {
     pub fn span(&self) -> Span {
@@ -59,7 +69,14 @@ impl TreeField {
     }
 
     pub fn bound(&self, trtr: TreeTrait, type_set: &IdentSet) -> Option<TokenStream> {
-        if self
+        if let Some(bounds) = match trtr {
+            TreeTrait::Schema => &self.bounds.schema,
+            TreeTrait::Serialize => &self.bounds.serialize,
+            TreeTrait::Deserialize => &self.bounds.deserialize,
+            TreeTrait::Any => &self.bounds.any,
+        } {
+            Some(bounds.iter().map(|b| quote!(#b, )).collect())
+        } else if self
             .uses_type_params(&Purpose::BoundImpl.into(), type_set)
             .is_empty()
             || self.with.is_some()
@@ -67,7 +84,7 @@ impl TreeField {
             None
         } else {
             let bound: syn::TraitBound = match trtr {
-                TreeTrait::Key => parse_quote!(::miniconf::TreeSchema),
+                TreeTrait::Schema => parse_quote!(::miniconf::TreeSchema),
                 TreeTrait::Serialize => parse_quote!(::miniconf::TreeSerialize),
                 TreeTrait::Deserialize => parse_quote!(::miniconf::TreeDeserialize<'de>),
                 TreeTrait::Any => parse_quote!(::miniconf::TreeAny),
@@ -92,7 +109,7 @@ impl TreeField {
             }
         } else {
             // enum variant newtype value
-            parse_quote_spanned!(self.span()=> value)
+            parse_quote_spanned!(self.span()=> (*value))
         };
         self.defer.clone().unwrap_or(def)
     }

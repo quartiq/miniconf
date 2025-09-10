@@ -69,7 +69,6 @@ struct TreeVariant {
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
     meta: BTreeMap<String, String>,
-    // TODO: bounds
 }
 
 impl TreeVariant {
@@ -270,7 +269,7 @@ impl Tree {
     pub fn tree_schema(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
-        let where_clause = self.bound_generics(TreeTrait::Key, orig_where_clause);
+        let where_clause = self.bound_generics(TreeTrait::Schema, orig_where_clause);
         let schema = if self.flatten.is_present() {
             self.fields().first().unwrap().schema()
         } else {
