@@ -35,7 +35,7 @@ struct Settings {
 mod four {
     use miniconf::{leaf, Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
 
-    pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, Type};
+    pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA};
 
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
         value: &mut f32,

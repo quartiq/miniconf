@@ -50,10 +50,10 @@ impl TreeField {
     }
 
     pub fn schema(&self) -> TokenStream {
-        let typ = self.typ();
         if let Some(all) = self.with.as_ref() {
-            quote_spanned!(self.span()=> #all::Type::<#typ>::SCHEMA)
+            quote_spanned!(self.span()=> #all::SCHEMA)
         } else {
+            let typ = self.typ();
             quote_spanned!(self.span()=> <#typ as ::miniconf::TreeSchema>::SCHEMA)
         }
     }
@@ -62,6 +62,7 @@ impl TreeField {
         if self
             .uses_type_params(&Purpose::BoundImpl.into(), type_set)
             .is_empty()
+            || self.with.is_some()
         {
             None
         } else {
@@ -72,11 +73,7 @@ impl TreeField {
                 TreeTrait::Any => parse_quote!(::miniconf::TreeAny),
             };
             let ty = self.typ();
-            Some(if let Some(with) = self.with.as_ref() {
-                quote_spanned!(self.span()=> #with::Type<#ty>: #bound,)
-            } else {
-                quote_spanned!(self.span()=> #ty: #bound,)
-            })
+            Some(quote_spanned!(self.span()=> #ty: #bound,))
         }
     }
 

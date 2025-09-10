@@ -14,9 +14,6 @@ use crate::{
 pub mod passthrough {
     use super::*;
 
-    /// [`TreeSchema::SCHEMA`]
-    pub type Type<T> = T;
-
     /// [`TreeSerialize::serialize_by_key()`]
     #[inline]
     pub fn serialize_by_key<T: TreeSerialize + ?Sized, S: Serializer>(
@@ -69,7 +66,7 @@ pub mod leaf {
     use super::*;
 
     /// [`TreeSchema::SCHEMA`]
-    pub type Type<T> = Leaf<T>;
+    pub const SCHEMA: &Schema = &Schema::LEAF;
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<T: Serialize + ?Sized, S: Serializer>(
@@ -158,7 +155,7 @@ impl<T: Display> Display for Leaf<T> {
 }
 
 impl<T: ?Sized> TreeSchema for Leaf<T> {
-    const SCHEMA: &Schema = &Schema::LEAF;
+    const SCHEMA: &'static Schema = leaf::SCHEMA;
 }
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
@@ -212,7 +209,7 @@ macro_rules! impl_leaf {
     };
     ($ty:ty) => {
         impl TreeSchema for $ty {
-            const SCHEMA: &Schema = leaf::Type::<$ty>::SCHEMA;
+            const SCHEMA: &'static Schema = leaf::SCHEMA;
         }
 
         impl TreeSerialize for $ty {
@@ -270,7 +267,7 @@ impl_leaf! {core::time::Duration}
 macro_rules! impl_unsized_leaf {
     ($ty:ty) => {
         impl TreeSchema for $ty {
-            const SCHEMA: &Schema = leaf::Type::<$ty>::SCHEMA;
+            const SCHEMA: &'static Schema = leaf::SCHEMA;
         }
 
         impl TreeSerialize for $ty {
@@ -337,7 +334,7 @@ mod heapless_impls {
     use heapless::String;
 
     impl<const N: usize> TreeSchema for String<N> {
-        const SCHEMA: &Schema = leaf::Type::<String<N>>::SCHEMA;
+        const SCHEMA: &'static Schema = leaf::SCHEMA;
     }
 
     impl<const N: usize> TreeSerialize for String<N> {
@@ -415,7 +412,7 @@ pub mod str_leaf {
     use super::*;
 
     pub use deny::{mut_any_by_key, ref_any_by_key};
-    pub use leaf::Type;
+    pub use leaf::SCHEMA;
 
     /// [`TreeSerialize::serialize_by_key()`]
     #[inline]
@@ -462,7 +459,7 @@ pub mod str_leaf {
 pub mod deny {
     use super::*;
 
-    pub use leaf::Type;
+    pub use leaf::SCHEMA;
 
     /// [`TreeSerialize::serialize_by_key()`]
     #[inline]
