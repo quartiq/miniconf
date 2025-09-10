@@ -93,7 +93,7 @@ use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
 /// }
 /// mod check {
 ///     use miniconf::{SerdeError, Deserializer, TreeDeserialize, ValueError, Keys};
-///     pub use miniconf::leaf::{SCHEMA, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
+///     pub use miniconf::leaf::{Type, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
 ///
 ///     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
 ///         value: &mut f32,

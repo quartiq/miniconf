@@ -10,7 +10,7 @@ mod check {
     use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
 
     pub use miniconf::leaf::{
-        mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA,
+        mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, Type,
     };
 
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
@@ -54,15 +54,14 @@ mod page4 {
     use super::Page;
 
     use miniconf::{
-        Deserializer, Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeSchema,
-        TreeSerialize, ValueError,
+        Deserializer, Keys, SerdeError, Serializer, TreeDeserialize, TreeSerialize, ValueError,
     };
-
-    const LENGTH: usize = 4;
 
     pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
 
-    pub const SCHEMA: &Schema = <[i32; LENGTH] as TreeSchema>::SCHEMA;
+    const LENGTH: usize = 4;
+
+    pub type Type<T> = T;
 
     pub fn serialize_by_key<S: Serializer>(
         value: &Page,
@@ -121,12 +120,13 @@ struct Lock {
 mod lock {
     use super::Lock;
     use miniconf::{
-        Deserializer, Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeSerialize,
-        ValueError,
+        Deserializer, Keys, SerdeError, Serializer, TreeDeserialize, TreeSerialize, ValueError,
     };
 
-    pub const SCHEMA: &Schema = miniconf::leaf::SCHEMA;
-    pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
+    pub use miniconf::{
+        deny::{mut_any_by_key, probe_by_key, ref_any_by_key},
+        leaf::Type,
+    };
 
     pub fn serialize_by_key<S: Serializer>(
         value: &Lock,

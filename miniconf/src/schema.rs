@@ -230,10 +230,6 @@ impl Schema {
     /// If `keys` is exhausted before reaching a leaf node,
     /// `Err(KeyError::TooShort)` is returned.
     ///
-    /// This method should fail if and only if the key is invalid.
-    /// It should succeed at least when any of the other key based methods
-    /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
-    ///
     /// ```
     /// # use core::convert::Infallible;
     /// use miniconf::{IntoKeys, TreeSchema};
@@ -262,7 +258,7 @@ impl Schema {
     ///   Returning `Ok(T)` continues the downward traversal.
     ///
     /// # Returns
-    /// The leaf `func` invokation Ok(T).
+    /// The leaf `func` call return value.
     #[inline]
     pub fn descend<'a, T, E>(
         &'a self,
@@ -371,8 +367,7 @@ impl Schema {
     /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
     /// runtime (see [`crate::TreeSchema#option`]).
-    /// An iterator with an exact and trusted `size_hint()` can be obtained from
-    /// this through [`NodeIter::exact_size()`].
+    /// The iterator has an exact and trusted `size_hint()`.
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
@@ -382,28 +377,30 @@ impl Schema {
     ///     foo: u32,
     ///     bar: [u16; 2],
     /// };
+    /// const MAX_DEPTH: usize = S::SCHEMA.shape().max_depth;
+    /// assert_eq!(MAX_DEPTH, 2);
     ///
-    /// let paths: Vec<_> = S::SCHEMA.nodes::<Path<String, '/'>, 2>()
+    /// let paths: Vec<_> = S::SCHEMA.nodes::<Path<String, '/'>, MAX_DEPTH>()
     ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
     ///
-    /// let paths: Vec<_> = S::SCHEMA.nodes::<JsonPath<String>, 2>()
+    /// let paths: Vec<_> = S::SCHEMA.nodes::<JsonPath<String>, MAX_DEPTH>()
     ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
     ///
-    /// let indices: Vec<_> = S::SCHEMA.nodes::<Indices<[_; 2]>, 2>()
+    /// let indices: Vec<_> = S::SCHEMA.nodes::<Indices<[_; 2]>, MAX_DEPTH>()
     ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
     ///
-    /// let packed: Vec<_> = S::SCHEMA.nodes::<Packed, 2>()
+    /// let packed: Vec<_> = S::SCHEMA.nodes::<Packed, MAX_DEPTH>()
     ///     .map(|p| p.unwrap().into_lsb().get())
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     ///
-    /// let nodes: Vec<_> = S::SCHEMA.nodes::<Short<Track<()>>, 2>()
+    /// let nodes: Vec<_> = S::SCHEMA.nodes::<Short<Track<()>>, MAX_DEPTH>()
     ///     .map(|p| {
     ///         let p = p.unwrap();
     ///         (p.leaf(), p.inner().depth())
