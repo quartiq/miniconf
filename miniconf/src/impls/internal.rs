@@ -650,7 +650,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
     }
 }
 
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RefCell<T> {
+impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RefCell<T> {
     #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
@@ -1020,7 +1020,7 @@ mod _std {
         }
     }
 
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &Mutex<T> {
+    impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a Mutex<T> {
         #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
@@ -1075,7 +1075,7 @@ mod _std {
         }
     }
 
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &RwLock<T> {
+    impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RwLock<T> {
         #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
