@@ -1,6 +1,25 @@
 use miniconf::{Indices, KeyError, Path, Shape, Short, Track, Tree, TreeSchema};
 mod common;
 
+#[test]
+fn borrowed() {
+    let mut a = "";
+    miniconf::json::set(&mut a, "", "\"foo\"".as_bytes()).unwrap();
+    assert_eq!(a, "foo");
+}
+
+#[cfg(feature = "postcard")]
+#[test]
+fn borrowed_u8() {
+    use postcard::{de_flavors::Slice, to_slice};
+
+    let mut a = &[0u8; 0][..];
+    let mut buf = [0u8; 32];
+    let data = to_slice(&[1u8, 2, 3][..], &mut buf).unwrap();
+    miniconf::postcard::set_by_key(&mut a, [0; 0], Slice::new(data)).unwrap();
+    assert_eq!(a, &[1, 2, 3]);
+}
+
 #[derive(Tree, Default)]
 struct Inner {
     inner: f32,
