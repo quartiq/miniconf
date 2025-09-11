@@ -2,9 +2,9 @@
 
 use core::marker::PhantomData;
 
-use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
+use std::sync::LazyLock;
 
 use crate::{
     Internal, IntoKeys, Schema, SerdeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
@@ -198,7 +198,7 @@ impl<T> Types<T> {
     where
         T: TreeDeserialize<'de>,
     {
-        static SAMPLES: Lazy<Samples> = Lazy::new(Samples::new);
+        static SAMPLES: LazyLock<Samples> = LazyLock::new(Samples::new);
         self.trace_types(tracer, &SAMPLES)
     }
 }

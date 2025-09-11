@@ -22,7 +22,6 @@ serde-json-core = { version = "0.6.0", optional = true }
 postcard = { version = "1.0.8", optional = true }
 thiserror = { version = "2", default-features = false }
 serde-reflection = { version = "0.5", git = "https://github.com/quartiq/serde-reflection.git", branch = "pub-ser-de", optional = true }
-once_cell = { version = "1.21.3", default-features = false, optional = true }
 schemars = { version = "1.0.4", optional = true, default-features = false }
 serde_json = { version = "1.0.133", optional = true }
 heapless = { version = "0.8", optional = true }
@@ -36,7 +35,7 @@ json-core = ["dep:serde-json-core"]
 postcard = ["dep:postcard"]
 heapless = ["dep:heapless"]
 derive = ["dep:miniconf_derive", "serde/derive"]
-trace = ["std", "dep:serde-reflection", "dep:once_cell"]
+trace = ["std", "dep:serde-reflection"]
 schema = ["trace", "dep:schemars", "dep:serde_json"]
 
 [package.metadata.docs.rs]
