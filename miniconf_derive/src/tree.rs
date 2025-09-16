@@ -40,7 +40,7 @@ fn doc_to_meta(
     meta: &mut BTreeMap<String, Override<String>>,
     force: bool,
 ) -> Result<()> {
-    if meta.contains_key("doc") || force {
+    if meta.get("doc") == Some(&Override::Inherit) || force {
         if let Some(doc) = get_doc(attrs) {
             if let Some(Override::Explicit(old)) =
                 meta.insert("doc".to_owned(), Override::Explicit(doc))
@@ -52,7 +52,8 @@ fn doc_to_meta(
     for (k, v) in meta.iter() {
         if !v.is_explicit() {
             return Err(
-                Error::custom(format!("'{k}' is not supported as inherited meta")).with_span(&k.span())
+                Error::custom(format!("'{k}' is not supported as inherited meta"))
+                    .with_span(&k.span()),
             );
         }
     }
@@ -192,8 +193,8 @@ impl Tree {
     }
 
     fn doc_to_meta(&mut self) -> Result<()> {
+        let force = self.meta.get("doc") == Some(&Override::Inherit);
         doc_to_meta(&self.attrs, &mut self.meta, false)?;
-        let force = self.meta.contains_key("doc");
         match &mut self.data {
             Data::Struct(fields) => {
                 for field in fields.fields.iter_mut() {
