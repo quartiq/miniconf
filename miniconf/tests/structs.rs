@@ -1,6 +1,6 @@
 use miniconf::{
-    json, Deserialize, IntoKeys, Leaf, Serialize, Shape, Tree, TreeAny, TreeDeserialize,
-    TreeSchema, TreeSerialize, ValueError,
+    Deserialize, IntoKeys, Leaf, Serialize, Shape, Tree, TreeAny, TreeDeserialize, TreeSchema,
+    TreeSerialize, ValueError, json,
 };
 
 mod common;
@@ -94,7 +94,7 @@ fn deny_access() {
     mod deny_write {
         pub use miniconf::{
             deny::{deserialize_by_key, mut_any_by_key},
-            leaf::{probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA},
+            leaf::{SCHEMA, probe_by_key, ref_any_by_key, serialize_by_key},
         };
     }
     mod deny_ref {

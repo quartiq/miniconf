@@ -10,15 +10,15 @@ use core::{fmt::Display, marker::PhantomData};
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerdeError, Track,
-    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
+    DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerdeError, Track,
+    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json,
 };
 pub use minimq;
 use minimq::{
+    ConfigBuilder, ProtocolError, Publication, QoS,
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{Properties, SubscriptionOptions, TopicFilter},
-    ConfigBuilder, ProtocolError, Publication, QoS,
 };
 use strum::IntoStaticStr;
 
@@ -68,7 +68,7 @@ impl<E> From<minimq::Error<E>> for Error<E> {
 
 mod sm {
     use super::DUMP_TIMEOUT_SECONDS;
-    use minimq::embedded_time::{self, duration::Extensions, Instant};
+    use minimq::embedded_time::{self, Instant, duration::Extensions};
     use smlang::statemachine;
 
     statemachine! {

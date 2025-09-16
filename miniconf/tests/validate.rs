@@ -1,4 +1,4 @@
-use miniconf::{json, Tree, ValueError};
+use miniconf::{Tree, ValueError, json};
 
 #[derive(Tree, Default)]
 struct Check {
@@ -10,7 +10,7 @@ mod check {
     use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
 
     pub use miniconf::leaf::{
-        mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA,
+        SCHEMA, mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key,
     };
 
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(

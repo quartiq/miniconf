@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
 use darling::{
+    FromField, FromMeta,
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
     util::Flag,
-    FromField, FromMeta,
+    util::Override,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
@@ -32,7 +33,7 @@ pub(crate) struct TreeField {
     #[darling(default)]
     bounds: Bounds,
     #[darling(default)]
-    pub meta: BTreeMap<String, String>,
+    pub meta: BTreeMap<String, Override<String>>,
     pub attrs: Vec<syn::Attribute>,
 }
 

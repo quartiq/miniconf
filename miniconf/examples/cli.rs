@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{json, IntoKeys, Keys, Path, SerdeError, TreeSchema, ValueError};
+use miniconf::{IntoKeys, Keys, Path, SerdeError, TreeSchema, ValueError, json};
 
 mod common;
 use common::Settings;

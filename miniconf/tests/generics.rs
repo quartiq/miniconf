@@ -1,4 +1,4 @@
-use miniconf::{json, Deserialize, ExactSize, Leaf, NodeIter, Serialize, Shape, Tree, TreeSchema};
+use miniconf::{Deserialize, ExactSize, Leaf, NodeIter, Serialize, Shape, Tree, TreeSchema, json};
 
 #[test]
 fn generic_type() {

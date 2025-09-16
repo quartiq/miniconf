@@ -1,10 +1,10 @@
 //! JSON Schema tools
 
-use schemars::{json_schema, JsonSchema, SchemaGenerator};
+use schemars::{JsonSchema, SchemaGenerator, json_schema};
 use serde_json::Map;
 use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
 
-use crate::{trace::Node, Internal, Meta};
+use crate::{Internal, Meta, trace::Node};
 
 /// Disallow additional items and additional or missing properties
 pub fn strictify(schema: &mut schemars::Schema) {

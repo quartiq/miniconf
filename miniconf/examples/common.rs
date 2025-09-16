@@ -1,11 +1,11 @@
-use miniconf::{leaf, Leaf, Tree};
+use miniconf::{Leaf, Tree, leaf};
 use serde::{Deserialize, Serialize};
 
 // Either/Inner/Settings are straight from README.md
 
 /// Inner doc
 #[derive(Deserialize, Serialize, Default, Tree)]
-#[tree(doc, meta(name = "Inner"))]
+#[tree(meta(doc, name = "Inner"))]
 pub struct Inner {
     #[tree(meta(max = "10"))]
     a: i32,

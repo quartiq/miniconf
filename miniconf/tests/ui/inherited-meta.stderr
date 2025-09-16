@@ -1,0 +1,15 @@
+error: 'foo' is not supported as inherited meta
+ --> tests/ui/inherited-meta.rs:3:10
+  |
+3 | #[derive(Tree)]
+  |          ^^^^
+  |
+  = note: this error originates in the derive macro `Tree` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: Duplicate 'doc' meta
+ --> tests/ui/inherited-meta.rs:7:10
+  |
+7 | #[derive(Tree)]
+  |          ^^^^
+  |
+  = note: this error originates in the derive macro `Tree` (in Nightly builds, run with -Z macro-backtrace for more info)

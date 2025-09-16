@@ -1,8 +1,8 @@
 use core::str;
 
 use miniconf::{
-    json, IntoKeys, Keys, Path, PathIter, SerdeError, TreeDeserializeOwned, TreeSchema,
-    TreeSerialize, ValueError,
+    IntoKeys, Keys, Path, PathIter, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    ValueError, json,
 };
 
 mod common;
@@ -48,11 +48,7 @@ impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
                         truncated = Some(i);
                     }
                 }
-                if ambiguous {
-                    None
-                } else {
-                    truncated
-                }
+                if ambiguous { None } else { truncated }
             }
             Numbered(n) => s.parse().ok().filter(|i| *i < n.len()),
             Homogeneous(h) => s.parse().ok().filter(|i| *i < h.len.get()),

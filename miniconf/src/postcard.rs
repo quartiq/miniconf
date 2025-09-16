@@ -31,7 +31,7 @@
 //! assert_eq!(source, target);
 //! ```
 
-use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
+use postcard::{Deserializer, Serializer, de_flavors, ser_flavors};
 
 use crate::{IntoKeys, SerdeError, TreeDeserialize, TreeSerialize};
 

@@ -1,4 +1,4 @@
-use miniconf::{json, str_leaf, SerdeError, Tree, ValueError};
+use miniconf::{SerdeError, Tree, ValueError, json, str_leaf};
 
 mod common;
 use common::*;

@@ -1,5 +1,5 @@
 use heapless::String;
-use miniconf::{leaf, Leaf, Tree, TreeSchema};
+use miniconf::{Leaf, Tree, TreeSchema, leaf};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std_embedded_nal::Stack;
@@ -33,9 +33,9 @@ struct Settings {
 }
 
 mod four {
-    use miniconf::{leaf, Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
+    use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError, leaf};
 
-    pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key, SCHEMA};
+    pub use leaf::{SCHEMA, mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key};
 
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
         value: &mut f32,

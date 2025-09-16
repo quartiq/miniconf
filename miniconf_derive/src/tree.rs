@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use darling::{
+    Error, FromDeriveInput, FromVariant, Result,
     ast::{self, Data, Style},
     usage::{GenericsExt, LifetimeRefSet, Purpose, UsesLifetimes},
-    util::Flag,
-    Error, FromDeriveInput, FromVariant, Result,
+    util::{Flag, Override},
 };
 use proc_macro2::TokenStream;
 use quote::{quote, quote_spanned};
-use syn::{parse_quote, spanned::Spanned, WhereClause};
+use syn::{WhereClause, parse_quote, spanned::Spanned};
 
 use crate::field::{TreeField, TreeTrait};
 
@@ -35,19 +35,37 @@ fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
         })
 }
 
-fn doc_to_meta(attrs: &[syn::Attribute], meta: &mut BTreeMap<String, String>) -> Result<()> {
-    if let Some(doc) = get_doc(attrs) {
-        if let Some(old) = meta.insert("doc".to_owned(), doc) {
-            return Err(Error::custom("Duplicate 'doc' meta").with_span(&old.span()));
+fn doc_to_meta(
+    attrs: &[syn::Attribute],
+    meta: &mut BTreeMap<String, Override<String>>,
+    force: bool,
+) -> Result<()> {
+    if meta.contains_key("doc") || force {
+        if let Some(doc) = get_doc(attrs) {
+            if let Some(Override::Explicit(old)) =
+                meta.insert("doc".to_owned(), Override::Explicit(doc))
+            {
+                return Err(Error::custom("Duplicate 'doc' meta").with_span(&old.span()));
+            }
+        }
+    }
+    for (k, v) in meta.iter() {
+        if !v.is_explicit() {
+            return Err(
+                Error::custom(format!("'{k}' is not supported as inherited meta")).with_span(&k.span())
+            );
         }
     }
     Ok(())
 }
 
-fn meta_to_tokens(meta: &BTreeMap<String, String>) -> TokenStream {
+fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
     #[cfg(feature = "meta-str")]
     if !meta.is_empty() {
-        let meta: TokenStream = meta.iter().map(|(k, v)| quote!((#k, #v), )).collect();
+        let meta: TokenStream = meta
+            .iter()
+            .filter_map(|(k, v)| v.as_ref().explicit().map(|v| quote!((#k, #v), )))
+            .collect();
         return quote!(::core::option::Option::Some(&[#meta]));
     }
     #[cfg(not(any(feature = "meta-str")))]
@@ -68,7 +86,7 @@ struct TreeVariant {
     fields: ast::Fields<TreeField>,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
-    meta: BTreeMap<String, String>,
+    meta: BTreeMap<String, Override<String>>,
 }
 
 impl TreeVariant {
@@ -114,10 +132,9 @@ pub struct Tree {
     generics: syn::Generics,
     flatten: Flag,
     data: Data<TreeVariant, TreeField>,
-    doc: Flag,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
-    meta: BTreeMap<String, String>,
+    meta: BTreeMap<String, Override<String>>,
 }
 
 impl Tree {
@@ -175,19 +192,18 @@ impl Tree {
     }
 
     fn doc_to_meta(&mut self) -> Result<()> {
-        if self.doc.is_present() {
-            doc_to_meta(&self.attrs, &mut self.meta)?;
-            match &mut self.data {
-                Data::Struct(fields) => {
-                    for field in fields.fields.iter_mut() {
-                        doc_to_meta(&field.attrs, &mut field.meta)?;
-                    }
+        doc_to_meta(&self.attrs, &mut self.meta, false)?;
+        let force = self.meta.contains_key("doc");
+        match &mut self.data {
+            Data::Struct(fields) => {
+                for field in fields.fields.iter_mut() {
+                    doc_to_meta(&field.attrs, &mut field.meta, force)?;
                 }
-                Data::Enum(variants) => {
-                    for variant in variants.iter_mut() {
-                        let field = variant.fields.fields.first_mut().unwrap();
-                        doc_to_meta(&variant.attrs, &mut field.meta)?;
-                    }
+            }
+            Data::Enum(variants) => {
+                for variant in variants.iter_mut() {
+                    let field = variant.fields.fields.first_mut().unwrap();
+                    doc_to_meta(&variant.attrs, &mut field.meta, force)?;
                 }
             }
         }
