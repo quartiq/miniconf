@@ -7,7 +7,7 @@ authors = [
     "Ryan Summers <ryan.summers@vertigo-designs.com>",
     "Robert Jördens <rj@quartiq.de>",
 ]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "Serialize/deserialize/access reflection for trees"
 repository = "https://github.com/quartiq/miniconf"

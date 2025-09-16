@@ -244,7 +244,7 @@ impl<'a, 'de: 'a, T: Deserialize<'de> + ?Sized> TreeDeserialize<'de> for FigLeaf
 
 use core::cell::Cell;
 
-impl<T: Any> TreeAny for FigLeaf<Cell<Option<&T>>> {
+impl<'a, T: Any> TreeAny for FigLeaf<Cell<Option<&'a T>>> {
     #[inline]
     fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
         leaf::ref_any_by_key(self.0.take().unwrap(), keys)
@@ -256,7 +256,7 @@ impl<T: Any> TreeAny for FigLeaf<Cell<Option<&T>>> {
     }
 }
 
-impl<T: Any> TreeAny for FigLeaf<Cell<Option<&mut T>>> {
+impl<'a, T: Any> TreeAny for FigLeaf<Cell<Option<&'a mut T>>> {
     #[inline]
     fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
         unreachable!()
@@ -292,10 +292,10 @@ macro_rules! compose_with {
                 <$de::<&mut $t> as TreeDeserialize<'_>>::probe_by_key(keys, de)
             }
         }
-        impl<$t> TreeAny for $ident<&$t> where for<'b> $any<&'b $t>: TreeAny {
+        impl<'a, $t: 'static> TreeAny for $ident<&'a $t> where $any<&'a $t>: TreeAny {
             #[inline]
             fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
-                // $any(Cell::self.0).ref_any_by_key(keys)
+                //$any(Cell::new(Some(&*self.0))).ref_any_by_key(keys)
                 todo!()
             }
             #[inline]
@@ -303,14 +303,14 @@ macro_rules! compose_with {
                 unreachable!()
             }
         }
-        impl<$t> TreeAny for $ident<&mut $t> where for<'b> $any<&'b mut $t>: TreeAny {
+        impl<'a, $t> TreeAny for $ident<&'a mut $t> where $any<&'a mut $t>: TreeAny {
             #[inline]
             fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
                 unreachable!()
             }
             #[inline]
             fn mut_any_by_key(&mut self, _keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-                // $any(&mut *self.0).mut_any_by_key(keys)
+                //$any(Cell::new(Some(&mut *self.0))).mut_any_by_key(keys)
                 todo!()
             }
         }

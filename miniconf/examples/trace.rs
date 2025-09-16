@@ -38,16 +38,16 @@ fn main() -> anyhow::Result<()> {
     let registry = tracer.registry().unwrap();
     println!("Registry:\n{}", to_string_pretty(&registry)?);
 
-    let mut gen = SchemaGenerator::new(SchemaSettings::draft2020_12());
+    let mut generator = SchemaGenerator::new(SchemaSettings::draft2020_12());
     let defs: Vec<_> = registry
         .iter()
-        .map(|(name, value)| (name.clone(), value.json_schema(&mut gen).into()))
+        .map(|(name, value)| (name.clone(), value.json_schema(&mut generator).into()))
         .collect::<Vec<_>>();
-    gen.definitions_mut().extend(defs);
-    let mut root = types.root().json_schema(&mut gen).unwrap();
+    generator.definitions_mut().extend(defs);
+    let mut root = types.root().json_schema(&mut generator).unwrap();
     root.insert("title".to_string(), "Miniconf example: Settings".into());
-    root.insert("$defs".to_string(), gen.definitions().clone().into());
-    if let Some(meta_schema) = gen.settings().meta_schema.as_deref() {
+    root.insert("$defs".to_string(), generator.definitions().clone().into());
+    if let Some(meta_schema) = generator.settings().meta_schema.as_deref() {
         root.insert("$schema".to_string(), meta_schema.into());
     }
     // use schemars::transform::{RecursiveTransform, Transform};

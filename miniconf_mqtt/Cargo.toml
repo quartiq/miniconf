@@ -6,7 +6,7 @@ authors = [
     "Ryan Summers <ryan.summers@vertigo-designs.com>",
     "Robert Jördens <rj@quartiq.de>",
 ]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "MQTT interface for `miniconf`, using `minimq`"
 repository = "https://github.com/quartiq/miniconf"
