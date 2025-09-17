@@ -33,38 +33,6 @@ pub fn strictify(schema: &mut schemars::Schema) {
     }
 }
 
-/// Converted ordered kay-value pairs to properties object
-/// Use before `strictify`
-pub fn unordered(schema: &mut schemars::Schema) {
-    if let Some(o) = schema.as_object_mut() {
-        if o.remove("x-object") == Some(true.into()) {
-            if let Some(t) = o.insert("type".to_string(), "object".into()) {
-                debug_assert_eq!(t, "array");
-            }
-            let props: Map<_, _> = o
-                .remove("prefixItems")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| {
-                    v.as_object()
-                        .unwrap()
-                        .get("properties")
-                        .unwrap()
-                        .as_object()
-                        .unwrap()
-                        .clone()
-                        .into_iter()
-                        .next()
-                        .unwrap()
-                })
-                .collect();
-            o.insert("properties".to_string(), props.into());
-        }
-    }
-}
-
 /// Capability to convert serde-reflect formats and graph::Node to to JSON schemata
 pub trait ReflectJsonSchema {
     /// Convert to JSON schema
@@ -123,13 +91,12 @@ impl ReflectJsonSchema for Format {
 
 impl ReflectJsonSchema for Vec<Named<Format>> {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        let items: Option<Vec<_>> = self
+        let items: Option<Map<_, _>> = self
             .iter()
-            .map(|n| Some(json_schema!({"properties": {&n.name: n.value.json_schema(generator)?}})))
+            .map(|n| Some((n.name.to_string(), n.value.json_schema(generator)?.into())))
             .collect();
         Some(json_schema!({
-            "x-object": true, // Allow transform to unordered object
-            "prefixItems": items?,
+            "properties": items?,
         }))
     }
 }
@@ -164,7 +131,7 @@ impl ReflectJsonSchema for ContainerFormat {
                         })
                     })
                     .collect();
-                variants.map(|v| json_schema!({"oneOf": v}))
+                Some(json_schema!({"oneOf": variants?}))
             }
         }
     }
@@ -187,18 +154,17 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
         let mut sch = if let Some(internal) = self.data.0.internal.as_ref() {
             match internal {
                 Internal::Named(nameds) => {
-                    let items: Option<Vec<_>> = nameds
+                    let items: Option<Map<_, _>> = nameds
                         .iter()
                         .zip(&self.children)
                         .map(|(named, child)| {
                             let mut sch = child.json_schema(generator)?;
                             push_meta(&mut sch, "x-outer", &named.meta);
-                            Some(json_schema!({"properties": {*named.name: sch}}))
+                            Some((named.name.to_string(), sch.into()))
                         })
                         .collect();
                     json_schema!({
-                        "x-object": true, // Allow transform to unordered object
-                        "prefixItems": items?,
+                        "properties": items?,
                     })
                 }
                 Internal::Numbered(numbereds) => {

@@ -51,7 +51,6 @@ fn main() -> anyhow::Result<()> {
         root.insert("$schema".to_string(), meta_schema.into());
     }
     // use schemars::transform::{RecursiveTransform, Transform};
-    // RecursiveTransform(miniconf::json_schema::unordered).transform(&mut root);
     // RecursiveTransform(miniconf::json_schema::strictify).transform(&mut root);
     println!("JSON Schema:\n{}", serde_json::to_string_pretty(&root)?);
     jsonschema::meta::validate(&root.to_value()).unwrap();

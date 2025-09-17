@@ -23,7 +23,9 @@ postcard = { version = "1.0.8", optional = true }
 thiserror = { version = "2", default-features = false }
 serde-reflection = { version = "0.5", git = "https://github.com/quartiq/serde-reflection.git", branch = "pub-ser-de", optional = true }
 schemars = { version = "1.0.4", optional = true, default-features = false }
-serde_json = { version = "1.0.133", optional = true }
+serde_json = { version = "1.0.133", features = [
+    "preserve_order",
+], optional = true }
 heapless = { version = "0.8", optional = true }
 
 [features]

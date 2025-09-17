@@ -195,7 +195,10 @@ impl Tree {
 
     fn fill_inherit_meta(&mut self) -> Result<()> {
         if self.meta.get("typename") == Some(&Override::Inherit) {
-            self.meta.insert("typename".to_owned(), Override::Explicit(self.ident.to_string()));
+            self.meta.insert(
+                "typename".to_owned(),
+                Override::Explicit(self.ident.to_string()),
+            );
         }
         let force = self.meta.get("doc") == Some(&Override::Inherit);
         doc_to_meta(&self.attrs, &mut self.meta, false)?;
