@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 /// Inner doc
 #[derive(Deserialize, Serialize, Default, Tree)]
-#[tree(meta(doc, name = "Inner"))]
+#[tree(meta(doc, typename))]
 pub struct Inner {
     #[tree(meta(max = "10"))]
     a: i32,
@@ -14,7 +14,7 @@ pub struct Inner {
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
-#[tree(meta(name = "Either"))]
+#[tree(meta(typename))]
 pub enum Either {
     #[default]
     Bad,
@@ -28,7 +28,7 @@ pub enum Either {
 pub struct Uni;
 
 #[derive(Tree, Default)]
-#[tree(meta(name = "Settings"))]
+#[tree(meta(typename))]
 pub struct Settings {
     foo: bool,
     #[tree(with=leaf)]

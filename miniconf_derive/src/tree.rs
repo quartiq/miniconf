@@ -166,6 +166,7 @@ impl Tree {
                 variants.retain(|v| !v.skip.is_present() && !v.fields.is_empty());
                 for v in variants.iter() {
                     if v.fields.len() != 1 {
+                        // TODO: support this using a deeper Schema
                         return Err(Error::custom(
                             "Only newtype (single field tuple) and unit enum variants are supported.",
                         )
@@ -188,11 +189,14 @@ impl Tree {
             return Err(Error::custom("Internal nodes must have at least one leaf")
                 .with_span(&self.ident.span()));
         }
-        self.doc_to_meta()?;
+        self.fill_inherit_meta()?;
         Ok(self)
     }
 
-    fn doc_to_meta(&mut self) -> Result<()> {
+    fn fill_inherit_meta(&mut self) -> Result<()> {
+        if self.meta.get("typename") == Some(&Override::Inherit) {
+            self.meta.insert("typename".to_owned(), Override::Explicit(self.ident.to_string()));
+        }
         let force = self.meta.get("doc") == Some(&Override::Inherit);
         doc_to_meta(&self.attrs, &mut self.meta, false)?;
         match &mut self.data {
@@ -431,7 +435,7 @@ impl Tree {
                     let index = #index?;
                     match index {
                         #(#probe_arms ,)*
-                        _ => unreachable!()
+                        _ => ::core::unreachable!()
                     }
                 }
             }
