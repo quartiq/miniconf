@@ -57,6 +57,7 @@ pub struct Settings {
     option_array: Option<Leaf<[i16; 2]>>,
 }
 
+#[allow(unused)]
 impl Settings {
     /// Create a new enabled Settings
     pub fn new() -> Self {

@@ -74,8 +74,24 @@ pub struct Node<D> {
 }
 
 impl<D> Node<D> {
-    /// Mutably visit all nodes
+    /// Visit all nodes
     pub fn visit<T, E>(
+        &self,
+        idx: &mut [usize],
+        depth: usize,
+        func: &mut impl FnMut(&[usize], &D) -> Result<T, E>,
+    ) -> Result<T, E> {
+        if depth < idx.len() {
+            for (i, c) in self.children.iter().enumerate() {
+                idx[depth] = i;
+                c.visit(idx, depth + 1, func)?;
+            }
+        }
+        (*func)(&idx[..depth], &self.data)
+    }
+
+    /// Mutably visit all nodes
+    pub fn visit_mut<T, E>(
         &mut self,
         idx: &mut [usize],
         depth: usize,
@@ -84,7 +100,7 @@ impl<D> Node<D> {
         if depth < idx.len() {
             for (i, c) in self.children.iter_mut().enumerate() {
                 idx[depth] = i;
-                c.visit(idx, depth + 1, func)?;
+                c.visit_mut(idx, depth + 1, func)?;
             }
         }
         (*func)(&idx[..depth], &mut self.data)
@@ -144,20 +160,27 @@ impl<T> Types<T> {
         T: TreeSerialize,
     {
         let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
-            if schema.is_leaf() {
-                match trace_value(tracer, samples, idx, value) {
-                    Ok((fmt, _value)) => {
-                        *format = Some(fmt);
+        self.root
+            .visit_mut(&mut idx, 0, &mut |idx, (schema, format)| {
+                if schema.is_leaf() {
+                    match trace_value(tracer, samples, idx, value) {
+                        Ok((fmt, _value)) => {
+                            if let Some(f) = format {
+                                f.unify(fmt)?;
+                            } else {
+                                *format = Some(fmt);
+                            }
+                        }
+                        Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
+                        // Eat serde errors
+                        Err(SerdeError::Inner(serde_reflection::Error::Custom(_msg))) => {}
+                        Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
+                        // KeyError: Keys are all valid leaves by construction
+                        Err(SerdeError::Value(ValueError::Key(_))) => unreachable!(),
                     }
-                    Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
-                    Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
-                    // KeyError: Keys are all valid leaves by construction
-                    Err(SerdeError::Value(ValueError::Key(_))) => unreachable!(),
                 }
-            }
-            Ok(())
-        })
+                Ok(())
+            })
     }
 
     /// Trace all leaf types until complete
@@ -170,24 +193,42 @@ impl<T> Types<T> {
         T: TreeDeserialize<'de>,
     {
         let mut idx = vec![0; T::SCHEMA.shape().max_depth];
-        self.root.visit(&mut idx, 0, &mut |idx, (schema, format)| {
-            if schema.is_leaf() {
-                match trace_type::<T>(tracer, samples, idx) {
-                    Ok(fmt) => {
-                        *format = Some(fmt);
-                    }
-                    // probe access denied
-                    Err(SerdeError::Value(ValueError::Access(_))) => {}
-                    Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
-                    // ValueError::Absent: Nodes are never absent on probe
-                    // KeyError: Keys are all valid leaves by construction
-                    Err(SerdeError::Value(ValueError::Absent | ValueError::Key(_))) => {
-                        unreachable!()
+        self.root
+            .visit_mut(&mut idx, 0, &mut |idx, (schema, format)| {
+                if schema.is_leaf() {
+                    match trace_type::<T>(tracer, samples, idx) {
+                        Ok(fmt) => {
+                            *format = Some(fmt);
+                        }
+                        // probe access denied
+                        Err(SerdeError::Value(ValueError::Access(_))) => {}
+                        // Eat serde errors
+                        Err(SerdeError::Inner(serde_reflection::Error::Custom(_msg))) => {}
+                        Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
+                        // ValueError::Absent: Nodes are never absent on probe
+                        // KeyError: Keys are all valid leaves by construction
+                        Err(SerdeError::Value(ValueError::Absent | ValueError::Key(_))) => {
+                            unreachable!()
+                        }
                     }
                 }
-            }
-            Ok(())
-        })
+                Ok(())
+            })
+    }
+
+    /// Normalize known formats
+    pub fn normalize(&mut self) -> Result<(), serde_reflection::Error>
+    where
+        T: TreeSchema,
+    {
+        let mut idx = vec![0; T::SCHEMA.shape().max_depth];
+        self.root
+            .visit_mut(&mut idx, 0, &mut |_idx, (_schema, format)| {
+                if let Some(format) = format.as_mut() {
+                    format.normalize()?;
+                }
+                Ok(())
+            })
     }
 
     /// Trace all leaf types assuming no samples are needed

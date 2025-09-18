@@ -1,10 +1,15 @@
 //! JSON Schema tools
 
-use schemars::{JsonSchema, SchemaGenerator, json_schema};
+use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema};
 use serde_json::Map;
-use serde_reflection::{ContainerFormat, Format, Named, VariantFormat};
+use serde_reflection::{
+    ContainerFormat, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
+};
 
-use crate::{Internal, Meta, trace::Node};
+use crate::{
+    Internal, Meta, TreeDeserialize, TreeSerialize,
+    trace::{Node, Types},
+};
 
 /// Disallow additional items and additional or missing properties
 pub fn strictify(schema: &mut schemars::Schema) {
@@ -195,12 +200,13 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
             sch
         };
         push_meta(&mut sch, "x-inner", &self.data.0.meta);
-        #[cfg(feature = "meta-str")]
         if let Some(meta) = self.data.0.meta {
-            if let Some((_, name)) = meta.iter().find(|(key, _)| *key == "typename") {
-                let name = format!("x-internal-{name}");
+            #[cfg(feature = "meta-str")]
+            if let Some((_, typename)) = meta.iter().find(|(key, _)| *key == "typename") {
+                // Convert to named def reference
+                let name = format!("x-internal-{typename}");
                 if let Some(existing) = generator.definitions().get(&name) {
-                    assert_eq!(existing, sch.as_value());
+                    assert_eq!(existing, sch.as_value()); // typename not unique
                 } else {
                     generator
                         .definitions_mut()
@@ -225,5 +231,61 @@ fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
         );
         #[cfg(not(any(feature = "meta-str")))]
         let _ = (sch, meta, key);
+    }
+}
+
+/// A JSON Schema and byproducts built from a Tree
+pub struct TreeJsonSchema<T> {
+    /// Schemata and format tree
+    pub types: Types<T>,
+    /// Type registry built by tracing
+    pub registry: serde_reflection::Registry,
+    /// JSON schema generator used
+    pub generator: schemars::SchemaGenerator,
+    /// Root JSON schema
+    pub root: schemars::Schema,
+}
+
+impl<'de, T: TreeSerialize + TreeDeserialize<'de> + Default> TreeJsonSchema<T> {
+    /// Convert a Tree into a JSON Schema
+    pub fn new() -> Result<Self, serde_reflection::Error> {
+        let mut types: Types<T> = Default::default();
+        let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
+
+        let mut samples = Samples::new();
+
+        // Trace using TreeSerialize
+        // If the value does not contain a value for a leaf node (e.g. KeyError::Absent),
+        // it will leave the leaf node format unresolved.
+        let value = T::default();
+        types.trace_values(&mut tracer, &mut samples, &value)?;
+
+        // Trace using TreeDeserialize assuming no samples are needed
+        // If the Deserialize can't conjure up a value, it will leave the leaf node format unresolved.
+        types.trace_types_simple(&mut tracer)?;
+
+        let registry = tracer.registry()?;
+
+        let mut generator = SchemaGenerator::new(SchemaSettings::draft2020_12());
+        let defs: Vec<_> = registry
+            .iter()
+            .map(|(name, value)| (name.clone(), value.json_schema(&mut generator).into()))
+            .collect();
+        generator.definitions_mut().extend(defs);
+
+        types.normalize()?;
+        let mut root = types.root().json_schema(&mut generator).ok_or(
+            serde_reflection::Error::UnknownFormatInContainer("reflection incomplete".to_string()),
+        )?;
+        root.insert("$defs".to_string(), generator.definitions().clone().into());
+        if let Some(meta_schema) = generator.settings().meta_schema.as_deref() {
+            root.insert("$schema".to_string(), meta_schema.into());
+        }
+        Ok(Self {
+            types,
+            registry,
+            generator,
+            root,
+        })
     }
 }
