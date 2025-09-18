@@ -40,13 +40,11 @@ fn doc_to_meta(
     meta: &mut BTreeMap<String, Override<String>>,
     force: bool,
 ) -> Result<()> {
-    if meta.get("doc") == Some(&Override::Inherit) || force {
+    if meta.get("doc") == Some(&Override::Inherit) || (!meta.contains_key("doc") && force) {
         if let Some(doc) = get_doc(attrs) {
-            if let Some(Override::Explicit(old)) =
-                meta.insert("doc".to_owned(), Override::Explicit(doc))
-            {
-                return Err(Error::custom("Duplicate 'doc' meta").with_span(&old.span()));
-            }
+            meta.insert("doc".to_owned(), Override::Explicit(doc));
+        } else {
+            meta.remove("doc");
         }
     }
     for (k, v) in meta.iter() {
