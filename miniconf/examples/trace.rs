@@ -1,3 +1,5 @@
+//! Showcase for reflection and schema building
+
 use std::convert::Infallible;
 
 use serde_json::to_string_pretty;
@@ -8,8 +10,6 @@ use miniconf::{TreeSchema, json_schema::TreeJsonSchema};
 mod common;
 use common::Settings;
 
-/// Showcase for reflection and schema building
-
 fn main() -> anyhow::Result<()> {
     println!("Schema:\n{}", to_string_pretty(Settings::SCHEMA)?);
 
@@ -19,10 +19,14 @@ fn main() -> anyhow::Result<()> {
     schema
         .types
         .root()
-        .visit(&mut vec![0; 16], 0, &mut |_idx, (schema, fmt)| {
-            assert!(!schema.is_leaf() || fmt.as_ref().is_some_and(|f| !f.is_unknown()));
-            Ok::<_, Infallible>(())
-        })
+        .visit(
+            &mut vec![0; Settings::SCHEMA.shape().max_depth],
+            0,
+            &mut |_idx, (schema, fmt)| {
+                assert!(!schema.is_leaf() || fmt.as_ref().is_some_and(|f| !f.is_unknown()));
+                Ok::<_, Infallible>(())
+            },
+        )
         .unwrap();
     println!("Leaves:\n{}", to_string_pretty(schema.types.root())?);
 
@@ -39,7 +43,7 @@ fn main() -> anyhow::Result<()> {
         "JSON Schema:\n{}",
         serde_json::to_string_pretty(&schema.root)?
     );
-    jsonschema::meta::validate(&schema.root.to_value()).unwrap();
+    jsonschema::meta::validate(schema.root.as_value()).unwrap();
 
     Ok(())
 }
