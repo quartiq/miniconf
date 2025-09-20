@@ -1,7 +1,7 @@
 //! JSON Schema tools
 
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema};
-use serde_json::Map;
+use serde_json::{Map, Value};
 use serde_reflection::{
     ContainerFormat, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
 };
@@ -34,6 +34,17 @@ pub fn strictify(schema: &mut schemars::Schema) {
             if let Some(old) = o.insert("type".to_string(), "object".into()) {
                 debug_assert_eq!(old, "object");
             }
+        }
+    }
+}
+
+/// Allow null for a x-internal
+pub fn internal_absent(schema: &mut schemars::Schema) {
+    if let Some(o) = schema.as_object_mut() {
+        if o.get("x-leaf") == Some(&true.into()) {
+            let v = o.get_mut("type").unwrap();
+            let Value::String(t) = v else { panic!() };
+            *v = Value::Array(vec![t.clone().into(), "null".into()]);
         }
     }
 }

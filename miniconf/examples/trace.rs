@@ -37,8 +37,10 @@ fn main() -> anyhow::Result<()> {
         .root
         .insert("title".to_string(), "Miniconf example: Settings".into());
 
-    // use schemars::transform::{RecursiveTransform, Transform};
-    // RecursiveTransform(miniconf::json_schema::strictify).transform(&mut root);
+    use schemars::transform::{RecursiveTransform, Transform};
+    RecursiveTransform(miniconf::json_schema::strictify).transform(&mut schema.root);
+    RecursiveTransform(miniconf::json_schema::internal_absent).transform(&mut schema.root);
+
     println!(
         "JSON Schema:\n{}",
         serde_json::to_string_pretty(&schema.root)?
