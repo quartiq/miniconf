@@ -1,6 +1,8 @@
 //! JSON Schema tools
 
-use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema};
+use schemars::{
+    JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema, transform::Transform,
+};
 use serde_json::Map;
 use serde_reflection::{
     ContainerFormat, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
@@ -11,20 +13,40 @@ use crate::{
     trace::{Node, Types},
 };
 
-/// Disallow additional items and additional or missing properties
-pub fn strictify(schema: &mut schemars::Schema) {
-    if let Some(o) = schema.as_object_mut() {
-        if o.contains_key("prefixItems") {
-            debug_assert_eq!(o.insert("items".to_string(), false.into()), None);
+/// Disallow additional `items`, `additionalProperties`, and missing `properties`
+pub struct Strictify;
+impl Transform for Strictify {
+    fn transform(&mut self, schema: &mut schemars::Schema) {
+        if let Some(o) = schema.as_object_mut() {
+            if o.contains_key("prefixItems") {
+                assert_eq!(o.insert("items".to_string(), false.into()), None);
+            }
+            if let Some(k) = o.get("properties") {
+                let k = k.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
+                assert_eq!(o.insert("required".to_string(), k.into()), None);
+                assert_eq!(
+                    o.insert("additionalProperties".to_string(), false.into()),
+                    None
+                );
+            }
         }
-        if let Some(k) = o.get("properties") {
-            let k = k.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-            debug_assert_eq!(o.insert("required".to_string(), k.into()), None);
-            debug_assert_eq!(
-                o.insert("additionalProperties".to_string(), false.into()),
-                None
-            );
+        schemars::transform::transform_subschemas(self, schema);
+    }
+}
+
+/// Allow "__tree-absent__" nodes.
+///
+/// Convert `tree-maybe-absent` flags to `oneOf`.
+pub struct AllowAbsent;
+impl Transform for AllowAbsent {
+    fn transform(&mut self, schema: &mut schemars::Schema) {
+        if let Some(o) = schema.as_object_mut() {
+            if o.get("tree-maybe-absent") == Some(&true.into()) {
+                o.remove("tree-maybe-absent").unwrap();
+                *schema = json_schema!({"oneOf": [schema, {"const": "__tree-absent__"}]});
+            }
         }
+        schemars::transform::transform_subschemas(self, schema);
     }
 }
 
@@ -151,7 +173,8 @@ impl ReflectJsonSchema for VariantFormat {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         match self {
             VariantFormat::Variable(_variable) => None,
-            VariantFormat::Unit => Some(false.into()), // Hack picked up in ContainerFormat as ReflectJsonSchema
+            // Serialized as `{variant_name}`. Use the never-match schema to signal this to the enclosing ContainerFormat impl.
+            VariantFormat::Unit => Some(false.into()),
             VariantFormat::NewType(format) => format.json_schema(generator),
             VariantFormat::Tuple(formats) => formats.json_schema(generator),
             VariantFormat::Struct(nameds) => nameds.json_schema(generator),
@@ -169,7 +192,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                         .zip(&self.children)
                         .map(|(named, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "tree-meta", &named.meta);
+                            push_meta(&mut sch, "tree-outer-meta", &named.meta);
                             Some((named.name.to_string(), sch.into()))
                         })
                         .collect();
@@ -184,7 +207,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                         .zip(&self.children)
                         .map(|(numbered, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "tree-meta", &numbered.meta);
+                            push_meta(&mut sch, "tree-outer-meta", &numbered.meta);
                             Some(sch)
                         })
                         .collect();
@@ -195,7 +218,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                 }
                 Internal::Homogeneous(homogeneous) => {
                     let mut sch = self.children[0].json_schema(generator)?;
-                    push_meta(&mut sch, "tree-meta", &homogeneous.meta);
+                    push_meta(&mut sch, "tree-outer-meta", &homogeneous.meta);
                     json_schema!({
                         "type": "array",
                         "items": sch,
@@ -207,8 +230,8 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
         } else {
             self.data.1.as_ref()?.json_schema(generator)?
         };
-        sch = json_schema!({"oneOf": [sch, {"const": "__tree-absent__"}]});
-        push_meta(&mut sch, "tree-meta", &self.data.0.meta);
+        sch.insert("tree-maybe-absent".to_string(), true.into());
+        push_meta(&mut sch, "tree-inner-meta", &self.data.0.meta);
         if let Some(meta) = self.data.0.meta {
             #[cfg(feature = "meta-str")]
             if let Some(name) = meta.iter().find_map(|(key, typename)| {

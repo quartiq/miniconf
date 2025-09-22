@@ -24,7 +24,7 @@ fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
                 else {
                     panic!("Unexpected `doc` attribute format");
                 };
-                return Some(doc.value().trim().to_owned());
+                return Some(doc.value().trim().to_string());
             }
             None
         })
@@ -42,7 +42,7 @@ fn doc_to_meta(
 ) -> Result<()> {
     if meta.get("doc") == Some(&Override::Inherit) || (!meta.contains_key("doc") && force) {
         if let Some(doc) = get_doc(attrs) {
-            meta.insert("doc".to_owned(), Override::Explicit(doc));
+            meta.insert("doc".to_string(), Override::Explicit(doc));
         } else {
             meta.remove("doc");
         }
@@ -194,7 +194,7 @@ impl Tree {
     fn fill_inherit_meta(&mut self) -> Result<()> {
         if self.meta.get("typename") == Some(&Override::Inherit) {
             self.meta.insert(
-                "typename".to_owned(),
+                "typename".to_string(),
                 Override::Explicit(self.ident.to_string()),
             );
         }
@@ -208,8 +208,9 @@ impl Tree {
             }
             Data::Enum(variants) => {
                 for variant in variants.iter_mut() {
+                    doc_to_meta(&variant.attrs, &mut variant.meta, force)?;
                     let field = variant.fields.fields.first_mut().unwrap();
-                    doc_to_meta(&variant.attrs, &mut field.meta, force)?;
+                    doc_to_meta(&field.attrs, &mut field.meta, force)?;
                 }
             }
         }

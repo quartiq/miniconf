@@ -6,22 +6,24 @@ use serde::{Deserialize, Serialize};
 /// Inner doc
 #[derive(Deserialize, Serialize, Default, Tree)]
 #[tree(meta(doc, typename))]
-pub struct Inner {
+pub struct MyStruct {
     #[tree(meta(max = "10"))]
     a: i32,
     /// Outer doc
-    b: i32,
+    b: u8,
 }
 
+/// Inner doc
 #[derive(Deserialize, Serialize, Default, Tree)]
-#[tree(meta(typename))]
-pub enum Either {
+#[tree(meta(doc, typename))]
+pub enum MyEnum {
     #[default]
     Bad,
     Good,
     A(i32),
-    B(Inner),
-    C([Inner; 2]),
+    /// Outer doc
+    B(MyStruct),
+    C([MyStruct; 2]),
 }
 
 #[derive(Deserialize, Serialize, Default)]
@@ -32,9 +34,9 @@ pub struct Uni;
 pub struct Settings {
     foo: bool,
     #[tree(with=leaf)]
-    enum_: Either,
+    enum_: MyEnum,
     #[tree(with=leaf)]
-    struct_: Inner,
+    struct_: MyStruct,
     #[tree(with=leaf)]
     array: [i32; 2],
     #[tree(with=leaf)]
@@ -46,14 +48,14 @@ pub struct Settings {
     #[allow(unused)]
     skipped: (),
 
-    struct_tree: Inner,
-    enum_tree: Either,
+    struct_tree: MyStruct,
+    enum_tree: MyEnum,
     array_tree: [i32; 2],
-    array_tree2: [Inner; 2],
-    tuple_tree: (i32, Inner),
+    array_tree2: [MyStruct; 2],
+    tuple_tree: (i32, MyStruct),
     option_tree: Option<i32>,
-    option_tree2: Option<Inner>,
-    array_option_tree: [Option<Inner>; 2],
+    option_tree2: Option<MyStruct>,
+    array_option_tree: [Option<MyStruct>; 2],
     option_array: Option<Leaf<[i16; 2]>>,
 }
 
@@ -69,7 +71,7 @@ impl Settings {
     /// Fill some of the Options
     pub fn enable(&mut self) {
         self.option_tree = Some(8);
-        self.enum_tree = Either::C(Default::default());
+        self.enum_tree = MyEnum::C(Default::default());
         self.option_tree2 = Some(Default::default());
         self.array_option_tree[1] = Some(Default::default());
         self.option_array = Some(Leaf([1, 2]));

@@ -1,11 +1,9 @@
 //! Showcase for reflection and schema building
-use std::convert::Infallible;
 
-use serde_json::{Value, to_string_pretty, value::Serializer};
-use serde_reflection::FormatHolder;
+use serde_json::{Value, value::Serializer};
 
 use miniconf::{
-    Internal, IntoKeys, KeyError, Keys, Schema, SerdeError, TreeSchema, TreeSerialize, ValueError,
+    Internal, IntoKeys, KeyError, Schema, SerdeError, TreeSerialize, ValueError,
     json_schema::TreeJsonSchema,
 };
 
@@ -21,8 +19,7 @@ fn to_json_value<T: TreeSerialize>(
         schema: &Schema,
         value: &T,
     ) -> Result<Value, SerdeError<<Serializer as serde::Serializer>::Error>> {
-        let mut key = (&idx[..depth]).into_keys().track();
-        match value.serialize_by_key(&mut key, Serializer) {
+        match value.serialize_by_key((&idx[..depth]).into_keys(), Serializer) {
             Ok(v) => Ok(v),
             Err(SerdeError::Value(ValueError::Absent)) => {
                 Ok(Value::String("__tree-absent__".to_string()))
@@ -72,34 +69,20 @@ fn to_json_value<T: TreeSerialize>(
 }
 
 fn main() -> anyhow::Result<()> {
-    let j = to_json_value(&Settings::new())?;
-    println!("JSON Tree:\n{}", serde_json::to_string_pretty(&j)?);
+    let s = Settings::new();
 
-    let mut schema = TreeJsonSchema::new(Some(&Settings::new())).unwrap();
+    let value = to_json_value(&s)?;
+    println!("JSON Tree:\n{}", serde_json::to_string_pretty(&value)?);
 
-    // No untraced Leaf nodes left
-    schema
-        .types
-        .root()
-        .visit(
-            &mut vec![0; Settings::SCHEMA.shape().max_depth],
-            0,
-            &mut |_idx, (schema, fmt)| {
-                assert!(!schema.is_leaf() || fmt.as_ref().is_some_and(|f| !f.is_unknown()));
-                Ok::<_, Infallible>(())
-            },
-        )
-        .unwrap();
-
-    // Dump graph and registry
-    println!("Registry:\n{}", to_string_pretty(&schema.registry)?);
+    let mut schema = TreeJsonSchema::new(Some(&s)).unwrap();
 
     schema
         .root
         .insert("title".to_string(), "Miniconf example: Settings".into());
 
-    //use schemars::transform::{RecursiveTransform, Transform};
-    //RecursiveTransform(miniconf::json_schema::strictify).transform(&mut schema.root);
+    use schemars::transform::Transform;
+    //miniconf::json_schema::Strictify.transform(&mut schema.root);
+    miniconf::json_schema::AllowAbsent.transform(&mut schema.root);
 
     println!(
         "JSON Schema:\n{}",
@@ -109,7 +92,7 @@ fn main() -> anyhow::Result<()> {
     jsonschema::meta::validate(schema.root.as_value()).unwrap();
 
     let validator = jsonschema::validator_for(schema.root.as_value())?;
-    for e in validator.iter_errors(&j) {
+    for e in validator.iter_errors(&value) {
         eprintln!("{e} {e:?}");
     }
 
