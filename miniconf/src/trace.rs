@@ -173,7 +173,7 @@ impl<T> Types<T> {
                         }
                         Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => {}
                         // Eat serde errors
-                        Err(SerdeError::Inner(serde_reflection::Error::Custom(_msg))) => {}
+                        Err(SerdeError::Inner(serde_reflection::Error::Custom(_))) => {}
                         Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
                         // KeyError: Keys are all valid leaves by construction
                         Err(SerdeError::Value(ValueError::Key(_))) => unreachable!(),
@@ -203,7 +203,7 @@ impl<T> Types<T> {
                         // probe access denied
                         Err(SerdeError::Value(ValueError::Access(_))) => {}
                         // Eat serde errors
-                        Err(SerdeError::Inner(serde_reflection::Error::Custom(_msg))) => {}
+                        Err(SerdeError::Inner(serde_reflection::Error::Custom(_))) => {}
                         Err(SerdeError::Inner(e) | SerdeError::Finalization(e)) => Err(e)?,
                         // ValueError::Absent: Nodes are never absent on probe
                         // KeyError: Keys are all valid leaves by construction

@@ -48,4 +48,4 @@ pub mod json_schema;
 
 // re-export for proc-macro
 #[doc(hidden)]
-pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
+pub use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeSeed};

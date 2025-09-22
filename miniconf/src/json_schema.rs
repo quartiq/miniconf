@@ -299,11 +299,12 @@ impl<'de, T: TreeSerialize + TreeDeserialize<'de>> TreeJsonSchema<T> {
             types.trace_values(&mut tracer, &mut samples, value)?;
         }
 
+        println!("{:?}", &samples);
+
         // Trace using TreeDeserialize assuming no samples are needed
         // If the Deserialize can't conjure up a value, it will leave the leaf node format unresolved.
-        types.trace_types_simple(&mut tracer)?;
-
         //types.trace_types(&mut tracer, &samples)?;
+        types.trace_types_simple(&mut tracer)?;
 
         let registry = tracer.registry()?;
 

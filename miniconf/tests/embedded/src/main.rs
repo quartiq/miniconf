@@ -8,8 +8,10 @@ use core::any::Any;
 use cortex_m_rt::entry;
 use cortex_m_semihosting::{debug, hprintln};
 
-use crosstrait::{register, Cast};
-use miniconf::{self, json, IntoKeys, JsonPath, Packed, Path, Shape, Tree, TreeAny, TreeSchema};
+use crosstrait::{Cast, register};
+use miniconf::{
+    self, IntoKeys, JsonPath, Packed, Path, Shape, Tree, TreeAny, TreeSchema, json_core,
+};
 
 use core::ops::{AddAssign, SubAssign};
 register! { i32 => dyn AddAssign<i32> }
