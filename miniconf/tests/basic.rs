@@ -4,7 +4,7 @@ mod common;
 #[test]
 fn borrowed() {
     let mut a = "";
-    miniconf::json::set(&mut a, "", "\"foo\"".as_bytes()).unwrap();
+    miniconf::json_core::set(&mut a, "", "\"foo\"".as_bytes()).unwrap();
     assert_eq!(a, "foo");
 }
 

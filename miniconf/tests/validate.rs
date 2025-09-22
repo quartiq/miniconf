@@ -1,4 +1,4 @@
-use miniconf::{Tree, ValueError, json};
+use miniconf::{Tree, ValueError, json_core};
 
 #[derive(Tree, Default)]
 struct Check {
@@ -32,10 +32,10 @@ mod check {
 #[test]
 fn validate() {
     let mut s = Check::default();
-    json::set(&mut s, "/v", b"1.0").unwrap();
+    json_core::set(&mut s, "/v", b"1.0").unwrap();
     assert_eq!(s.v, 1.0);
     assert_eq!(
-        json::set(&mut s, "/v", b"-1.0"),
+        json_core::set(&mut s, "/v", b"-1.0"),
         Err(ValueError::Access("").into())
     );
     assert_eq!(s.v, 1.0); // remains unchanged
@@ -97,15 +97,15 @@ mod page4 {
 fn paging() {
     let mut s = Page::default();
     s.vec.resize(10, 0);
-    json::set(&mut s, "/offset", b"3").unwrap();
-    json::set(&mut s, "/arr/1", b"5").unwrap();
+    json_core::set(&mut s, "/offset", b"3").unwrap();
+    json_core::set(&mut s, "/arr/1", b"5").unwrap();
     assert_eq!(s.vec[s.offset + 1], 5);
     let mut buf = [0; 10];
-    let len = json::get(&s, "/arr/1", &mut buf[..]).unwrap();
+    let len = json_core::get(&s, "/arr/1", &mut buf[..]).unwrap();
     assert_eq!(buf[..len], b"5"[..]);
-    json::set(&mut s, "/offset", b"100").unwrap();
+    json_core::set(&mut s, "/offset", b"100").unwrap();
     assert_eq!(
-        json::set(&mut s, "/arr/1", b"5"),
+        json_core::set(&mut s, "/arr/1", b"5"),
         Err(ValueError::Access("range").into())
     );
 }
@@ -154,10 +154,10 @@ mod lock {
 #[test]
 fn locked() {
     let mut s = Lock::default();
-    json::set(&mut s, "/write", b"true").unwrap();
-    json::set(&mut s, "/val", b"1").unwrap();
+    json_core::set(&mut s, "/write", b"true").unwrap();
+    json_core::set(&mut s, "/val", b"1").unwrap();
     assert_eq!(s.val, 1);
-    json::set(&mut s, "/write", b"false").unwrap();
+    json_core::set(&mut s, "/write", b"false").unwrap();
     assert_eq!(s.val, 1);
-    json::set(&mut s, "/val", b"1").unwrap_err();
+    json_core::set(&mut s, "/val", b"1").unwrap_err();
 }

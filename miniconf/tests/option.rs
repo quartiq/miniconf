@@ -1,4 +1,4 @@
-use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json};
+use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core};
 
 mod common;
 use common::*;
@@ -26,16 +26,16 @@ fn option_get_set_none() {
     // Check that if the option is None, the value cannot be get or set.
     settings.value.take();
     assert_eq!(
-        json::get(&settings, "/value_foo", &mut data),
+        json_core::get(&settings, "/value_foo", &mut data),
         Err(KeyError::NotFound.into())
     );
     assert_eq!(
-        json::get(&settings, "/value", &mut data),
+        json_core::get(&settings, "/value", &mut data),
         Err(ValueError::Absent.into())
     );
     // The Absent field indicates at which depth the variant was absent
     assert_eq!(
-        json::set(&mut settings, "/value/data", b"5"),
+        json_core::set(&mut settings, "/value/data", b"5"),
         Err(ValueError::Absent.into())
     );
 }
@@ -85,12 +85,12 @@ fn option_test_defer_option() {
     let mut s = S::default();
     assert!(s.data.is_none());
 
-    assert!(json::set(&mut s, "/data", b"7").is_err());
+    assert!(json_core::set(&mut s, "/data", b"7").is_err());
     s.data = Some(0);
     set_get(&mut s, "/data", b"7");
     assert_eq!(s.data, Some(7));
 
-    assert!(json::set(&mut s, "/data", b"null").is_err());
+    assert!(json_core::set(&mut s, "/data", b"null").is_err());
 }
 
 #[test]
@@ -106,30 +106,36 @@ fn option_absent() {
 
     let mut s = S::default();
     assert_eq!(
-        json::set(&mut s, "/d", b"7"),
+        json_core::set(&mut s, "/d", b"7"),
         Err(ValueError::Absent.into())
     );
     // Check precedence
-    assert_eq!(json::set(&mut s, "/d", b""), Err(ValueError::Absent.into()));
     assert_eq!(
-        json::set(&mut s, "/d/foo", b"7"),
+        json_core::set(&mut s, "/d", b""),
         Err(ValueError::Absent.into())
     );
-    assert_eq!(json::set(&mut s, "", b"7"), Err(KeyError::TooShort.into()));
-    s.d = Some(3);
-    assert_eq!(json::set(&mut s, "/d", b"7"), Ok(1));
     assert_eq!(
-        json::set(&mut s, "/d/foo", b"7"),
+        json_core::set(&mut s, "/d/foo", b"7"),
+        Err(ValueError::Absent.into())
+    );
+    assert_eq!(
+        json_core::set(&mut s, "", b"7"),
+        Err(KeyError::TooShort.into())
+    );
+    s.d = Some(3);
+    assert_eq!(json_core::set(&mut s, "/d", b"7"), Ok(1));
+    assert_eq!(
+        json_core::set(&mut s, "/d/foo", b"7"),
         Err(KeyError::TooLong.into())
     );
     assert!(matches!(
-        json::set(&mut s, "/d", b""),
+        json_core::set(&mut s, "/d", b""),
         Err(SerdeError::Inner(_))
     ));
-    assert_eq!(json::set(&mut s, "/d", b"7 "), Ok(2));
-    assert_eq!(json::set(&mut s, "/d", b" 7"), Ok(2));
+    assert_eq!(json_core::set(&mut s, "/d", b"7 "), Ok(2));
+    assert_eq!(json_core::set(&mut s, "/d", b" 7"), Ok(2));
     assert!(matches!(
-        json::set(&mut s, "/d", b"7i"),
+        json_core::set(&mut s, "/d", b"7i"),
         Err(SerdeError::Finalization(_))
     ));
 }

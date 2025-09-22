@@ -1,4 +1,4 @@
-use miniconf::{SerdeError, Tree, ValueError, json, str_leaf};
+use miniconf::{SerdeError, Tree, ValueError, json_core, str_leaf};
 
 mod common;
 use common::*;
@@ -44,14 +44,14 @@ fn enum_switch() {
     assert_eq!(s.enu, Enum::None);
     set_get(&mut s, "/tag", b"\"foo\"");
     assert!(matches!(
-        json::set(&mut s, "/tag", b"\"bar\""),
+        json_core::set(&mut s, "/tag", b"\"bar\""),
         Err(SerdeError::Value(ValueError::Access(_)))
     ));
     assert_eq!(s.enu, Enum::A(0));
     set_get(&mut s, "/enu/foo", b"99");
     assert_eq!(s.enu, Enum::A(99));
     assert_eq!(
-        json::set(&mut s, "/enu/B/a", b"99"),
+        json_core::set(&mut s, "/enu/B/a", b"99"),
         Err(ValueError::Absent.into())
     );
     set_get(&mut s, "/tag", b"\"B\"");

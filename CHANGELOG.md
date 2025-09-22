@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `mod passthrough/str_leaf/leaf/deny` for composition with `#[tree(with=...)]`
 * `meta-str` feature: Inner and outer metadata in `Schema`, including
   on-demand docstring to `Meta` entry conversion.
+* `miniconf::json` using `serde_json`
 
 ### Changed
 
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Lots of `const`-ness with `const SCHEMA`.
 * Converted several named generics (`<K: Keys>(keys: K)`)
   to anonymous inline generics (`keys: impl Keys`)
+* `miniconf::json` -> `miniconf::json_core`
 
 ### Removed
 

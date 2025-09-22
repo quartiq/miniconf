@@ -45,13 +45,13 @@ fn main() -> ! {
     let mut s = Settings::default();
 
     let path = Path::<_, '/'>("/i/1/val");
-    json::set_by_key(&mut s, &path, b"3").unwrap();
+    json_core::set_by_key(&mut s, &path, b"3").unwrap();
 
     let packed: Packed = Settings::SCHEMA.transcode(&path).unwrap();
     assert_eq!(packed.into_lsb().get(), 0b1_01_01_0);
 
     let mut buf = [0; 10];
-    let len = json::get_by_key(&s, packed, &mut buf).unwrap();
+    let len = json_core::get_by_key(&s, packed, &mut buf).unwrap();
     assert_eq!(&buf[..len], b"3");
 
     let key = JsonPath(".i[1].val");

@@ -2,7 +2,7 @@ use core::str;
 
 use miniconf::{
     IntoKeys, Keys, Path, PathIter, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
-    ValueError, json,
+    ValueError, json_core,
 };
 
 mod common;
@@ -111,10 +111,10 @@ fn scpi<M: TreeSerialize + TreeDeserializeOwned>(target: &mut M, cmds: &str) -> 
         };
         let path = abs.into_keys().chain(rel);
         if let Some(value) = value {
-            json::set_by_key(target, path, value.as_bytes())?;
+            json_core::set_by_key(target, path, value.as_bytes())?;
             println!("OK");
         } else {
-            let len = json::get_by_key(target, path, &mut buf[..])?;
+            let len = json_core::get_by_key(target, path, &mut buf[..])?;
             println!("{}", str::from_utf8(&buf[..len])?);
         }
     }
@@ -136,7 +136,7 @@ fn main() -> anyhow::Result<()> {
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
     for path in Settings::SCHEMA.nodes::<Path<String, ':'>, MAX_DEPTH>() {
         let path = path?;
-        match json::get_by_key(&settings, &path, &mut buf) {
+        match json_core::get_by_key(&settings, &path, &mut buf) {
             Ok(len) => println!(
                 "{} {}",
                 path.0.to_uppercase(),

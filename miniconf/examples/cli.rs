@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{IntoKeys, Keys, Path, SerdeError, TreeSchema, ValueError, json};
+use miniconf::{IntoKeys, Keys, Path, SerdeError, TreeSchema, ValueError, json_core};
 
 mod common;
 use common::Settings;
@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
     while let Some(key) = args.next() {
         let key = key.strip_prefix('-').context("stripping initial dash")?;
         let value = args.next().context("looking for value")?;
-        json::set_by_key(&mut settings, Path::<_, '-'>(key), value.as_bytes())
+        json_core::set_by_key(&mut settings, Path::<_, '-'>(key), value.as_bytes())
             .context("lookup/deserialize")?;
     }
 
@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
     for item in Settings::SCHEMA.nodes::<Path<String, '-'>, MAX_DEPTH>() {
         let key = item.unwrap();
         let mut k = key.into_keys().track();
-        match json::get_by_key(&settings, &mut k, &mut buf[..]) {
+        match json_core::get_by_key(&settings, &mut k, &mut buf[..]) {
             Ok(len) => {
                 println!("-{} {}", key, core::str::from_utf8(&buf[..len]).unwrap());
             }

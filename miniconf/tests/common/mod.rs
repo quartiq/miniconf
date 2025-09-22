@@ -2,7 +2,7 @@
 
 use miniconf::{
     DescendError, IntoKeys, KeyError, Keys, Packed, Path, Schema, Track, Transcode,
-    TreeDeserialize, TreeSchema, TreeSerialize, json,
+    TreeDeserialize, TreeSchema, TreeSerialize, json_core,
 };
 
 pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
@@ -28,8 +28,8 @@ pub fn set_get<'de, M>(s: &mut M, path: &str, value: &'de [u8])
 where
     M: TreeDeserialize<'de> + TreeSerialize + ?Sized,
 {
-    json::set(s, path, value).unwrap();
+    json_core::set(s, path, value).unwrap();
     let mut buf = vec![0; value.len()];
-    let len = json::get(s, path, &mut buf[..]).unwrap();
+    let len = json_core::get(s, path, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 }

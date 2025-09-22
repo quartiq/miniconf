@@ -181,6 +181,7 @@ impl Key for str {
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
 /// * `const S: char`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
+// TODO: remove the const char in favor or a field
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]

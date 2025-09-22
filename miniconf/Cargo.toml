@@ -34,11 +34,12 @@ alloc = []
 std = ["alloc"]
 meta-str = ["miniconf_derive/meta-str"]
 json-core = ["dep:serde-json-core"]
+json = ["dep:serde_json"]
 postcard = ["dep:postcard"]
 heapless = ["dep:heapless"]
 derive = ["dep:miniconf_derive", "serde/derive"]
 trace = ["std", "dep:serde-reflection"]
-schema = ["trace", "dep:schemars", "dep:serde_json"]
+schema = ["trace", "dep:schemars", "json"]
 
 [package.metadata.docs.rs]
 all-features = true

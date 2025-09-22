@@ -29,6 +29,9 @@ pub use impls::*;
 pub use miniconf_derive::*;
 
 #[cfg(feature = "json-core")]
+pub mod json_core;
+
+#[cfg(feature = "json")]
 pub mod json;
 
 #[cfg(feature = "postcard")]

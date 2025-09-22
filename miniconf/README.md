@@ -19,7 +19,7 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{SerdeError, json, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Shape, leaf};
+use miniconf::{SerdeError, json_core, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Shape, leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
@@ -66,45 +66,45 @@ pub struct Settings {
 let mut settings = Settings::default();
 
 // Access nodes by field name
-json::set(&mut settings,"/foo", b"true")?;
+json_core::set(&mut settings,"/foo", b"true")?;
 assert_eq!(settings.foo, true);
-json::set(&mut settings, "/enum_", br#""Good""#)?;
-json::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
-json::set(&mut settings, "/array", b"[6, 6]")?;
-json::set(&mut settings, "/option", b"12")?;
-json::set(&mut settings, "/option", b"null")?;
+json_core::set(&mut settings, "/enum_", br#""Good""#)?;
+json_core::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
+json_core::set(&mut settings, "/array", b"[6, 6]")?;
+json_core::set(&mut settings, "/option", b"12")?;
+json_core::set(&mut settings, "/option", b"null")?;
 
 // Nodes inside containers
 // ... by field name in a struct
-json::set(&mut settings, "/struct_tree/a", b"4")?;
+json_core::set(&mut settings, "/struct_tree/a", b"4")?;
 // ... or by index in an array
-json::set(&mut settings, "/array_tree/0", b"7")?;
+json_core::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
-json::set(&mut settings, "/array_tree2/0/a", b"11")?;
+json_core::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-json::set_by_key(&mut settings, [8, 0, 1], b"8")?;
+json_core::set_by_key(&mut settings, [8, 0, 1], b"8")?;
 // ... or by packed index
 let packed: Packed = Settings::SCHEMA.transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
-json::set_by_key(&mut settings, packed, b"9")?;
+json_core::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
-json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
+json_core::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
-assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
+assert_eq!(json_core::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
 settings.option_tree = Some(0);
-json::set(&mut settings, "/option_tree", b"13")?;
+json_core::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());
-json::set(&mut settings, "/option_tree2/a", b"14")?;
+json_core::set(&mut settings, "/option_tree2/a", b"14")?;
 // Hiding items of an array of `Tree`s
 settings.array_option_tree[1] = Some(Inner::default());
-json::set(&mut settings, "/array_option_tree/1/a", b"15")?;
+json_core::set(&mut settings, "/array_option_tree/1/a", b"15")?;
 
 let mut buf = [0; 16];
 
 // Serializing nodes by path
-let len = json::get(&settings, "/struct_", &mut buf).unwrap();
+let len = json_core::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
@@ -117,9 +117,9 @@ assert!(MAX_LENGTH <= 32);
 for path in Settings::SCHEMA.nodes::<Path<heapless::String<MAX_LENGTH>, '/'>, MAX_DEPTH>() {
     let path = path.unwrap().0;
     // Serialize each
-    match json::get(&settings, &path, &mut buf) {
+    match json_core::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
-        Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
+        Ok(len) => { json_core::set(&mut settings, &path, &buf[..len])?; }
         // Some Options are `None`, some enum variants are absent
         Err(SerdeError::Value(ValueError::Absent)) => {}
         e => { e.unwrap(); }

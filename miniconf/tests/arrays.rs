@@ -1,6 +1,6 @@
 use miniconf::{
     Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Shape, Track, Tree,
-    TreeSchema, json, leaf,
+    TreeSchema, json_core, leaf,
 };
 
 mod common;
@@ -35,9 +35,9 @@ fn set_get(
         .into_inner();
 
     assert_eq!(depth, idx.len());
-    json::set_by_key(tree, &idx, value)?;
+    json_core::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, &idx, &mut buf[..]).unwrap();
+    let len = json_core::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
@@ -46,9 +46,9 @@ fn set_get(
         .unwrap()
         .into_inner();
     assert_eq!(depth, idx.len());
-    json::set_by_key(tree, packed, value)?;
+    json_core::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
-    let len = json::get_by_key(tree, packed, &mut buf[..]).unwrap();
+    let len = json_core::get_by_key(tree, packed, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     Ok(depth)
@@ -86,12 +86,12 @@ fn defer_miniconf() {
 fn too_short() {
     let mut s = Settings::default();
     assert_eq!(
-        json::set(&mut s, "/d", b"[1,2]"),
+        json_core::set(&mut s, "/d", b"[1,2]"),
         Err(KeyError::TooShort.into())
     );
     // Check precedence over `Inner`.
     assert_eq!(
-        json::set(&mut s, "/d", b"[1,2,3]"),
+        json_core::set(&mut s, "/d", b"[1,2,3]"),
         Err(KeyError::TooShort.into())
     );
 }
@@ -100,19 +100,19 @@ fn too_short() {
 fn too_long() {
     let mut s = Settings::default();
     assert_eq!(
-        json::set(&mut s, "/a/1", b"7"),
+        json_core::set(&mut s, "/a/1", b"7"),
         Err(KeyError::TooLong.into())
     );
     assert_eq!(
-        json::set(&mut s, "/d/0/b", b"7"),
+        json_core::set(&mut s, "/d/0/b", b"7"),
         Err(KeyError::TooLong.into())
     );
     assert_eq!(
-        json::set(&mut s, "/dm/0/c", b"7"),
+        json_core::set(&mut s, "/dm/0/c", b"7"),
         Err(KeyError::TooLong.into())
     );
     assert_eq!(
-        json::set(&mut s, "/dm/0/d", b"7"),
+        json_core::set(&mut s, "/dm/0/d", b"7"),
         Err(KeyError::TooLong.into())
     );
 }
@@ -121,15 +121,15 @@ fn too_long() {
 fn not_found() {
     let mut s = Settings::default();
     assert_eq!(
-        json::set(&mut s, "/d/3", b"7"),
+        json_core::set(&mut s, "/d/3", b"7"),
         Err(KeyError::NotFound.into())
     );
     assert_eq!(
-        json::set(&mut s, "/b", b"7"),
+        json_core::set(&mut s, "/b", b"7"),
         Err(KeyError::NotFound.into())
     );
     assert_eq!(
-        json::set(&mut s, "/aam/0/0/d", b"7"),
+        json_core::set(&mut s, "/aam/0/0/d", b"7"),
         Err(KeyError::NotFound.into())
     );
 }

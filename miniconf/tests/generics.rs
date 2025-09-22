@@ -1,4 +1,6 @@
-use miniconf::{Deserialize, ExactSize, Leaf, NodeIter, Serialize, Shape, Tree, TreeSchema, json};
+use miniconf::{
+    Deserialize, ExactSize, Leaf, NodeIter, Serialize, Shape, Tree, TreeSchema, json_core,
+};
 
 #[test]
 fn generic_type() {
@@ -8,7 +10,7 @@ fn generic_type() {
     }
 
     let mut settings = Settings::<f32>::default();
-    json::set(&mut settings, "/data", b"3.0").unwrap();
+    json_core::set(&mut settings, "/data", b"3.0").unwrap();
     assert_eq!(settings.data, 3.0);
 
     const SHAPE: Shape = Settings::<f32>::SCHEMA.shape();
@@ -25,7 +27,7 @@ fn generic_array() {
     }
 
     let mut settings = Settings::<f32>::default();
-    json::set(&mut settings, "/data/0", b"3.0").unwrap();
+    json_core::set(&mut settings, "/data/0", b"3.0").unwrap();
 
     assert_eq!(settings.data[0], 3.0);
 
@@ -48,7 +50,7 @@ fn generic_struct() {
     }
 
     let mut settings = Settings::<Leaf<Inner>>::default();
-    json::set(&mut settings, "/inner", b"{\"data\": 3.0}").unwrap();
+    json_core::set(&mut settings, "/inner", b"{\"data\": 3.0}").unwrap();
 
     assert_eq!(settings.inner.data, 3.0);
 
@@ -73,7 +75,7 @@ fn generic_atomic() {
     }
 
     let mut settings = Settings::<f32>::default();
-    json::set(&mut settings, "/atomic", b"{\"inner\": [3.0, 0, 0, 0, 0]}").unwrap();
+    json_core::set(&mut settings, "/atomic", b"{\"inner\": [3.0, 0, 0, 0, 0]}").unwrap();
 
     assert_eq!(settings.atomic.inner[0], 3.0);
 
