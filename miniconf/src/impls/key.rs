@@ -181,7 +181,6 @@ impl Key for str {
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
 /// * `const S: char`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
-// TODO: remove the const char in favor or a field
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -218,22 +217,24 @@ impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
 
 /// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[repr(transparent)]
-pub struct PathIter<'a, const S: char>(Option<&'a str>);
+pub struct PathIter<'a> {
+    data: Option<&'a str>,
+    sep: char,
+}
 
-impl<'a, const S: char> PathIter<'a, S> {
+impl<'a> PathIter<'a> {
     /// Create a new `PathIter`
     #[inline]
-    pub fn new(s: Option<&'a str>) -> Self {
-        Self(s)
+    pub fn new(data: Option<&'a str>, sep: char) -> Self {
+        Self { data, sep }
     }
 
     /// Create a new `PathIter` starting at the root.
     ///
     /// This calls `next()` once to pop everything up to and including the first separator.
     #[inline]
-    pub fn root(s: &'a str) -> Self {
-        let mut s = Self(Some(s));
+    pub fn root(data: &'a str, sep: char) -> Self {
+        let mut s = Self::new(Some(data), sep);
         // Skip the first part to disambiguate between
         // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
         // This is relevant in the case of e.g. `Option` and newtypes.
@@ -247,30 +248,30 @@ impl<'a, const S: char> PathIter<'a, S> {
     }
 }
 
-impl<'a, const S: char> Iterator for PathIter<'a, S> {
+impl<'a> Iterator for PathIter<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.map(|s| {
+        self.data.map(|s| {
             let pos = s
                 .chars()
-                .map_while(|c| (c != S).then_some(c.len_utf8()))
+                .map_while(|c| (c != self.sep).then_some(c.len_utf8()))
                 .sum();
             let (left, right) = s.split_at(pos);
-            self.0 = right.get(S.len_utf8()..);
+            self.data = right.get(self.sep.len_utf8()..);
             left
         })
     }
 }
 
-impl<const S: char> core::iter::FusedIterator for PathIter<'_, S> {}
+impl core::iter::FusedIterator for PathIter<'_> {}
 
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
-    type IntoKeys = <PathIter<'a, S> as IntoKeys>::IntoKeys;
+    type IntoKeys = <PathIter<'a> as IntoKeys>::IntoKeys;
 
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::root(self.0.as_ref()).into_keys()
+        PathIter::root(self.0.as_ref(), S).into_keys()
     }
 }
 
@@ -279,7 +280,7 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
 
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
-        Path(self.0.as_ref()).into_keys()
+        PathIter::root(self.0.as_ref(), S).into_keys()
     }
 }
 
@@ -315,7 +316,7 @@ mod test {
     fn strsplit() {
         use heapless::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_, 10> = PathIter::<'_, '/'>::root(p).collect();
+            let a: Vec<_, 10> = PathIter::root(p, '/').collect();
             let b: Vec<_, 10> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }

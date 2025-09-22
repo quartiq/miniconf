@@ -57,7 +57,7 @@ impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
 }
 
 #[derive(Clone)]
-struct ScpiPathIter<'a>(PathIter<'a, ':'>);
+struct ScpiPathIter<'a>(PathIter<'a>);
 
 impl<'a> Iterator for ScpiPathIter<'a> {
     type Item = ScpiKey<&'a str>;
@@ -73,7 +73,7 @@ impl<'a> IntoIterator for ScpiPath<'a> {
     type IntoIter = ScpiPathIter<'a>;
     type Item = ScpiKey<&'a str>;
     fn into_iter(self) -> Self::IntoIter {
-        ScpiPathIter(PathIter::new(self.0))
+        ScpiPathIter(PathIter::new(self.0, ':'))
     }
 }
 
