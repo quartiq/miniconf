@@ -75,7 +75,7 @@ pub mod leaf {
         ser: S,
     ) -> Result<S::Ok, SerdeError<S::Error>> {
         keys.finalize()?;
-        value.serialize(ser).map_err(SerdeError::Inner)
+        Serialize::serialize(value, ser).map_err(SerdeError::Inner)
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
@@ -85,7 +85,7 @@ pub mod leaf {
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
         keys.finalize()?;
-        *value = T::deserialize(de).map_err(SerdeError::Inner)?;
+        Deserialize::deserialize_in_place(de, value).map_err(SerdeError::Inner)?;
         Ok(())
     }
 
