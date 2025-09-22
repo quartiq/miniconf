@@ -1,7 +1,7 @@
 //! JSON Schema tools
 
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema};
-use serde_json::{Map, Value};
+use serde_json::Map;
 use serde_reflection::{
     ContainerFormat, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
 };
@@ -17,11 +17,6 @@ pub fn strictify(schema: &mut schemars::Schema) {
         if o.contains_key("prefixItems") {
             debug_assert_eq!(o.insert("items".to_string(), false.into()), None);
         }
-        if o.contains_key("items") {
-            if let Some(old) = o.insert("type".to_string(), "array".into()) {
-                debug_assert_eq!(old, "array");
-            }
-        }
         if let Some(k) = o.get("properties") {
             let k = k.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
             debug_assert_eq!(o.insert("required".to_string(), k.into()), None);
@@ -29,22 +24,6 @@ pub fn strictify(schema: &mut schemars::Schema) {
                 o.insert("additionalProperties".to_string(), false.into()),
                 None
             );
-        }
-        if o.contains_key("additionalProperties") {
-            if let Some(old) = o.insert("type".to_string(), "object".into()) {
-                debug_assert_eq!(old, "object");
-            }
-        }
-    }
-}
-
-/// Allow null for a x-internal
-pub fn internal_absent(schema: &mut schemars::Schema) {
-    if let Some(o) = schema.as_object_mut() {
-        if o.get("x-leaf") == Some(&true.into()) {
-            let v = o.get_mut("type").unwrap();
-            let Value::String(t) = v else { panic!() };
-            *v = Value::Array(vec![t.clone().into(), "null".into()]);
         }
     }
 }
@@ -78,14 +57,21 @@ impl ReflectJsonSchema for Format {
             Format::Str => str::json_schema(generator),
             Format::Bytes => <[u8]>::json_schema(generator),
             Format::Option(format) => {
-                json_schema!({"oneOf": [format.json_schema(generator)?, {"const": null}]})
+                json_schema!({"oneOf": [
+                    format.json_schema(generator)?,
+                    {"const": null}
+                ]})
             }
             Format::Seq(format) => json_schema!({"items": format.json_schema(generator)?}),
             Format::Map { key, value } => {
                 if matches!(**key, Format::Str) {
-                    json_schema!({"additionalProperties": value.json_schema(generator)?})
+                    json_schema!({
+                        "type": "object",
+                        "additionalProperties": value.json_schema(generator)?
+                    })
                 } else {
                     json_schema!({
+                        "type": "array",
                         "items": {
                             "prefixItems": [
                                 key.json_schema(generator)?,
@@ -97,6 +83,7 @@ impl ReflectJsonSchema for Format {
             }
             Format::Tuple(formats) => formats.json_schema(generator)?,
             Format::TupleArray { content, size } => json_schema!({
+                "type": "array",
                 "items": content.json_schema(generator)?,
                 "minItems": size,
                 "maxItems": size
@@ -112,6 +99,7 @@ impl ReflectJsonSchema for Vec<Named<Format>> {
             .map(|n| Some((n.name.to_string(), n.value.json_schema(generator)?.into())))
             .collect();
         Some(json_schema!({
+            "type": "object",
             "properties": items?,
         }))
     }
@@ -120,7 +108,10 @@ impl ReflectJsonSchema for Vec<Named<Format>> {
 impl ReflectJsonSchema for Vec<Format> {
     fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
         let items: Option<Vec<_>> = self.iter().map(|f| f.json_schema(generator)).collect();
-        Some(json_schema!({"prefixItems": items?}))
+        Some(json_schema!({
+            "type": "array",
+            "prefixItems": items?
+        }))
     }
 }
 
@@ -143,7 +134,10 @@ impl ReflectJsonSchema for ContainerFormat {
                             sch.insert("title".to_string(), n.name.clone().into());
                             sch
                         } else {
-                            json_schema!({"properties": {&n.name: sch}})
+                            json_schema!({
+                                "type": "object",
+                                "properties": {&n.name: sch}
+                            })
                         })
                     })
                     .collect();
@@ -175,11 +169,12 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                         .zip(&self.children)
                         .map(|(named, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "x-outer", &named.meta);
+                            push_meta(&mut sch, "tree-meta", &named.meta);
                             Some((named.name.to_string(), sch.into()))
                         })
                         .collect();
                     json_schema!({
+                        "type": "object",
                         "properties": items?,
                     })
                 }
@@ -189,33 +184,37 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                         .zip(&self.children)
                         .map(|(numbered, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "x-outer", &numbered.meta);
+                            push_meta(&mut sch, "tree-meta", &numbered.meta);
                             Some(sch)
                         })
                         .collect();
-                    json_schema!({"prefixItems": items?})
+                    json_schema!({
+                        "type": "array",
+                        "prefixItems": items?
+                    })
                 }
                 Internal::Homogeneous(homogeneous) => {
-                    let mut sch = json_schema!({
-                        "items": self.children[0].json_schema(generator)?,
+                    let mut sch = self.children[0].json_schema(generator)?;
+                    push_meta(&mut sch, "tree-meta", &homogeneous.meta);
+                    json_schema!({
+                        "type": "array",
+                        "items": sch,
                         "minItems": homogeneous.len,
                         "maxItems": homogeneous.len
-                    });
-                    push_meta(&mut sch, "x-outer", &homogeneous.meta);
-                    sch
+                    })
                 }
             }
         } else {
-            let mut sch = self.data.1.as_ref()?.json_schema(generator)?;
-            sch.insert("x-leaf".to_string(), true.into());
-            sch
+            self.data.1.as_ref()?.json_schema(generator)?
         };
-        push_meta(&mut sch, "x-inner", &self.data.0.meta);
+        sch = json_schema!({"oneOf": [sch, {"const": "__tree-absent__"}]});
+        push_meta(&mut sch, "tree-meta", &self.data.0.meta);
         if let Some(meta) = self.data.0.meta {
             #[cfg(feature = "meta-str")]
-            if let Some((_, typename)) = meta.iter().find(|(key, _)| *key == "typename") {
+            if let Some(name) = meta.iter().find_map(|(key, typename)| {
+                (*key == "typename").then_some(format!("tree-internal-{typename}"))
+            }) {
                 // Convert to named def reference
-                let name = format!("x-internal-{typename}");
                 if let Some(existing) = generator.definitions().get(&name) {
                     assert_eq!(existing, sch.as_value()); // typename not unique
                 } else {
@@ -233,12 +232,15 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
 fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
     if let Some(meta) = meta {
         #[cfg(feature = "meta-str")]
-        sch.insert(
-            key.to_string(),
-            meta.iter()
-                .map(|(k, v)| (k.to_string(), v.to_string().into()))
-                .collect::<Map<_, _>>()
-                .into(),
+        assert_eq!(
+            sch.insert(
+                key.to_string(),
+                meta.iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string().into()))
+                    .collect::<Map<_, _>>()
+                    .into(),
+            ),
+            None
         );
         #[cfg(not(any(feature = "meta-str")))]
         let _ = (sch, meta, key);
@@ -251,29 +253,34 @@ pub struct TreeJsonSchema<T> {
     pub types: Types<T>,
     /// Type registry built by tracing
     pub registry: serde_reflection::Registry,
+    /// Value samples gathered during tracing
+    pub samples: serde_reflection::Samples,
     /// JSON schema generator used
     pub generator: schemars::SchemaGenerator,
     /// Root JSON schema
     pub root: schemars::Schema,
 }
 
-impl<'de, T: TreeSerialize + TreeDeserialize<'de> + Default> TreeJsonSchema<T> {
+impl<'de, T: TreeSerialize + TreeDeserialize<'de>> TreeJsonSchema<T> {
     /// Convert a Tree into a JSON Schema
-    pub fn new() -> Result<Self, serde_reflection::Error> {
+    pub fn new(value: Option<&T>) -> Result<Self, serde_reflection::Error> {
         let mut types: Types<T> = Default::default();
         let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
 
         let mut samples = Samples::new();
 
-        // Trace using TreeSerialize
-        // If the value does not contain a value for a leaf node (e.g. KeyError::Absent),
-        // it will leave the leaf node format unresolved.
-        let value = T::default();
-        types.trace_values(&mut tracer, &mut samples, &value)?;
+        if let Some(value) = value {
+            // Trace using TreeSerialize
+            // If the value does not contain a value for a leaf node (e.g. KeyError::Absent),
+            // it will leave the leaf node format unresolved.
+            types.trace_values(&mut tracer, &mut samples, value)?;
+        }
 
         // Trace using TreeDeserialize assuming no samples are needed
         // If the Deserialize can't conjure up a value, it will leave the leaf node format unresolved.
         types.trace_types_simple(&mut tracer)?;
+
+        //types.trace_types(&mut tracer, &samples)?;
 
         let registry = tracer.registry()?;
 
@@ -294,6 +301,7 @@ impl<'de, T: TreeSerialize + TreeDeserialize<'de> + Default> TreeJsonSchema<T> {
         }
         Ok(Self {
             types,
+            samples,
             registry,
             generator,
             root,
