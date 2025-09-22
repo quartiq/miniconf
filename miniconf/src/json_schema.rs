@@ -288,7 +288,13 @@ impl<'de, T: TreeSerialize + TreeDeserialize<'de>> TreeJsonSchema<T> {
     /// Convert a Tree into a JSON Schema
     pub fn new(value: Option<&T>) -> Result<Self, serde_reflection::Error> {
         let mut types: Types<T> = Default::default();
-        let mut tracer = Tracer::new(TracerConfig::default().is_human_readable(true));
+        let mut tracer = Tracer::new(
+            TracerConfig::default()
+                .is_human_readable(true)
+                .record_samples_for_newtype_structs(true)
+                .record_samples_for_structs(true)
+                .record_samples_for_tuple_structs(true),
+        );
 
         let mut samples = Samples::new();
 
@@ -298,8 +304,6 @@ impl<'de, T: TreeSerialize + TreeDeserialize<'de>> TreeJsonSchema<T> {
             // it will leave the leaf node format unresolved.
             types.trace_values(&mut tracer, &mut samples, value)?;
         }
-
-        println!("{:?}", &samples);
 
         // Trace using TreeDeserialize assuming no samples are needed
         // If the Deserialize can't conjure up a value, it will leave the leaf node format unresolved.
