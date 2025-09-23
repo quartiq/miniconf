@@ -1,11 +1,8 @@
-use core::{
-    fmt::Write,
-    ops::{ControlFlow::*, Deref, DerefMut},
-};
+use core::{fmt::Write, ops::ControlFlow::*};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
+use crate::{DescendError, IntoKeys, KeysIter, Schema, Transcode};
 
 /// JSON style path notation iterator
 ///
@@ -21,11 +18,11 @@ use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 ///     "['foo']['bar'][4]['baz'][5][6]",
 ///     ".foo['bar'].4.'baz'['5'].'6'",
 /// ] {
-///     assert_eq!(&path[..], JsonPathIter::from(valid).collect::<Vec<_>>());
+///     assert_eq!(&path[..], JsonPathIter::new(valid).collect::<Vec<_>>());
 /// }
 ///
 /// for short in ["'", "[", "['"] {
-///     assert!(JsonPathIter::from(short).next().is_none());
+///     assert!(JsonPathIter::new(short).next().is_none());
 /// }
 /// ```
 ///
@@ -38,27 +35,17 @@ use crate::{IntoKeys, KeysIter, Node, Transcode, Traversal, TreeKey};
 #[serde(transparent)]
 pub struct JsonPathIter<'a>(&'a str);
 
+impl<'a> JsonPathIter<'a> {
+    /// Interpret a str as a JSON path to be iterated over.
+    pub fn new(value: &'a str) -> Self {
+        Self(value)
+    }
+}
+
 impl core::fmt::Display for JsonPathIter<'_> {
     #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
-    }
-}
-
-impl<'a, T> From<&'a T> for JsonPathIter<'a>
-where
-    T: AsRef<str> + ?Sized,
-{
-    #[inline]
-    fn from(value: &'a T) -> Self {
-        Self(value.as_ref())
-    }
-}
-
-impl<'a> From<JsonPathIter<'a>> for &'a str {
-    #[inline]
-    fn from(value: JsonPathIter<'a>) -> Self {
-        value.0
     }
 }
 
@@ -102,33 +89,11 @@ impl core::iter::FusedIterator for JsonPathIter<'_> {}
 #[serde(transparent)]
 pub struct JsonPath<T: ?Sized>(pub T);
 
-impl<T> From<T> for JsonPath<T> {
-    #[inline]
-    fn from(value: T) -> Self {
-        Self(value)
-    }
-}
-
 impl<T> JsonPath<T> {
     /// Extract the inner value
     #[inline]
     pub fn into_inner(self) -> T {
         self.0
-    }
-}
-
-impl<T: ?Sized> Deref for JsonPath<T> {
-    type Target = T;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl<T: ?Sized> DerefMut for JsonPath<T> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -143,30 +108,31 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
     type IntoKeys = KeysIter<JsonPathIter<'a>>;
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
-        JsonPathIter::from(self.0.as_ref()).into_keys()
+        JsonPathIter(self.0.as_ref()).into_keys()
     }
 }
 
 impl<T: Write + ?Sized> Transcode for JsonPath<T> {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |index, name, _len| {
-            match name {
-                Some(name) => {
+    type Error = core::fmt::Error;
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_meta, idx_internal| {
+            if let Some((index, internal)) = idx_internal {
+                if let Some(name) = internal.get_name(index) {
                     debug_assert!(!name.contains(['.', '\'', '[', ']']));
-                    self.0.write_char('.').and_then(|()| self.0.write_str(name))
+                    self.0.write_char('.')?;
+                    self.0.write_str(name)?;
+                } else {
+                    self.0.write_char('[')?;
+                    self.0.write_str(itoa::Buffer::new().format(index))?;
+                    self.0.write_char(']')?;
                 }
-                None => self
-                    .0
-                    .write_char('[')
-                    .and_then(|()| self.0.write_str(itoa::Buffer::new().format(index)))
-                    .and_then(|()| self.0.write_char(']')),
             }
-            .or(Err(()))
+            Ok(())
         })
-        .try_into()
     }
 }

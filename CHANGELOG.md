@@ -6,6 +6,47 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [UNRELEASED](https://github.com/quartiq/miniconf/compare/v0.19.0...HEAD) - DATE
+
+### Added
+
+* `const SCHEMA` with `Shape` statically known
+* Reflective tracing and leaf schema discovery, schema graph conversion tooling
+* JSON Schema generation both for leaves and the entire tree structure
+* Trait impls for `heapless::{Vec, String}`, and `core/alloc/std` leaf types
+  This removes the need for `Leaf` newtype usage in many cases.
+* impl specific `Transcode::Error`
+* `mod passthrough/str_leaf/leaf/deny` for composition with `#[tree(with=...)]`
+* `meta-str` feature: Inner and outer metadata in `Schema`, including
+  on-demand docstring to `Meta` entry conversion.
+* `miniconf::json` using `serde_json`
+
+### Changed
+
+* `TreeKey` -> `TreeSchema` with several design changes, including
+  `TreeKey::traverse_all()` -> `Schema::visit()`, `TreeKey::traverse()` -> `Schema::descend()`
+* `#[tree(with=module_path)]` only takes one module to cover all operations.
+  This supports simpler composition of handlers.
+* Errors reorganization: `Traversal` -> `KeyError`/`ValueError` and
+  `Error` -> `SerdeError`/`DescendError`.
+  This makes several matches naturally exhaustive.
+* Removal of the depth field on errors and `NodeIter` items.
+  Use `Keys::track()``Keys::short()` to obtain termination depth and node type.
+* `Indices` keeps depth
+* `NodeIter` is not generic over the `Tree*` type anymore
+* Lots of `const`-ness with `const SCHEMA`.
+* Converted several named generics (`<K: Keys>(keys: K)`)
+  to anonymous inline generics (`keys: impl Keys`)
+* `miniconf::json` -> `miniconf::json_core`
+
+### Removed
+
+* `menu` and `postcard_schema` examples
+* `Deny`, `StrLeaf` newtypes
+* `Node` and `NodeType`: see `Track`/`Short`
+* `#[tree(deny(...))]` in favor of composition using `with=module_path` and `mod deny`
+* Several potentially confusing `Deref`/`DerefMut`/`From` impls on newtypes.
+
 ## [0.19.0](https://github.com/quartiq/miniconf/compare/v0.18.0...v0.19.0) - 2025-05-20
 
 ### Added

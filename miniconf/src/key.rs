@@ -1,149 +1,40 @@
-use core::{iter::Fuse, num::NonZero};
+use core::{convert::Infallible, iter::Fuse};
 
 use serde::Serialize;
 
-use crate::Traversal;
+use crate::{DescendError, Internal, KeyError, Schema};
 
-/// Data to look up field names and convert to indices
-///
-/// This struct used together with [`crate::TreeKey`].
-#[derive(Clone, Debug, PartialEq, PartialOrd, Hash, Serialize)]
-pub enum KeyLookup {
-    /// Named children
-    Named(&'static [&'static str]),
-    /// Numbered heterogeneous children
-    Numbered(NonZero<usize>),
-    /// Homogeneous numbered children
-    Homogeneous(NonZero<usize>),
-}
-
-impl KeyLookup {
-    /// Return a named KeyLookup
-    #[inline]
-    pub const fn named(names: &'static [&'static str]) -> Self {
-        if names.is_empty() {
-            panic!("Must have at least one child");
-        }
-        Self::Named(names)
-    }
-
-    /// Return a homogenenous, unnamed KeyLookup
-    #[inline]
-    pub const fn homogeneous(len: usize) -> Self {
-        match NonZero::new(len) {
-            Some(len) => Self::Homogeneous(len),
-            None => panic!("Must have at least one child"),
-        }
-    }
-
-    /// Return a heterogeneous numbered KeyLookup
-    #[inline]
-    pub const fn numbered(len: usize) -> Self {
-        match NonZero::new(len) {
-            Some(len) => Self::Numbered(len),
-            None => panic!("Must have at least one child"),
-        }
-    }
-
-    /// Return the number of elements in the lookup
-    #[inline]
-    pub const fn len(&self) -> NonZero<usize> {
-        match self {
-            Self::Named(names) => match NonZero::new(names.len()) {
-                Some(len) => len,
-                None => panic!("Must have at least one child"),
-            },
-            Self::Numbered(len) | Self::Homogeneous(len) => *len,
-        }
-    }
-
-    /// Perform a index-to-name lookup
-    #[inline]
-    pub fn lookup(&self, index: usize) -> Result<Option<&'static str>, Traversal> {
-        match self {
-            Self::Named(names) => match names.get(index) {
-                Some(name) => Ok(Some(name)),
-                None => Err(Traversal::NotFound(1)),
-            },
-            Self::Numbered(len) | Self::Homogeneous(len) => {
-                if index >= len.get() {
-                    Err(Traversal::NotFound(1))
-                } else {
-                    Ok(None)
-                }
-            }
-        }
-    }
-}
-
-/// Convert a `&str` key into a node index on a `KeyLookup`
+/// Convert a key into a node index given an internal node schema
 pub trait Key {
     /// Convert the key `self` to a `usize` index
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal>;
+    fn find(&self, internal: &Internal) -> Option<usize>;
 }
 
-impl<T: Key> Key for &T
-where
-    T: Key + ?Sized,
-{
+impl<T: Key + ?Sized> Key for &T {
     #[inline]
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        (**self).find(lookup)
+    fn find(&self, internal: &Internal) -> Option<usize> {
+        (**self).find(internal)
     }
 }
 
-impl<T: Key> Key for &mut T
-where
-    T: Key + ?Sized,
-{
+impl<T: Key + ?Sized> Key for &mut T {
     #[inline]
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        (**self).find(lookup)
-    }
-}
-
-// index
-macro_rules! impl_key_integer {
-    ($($t:ty)+) => {$(
-        impl Key for $t {
-            #[inline]
-            fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-                (*self)
-                    .try_into()
-                    .ok()
-                    .filter(|i| *i < lookup.len().get())
-                    .ok_or(Traversal::NotFound(1))
-            }
-        }
-    )+};
-}
-impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
-
-// name
-impl Key for str {
-    #[inline]
-    fn find(&self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        match lookup {
-            KeyLookup::Named(names) => names.iter().position(|n| *n == self),
-            KeyLookup::Homogeneous(len) | KeyLookup::Numbered(len) => {
-                self.parse().ok().filter(|i| *i < len.get())
-            }
-        }
-        .ok_or(Traversal::NotFound(1))
+    fn find(&self, internal: &Internal) -> Option<usize> {
+        (**self).find(internal)
     }
 }
 
 /// Capability to yield and look up [`Key`]s
 pub trait Keys {
-    /// Look up the next key in a [`KeyLookup`] and convert to `usize` index.
+    /// Look up the next key in a [`Internal`] and convert to `usize` index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal>;
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError>;
 
     /// Finalize the keys, ensure there are no more.
     ///
     /// This must be fused.
-    fn finalize(&mut self) -> Result<(), Traversal>;
+    fn finalize(&mut self) -> Result<(), KeyError>;
 
     /// Chain another `Keys` to this one.
     #[inline]
@@ -153,20 +44,258 @@ pub trait Keys {
     {
         Chain(self, other.into_keys())
     }
+
+    /// Track depth
+    #[inline]
+    fn track(self) -> Track<Self>
+    where
+        Self: Sized,
+    {
+        Track {
+            inner: self,
+            depth: 0,
+        }
+    }
+
+    /// Track whether a leaf node is reached
+    #[inline]
+    fn short(self) -> Short<Self>
+    where
+        Self: Sized,
+    {
+        Short {
+            inner: self,
+            leaf: false,
+        }
+    }
 }
 
-impl<T> Keys for &mut T
-where
-    T: Keys + ?Sized,
-{
+impl<T: Keys + ?Sized> Keys for &mut T {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        (**self).next(lookup)
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        (**self).next(internal)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
+    fn finalize(&mut self) -> Result<(), KeyError> {
         (**self).finalize()
+    }
+}
+
+/// Be converted into a `Keys`
+pub trait IntoKeys {
+    /// The specific `Keys` implementor.
+    type IntoKeys: Keys;
+
+    /// Convert `self` into a `Keys` implementor.
+    fn into_keys(self) -> Self::IntoKeys;
+}
+
+/// Look up an `IntoKeys` in a `Schema` and transcode it.
+pub trait Transcode {
+    /// The possible error when transcoding.
+    ///
+    /// Use this to indicate no space or unencodable/invalid values
+    type Error;
+
+    /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
+    ///
+    /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
+    /// It returns a `Node` with node type and depth information.
+    ///
+    /// Returning `Err(ValueError::Absent)` indicates that there was insufficient
+    /// capacity and a key could not be encoded at the given depth.
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>>;
+}
+
+impl<T: Transcode + ?Sized> Transcode for &mut T {
+    type Error = T::Error;
+    #[inline]
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        (**self).transcode(schema, keys)
+    }
+}
+
+/// Track leaf node encounter
+///
+/// This records whether a leaf node has been reached during [`Keys`] and [`Transcode`].
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Short<K> {
+    /// The inner Keys
+    inner: K,
+    /// The inner keys terminates at a leaf node
+    leaf: bool,
+}
+
+impl<K> Short<K> {
+    /// Create a new `Short`
+    #[inline]
+    pub fn new(inner: K) -> Self {
+        Self { inner, leaf: false }
+    }
+
+    /// Whether a leaf node as been encountered
+    #[inline]
+    pub fn leaf(&self) -> bool {
+        self.leaf
+    }
+
+    /// Borrow the inner `Keys`
+    #[inline]
+    pub fn inner(&self) -> &K {
+        &self.inner
+    }
+
+    /// Split into inner `Keys` and leaf node flag
+    #[inline]
+    pub fn into_inner(self) -> (K, bool) {
+        (self.inner, self.leaf)
+    }
+}
+
+impl<K: Keys> IntoKeys for &mut Short<K> {
+    type IntoKeys = Self;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        self.leaf = false;
+        self
+    }
+}
+
+impl<K: Keys> Keys for Short<K> {
+    #[inline]
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        self.inner.next(internal)
+    }
+
+    #[inline]
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        self.inner.finalize()?;
+        self.leaf = true;
+        Ok(())
+    }
+}
+
+impl<T: Transcode> Transcode for Short<T> {
+    type Error = T::Error;
+
+    #[inline]
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        self.leaf = false;
+        match self.inner.transcode(schema, keys) {
+            Err(DescendError::Key(KeyError::TooShort)) => Ok(()),
+            Ok(()) | Err(DescendError::Key(KeyError::TooLong)) => {
+                self.leaf = true;
+                Ok(())
+            }
+            ret => ret,
+        }
+    }
+}
+
+/// Track key depth
+///
+/// This tracks the depth during [`Keys`] and [`Transcode`].
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
+pub struct Track<K> {
+    /// The inner keys
+    inner: K,
+    /// The keys terminate at the given depth
+    depth: usize,
+}
+
+impl<K> Track<K> {
+    /// Create a new `Track`
+    #[inline]
+    pub fn new(inner: K) -> Self {
+        Self { inner, depth: 0 }
+    }
+
+    /// Whether a leaf node as been encountered
+    #[inline]
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+
+    /// Borrow the inner `Keys`
+    #[inline]
+    pub fn inner(&self) -> &K {
+        &self.inner
+    }
+
+    /// Split into inner `Keys` and leaf node flag
+    #[inline]
+    pub fn into_inner(self) -> (K, usize) {
+        (self.inner, self.depth)
+    }
+}
+
+impl<K: Keys> IntoKeys for &mut Track<K> {
+    type IntoKeys = Self;
+
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        self.depth = 0;
+        self
+    }
+}
+
+impl<K: Keys> Keys for Track<K> {
+    #[inline]
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let k = self.inner.next(internal);
+        if k.is_ok() {
+            self.depth += 1;
+        }
+        k
+    }
+
+    #[inline]
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        self.inner.finalize()
+    }
+}
+
+impl<T: Transcode> Transcode for Track<T> {
+    type Error = T::Error;
+
+    #[inline]
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        self.depth = 0;
+        let mut tracked = keys.into_keys().track();
+        let ret = self.inner.transcode(schema, &mut tracked);
+        self.depth = tracked.depth;
+        ret
+    }
+}
+
+/// Shim to provide the bare lookup/Track/Short without transcoding target
+impl Transcode for () {
+    type Error = Infallible;
+    #[inline]
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_, _| Ok(()))
     }
 }
 
@@ -188,27 +317,18 @@ where
     T::Item: Key,
 {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        self.0.next().ok_or(Traversal::TooShort(0))?.find(lookup)
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let n = self.0.next().ok_or(KeyError::TooShort)?;
+        n.find(internal).ok_or(KeyError::NotFound)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        self.0
-            .next()
-            .is_none()
-            .then_some(())
-            .ok_or(Traversal::TooLong(0))
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        match self.0.next() {
+            Some(_) => Err(KeyError::TooLong),
+            None => Ok(()),
+        }
     }
-}
-
-/// Be converted into a `Keys`
-pub trait IntoKeys {
-    /// The specific `Keys` implementor.
-    type IntoKeys: Keys;
-
-    /// Convert `self` into a `Keys` implementor.
-    fn into_keys(self) -> Self::IntoKeys;
 }
 
 impl<T> IntoKeys for T
@@ -240,26 +360,18 @@ where
 /// Concatenate two `Keys` of different types
 pub struct Chain<T, U>(T, U);
 
-impl<T, U> Chain<T, U> {
-    /// Return a new concatenated `Keys`
-    #[inline]
-    pub fn new(t: T, u: U) -> Self {
-        Self(t, u)
-    }
-}
-
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        match self.0.next(lookup) {
-            Err(Traversal::TooShort(_)) => self.1.next(lookup),
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        match self.0.next(internal) {
+            Err(KeyError::TooShort) => self.1.next(internal),
             ret => ret,
         }
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        self.0.finalize().and_then(|()| self.1.finalize())
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        self.0.finalize().and_then(|_| self.1.finalize())
     }
 }
 

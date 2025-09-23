@@ -1,18 +1,18 @@
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput};
+use syn::{DeriveInput, parse_macro_input};
 
 mod field;
 mod tree;
 use tree::Tree;
 
-/// Derive the `TreeKey` trait for a struct or enum.
+/// Derive the `TreeSchema` trait for a struct or enum.
 ///
 /// This also derives `KeyLookup` if necessary.
-#[proc_macro_derive(TreeKey, attributes(tree))]
-pub fn derive_tree_key(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(TreeSchema, attributes(tree))]
+pub fn derive_tree_schema(input: TokenStream) -> TokenStream {
     match Tree::from_derive_input(&parse_macro_input!(input as DeriveInput)) {
-        Ok(t) => t.tree_key(),
+        Ok(t) => t.tree_schema(),
         Err(e) => e.write_errors(),
     }
     .into()
@@ -48,14 +48,14 @@ pub fn derive_tree_any(input: TokenStream) -> TokenStream {
     .into()
 }
 
-/// Derive the `TreeKey`, `TreeSerialize`, `TreeDeserialize`, and `TreeAny` traits for a struct or enum.
+/// Derive the `TreeSchema`, `TreeSerialize`, `TreeDeserialize`, and `TreeAny` traits for a struct or enum.
 ///
 /// This is a shorthand to derive multiple traits.
 #[proc_macro_derive(Tree, attributes(tree))]
 pub fn derive_tree(input: TokenStream) -> TokenStream {
     match Tree::from_derive_input(&parse_macro_input!(input as DeriveInput)) {
         Ok(t) => [
-            t.tree_key(),
+            t.tree_schema(),
             t.tree_serialize(),
             t.tree_deserialize(),
             t.tree_any(),

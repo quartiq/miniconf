@@ -10,8 +10,10 @@ mod error;
 pub use error::*;
 mod key;
 pub use key::*;
-mod node;
-pub use node::*;
+mod schema;
+pub use schema::*;
+mod shape;
+pub use shape::*;
 mod packed;
 pub use packed::*;
 mod jsonpath;
@@ -21,20 +23,29 @@ pub use tree::*;
 mod iter;
 pub use iter::*;
 mod impls;
-mod leaf;
-pub use leaf::*;
-mod walk;
-pub use walk::*;
+pub use impls::*;
 
 #[cfg(feature = "derive")]
 pub use miniconf_derive::*;
 
 #[cfg(feature = "json-core")]
+pub mod json_core;
+
+#[cfg(feature = "json")]
 pub mod json;
 
 #[cfg(feature = "postcard")]
 pub mod postcard;
 
+#[cfg(feature = "alloc")]
+extern crate alloc;
+
+#[cfg(feature = "trace")]
+pub mod trace;
+
+#[cfg(feature = "schema")]
+pub mod json_schema;
+
 // re-export for proc-macro
 #[doc(hidden)]
-pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
+pub use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeSeed};

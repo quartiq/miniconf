@@ -14,4 +14,4 @@ This package contains a MQTT client exposing a [`miniconf`](https://crates.io/cr
 
 ## Notes
 
-* `List` list paths that would result in `miniconf::Traversal::Absent` on `Get` or `Set`.
+* `List` lists paths that would result in `miniconf::ValueError::Absent` on `Get` or `Set`.

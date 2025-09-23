@@ -1,9 +1,6 @@
-use core::{
-    num::NonZero,
-    ops::{Deref, DerefMut},
-};
+use core::num::NonZero;
 
-use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey};
+use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
 /// A bit-packed representation of multiple indices.
 ///
@@ -38,8 +35,8 @@ use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey}
 /// and stability properties.
 ///
 /// `Packed` can be used to uniquely identify
-/// nodes in a `TreeKey` using only a very small amount of bits.
-/// For many realistic `TreeKey`s a `u16` or even a `u8` is sufficient
+/// nodes in a `TreeSchema` using only a very small amount of bits.
+/// For many realistic `TreeSchema`s a `u16` or even a `u8` is sufficient
 /// to hold a `Packed` in LSB notation. Together with the
 /// `postcard` `serde` format, this then gives access to any node in a nested
 /// heterogeneous `Tree` with just a `u16` or `u8` as compact key and `[u8]` as
@@ -66,42 +63,12 @@ use crate::{IntoKeys, Key, KeyLookup, Keys, Node, Transcode, Traversal, TreeKey}
 )]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Packed(NonZero<usize>);
+pub struct Packed(pub NonZero<usize>);
 
 impl Default for Packed {
     #[inline]
     fn default() -> Self {
         Self::EMPTY
-    }
-}
-
-impl From<NonZero<usize>> for Packed {
-    #[inline]
-    fn from(value: NonZero<usize>) -> Self {
-        Self(value)
-    }
-}
-
-impl From<Packed> for NonZero<usize> {
-    #[inline]
-    fn from(value: Packed) -> Self {
-        value.0
-    }
-}
-
-impl Deref for Packed {
-    type Target = NonZero<usize>;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Packed {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -140,6 +107,12 @@ impl Packed {
             Some(value) => Some(Self::from_lsb(value)),
             None => None,
         }
+    }
+
+    /// The primitive value
+    #[inline]
+    pub const fn get(&self) -> usize {
+        self.0.get()
     }
 
     /// The value is empty.
@@ -227,7 +200,7 @@ impl Packed {
     /// * `value`: Value to push. `value >> bits == 0`
     pub fn push_lsb(&mut self, bits: u32, value: usize) -> Option<u32> {
         debug_assert_eq!(value >> bits, 0);
-        let mut n = self.trailing_zeros();
+        let mut n = self.0.trailing_zeros();
         let old_marker = 1 << n;
         Self::new(old_marker >> bits).map(|new_marker| {
             n -= bits;
@@ -250,15 +223,19 @@ impl core::fmt::Display for Packed {
 
 impl Keys for Packed {
     #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        let bits = Self::bits_for(lookup.len().get() - 1);
-        let index = self.pop_msb(bits).ok_or(Traversal::TooShort(0))?;
-        index.find(lookup)
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let bits = Self::bits_for(internal.len().get() - 1);
+        let index = self.pop_msb(bits).ok_or(KeyError::TooShort)?;
+        index.find(internal).ok_or(KeyError::NotFound)
     }
 
     #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        self.is_empty().then_some(()).ok_or(Traversal::TooLong(0))
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(KeyError::TooLong)
+        }
     }
 }
 
@@ -272,19 +249,20 @@ impl IntoKeys for Packed {
 }
 
 impl Transcode for Packed {
-    fn transcode<M, K>(&mut self, keys: K) -> Result<Node, Traversal>
-    where
-        Self: Sized,
-        M: TreeKey + ?Sized,
-        K: IntoKeys,
-    {
-        M::traverse_by_key(keys.into_keys(), |index, _name, len| {
-            match self.push_lsb(Packed::bits_for(len.get() - 1), index) {
-                None => Err(()),
-                Some(_) => Ok(()),
+    type Error = ();
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, internal)) = idx_schema {
+                let bits = Packed::bits_for(internal.len().get() - 1);
+                self.push_lsb(bits, index).ok_or(())?;
             }
+            Ok(())
         })
-        .try_into()
     }
 }
 

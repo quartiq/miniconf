@@ -11,7 +11,7 @@ and access within a tree of heterogeneous types by keys.
 ## Example
 
 See below for an example showing some of the features of the `Tree*` traits.
-See also the documentation and doctests of the [`TreeKey`] trait for a detailed description.
+See also the documentation and doctests of the [`TreeSchema`] trait for a detailed description.
 
 Note that the example below focuses on JSON and slash-separated paths while in fact
 any `serde` backend (or `dyn Any` trait objects) and many different `Keys`/`Transcode`
@@ -19,12 +19,12 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{Error, json, JsonPath, Traversal, Tree, TreeKey, Path, Packed, Node, Leaf, Metadata};
+use miniconf::{SerdeError, json_core, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Shape, leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
-    a: Leaf<i32>,
-    b: Leaf<i32>,
+    a: i32,
+    b: u16,
 }
 
 #[derive(Deserialize, Serialize, Default, Tree)]
@@ -32,18 +32,22 @@ pub enum Either {
     #[default]
     Bad,
     Good,
-    A(Leaf<i32>),
+    A(i32),
     B(Inner),
     C([Inner; 2]),
 }
 
 #[derive(Tree, Default)]
 pub struct Settings {
-    foo: Leaf<bool>,
-    enum_: Leaf<Either>,
-    struct_: Leaf<Inner>,
-    array: Leaf<[i32; 2]>,
-    option: Leaf<Option<i32>>,
+    foo: bool,
+    #[tree(with=leaf)]
+    enum_: Either,
+    #[tree(with=leaf)]
+    struct_: Inner,
+    #[tree(with=leaf)]
+    array: [i32; 2],
+    #[tree(with=leaf)]
+    option: Option<i32>,
 
     #[tree(skip)]
     #[allow(unused)]
@@ -51,10 +55,10 @@ pub struct Settings {
 
     struct_tree: Inner,
     enum_tree: Either,
-    array_tree: [Leaf<i32>; 2],
+    array_tree: [i32; 2],
     array_tree2: [Inner; 2],
-    tuple_tree: (Leaf<i32>, Inner),
-    option_tree: Option<Leaf<i32>>,
+    tuple_tree: (i32, Inner),
+    option_tree: Option<i32>,
     option_tree2: Option<Inner>,
     array_option_tree: [Option<Inner>; 2],
 }
@@ -62,68 +66,67 @@ pub struct Settings {
 let mut settings = Settings::default();
 
 // Access nodes by field name
-json::set(&mut settings,"/foo", b"true")?;
-assert_eq!(*settings.foo, true);
-json::set(&mut settings, "/enum_", br#""Good""#)?;
-json::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
-json::set(&mut settings, "/array", b"[6, 6]")?;
-json::set(&mut settings, "/option", b"12")?;
-json::set(&mut settings, "/option", b"null")?;
+json_core::set(&mut settings,"/foo", b"true")?;
+assert_eq!(settings.foo, true);
+json_core::set(&mut settings, "/enum_", br#""Good""#)?;
+json_core::set(&mut settings, "/struct_", br#"{"a": 3, "b": 3}"#)?;
+json_core::set(&mut settings, "/array", b"[6, 6]")?;
+json_core::set(&mut settings, "/option", b"12")?;
+json_core::set(&mut settings, "/option", b"null")?;
 
 // Nodes inside containers
 // ... by field name in a struct
-json::set(&mut settings, "/struct_tree/a", b"4")?;
+json_core::set(&mut settings, "/struct_tree/a", b"4")?;
 // ... or by index in an array
-json::set(&mut settings, "/array_tree/0", b"7")?;
+json_core::set(&mut settings, "/array_tree/0", b"7")?;
 // ... or by index and then struct field name
-json::set(&mut settings, "/array_tree2/0/a", b"11")?;
+json_core::set(&mut settings, "/array_tree2/0/a", b"11")?;
 // ... or by hierarchical index
-json::set_by_key(&mut settings, [8, 0, 1], b"8")?;
+json_core::set_by_key(&mut settings, [8, 0, 1], b"8")?;
 // ... or by packed index
-let (packed, node): (Packed, _) = Settings::transcode([8, 1, 0]).unwrap();
+let packed: Packed = Settings::SCHEMA.transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
-assert_eq!(node, Node::leaf(3));
-json::set_by_key(&mut settings, packed, b"9")?;
+json_core::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
-json::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
+json_core::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
-assert_eq!(json::set(&mut settings, "/option_tree", b"13"), Err(Traversal::Absent(1).into()));
-settings.option_tree = Some(0.into());
-json::set(&mut settings, "/option_tree", b"13")?;
+assert_eq!(json_core::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
+settings.option_tree = Some(0);
+json_core::set(&mut settings, "/option_tree", b"13")?;
 // Hiding a path and descending into the inner `Tree`
 settings.option_tree2 = Some(Inner::default());
-json::set(&mut settings, "/option_tree2/a", b"14")?;
+json_core::set(&mut settings, "/option_tree2/a", b"14")?;
 // Hiding items of an array of `Tree`s
 settings.array_option_tree[1] = Some(Inner::default());
-json::set(&mut settings, "/array_option_tree/1/a", b"15")?;
+json_core::set(&mut settings, "/array_option_tree/1/a", b"15")?;
 
 let mut buf = [0; 16];
 
 // Serializing nodes by path
-let len = json::get(&settings, "/struct_", &mut buf).unwrap();
+let len = json_core::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-let meta: Metadata = Settings::traverse_all();
-assert!(meta.max_depth <= 6);
-assert!(meta.max_length("/") <= 32);
+const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+const MAX_LENGTH: usize = Settings::SCHEMA.shape().max_length("/");
+assert!(MAX_DEPTH <= 6);
+assert!(MAX_LENGTH <= 32);
 
 // Iterating over all leaf paths
-for path in Settings::nodes::<Path<heapless::String<32>, '/'>, 6>() {
-    let (path, node) = path.unwrap();
-    assert!(node.is_leaf());
+for path in Settings::SCHEMA.nodes::<Path<heapless::String<MAX_LENGTH>, '/'>, MAX_DEPTH>() {
+    let path = path.unwrap().0;
     // Serialize each
-    match json::get(&settings, &path, &mut buf) {
+    match json_core::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again
-        Ok(len) => { json::set(&mut settings, &path, &buf[..len])?; }
+        Ok(len) => { json_core::set(&mut settings, &path, &buf[..len])?; }
         // Some Options are `None`, some enum variants are absent
-        Err(Error::Traversal(Traversal::Absent(_))) => {}
+        Err(SerdeError::Value(ValueError::Absent)) => {}
         e => { e.unwrap(); }
     }
 }
 
-# Ok::<(), Error<serde_json_core::de::Error>>(())
+# Ok::<(), SerdeError<serde_json_core::de::Error>>(())
 ```
 
 ## Settings management
@@ -164,15 +167,15 @@ python -m miniconf -d quartiq/application/+ /foo=true
 
 ## Derive macros
 
-For structs `miniconf` offers derive macros for [`macro@TreeKey`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and [`macro@TreeAny`].
-The macros implements the [`TreeKey`], [`TreeSerialize`], [`TreeDeserialize`], and [`TreeAny`] traits.
+For structs `miniconf` offers derive macros for [`macro@TreeSchema`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and [`macro@TreeAny`].
+The macros implements the [`TreeSchema`], [`TreeSerialize`], [`TreeDeserialize`], and [`TreeAny`] traits.
 Fields/variants that form internal nodes (non-leaf) need to implement the respective `Tree{Key,Serialize,Deserialize,Any}` trait.
 Leaf fields/items need to support the respective [`serde`] (and the desired `serde::Serializer`/`serde::Deserializer`
 backend) or [`core::any`] trait.
 
 Structs, enums, arrays, Options, and many other containers can then be cascaded to construct more complex trees.
 
-See also the [`TreeKey`] trait documentation for details.
+See also the [`TreeSchema`] trait documentation for details.
 
 ## Keys and paths
 

@@ -1,4 +1,4 @@
-use miniconf::{Leaf, Metadata, Node, Path, Traversal, Tree, TreeKey};
+use miniconf::{KeyError, Path, Shape, Tree, TreeSchema};
 
 #[derive(Default)]
 pub struct SkippedType;
@@ -8,26 +8,26 @@ struct Settings {
     #[tree(skip)]
     _long_skipped_type: SkippedType,
 
-    value: Leaf<f32>,
+    value: f32,
 }
 
 #[test]
 fn meta() {
-    let meta: Metadata = Settings::traverse_all();
-    assert_eq!(meta.max_depth, 1);
-    assert_eq!(meta.max_length("/"), "/value".len());
-    assert_eq!(meta.count.get(), 1);
+    const SHAPE: Shape = Settings::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 1);
+    assert_eq!(SHAPE.max_length("/"), "/value".len());
+    assert_eq!(SHAPE.count.get(), 1);
 }
 
 #[test]
 fn path() {
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([0usize]),
-        Ok((Path("/value".to_owned()), Node::leaf(1)))
+        Settings::SCHEMA.transcode::<Path<String, '/'>>([0usize]),
+        Ok(Path("/value".to_owned()))
     );
     assert_eq!(
-        Settings::transcode::<Path<String, '/'>, _>([1usize]),
-        Err(Traversal::NotFound(1))
+        Settings::SCHEMA.transcode::<Path<String, '/'>>([1usize]),
+        Err(KeyError::NotFound.into())
     );
 }
 
@@ -36,5 +36,5 @@ fn skip_struct() {
     #[allow(dead_code)]
     #[derive(Tree)]
     #[tree(flatten)]
-    pub struct S(Leaf<i32>, #[tree(skip)] i32);
+    pub struct S(i32, #[tree(skip)] i32);
 }

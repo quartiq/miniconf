@@ -1,8 +1,8 @@
-use core::{any::Any, num::NonZero};
+use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
+use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -12,8 +12,8 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// There is a one-to-one relationship between nodes and keys.
 /// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
-/// obtained from other [`IntoKeys`] through [`Transcode`]/[`TreeKey::transcode()`].
-/// An iterator of keys for the nodes is available through [`TreeKey::nodes()`]/[`NodeIter`].
+/// obtained from other [`IntoKeys`] through [`Schema::transcode()`].
+/// An iterator of keys for the nodes is available through [`Schema::nodes()`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
@@ -27,7 +27,7 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// # Derive macros
 ///
 /// Derive macros to automatically implement the correct traits on a struct or enum are available through
-/// [`macro@crate::TreeKey`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
+/// [`macro@crate::TreeSchema`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
 /// and [`macro@crate::TreeAny`].
 /// A shorthand derive macro that derives all four trait implementations is also available at
 /// [`macro@crate::Tree`].
@@ -40,14 +40,14 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// the `rename` derive macro attribute.
 ///
 /// ```
-/// use miniconf::{Leaf, Path, Tree, TreeKey};
+/// use miniconf::{Path, Tree, TreeSchema};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(rename = "OTHER")]
-///     a: Leaf<f32>,
+///     a: f32,
 /// };
-/// let (name, _node) = S::transcode::<Path<String, '/'>, _>([0usize]).unwrap();
-/// assert_eq!(name.as_str(), "/OTHER");
+/// let name = S::SCHEMA.transcode::<Path<String, '/'>>([0usize]).unwrap();
+/// assert_eq!(name.0.as_str(), "/OTHER");
 /// ```
 ///
 /// ## Skip
@@ -57,57 +57,55 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```
-/// use miniconf::{Leaf, Tree};
+/// use miniconf::{Tree};
 /// #[derive(Tree)]
-/// struct S(Leaf<i32>, #[tree(skip)] ());
+/// struct S(i32, #[tree(skip)] ());
 /// ```
 ///
 /// ```compile_fail
-/// use miniconf::{Tree, Leaf};
+/// use miniconf::{Tree};
 /// #[derive(Tree)]
-/// struct S(#[tree(skip)] (), Leaf<i32>);
+/// struct S(#[tree(skip)] (), i32);
 /// ```
 ///
 /// ## Type
 ///
-/// The type to use when accessing the field/variant through `TreeKey`/`TreeDeserialize::probe`
+/// The type to use when accessing the field/variant through `TreeDeserialize::probe`
 /// can be overridden using the `typ` derive macro attribute (`#[tree(typ="[f32; 4]")]`).
-///
-/// ## Deny
-///
-/// `#[tree(deny(operation="message", ...))]`
-///
-/// This returns `Err(`[`Traversal::Access`]`)` for the respective operation
-/// (`traverse`, `serialize`, `deserialize`, `probe`, `ref_any`, `mut_any`) on a
-/// field/variant and suppresses the respective traits bounds on type paramters
-/// of the struct/enum.
 ///
 /// ## Implementation overrides
 ///
-/// `#[tree(with(operation=expr, ...))]`
+/// `#[tree(with=path)]`
 ///
-/// This overrides the call to the child node/variant trait for the given `operation`
-/// (`traverse`, `traverse_all`, `serialize`, `deserialize`, `probe`, `ref_any`, `mut_any`).
-/// `expr` should be a method on `self` (not the field!) or `value`
-/// (associated function for `traverse`, `traverse_all` and `probe`)
-/// taking the arguments of the respective trait's method.
+/// This overrides the calls to the child node/variant traits using pub functions
+/// and constants in the module at the given path:
+/// (`SCHEMA`, `serialize_by_key`, `deserialize_by_key`, `probe_by_key`,
+/// `ref_any_by_key`, `mut_any_by_key`).
 ///
+/// Also use this to relax bounds and deny operations.
 /// ```
-/// # use miniconf::{Error, Leaf, Tree, Keys, Traversal, TreeDeserialize};
+/// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
 /// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
 /// struct S {
-///     #[tree(with(deserialize=self.check))]
-///     b: Leaf<f32>,
-/// };
-/// impl S {
-///     fn check<'de, K: Keys, D: Deserializer<'de>>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>> {
-///         let old = *self.b;
-///         self.b.deserialize_by_key(keys, de)?;
-///         if *self.b < 0.0 {
-///             *self.b = old;
-///             Err(Traversal::Access(0, "fail").into())
+///     #[tree(with=check)]
+///     b: f32,
+/// }
+/// mod check {
+///     use miniconf::{SerdeError, Deserializer, TreeDeserialize, ValueError, Keys};
+///     pub use miniconf::leaf::{SCHEMA, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
+///
+///     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+///         value: &mut f32,
+///         keys: impl Keys,
+///         de: D
+///     ) -> Result<(), SerdeError<D::Error>> {
+///         let mut new = *value;
+///         new.deserialize_by_key(keys, de)?;
+///         if new < 0.0 {
+///             Err(ValueError::Access("fail").into())
 ///         } else {
+///             *value = new;
 ///             Ok(())
 ///         }
 ///     }
@@ -129,11 +127,11 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 /// Blanket implementations of the `Tree*` traits are provided for [`Option<T>`].
 ///
 /// These implementations do not alter the path hierarchy and do not consume any items from the `keys`
-/// iterators. The `TreeKey` behavior of an [`Option`] is such that the `None` variant makes the
+/// iterators. The `TreeSchema` behavior of an [`Option`] is such that the `None` variant makes the
 /// corresponding part of the tree inaccessible at run-time. It will still be iterated over (e.g.
-/// by [`TreeKey::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
+/// by [`Schema::nodes()`]) but attempts to access it (e.g. [`TreeSerialize::serialize_by_key()`],
 /// [`TreeDeserialize::deserialize_by_key()`], [`TreeAny::ref_any_by_key()`], or
-/// [`TreeAny::mut_any_by_key()`]) return the special [`Traversal::Absent`].
+/// [`TreeAny::mut_any_by_key()`]) return the special [`ValueError::Absent`].
 ///
 /// This is the same behavior as for other `enums` that have the `Tree*` traits derived.
 ///
@@ -146,175 +144,10 @@ use crate::{Error, IntoKeys, Keys, Node, NodeIter, Transcode, Traversal, Walk};
 ///
 /// See the [`crate`] documentation for a longer example showing how the traits and the derive
 /// macros work.
-pub trait TreeKey {
-    /// Walk metadata about all paths.
-    ///
-    /// ```
-    /// use miniconf::{Leaf, Metadata, TreeKey};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
-    /// };
-    /// let m: Metadata = S::traverse_all();
-    /// assert_eq!((m.max_depth, m.max_length, m.count.get()), (2, 4, 3));
-    /// ```
-    fn traverse_all<W: Walk>() -> W;
-
-    /// Traverse from the root to a leaf and call a function for each node.
-    ///
-    /// If a leaf is found early (`keys` being longer than required)
-    /// `Err(Traversal(TooLong(depth)))` is returned.
-    /// If `keys` is exhausted before reaching a leaf node,
-    /// `Err(Traversal(TooShort(depth)))` is returned.
-    /// `Traversal::Access/Invalid/Absent/Finalization` are never returned.
-    ///
-    /// This method should fail if and only if the key is invalid.
-    /// It should succeed at least when any of the other key based methods
-    /// in `TreeAny`, `TreeSerialize`, and `TreeDeserialize` succeed.
-    ///
-    /// ```
-    /// use miniconf::{IntoKeys, Leaf, TreeKey};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
-    /// };
-    /// let mut ret = [(1, Some("bar"), 2), (0, None, 2)].into_iter();
-    /// let func = |index, name, len: core::num::NonZero<usize>| -> Result<(), ()> {
-    ///     assert_eq!(ret.next().unwrap(), (index, name, len.get()));
-    ///     Ok(())
-    /// };
-    /// assert_eq!(S::traverse_by_key(["bar", "0"].into_keys(), func), Ok(2));
-    /// ```
-    ///
-    /// # Args
-    /// * `keys`: An `Iterator` of `Key`s identifying the node.
-    /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
-    ///   Its arguments are the index and the optional name of the node and the number
-    ///   of top-level nodes at the given depth. Returning `Err(E)` aborts the traversal.
-    ///   Returning `Ok(())` continues the downward traversal.
-    ///
-    /// # Returns
-    /// Node depth on success (number of keys consumed/number of calls to `func`)
-    ///
-    /// # Design note
-    /// Writing this to return an iterator instead of using a callback
-    /// would have worse performance (O(n^2) instead of O(n) for matching)
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>;
-
-    /// Transcode keys to a new keys type representation
-    ///
-    /// The keys can be
-    /// * too short: the internal node is returned
-    /// * matched length: the leaf node is returned
-    /// * too long: Err(TooLong(depth)) is returned
-    ///
-    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
-    /// an existing `&mut N`.
-    ///
-    /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 5],
-    /// };
-    ///
-    /// let idx = [1, 1];
-    ///
-    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(idx).unwrap();
-    /// assert_eq!(path.as_str(), "/bar/1");
-    /// let (path, node) = S::transcode::<JsonPath<String>, _>(idx).unwrap();
-    /// assert_eq!(path.as_str(), ".bar[1]");
-    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(&path).unwrap();
-    /// assert_eq!(&indices[..node.depth()], idx);
-    /// let (indices, node) = S::transcode::<Indices<[_; 2]>, _>(["bar", "1"]).unwrap();
-    /// assert_eq!(&indices[..node.depth()], [1, 1]);
-    /// let (packed, node) = S::transcode::<Packed, _>(["bar", "4"]).unwrap();
-    /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
-    /// let (path, node) = S::transcode::<Path<String, '/'>, _>(packed).unwrap();
-    /// assert_eq!(path.as_str(), "/bar/4");
-    /// let ((), node) = S::transcode(&path).unwrap();
-    /// assert_eq!(node, Node::leaf(2));
-    /// ```
-    ///
-    /// # Args
-    /// * `keys`: `IntoKeys` to identify the node.
-    ///
-    /// # Returns
-    /// Transcoded target and node information on success
-    #[inline]
-    fn transcode<N, K>(keys: K) -> Result<(N, Node), Traversal>
-    where
-        K: IntoKeys,
-        N: Transcode + Default,
-    {
-        let mut target = N::default();
-        let node = target.transcode::<Self, _>(keys)?;
-        Ok((target, node))
-    }
-
-    /// Return an iterator over nodes of a given type
-    ///
-    /// This is a walk of all leaf nodes.
-    /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`TreeKey#option`]).
-    /// An iterator with an exact and trusted `size_hint()` can be obtained from
-    /// this through [`NodeIter::exact_size()`].
-    /// The `D` const generic of [`NodeIter`] is the maximum key depth.
-    ///
-    /// ```
-    /// use miniconf::{Indices, JsonPath, Leaf, Node, Packed, Path, TreeKey};
-    /// #[derive(TreeKey)]
-    /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
-    /// };
-    ///
-    /// let paths: Vec<_> = S::nodes::<Path<String, '/'>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_inner())
-    ///     .collect();
-    /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
-    ///
-    /// let paths: Vec<_> = S::nodes::<JsonPath<String>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_inner())
-    ///     .collect();
-    /// assert_eq!(paths, [".foo", ".bar[0]", ".bar[1]"]);
-    ///
-    /// let indices: Vec<_> = S::nodes::<Indices<[_; 2]>, 2>()
-    ///     .exact_size()
-    ///     .map(|p| {
-    ///         let (idx, node) = p.unwrap();
-    ///         (idx.into_inner(), node.depth)
-    ///     })
-    ///     .collect();
-    /// assert_eq!(indices, [([0, 0], 1), ([1, 0], 2), ([1, 1], 2)]);
-    ///
-    /// let packed: Vec<_> = S::nodes::<Packed, 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().0.into_lsb().get())
-    ///     .collect();
-    /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
-    ///
-    /// let nodes: Vec<_> = S::nodes::<(), 2>()
-    ///     .exact_size()
-    ///     .map(|p| p.unwrap().1)
-    ///     .collect();
-    /// assert_eq!(nodes, [Node::leaf(1), Node::leaf(2), Node::leaf(2)]);
-    /// ```
-    #[inline]
-    fn nodes<N, const D: usize>() -> NodeIter<Self, N, D>
-    where
-        N: Transcode + Default,
-    {
-        NodeIter::default()
-    }
+pub trait TreeSchema {
+    /// Schema for this tree level
+    // Reference for Option<T> to copy T::SCHEMA
+    const SCHEMA: &Schema;
 }
 
 /// Access any node by keys.
@@ -323,79 +156,72 @@ pub trait TreeKey {
 ///
 /// ```
 /// use core::any::Any;
-/// use miniconf::{Indices, IntoKeys, JsonPath, Leaf, TreeAny, TreeKey};
-/// #[derive(TreeKey, TreeAny, Default)]
+/// use miniconf::{Indices, IntoKeys, JsonPath, TreeAny, TreeSchema};
+/// #[derive(TreeSchema, TreeAny, Default)]
 /// struct S {
-///     foo: Leaf<u32>,
-///     bar: [Leaf<u16>; 2],
+///     foo: u32,
+///     bar: [u16; 2],
 /// };
 /// let mut s = S::default();
 ///
-/// for node in S::nodes::<Indices<[_; 2]>, 2>() {
-///     let (key, node) = node.unwrap();
-///     let a = s
-///         .ref_any_by_key(key.into_iter().take(node.depth()).into_keys())
-///         .unwrap();
+/// for key in S::SCHEMA.nodes::<Indices<[_; 2]>, 2>() {
+///     let a = s.ref_any_by_key(key.unwrap().into_keys()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
-/// let val: &mut u16 = s.mut_by_key(&JsonPath::from(".bar[1]")).unwrap();
+/// let val: &mut u16 = s.mut_by_key(&JsonPath(".bar[1]")).unwrap();
 /// *val = 3;
-/// assert_eq!(*s.bar[1], 3);
+/// assert_eq!(s.bar[1], 3);
 ///
-/// let val: &u16 = s.ref_by_key(&JsonPath::from(".bar[1]")).unwrap();
+/// let val: &u16 = s.ref_by_key(&JsonPath(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// ```
-pub trait TreeAny {
+pub trait TreeAny: TreeSchema {
     /// Obtain a reference to a `dyn Any` trait object for a leaf node.
-    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
-    where
-        K: Keys;
+    fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError>;
 
     /// Obtain a mutable reference to a `dyn Any` trait object for a leaf node.
-    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
-    where
-        K: Keys;
+    fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError>;
 
     /// Obtain a reference to a leaf of known type by key.
     #[inline]
-    fn ref_by_key<T: Any, K: IntoKeys>(&self, keys: K) -> Result<&T, Traversal> {
+    fn ref_by_key<T: Any>(&self, keys: impl IntoKeys) -> Result<&T, ValueError> {
         self.ref_any_by_key(keys.into_keys())?
             .downcast_ref()
-            .ok_or(Traversal::Access(0, "Incorrect type"))
+            .ok_or(ValueError::Access("Incorrect type"))
     }
 
     /// Obtain a mutable reference to a leaf of known type by key.
     #[inline]
-    fn mut_by_key<T: Any, K: IntoKeys>(&mut self, keys: K) -> Result<&mut T, Traversal> {
+    fn mut_by_key<T: Any>(&mut self, keys: impl IntoKeys) -> Result<&mut T, ValueError> {
         self.mut_any_by_key(keys.into_keys())?
             .downcast_mut()
-            .ok_or(Traversal::Access(0, "Incorrect type"))
+            .ok_or(ValueError::Access("Incorrect type"))
     }
 }
 
 /// Serialize a leaf node by its keys.
 ///
-/// See also [`crate::json`] or `crate::postcard` for convenient wrappers using this trait.
+/// See also [`crate::json_core`] or `crate::postcard` for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
 /// See [`macro@crate::TreeSerialize`].
-/// The derive macro attributes are described in the [`TreeKey`] trait.
-pub trait TreeSerialize {
+/// The derive macro attributes are described in the [`TreeSchema`] trait.
+pub trait TreeSerialize: TreeSchema {
     /// Serialize a node by keys.
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeKey, TreeSerialize};
-    /// #[derive(TreeKey, TreeSerialize)]
+    /// use miniconf::{IntoKeys, TreeSchema, TreeSerialize};
+    /// #[derive(TreeSchema, TreeSerialize)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let s = S {
-    ///     foo: 9.into(),
-    ///     bar: [11.into(), 3.into()],
+    ///     foo: 9,
+    ///     bar: [11, 3],
     /// };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
@@ -409,47 +235,49 @@ pub trait TreeSerialize {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `ser`: A `Serializer` to to serialize the value.
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
-    where
-        K: Keys,
-        S: Serializer;
+    fn serialize_by_key<S: Serializer>(
+        &self,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>>;
 }
 
 /// Deserialize a leaf node by its keys.
 ///
-/// See also [`crate::json`] or `crate::postcard` for convenient wrappers using this trait.
+/// See also [`crate::json_core`] or `crate::postcard` for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
 /// See [`macro@crate::TreeDeserialize`].
-/// The derive macro attributes are described in the [`TreeKey`] trait.
-pub trait TreeDeserialize<'de> {
+/// The derive macro attributes are described in the [`TreeSchema`] trait.
+pub trait TreeDeserialize<'de>: TreeSchema {
     /// Deserialize a leaf node by its keys.
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
-    /// #[derive(Default, TreeKey, TreeDeserialize)]
+    /// use miniconf::{IntoKeys, TreeDeserialize, TreeSchema};
+    /// #[derive(Default, TreeSchema, TreeDeserialize)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
     /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de)
     ///     .unwrap();
     /// de.end().unwrap();
-    /// assert_eq!(*s.bar[0], 7);
+    /// assert_eq!(s.bar[0], 7);
     /// # }
     /// ```
     ///
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
-    where
-        K: Keys,
-        D: Deserializer<'de>;
+    fn deserialize_by_key<D: Deserializer<'de>>(
+        &mut self,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>>;
 
     /// Blind deserialize a leaf node by its keys.
     ///
@@ -458,11 +286,11 @@ pub trait TreeDeserialize<'de> {
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{IntoKeys, Leaf, TreeDeserialize, TreeKey};
-    /// #[derive(Default, TreeKey, TreeDeserialize)]
+    /// use miniconf::{IntoKeys, TreeDeserialize, TreeSchema};
+    /// #[derive(Default, TreeSchema, TreeDeserialize)]
     /// struct S {
-    ///     foo: Leaf<u32>,
-    ///     bar: [Leaf<u16>; 2],
+    ///     foo: u32,
+    ///     bar: [u16; 2],
     /// };
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
     /// S::probe_by_key(["bar", "0"].into_keys(), &mut de)
@@ -474,10 +302,10 @@ pub trait TreeDeserialize<'de> {
     /// # Args
     /// * `keys`: A `Keys` identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
-    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
-    where
-        K: Keys,
-        D: Deserializer<'de>;
+    fn probe_by_key<D: Deserializer<'de>>(
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>>;
 }
 
 /// Shorthand for owned deserialization through [`TreeDeserialize`].
@@ -486,94 +314,63 @@ impl<T> TreeDeserializeOwned for T where T: for<'de> TreeDeserialize<'de> {}
 
 // Blanket impls for refs and muts
 
-impl<T: TreeKey> TreeKey for &T {
-    #[inline]
-    fn traverse_all<W: Walk>() -> W {
-        T::traverse_all()
-    }
-
-    #[inline]
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
-    }
+impl<T: TreeSchema + ?Sized> TreeSchema for &T {
+    const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
-impl<T: TreeKey> TreeKey for &mut T {
-    #[inline]
-    fn traverse_all<W: Walk>() -> W {
-        T::traverse_all()
-    }
-
-    #[inline]
-    fn traverse_by_key<K, F, E>(keys: K, func: F) -> Result<usize, Error<E>>
-    where
-        K: Keys,
-        F: FnMut(usize, Option<&'static str>, NonZero<usize>) -> Result<(), E>,
-    {
-        T::traverse_by_key(keys, func)
-    }
+impl<T: TreeSchema + ?Sized> TreeSchema for &mut T {
+    const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
-impl<T: TreeSerialize> TreeSerialize for &T {
+impl<T: TreeSerialize + ?Sized> TreeSerialize for &T {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
-    where
-        K: Keys,
-        S: Serializer,
-    {
+    fn serialize_by_key<S: Serializer>(
+        &self,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         (**self).serialize_by_key(keys, ser)
     }
 }
 
-impl<T: TreeSerialize> TreeSerialize for &mut T {
+impl<T: TreeSerialize + ?Sized> TreeSerialize for &mut T {
     #[inline]
-    fn serialize_by_key<K, S>(&self, keys: K, ser: S) -> Result<S::Ok, Error<S::Error>>
-    where
-        K: Keys,
-        S: Serializer,
-    {
+    fn serialize_by_key<S: Serializer>(
+        &self,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
         (**self).serialize_by_key(keys, ser)
     }
 }
 
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &mut T {
+impl<'de, T: TreeDeserialize<'de> + ?Sized> TreeDeserialize<'de> for &mut T {
     #[inline]
-    fn deserialize_by_key<K, D>(&mut self, keys: K, de: D) -> Result<(), Error<D::Error>>
-    where
-        K: Keys,
-        D: Deserializer<'de>,
-    {
+    fn deserialize_by_key<D: Deserializer<'de>>(
+        &mut self,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
         (**self).deserialize_by_key(keys, de)
     }
 
     #[inline]
-    fn probe_by_key<K, D>(keys: K, de: D) -> Result<(), Error<D::Error>>
-    where
-        K: Keys,
-        D: Deserializer<'de>,
-    {
+    fn probe_by_key<D: Deserializer<'de>>(
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 }
 
-impl<T: TreeAny> TreeAny for &mut T {
+impl<T: TreeAny + ?Sized> TreeAny for &mut T {
     #[inline]
-    fn ref_any_by_key<K>(&self, keys: K) -> Result<&dyn Any, Traversal>
-    where
-        K: Keys,
-    {
+    fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
         (**self).ref_any_by_key(keys)
     }
 
     #[inline]
-    fn mut_any_by_key<K>(&mut self, keys: K) -> Result<&mut dyn Any, Traversal>
-    where
-        K: Keys,
-    {
+    fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         (**self).mut_any_by_key(keys)
     }
 }

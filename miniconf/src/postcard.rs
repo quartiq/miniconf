@@ -2,21 +2,21 @@
 //!
 //! ```
 //! use ::postcard::{de_flavors::Slice, ser_flavors::AllocVec};
-//! use miniconf::{postcard, Leaf, Packed, Tree, TreeKey};
+//! use miniconf::{postcard, Leaf, Packed, Tree, TreeSchema};
 //!
 //! #[derive(Tree, Default, PartialEq, Debug)]
 //! struct S {
-//!     foo: Leaf<u32>,
-//!     bar: [Leaf<u16>; 2],
+//!     foo: u32,
+//!     bar: [u16; 2],
 //! };
 //!
 //! let source = S {
-//!     foo: 9.into(),
-//!     bar: [7.into(), 11.into()],
+//!     foo: 9,
+//!     bar: [7, 11],
 //! };
-//! let kv: Vec<_> = S::nodes::<Packed, 2>()
+//! let kv: Vec<_> = S::SCHEMA.nodes::<Packed, 2>()
 //!     .map(|p| {
-//!         let (p, _node) = p.unwrap();
+//!         let p = p.unwrap();
 //!         let v = postcard::get_by_key(&source, p, AllocVec::new()).unwrap();
 //!         (p.into_lsb().get(), v)
 //!     })
@@ -31,35 +31,28 @@
 //! assert_eq!(source, target);
 //! ```
 
-use postcard::{de_flavors, ser_flavors, Deserializer, Serializer};
+use postcard::{Deserializer, Serializer, de_flavors, ser_flavors};
 
-use crate::{Error, IntoKeys, TreeDeserialize, TreeSerialize};
+use crate::{IntoKeys, SerdeError, TreeDeserialize, TreeSerialize};
 
 /// Deserialize and set a node value from a `postcard` flavor.
-#[inline]
-pub fn set_by_key<
-    'de,
-    T: TreeDeserialize<'de> + ?Sized,
-    K: IntoKeys,
-    F: de_flavors::Flavor<'de>,
->(
-    tree: &mut T,
-    keys: K,
+pub fn set_by_key<'de, F: de_flavors::Flavor<'de>>(
+    tree: &mut (impl TreeDeserialize<'de> + ?Sized),
+    keys: impl IntoKeys,
     flavor: F,
-) -> Result<F::Remainder, Error<postcard::Error>> {
+) -> Result<F::Remainder, SerdeError<postcard::Error>> {
     let mut de = Deserializer::from_flavor(flavor);
     tree.deserialize_by_key(keys.into_keys(), &mut de)?;
-    de.finalize().map_err(Error::Finalization)
+    de.finalize().map_err(SerdeError::Finalization)
 }
 
 /// Get and serialize a node value into a `postcard` flavor.
-#[inline]
-pub fn get_by_key<T: TreeSerialize + ?Sized, K: IntoKeys, F: ser_flavors::Flavor>(
-    tree: &T,
-    keys: K,
+pub fn get_by_key<F: ser_flavors::Flavor>(
+    tree: &(impl TreeSerialize + ?Sized),
+    keys: impl IntoKeys,
     flavor: F,
-) -> Result<F::Output, Error<postcard::Error>> {
+) -> Result<F::Output, SerdeError<postcard::Error>> {
     let mut ser = Serializer { output: flavor };
     tree.serialize_by_key(keys.into_keys(), &mut ser)?;
-    ser.output.finalize().map_err(Error::Finalization)
+    ser.output.finalize().map_err(SerdeError::Finalization)
 }

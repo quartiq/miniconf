@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{IntoKeys, KeyLookup, Keys, Metadata, Node, Transcode, Traversal, TreeKey};
+use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,15 +29,7 @@ impl<T: Iterator> Iterator for ExactSize<T> {
     }
 }
 
-impl<T> ExactSize<T> {
-    /// Return a reference to the inner iterator
-    #[inline]
-    pub fn inner(&self) -> &T {
-        &self.iter
-    }
-}
-
-// Even though general TreeKey iterations may well be longer than usize::MAX
+// Even though general TreeSchema iterations may well be longer than usize::MAX
 // we are sure that the aren't in this case since self.count <= usize::MAX
 impl<T: Iterator> ExactSizeIterator for ExactSize<T> {}
 
@@ -47,72 +39,63 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 // https://github.com/rust-lang/rust/issues/37572
 // unsafe impl<T: Iterator> core::iter::TrustedLen for ExactSize<T> {}
 
-/// A Keys wrapper that can always finalize()
-pub(crate) struct Consume<T>(pub(crate) T);
-impl<T: Keys> Keys for Consume<T> {
-    #[inline]
-    fn next(&mut self, lookup: &KeyLookup) -> Result<usize, Traversal> {
-        self.0.next(lookup)
-    }
-
-    #[inline]
-    fn finalize(&mut self) -> Result<(), Traversal> {
-        Ok(())
-    }
-}
-
-impl<T: Keys> IntoKeys for Consume<T> {
-    type IntoKeys = Self;
-
-    #[inline]
-    fn into_keys(self) -> Self::IntoKeys {
-        self
-    }
-}
-
 /// Node iterator
 ///
-/// A managed indices state for iteration of nodes `N` in a `TreeKey`.
+/// A managed indices state for iteration of nodes `N` in a `TreeSchema`.
 ///
 /// `D` is the depth limit. Internal nodes will be returned on iteration where
 /// the depth limit is exceeded.
 ///
 /// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
 /// not have sufficient capacity and failed to encode the key at the given depth.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NodeIter<M: ?Sized, N, const D: usize> {
+#[derive(Clone, Debug, PartialEq)]
+pub struct NodeIter<N, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
+    schema: &'static Schema,
     state: [usize; D],
     root: usize,
     depth: usize,
     _n: PhantomData<N>,
-    _m: PhantomData<M>,
 }
 
-impl<M: ?Sized, N, const D: usize> Default for NodeIter<M, N, D> {
-    fn default() -> Self {
+impl<N, const D: usize> NodeIter<N, D> {
+    /// Create a new iterator.
+    ///
+    /// # Panic
+    /// If the root depth exceeds the state length.
+    #[inline]
+    pub const fn with(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
+        assert!(root <= D);
         Self {
-            state: [0; D],
-            root: 0,
+            schema,
+            state,
+            root,
             // Marker to prevent initial index increment in `next()`
             depth: D + 1,
             _n: PhantomData,
-            _m: PhantomData,
         }
     }
-}
 
-impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
+    /// Create a new iterator with default root and initial state.
+    #[inline]
+    pub const fn new(schema: &'static Schema) -> Self {
+        Self::with(schema, [0; D], 0)
+    }
+
     /// Limit and start iteration to at and below the provided root key.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
-    pub fn root<K: IntoKeys>(mut self, root: K) -> Result<Self, Traversal> {
-        let node = self.state.transcode::<M, _>(root)?;
-        self.root = node.depth();
-        self.depth = D + 1;
-        Ok(self)
+    pub fn with_root(
+        schema: &'static Schema,
+        root: impl IntoKeys,
+    ) -> Result<Self, DescendError<()>> {
+        let mut state = [0; D];
+        let mut root = root.into_keys().track();
+        let mut tr = Short::new(state.as_mut());
+        tr.transcode(schema, &mut root)?;
+        Ok(Self::with(schema, state, root.depth()))
     }
 
     /// Wrap the iterator in an exact size counting iterator that is
@@ -121,39 +104,40 @@ impl<M: TreeKey + ?Sized, N, const D: usize> NodeIter<M, N, D> {
     /// Note(panic): Panics, if the iterator had `next()` called or
     /// if the iteration depth has been limited or if the iteration root
     /// is not the tree root.
-    pub fn exact_size(self) -> ExactSize<Self> {
-        assert_eq!(self.depth, D + 1, "NodeIter partially consumed");
-        assert_eq!(self.root, 0, "NodeIter on sub-tree");
-        debug_assert_eq!(&self.state, &[0; D]); // ensured by depth = D + 1 marker and contract
-        let meta: Metadata = M::traverse_all();
-        assert!(
-            D >= meta.max_depth,
-            "depth D = {D} must be at least {}",
-            meta.max_depth
-        );
+    ///
+    #[inline]
+    pub const fn exact_size(schema: &'static Schema) -> ExactSize<Self> {
+        let shape = schema.shape();
+        if D < shape.max_depth {
+            panic!("insufficient depth for exact size iteration");
+        }
         ExactSize {
-            iter: self,
-            count: meta.count.get(),
+            iter: Self::new(schema),
+            count: shape.count.get(),
         }
     }
 
-    /// Return the current iteration depth
-    pub fn current_depth(&self) -> usize {
-        self.depth
+    /// Return the underlying schema
+    #[inline]
+    pub const fn schema(&self) -> &'static Schema {
+        self.schema
+    }
+
+    /// Return the current state
+    #[inline]
+    pub fn state(&self) -> Option<&[usize]> {
+        self.state.get(..self.depth)
     }
 
     /// Return the root depth
-    pub fn root_depth(&self) -> usize {
+    #[inline]
+    pub const fn root(&self) -> usize {
         self.root
     }
 }
 
-impl<M, N, const D: usize> Iterator for NodeIter<M, N, D>
-where
-    M: TreeKey + ?Sized,
-    N: Transcode + Default,
-{
-    type Item = Result<(N, Node), usize>;
+impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
+    type Item = Result<N, N::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -167,33 +151,35 @@ where
                 // Not initial state: increment
                 self.state[self.depth - 1] += 1;
             }
-            return match M::transcode(Consume(self.state.iter().into_keys())) {
-                Err(Traversal::NotFound(depth)) => {
-                    // Reset index at current depth, then retry with incremented index at depth - 1 or terminate
-                    // Key lookup was performed and failed: depth is always >= 1
-                    self.state[depth - 1] = 0;
-                    self.depth = (depth - 1).max(self.root);
+            let mut item = Track::new(N::default());
+            let ret = item.transcode(self.schema, &self.state[..]);
+            // Track<N> counts is the number of successful Keys::next()
+            let (item, depth) = item.into_inner();
+            return match ret {
+                Err(DescendError::Key(KeyError::NotFound)) => {
+                    // Reset index at NotFound depth, then retry with incremented earlier index or terminate
+                    self.state[depth] = 0;
+                    self.depth = depth.max(self.root);
                     continue;
                 }
-                Ok((path, node)) => {
-                    // Leaf or internal node found, save depth for increment at next iteration
-                    self.depth = node.depth();
-                    Some(Ok((path, node)))
+                Err(DescendError::Key(KeyError::TooLong)) | Ok(()) => {
+                    // Leaf node found, save depth for increment at next iteration
+                    self.depth = depth;
+                    Some(Ok(item))
                 }
-                Err(Traversal::TooShort(depth)) => {
+                Err(DescendError::Key(KeyError::TooShort)) => {
+                    // Use Short<N> to suppress this branch and also get internal short nodes
+                    self.depth = depth;
+                    continue;
+                }
+                Err(DescendError::Inner(e)) => {
                     // Target type can not hold keys
-                    Some(Err(depth))
+                    Some(Err(e))
                 }
-                // TooLong: impossible due to Consume
-                // Absent, Finalization, Invalid, Access: not returned by transcode (traverse_by_key())
-                _ => unreachable!(),
             };
         }
     }
 }
 
 // Contract: Do not allow manipulation of `depth` other than through iteration.
-impl<M: TreeKey + ?Sized, N: Transcode + Default, const D: usize> core::iter::FusedIterator
-    for NodeIter<M, N, D>
-{
-}
+impl<N: Transcode + Default, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}

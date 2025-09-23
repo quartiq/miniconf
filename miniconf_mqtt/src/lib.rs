@@ -5,20 +5,20 @@
 #![forbid(unsafe_code)]
 //! The Minimq MQTT client for `miniconf``.
 
-use core::fmt::Display;
+use core::{fmt::Display, marker::PhantomData};
 
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    json, IntoKeys, Metadata, NodeIter, Path, Traversal, TreeDeserializeOwned, TreeKey,
-    TreeSerialize,
+    DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerdeError, Track,
+    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 pub use minimq;
 use minimq::{
+    ConfigBuilder, ProtocolError, Publication, QoS,
     embedded_nal::TcpClientStack,
     embedded_time,
     types::{Properties, SubscriptionOptions, TopicFilter},
-    ConfigBuilder, ProtocolError, Publication, QoS,
 };
 use strum::IntoStaticStr;
 
@@ -41,7 +41,7 @@ const SEPARATOR: char = '/';
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
     /// Miniconf
-    Miniconf(miniconf::Traversal),
+    Miniconf(DescendError<()>),
     /// State machine
     State(sm::Error),
     /// Minimq
@@ -54,8 +54,8 @@ impl<E> From<sm::Error> for Error<E> {
     }
 }
 
-impl<E> From<miniconf::Traversal> for Error<E> {
-    fn from(value: miniconf::Traversal) -> Self {
+impl<E> From<DescendError<()>> for Error<E> {
+    fn from(value: DescendError<()>) -> Self {
         Self::Miniconf(value)
     }
 }
@@ -68,7 +68,7 @@ impl<E> From<minimq::Error<E>> for Error<E> {
 
 mod sm {
     use super::DUMP_TIMEOUT_SECONDS;
-    use minimq::embedded_time::{self, duration::Extensions, Instant};
+    use minimq::embedded_time::{self, Instant, duration::Extensions};
     use smlang::statemachine;
 
     statemachine! {
@@ -115,32 +115,32 @@ mod sm {
 }
 
 /// Cache correlation data and topic for multi-part responses.
-struct Multipart<M, const Y: usize> {
-    iter: NodeIter<M, Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>, Y>,
+struct Multipart<const Y: usize> {
+    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
-impl<M: TreeKey, const Y: usize> Default for Multipart<M, Y> {
-    fn default() -> Self {
+impl<const Y: usize> Multipart<Y> {
+    fn new(schema: &'static Schema) -> Self {
         Self {
-            iter: M::nodes(),
+            iter: NodeIter::new(schema),
             response_topic: None,
             correlation_data: None,
         }
     }
 }
 
-impl<M: TreeKey, const Y: usize> Multipart<M, Y> {
-    fn root<K: IntoKeys>(mut self, keys: K) -> Result<Self, miniconf::Traversal> {
-        self.iter = self.iter.root(keys)?;
+impl<const Y: usize> Multipart<Y> {
+    fn root(mut self, keys: impl IntoKeys) -> Result<Self, DescendError<()>> {
+        self.iter = NodeIter::with_root(self.iter.schema(), keys)?;
         Ok(self)
     }
-}
 
-impl<M: TreeKey, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Multipart<M, Y> {
-    type Error = &'static str;
-    fn try_from(value: &minimq::types::Properties<'_>) -> Result<Self, Self::Error> {
+    fn from_properties(
+        schema: &'static Schema,
+        value: &minimq::types::Properties<'_>,
+    ) -> Result<Self, &'static str> {
         let response_topic = value
             .into_iter()
             .response_topic()
@@ -159,7 +159,7 @@ impl<M: TreeKey, const Y: usize> TryFrom<&minimq::types::Properties<'_>> for Mul
             .transpose()
             .or(Err("Correlation data too long"))?;
         Ok(Self {
-            iter: M::nodes(),
+            iter: NodeIter::new(schema),
             response_topic,
             correlation_data,
         })
@@ -182,10 +182,33 @@ impl From<ResponseCode> for minimq::Property<'static> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct DepthError<E> {
+    inner: SerdeError<E>,
+    depth: usize,
+}
+
+impl<E> Display for DepthError<E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{} (depth {})", self.inner, self.depth)
+    }
+}
+
+fn track_depth<T, E, K: IntoKeys>(
+    keys: K,
+    func: impl FnOnce(&mut Track<K::IntoKeys>) -> Result<T, SerdeError<E>>,
+) -> Result<T, DepthError<E>> {
+    let mut tracked = keys.into_keys().track();
+    func(&mut tracked).map_err(|inner| DepthError {
+        inner,
+        depth: tracked.depth(),
+    })
+}
+
 /// MQTT settings interface.
 ///
 /// # Design
-/// The MQTT client places the [TreeKey] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
+/// The MQTT client places the [TreeSchema] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
 /// where `<prefix>` is provided in the client constructor.
 ///
 /// By default it publishes its alive-ness as a `1` retained to `<prefix>/alive` and and clears it
@@ -197,16 +220,17 @@ impl From<ResponseCode> for minimq::Property<'static> {
 ///
 /// # Example
 /// ```
-/// use miniconf::{Leaf, Tree};
+/// use miniconf::{Leaf, Tree, TreeSchema};
 ///
 /// #[derive(Tree, Clone, Default)]
 /// struct Settings {
-///     foo: Leaf<bool>,
+///     foo: bool,
 /// }
 ///
 /// let mut buffer = [0u8; 1024];
 /// let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
-/// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, 1>::new(
+/// const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+/// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, MAX_DEPTH>::new(
 ///     std_embedded_nal::Stack::default(),
 ///     "quartiq/application/12345", // prefix
 ///     std_embedded_time::StandardClock::default(),
@@ -226,13 +250,14 @@ where
     state: sm::StateMachine<sm::Context<Clock>>,
     prefix: &'a str,
     alive: &'a str,
-    pending: Multipart<Settings, Y>,
+    pending: Multipart<Y>,
+    _settings: PhantomData<Settings>,
 }
 
 impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
     MqttClient<'a, Settings, Stack, Clock, Broker, Y>
 where
-    Settings: TreeKey + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     Stack: TcpClientStack,
     Clock: embedded_time::Clock + Clone,
     Broker: minimq::Broker,
@@ -251,9 +276,9 @@ where
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
         assert_eq!("/".len(), SEPARATOR.len_utf8());
-        let meta: Metadata = Settings::traverse_all();
-        assert!(meta.max_depth <= Y);
-        assert!(prefix.len() + "/settings".len() + meta.max_length("/") <= MAX_TOPIC_LENGTH);
+        let shape = Settings::SCHEMA.shape();
+        assert!(shape.max_depth <= Y);
+        assert!(prefix.len() + "/settings".len() + shape.max_length("/") <= MAX_TOPIC_LENGTH);
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
@@ -269,7 +294,8 @@ where
             state: sm::StateMachine::new(sm::Context::new(clock)),
             prefix,
             alive: "1",
-            pending: Multipart::default(),
+            pending: Multipart::new(Settings::SCHEMA),
+            _settings: PhantomData,
         })
     }
 
@@ -364,9 +390,9 @@ where
     /// This is intended to be used if modification of a setting had side effects that affected
     /// another setting.
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
-        let mut m = Multipart::default();
+        let mut m = Multipart::new(Settings::SCHEMA);
         if let Some(path) = path {
-            m = m.root(Path::<_, SEPARATOR>::from(path))?;
+            m = m.root(Path::<_, SEPARATOR>(path))?;
         }
         self.state.process_event(sm::Events::Multipart)?;
         self.pending = m;
@@ -376,7 +402,7 @@ where
     fn iter_list(&mut self) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             let (code, path) = if let Some(path) = self.pending.iter.next() {
-                let (path, node) = match path {
+                let path = match path {
                     Ok(ok) => ok,
                     Err(err) => {
                         error!("Path iter error at depth: {err}");
@@ -384,7 +410,6 @@ where
                     }
                 };
 
-                debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
                 (ResponseCode::Continue, path.into_inner())
             } else {
                 (ResponseCode::Ok, String::new())
@@ -418,7 +443,7 @@ where
                 break;
             };
 
-            let (path, node) = match path {
+            let path = match path {
                 Ok(ok) => ok,
                 Err(err) => {
                     error!("Path iter error at depth: {err}");
@@ -426,17 +451,15 @@ where
                 }
             };
 
-            debug_assert!(node.is_leaf()); // Note(assert): Iterator depth unlimited
-
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic
                 .push_str("/settings")
-                .and_then(|_| topic.push_str(&path))
+                .and_then(|_| topic.push_str(&path.0))
                 .unwrap();
 
             let props = [ResponseCode::Ok.into()];
             let mut response = Publication::new(&topic, |buf: &mut [u8]| {
-                json::get_by_key(settings, &path, buf)
+                track_depth(&path, |k| json_core::get_by_key(settings, k, buf))
             })
             .properties(&props)
             .qos(QoS::AtLeastOnce);
@@ -446,9 +469,10 @@ where
             }
 
             match self.mqtt.client().publish(response) {
-                Err(minimq::PubError::Serialization(miniconf::Error::Traversal(
-                    Traversal::Absent(_depth) | Traversal::Access(_depth, _),
-                ))) => {}
+                Err(minimq::PubError::Serialization(DepthError {
+                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
+                    ..
+                })) => {}
 
                 Err(
                     minimq::PubError::Error(minimq::Error::Minimq(minimq::MinimqError::Protocol(
@@ -503,7 +527,7 @@ where
             let Some(path) = topic
                 .strip_prefix(*prefix)
                 .and_then(|p| p.strip_prefix("/settings"))
-                .map(Path::<_, SEPARATOR>::from)
+                .map(Path::<_, SEPARATOR>)
             else {
                 info!("Unexpected topic: {topic}");
                 return State::Unchanged;
@@ -514,19 +538,20 @@ where
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
-                        json::get_by_key(settings, path, buf)
+                        track_depth(path, |k| json_core::get_by_key(settings, k, buf))
                     })
                     .unwrap()
                     .properties(&[ResponseCode::Ok.into()])
                     .qos(QoS::AtLeastOnce),
                 ) {
                     match err {
-                        minimq::PubError::Serialization(miniconf::Error::Traversal(
-                            Traversal::TooShort(_depth),
-                        )) => {
+                        minimq::PubError::Serialization(DepthError {
+                            inner: SerdeError::Value(ValueError::Key(KeyError::TooShort)),
+                            ..
+                        }) => {
                             // Internal node: Dump or List
                             if state.state() == &sm::States::Single {
-                                match Multipart::try_from(properties) {
+                                match Multipart::from_properties(Settings::SCHEMA, properties) {
                                     Ok(m) => {
                                         *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
                                         state.process_event(sm::Events::Multipart).unwrap();
@@ -559,7 +584,7 @@ where
                 State::Unchanged
             } else {
                 // Set
-                match json::set_by_key(settings, path, payload) {
+                match track_depth(path, |k| json_core::set_by_key(settings, k, payload)) {
                     Err(err) => {
                         Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged

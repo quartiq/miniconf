@@ -1,8 +1,12 @@
 [package]
 name = "miniconf_mqtt"
 version = "0.19.0"
-authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
-edition = "2021"
+authors = [
+    "James Irwin <irwineffect@gmail.com>",
+    "Ryan Summers <ryan.summers@vertigo-designs.com>",
+    "Robert Jördens <rj@quartiq.de>",
+]
+edition = "2024"
 license = "MIT"
 description = "MQTT interface for `miniconf`, using `minimq`"
 repository = "https://github.com/quartiq/miniconf"
@@ -12,7 +16,10 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 [lib]
 
 [dependencies]
-miniconf = { version = "0.19.0", features = ["json-core"], default-features = false, path = "../miniconf" }
+miniconf = { version = "0.19.0", features = [
+    "json-core",
+    "heapless",
+], default-features = false, path = "../miniconf" }
 minimq = "0.10.0"
 smlang = "0.8"
 embedded-io = "0.6"

@@ -8,71 +8,66 @@
 /// If multiple errors are applicable simultaneously the precedence
 /// is as per the order in the enum definition (from high to low).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum Traversal {
+pub enum KeyError {
+    /// The key ends early and does not reach a leaf node.
+    #[error("Key does not reach a leaf")]
+    TooShort,
+
+    /// The key was not found (index parse failure or too large,
+    /// name not found or invalid).
+    #[error("Key not found")]
+    NotFound,
+
+    /// The key is too long and goes beyond a leaf node.
+    #[error("Key goes beyond a leaf")]
+    TooLong,
+}
+
+/// Errors that can occur while visting nodes with [`crate::Schema::descend`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DescendError<E> {
+    /// The key is invalid.
+    #[error(transparent)]
+    Key(#[from] KeyError),
+
+    /// The visitor callback returned an error.
+    #[error("Visitor failed")]
+    Inner(#[source] E),
+}
+
+/// Errors that can occur while accessing a value.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ValueError {
+    /// Tree traversal error
+    #[error(transparent)]
+    Key(#[from] KeyError),
+
     /// A node does not exist at runtime.
     ///
     /// An `enum` variant in the tree towards the node is currently absent.
     /// This is for example the case if an [`Option`] using the `Tree*`
-    /// traits is `None` at runtime. See also [`crate::TreeKey#option`].
-    #[error("Variant absent (depth: {0})")]
-    Absent(usize),
-
-    /// The key ends early and does not reach a leaf node.
-    #[error("Key does not reach a leaf (depth: {0})")]
-    TooShort(usize),
-
-    /// The key was not found (index parse failure or too large,
-    /// name not found or invalid).
-    #[error("Key not found (depth: {0})")]
-    NotFound(usize),
-
-    /// The key is too long and goes beyond a leaf node.
-    #[error("Key goes beyond leaf (depth: {0})")]
-    TooLong(usize),
+    /// traits is `None` at runtime. See also [`crate::TreeSchema#option`].
+    #[error("Variant absent")]
+    Absent,
 
     /// A node could not be accessed or is invalid.
     ///
     /// This is returned from custom implementations.
-    #[error("Access/validation failure (depth: {0}): {1}")]
-    Access(usize, &'static str),
-}
-
-impl Traversal {
-    /// Pass it up one hierarchy depth level, incrementing its usize depth field by one.
-    pub fn increment(self) -> Self {
-        match self {
-            Self::Absent(i) => Self::Absent(i + 1),
-            Self::TooShort(i) => Self::TooShort(i + 1),
-            Self::NotFound(i) => Self::NotFound(i + 1),
-            Self::TooLong(i) => Self::TooLong(i + 1),
-            Self::Access(i, msg) => Self::Access(i + 1, msg),
-        }
-    }
-
-    /// Return the traversal depth
-    #[inline]
-    pub fn depth(&self) -> usize {
-        match self {
-            Self::Absent(i)
-            | Self::TooShort(i)
-            | Self::NotFound(i)
-            | Self::TooLong(i)
-            | Self::Access(i, _) => *i,
-        }
-    }
+    #[error("Access/validation failure: {0}")]
+    Access(&'static str),
 }
 
 /// Compound errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum Error<E> {
-    /// Tree traversal error
+pub enum SerdeError<E> {
+    /// The value could not be accessed.
     #[error(transparent)]
-    Traversal(#[from] Traversal),
+    Value(#[from] ValueError),
 
     /// The value provided could not be serialized or deserialized
     /// or the traversal callback returned an error.
-    #[error("(De)serialization (depth: {0}): {1}")]
-    Inner(usize, #[source] E),
+    #[error("(De)serialization")]
+    Inner(#[source] E),
 
     /// There was an error during finalization.
     ///
@@ -87,30 +82,61 @@ pub enum Error<E> {
     ///
     /// A `Serializer` may write checksums or additional framing data and fail with
     /// this error during finalization after the value has been serialized.
-    #[error("(De)serializer finalization: {0}")]
+    #[error("(De)serializer finalization")]
     Finalization(#[source] E),
 }
 
-// Try to extract the Traversal from an Error
-impl<E> TryFrom<Error<E>> for Traversal {
-    type Error = Error<E>;
+impl<E> From<KeyError> for SerdeError<E> {
     #[inline]
-    fn try_from(value: Error<E>) -> Result<Self, Self::Error> {
+    fn from(value: KeyError) -> Self {
+        SerdeError::Value(value.into())
+    }
+}
+
+// Try to extract the Traversal from an Error
+impl<E> TryFrom<SerdeError<E>> for KeyError {
+    type Error = SerdeError<E>;
+    #[inline]
+    fn try_from(value: SerdeError<E>) -> Result<Self, Self::Error> {
         match value {
-            Error::Traversal(e) => Ok(e),
+            SerdeError::Value(ValueError::Key(e)) => Ok(e),
             e => Err(e),
         }
     }
 }
 
-impl<E> Error<E> {
-    /// Pass an `Error<E>` up one hierarchy depth level, incrementing its usize depth field by one.
+// Try to extract the Traversal from an Error
+impl TryFrom<ValueError> for KeyError {
+    type Error = ValueError;
     #[inline]
-    pub fn increment(self) -> Self {
-        match self {
-            Self::Traversal(t) => Self::Traversal(t.increment()),
-            Self::Inner(i, e) => Self::Inner(i + 1, e),
-            Self::Finalization(e) => Self::Finalization(e),
+    fn try_from(value: ValueError) -> Result<Self, Self::Error> {
+        match value {
+            ValueError::Key(e) => Ok(e),
+            e => Err(e),
+        }
+    }
+}
+
+// Try to extract the Traversal from an Error
+impl<E> TryFrom<DescendError<E>> for KeyError {
+    type Error = E;
+    #[inline]
+    fn try_from(value: DescendError<E>) -> Result<Self, Self::Error> {
+        match value {
+            DescendError::Key(e) => Ok(e),
+            DescendError::Inner(e) => Err(e),
+        }
+    }
+}
+
+// Try to extract the Traversal from an Error
+impl<E> TryFrom<SerdeError<E>> for ValueError {
+    type Error = E;
+    #[inline]
+    fn try_from(value: SerdeError<E>) -> Result<Self, Self::Error> {
+        match value {
+            SerdeError::Value(e) => Ok(e),
+            SerdeError::Finalization(e) | SerdeError::Inner(e) => Err(e),
         }
     }
 }

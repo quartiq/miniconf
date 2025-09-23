@@ -2,7 +2,7 @@
 name = "miniconf_derive"
 version = "0.19.0"
 authors = ["James Irwin <irwineffect@gmail.com>", "Ryan Summers <ryan.summers@vertigo-designs.com>", "Robert Jördens <rj@quartiq.de>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "Derive macros for `miniconf`"
 repository = "https://github.com/quartiq/miniconf"
@@ -11,6 +11,10 @@ categories = ["no-std", "config", "rust-patterns", "parsing"]
 
 [lib]
 proc-macro = true
+
+[features]
+default = []
+meta-str = []
 
 [dependencies]
 syn = "2.0"

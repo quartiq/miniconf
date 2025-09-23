@@ -100,7 +100,7 @@ jobs:
           RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
         working-directory: miniconf/tests/embedded
         continue-on-error: true
-      - run: cargo run --release --features used_linker
+      - run: cargo run --release
         env:
           RUSTFLAGS: -C link-arg=-Tlink.x -D warnings
         working-directory: miniconf/tests/embedded

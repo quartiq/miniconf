@@ -1,0 +1,29 @@
+error[E0107]: associated function takes 0 generic arguments but 1 generic argument was supplied
+ --> tests/ui/exact_size_iter.rs:3:49
+  |
+3 | const _: ExactSize<NodeIter<(), 0>> = NodeIter::exact_size::<[(); 1]>();
+  |                                                 ^^^^^^^^^^----------- help: remove the unnecessary generics
+  |                                                 |
+  |                                                 expected 0 generic arguments
+  |
+note: associated function defined here, with 0 generic parameters
+ --> src/iter.rs
+  |
+  |     pub const fn exact_size(schema: &'static Schema) -> ExactSize<Self> {
+  |                  ^^^^^^^^^^
+
+error[E0061]: this function takes 1 argument but 0 arguments were supplied
+ --> tests/ui/exact_size_iter.rs:3:39
+  |
+3 | const _: ExactSize<NodeIter<(), 0>> = NodeIter::exact_size::<[(); 1]>();
+  |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-- argument #1 of type `&'static Schema` is missing
+  |
+note: associated function defined here
+ --> src/iter.rs
+  |
+  |     pub const fn exact_size(schema: &'static Schema) -> ExactSize<Self> {
+  |                  ^^^^^^^^^^
+help: provide the argument
+  |
+3 | const _: ExactSize<NodeIter<(), 0>> = NodeIter::exact_size::<[(); 1]>(/* &'static Schema */);
+  |                                                                       +++++++++++++++++++++

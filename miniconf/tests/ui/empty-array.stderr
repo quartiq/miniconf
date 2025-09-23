@@ -1,0 +1,13 @@
+warning: unused import: `miniconf::TreeSchema`
+ --> tests/ui/empty-array.rs:1:5
+  |
+1 | use miniconf::TreeSchema;
+  |     ^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+error[E0599]: no associated item named `SHAPE` found for array `[usize; 0]` in the current scope
+ --> tests/ui/empty-array.rs:4:36
+  |
+4 |     const _: usize = <[usize; 0]>::SHAPE.max_depth;
+  |                                    ^^^^^ associated item not found in `[usize; 0]`
