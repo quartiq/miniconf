@@ -202,7 +202,7 @@ pub trait TreeAny: TreeSchema {
 
 /// Serialize a leaf node by its keys.
 ///
-/// See also [`crate::json`] or `crate::postcard` for convenient wrappers using this trait.
+/// See also [`crate::json_core`] or `crate::postcard` for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
@@ -244,7 +244,7 @@ pub trait TreeSerialize: TreeSchema {
 
 /// Deserialize a leaf node by its keys.
 ///
-/// See also [`crate::json`] or `crate::postcard` for convenient wrappers using this trait.
+/// See also [`crate::json_core`] or `crate::postcard` for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
