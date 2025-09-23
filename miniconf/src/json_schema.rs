@@ -9,7 +9,7 @@ use serde_reflection::{
 };
 
 use crate::{
-    Internal, Meta, TreeDeserialize, TreeSerialize,
+    Internal, Meta, TreeDeserializeOwned, TreeSerialize,
     trace::{Node, Types},
 };
 
@@ -284,7 +284,7 @@ pub struct TreeJsonSchema<T> {
     pub root: schemars::Schema,
 }
 
-impl<'de, T: TreeSerialize + TreeDeserialize<'de>> TreeJsonSchema<T> {
+impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
     /// Convert a Tree into a JSON Schema
     pub fn new(value: Option<&T>) -> Result<Self, serde_reflection::Error> {
         let mut types: Types<T> = Default::default();
@@ -307,8 +307,8 @@ impl<'de, T: TreeSerialize + TreeDeserialize<'de>> TreeJsonSchema<T> {
 
         // Trace using TreeDeserialize assuming no samples are needed
         // If the Deserialize can't conjure up a value, it will leave the leaf node format unresolved.
-        //types.trace_types(&mut tracer, &samples)?;
-        types.trace_types_simple(&mut tracer)?;
+        // types.trace_types_simple(&mut tracer)?;
+        types.trace_types(&mut tracer, &samples)?;
 
         let registry = tracer.registry()?;
 
