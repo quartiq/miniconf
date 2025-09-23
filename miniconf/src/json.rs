@@ -1,7 +1,10 @@
 //! Utilities using `serde_json`
 use serde_json::value::{Serializer as ValueSerializer, Value};
 
-use crate::{Internal, IntoKeys, KeyError, Schema, SerdeError, TreeSerialize, ValueError};
+use crate::{
+    Internal, IntoKeys, KeyError, Schema, SerdeError, TreeSerialize, ValueError,
+    json_schema::{TREE_ABSENT, TREE_ACCESS},
+};
 
 /// Serialize a TreeSerialize into a JSON Value
 pub fn to_json_value<T: TreeSerialize>(
@@ -16,10 +19,10 @@ pub fn to_json_value<T: TreeSerialize>(
         match value.serialize_by_key((&idx[..depth]).into_keys(), ValueSerializer) {
             Ok(v) => Ok(v),
             Err(SerdeError::Value(ValueError::Absent)) => {
-                Ok(Value::String("__tree-absent__".to_string()))
+                Ok(Value::String(TREE_ABSENT.to_string()))
             }
             Err(SerdeError::Value(ValueError::Access(_msg))) => {
-                Ok(Value::String("__tree-access__".to_string()))
+                Ok(Value::String(TREE_ACCESS.to_string()))
             }
             Err(SerdeError::Value(ValueError::Key(KeyError::TooShort))) => {
                 Ok(match schema.internal.as_ref().unwrap() {

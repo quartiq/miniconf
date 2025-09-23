@@ -13,6 +13,11 @@ use crate::{
     trace::{Node, Types},
 };
 
+/// Magic JSON Value for absent node values
+pub const TREE_ABSENT: &'static str = "__tree-absent__";
+/// Magic JSON Value for access-denied node values
+pub const TREE_ACCESS: &'static str = "__tree-access__";
+
 /// Disallow additional `items`, `additionalProperties`, and missing `properties`
 pub struct Strictify;
 impl Transform for Strictify {
@@ -43,7 +48,7 @@ impl Transform for AllowAbsent {
         if let Some(o) = schema.as_object_mut() {
             if o.get("tree-maybe-absent") == Some(&true.into()) {
                 o.remove("tree-maybe-absent").unwrap();
-                *schema = json_schema!({"oneOf": [schema, {"const": "__tree-absent__"}]});
+                *schema = json_schema!({"oneOf": [schema, {"const": TREE_ABSENT}]});
             }
         }
         schemars::transform::transform_subschemas(self, schema);
