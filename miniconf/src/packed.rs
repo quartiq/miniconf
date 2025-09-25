@@ -121,22 +121,10 @@ impl Packed {
         matches!(*self, Self::EMPTY)
     }
 
-    /// Clear and discard all bits stored.
-    #[inline]
-    pub fn clear(&mut self) {
-        *self = Self::EMPTY;
-    }
-
-    /// Number of bits that can be stored.
-    #[inline]
-    pub const fn capacity(&self) -> u32 {
-        self.0.trailing_zeros()
-    }
-
     /// Number of bits stored.
     #[inline]
     pub const fn len(&self) -> u32 {
-        Self::CAPACITY - self.capacity()
+        Self::CAPACITY - self.0.trailing_zeros()
     }
 
     /// Return the representation aligned to the LSB with the marker bit
@@ -144,7 +132,7 @@ impl Packed {
     #[inline]
     pub const fn into_lsb(self) -> NonZero<usize> {
         TWO.saturating_pow(self.len())
-            .saturating_add((self.0.get() >> 1) >> self.capacity())
+            .saturating_add((self.get() >> 1) >> self.0.trailing_zeros())
     }
 
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
