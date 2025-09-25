@@ -301,7 +301,44 @@ macro_rules! impl_unsized_leaf {
     )*};
 }
 
-impl_unsized_leaf! {str, [u8]}
+impl_unsized_leaf! {str}
+
+impl<T> TreeSchema for [T] {
+    const SCHEMA: &'static Schema = leaf::SCHEMA;
+}
+
+impl<T: Serialize> TreeSerialize for [T] {
+    #[inline]
+    fn serialize_by_key<S: Serializer>(
+        &self,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        leaf::serialize_by_key(self, keys, ser)
+    }
+}
+
+impl<'a, 'de: 'a, T> TreeDeserialize<'de> for &'a [T]
+where
+    &'a [T]: Deserialize<'de>,
+{
+    #[inline]
+    fn deserialize_by_key<D: Deserializer<'de>>(
+        &mut self,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        leaf::deserialize_by_key(self, keys, de)
+    }
+
+    #[inline]
+    fn probe_by_key<D: Deserializer<'de>>(
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        leaf::probe_by_key::<Self, _>(keys, de)
+    }
+}
 
 #[cfg(feature = "alloc")]
 mod alloc_impls {
