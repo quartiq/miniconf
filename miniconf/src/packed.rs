@@ -72,6 +72,8 @@ impl Default for Packed {
     }
 }
 
+const TWO: NonZero<usize> = NonZero::<usize>::MIN.saturating_add(1);
+
 impl Packed {
     /// Number of bits in the representation including the marker bit
     pub const BITS: u32 = NonZero::<usize>::BITS;
@@ -82,9 +84,7 @@ impl Packed {
     /// The empty value
     pub const EMPTY: Self = Self(
         // Slightly cumbersome to generate it with `const`
-        NonZero::<usize>::MIN
-            .saturating_add(1)
-            .saturating_pow(Self::CAPACITY),
+        TWO.saturating_pow(Self::CAPACITY),
     );
 
     /// Create a new `Packed` from a `usize`.
@@ -143,23 +143,18 @@ impl Packed {
     /// moved from the LSB to the MSB.
     #[inline]
     pub const fn into_lsb(self) -> NonZero<usize> {
-        match NonZero::new(((self.0.get() >> 1) | (1 << Self::CAPACITY)) >> self.0.trailing_zeros())
-        {
-            Some(v) => v,
-            // We ensure there is at least the marker bit set
-            None => unreachable!(),
-        }
+        TWO.saturating_pow(self.len())
+            .saturating_add((self.0.get() >> 1) >> self.capacity())
     }
 
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
     /// moved from the MSB the LSB.
     #[inline]
     pub const fn from_lsb(value: NonZero<usize>) -> Self {
-        match Self::new(((value.get() << 1) | 1) << value.leading_zeros()) {
-            Some(v) => v,
-            // We ensure there is at least the marker bit set
-            None => unreachable!(),
-        }
+        Self(
+            TWO.saturating_pow(value.leading_zeros())
+                .saturating_add((value.get() << 1) << value.leading_zeros()),
+        )
     }
 
     /// Return the number of bits required to represent `num`.
