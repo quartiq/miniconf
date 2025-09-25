@@ -85,7 +85,6 @@ struct TreeVariant {
     ident: syn::Ident,
     rename: Option<syn::Ident>,
     skip: Flag,
-    // leaf: Flag, // TODO
     fields: ast::Fields<TreeField>,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
@@ -134,7 +133,6 @@ pub struct Tree {
     ident: syn::Ident,
     generics: syn::Generics,
     flatten: Flag,
-    leaf: Flag,
     data: Data<TreeVariant, TreeField>,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
