@@ -225,8 +225,7 @@ pub trait TreeSerialize: TreeSchema {
     /// };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser)
-    ///     .unwrap();
+    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser).unwrap();
     /// let len = ser.end();
     /// assert_eq!(&buf[..len], b"11");
     /// # }
@@ -263,8 +262,7 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
-    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de)
-    ///     .unwrap();
+    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.bar[0], 7);
     /// # }

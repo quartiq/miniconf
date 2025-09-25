@@ -121,12 +121,11 @@ struct Lock {
 mod lock {
     use super::Lock;
     use miniconf::{
-        Deserializer, Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeSerialize,
-        ValueError,
+        Deserializer, Keys, SerdeError, Serializer, TreeDeserialize, TreeSerialize, ValueError,
     };
 
-    pub const SCHEMA: &Schema = miniconf::leaf::SCHEMA;
     pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
+    pub use miniconf::leaf::SCHEMA;
 
     pub fn serialize_by_key<S: Serializer>(
         value: &Lock,
