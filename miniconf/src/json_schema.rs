@@ -237,8 +237,8 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
         };
         sch.insert("tree-maybe-absent".to_string(), true.into());
         push_meta(&mut sch, "tree-inner-meta", &self.data.0.meta);
-        if let Some(meta) = self.data.0.meta {
-            #[cfg(feature = "meta-str")]
+        #[cfg(feature = "meta-str")]
+        if let Some(meta) = &self.data.0.meta {
             if let Some(name) = meta.iter().find_map(|(key, typename)| {
                 (*key == "typename").then_some(format!("tree-internal-{typename}"))
             }) {
