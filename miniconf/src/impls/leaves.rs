@@ -458,7 +458,7 @@ mod std_impls {
 mod heapless_impls {
     use super::*;
 
-    use heapless::String;
+    use heapless::{String, Vec};
 
     impl<const N: usize> TreeSchema for String<N> {
         const SCHEMA: &'static Schema = leaf::SCHEMA;
@@ -495,6 +495,52 @@ mod heapless_impls {
     }
 
     impl<const N: usize> TreeAny for String<N> {
+        #[inline]
+        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+            leaf::ref_any_by_key(self, keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+            leaf::mut_any_by_key(self, keys)
+        }
+    }
+
+    impl<T, const N: usize> TreeSchema for Vec<T, N> {
+        const SCHEMA: &'static Schema = leaf::SCHEMA;
+    }
+
+    impl<T: Serialize, const N: usize> TreeSerialize for Vec<T, N> {
+        #[inline]
+        fn serialize_by_key<S: Serializer>(
+            &self,
+            keys: impl Keys,
+            ser: S,
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
+            leaf::serialize_by_key(self, keys, ser)
+        }
+    }
+
+    impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for Vec<T, N> {
+        #[inline]
+        fn deserialize_by_key<D: Deserializer<'de>>(
+            &mut self,
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::deserialize_by_key(self, keys, de)
+        }
+
+        #[inline]
+        fn probe_by_key<D: Deserializer<'de>>(
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::probe_by_key::<String<N>, _>(keys, de)
+        }
+    }
+
+    impl<T: 'static, const N: usize> TreeAny for Vec<T, N> {
         #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)

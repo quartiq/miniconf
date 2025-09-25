@@ -63,7 +63,10 @@ fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
     if !meta.is_empty() {
         let meta: TokenStream = meta
             .iter()
-            .filter_map(|(k, v)| v.as_ref().explicit().map(|v| quote!((#k, #v), )))
+            .map(|(k, v)| {
+                let v = v.as_ref().explicit().unwrap(); // All inherited metas have been converted
+                quote!((#k, #v), )
+            })
             .collect();
         return quote!(::core::option::Option::Some(&[#meta]));
     }
@@ -131,7 +134,7 @@ pub struct Tree {
     ident: syn::Ident,
     generics: syn::Generics,
     flatten: Flag,
-    // leaf: Flag, // TODO
+    leaf: Flag,
     data: Data<TreeVariant, TreeField>,
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
