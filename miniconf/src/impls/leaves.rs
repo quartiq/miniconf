@@ -45,14 +45,17 @@ pub mod passthrough {
 
     /// [`TreeAny::ref_any_by_key()`]
     #[inline]
-    pub fn ref_any_by_key(value: &impl TreeAny, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+    pub fn ref_any_by_key(
+        value: &(impl TreeAny + ?Sized),
+        keys: impl Keys,
+    ) -> Result<&dyn Any, ValueError> {
         value.ref_any_by_key(keys)
     }
 
     /// [`TreeAny::mut_any_by_key()`]
     #[inline]
     pub fn mut_any_by_key(
-        value: &mut impl TreeAny,
+        value: &mut (impl TreeAny + ?Sized),
         keys: impl Keys,
     ) -> Result<&mut dyn Any, ValueError> {
         value.mut_any_by_key(keys)
@@ -203,11 +206,7 @@ impl<T: Any> TreeAny for Leaf<T> {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 macro_rules! impl_leaf {
-    ($ty0:ty, $($ty:ty), +) => {
-        impl_leaf! {$ty0}
-        impl_leaf! {$($ty),+}
-    };
-    ($ty:ty) => {
+    ($($ty:ty),*) => {$(
         impl TreeSchema for $ty {
             const SCHEMA: &'static Schema = leaf::SCHEMA;
         }
@@ -253,7 +252,7 @@ macro_rules! impl_leaf {
                 leaf::mut_any_by_key(self, keys)
             }
         }
-    };
+    )*};
 }
 
 impl_leaf! {
@@ -265,7 +264,7 @@ impl_leaf! {core::net::SocketAddr, core::net::SocketAddrV4, core::net::SocketAdd
 impl_leaf! {core::time::Duration}
 
 macro_rules! impl_unsized_leaf {
-    ($ty:ty) => {
+    ($($ty:ty),*) => {$(
         impl TreeSchema for $ty {
             const SCHEMA: &'static Schema = leaf::SCHEMA;
         }
@@ -299,14 +298,102 @@ macro_rules! impl_unsized_leaf {
                 leaf::probe_by_key::<Self, _>(keys, de)
             }
         }
-    };
+    )*};
 }
 
 impl_unsized_leaf! {str}
-impl_unsized_leaf! {[u8]}
+
+impl<T> TreeSchema for [T] {
+    const SCHEMA: &'static Schema = leaf::SCHEMA;
+}
+
+impl<T: Serialize> TreeSerialize for [T] {
+    #[inline]
+    fn serialize_by_key<S: Serializer>(
+        &self,
+        keys: impl Keys,
+        ser: S,
+    ) -> Result<S::Ok, SerdeError<S::Error>> {
+        leaf::serialize_by_key(self, keys, ser)
+    }
+}
+
+impl<'a, 'de: 'a, T> TreeDeserialize<'de> for &'a [T]
+where
+    &'a [T]: Deserialize<'de>,
+{
+    #[inline]
+    fn deserialize_by_key<D: Deserializer<'de>>(
+        &mut self,
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        leaf::deserialize_by_key(self, keys, de)
+    }
+
+    #[inline]
+    fn probe_by_key<D: Deserializer<'de>>(
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        leaf::probe_by_key::<Self, _>(keys, de)
+    }
+}
 
 #[cfg(feature = "alloc")]
-impl_leaf! {String}
+mod alloc_impls {
+    use super::*;
+
+    use alloc::{string::String, vec::Vec};
+
+    impl_leaf! {String}
+
+    impl<T> TreeSchema for Vec<T> {
+        const SCHEMA: &'static Schema = leaf::SCHEMA;
+    }
+
+    impl<T: Serialize> TreeSerialize for Vec<T> {
+        #[inline]
+        fn serialize_by_key<S: Serializer>(
+            &self,
+            keys: impl Keys,
+            ser: S,
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
+            leaf::serialize_by_key(self, keys, ser)
+        }
+    }
+
+    impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Vec<T> {
+        #[inline]
+        fn deserialize_by_key<D: Deserializer<'de>>(
+            &mut self,
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::deserialize_by_key(self, keys, de)
+        }
+
+        #[inline]
+        fn probe_by_key<D: Deserializer<'de>>(
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::probe_by_key::<Vec<T>, _>(keys, de)
+        }
+    }
+
+    impl<T: 'static> TreeAny for Vec<T> {
+        #[inline]
+        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+            leaf::ref_any_by_key(self, keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+            leaf::mut_any_by_key(self, keys)
+        }
+    }
+}
 
 #[cfg(feature = "std")]
 mod std_impls {

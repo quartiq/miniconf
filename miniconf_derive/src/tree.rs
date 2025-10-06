@@ -242,6 +242,7 @@ impl Tree {
                         quote!(#i => #rhs)
                     })
                     .collect(),
+                // TODO: Use the serde approach of a private enum (visitor) to get rid of the default
                 quote!(::core::unreachable!()),
             ),
             Data::Enum(variants) => (
@@ -440,7 +441,7 @@ impl Tree {
                     let index = #index?;
                     match index {
                         #(#probe_arms ,)*
-                        _ => ::core::unreachable!()
+                        _ => #default
                     }
                 }
             }
