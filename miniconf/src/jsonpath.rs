@@ -104,8 +104,17 @@ impl<T: core::fmt::Display> core::fmt::Display for JsonPath<T> {
     }
 }
 
-impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
+impl<'a, T: AsRef<str> + ?Sized> IntoKeys for JsonPath<&'a T> {
     type IntoKeys = KeysIter<JsonPathIter<'a>>;
+    #[inline]
+    fn into_keys(self) -> Self::IntoKeys {
+        JsonPathIter(self.0.as_ref()).into_keys()
+    }
+}
+
+impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
+    type IntoKeys = <JsonPath<&'a str> as IntoKeys>::IntoKeys;
+
     #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         JsonPathIter(self.0.as_ref()).into_keys()
