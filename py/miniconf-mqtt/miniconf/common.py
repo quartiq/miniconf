@@ -1,6 +1,6 @@
 """Common code for miniconf.async_ and miniconf.sync"""
 
-# pylint: disable=R0801,C0415,W1203,R0903,W0707
+# pylint: disable=R0801,C0415,W1203,R0903,W0707,C0103
 
 from typing import Dict, Any, Tuple
 import logging

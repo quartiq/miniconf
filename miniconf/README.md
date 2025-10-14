@@ -88,7 +88,7 @@ let packed: Packed = Settings::SCHEMA.transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
 json_core::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
-json_core::set_by_key(&mut settings, &JsonPath(".array_tree2[1].b"), b"10")?;
+json_core::set_by_key(&mut settings, JsonPath(".array_tree2[1].b"), b"10")?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(json_core::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));

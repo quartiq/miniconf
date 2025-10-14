@@ -306,11 +306,6 @@ impl Schema {
 
     /// Transcode keys to a new keys type representation
     ///
-    /// The keys can be
-    /// * too short: the internal node is returned
-    /// * matched length: the leaf node is returned
-    /// * too long: Err(TooLong(depth)) is returned
-    ///
     /// In order to not require `N: Default`, use [`Transcode::transcode`] on
     /// an existing `&mut N`.
     ///
