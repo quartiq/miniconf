@@ -48,15 +48,15 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
 ) -> Result<Format, SerdeError<serde_reflection::Error>> {
     loop {
         let format = trace_type_once::<T>(tracer, samples, keys.clone())?;
-        if let Format::TypeName(name) = &format {
-            if let Some(progress) = tracer.pend_enum(name) {
-                debug_assert!(
-                    !matches!(progress, serde_reflection::EnumProgress::Pending),
-                    "failed to make progress tracing enum {name}"
-                );
-                // Restart the analysis to find more variants.
-                continue;
-            }
+        if let Format::TypeName(name) = &format
+            && let Some(progress) = tracer.pend_enum(name)
+        {
+            debug_assert!(
+                !matches!(progress, serde_reflection::EnumProgress::Pending),
+                "failed to make progress tracing enum {name}"
+            );
+            // Restart the analysis to find more variants.
+            continue;
         }
         return Ok(format);
     }
