@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Error` -> `SerdeError`/`DescendError`.
   This makes several matches naturally exhaustive.
 * Removal of the depth field on errors and `NodeIter` items.
-  Use `Keys::track()``Keys::short()` to obtain termination depth and node type.
+  Use `Keys::track()`/`Keys::short()` to obtain termination depth and node type.
 * `Indices` keeps depth
 * `NodeIter` is not generic over the `Tree*` type anymore
 * Lots of `const`-ness with `const SCHEMA`.
