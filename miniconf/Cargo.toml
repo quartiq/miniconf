@@ -16,7 +16,7 @@ categories = ["embedded", "config", "data-structures", "parsing"]
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
-miniconf_derive = { path = "../miniconf_derive", version = "0.19.0", optional = true }
+miniconf_derive = { path = "../miniconf_derive", version = "0.20.0", optional = true }
 itoa = "1.0.4"
 serde-json-core = { version = "0.6.0", optional = true }
 postcard = { version = "1.0.8", optional = true }
