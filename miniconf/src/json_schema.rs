@@ -14,9 +14,9 @@ use crate::{
 };
 
 /// Magic JSON Value for absent node values
-pub const TREE_ABSENT: &'static str = "__tree-absent__";
+pub const TREE_ABSENT: &str = "__tree-absent__";
 /// Magic JSON Value for access-denied node values
-pub const TREE_ACCESS: &'static str = "__tree-access__";
+pub const TREE_ACCESS: &str = "__tree-access__";
 
 /// Disallow additional `items`, `additionalProperties`, and missing `properties`
 pub struct Strictify;
@@ -45,11 +45,11 @@ impl Transform for Strictify {
 pub struct AllowAbsent;
 impl Transform for AllowAbsent {
     fn transform(&mut self, schema: &mut schemars::Schema) {
-        if let Some(o) = schema.as_object_mut() {
-            if o.get("tree-maybe-absent") == Some(&true.into()) {
-                o.remove("tree-maybe-absent").unwrap();
-                *schema = json_schema!({"oneOf": [schema, {"const": TREE_ABSENT}]});
-            }
+        if let Some(o) = schema.as_object_mut()
+            && o.get("tree-maybe-absent") == Some(&true.into())
+        {
+            o.remove("tree-maybe-absent").unwrap();
+            *schema = json_schema!({"oneOf": [schema, {"const": TREE_ABSENT}]});
         }
         schemars::transform::transform_subschemas(self, schema);
     }
@@ -238,20 +238,20 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
         sch.insert("tree-maybe-absent".to_string(), true.into());
         push_meta(&mut sch, "tree-inner-meta", &self.data.0.meta);
         #[cfg(feature = "meta-str")]
-        if let Some(meta) = &self.data.0.meta {
-            if let Some(name) = meta.iter().find_map(|(key, typename)| {
+        if let Some(meta) = &self.data.0.meta
+            && let Some(name) = meta.iter().find_map(|(key, typename)| {
                 (*key == "typename").then_some(format!("tree-internal-{typename}"))
-            }) {
-                // Convert to named def reference
-                if let Some(existing) = generator.definitions().get(&name) {
-                    assert_eq!(existing, sch.as_value()); // typename not unique
-                } else {
-                    generator
-                        .definitions_mut()
-                        .insert(name.to_string(), sch.into());
-                }
-                return Some(schemars::Schema::new_ref(format!("#/$defs/{name}")));
+            })
+        {
+            // Convert to named def reference
+            if let Some(existing) = generator.definitions().get(&name) {
+                assert_eq!(existing, sch.as_value()); // typename not unique
+            } else {
+                generator
+                    .definitions_mut()
+                    .insert(name.to_string(), sch.into());
             }
+            return Some(schemars::Schema::new_ref(format!("#/$defs/{name}")));
         }
         Some(sch)
     }
