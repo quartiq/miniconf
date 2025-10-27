@@ -76,12 +76,12 @@ class Miniconf:
         try:
             cd = bytes.fromhex(properties["CorrelationData"])
         except KeyError:
-            LOGGER.info("Discarding message without CorrelationData")
+            LOGGER.debug("Discarding message without CorrelationData")
             return
         try:
             event, ret = self._inflight[cd]
         except KeyError:
-            LOGGER.info(f"Discarding message with unexpected CorrelationData: {cd}")
+            LOGGER.debug(f"Discarding message with unexpected CorrelationData: {cd}")
             return
 
         try:
