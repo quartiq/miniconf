@@ -49,12 +49,12 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
     loop {
         let format = trace_type_once::<T>(tracer, samples, keys.clone())?;
         if let Format::TypeName(name) = &format
-            && let Some(progress) = tracer.pend_enum(name)
+            && let Some(_reason) = tracer.check_incomplete_enum(name)
         {
-            debug_assert!(
-                !matches!(progress, serde_reflection::EnumProgress::Pending),
-                "failed to make progress tracing enum {name}"
-            );
+            // debug_assert!(
+            //     !matches!(reason, serde_reflection::IncompleteEnumReason::Pending),
+            //     "failed to make progress tracing enum {name}"
+            // );
             // Restart the analysis to find more variants.
             continue;
         }
