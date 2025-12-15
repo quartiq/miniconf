@@ -51,7 +51,7 @@ pub fn trace_type<'de, T: TreeDeserialize<'de>>(
         if let Format::TypeName(name) = &format
             && let Some(_reason) = tracer.check_incomplete_enum(name)
         {
-            // debug_assert!(
+            // assert!(
             //     !matches!(reason, serde_reflection::IncompleteEnumReason::Pending),
             //     "failed to make progress tracing enum {name}"
             // );
