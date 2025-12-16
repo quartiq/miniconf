@@ -1,13 +1,23 @@
-warning: unused import: `miniconf::TreeSchema`
- --> tests/ui/empty-array.rs:1:5
+error[E0080]: evaluation panicked: Must have at least one child
+ --> src/impls/internal.rs
   |
-1 | use miniconf::TreeSchema;
-  |     ^^^^^^^^^^^^^^^^^^^^
+  |     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
+  |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `miniconf::impls::internal::<impl miniconf::TreeSchema for [usize; 0]>::SCHEMA` failed inside this call
   |
-  = note: `#[warn(unused_imports)]` on by default
+note: inside `miniconf::Homogeneous::new`
+ --> src/schema.rs
+  |
+  |             len: NonZero::new(len).expect("Must have at least one child"),
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
 
-error[E0599]: no associated item named `SHAPE` found for array `[usize; 0]` in the current scope
- --> tests/ui/empty-array.rs:4:36
+note: erroneous constant encountered
+ --> src/impls/internal.rs
   |
-4 |     const _: usize = <[usize; 0]>::SHAPE.max_depth;
-  |                                    ^^^^^ associated item not found in `[usize; 0]`
+  |     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
+  |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+note: erroneous constant encountered
+ --> tests/ui/empty-array.rs:4:22
+  |
+4 |     const _: usize = <[usize; 0] as TreeSchema>::SCHEMA.shape().max_depth;
+  |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
