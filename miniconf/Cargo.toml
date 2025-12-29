@@ -48,12 +48,7 @@ all-features = true
 anyhow = "1.0.86"
 postcard = { version = "1.0.8", features = ["use-std"] }
 crosstrait = { version = "0.1", default-features = false }
-embedded-io = "0.6.1"
-embedded-io-async = "0.6.1"
-embedded-io-adapters = { version = "0.6.1", features = ["tokio-1"] }
 heapless = "0.8.0"
-yafnv = "3.0.0"
-tokio = { version = "1.38.0", features = ["io-std", "rt", "macros"] }
 strum = { version = "0.27.1", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
