@@ -17,5 +17,4 @@ categories = ["no-std", "config", "data-structures", "parsing"]
 [workspace.lints.rust]
 rust_2018_compatibility = { level = "deny", priority = -1 }
 rust_2018_idioms = { level = "deny", priority = -1 }
-missing_docs = "warn"
 unsafe_code = "forbid"

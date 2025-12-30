@@ -21,7 +21,7 @@ miniconf = { version = "0.20.0", features = [
 ], default-features = false, path = "../miniconf" }
 minimq = "0.10.0"
 smlang = "0.8"
-embedded-io = "0.6"
+embedded-io = "0.7"
 log = "0.4"
 heapless = "0.8"
 strum = { version = "0.27.1", features = ["derive"], default-features = false }

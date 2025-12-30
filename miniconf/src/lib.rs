@@ -1,6 +1,7 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![cfg_attr(all(feature = "derive", feature = "json-core"), doc = include_str!("../README.md"))]
 #![cfg_attr(not(all(feature = "derive", feature = "json-core")), doc = "Miniconf")]
+#![warn(missing_docs)] // avoid hits for tests/examples but see alwo workspace lints
 
 mod error;
 pub use error::*;

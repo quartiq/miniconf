@@ -1,8 +1,6 @@
 #![no_std]
-#![deny(rust_2018_compatibility)]
-#![deny(rust_2018_idioms)]
-#![warn(missing_docs)]
-#![forbid(unsafe_code)]
+#![warn(missing_docs)] // avoid hits for tests/examples but see alwo workspace lints
+
 //! The Minimq MQTT client for `miniconf``.
 
 use core::{fmt::Display, marker::PhantomData};
