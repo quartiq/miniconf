@@ -1,4 +1,4 @@
-use core::{fmt::Write, ops::ControlFlow::*};
+use core::fmt::Write;
 
 use serde::{Deserialize, Serialize};
 
@@ -53,20 +53,27 @@ impl<'a> Iterator for JsonPathIter<'a> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
+        enum Close {
+            Inclusive(&'static str),
+            Exclusive(&'static [char]),
+        }
+        use Close::*;
         for (open, close) in [
-            (".'", Continue("'")),    // "'" inclusive
-            (".", Break(['.', '['])), // '.' or '[' exclusive
-            ("['", Continue("']")),   // "']" inclusive
-            ("[", Continue("]")),     // "]" inclusive
+            (".'", Inclusive("'")),
+            (".", Exclusive(&['.', '['])),
+            ("['", Inclusive("']")),
+            ("[", Inclusive("]")),
         ] {
             if let Some(rest) = self.0.strip_prefix(open) {
-                let (end, sep) = match close {
-                    Break(close) => (rest.find(close).unwrap_or(rest.len()), 0),
-                    Continue(close) => (rest.find(close)?, close.len()),
+                let (pre, post) = match close {
+                    Exclusive(close) => rest
+                        .find(close)
+                        .map(|i| rest.split_at(i))
+                        .unwrap_or((rest, "")),
+                    Inclusive(close) => rest.split_once(close)?,
                 };
-                let (next, rest) = rest.split_at(end);
-                self.0 = &rest[sep..];
-                return Some(next);
+                self.0 = post;
+                return Some(pre);
             }
         }
         None

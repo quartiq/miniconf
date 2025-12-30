@@ -1,10 +1,10 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
-#![cfg_attr(all(feature = "derive", feature = "json-core"), doc = include_str!("../README.md"))]
-#![cfg_attr(not(all(feature = "derive", feature = "json-core")), doc = "Miniconf")]
-#![deny(rust_2018_compatibility)]
-#![deny(rust_2018_idioms)]
-#![warn(missing_docs)]
-#![forbid(unsafe_code)]
+#![cfg_attr(all(feature = "derive", feature = "json-core", feature = "heapless"), doc = include_str!("../README.md"))]
+#![cfg_attr(
+    not(all(feature = "derive", feature = "json-core", feature = "heapless")),
+    doc = "Miniconf"
+)]
+#![warn(missing_docs)] // avoid hits for tests/examples but see alwo workspace lints
 
 mod error;
 pub use error::*;

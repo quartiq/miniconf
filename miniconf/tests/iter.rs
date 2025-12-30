@@ -80,7 +80,9 @@ fn short_iter() {
 #[test]
 #[should_panic]
 fn panic_short_iter() {
-    <[[u32; 1]; 1]>::SCHEMA.nodes::<(), 1>();
+    <[(); 1]>::SCHEMA.nodes::<(), 0>();
+    // compile time:
+    // <[(); 1]>::nodes::<(), 0>();
 }
 
 #[test]

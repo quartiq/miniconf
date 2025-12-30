@@ -403,7 +403,7 @@ impl Tree {
             self.fields()
                 .iter()
                 .flat_map(|f| f.uses_lifetimes(&Purpose::BoundImpl.into(), &lifetimes))
-                .collect::<LifetimeRefSet>()
+                .collect::<LifetimeRefSet<'_>>()
                 .into_iter()
                 .cloned(),
         );

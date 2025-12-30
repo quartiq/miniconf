@@ -2,17 +2,16 @@
 name = "miniconf"
 # Sync all crate versions and the py client
 version = "0.20.0"
-authors = [
-    "James Irwin <irwineffect@gmail.com>",
-    "Ryan Summers <ryan.summers@vertigo-designs.com>",
-    "Robert Jördens <rj@quartiq.de>",
-]
-edition = "2024"
-license = "MIT"
 description = "Serialize/deserialize/access reflection for trees"
-repository = "https://github.com/quartiq/miniconf"
-keywords = ["config", "serde", "no_std", "reflection", "graph"]
-categories = ["embedded", "config", "data-structures", "parsing"]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
@@ -27,16 +26,20 @@ serde_json = { version = "1.0.133", features = [
     "preserve_order",
 ], optional = true }
 heapless = { version = "0.8", optional = true }
+heapless-09 = { package = "heapless", version = "0.9", optional = true, features = [
+    "serde",
+] }
 
 [features]
 default = ["derive", "meta-str"]
-alloc = []
+alloc = ["heapless-09?/alloc"]
 std = ["alloc"]
 meta-str = ["miniconf_derive/meta-str"]
 json-core = ["dep:serde-json-core"]
 json = ["dep:serde_json"]
 postcard = ["dep:postcard"]
 heapless = ["dep:heapless"]
+heapless-09 = ["dep:heapless-09"]
 derive = ["dep:miniconf_derive", "serde/derive"]
 trace = ["std", "dep:serde-reflection"]
 schema = ["trace", "dep:schemars", "json"]
@@ -48,11 +51,11 @@ all-features = true
 anyhow = "1.0.86"
 postcard = { version = "1.0.8", features = ["use-std"] }
 crosstrait = { version = "0.1", default-features = false }
-heapless = "0.8.0"
+heapless-09 = { package = "heapless", version = "0.9.0" }
 strum = { version = "0.27.1", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
-jsonschema = { version = "0.33.0", default-features = false }
+jsonschema = { version = "0.38.0", default-features = false }
 
 [[test]]
 name = "arrays"

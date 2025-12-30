@@ -1,3 +1,7 @@
+#![warn(missing_docs)] // avoid hits for tests/examples but see alwo workspace lints
+
+//! Derive macros for `miniconf` traits
+
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use syn::{DeriveInput, parse_macro_input};
