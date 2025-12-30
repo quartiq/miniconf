@@ -271,8 +271,8 @@ where
         clock: Clock,
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
+        const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
         let shape = Settings::SCHEMA.shape();
-        assert!(shape.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + shape.max_length("/") <= MAX_TOPIC_LENGTH);
 
         // Configure a will so that we can indicate whether or not we are connected.

@@ -1,5 +1,5 @@
-use miniconf::{ExactSize, NodeIter};
+use miniconf::{ExactSize, NodeIter, TreeSchema};
 
-const _: ExactSize<NodeIter<(), 0>> = NodeIter::exact_size::<[(); 1]>();
+const _: ExactSize<NodeIter<(), 0>> = <[(); 1]>::SCHEMA.nodes();
 
 fn main() {}

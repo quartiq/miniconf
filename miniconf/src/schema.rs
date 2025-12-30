@@ -404,9 +404,7 @@ impl Schema {
     /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
     /// ```
     #[inline]
-    pub const fn nodes<N: Transcode + Default, const D: usize>(
-        &'static self,
-    ) -> ExactSize<NodeIter<N, D>> {
+    pub const fn nodes<N, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
         NodeIter::exact_size(self)
     }
 }

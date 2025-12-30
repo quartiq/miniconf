@@ -155,28 +155,26 @@ impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
             let ret = item.transcode(self.schema, &self.state[..]);
             // Track<N> counts is the number of successful Keys::next()
             let (item, depth) = item.into_inner();
-            return match ret {
+            match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
                     // Reset index at NotFound depth, then retry with incremented earlier index or terminate
                     self.state[depth] = 0;
                     self.depth = depth.max(self.root);
-                    continue;
                 }
                 Err(DescendError::Key(KeyError::TooLong)) | Ok(()) => {
                     // Leaf node found, save depth for increment at next iteration
                     self.depth = depth;
-                    Some(Ok(item))
+                    return Some(Ok(item));
                 }
                 Err(DescendError::Key(KeyError::TooShort)) => {
                     // Use Short<N> to suppress this branch and also get internal short nodes
                     self.depth = depth;
-                    continue;
                 }
                 Err(DescendError::Inner(e)) => {
                     // Target type can not hold keys
-                    Some(Err(e))
+                    return Some(Err(e));
                 }
-            };
+            }
         }
     }
 }

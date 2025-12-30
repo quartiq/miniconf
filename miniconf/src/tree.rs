@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
+use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -146,8 +146,17 @@ use crate::{IntoKeys, Keys, Schema, SerdeError, ValueError};
 /// macros work.
 pub trait TreeSchema {
     /// Schema for this tree level
-    // Reference for Option<T> to copy T::SCHEMA
+    // Reference for Option<T> and others to copy T::SCHEMA
     const SCHEMA: &Schema;
+
+    /// Return an exact size iterator of all leaf nodes
+    ///
+    /// This ensures sufficient state depth at compile time.
+    #[inline]
+    fn nodes<N, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+        const { assert!(D >= Self::SCHEMA.shape().max_depth) }
+        Self::SCHEMA.nodes()
+    }
 }
 
 /// Access any node by keys.
@@ -169,11 +178,11 @@ pub trait TreeSchema {
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
-/// let val: &mut u16 = s.mut_by_key(&JsonPath(".bar[1]")).unwrap();
+/// let val: &mut u16 = s.mut_by_key(JsonPath(".bar[1]")).unwrap();
 /// *val = 3;
 /// assert_eq!(s.bar[1], 3);
 ///
-/// let val: &u16 = s.ref_by_key(&JsonPath(".bar[1]")).unwrap();
+/// let val: &u16 = s.ref_by_key(JsonPath(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// ```
 pub trait TreeAny: TreeSchema {
