@@ -33,8 +33,6 @@ const MAX_CD_LENGTH: usize = 32;
 // dumped.
 const DUMP_TIMEOUT_SECONDS: u32 = 2;
 
-const SEPARATOR: char = '/';
-
 /// Miniconf MQTT joint error type
 #[derive(Debug, PartialEq)]
 pub enum Error<E> {
@@ -114,7 +112,7 @@ mod sm {
 
 /// Cache correlation data and topic for multi-part responses.
 struct Multipart<const Y: usize> {
-    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>, SEPARATOR>, Y>,
+    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>, '/'>, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
@@ -273,7 +271,6 @@ where
         clock: Clock,
         config: ConfigBuilder<'a, Broker>,
     ) -> Result<Self, ProtocolError> {
-        assert_eq!("/".len(), SEPARATOR.len_utf8());
         let shape = Settings::SCHEMA.shape();
         assert!(shape.max_depth <= Y);
         assert!(prefix.len() + "/settings".len() + shape.max_length("/") <= MAX_TOPIC_LENGTH);
@@ -390,7 +387,7 @@ where
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
         let mut m = Multipart::new(Settings::SCHEMA);
         if let Some(path) = path {
-            m = m.root(Path::<_, SEPARATOR>(path))?;
+            m = m.root(Path::<_, '/'>(path))?;
         }
         self.state.process_event(sm::Events::Multipart)?;
         self.pending = m;
@@ -525,7 +522,7 @@ where
             let Some(path) = topic
                 .strip_prefix(*prefix)
                 .and_then(|p| p.strip_prefix("/settings"))
-                .map(Path::<_, SEPARATOR>)
+                .map(Path::<_, '/'>)
             else {
                 info!("Unexpected topic: {topic}");
                 return State::Unchanged;
