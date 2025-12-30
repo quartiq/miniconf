@@ -25,14 +25,12 @@ smlang = "0.8"
 embedded-io = "0.6"
 log = "0.4"
 heapless = "0.8"
-serde-json-core = "0.6.0"
 strum = { version = "0.27.1", features = ["derive"], default-features = false }
 
 [[example]]
 name = "mqtt"
 
 [dev-dependencies]
-machine = "0.3"
 env_logger = "0.11"
 std-embedded-nal = "0.4"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
