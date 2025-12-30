@@ -1,17 +1,16 @@
 [package]
 name = "miniconf_mqtt"
 version = "0.20.0"
-authors = [
-    "James Irwin <irwineffect@gmail.com>",
-    "Ryan Summers <ryan.summers@vertigo-designs.com>",
-    "Robert Jördens <rj@quartiq.de>",
-]
-edition = "2024"
-license = "MIT"
 description = "MQTT interface for `miniconf`, using `minimq`"
-repository = "https://github.com/quartiq/miniconf"
-keywords = ["settings", "serde", "no_std", "json", "mqtt"]
-categories = ["no-std", "config", "rust-patterns", "parsing"]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
 
 [lib]
 

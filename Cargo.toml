@@ -1,3 +1,21 @@
 [workspace]
 members = ["miniconf_derive", "miniconf", "miniconf_mqtt"]
 resolver = "2"
+
+[workspace.package]
+authors = [
+    "Robert Jördens <rj@quartiq.de>",
+    "Ryan Summers <ryan.summers@vertigo-designs.com>",
+    "James Irwin <irwineffect@gmail.com>",
+]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/quartiq/miniconf"
+keywords = ["settings", "serde", "no_std", "reflection", "graph"]
+categories = ["no-std", "config", "data-structures", "parsing"]
+
+[workspace.lints.rust]
+rust_2018_compatibility = { level = "deny", priority = -1 }
+rust_2018_idioms = { level = "deny", priority = -1 }
+missing_docs = "warn"
+unsafe_code = "forbid"

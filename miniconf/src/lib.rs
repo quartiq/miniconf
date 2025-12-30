@@ -1,10 +1,6 @@
 #![cfg_attr(not(any(test, feature = "std")), no_std)]
 #![cfg_attr(all(feature = "derive", feature = "json-core"), doc = include_str!("../README.md"))]
 #![cfg_attr(not(all(feature = "derive", feature = "json-core")), doc = "Miniconf")]
-#![deny(rust_2018_compatibility)]
-#![deny(rust_2018_idioms)]
-#![warn(missing_docs)]
-#![forbid(unsafe_code)]
 
 mod error;
 pub use error::*;

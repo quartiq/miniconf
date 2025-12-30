@@ -2,17 +2,16 @@
 name = "miniconf"
 # Sync all crate versions and the py client
 version = "0.20.0"
-authors = [
-    "James Irwin <irwineffect@gmail.com>",
-    "Ryan Summers <ryan.summers@vertigo-designs.com>",
-    "Robert Jördens <rj@quartiq.de>",
-]
-edition = "2024"
-license = "MIT"
 description = "Serialize/deserialize/access reflection for trees"
-repository = "https://github.com/quartiq/miniconf"
-keywords = ["config", "serde", "no_std", "reflection", "graph"]
-categories = ["embedded", "config", "data-structures", "parsing"]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
