@@ -143,7 +143,7 @@ impl TreeField {
         let imp = self
             .with
             .as_ref()
-            .map(|m| quote!(#m::probe_by_key::<'_, #typ, _>(keys, de)))
+            .map(|m| quote!(#m::probe_by_key::<#typ, _>(keys, de)))
             .unwrap_or(
                 quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)),
             );

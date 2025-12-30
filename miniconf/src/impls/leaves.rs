@@ -187,7 +187,7 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
         keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        leaf::probe_by_key::<T, _>(keys, de)
+        leaf::probe_by_key::<Self, _>(keys, de)
     }
 }
 
@@ -378,7 +378,7 @@ mod alloc_impls {
             keys: impl Keys,
             de: D,
         ) -> Result<(), SerdeError<D::Error>> {
-            leaf::probe_by_key::<Vec<T>, _>(keys, de)
+            leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
 
@@ -450,7 +450,7 @@ mod heapless_impls {
             keys: impl Keys,
             de: D,
         ) -> Result<(), SerdeError<D::Error>> {
-            leaf::probe_by_key::<String<N>, _>(keys, de)
+            leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
 
@@ -496,11 +496,116 @@ mod heapless_impls {
             keys: impl Keys,
             de: D,
         ) -> Result<(), SerdeError<D::Error>> {
-            leaf::probe_by_key::<String<N>, _>(keys, de)
+            leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
 
     impl<T: 'static, const N: usize> TreeAny for Vec<T, N> {
+        #[inline]
+        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+            leaf::ref_any_by_key(self, keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+            leaf::mut_any_by_key(self, keys)
+        }
+    }
+}
+
+#[cfg(feature = "heapless-09")]
+mod heapless_09_impls {
+    use super::*;
+
+    use heapless_09::{
+        LenType, String, Vec,
+        string::{StringInner, StringStorage},
+        vec::{VecInner, VecStorage},
+    };
+
+    impl<LenT: LenType, O: StringStorage + ?Sized> TreeSchema for StringInner<LenT, O> {
+        const SCHEMA: &'static Schema = leaf::SCHEMA;
+    }
+
+    impl<LenT: LenType, O: StringStorage + ?Sized> TreeSerialize for StringInner<LenT, O> {
+        #[inline]
+        fn serialize_by_key<S: Serializer>(
+            &self,
+            keys: impl Keys,
+            ser: S,
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
+            leaf::serialize_by_key(self, keys, ser)
+        }
+    }
+
+    impl<'de, const N: usize, LenT: LenType> TreeDeserialize<'de> for String<N, LenT> {
+        #[inline]
+        fn deserialize_by_key<D: Deserializer<'de>>(
+            &mut self,
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::deserialize_by_key(self, keys, de)
+        }
+
+        #[inline]
+        fn probe_by_key<D: Deserializer<'de>>(
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::probe_by_key::<Self, _>(keys, de)
+        }
+    }
+
+    impl<const N: usize, LenT: LenType + 'static> TreeAny for String<N, LenT> {
+        #[inline]
+        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+            leaf::ref_any_by_key(self, keys)
+        }
+
+        #[inline]
+        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+            leaf::mut_any_by_key(self, keys)
+        }
+    }
+
+    impl<T, LenT: LenType, O: VecStorage<T> + ?Sized> TreeSchema for VecInner<T, LenT, O> {
+        const SCHEMA: &'static Schema = leaf::SCHEMA;
+    }
+
+    impl<T: Serialize, const N: usize, LenT: LenType> TreeSerialize for Vec<T, N, LenT> {
+        #[inline]
+        fn serialize_by_key<S: Serializer>(
+            &self,
+            keys: impl Keys,
+            ser: S,
+        ) -> Result<S::Ok, SerdeError<S::Error>> {
+            leaf::serialize_by_key(self, keys, ser)
+        }
+    }
+
+    impl<'de, T: Deserialize<'de>, const N: usize, LenT: LenType> TreeDeserialize<'de>
+        for Vec<T, N, LenT>
+    {
+        #[inline]
+        fn deserialize_by_key<D: Deserializer<'de>>(
+            &mut self,
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::deserialize_by_key(self, keys, de)
+        }
+
+        #[inline]
+        fn probe_by_key<D: Deserializer<'de>>(
+            keys: impl Keys,
+            de: D,
+        ) -> Result<(), SerdeError<D::Error>> {
+            leaf::probe_by_key::<Self, _>(keys, de)
+        }
+    }
+
+    impl<T: 'static, const N: usize, LenT: LenType + 'static> TreeAny for Vec<T, N, LenT> {
         #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)

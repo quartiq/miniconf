@@ -162,6 +162,28 @@ where
     }
 }
 
+#[cfg(feature = "heapless-09")]
+impl<T, const N: usize> Transcode for heapless_09::Vec<T, N>
+where
+    usize: TryInto<T>,
+{
+    type Error = ();
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, _schema)) = idx_schema {
+                let i = index.try_into().or(Err(()))?;
+                self.push(i).or(Err(()))?;
+            }
+            Ok(())
+        })
+    }
+}
+
 ////////////////////////////////////////////////////////////////////
 
 // name
@@ -314,7 +336,7 @@ mod test {
 
     #[test]
     fn strsplit() {
-        use heapless::Vec;
+        use heapless_09::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
             let a: Vec<_, 10> = PathIter::root(p, '/').collect();
             let b: Vec<_, 10> = p.split('/').skip(1).collect();

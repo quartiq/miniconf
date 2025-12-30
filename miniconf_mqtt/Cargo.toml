@@ -17,13 +17,12 @@ workspace = true
 [dependencies]
 miniconf = { version = "0.20.0", features = [
     "json-core",
-    "heapless",
 ], default-features = false, path = "../miniconf" }
 minimq = "0.10.0"
 smlang = "0.8"
 embedded-io = "0.7"
 log = "0.4"
-heapless = "0.8"
+heapless = "0.9"
 strum = { version = "0.27.1", features = ["derive"], default-features = false }
 
 [[example]]
@@ -34,6 +33,10 @@ env_logger = "0.11"
 std-embedded-nal = "0.4"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
 std-embedded-time = "0.1"
-miniconf = { features = ["json-core", "derive"], path = "../miniconf" }
+miniconf = { features = [
+    "json-core",
+    "derive",
+    "heapless-09",
+], path = "../miniconf" }
 serde = "1"
-heapless = { version = "0.8", features = ["serde"] }
+heapless = { version = "0.9", features = ["serde"] }
