@@ -15,7 +15,6 @@ pub mod passthrough {
     use super::*;
 
     /// [`TreeSerialize::serialize_by_key()`]
-    #[inline]
     pub fn serialize_by_key<T: TreeSerialize + ?Sized, S: Serializer>(
         value: &T,
         keys: impl Keys,
@@ -25,7 +24,6 @@ pub mod passthrough {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    #[inline]
     pub fn deserialize_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: Deserializer<'de>>(
         value: &mut T,
         keys: impl Keys,
@@ -35,7 +33,6 @@ pub mod passthrough {
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    #[inline]
     pub fn probe_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -44,7 +41,6 @@ pub mod passthrough {
     }
 
     /// [`TreeAny::ref_any_by_key()`]
-    #[inline]
     pub fn ref_any_by_key(
         value: &(impl TreeAny + ?Sized),
         keys: impl Keys,
@@ -53,7 +49,6 @@ pub mod passthrough {
     }
 
     /// [`TreeAny::mut_any_by_key()`]
-    #[inline]
     pub fn mut_any_by_key(
         value: &mut (impl TreeAny + ?Sized),
         keys: impl Keys,
@@ -137,21 +132,18 @@ pub struct Leaf<T: ?Sized>(pub T);
 
 impl<T: ?Sized> Deref for Leaf<T> {
     type Target = T;
-    #[inline]
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
 impl<T: ?Sized> DerefMut for Leaf<T> {
-    #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
 impl<T: Display> Display for Leaf<T> {
-    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
@@ -162,7 +154,6 @@ impl<T: ?Sized> TreeSchema for Leaf<T> {
 }
 
 impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -173,7 +164,6 @@ impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
 }
 
 impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -182,7 +172,6 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
         leaf::deserialize_by_key(&mut self.0, keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -192,12 +181,10 @@ impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
 }
 
 impl<T: Any> TreeAny for Leaf<T> {
-    #[inline]
     fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
         leaf::ref_any_by_key(&self.0, keys)
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         leaf::mut_any_by_key(&mut self.0, keys)
     }
@@ -212,7 +199,6 @@ macro_rules! impl_leaf {
         }
 
         impl TreeSerialize for $ty {
-            #[inline]
             fn serialize_by_key<S: Serializer>(
                 &self,
                 keys: impl Keys,
@@ -223,7 +209,6 @@ macro_rules! impl_leaf {
         }
 
         impl<'de> TreeDeserialize<'de> for $ty {
-            #[inline]
             fn deserialize_by_key<D: Deserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
@@ -232,7 +217,6 @@ macro_rules! impl_leaf {
                 leaf::deserialize_by_key(self, keys, de)
             }
 
-            #[inline]
             fn probe_by_key<D: Deserializer<'de>>(
                 keys: impl Keys,
                 de: D,
@@ -242,12 +226,10 @@ macro_rules! impl_leaf {
         }
 
         impl TreeAny for $ty {
-            #[inline]
             fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
                 leaf::ref_any_by_key(self, keys)
             }
 
-            #[inline]
             fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
                 leaf::mut_any_by_key(self, keys)
             }
@@ -270,7 +252,6 @@ macro_rules! impl_unsized_leaf {
         }
 
         impl TreeSerialize for $ty {
-            #[inline]
             fn serialize_by_key<S: Serializer>(
                 &self,
                 keys: impl Keys,
@@ -281,7 +262,6 @@ macro_rules! impl_unsized_leaf {
         }
 
         impl<'a, 'de: 'a> TreeDeserialize<'de> for &'a $ty {
-            #[inline]
             fn deserialize_by_key<D: Deserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
@@ -290,7 +270,6 @@ macro_rules! impl_unsized_leaf {
                 leaf::deserialize_by_key(self, keys, de)
             }
 
-            #[inline]
             fn probe_by_key<D: Deserializer<'de>>(
                 keys: impl Keys,
                 de: D,
@@ -308,7 +287,6 @@ impl<T> TreeSchema for [T] {
 }
 
 impl<T: Serialize> TreeSerialize for [T] {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -322,7 +300,6 @@ impl<'a, 'de: 'a, T> TreeDeserialize<'de> for &'a [T]
 where
     &'a [T]: Deserialize<'de>,
 {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -331,7 +308,6 @@ where
         leaf::deserialize_by_key(self, keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -353,7 +329,6 @@ mod alloc_impls {
     }
 
     impl<T: Serialize> TreeSerialize for Vec<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -364,7 +339,6 @@ mod alloc_impls {
     }
 
     impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Vec<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -373,7 +347,6 @@ mod alloc_impls {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -383,12 +356,10 @@ mod alloc_impls {
     }
 
     impl<T: 'static> TreeAny for Vec<T> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             leaf::mut_any_by_key(self, keys)
         }
@@ -425,7 +396,6 @@ mod heapless_impls {
     }
 
     impl<const N: usize> TreeSerialize for String<N> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -436,7 +406,6 @@ mod heapless_impls {
     }
 
     impl<'de, const N: usize> TreeDeserialize<'de> for String<N> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -445,7 +414,6 @@ mod heapless_impls {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -455,12 +423,10 @@ mod heapless_impls {
     }
 
     impl<const N: usize> TreeAny for String<N> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             leaf::mut_any_by_key(self, keys)
         }
@@ -471,7 +437,6 @@ mod heapless_impls {
     }
 
     impl<T: Serialize, const N: usize> TreeSerialize for Vec<T, N> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -482,7 +447,6 @@ mod heapless_impls {
     }
 
     impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for Vec<T, N> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -491,7 +455,6 @@ mod heapless_impls {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -501,12 +464,10 @@ mod heapless_impls {
     }
 
     impl<T: 'static, const N: usize> TreeAny for Vec<T, N> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             leaf::mut_any_by_key(self, keys)
         }
@@ -528,7 +489,6 @@ mod heapless_09_impls {
     }
 
     impl<LenT: LenType, O: StringStorage + ?Sized> TreeSerialize for StringInner<LenT, O> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -539,7 +499,6 @@ mod heapless_09_impls {
     }
 
     impl<'de, const N: usize, LenT: LenType> TreeDeserialize<'de> for String<N, LenT> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -548,7 +507,6 @@ mod heapless_09_impls {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -558,12 +516,10 @@ mod heapless_09_impls {
     }
 
     impl<const N: usize, LenT: LenType + 'static> TreeAny for String<N, LenT> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             leaf::mut_any_by_key(self, keys)
         }
@@ -574,7 +530,6 @@ mod heapless_09_impls {
     }
 
     impl<T: Serialize, const N: usize, LenT: LenType> TreeSerialize for Vec<T, N, LenT> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -587,7 +542,6 @@ mod heapless_09_impls {
     impl<'de, T: Deserialize<'de>, const N: usize, LenT: LenType> TreeDeserialize<'de>
         for Vec<T, N, LenT>
     {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -596,7 +550,6 @@ mod heapless_09_impls {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -606,12 +559,10 @@ mod heapless_09_impls {
     }
 
     impl<T: 'static, const N: usize, LenT: LenType + 'static> TreeAny for Vec<T, N, LenT> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             leaf::ref_any_by_key(self, keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             leaf::mut_any_by_key(self, keys)
         }
@@ -653,7 +604,6 @@ pub mod str_leaf {
     pub use leaf::SCHEMA;
 
     /// [`TreeSerialize::serialize_by_key()`]
-    #[inline]
     pub fn serialize_by_key<S: Serializer>(
         value: &(impl AsRef<str> + ?Sized),
         mut keys: impl Keys,
@@ -664,7 +614,6 @@ pub mod str_leaf {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    #[inline]
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
         value: &mut impl TryFrom<&'de str>,
         mut keys: impl Keys,
@@ -679,7 +628,6 @@ pub mod str_leaf {
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    #[inline]
     pub fn probe_by_key<'de, T: TryFrom<&'de str>, D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -700,7 +648,6 @@ pub mod deny {
     pub use leaf::SCHEMA;
 
     /// [`TreeSerialize::serialize_by_key()`]
-    #[inline]
     pub fn serialize_by_key<S: Serializer>(
         _value: &impl ?Sized,
         _keys: impl Keys,
@@ -710,7 +657,6 @@ pub mod deny {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    #[inline]
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
         _value: &mut impl ?Sized,
         _keys: impl Keys,
@@ -720,7 +666,6 @@ pub mod deny {
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    #[inline]
     pub fn probe_by_key<'de, T: ?Sized, D: Deserializer<'de>>(
         _keys: impl Keys,
         _de: D,
@@ -729,13 +674,11 @@ pub mod deny {
     }
 
     /// [`TreeAny::ref_any_by_key()`]
-    #[inline]
     pub fn ref_any_by_key(_value: &impl ?Sized, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
         Err(ValueError::Access("Denied"))
     }
 
     /// [`TreeAny::mut_any_by_key()`]
-    #[inline]
     pub fn mut_any_by_key(
         _value: &mut impl ?Sized,
         _keys: impl Keys,

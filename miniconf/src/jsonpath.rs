@@ -43,7 +43,6 @@ impl<'a> JsonPathIter<'a> {
 }
 
 impl core::fmt::Display for JsonPathIter<'_> {
-    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
@@ -98,14 +97,12 @@ pub struct JsonPath<T: ?Sized>(pub T);
 
 impl<T> JsonPath<T> {
     /// Extract the inner value
-    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
 impl<T: core::fmt::Display> core::fmt::Display for JsonPath<T> {
-    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
@@ -113,7 +110,6 @@ impl<T: core::fmt::Display> core::fmt::Display for JsonPath<T> {
 
 impl<'a, T: AsRef<str> + ?Sized> IntoKeys for JsonPath<&'a T> {
     type IntoKeys = KeysIter<JsonPathIter<'a>>;
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         JsonPathIter(self.0.as_ref()).into_keys()
     }
@@ -121,8 +117,6 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for JsonPath<&'a T> {
 
 impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
     type IntoKeys = <JsonPath<&'a str> as IntoKeys>::IntoKeys;
-
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         JsonPathIter(self.0.as_ref()).into_keys()
     }

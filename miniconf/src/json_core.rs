@@ -34,7 +34,6 @@ use crate::{IntoKeys, Path, SerdeError, TreeDeserialize, TreeSerialize};
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [SerdeError].
-#[inline]
 pub fn set<'de>(
     tree: &mut (impl TreeDeserialize<'de> + ?Sized),
     path: &str,
@@ -52,7 +51,6 @@ pub fn set<'de>(
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [SerdeError].
-#[inline]
 pub fn get(
     tree: &(impl TreeSerialize + ?Sized),
     path: &str,

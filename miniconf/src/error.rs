@@ -87,7 +87,6 @@ pub enum SerdeError<E> {
 }
 
 impl<E> From<KeyError> for SerdeError<E> {
-    #[inline]
     fn from(value: KeyError) -> Self {
         SerdeError::Value(value.into())
     }
@@ -96,7 +95,6 @@ impl<E> From<KeyError> for SerdeError<E> {
 // Try to extract the Traversal from an Error
 impl<E> TryFrom<SerdeError<E>> for KeyError {
     type Error = SerdeError<E>;
-    #[inline]
     fn try_from(value: SerdeError<E>) -> Result<Self, Self::Error> {
         match value {
             SerdeError::Value(ValueError::Key(e)) => Ok(e),
@@ -108,7 +106,6 @@ impl<E> TryFrom<SerdeError<E>> for KeyError {
 // Try to extract the Traversal from an Error
 impl TryFrom<ValueError> for KeyError {
     type Error = ValueError;
-    #[inline]
     fn try_from(value: ValueError) -> Result<Self, Self::Error> {
         match value {
             ValueError::Key(e) => Ok(e),
@@ -120,7 +117,6 @@ impl TryFrom<ValueError> for KeyError {
 // Try to extract the Traversal from an Error
 impl<E> TryFrom<DescendError<E>> for KeyError {
     type Error = E;
-    #[inline]
     fn try_from(value: DescendError<E>) -> Result<Self, Self::Error> {
         match value {
             DescendError::Key(e) => Ok(e),
@@ -132,7 +128,6 @@ impl<E> TryFrom<DescendError<E>> for KeyError {
 // Try to extract the Traversal from an Error
 impl<E> TryFrom<SerdeError<E>> for ValueError {
     type Error = E;
-    #[inline]
     fn try_from(value: SerdeError<E>) -> Result<Self, Self::Error> {
         match value {
             SerdeError::Value(e) => Ok(e),

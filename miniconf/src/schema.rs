@@ -78,7 +78,6 @@ pub enum Internal {
 
 impl Internal {
     /// Return the number of direct child nodes
-    #[inline]
     pub const fn len(&self) -> NonZero<usize> {
         match self {
             Self::Named(n) => NonZero::new(n.len()).expect("Must have at least one child"),
@@ -91,7 +90,6 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
-    #[inline]
     pub const fn get_schema(&self, idx: usize) -> &Schema {
         match self {
             Self::Named(nameds) => nameds[idx].schema,
@@ -104,7 +102,6 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
-    #[inline]
     pub const fn get_meta(&self, idx: usize) -> &Option<Meta> {
         match self {
             Internal::Named(nameds) => &nameds[idx].meta,
@@ -120,7 +117,6 @@ impl Internal {
     ///
     /// # Panics
     /// If the index is out of bounds
-    #[inline]
     pub const fn get_name(&self, idx: usize) -> Option<&str> {
         if let Self::Named(n) = self {
             Some(n[idx].name)
@@ -130,7 +126,6 @@ impl Internal {
     }
 
     /// Perform a name-to-index lookup
-    #[inline]
     pub fn get_index(&self, name: &str) -> Option<usize> {
         match self {
             Internal::Named(n) => n.iter().position(|n| n.name == name),
@@ -194,13 +189,11 @@ impl Schema {
     }
 
     /// Whether this node is a leaf
-    #[inline]
     pub const fn is_leaf(&self) -> bool {
         self.internal.is_none()
     }
 
     /// Number of child nodes
-    #[inline]
     pub const fn len(&self) -> usize {
         match &self.internal {
             None => 0,
@@ -209,7 +202,6 @@ impl Schema {
     }
 
     /// See [`Self::is_leaf()`]
-    #[inline]
     pub const fn is_empty(&self) -> bool {
         self.is_leaf()
     }
@@ -218,7 +210,6 @@ impl Schema {
     ///
     /// # Panics
     /// On a leaf Schema.
-    #[inline]
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
         keys.next(self.internal.as_ref().unwrap())
     }
@@ -259,7 +250,6 @@ impl Schema {
     ///
     /// # Returns
     /// The leaf `func` call return value.
-    #[inline]
     pub fn descend<'a, T, E>(
         &'a self,
         mut keys: impl Keys,
@@ -341,7 +331,6 @@ impl Schema {
     ///
     /// # Returns
     /// Transcoded target and node information on success
-    #[inline]
     pub fn transcode<N: Transcode + Default>(
         &self,
         keys: impl IntoKeys,
@@ -352,7 +341,6 @@ impl Schema {
     }
 
     /// The Shape of the schema
-    #[inline]
     pub const fn shape(&self) -> Shape {
         Shape::new(self)
     }
@@ -403,7 +391,6 @@ impl Schema {
     ///     .collect();
     /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
     /// ```
-    #[inline]
     pub const fn nodes<N, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
         NodeIter::exact_size(self)
     }

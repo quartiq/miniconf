@@ -152,7 +152,6 @@ pub trait TreeSchema {
     /// Return an exact size iterator of all leaf nodes
     ///
     /// This ensures sufficient state depth at compile time.
-    #[inline]
     fn nodes<N, const D: usize>() -> ExactSize<NodeIter<N, D>> {
         const { assert!(D >= Self::SCHEMA.shape().max_depth) }
         Self::SCHEMA.nodes()
@@ -193,7 +192,6 @@ pub trait TreeAny: TreeSchema {
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError>;
 
     /// Obtain a reference to a leaf of known type by key.
-    #[inline]
     fn ref_by_key<T: Any>(&self, keys: impl IntoKeys) -> Result<&T, ValueError> {
         self.ref_any_by_key(keys.into_keys())?
             .downcast_ref()
@@ -201,7 +199,6 @@ pub trait TreeAny: TreeSchema {
     }
 
     /// Obtain a mutable reference to a leaf of known type by key.
-    #[inline]
     fn mut_by_key<T: Any>(&mut self, keys: impl IntoKeys) -> Result<&mut T, ValueError> {
         self.mut_any_by_key(keys.into_keys())?
             .downcast_mut()
@@ -330,7 +327,6 @@ impl<T: TreeSchema + ?Sized> TreeSchema for &mut T {
 }
 
 impl<T: TreeSerialize + ?Sized> TreeSerialize for &T {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -341,7 +337,6 @@ impl<T: TreeSerialize + ?Sized> TreeSerialize for &T {
 }
 
 impl<T: TreeSerialize + ?Sized> TreeSerialize for &mut T {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -352,7 +347,6 @@ impl<T: TreeSerialize + ?Sized> TreeSerialize for &mut T {
 }
 
 impl<'de, T: TreeDeserialize<'de> + ?Sized> TreeDeserialize<'de> for &mut T {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -361,7 +355,6 @@ impl<'de, T: TreeDeserialize<'de> + ?Sized> TreeDeserialize<'de> for &mut T {
         (**self).deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -371,12 +364,10 @@ impl<'de, T: TreeDeserialize<'de> + ?Sized> TreeDeserialize<'de> for &mut T {
 }
 
 impl<T: TreeAny + ?Sized> TreeAny for &mut T {
-    #[inline]
     fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
         (**self).ref_any_by_key(keys)
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         (**self).mut_any_by_key(keys)
     }

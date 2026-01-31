@@ -66,7 +66,6 @@ use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Trans
 pub struct Packed(pub NonZero<usize>);
 
 impl Default for Packed {
-    #[inline]
     fn default() -> Self {
         Self::EMPTY
     }
@@ -90,7 +89,6 @@ impl Packed {
     /// Create a new `Packed` from a `usize`.
     ///
     /// The value must not be zero.
-    #[inline]
     pub const fn new(value: usize) -> Option<Self> {
         match NonZero::new(value) {
             Some(value) => Some(Self(value)),
@@ -101,7 +99,6 @@ impl Packed {
     /// Create a new `Packed` from LSB aligned `usize`
     ///
     /// The value must not be zero.
-    #[inline]
     pub const fn new_from_lsb(value: usize) -> Option<Self> {
         match NonZero::new(value) {
             Some(value) => Some(Self::from_lsb(value)),
@@ -110,26 +107,22 @@ impl Packed {
     }
 
     /// The primitive value
-    #[inline]
     pub const fn get(&self) -> usize {
         self.0.get()
     }
 
     /// The value is empty.
-    #[inline]
     pub const fn is_empty(&self) -> bool {
         matches!(*self, Self::EMPTY)
     }
 
     /// Number of bits stored.
-    #[inline]
     pub const fn len(&self) -> u32 {
         Self::CAPACITY - self.0.trailing_zeros()
     }
 
     /// Return the representation aligned to the LSB with the marker bit
     /// moved from the LSB to the MSB.
-    #[inline]
     pub const fn into_lsb(self) -> NonZero<usize> {
         TWO.saturating_pow(self.len())
             .saturating_add((self.get() >> 1) >> self.0.trailing_zeros())
@@ -137,7 +130,6 @@ impl Packed {
 
     /// Build a `Packed` from a LSB-aligned representation with the marker bit
     /// moved from the MSB the LSB.
-    #[inline]
     pub const fn from_lsb(value: NonZero<usize>) -> Self {
         Self(
             TWO.saturating_pow(value.leading_zeros())
@@ -148,7 +140,6 @@ impl Packed {
     /// Return the number of bits required to represent `num`.
     ///
     /// Ensures that at least one bit is allocated.
-    #[inline]
     pub const fn bits_for(num: usize) -> u32 {
         match usize::BITS - num.leading_zeros() {
             0 => 1,
@@ -198,21 +189,18 @@ impl Packed {
 }
 
 impl core::fmt::Display for Packed {
-    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
 impl Keys for Packed {
-    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         let bits = Self::bits_for(internal.len().get() - 1);
         let index = self.pop_msb(bits).ok_or(KeyError::TooShort)?;
         index.find(internal).ok_or(KeyError::NotFound)
     }
 
-    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
         if self.is_empty() {
             Ok(())
@@ -225,7 +213,6 @@ impl Keys for Packed {
 impl IntoKeys for Packed {
     type IntoKeys = Self;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }

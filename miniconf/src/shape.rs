@@ -43,7 +43,6 @@ impl Shape {
     ///
     /// To obtain an upper bound on the maximum length of all paths
     /// including separators, this adds `max_depth*separator_length`.
-    #[inline]
     pub const fn max_length(&self, separator: &str) -> usize {
         self.max_length + self.max_depth * separator.len()
     }
