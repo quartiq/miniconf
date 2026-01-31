@@ -11,7 +11,6 @@ use crate::{DescendError, Internal, IntoKeys, Key, Schema, Track, Transcode};
 macro_rules! impl_key_integer {
     ($($t:ty)+) => {$(
         impl Key for $t {
-            #[inline]
             fn find(&self, internal: &Internal) -> Option<usize> {
                 (*self).try_into().ok().filter(|i| *i < internal.len().get())
             }
@@ -34,13 +33,11 @@ impl<T> Indices<T> {
     }
 
     /// The length of the indices keys
-    #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
     /// See [`Self::len()`]
-    #[inline]
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
@@ -52,7 +49,6 @@ impl<T> Indices<T> {
 }
 
 impl<T> From<T> for Indices<T> {
-    #[inline]
     fn from(value: T) -> Self {
         Self {
             len: 0,
@@ -62,7 +58,6 @@ impl<T> From<T> for Indices<T> {
 }
 
 impl<U, T: AsRef<[U]> + ?Sized> AsRef<[U]> for Indices<T> {
-    #[inline]
     fn as_ref(&self) -> &[U] {
         &self.data.as_ref()[..self.len]
     }
@@ -76,7 +71,6 @@ where
 
     type IntoIter = core::iter::Take<<&'a T as IntoIterator>::IntoIter>;
 
-    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         (&self.data).into_iter().take(self.len)
     }
@@ -188,7 +182,6 @@ where
 
 // name
 impl Key for str {
-    #[inline]
     fn find(&self, internal: &Internal) -> Option<usize> {
         internal.get_index(self)
     }
@@ -210,7 +203,6 @@ pub struct Path<T: ?Sized, const S: char>(pub T);
 
 impl<T: ?Sized, const S: char> Path<T, S> {
     /// The path hierarchy separator
-    #[inline]
     pub const fn separator(&self) -> char {
         S
     }
@@ -218,7 +210,6 @@ impl<T: ?Sized, const S: char> Path<T, S> {
 
 impl<T, const S: char> Path<T, S> {
     /// Extract just the path
-    #[inline]
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -231,7 +222,6 @@ impl<T: AsRef<str> + ?Sized, const S: char> AsRef<str> for Path<T, S> {
 }
 
 impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
-    #[inline]
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
@@ -246,7 +236,6 @@ pub struct PathIter<'a> {
 
 impl<'a> PathIter<'a> {
     /// Create a new `PathIter`
-    #[inline]
     pub fn new(data: Option<&'a str>, sep: char) -> Self {
         Self { data, sep }
     }
@@ -254,7 +243,6 @@ impl<'a> PathIter<'a> {
     /// Create a new `PathIter` starting at the root.
     ///
     /// This calls `next()` once to pop everything up to and including the first separator.
-    #[inline]
     pub fn root(data: &'a str, sep: char) -> Self {
         let mut s = Self::new(Some(data), sep);
         // Skip the first part to disambiguate between
@@ -291,7 +279,6 @@ impl core::iter::FusedIterator for PathIter<'_> {}
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
     type IntoKeys = <PathIter<'a> as IntoKeys>::IntoKeys;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         PathIter::root(self.0.as_ref(), S).into_keys()
     }
@@ -300,7 +287,6 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
 impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = <Path<&'a str, S> as IntoKeys>::IntoKeys;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         PathIter::root(self.0.as_ref(), S).into_keys()
     }

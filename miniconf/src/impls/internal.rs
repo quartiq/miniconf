@@ -20,7 +20,6 @@ macro_rules! impl_tuple {
         }
 
         impl<$($t: TreeSerialize),+> TreeSerialize for ($($t,)+) {
-            #[inline]
             fn serialize_by_key<S: Serializer>(
                 &self,
                 mut keys: impl Keys,
@@ -35,7 +34,6 @@ macro_rules! impl_tuple {
         }
 
         impl<'de, $($t: TreeDeserialize<'de>),+> TreeDeserialize<'de> for ($($t,)+) {
-            #[inline]
             fn deserialize_by_key<D: Deserializer<'de>>(
                 &mut self,
                 mut keys: impl Keys,
@@ -48,7 +46,6 @@ macro_rules! impl_tuple {
                 }
             }
 
-            #[inline]
             fn probe_by_key<D: Deserializer<'de>>(
                 mut keys: impl Keys,
                 de: D
@@ -62,7 +59,6 @@ macro_rules! impl_tuple {
         }
 
         impl<$($t: TreeAny),+> TreeAny for ($($t,)+) {
-            #[inline]
             fn ref_any_by_key(
                 &self,
                 mut keys: impl Keys
@@ -74,7 +70,6 @@ macro_rules! impl_tuple {
                 }
             }
 
-            #[inline]
             fn mut_any_by_key(
                 &mut self,
                 mut keys: impl Keys
@@ -107,7 +102,6 @@ impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N]
 where
     Self: TreeSchema,
 {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -118,7 +112,6 @@ where
 }
 
 impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -127,7 +120,6 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
         self[Self::SCHEMA.next(&mut keys)?].deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -138,12 +130,10 @@ impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; 
 }
 
 impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
-    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         self[Self::SCHEMA.next(&mut keys)?].ref_any_by_key(keys)
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         self[Self::SCHEMA.next(&mut keys)?].mut_any_by_key(keys)
     }
@@ -156,7 +146,6 @@ impl<T: TreeSchema> TreeSchema for Option<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for Option<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -169,7 +158,6 @@ impl<T: TreeSerialize> TreeSerialize for Option<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -180,7 +168,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
             .deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -190,14 +177,12 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
 }
 
 impl<T: TreeAny> TreeAny for Option<T> {
-    #[inline]
     fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
         self.as_ref()
             .ok_or(ValueError::Absent)?
             .ref_any_by_key(keys)
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         self.as_mut()
             .ok_or(ValueError::Absent)?
@@ -213,7 +198,6 @@ impl<T: TreeSchema, E: TreeSchema> TreeSchema for Result<T, E> {
 }
 
 impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -228,7 +212,6 @@ impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
 }
 
 impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de> for Result<T, E> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -241,7 +224,6 @@ impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de>
         }
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -255,7 +237,6 @@ impl<'de, T: TreeDeserialize<'de>, E: TreeDeserialize<'de>> TreeDeserialize<'de>
 }
 
 impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
-    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Ok(value), 0) => value.ref_any_by_key(keys),
@@ -264,7 +245,6 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
         }
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Ok(value), 0) => value.mut_any_by_key(keys),
@@ -284,7 +264,6 @@ impl<T: TreeSchema> TreeSchema for Bound<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for Bound<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -300,7 +279,6 @@ impl<T: TreeSerialize> TreeSerialize for Bound<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -314,7 +292,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
         }
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -327,7 +304,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Bound<T> {
 }
 
 impl<T: TreeAny> TreeAny for Bound<T> {
-    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Self::Included(value), 0) | (Self::Excluded(value), 1) => value.ref_any_by_key(keys),
@@ -335,7 +311,6 @@ impl<T: TreeAny> TreeAny for Bound<T> {
         }
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         match (self, Self::SCHEMA.next(&mut keys)?) {
             (Self::Included(value), 0) | (Self::Excluded(value), 1) => value.mut_any_by_key(keys),
@@ -352,7 +327,6 @@ impl<T: TreeSchema> TreeSchema for Range<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for Range<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -368,7 +342,6 @@ impl<T: TreeSerialize> TreeSerialize for Range<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -382,7 +355,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
         .deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -395,7 +367,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
 }
 
 impl<T: TreeAny> TreeAny for Range<T> {
-    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => &self.start,
@@ -405,7 +376,6 @@ impl<T: TreeAny> TreeAny for Range<T> {
         .ref_any_by_key(keys)
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => &mut self.start,
@@ -423,7 +393,6 @@ impl<T: TreeSchema> TreeSchema for RangeInclusive<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -445,7 +414,6 @@ impl<T: TreeSchema> TreeSchema for RangeFrom<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for RangeFrom<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -459,7 +427,6 @@ impl<T: TreeSerialize> TreeSerialize for RangeFrom<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -471,7 +438,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
         }
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -484,7 +450,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
 }
 
 impl<T: TreeAny> TreeAny for RangeFrom<T> {
-    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.start.ref_any_by_key(keys),
@@ -492,7 +457,6 @@ impl<T: TreeAny> TreeAny for RangeFrom<T> {
         }
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.start.mut_any_by_key(keys),
@@ -508,7 +472,6 @@ impl<T: TreeSchema> TreeSchema for RangeTo<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for RangeTo<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         mut keys: impl Keys,
@@ -522,7 +485,6 @@ impl<T: TreeSerialize> TreeSerialize for RangeTo<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         mut keys: impl Keys,
@@ -534,7 +496,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
         }
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         mut keys: impl Keys,
         de: D,
@@ -547,7 +508,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
 }
 
 impl<T: TreeAny> TreeAny for RangeTo<T> {
-    #[inline]
     fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.end.ref_any_by_key(keys),
@@ -555,7 +515,6 @@ impl<T: TreeAny> TreeAny for RangeTo<T> {
         }
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         match Self::SCHEMA.next(&mut keys)? {
             0 => self.end.mut_any_by_key(keys),
@@ -571,7 +530,6 @@ impl<T: TreeSchema> TreeSchema for Cell<T> {
 }
 
 impl<T: TreeSerialize + Copy> TreeSerialize for Cell<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -582,7 +540,6 @@ impl<T: TreeSerialize + Copy> TreeSerialize for Cell<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -591,7 +548,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
         self.get_mut().deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -601,12 +557,10 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
 }
 
 impl<T: TreeAny> TreeAny for Cell<T> {
-    #[inline]
     fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
         Err(ValueError::Access("Can't leak out of Cell"))
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         self.get_mut().mut_any_by_key(keys)
     }
@@ -619,7 +573,6 @@ impl<T: TreeSchema> TreeSchema for RefCell<T> {
 }
 
 impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
-    #[inline]
     fn serialize_by_key<S: Serializer>(
         &self,
         keys: impl Keys,
@@ -632,7 +585,6 @@ impl<T: TreeSerialize> TreeSerialize for RefCell<T> {
 }
 
 impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -641,7 +593,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
         self.get_mut().deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -651,7 +602,6 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
 }
 
 impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RefCell<T> {
-    #[inline]
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
         keys: impl Keys,
@@ -662,7 +612,6 @@ impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RefCell<
             .deserialize_by_key(keys, de)
     }
 
-    #[inline]
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,
         de: D,
@@ -672,12 +621,10 @@ impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RefCell<
 }
 
 impl<T: TreeAny> TreeAny for RefCell<T> {
-    #[inline]
     fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
         Err(ValueError::Access("Can't leak out of RefCell"))
     }
 
-    #[inline]
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
         self.get_mut().mut_any_by_key(keys)
     }
@@ -701,7 +648,6 @@ mod _alloc {
     }
 
     impl<T: TreeSerialize> TreeSerialize for Box<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -712,7 +658,6 @@ mod _alloc {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Box<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -721,7 +666,6 @@ mod _alloc {
             (**self).deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -731,12 +675,10 @@ mod _alloc {
     }
 
     impl<T: TreeAny> TreeAny for Box<T> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             (**self).ref_any_by_key(keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             (**self).mut_any_by_key(keys)
         }
@@ -749,7 +691,6 @@ mod _alloc {
     }
 
     impl<T: TreeSerialize + Clone> TreeSerialize for Cow<'_, T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -760,7 +701,6 @@ mod _alloc {
     }
 
     impl<'de, T: TreeDeserialize<'de> + Clone> TreeDeserialize<'de> for Cow<'_, T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -769,7 +709,6 @@ mod _alloc {
             self.to_mut().deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -779,12 +718,10 @@ mod _alloc {
     }
 
     impl<T: TreeAny + Clone> TreeAny for Cow<'_, T> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             (**self).ref_any_by_key(keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             self.to_mut().mut_any_by_key(keys)
         }
@@ -797,7 +734,6 @@ mod _alloc {
     }
 
     impl<T: TreeSerialize> TreeSerialize for Rc<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -808,7 +744,6 @@ mod _alloc {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Rc<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -819,7 +754,6 @@ mod _alloc {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -829,12 +763,10 @@ mod _alloc {
     }
 
     impl<T: TreeAny> TreeAny for Rc<T> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             (**self).ref_any_by_key(keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             Rc::get_mut(self)
                 .ok_or(ValueError::Access("Reference is taken"))?
@@ -849,7 +781,6 @@ mod _alloc {
     }
 
     impl<T: TreeSerialize> TreeSerialize for RcWeak<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -862,7 +793,6 @@ mod _alloc {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RcWeak<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -873,7 +803,6 @@ mod _alloc {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -889,7 +818,6 @@ mod _alloc {
     }
 
     impl<T: TreeSerialize> TreeSerialize for Arc<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -900,7 +828,6 @@ mod _alloc {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Arc<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -911,7 +838,6 @@ mod _alloc {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -921,12 +847,10 @@ mod _alloc {
     }
 
     impl<T: TreeAny> TreeAny for Arc<T> {
-        #[inline]
         fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
             (**self).ref_any_by_key(keys)
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             Arc::get_mut(self)
                 .ok_or(ValueError::Access("Reference is taken"))?
@@ -941,7 +865,6 @@ mod _alloc {
     }
 
     impl<T: TreeSerialize> TreeSerialize for SyncWeak<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -954,7 +877,6 @@ mod _alloc {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for SyncWeak<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -965,7 +887,6 @@ mod _alloc {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -987,7 +908,6 @@ mod _std {
     }
 
     impl<T: TreeSerialize> TreeSerialize for Mutex<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -1000,7 +920,6 @@ mod _std {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Mutex<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -1011,7 +930,6 @@ mod _std {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -1021,7 +939,6 @@ mod _std {
     }
 
     impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a Mutex<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -1033,7 +950,6 @@ mod _std {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -1043,12 +959,10 @@ mod _std {
     }
 
     impl<T: TreeAny> TreeAny for Mutex<T> {
-        #[inline]
         fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
             Err(ValueError::Access("Can't leak out of Mutex"))
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             self.get_mut()
                 .or(Err(ValueError::Access("Poisoned")))?
@@ -1063,7 +977,6 @@ mod _std {
     }
 
     impl<T: TreeSerialize> TreeSerialize for RwLock<T> {
-        #[inline]
         fn serialize_by_key<S: Serializer>(
             &self,
             keys: impl Keys,
@@ -1076,7 +989,6 @@ mod _std {
     }
 
     impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RwLock<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -1087,7 +999,6 @@ mod _std {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -1097,7 +1008,6 @@ mod _std {
     }
 
     impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RwLock<T> {
-        #[inline]
         fn deserialize_by_key<D: Deserializer<'de>>(
             &mut self,
             keys: impl Keys,
@@ -1108,7 +1018,6 @@ mod _std {
                 .deserialize_by_key(keys, de)
         }
 
-        #[inline]
         fn probe_by_key<D: Deserializer<'de>>(
             keys: impl Keys,
             de: D,
@@ -1118,12 +1027,10 @@ mod _std {
     }
 
     impl<T: TreeAny> TreeAny for RwLock<T> {
-        #[inline]
         fn ref_any_by_key(&self, _keys: impl Keys) -> Result<&dyn Any, ValueError> {
             Err(ValueError::Access("Can't leak out of RwLock"))
         }
 
-        #[inline]
         fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
             self.get_mut()
                 .or(Err(ValueError::Access("Poisoned")))?
@@ -1142,7 +1049,6 @@ macro_rules! impl_newtype {
         }
 
         impl<$gen: TreeSerialize> TreeSerialize for $ty {
-            #[inline]
             fn serialize_by_key<S: Serializer>(
                 &self,
                 keys: impl Keys,
@@ -1153,7 +1059,6 @@ macro_rules! impl_newtype {
         }
 
         impl<'de, $gen: TreeDeserialize<'de>> TreeDeserialize<'de> for $ty {
-            #[inline]
             fn deserialize_by_key<D: Deserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
@@ -1162,7 +1067,6 @@ macro_rules! impl_newtype {
                 self.0.deserialize_by_key(keys, de)
             }
 
-            #[inline]
             fn probe_by_key<D: Deserializer<'de>>(
                 keys: impl Keys,
                 de: D,
@@ -1172,12 +1076,10 @@ macro_rules! impl_newtype {
         }
 
         impl<$gen: TreeAny> TreeAny for $ty {
-            #[inline]
             fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
                 self.0.ref_any_by_key(keys)
             }
 
-            #[inline]
             fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
                 self.0.mut_any_by_key(keys)
             }

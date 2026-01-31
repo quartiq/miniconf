@@ -11,14 +11,12 @@ pub trait Key {
 }
 
 impl<T: Key + ?Sized> Key for &T {
-    #[inline]
     fn find(&self, internal: &Internal) -> Option<usize> {
         (**self).find(internal)
     }
 }
 
 impl<T: Key + ?Sized> Key for &mut T {
-    #[inline]
     fn find(&self, internal: &Internal) -> Option<usize> {
         (**self).find(internal)
     }
@@ -37,7 +35,6 @@ pub trait Keys {
     fn finalize(&mut self) -> Result<(), KeyError>;
 
     /// Chain another `Keys` to this one.
-    #[inline]
     fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
     where
         Self: Sized,
@@ -46,7 +43,6 @@ pub trait Keys {
     }
 
     /// Track depth
-    #[inline]
     fn track(self) -> Track<Self>
     where
         Self: Sized,
@@ -58,7 +54,6 @@ pub trait Keys {
     }
 
     /// Track whether a leaf node is reached
-    #[inline]
     fn short(self) -> Short<Self>
     where
         Self: Sized,
@@ -71,12 +66,10 @@ pub trait Keys {
 }
 
 impl<T: Keys + ?Sized> Keys for &mut T {
-    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         (**self).next(internal)
     }
 
-    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
         (**self).finalize()
     }
@@ -114,7 +107,6 @@ pub trait Transcode {
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
     type Error = T::Error;
-    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -137,25 +129,21 @@ pub struct Short<K> {
 
 impl<K> Short<K> {
     /// Create a new `Short`
-    #[inline]
     pub fn new(inner: K) -> Self {
         Self { inner, leaf: false }
     }
 
     /// Whether a leaf node as been encountered
-    #[inline]
     pub fn leaf(&self) -> bool {
         self.leaf
     }
 
     /// Borrow the inner `Keys`
-    #[inline]
     pub fn inner(&self) -> &K {
         &self.inner
     }
 
     /// Split into inner `Keys` and leaf node flag
-    #[inline]
     pub fn into_inner(self) -> (K, bool) {
         (self.inner, self.leaf)
     }
@@ -164,7 +152,6 @@ impl<K> Short<K> {
 impl<K: Keys> IntoKeys for &mut Short<K> {
     type IntoKeys = Self;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self.leaf = false;
         self
@@ -172,12 +159,10 @@ impl<K: Keys> IntoKeys for &mut Short<K> {
 }
 
 impl<K: Keys> Keys for Short<K> {
-    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         self.inner.next(internal)
     }
 
-    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
         self.inner.finalize()?;
         self.leaf = true;
@@ -188,7 +173,6 @@ impl<K: Keys> Keys for Short<K> {
 impl<T: Transcode> Transcode for Short<T> {
     type Error = T::Error;
 
-    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -219,25 +203,21 @@ pub struct Track<K> {
 
 impl<K> Track<K> {
     /// Create a new `Track`
-    #[inline]
     pub fn new(inner: K) -> Self {
         Self { inner, depth: 0 }
     }
 
     /// Whether a leaf node as been encountered
-    #[inline]
     pub fn depth(&self) -> usize {
         self.depth
     }
 
     /// Borrow the inner `Keys`
-    #[inline]
     pub fn inner(&self) -> &K {
         &self.inner
     }
 
     /// Split into inner `Keys` and leaf node flag
-    #[inline]
     pub fn into_inner(self) -> (K, usize) {
         (self.inner, self.depth)
     }
@@ -246,7 +226,6 @@ impl<K> Track<K> {
 impl<K: Keys> IntoKeys for &mut Track<K> {
     type IntoKeys = Self;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self.depth = 0;
         self
@@ -254,7 +233,6 @@ impl<K: Keys> IntoKeys for &mut Track<K> {
 }
 
 impl<K: Keys> Keys for Track<K> {
-    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         let k = self.inner.next(internal);
         if k.is_ok() {
@@ -263,7 +241,6 @@ impl<K: Keys> Keys for Track<K> {
         k
     }
 
-    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
         self.inner.finalize()
     }
@@ -272,7 +249,6 @@ impl<K: Keys> Keys for Track<K> {
 impl<T: Transcode> Transcode for Track<T> {
     type Error = T::Error;
 
-    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -289,7 +265,6 @@ impl<T: Transcode> Transcode for Track<T> {
 /// Shim to provide the bare lookup/Track/Short without transcoding target
 impl Transcode for () {
     type Error = Infallible;
-    #[inline]
     fn transcode(
         &mut self,
         schema: &Schema,
@@ -305,7 +280,6 @@ impl Transcode for () {
 pub struct KeysIter<T>(Fuse<T>);
 
 impl<T: Iterator> KeysIter<T> {
-    #[inline]
     fn new(inner: T) -> Self {
         Self(inner.fuse())
     }
@@ -316,13 +290,11 @@ where
     T: Iterator,
     T::Item: Key,
 {
-    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         let n = self.0.next().ok_or(KeyError::TooShort)?;
         n.find(internal).ok_or(KeyError::NotFound)
     }
 
-    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
         match self.0.next() {
             Some(_) => Err(KeyError::TooLong),
@@ -338,7 +310,6 @@ where
 {
     type IntoKeys = KeysIter<T::IntoIter>;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         KeysIter::new(self.into_iter())
     }
@@ -351,7 +322,6 @@ where
 {
     type IntoKeys = KeysIter<T>;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }
@@ -361,7 +331,6 @@ where
 pub struct Chain<T, U>(T, U);
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {
-    #[inline]
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         match self.0.next(internal) {
             Err(KeyError::TooShort) => self.1.next(internal),
@@ -369,7 +338,6 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
         }
     }
 
-    #[inline]
     fn finalize(&mut self) -> Result<(), KeyError> {
         self.0.finalize().and_then(|_| self.1.finalize())
     }
@@ -378,7 +346,6 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
 impl<T: Keys, U: Keys> IntoKeys for Chain<T, U> {
     type IntoKeys = Self;
 
-    #[inline]
     fn into_keys(self) -> Self::IntoKeys {
         self
     }

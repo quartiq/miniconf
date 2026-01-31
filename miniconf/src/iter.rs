@@ -12,7 +12,6 @@ pub struct ExactSize<T> {
 impl<T: Iterator> Iterator for ExactSize<T> {
     type Item = T::Item;
 
-    #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(v) = self.iter.next() {
             self.count -= 1; // checks for overflow in debug
@@ -23,7 +22,6 @@ impl<T: Iterator> Iterator for ExactSize<T> {
         }
     }
 
-    #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.count, Some(self.count))
     }
@@ -65,7 +63,6 @@ impl<N, const D: usize> NodeIter<N, D> {
     ///
     /// # Panic
     /// If the root depth exceeds the state length.
-    #[inline]
     pub const fn with(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
         assert!(root <= D);
         Self {
@@ -79,7 +76,6 @@ impl<N, const D: usize> NodeIter<N, D> {
     }
 
     /// Create a new iterator with default root and initial state.
-    #[inline]
     pub const fn new(schema: &'static Schema) -> Self {
         Self::with(schema, [0; D], 0)
     }
@@ -105,7 +101,6 @@ impl<N, const D: usize> NodeIter<N, D> {
     /// if the iteration depth has been limited or if the iteration root
     /// is not the tree root.
     ///
-    #[inline]
     pub const fn exact_size(schema: &'static Schema) -> ExactSize<Self> {
         let shape = schema.shape();
         if D < shape.max_depth {
@@ -118,19 +113,16 @@ impl<N, const D: usize> NodeIter<N, D> {
     }
 
     /// Return the underlying schema
-    #[inline]
     pub const fn schema(&self) -> &'static Schema {
         self.schema
     }
 
     /// Return the current state
-    #[inline]
     pub fn state(&self) -> Option<&[usize]> {
         self.state.get(..self.depth)
     }
 
     /// Return the root depth
-    #[inline]
     pub const fn root(&self) -> usize {
         self.root
     }
