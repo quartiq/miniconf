@@ -15,7 +15,7 @@ workspace = true
 [lib]
 
 [dependencies]
-miniconf = { version = "0.20.0", features = [
+miniconf = { version = "0.20.1", features = [
     "json-core",
 ], default-features = false, path = "../miniconf" }
 minimq = "0.10.0"
