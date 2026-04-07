@@ -107,10 +107,10 @@ pub const MIXED: &[&str] = &[
 ];
 
 pub trait Engine {
-    const NAME: &'static str;
     type Error;
     fn new() -> Self;
-    fn exec(&mut self, cmd: Command<'_>, out: &mut Response) -> Result<(), Self::Error>;
+    fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error>;
+    fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error>;
     fn settings(&self) -> &Settings;
 }
 
@@ -127,14 +127,22 @@ fn run_workload<E: Engine>(
     lines: &[&str],
     outer_iters: u32,
 ) -> Result<(), ValidationError> {
-    let mut out = Response::new();
     for _ in 0..outer_iters {
         for (i, line) in lines.iter().enumerate() {
             let index = i as u32;
             let cmd = parse(black_box(line)).map_err(|_| ValidationError::Parse(index))?;
-            black_box(engine.exec(black_box(cmd), black_box(&mut out)))
-                .map_err(|_| ValidationError::Set(index))?;
-            black_box(out.as_bytes());
+            match black_box(cmd) {
+                Command::Get(path) => {
+                    let mut out = Response::new();
+                    black_box(engine.get(black_box(path), black_box(&mut out)))
+                        .map_err(|_| ValidationError::Get(index))?;
+                    black_box(out.as_bytes());
+                }
+                Command::Set(path, value) => {
+                    black_box(engine.set(black_box(path), black_box(value)))
+                        .map_err(|_| ValidationError::Set(index))?;
+                }
+            }
         }
     }
     Ok(())
@@ -154,15 +162,18 @@ fn validate_set_roundtrip<E: Engine>(engine: &mut E) -> Result<(), ValidationErr
     for (i, line) in MIXED.iter().enumerate() {
         let index = i as u32;
         let cmd = parse(line).map_err(|_| ValidationError::Parse(index))?;
-        let path = match cmd {
-            Command::Set(path, _) => path,
+        let (path, value) = match cmd {
+            Command::Set(path, value) => (path, value),
             Command::Get(_) => continue,
         };
         engine
-            .exec(cmd, &mut set_out)
+            .set(path, value)
             .map_err(|_| ValidationError::Set(index))?;
         engine
-            .exec(Command::Get(path), &mut get_out)
+            .get(path, &mut set_out)
+            .map_err(|_| ValidationError::Get(index))?;
+        engine
+            .get(path, &mut get_out)
             .map_err(|_| ValidationError::Get(index))?;
         if set_out.as_bytes() != get_out.as_bytes() {
             return Err(ValidationError::Mismatch(index));
@@ -184,7 +195,6 @@ pub fn run_engine<E: Engine>() -> ! {
     let mut engine = E::new();
     if let Err(err) = validate_set_roundtrip(&mut engine) {
         let (kind, index) = validation_code(err);
-        hprintln!("RESULT variant={}", E::NAME);
         hprintln!(
             "RESULT validation=set_get_roundtrip_failed kind={} index={}",
             kind,
@@ -199,7 +209,6 @@ pub fn run_engine<E: Engine>() -> ! {
     run_parse_only(MIXED, 2_000);
     if let Err(err) = run_workload(&mut engine, MIXED, 2_000) {
         let (kind, index) = validation_code(err);
-        hprintln!("RESULT variant={}", E::NAME);
         hprintln!(
             "RESULT validation=workload_failed kind={} index={}",
             kind,
@@ -213,7 +222,6 @@ pub fn run_engine<E: Engine>() -> ! {
     let mut replay = E::new();
     if let Err(err) = run_workload(&mut replay, MIXED, 2_000) {
         let (kind, index) = validation_code(err);
-        hprintln!("RESULT variant={}", E::NAME);
         hprintln!(
             "RESULT validation=replay_failed kind={} index={}",
             kind,
@@ -226,7 +234,6 @@ pub fn run_engine<E: Engine>() -> ! {
     }
     let state_eq = engine.settings() == replay.settings();
 
-    hprintln!("RESULT variant={}", E::NAME);
     hprintln!("RESULT validation=ok");
     hprintln!("RESULT final_state_eq={}", state_eq as u8);
 
@@ -238,10 +245,6 @@ pub fn run_engine<E: Engine>() -> ! {
 
 pub fn run_baseline() -> ! {
     run_parse_only(MIXED, 2_000);
-
-    hprintln!("RESULT variant=baseline_harness");
-    hprintln!("RESULT validation=ok");
-    hprintln!("RESULT final_state_eq=1");
 
     debug::exit(debug::EXIT_SUCCESS);
     loop {

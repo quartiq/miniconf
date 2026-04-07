@@ -1,4 +1,3 @@
-use crate::Command;
 use crate::codec::{CodecError, Response, parse_bool, parse_i32, parse_option_i32, parse_u8};
 use crate::settings::{MyEnum, Settings};
 
@@ -347,7 +346,6 @@ impl Engine {
 }
 
 impl crate::Engine for Engine {
-    const NAME: &'static str = "manual_thermo_style";
     type Error = ManualError;
 
     fn new() -> Self {
@@ -356,15 +354,12 @@ impl crate::Engine for Engine {
         }
     }
 
-    fn exec(&mut self, cmd: Command<'_>, out: &mut Response) -> Result<(), Self::Error> {
-        match cmd {
-            Command::Get(path) => self.serialize_key(Key::parse(path)?, out),
-            Command::Set(path, value) => {
-                let key = Key::parse(path)?;
-                self.deserialize_key(key, value)?;
-                self.serialize_key(key, out)
-            }
-        }
+    fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error> {
+        self.deserialize_key(Key::parse(path)?, value)
+    }
+
+    fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error> {
+        self.serialize_key(Key::parse(path)?, out)
     }
 
     fn settings(&self) -> &Settings {
