@@ -18,10 +18,9 @@ struct Inner {
     strum::FromRepr,
     strum::EnumDiscriminants,
 )]
-#[strum_discriminants(derive(Default, serde::Serialize, serde::Deserialize))]
+#[strum_discriminants(derive(serde::Serialize, serde::Deserialize))]
 enum Enum {
     #[default]
-    #[strum_discriminants(default)]
     None,
     #[strum(serialize = "foo")]
     #[strum_discriminants(serde(rename = "foo"))]

@@ -10,7 +10,12 @@ note: inside `Schema::nodes::<(), 0>`
   |         NodeIter::exact_size(self)
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `NodeIter::<(), 0>::exact_size`
- --> src/iter.rs
+ --> $RUST/core/src/panic.rs
+  |
+  |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+  |
+ ::: src/iter.rs
   |
   |             panic!("insufficient depth for exact size iteration");
-  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+  |             ----------------------------------------------------- in this macro invocation
