@@ -289,7 +289,7 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
     type IntoKeys = <PathIter<'a, S> as IntoKeys>::IntoKeys;
 
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::<S>::root(self.0.as_ref()).into_keys()
+        PathIter::root(self.0.as_ref()).into_keys()
     }
 }
 
@@ -297,7 +297,7 @@ impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
     type IntoKeys = <Path<&'a str, S> as IntoKeys>::IntoKeys;
 
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::<S>::root(self.0.as_ref()).into_keys()
+        PathIter::root(self.0.as_ref()).into_keys()
     }
 }
 
