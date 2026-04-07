@@ -1,0 +1,33 @@
+[package]
+name = "miniconf-benchmark"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+cortex-m-rt = "0.7"
+cortex-m-semihosting = "0.5"
+panic-halt = "1.0"
+miniconf = { path = "../../../miniconf", default-features = false, features = ["derive"] }
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+
+[workspace]
+
+[profile.release]
+codegen-units = 1
+incremental = false
+lto = true
+opt-level = "s"
+debug = true
+
+[[bin]]
+name = "baseline"
+path = "src/bin/baseline.rs"
+
+[[bin]]
+name = "manual"
+path = "src/bin/manual.rs"
+
+[[bin]]
+name = "miniconf"
+path = "src/bin/miniconf.rs"

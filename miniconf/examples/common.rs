@@ -4,17 +4,17 @@ use serde::{Deserialize, Serialize};
 // Either/Inner/Settings are straight from README.md
 
 /// Inner doc
-#[derive(Deserialize, Serialize, Default, Tree)]
+#[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq, Tree)]
 #[tree(meta(doc, typename))]
 pub struct MyStruct {
     #[tree(meta(max = "10"))]
-    a: i32,
+    pub a: i32,
     /// Outer doc
-    b: u8,
+    pub b: u8,
 }
 
 /// Inner doc
-#[derive(Deserialize, Serialize, Default, Tree)]
+#[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq, Tree)]
 #[tree(meta(doc, typename))]
 pub enum MyEnum {
     #[default]
@@ -26,37 +26,37 @@ pub enum MyEnum {
     C([MyStruct; 2]),
 }
 
-#[derive(Deserialize, Serialize, Default)]
+#[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq)]
 pub struct Uni;
 
-#[derive(Tree, Default)]
+#[derive(Tree, Default, Clone, PartialEq, Eq)]
 #[tree(meta(typename))]
 pub struct Settings {
-    foo: bool,
+    pub foo: bool,
     #[tree(with=leaf)]
-    enum_: MyEnum,
+    pub enum_: MyEnum,
     #[tree(with=leaf)]
-    struct_: MyStruct,
+    pub struct_: MyStruct,
     #[tree(with=leaf)]
-    array: [i32; 2],
+    pub array: [i32; 2],
     #[tree(with=leaf)]
-    option: Option<i32>,
+    pub option: Option<i32>,
     #[tree(with=leaf)]
-    uni: Uni,
+    pub uni: Uni,
 
     #[tree(skip)]
     #[allow(unused)]
-    skipped: (),
+    pub skipped: (),
 
-    struct_tree: MyStruct,
-    enum_tree: MyEnum,
-    array_tree: [i32; 2],
-    array_tree2: [MyStruct; 2],
-    tuple_tree: (i32, MyStruct),
-    option_tree: Option<i32>,
-    option_tree2: Option<MyStruct>,
-    array_option_tree: [Option<MyStruct>; 2],
-    option_array: Option<Leaf<[i16; 2]>>,
+    pub struct_tree: MyStruct,
+    pub enum_tree: MyEnum,
+    pub array_tree: [i32; 2],
+    pub array_tree2: [MyStruct; 2],
+    pub tuple_tree: (i32, MyStruct),
+    pub option_tree: Option<i32>,
+    pub option_tree2: Option<MyStruct>,
+    pub array_option_tree: [Option<MyStruct>; 2],
+    pub option_array: Option<Leaf<[i16; 2]>>,
 }
 
 #[allow(unused)]
@@ -73,7 +73,7 @@ impl Settings {
         self.option_tree = Some(8);
         self.enum_tree = MyEnum::C(Default::default());
         self.option_tree2 = Some(Default::default());
-        self.array_option_tree[1] = Some(Default::default());
+        self.array_option_tree = core::array::repeat(Some(Default::default()));
         self.option_array = Some(Leaf([1, 2]));
     }
 }
