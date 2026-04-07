@@ -23,7 +23,7 @@ smlang = "0.8"
 embedded-io = "0.7"
 log = "0.4"
 heapless = "0.9"
-strum = { version = "0.27.1", features = ["derive"], default-features = false }
+strum = { version = "0.28", features = ["derive"], default-features = false }
 
 [[example]]
 name = "mqtt"
