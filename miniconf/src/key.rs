@@ -105,6 +105,18 @@ pub trait Transcode {
     ) -> Result<(), DescendError<Self::Error>>;
 }
 
+/// Construct a fresh transcoding target from compact seed/config state.
+pub trait Seeded: Sized {
+    /// The configuration required to construct `Self`.
+    type Seed: Copy;
+
+    /// Default configuration for `Self`.
+    const DEFAULT_SEED: Self::Seed;
+
+    /// Construct a fresh transcoding target from the provided seed.
+    fn from_seed(seed: &Self::Seed) -> Self;
+}
+
 impl<T: Transcode + ?Sized> Transcode for &mut T {
     type Error = T::Error;
     fn transcode(
@@ -190,6 +202,15 @@ impl<T: Transcode> Transcode for Short<T> {
     }
 }
 
+impl<T: Seeded> Seeded for Short<T> {
+    type Seed = T::Seed;
+    const DEFAULT_SEED: Self::Seed = T::DEFAULT_SEED;
+
+    fn from_seed(seed: &Self::Seed) -> Self {
+        Self::new(T::from_seed(seed))
+    }
+}
+
 /// Track key depth
 ///
 /// This tracks the depth during [`Keys`] and [`Transcode`].
@@ -262,6 +283,15 @@ impl<T: Transcode> Transcode for Track<T> {
     }
 }
 
+impl<T: Seeded> Seeded for Track<T> {
+    type Seed = T::Seed;
+    const DEFAULT_SEED: Self::Seed = T::DEFAULT_SEED;
+
+    fn from_seed(seed: &Self::Seed) -> Self {
+        Self::new(T::from_seed(seed))
+    }
+}
+
 /// Shim to provide the bare lookup/Track/Short without transcoding target
 impl Transcode for () {
     type Error = Infallible;
@@ -272,6 +302,13 @@ impl Transcode for () {
     ) -> Result<(), DescendError<Self::Error>> {
         schema.descend(keys.into_keys(), |_, _| Ok(()))
     }
+}
+
+impl Seeded for () {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
+
+    fn from_seed(_: &Self::Seed) -> Self {}
 }
 
 /// [`Keys`]/[`IntoKeys`] for Iterators of [`Key`]

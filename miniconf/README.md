@@ -114,8 +114,8 @@ assert!(MAX_DEPTH <= 6);
 assert!(MAX_LENGTH <= 32);
 
 // Iterating over all leaf paths
-for path in Settings::SCHEMA.nodes::<Path<heapless::String<MAX_LENGTH>, '/'>, MAX_DEPTH>() {
-    let path = path.unwrap().0;
+for path in Settings::SCHEMA.nodes::<Path<heapless::String<MAX_LENGTH>>, MAX_DEPTH>() {
+    let path = path.unwrap().path;
     // Serialize each
     match json_core::get(&settings, &path, &mut buf) {
         // Full round-trip: deserialize and set again

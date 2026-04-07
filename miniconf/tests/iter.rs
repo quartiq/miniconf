@@ -59,14 +59,14 @@ fn array_iter() {
 #[test]
 fn short_iter() {
     assert_eq!(
-        NodeIter::<Short<Path<String, '/'>>, 1>::new(Settings::SCHEMA)
+        NodeIter::<Short<Path<String>>, 1>::new(Settings::SCHEMA, [0; 1], 0, '/')
             .map(|p| p.unwrap().into_inner().0.into_inner())
             .collect::<Vec<_>>(),
         ["/b", "/c", "/d", "/a"]
     );
 
     assert_eq!(
-        NodeIter::<Short<Path<String, '/'>>, 0>::new(Settings::SCHEMA)
+        NodeIter::<Short<Path<String>>, 0>::new(Settings::SCHEMA, [], 0, '/')
             .next()
             .unwrap()
             .unwrap()
@@ -88,10 +88,21 @@ fn panic_short_iter() {
 #[test]
 fn root() {
     assert_eq!(
-        NodeIter::<Path<String, '/'>, 3>::with_root(Settings::SCHEMA, ["b"])
+        NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["b"], '/')
             .unwrap()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/b/0", "/b/1"]
+    );
+}
+
+#[test]
+fn runtime_path_separator() {
+    assert_eq!(
+        Settings::SCHEMA
+            .nodes_with::<Path<String>, 3>(':')
+            .map(|p| p.unwrap().into_inner())
+            .collect::<Vec<_>>(),
+        [":b:0", ":b:1", ":c:inner", ":d:0:inner", ":a"]
     );
 }

@@ -14,18 +14,18 @@ fn packed() {
     // Check empty being too short
     assert_eq!(
         Settings::SCHEMA
-            .transcode::<Short<Path<String, '/'>>>(Packed::EMPTY)
+            .transcode::<Short<Path<String>>>(Packed::EMPTY)
             .unwrap(),
         Short::default()
     );
 
     // Check path-packed round trip.
     for iter_path in Settings::SCHEMA
-        .nodes::<Path<String, '/'>, 2>()
+        .nodes_with::<Path<String>, 2>('/')
         .map(Result::unwrap)
     {
         let packed: Track<Packed> = Settings::SCHEMA.transcode(&iter_path).unwrap();
-        let path: Path<String, '/'> = Settings::SCHEMA.transcode(*packed.inner()).unwrap();
+        let path: Path<String> = Settings::SCHEMA.transcode(*packed.inner()).unwrap();
         assert_eq!(path, iter_path);
         println!(
             "{path:?} {iter_path:?}, {:#06b} {} {:?}",
@@ -44,7 +44,7 @@ fn packed() {
 
     // Check that Packed `marker + 0b0` is equivalent to `/a`
     let a = Packed::from_lsb(0b10.try_into().unwrap());
-    let path: Track<Path<String, '/'>> = Settings::SCHEMA.transcode(a).unwrap();
+    let path: Track<Path<String>> = Settings::SCHEMA.transcode(a).unwrap();
     assert_eq!(path.depth(), 1);
     assert_eq!(path.inner().as_ref(), "/a");
 }
@@ -58,7 +58,7 @@ fn top() {
     }
     assert_eq!(
         S::SCHEMA
-            .nodes::<Path<String, '/'>, 2>()
+            .nodes_with::<Path<String>, 2>('/')
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/baz/0", "/foo"]
@@ -107,8 +107,8 @@ fn zero_key() {
 
     // Check the corner case of a len=1 index where (len - 1) = 0 and zero bits would be required to encode.
     // Hence the Packed values for len=1 and len=2 are the same.
-    let mut a11 = [[0]];
-    let mut a22 = [[0; 2]; 2];
+    let a11 = [[0]];
+    let a22 = [[0; 2]; 2];
     let mut buf = [0u8; 100];
     let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
     for (depth, result) in [
@@ -121,7 +121,7 @@ fn zero_key() {
     {
         assert_eq!(
             TreeSerialize::serialize_by_key(
-                &mut a11,
+                &a11,
                 Packed::from_lsb((0b1 << depth).try_into().unwrap()),
                 &mut ser
             ),
@@ -129,7 +129,7 @@ fn zero_key() {
         );
         assert_eq!(
             TreeSerialize::serialize_by_key(
-                &mut a22,
+                &a22,
                 Packed::from_lsb((0b1 << depth).try_into().unwrap()),
                 &mut ser
             ),
@@ -152,7 +152,7 @@ fn size() {
     assert_eq!(core::mem::size_of::<A31>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let path = A31::SCHEMA
-        .transcode::<Track<Path<String, '/'>>>(packed)
+        .transcode::<Track<Path<String>>>(packed)
         .unwrap();
     assert_eq!(path.depth(), 31);
     assert_eq!(path.inner().as_ref().len(), 2 * 31);
@@ -168,7 +168,7 @@ fn size() {
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let path = A16::SCHEMA
-        .transcode::<Track<Path<String, '/'>>>(packed)
+        .transcode::<Track<Path<String>>>(packed)
         .unwrap();
     assert_eq!(path.depth(), 16);
     assert_eq!(path.inner().as_ref().len(), 2 * 16);

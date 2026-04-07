@@ -98,44 +98,86 @@ impl<T: TreeSchema, const N: usize> TreeSchema for [T; N] {
     const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
 }
 
+fn serialize_by_key_slice<T: TreeSerialize, S: Serializer>(
+    values: &[T],
+    schema: &'static Schema,
+    mut keys: impl Keys,
+    ser: S,
+) -> Result<S::Ok, SerdeError<S::Error>> {
+    values[schema.next(&mut keys)?].serialize_by_key(keys, ser)
+}
+
+fn deserialize_by_key_slice<'de, T: TreeDeserialize<'de>, D: Deserializer<'de>>(
+    values: &mut [T],
+    schema: &'static Schema,
+    mut keys: impl Keys,
+    de: D,
+) -> Result<(), SerdeError<D::Error>> {
+    values[schema.next(&mut keys)?].deserialize_by_key(keys, de)
+}
+
+fn probe_by_key_slice<'de, T: TreeDeserialize<'de>, D: Deserializer<'de>>(
+    schema: &'static Schema,
+    mut keys: impl Keys,
+    de: D,
+) -> Result<(), SerdeError<D::Error>> {
+    schema.next(&mut keys)?;
+    T::probe_by_key(keys, de)
+}
+
+fn ref_any_by_key_slice<'a, T: TreeAny>(
+    values: &'a [T],
+    schema: &'static Schema,
+    mut keys: impl Keys,
+) -> Result<&'a dyn Any, ValueError> {
+    values[schema.next(&mut keys)?].ref_any_by_key(keys)
+}
+
+fn mut_any_by_key_slice<'a, T: TreeAny>(
+    values: &'a mut [T],
+    schema: &'static Schema,
+    mut keys: impl Keys,
+) -> Result<&'a mut dyn Any, ValueError> {
+    values[schema.next(&mut keys)?].mut_any_by_key(keys)
+}
+
 impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N]
 where
     Self: TreeSchema,
 {
     fn serialize_by_key<S: Serializer>(
         &self,
-        mut keys: impl Keys,
+        keys: impl Keys,
         ser: S,
     ) -> Result<S::Ok, SerdeError<S::Error>> {
-        self[Self::SCHEMA.next(&mut keys)?].serialize_by_key(keys, ser)
+        serialize_by_key_slice(self.as_slice(), Self::SCHEMA, keys, ser)
     }
 }
 
 impl<'de, T: TreeDeserialize<'de>, const N: usize> TreeDeserialize<'de> for [T; N] {
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
-        mut keys: impl Keys,
+        keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        self[Self::SCHEMA.next(&mut keys)?].deserialize_by_key(keys, de)
+        deserialize_by_key_slice(self.as_mut_slice(), Self::SCHEMA, keys, de)
     }
 
     fn probe_by_key<D: Deserializer<'de>>(
-        mut keys: impl Keys,
+        keys: impl Keys,
         de: D,
     ) -> Result<(), SerdeError<D::Error>> {
-        Self::SCHEMA.next(&mut keys)?;
-        T::probe_by_key(keys, de)
+        probe_by_key_slice::<T, _>(Self::SCHEMA, keys, de)
     }
 }
 
 impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
-    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        self[Self::SCHEMA.next(&mut keys)?].ref_any_by_key(keys)
+    fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+        ref_any_by_key_slice(self.as_slice(), Self::SCHEMA, keys)
     }
 
-    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-        self[Self::SCHEMA.next(&mut keys)?].mut_any_by_key(keys)
+    fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+        mut_any_by_key_slice(self.as_mut_slice(), Self::SCHEMA, keys)
     }
 }
 

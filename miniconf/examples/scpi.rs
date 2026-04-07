@@ -1,8 +1,8 @@
 use core::str;
 
 use miniconf::{
-    IntoKeys, Keys, Path, PathIter, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
-    ValueError, json_core,
+    ConstPath, ConstPathIter, IntoKeys, Keys, SerdeError, TreeDeserializeOwned, TreeSchema,
+    TreeSerialize, ValueError, json_core,
 };
 
 mod common;
@@ -32,7 +32,7 @@ impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
                         || !name
                             .chars()
                             .zip(s.chars())
-                            .all(|(n, s)| n.to_ascii_lowercase() == s.to_ascii_lowercase())
+                            .all(|(n, s)| n.eq_ignore_ascii_case(&s))
                     {
                         continue;
                     }
@@ -57,7 +57,7 @@ impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
 }
 
 #[derive(Clone)]
-struct ScpiPathIter<'a>(PathIter<'a, ':'>);
+struct ScpiPathIter<'a>(ConstPathIter<'a, ':'>);
 
 impl<'a> Iterator for ScpiPathIter<'a> {
     type Item = ScpiKey<&'a str>;
@@ -73,7 +73,7 @@ impl<'a> IntoIterator for ScpiPath<'a> {
     type IntoIter = ScpiPathIter<'a>;
     type Item = ScpiKey<&'a str>;
     fn into_iter(self) -> Self::IntoIter {
-        ScpiPathIter(PathIter::new(self.0))
+        ScpiPathIter(ConstPathIter::new(self.0))
     }
 }
 
@@ -134,7 +134,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut buf = vec![0; 1024];
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
-    for path in Settings::SCHEMA.nodes::<Path<String, ':'>, MAX_DEPTH>() {
+    for path in Settings::SCHEMA.nodes::<ConstPath<String, ':'>, MAX_DEPTH>() {
         let path = path?;
         match json_core::get_by_key(&settings, &path, &mut buf) {
             Ok(len) => println!(

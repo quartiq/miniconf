@@ -22,11 +22,14 @@ fn meta() {
 #[test]
 fn path() {
     assert_eq!(
-        Settings::SCHEMA.transcode::<Path<String, '/'>>([0usize]),
-        Ok(Path("/value".to_owned()))
+        Settings::SCHEMA.transcode::<Path<String>>([0usize]),
+        Ok(Path {
+            path: "/value".to_owned(),
+            separator: '/',
+        })
     );
     assert_eq!(
-        Settings::SCHEMA.transcode::<Path<String, '/'>>([1usize]),
+        Settings::SCHEMA.transcode::<Path<String>>([1usize]),
         Err(KeyError::NotFound.into())
     );
 }

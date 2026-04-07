@@ -24,6 +24,7 @@ use embedded_io::Write;
 
 // The maximum topic length of any topic (prefix + "/settings" + miniconf path).
 const MAX_TOPIC_LENGTH: usize = 128;
+const SEPARATOR: char = '/';
 
 // The maximum amount of correlation data that will be cached for listing. This is set to function
 // with the miniconf-mqtt python client (i.e. 32 bytes can encode a UUID).
@@ -112,7 +113,7 @@ mod sm {
 
 /// Cache correlation data and topic for multi-part responses.
 struct Multipart<const Y: usize> {
-    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>, '/'>, Y>,
+    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>>, Y>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
@@ -120,7 +121,7 @@ struct Multipart<const Y: usize> {
 impl<const Y: usize> Multipart<Y> {
     fn new(schema: &'static Schema) -> Self {
         Self {
-            iter: NodeIter::new(schema),
+            iter: NodeIter::new(schema, [0; Y], 0, SEPARATOR),
             response_topic: None,
             correlation_data: None,
         }
@@ -129,7 +130,7 @@ impl<const Y: usize> Multipart<Y> {
 
 impl<const Y: usize> Multipart<Y> {
     fn root(mut self, keys: impl IntoKeys) -> Result<Self, DescendError<()>> {
-        self.iter = NodeIter::with_root(self.iter.schema(), keys)?;
+        self.iter = NodeIter::with_root(self.iter.schema(), keys, SEPARATOR)?;
         Ok(self)
     }
 
@@ -155,7 +156,7 @@ impl<const Y: usize> Multipart<Y> {
             .transpose()
             .or(Err("Correlation data too long"))?;
         Ok(Self {
-            iter: NodeIter::new(schema),
+            iter: NodeIter::new(schema, [0; Y], 0, SEPARATOR),
             response_topic,
             correlation_data,
         })
@@ -273,7 +274,9 @@ where
     ) -> Result<Self, ProtocolError> {
         const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
         let shape = Settings::SCHEMA.shape();
-        assert!(prefix.len() + "/settings".len() + shape.max_length("/") <= MAX_TOPIC_LENGTH);
+        let separator = [SEPARATOR as u8];
+        let separator = core::str::from_utf8(&separator).unwrap();
+        assert!(prefix.len() + "/settings".len() + shape.max_length(separator) <= MAX_TOPIC_LENGTH);
 
         // Configure a will so that we can indicate whether or not we are connected.
         let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
@@ -387,7 +390,7 @@ where
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
         let mut m = Multipart::new(Settings::SCHEMA);
         if let Some(path) = path {
-            m = m.root(Path::<_, '/'>(path))?;
+            m = m.root(Path::new(path, SEPARATOR))?;
         }
         self.state.process_event(sm::Events::Multipart)?;
         self.pending = m;
@@ -449,7 +452,7 @@ where
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
             topic
                 .push_str("/settings")
-                .and_then(|_| topic.push_str(&path.0))
+                .and_then(|_| topic.push_str(&path.path))
                 .unwrap();
 
             let props = [ResponseCode::Ok.into()];
@@ -522,7 +525,7 @@ where
             let Some(path) = topic
                 .strip_prefix(*prefix)
                 .and_then(|p| p.strip_prefix("/settings"))
-                .map(Path::<_, '/'>)
+                .map(|path| Path::new(path, SEPARATOR))
             else {
                 info!("Unexpected topic: {topic}");
                 return State::Unchanged;
