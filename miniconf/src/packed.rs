@@ -1,6 +1,6 @@
 use core::num::NonZero;
 
-use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Seeded, Transcode};
 
 /// A bit-packed representation of multiple indices.
 ///
@@ -233,6 +233,15 @@ impl Transcode for Packed {
             }
             Ok(())
         })
+    }
+}
+
+impl Seeded for Packed {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
+
+    fn from_seed(_: &Self::Seed) -> Self {
+        Self::default()
     }
 }
 

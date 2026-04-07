@@ -30,7 +30,10 @@ fn set_get(
 
     // Indices
     let (idx, depth) = Settings::SCHEMA
-        .transcode::<Track<Indices<[usize; 4]>>>(Path::<_, '/'>(path))
+        .transcode::<Track<Indices<[usize; 4]>>>(Path {
+            path,
+            separator: '/',
+        })
         .unwrap()
         .into_inner();
 

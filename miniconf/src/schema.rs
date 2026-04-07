@@ -1,7 +1,9 @@
 use core::{convert::Infallible, num::NonZero};
 use serde::Serialize;
 
-use crate::{DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
+use crate::{
+    DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Seeded, Shape, Transcode,
+};
 
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
@@ -294,10 +296,10 @@ impl Schema {
         Ok(schema)
     }
 
-    /// Transcode keys to a new keys type representation
+    /// Transcode keys to a new keys type representation using its default seed.
     ///
-    /// In order to not require `N: Default`, use [`Transcode::transcode`] on
-    /// an existing `&mut N`.
+    /// In order to not require the default seed, use [`Self::transcode_with`]
+    /// or [`Transcode::transcode`] on an existing `&mut N`.
     ///
     /// ```
     /// use miniconf::{Indices, JsonPath, Packed, Track, Short, Path, TreeSchema};
@@ -310,8 +312,8 @@ impl Schema {
     /// let idx = [1, 1];
     /// let sch = S::SCHEMA;
     ///
-    /// let path = sch.transcode::<Path<String, '/'>>(idx).unwrap();
-    /// assert_eq!(path.0.as_str(), "/bar/1");
+    /// let path = sch.transcode::<Path<String>>(idx).unwrap();
+    /// assert_eq!(path.path.as_str(), "/bar/1");
     /// let path = sch.transcode::<JsonPath<String>>(idx).unwrap();
     /// assert_eq!(path.0.as_str(), ".bar[1]");
     /// let indices = sch.transcode::<Indices<[usize; 2]>>(&path).unwrap();
@@ -320,8 +322,8 @@ impl Schema {
     /// assert_eq!(indices.as_ref(), [1, 1]);
     /// let packed = sch.transcode::<Packed>(["bar", "4"]).unwrap();
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
-    /// let path = sch.transcode::<Path<String, '/'>>(packed).unwrap();
-    /// assert_eq!(path.0.as_str(), "/bar/4");
+    /// let path = sch.transcode::<Path<String>>(packed).unwrap();
+    /// assert_eq!(path.path.as_str(), "/bar/4");
     /// let node = sch.transcode::<Short<Track<()>>>(&path).unwrap();
     /// assert_eq!((node.leaf(), node.inner().depth()), (true, 2));
     /// ```
@@ -331,11 +333,20 @@ impl Schema {
     ///
     /// # Returns
     /// Transcoded target and node information on success
-    pub fn transcode<N: Transcode + Default>(
+    pub fn transcode<N: Transcode + Seeded>(
         &self,
         keys: impl IntoKeys,
     ) -> Result<N, DescendError<N::Error>> {
-        let mut target = N::default();
+        self.transcode_with(keys, N::DEFAULT_SEED)
+    }
+
+    /// Look up the key and transcode it into a fresh output constructed from `seed`.
+    pub fn transcode_with<N: Transcode + Seeded>(
+        &self,
+        keys: impl IntoKeys,
+        seed: N::Seed,
+    ) -> Result<N, DescendError<N::Error>> {
+        let mut target = N::from_seed(&seed);
         target.transcode(self, keys)?;
         Ok(target)
     }
@@ -363,7 +374,8 @@ impl Schema {
     /// const MAX_DEPTH: usize = S::SCHEMA.shape().max_depth;
     /// assert_eq!(MAX_DEPTH, 2);
     ///
-    /// let paths: Vec<_> = S::SCHEMA.nodes::<Path<String, '/'>, MAX_DEPTH>()
+    /// let paths: Vec<_> = S::SCHEMA
+    ///     .nodes_with::<Path<String>, MAX_DEPTH>('/')
     ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
@@ -391,7 +403,18 @@ impl Schema {
     ///     .collect();
     /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
     /// ```
-    pub const fn nodes<N, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::exact_size(self)
+    pub const fn nodes<N: Seeded, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
+        NodeIter::new(self, [0; D], 0, N::DEFAULT_SEED).exact_size()
+    }
+
+    /// Return an iterator over nodes using a preconfigured output seed.
+    ///
+    /// This is useful for runtime-configured path encodings such as [`crate::Path`],
+    /// where the emitted separator is stored in the target value rather than in a const generic.
+    pub fn nodes_with<N: Seeded, const D: usize>(
+        &'static self,
+        seed: N::Seed,
+    ) -> ExactSize<NodeIter<N, D>> {
+        NodeIter::new(self, [0; D], 0, seed).exact_size()
     }
 }

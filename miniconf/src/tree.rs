@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
+use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, Seeded, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -46,8 +46,8 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError}
 ///     #[tree(rename = "OTHER")]
 ///     a: f32,
 /// };
-/// let name = S::SCHEMA.transcode::<Path<String, '/'>>([0usize]).unwrap();
-/// assert_eq!(name.0.as_str(), "/OTHER");
+/// let name = S::SCHEMA.transcode::<Path<String>>([0usize]).unwrap();
+/// assert_eq!(name.path.as_str(), "/OTHER");
 /// ```
 ///
 /// ## Skip
@@ -152,7 +152,7 @@ pub trait TreeSchema {
     /// Return an exact size iterator of all leaf nodes
     ///
     /// This ensures sufficient state depth at compile time.
-    fn nodes<N, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+    fn nodes<N: Seeded, const D: usize>() -> ExactSize<NodeIter<N, D>> {
         const { assert!(D >= Self::SCHEMA.shape().max_depth) }
         Self::SCHEMA.nodes()
     }

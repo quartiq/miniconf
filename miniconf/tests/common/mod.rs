@@ -14,7 +14,7 @@ pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
             .is_sorted()
     );
     T::SCHEMA
-        .nodes::<Track<Path<String, '/'>>, D>()
+        .nodes::<Track<Path<String>>, D>()
         .map(|pn| {
             let pn = pn.unwrap();
             println!("{pn:?}");

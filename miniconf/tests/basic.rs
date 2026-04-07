@@ -49,7 +49,7 @@ fn path() {
         (&[], "", 0, false),
     ] {
         let s = Settings::SCHEMA
-            .transcode::<Short<Track<Path<String, '/'>>>>(keys)
+            .transcode::<Short<Track<Path<String>>>>(keys)
             .unwrap();
         assert_eq!(depth, s.inner().depth());
         assert_eq!(leaf, s.leaf());
@@ -66,7 +66,10 @@ fn indices() {
         ("/c", &[2], false),
     ] {
         let indices = Settings::SCHEMA
-            .transcode::<Short<Indices<[usize; 2]>>>(Path::<_, '/'>(keys))
+            .transcode::<Short<Indices<[usize; 2]>>>(Path {
+                path: keys,
+                separator: '/',
+            })
             .unwrap();
         println!("{keys} {indices:?}");
         assert_eq!(indices.leaf(), leaf);
@@ -76,7 +79,7 @@ fn indices() {
         .transcode::<Short<Indices<[usize; 1]>>>([0usize; 0])
         .unwrap();
     assert_eq!(indices.inner().as_ref(), [0usize; 0]);
-    assert_eq!(indices.leaf(), true);
+    assert!(indices.leaf());
     assert_eq!(indices.inner().len(), 0);
 
     let mut it = [0usize; 4].into_iter();

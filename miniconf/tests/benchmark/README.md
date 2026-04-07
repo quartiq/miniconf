@@ -7,9 +7,8 @@ Compare serial-style get/set using miniconf vs hand-written handler:
 - `baseline`: parser/loop baseline for size context.
 
 ## Binary size
-
 | variant | text | rodata | data | bss | flash | ram |
 |---|---:|---:|---:|---:|---:|---:|
-| baseline | 512 | 1356 | 0 | 8 | 1868 | 8 |
-| manual | 8160 | 1900 | 0 | 8 | 10060 | 8 |
-| miniconf | 7904 | 2292 | 0 | 8 | 10196 | 8 |
+| baseline | 300 | 1272 | 0 | 0 | 1572 | 0 |
+| manual | 8140 | 1852 | 0 | 8 | 9992 | 8 |
+| miniconf | 7908 | 2248 | 0 | 8 | 10156 | 8 |

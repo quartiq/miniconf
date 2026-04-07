@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, Internal, IntoKeys, Key, Schema, Track, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, Schema, Seeded, Track, Transcode};
 
 // index
 macro_rules! impl_key_integer {
@@ -91,6 +91,15 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     }
 }
 
+impl<T: Default> Seeded for Indices<T> {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
+
+    fn from_seed(_: &Self::Seed) -> Self {
+        Self::from(T::default())
+    }
+}
+
 macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
@@ -134,6 +143,16 @@ where
     }
 }
 
+#[cfg(feature = "alloc")]
+impl<T> Seeded for Vec<T> {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
+
+    fn from_seed(_: &Self::Seed) -> Self {
+        Self::default()
+    }
+}
+
 #[cfg(feature = "heapless")]
 impl<T, const N: usize> Transcode for heapless::Vec<T, N>
 where
@@ -153,6 +172,16 @@ where
             }
             Ok(())
         })
+    }
+}
+
+#[cfg(feature = "heapless")]
+impl<T, const N: usize> Seeded for heapless::Vec<T, N> {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
+
+    fn from_seed(_: &Self::Seed) -> Self {
+        Self::default()
     }
 }
 
@@ -178,6 +207,16 @@ where
     }
 }
 
+#[cfg(feature = "heapless-09")]
+impl<T, const N: usize> Seeded for heapless_09::Vec<T, N> {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
+
+    fn from_seed(_: &Self::Seed) -> Self {
+        Self::default()
+    }
+}
+
 ////////////////////////////////////////////////////////////////////
 
 // name
@@ -194,56 +233,132 @@ impl Key for str {
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
 ///   See also [Schema::transcode()] and `Shape.max_length` for upper bounds
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
-/// * `const S: char`: The path hierarchy separator to be inserted before each name,
+/// * `separator`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
-#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[repr(transparent)]
-#[serde(transparent)]
-pub struct Path<T: ?Sized, const S: char>(pub T);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Path<T> {
+    /// The underlying path buffer or string.
+    pub path: T,
+    /// The path hierarchy separator.
+    pub separator: char,
+}
 
-impl<T: ?Sized, const S: char> Path<T, S> {
-    /// The path hierarchy separator
-    pub const fn separator(&self) -> char {
-        S
+impl<T> Default for Path<T>
+where
+    T: Default,
+{
+    fn default() -> Self {
+        Self {
+            path: T::default(),
+            separator: '/',
+        }
     }
 }
 
-impl<T, const S: char> Path<T, S> {
+impl<T> Path<T> {
+    /// Create a new `Path`.
+    pub const fn new(path: T, separator: char) -> Self {
+        Self { path, separator }
+    }
+
+    /// The path hierarchy separator
+    pub const fn separator(&self) -> char {
+        self.separator
+    }
+
     /// Extract just the path
+    pub fn into_inner(self) -> T {
+        self.path
+    }
+}
+
+impl<T: AsRef<str>> AsRef<str> for Path<T> {
+    fn as_ref(&self) -> &str {
+        self.path.as_ref()
+    }
+}
+
+impl<T: core::fmt::Display> core::fmt::Display for Path<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.path.fmt(f)
+    }
+}
+
+impl<T: Default> Seeded for Path<T> {
+    type Seed = char;
+    const DEFAULT_SEED: Self::Seed = '/';
+
+    fn from_seed(seed: &Self::Seed) -> Self {
+        Self::new(T::default(), *seed)
+    }
+}
+
+/// Const-specialized path with named keys separated by a const separator.
+#[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[repr(transparent)]
+#[serde(transparent)]
+pub struct ConstPath<T, const S: char>(pub T);
+
+impl<T, const S: char> ConstPath<T, S> {
+    /// The path hierarchy separator.
+    pub const fn separator(&self) -> char {
+        S
+    }
+
+    /// Extract just the path.
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
-impl<T: AsRef<str> + ?Sized, const S: char> AsRef<str> for Path<T, S> {
+impl<T: AsRef<str>, const S: char> AsRef<str> for ConstPath<T, S> {
     fn as_ref(&self) -> &str {
         self.0.as_ref()
     }
 }
 
-impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
+impl<T: core::fmt::Display, const S: char> core::fmt::Display for ConstPath<T, S> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         self.0.fmt(f)
     }
 }
 
-/// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
-#[repr(transparent)]
-#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct PathIter<'a, const S: char>(Option<&'a str>);
+impl<T: Default, const S: char> Seeded for ConstPath<T, S> {
+    type Seed = ();
+    const DEFAULT_SEED: Self::Seed = ();
 
-impl<'a, const S: char> PathIter<'a, S> {
-    /// Create a new `PathIter`
-    pub fn new(data: Option<&'a str>) -> Self {
-        Self(data)
+    fn from_seed(_: &Self::Seed) -> Self {
+        Self::default()
+    }
+}
+
+fn split_path(path: &str, separator: char) -> (&str, Option<&str>) {
+    let pos = path
+        .chars()
+        .map_while(|c| (c != separator).then_some(c.len_utf8()))
+        .sum();
+    let (left, right) = path.split_at(pos);
+    (left, right.get(separator.len_utf8()..))
+}
+
+/// String split/skip wrapper, smaller/simpler than `.split(separator).skip(1)`
+#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct PathIter<'a> {
+    path: Option<&'a str>,
+    separator: char,
+}
+
+impl<'a> PathIter<'a> {
+    /// Create a new `PathIter`.
+    pub fn new(path: Option<&'a str>, separator: char) -> Self {
+        Self { path, separator }
     }
 
     /// Create a new `PathIter` starting at the root.
     ///
     /// This calls `next()` once to pop everything up to and including the first separator.
-    pub fn root(data: &'a str) -> Self {
-        let mut s = Self::new(Some(data));
+    pub fn root(path: &'a str, separator: char) -> Self {
+        let mut s = Self::new(Some(path), separator);
         // Skip the first part to disambiguate between
         // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
         // This is relevant in the case of e.g. `Option` and newtypes.
@@ -257,7 +372,39 @@ impl<'a, const S: char> PathIter<'a, S> {
     }
 }
 
-impl<'a, const S: char> Iterator for PathIter<'a, S> {
+impl<'a> Iterator for PathIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (left, right) = split_path(self.path?, self.separator);
+        self.path = right;
+        Some(left)
+    }
+}
+
+impl core::iter::FusedIterator for PathIter<'_> {}
+
+/// Const-specialized string split/skip wrapper.
+#[repr(transparent)]
+#[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ConstPathIter<'a, const S: char>(Option<&'a str>);
+
+impl<'a, const S: char> ConstPathIter<'a, S> {
+    /// Create a new const-specialized `PathIter`.
+    pub fn new(path: Option<&'a str>) -> Self {
+        Self(path)
+    }
+
+    /// Create a new const-specialized `PathIter` starting at the root.
+    pub fn root(path: &'a str) -> Self {
+        let mut s = Self::new(Some(path));
+        s.next();
+        s
+    }
+}
+
+impl<'a, const S: char> Iterator for ConstPathIter<'a, S> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -271,36 +418,72 @@ impl<'a, const S: char> Iterator for PathIter<'a, S> {
                 Some(s)
             }
         } else {
-            let pos = s
-                .chars()
-                .map_while(|c| (c != S).then_some(c.len_utf8()))
-                .sum();
-            let (left, right) = s.split_at(pos);
-            self.0 = right.get(S.len_utf8()..);
+            let (left, right) = split_path(s, S);
+            self.0 = right;
             Some(left)
         }
     }
 }
 
-impl<const S: char> core::iter::FusedIterator for PathIter<'_, S> {}
+impl<const S: char> core::iter::FusedIterator for ConstPathIter<'_, S> {}
 
-impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for Path<&'a T, S> {
-    type IntoKeys = <PathIter<'a, S> as IntoKeys>::IntoKeys;
+impl<'a, T: AsRef<str> + ?Sized> IntoKeys for Path<&'a T> {
+    type IntoKeys = <PathIter<'a> as IntoKeys>::IntoKeys;
 
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::root(self.0.as_ref()).into_keys()
+        PathIter::root(self.path.as_ref(), self.separator).into_keys()
     }
 }
 
-impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for &'a Path<T, S> {
-    type IntoKeys = <Path<&'a str, S> as IntoKeys>::IntoKeys;
+impl<'a, T: AsRef<str>> IntoKeys for &'a Path<T> {
+    type IntoKeys = <Path<&'a str> as IntoKeys>::IntoKeys;
 
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::root(self.0.as_ref()).into_keys()
+        PathIter::root(self.path.as_ref(), self.separator).into_keys()
     }
 }
 
-impl<T: Write + ?Sized, const S: char> Transcode for Path<T, S> {
+impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for ConstPath<&'a T, S> {
+    type IntoKeys = <ConstPathIter<'a, S> as IntoKeys>::IntoKeys;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        ConstPathIter::root(self.0.as_ref()).into_keys()
+    }
+}
+
+impl<'a, T: AsRef<str>, const S: char> IntoKeys for &'a ConstPath<T, S> {
+    type IntoKeys = <ConstPath<&'a str, S> as IntoKeys>::IntoKeys;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        ConstPathIter::root(self.0.as_ref()).into_keys()
+    }
+}
+
+impl<T: Write> Transcode for Path<T> {
+    type Error = core::fmt::Error;
+
+    fn transcode(
+        &mut self,
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, internal)) = idx_schema {
+                self.path.write_char(self.separator)?;
+                let mut buf = itoa::Buffer::new();
+                let name = internal
+                    .get_name(index)
+                    .unwrap_or_else(|| buf.format(index));
+                debug_assert!(!name.contains(self.separator));
+                self.path.write_str(name)
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
+impl<T: Write, const S: char> Transcode for ConstPath<T, S> {
     type Error = core::fmt::Error;
 
     fn transcode(
@@ -332,7 +515,17 @@ mod test {
     fn strsplit() {
         use heapless_09::Vec;
         for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_, 10> = PathIter::<'/'>::root(p).collect();
+            let a: Vec<_, 10> = PathIter::root(p, '/').collect();
+            let b: Vec<_, 10> = p.split('/').skip(1).collect();
+            assert_eq!(a, b);
+        }
+    }
+
+    #[test]
+    fn ascii_strsplit() {
+        use heapless_09::Vec;
+        for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
+            let a: Vec<_, 10> = ConstPathIter::<'/'>::root(p).collect();
             let b: Vec<_, 10> = p.split('/').skip(1).collect();
             assert_eq!(a, b);
         }
