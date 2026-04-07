@@ -228,15 +228,15 @@ impl<T: core::fmt::Display, const S: char> core::fmt::Display for Path<T, S> {
 }
 
 /// String split/skip wrapper, smaller/simpler than `.split(S).skip(1)`
+#[repr(transparent)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
-pub struct PathIter<'a, const S: char> {
-    data: Option<&'a str>,
-}
+#[serde(transparent)]
+pub struct PathIter<'a, const S: char>(Option<&'a str>);
 
 impl<'a, const S: char> PathIter<'a, S> {
     /// Create a new `PathIter`
     pub fn new(data: Option<&'a str>) -> Self {
-        Self { data }
+        Self(data)
     }
 
     /// Create a new `PathIter` starting at the root.
@@ -261,23 +261,22 @@ impl<'a, const S: char> Iterator for PathIter<'a, S> {
     type Item = &'a str;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let s = self.data?;
+        let s = self.0?;
         if S.is_ascii() {
-            let sep = S as u8;
-            if let Some(i) = s.as_bytes().iter().position(|b| *b == sep) {
-                let left = s.get(..i);
-                self.data = s.get(i + 1..);
-                return left;
+            if let Some(i) = s.as_bytes().iter().position(|b| *b == S as u8) {
+                self.0 = s.get(i + 1..);
+                s.get(..i)
+            } else {
+                self.0 = None;
+                Some(s)
             }
-            self.data = None;
-            Some(s)
         } else {
             let pos = s
                 .chars()
                 .map_while(|c| (c != S).then_some(c.len_utf8()))
                 .sum();
             let (left, right) = s.split_at(pos);
-            self.data = right.get(S.len_utf8()..);
+            self.0 = right.get(S.len_utf8()..);
             Some(left)
         }
     }
