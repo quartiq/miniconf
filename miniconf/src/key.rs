@@ -93,38 +93,40 @@ pub trait Transcode {
 
     /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
     ///
-    /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
-    /// It returns a `Node` with node type and depth information.
+    /// This is the low-level, in-place transcoding API. Fresh output construction is provided by
+    /// [`Schema::transcode()`](crate::Schema::transcode) and [`FromConfig`]. Existing target content
+    /// handling is representation-specific: fixed-capacity/key views typically overwrite, while
+    /// append-oriented buffers and writers may append.
     ///
-    /// Returning `Err(ValueError::Absent)` indicates that there was insufficient
-    /// capacity and a key could not be encoded at the given depth.
-    fn transcode(
+    /// Use this to report insufficient capacity or unencodable values at the depth where they
+    /// occur.
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>>;
 }
 
-/// Construct a fresh transcoding target from compact seed/config state.
-pub trait Seeded: Sized {
+/// Construct a fresh transcoding target from compact configuration state.
+pub trait FromConfig: Sized {
     /// The configuration required to construct `Self`.
-    type Seed: Copy;
+    type Config: Copy;
 
     /// Default configuration for `Self`.
-    const DEFAULT_SEED: Self::Seed;
+    const DEFAULT_CONFIG: Self::Config;
 
     /// Construct a fresh transcoding target from the provided seed.
-    fn from_seed(seed: &Self::Seed) -> Self;
+    fn from_config(config: &Self::Config) -> Self;
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
     type Error = T::Error;
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        (**self).transcode(schema, keys)
+        (**self).transcode_from(schema, keys)
     }
 }
 
@@ -185,13 +187,13 @@ impl<K: Keys> Keys for Short<K> {
 impl<T: Transcode> Transcode for Short<T> {
     type Error = T::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
         self.leaf = false;
-        match self.inner.transcode(schema, keys) {
+        match self.inner.transcode_from(schema, keys) {
             Err(DescendError::Key(KeyError::TooShort)) => Ok(()),
             Ok(()) | Err(DescendError::Key(KeyError::TooLong)) => {
                 self.leaf = true;
@@ -202,12 +204,12 @@ impl<T: Transcode> Transcode for Short<T> {
     }
 }
 
-impl<T: Seeded> Seeded for Short<T> {
-    type Seed = T::Seed;
-    const DEFAULT_SEED: Self::Seed = T::DEFAULT_SEED;
+impl<T: FromConfig> FromConfig for Short<T> {
+    type Config = T::Config;
+    const DEFAULT_CONFIG: Self::Config = T::DEFAULT_CONFIG;
 
-    fn from_seed(seed: &Self::Seed) -> Self {
-        Self::new(T::from_seed(seed))
+    fn from_config(config: &Self::Config) -> Self {
+        Self::new(T::from_config(config))
     }
 }
 
@@ -270,32 +272,32 @@ impl<K: Keys> Keys for Track<K> {
 impl<T: Transcode> Transcode for Track<T> {
     type Error = T::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
         self.depth = 0;
         let mut tracked = keys.into_keys().track();
-        let ret = self.inner.transcode(schema, &mut tracked);
+        let ret = self.inner.transcode_from(schema, &mut tracked);
         self.depth = tracked.depth;
         ret
     }
 }
 
-impl<T: Seeded> Seeded for Track<T> {
-    type Seed = T::Seed;
-    const DEFAULT_SEED: Self::Seed = T::DEFAULT_SEED;
+impl<T: FromConfig> FromConfig for Track<T> {
+    type Config = T::Config;
+    const DEFAULT_CONFIG: Self::Config = T::DEFAULT_CONFIG;
 
-    fn from_seed(seed: &Self::Seed) -> Self {
-        Self::new(T::from_seed(seed))
+    fn from_config(config: &Self::Config) -> Self {
+        Self::new(T::from_config(config))
     }
 }
 
 /// Shim to provide the bare lookup/Track/Short without transcoding target
 impl Transcode for () {
     type Error = Infallible;
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
@@ -304,11 +306,11 @@ impl Transcode for () {
     }
 }
 
-impl Seeded for () {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl FromConfig for () {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {}
+    fn from_config(_: &Self::Config) -> Self {}
 }
 
 /// [`Keys`]/[`IntoKeys`] for Iterators of [`Key`]

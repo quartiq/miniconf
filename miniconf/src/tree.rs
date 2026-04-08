@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, Seeded, SerdeError, ValueError};
+use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -152,7 +152,7 @@ pub trait TreeSchema {
     /// Return an exact size iterator of all leaf nodes
     ///
     /// This ensures sufficient state depth at compile time.
-    fn nodes<N: Seeded, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+    fn nodes<N: FromConfig, const D: usize>() -> ExactSize<NodeIter<N, D>> {
         const { assert!(D >= Self::SCHEMA.shape().max_depth) }
         Self::SCHEMA.nodes()
     }

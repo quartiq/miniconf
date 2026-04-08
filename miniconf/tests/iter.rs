@@ -97,6 +97,17 @@ fn root() {
 }
 
 #[test]
+fn root_leaf() {
+    assert_eq!(
+        NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["a"], '/')
+            .unwrap()
+            .map(|p| p.unwrap().into_inner())
+            .collect::<Vec<_>>(),
+        ["/a"]
+    );
+}
+
+#[test]
 fn runtime_path_separator() {
     assert_eq!(
         Settings::SCHEMA

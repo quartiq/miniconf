@@ -1,4 +1,4 @@
-use crate::{DescendError, IntoKeys, KeyError, Keys, Schema, Seeded, Short, Track, Transcode};
+use crate::{DescendError, FromConfig, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,7 +45,7 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
 /// not have sufficient capacity and failed to encode the key at the given depth.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NodeIter<N: Seeded, const D: usize> {
+pub struct NodeIter<N: FromConfig, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
@@ -53,10 +53,10 @@ pub struct NodeIter<N: Seeded, const D: usize> {
     state: [usize; D],
     root: usize,
     depth: usize,
-    seed: N::Seed,
+    config: N::Config,
 }
 
-impl<N: Seeded, const D: usize> NodeIter<N, D> {
+impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     /// Create a new iterator.
     ///
     /// # Panic
@@ -65,7 +65,7 @@ impl<N: Seeded, const D: usize> NodeIter<N, D> {
         schema: &'static Schema,
         state: [usize; D],
         root: usize,
-        seed: N::Seed,
+        config: N::Config,
     ) -> Self {
         assert!(root <= D);
         Self {
@@ -74,23 +74,27 @@ impl<N: Seeded, const D: usize> NodeIter<N, D> {
             root,
             // Marker to prevent initial index increment in `next()`
             depth: D + 1,
-            seed,
+            config,
         }
     }
 
-    /// Limit and start iteration to at and below the provided root key.
+    /// Limit and start iteration from the provided root key.
+    ///
+    /// If the selected root is itself yielded by the iterator (because it is already a leaf or
+    /// because the depth limit stops there), it is returned first. Otherwise iteration continues
+    /// below that root.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn with_root(
         schema: &'static Schema,
         root: impl IntoKeys,
-        seed: N::Seed,
+        config: N::Config,
     ) -> Result<Self, DescendError<()>> {
         let mut state = [0; D];
         let mut root = root.into_keys().track();
         let mut tr = Short::new(state.as_mut());
-        tr.transcode(schema, &mut root)?;
-        Ok(Self::new(schema, state, root.depth(), seed))
+        tr.transcode_from(schema, &mut root)?;
+        Ok(Self::new(schema, state, root.depth(), config))
     }
 
     /// Wrap the iterator in an exact size counting iterator that is
@@ -137,7 +141,7 @@ impl<N: Seeded, const D: usize> NodeIter<N, D> {
     }
 }
 
-impl<N: Transcode + Seeded, const D: usize> Iterator for NodeIter<N, D> {
+impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
     type Item = Result<N, N::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -150,8 +154,8 @@ impl<N: Transcode + Seeded, const D: usize> Iterator for NodeIter<N, D> {
             if self.depth <= self.state.len() {
                 self.state[self.depth - 1] += 1;
             }
-            let mut item = Track::new(N::from_seed(&self.seed));
-            let ret = item.transcode(self.schema, &self.state[..]);
+            let mut item = Track::new(N::from_config(&self.config));
+            let ret = item.transcode_from(self.schema, &self.state[..]);
             let (item, depth) = item.into_inner();
             match ret {
                 Err(DescendError::Key(KeyError::NotFound)) => {
@@ -175,4 +179,4 @@ impl<N: Transcode + Seeded, const D: usize> Iterator for NodeIter<N, D> {
 }
 
 // Contract: Do not allow manipulation of `depth` other than through iteration.
-impl<N: Transcode + Seeded, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}
+impl<N: Transcode + FromConfig, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}

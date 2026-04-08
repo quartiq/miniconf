@@ -1,4 +1,6 @@
-use miniconf::{Indices, KeyError, Path, Shape, Short, Track, Tree, TreeSchema};
+use miniconf::{
+    ConstPath, Indices, JsonPath, KeyError, Path, Shape, Short, Track, Transcode, Tree, TreeSchema,
+};
 mod common;
 
 #[test]
@@ -55,6 +57,29 @@ fn path() {
         assert_eq!(leaf, s.leaf());
         assert_eq!(s.inner().inner().as_ref(), path);
     }
+}
+
+#[test]
+fn transcode_reuse_semantics() {
+    let path = Settings::SCHEMA
+        .transcode::<Path<String>>([1usize])
+        .unwrap();
+    assert_eq!(path.as_ref(), "/b");
+
+    let mut path = Path::<String>::default();
+    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
+    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    assert_eq!(path.as_ref(), "/b/c/inner");
+
+    let mut path = ConstPath::<String, '/'>::default();
+    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
+    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    assert_eq!(path.as_ref(), "/b/c/inner");
+
+    let mut path = JsonPath::<String>::default();
+    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
+    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    assert_eq!(path.0.as_str(), ".b.c.inner");
 }
 
 #[test]

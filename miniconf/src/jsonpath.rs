@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, IntoKeys, KeysIter, Schema, Seeded, Transcode};
+use crate::{DescendError, FromConfig, IntoKeys, KeysIter, Schema, Transcode};
 
 /// JSON style path notation iterator
 ///
@@ -125,7 +125,7 @@ impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
 impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     type Error = core::fmt::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
@@ -147,11 +147,11 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     }
 }
 
-impl<T: Default> Seeded for JsonPath<T> {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl<T: Default> FromConfig for JsonPath<T> {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {
+    fn from_config(_: &Self::Config) -> Self {
         Self::default()
     }
 }

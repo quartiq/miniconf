@@ -2,7 +2,7 @@ use core::{convert::Infallible, num::NonZero};
 use serde::Serialize;
 
 use crate::{
-    DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Seeded, Shape, Transcode,
+    DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
 };
 
 /// A numbered schema item
@@ -166,7 +166,7 @@ impl Schema {
         internal: None,
     };
 
-    /// Create a new internal node schema with named children and without innner metadata
+    /// Create a new internal node schema with numbered children and without inner metadata
     pub const fn numbered(numbered: &'static [Numbered]) -> Self {
         Self {
             meta: None,
@@ -174,7 +174,7 @@ impl Schema {
         }
     }
 
-    /// Create a new internal node schema with numbered children and without innner metadata
+    /// Create a new internal node schema with named children and without inner metadata
     pub const fn named(named: &'static [Named]) -> Self {
         Self {
             meta: None,
@@ -299,7 +299,7 @@ impl Schema {
     /// Transcode keys to a new keys type representation using its default seed.
     ///
     /// In order to not require the default seed, use [`Self::transcode_with`]
-    /// or [`Transcode::transcode`] on an existing `&mut N`.
+    /// or [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
     /// use miniconf::{Indices, JsonPath, Packed, Track, Short, Path, TreeSchema};
@@ -333,21 +333,21 @@ impl Schema {
     ///
     /// # Returns
     /// Transcoded target and node information on success
-    pub fn transcode<N: Transcode + Seeded>(
+    pub fn transcode<N: Transcode + FromConfig>(
         &self,
         keys: impl IntoKeys,
     ) -> Result<N, DescendError<N::Error>> {
-        self.transcode_with(keys, N::DEFAULT_SEED)
+        self.transcode_with(keys, N::DEFAULT_CONFIG)
     }
 
-    /// Look up the key and transcode it into a fresh output constructed from `seed`.
-    pub fn transcode_with<N: Transcode + Seeded>(
+    /// Look up the key and transcode it into a fresh output constructed from `config`.
+    pub fn transcode_with<N: Transcode + FromConfig>(
         &self,
         keys: impl IntoKeys,
-        seed: N::Seed,
+        config: N::Config,
     ) -> Result<N, DescendError<N::Error>> {
-        let mut target = N::from_seed(&seed);
-        target.transcode(self, keys)?;
+        let mut target = N::from_config(&config);
+        target.transcode_from(self, keys)?;
         Ok(target)
     }
 
@@ -403,18 +403,18 @@ impl Schema {
     ///     .collect();
     /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
     /// ```
-    pub const fn nodes<N: Seeded, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::new(self, [0; D], 0, N::DEFAULT_SEED).exact_size()
+    pub const fn nodes<N: FromConfig, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
+        NodeIter::new(self, [0; D], 0, N::DEFAULT_CONFIG).exact_size()
     }
 
     /// Return an iterator over nodes using a preconfigured output seed.
     ///
     /// This is useful for runtime-configured path encodings such as [`crate::Path`],
     /// where the emitted separator is stored in the target value rather than in a const generic.
-    pub fn nodes_with<N: Seeded, const D: usize>(
+    pub fn nodes_with<N: FromConfig, const D: usize>(
         &'static self,
-        seed: N::Seed,
+        config: N::Config,
     ) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::new(self, [0; D], 0, seed).exact_size()
+        NodeIter::new(self, [0; D], 0, config).exact_size()
     }
 }
