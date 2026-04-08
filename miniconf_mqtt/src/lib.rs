@@ -274,13 +274,15 @@ where
     ) -> Result<Self, ProtocolError> {
         const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
         let shape = Settings::SCHEMA.shape();
-        let separator = [SEPARATOR as u8];
-        let separator = core::str::from_utf8(&separator).unwrap();
-        assert!(prefix.len() + "/settings".len() + shape.max_length(separator) <= MAX_TOPIC_LENGTH);
+        if prefix.len() + "/settings".len() + shape.max_length("/") > MAX_TOPIC_LENGTH {
+            return Err(ProtocolError::BufferSize);
+        }
 
         // Configure a will so that we can indicate whether or not we are connected.
-        let mut will: String<MAX_TOPIC_LENGTH> = prefix.try_into().unwrap();
-        will.push_str("/alive").unwrap();
+        let mut will: String<MAX_TOPIC_LENGTH> =
+            prefix.try_into().map_err(|_| ProtocolError::BufferSize)?;
+        will.push_str("/alive")
+            .map_err(|_| ProtocolError::BufferSize)?;
         // Retained empty payload amounts to clearing the retained value (see MQTT spec).
         let will = minimq::Will::new(&will, b"", &[])?
             .retained()
@@ -620,5 +622,34 @@ impl From<bool> for State {
         } else {
             Self::Unchanged
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std_embedded_nal::Stack;
+    use std_embedded_time::StandardClock;
+
+    #[derive(miniconf::Tree)]
+    struct Tiny {
+        value: u8,
+    }
+
+    #[test]
+    fn constructor_rejects_long_prefix() {
+        let mut buffer = [0u8; 1024];
+        let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
+        const MAX_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
+        let prefix = "x".repeat(MAX_TOPIC_LENGTH);
+
+        let client = MqttClient::<Tiny, _, _, _, MAX_DEPTH>::new(
+            Stack,
+            &prefix,
+            StandardClock::default(),
+            minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer),
+        );
+
+        assert!(matches!(client, Err(ProtocolError::BufferSize)));
     }
 }
