@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{ConstPath, IntoKeys, Keys, SerdeError, TreeSchema, ValueError, json_core};
+use miniconf::{ConstPath, SerdeError, TreeSchema, ValueError, json_core};
 
 mod common;
 use common::Settings;
@@ -25,13 +25,13 @@ fn main() -> anyhow::Result<()> {
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
     for item in Settings::SCHEMA.nodes::<ConstPath<String, '-'>, MAX_DEPTH>() {
         let key = item.unwrap();
-        let mut k = key.into_keys().track();
-        match json_core::get_by_key(&settings, &mut k, &mut buf[..]) {
+        match json_core::get_by_key(&settings, &key, &mut buf[..]) {
             Ok(len) => {
                 println!("-{} {}", key, core::str::from_utf8(&buf[..len]).unwrap());
             }
             Err(SerdeError::Value(ValueError::Absent)) => {
-                println!("-{} absent (depth: {})", key, k.depth());
+                let info = Settings::SCHEMA.node_info(&key).unwrap();
+                println!("-{} absent (depth: {})", key, info.depth);
             }
             err => {
                 err.unwrap();

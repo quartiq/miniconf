@@ -8,7 +8,7 @@ use core::{fmt::Display, marker::PhantomData};
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    DescendError, IntoKeys, KeyError, Keys, NodeIter, Path, Schema, SerdeError, Track,
+    DescendError, IntoKeys, KeyError, NodeInfo, NodeIter, Path, Schema, SerdeError,
     TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 pub use minimq;
@@ -182,23 +182,30 @@ impl From<ResponseCode> for minimq::Property<'static> {
 #[derive(Debug, Clone, PartialEq)]
 struct DepthError<E> {
     inner: SerdeError<E>,
-    depth: usize,
+    info: Option<NodeInfo>,
 }
 
 impl<E> Display for DepthError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{} (depth {})", self.inner, self.depth)
+        match self.info {
+            Some(info) => write!(
+                f,
+                "{} (depth {}, leaf {})",
+                self.inner, info.depth, info.leaf
+            ),
+            None => self.inner.fmt(f),
+        }
     }
 }
 
-fn track_depth<T, E, K: IntoKeys>(
-    keys: K,
-    func: impl FnOnce(&mut Track<K::IntoKeys>) -> Result<T, SerdeError<E>>,
+fn with_node_info<T, E>(
+    schema: &'static Schema,
+    keys: impl IntoKeys,
+    result: Result<T, SerdeError<E>>,
 ) -> Result<T, DepthError<E>> {
-    let mut tracked = keys.into_keys().track();
-    func(&mut tracked).map_err(|inner| DepthError {
+    result.map_err(|inner| DepthError {
+        info: schema.node_info(keys).ok(),
         inner,
-        depth: tracked.depth(),
     })
 }
 
@@ -459,7 +466,11 @@ where
 
             let props = [ResponseCode::Ok.into()];
             let mut response = Publication::new(&topic, |buf: &mut [u8]| {
-                track_depth(&path, |k| json_core::get_by_key(settings, k, buf))
+                with_node_info(
+                    Settings::SCHEMA,
+                    &path,
+                    json_core::get_by_key(settings, &path, buf),
+                )
             })
             .properties(&props)
             .qos(QoS::AtLeastOnce);
@@ -538,7 +549,11 @@ where
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
-                        track_depth(path, |k| json_core::get_by_key(settings, k, buf))
+                        with_node_info(
+                            Settings::SCHEMA,
+                            path,
+                            json_core::get_by_key(settings, path, buf),
+                        )
                     })
                     .unwrap()
                     .properties(&[ResponseCode::Ok.into()])
@@ -584,7 +599,11 @@ where
                 State::Unchanged
             } else {
                 // Set
-                match track_depth(path, |k| json_core::set_by_key(settings, k, payload)) {
+                match with_node_info(
+                    Settings::SCHEMA,
+                    path,
+                    json_core::set_by_key(settings, path, payload),
+                ) {
                     Err(err) => {
                         Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged

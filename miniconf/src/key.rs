@@ -52,17 +52,6 @@ pub trait Keys {
             depth: 0,
         }
     }
-
-    /// Track whether a leaf node is reached
-    fn short(self) -> Short<Self>
-    where
-        Self: Sized,
-    {
-        Short {
-            inner: self,
-            leaf: false,
-        }
-    }
 }
 
 impl<T: Keys + ?Sized> Keys for &mut T {
@@ -127,89 +116,6 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
         (**self).transcode_from(schema, keys)
-    }
-}
-
-/// Track leaf node encounter
-///
-/// This records whether a leaf node has been reached during [`Keys`] and [`Transcode`].
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct Short<K> {
-    /// The inner Keys
-    inner: K,
-    /// The inner keys terminates at a leaf node
-    leaf: bool,
-}
-
-impl<K> Short<K> {
-    /// Create a new `Short`
-    pub fn new(inner: K) -> Self {
-        Self { inner, leaf: false }
-    }
-
-    /// Whether a leaf node as been encountered
-    pub fn leaf(&self) -> bool {
-        self.leaf
-    }
-
-    /// Borrow the inner `Keys`
-    pub fn inner(&self) -> &K {
-        &self.inner
-    }
-
-    /// Split into inner `Keys` and leaf node flag
-    pub fn into_inner(self) -> (K, bool) {
-        (self.inner, self.leaf)
-    }
-}
-
-impl<K: Keys> IntoKeys for &mut Short<K> {
-    type IntoKeys = Self;
-
-    fn into_keys(self) -> Self::IntoKeys {
-        self.leaf = false;
-        self
-    }
-}
-
-impl<K: Keys> Keys for Short<K> {
-    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        self.inner.next(internal)
-    }
-
-    fn finalize(&mut self) -> Result<(), KeyError> {
-        self.inner.finalize()?;
-        self.leaf = true;
-        Ok(())
-    }
-}
-
-impl<T: Transcode> Transcode for Short<T> {
-    type Error = T::Error;
-
-    fn transcode_from(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        self.leaf = false;
-        match self.inner.transcode_from(schema, keys) {
-            Err(DescendError::Key(KeyError::TooShort)) => Ok(()),
-            Ok(()) | Err(DescendError::Key(KeyError::TooLong)) => {
-                self.leaf = true;
-                Ok(())
-            }
-            ret => ret,
-        }
-    }
-}
-
-impl<T: FromConfig> FromConfig for Short<T> {
-    type Config = T::Config;
-    const DEFAULT_CONFIG: Self::Config = T::DEFAULT_CONFIG;
-
-    fn from_config(config: &Self::Config) -> Self {
-        Self::new(T::from_config(config))
     }
 }
 
@@ -294,7 +200,7 @@ impl<T: FromConfig> FromConfig for Track<T> {
     }
 }
 
-/// Shim to provide the bare lookup/Track/Short without transcoding target
+/// Shim to provide the bare lookup/Track without transcoding target
 impl Transcode for () {
     type Error = Infallible;
     fn transcode_from(

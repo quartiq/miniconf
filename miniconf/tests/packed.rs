@@ -1,5 +1,5 @@
 use miniconf::{
-    Indices, KeyError, Packed, Path, Shape, Short, Track, Tree, TreeSchema, TreeSerialize,
+    Indices, KeyError, NodeInfo, Packed, Path, Shape, Track, Tree, TreeSchema, TreeSerialize,
 };
 mod common;
 
@@ -13,10 +13,11 @@ struct Settings {
 fn packed() {
     // Check empty being too short
     assert_eq!(
-        Settings::SCHEMA
-            .transcode::<Short<Path<String>>>(Packed::EMPTY)
-            .unwrap(),
-        Short::default()
+        Settings::SCHEMA.node_info(Packed::EMPTY),
+        Ok(NodeInfo {
+            depth: 0,
+            leaf: false
+        })
     );
 
     // Check path-packed round trip.

@@ -1,5 +1,6 @@
 use miniconf::{
-    ConstPath, Indices, JsonPath, KeyError, Path, Shape, Short, Track, Transcode, Tree, TreeSchema,
+    ConstPath, DescendError, Indices, JsonPath, KeyError, NodeInfo, NodeIter, Path, Shape,
+    Transcode, Tree, TreeSchema,
 };
 mod common;
 
@@ -44,19 +45,55 @@ fn meta() {
 
 #[test]
 fn path() {
-    for (keys, path, depth, leaf) in [
-        (&[1usize][..], "/b", 1, true),
-        (&[2, 0], "/c/inner", 2, true),
-        (&[2], "/c", 1, false),
-        (&[], "", 0, false),
-    ] {
-        let s = Settings::SCHEMA
-            .transcode::<Short<Track<Path<String>>>>(keys)
-            .unwrap();
-        assert_eq!(depth, s.inner().depth());
-        assert_eq!(leaf, s.leaf());
-        assert_eq!(s.inner().inner().as_ref(), path);
-    }
+    assert_eq!(
+        Settings::SCHEMA.node_info([1usize]),
+        Ok(NodeInfo {
+            depth: 1,
+            leaf: true
+        })
+    );
+    assert_eq!(
+        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, [1usize], '/')
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_inner(),
+        "/b"
+    );
+
+    assert_eq!(
+        Settings::SCHEMA.node_info([2usize, 0]),
+        Ok(NodeInfo {
+            depth: 2,
+            leaf: true
+        })
+    );
+    assert_eq!(
+        NodeIter::<Path<String>, 2>::with_root(Settings::SCHEMA, [2usize, 0], '/')
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_inner(),
+        "/c/inner"
+    );
+
+    assert_eq!(
+        Settings::SCHEMA.node_info([2usize]),
+        Ok(NodeInfo {
+            depth: 1,
+            leaf: false
+        })
+    );
+
+    assert_eq!(
+        Settings::SCHEMA.node_info([0usize; 0]),
+        Ok(NodeInfo {
+            depth: 0,
+            leaf: false
+        })
+    );
 }
 
 #[test]
@@ -84,28 +121,66 @@ fn transcode_reuse_semantics() {
 
 #[test]
 fn indices() {
-    for (keys, idx, leaf) in [
-        ("", &[][..], false),
-        ("/b", &[1], true),
-        ("/c/inner", &[2, 0], true),
-        ("/c", &[2], false),
+    for (keys, idx, info) in [
+        (
+            "",
+            None,
+            NodeInfo {
+                depth: 0,
+                leaf: false,
+            },
+        ),
+        (
+            "/b",
+            Some(&[1][..]),
+            NodeInfo {
+                depth: 1,
+                leaf: true,
+            },
+        ),
+        (
+            "/c/inner",
+            Some(&[2, 0][..]),
+            NodeInfo {
+                depth: 2,
+                leaf: true,
+            },
+        ),
+        (
+            "/c",
+            None,
+            NodeInfo {
+                depth: 1,
+                leaf: false,
+            },
+        ),
     ] {
-        let indices = Settings::SCHEMA
-            .transcode::<Short<Indices<[usize; 2]>>>(Path {
+        let have = Settings::SCHEMA
+            .node_info(Path {
                 path: keys,
                 separator: '/',
             })
             .unwrap();
-        println!("{keys} {indices:?}");
-        assert_eq!(indices.leaf(), leaf);
-        assert_eq!(indices.inner().as_ref(), idx);
+        println!("{keys} {have:?}");
+        assert_eq!(have, info);
+        if let Some(idx) = idx {
+            let have = Settings::SCHEMA
+                .transcode::<Indices<[usize; 2]>>(Path {
+                    path: keys,
+                    separator: '/',
+                })
+                .unwrap();
+            assert_eq!(have.as_ref(), idx);
+        }
     }
-    let indices = Option::<i8>::SCHEMA
-        .transcode::<Short<Indices<[usize; 1]>>>([0usize; 0])
-        .unwrap();
-    assert_eq!(indices.inner().as_ref(), [0usize; 0]);
-    assert!(indices.leaf());
-    assert_eq!(indices.inner().len(), 0);
+    let info = Option::<i8>::SCHEMA.node_info([0usize; 0]).unwrap();
+    assert_eq!(
+        info,
+        NodeInfo {
+            depth: 0,
+            leaf: true
+        }
+    );
 
     let mut it = [0usize; 4].into_iter();
     assert_eq!(
@@ -113,6 +188,64 @@ fn indices() {
         Err(KeyError::TooLong.into())
     );
     assert_eq!(it.count(), 2);
+}
+
+#[test]
+fn node_info() {
+    for (keys, info) in [
+        (
+            &[][..],
+            NodeInfo {
+                depth: 0,
+                leaf: false,
+            },
+        ),
+        (
+            &[1usize][..],
+            NodeInfo {
+                depth: 1,
+                leaf: true,
+            },
+        ),
+        (
+            &[2usize][..],
+            NodeInfo {
+                depth: 1,
+                leaf: false,
+            },
+        ),
+        (
+            &[2usize, 0][..],
+            NodeInfo {
+                depth: 2,
+                leaf: true,
+            },
+        ),
+        (
+            &[2usize, 0, 1][..],
+            NodeInfo {
+                depth: 2,
+                leaf: true,
+            },
+        ),
+    ] {
+        assert_eq!(Settings::SCHEMA.node_info(keys), Ok(info));
+    }
+    assert_eq!(
+        Settings::SCHEMA.node_info(["missing"]),
+        Err(KeyError::NotFound)
+    );
+}
+
+#[test]
+fn indices_capacity() {
+    let mut indices = Indices::from([0usize; 1]);
+    assert_eq!(
+        indices.transcode_from(Settings::SCHEMA, [2usize, 0]),
+        Err(DescendError::Inner(()))
+    );
+    assert_eq!(indices.as_ref(), [2usize]);
+    assert_eq!(indices.len(), 1);
 }
 
 #[test]

@@ -1,8 +1,8 @@
 #![allow(unused)]
 
 use miniconf::{
-    DescendError, IntoKeys, KeyError, Keys, Packed, Path, Schema, Track, Transcode,
-    TreeDeserialize, TreeSchema, TreeSerialize, json_core,
+    DescendError, IntoKeys, KeyError, Keys, Packed, Path, Schema, Transcode, TreeDeserialize,
+    TreeSchema, TreeSerialize, json_core,
 };
 
 pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
@@ -14,12 +14,11 @@ pub fn paths<T: TreeSchema, const D: usize>() -> Vec<String> {
             .is_sorted()
     );
     T::SCHEMA
-        .nodes::<Track<Path<String>>, D>()
+        .nodes_with::<Path<String>, D>('/')
         .map(|pn| {
             let pn = pn.unwrap();
             println!("{pn:?}");
-            // assert_eq!(p.chars().filter(|c| *c == p.separator()).count(), n);
-            pn.into_inner().0.into_inner()
+            pn.into_inner()
         })
         .collect()
 }

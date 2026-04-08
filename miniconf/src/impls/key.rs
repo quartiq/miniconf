@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, FromConfig, Internal, IntoKeys, Key, Schema, Track, Transcode};
+use crate::{DescendError, FromConfig, Internal, IntoKeys, Key, Schema, Transcode};
 
 // index
 macro_rules! impl_key_integer {
@@ -84,10 +84,15 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        let mut slic = Track::new(self.data.as_mut());
-        let ret = slic.transcode_from(schema, keys);
-        self.len = slic.depth();
-        ret
+        self.len = 0;
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, _schema)) = idx_schema {
+                let idx = self.data.as_mut().get_mut(self.len).ok_or(())?;
+                *idx = index;
+                self.len += 1;
+            }
+            Ok(())
+        })
     }
 }
 

@@ -1,4 +1,4 @@
-use miniconf::{Indices, NodeIter, Path, Short, Tree, TreeSchema};
+use miniconf::{Indices, NodeIter, Path, Tree, TreeSchema};
 
 mod common;
 use common::*;
@@ -57,23 +57,17 @@ fn array_iter() {
 }
 
 #[test]
-fn short_iter() {
+fn depth_limited_iter() {
     assert_eq!(
-        NodeIter::<Short<Path<String>>, 1>::new(Settings::SCHEMA, [0; 1], 0, '/')
-            .map(|p| p.unwrap().into_inner().0.into_inner())
+        NodeIter::<Path<String>, 1>::new(Settings::SCHEMA, [0; 1], 0, '/')
+            .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
-        ["/b", "/c", "/d", "/a"]
+        ["/a"]
     );
 
     assert_eq!(
-        NodeIter::<Short<Path<String>>, 0>::new(Settings::SCHEMA, [], 0, '/')
-            .next()
-            .unwrap()
-            .unwrap()
-            .into_inner()
-            .0
-            .into_inner(),
-        ""
+        NodeIter::<Path<String>, 0>::new(Settings::SCHEMA, [], 0, '/').next(),
+        None
     );
 }
 
@@ -104,6 +98,14 @@ fn root_leaf() {
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/a"]
+    );
+}
+
+#[test]
+fn root_insufficient_state() {
+    assert_eq!(
+        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, ["d", "0"], '/'),
+        Err(miniconf::DescendError::Inner(()))
     );
 }
 

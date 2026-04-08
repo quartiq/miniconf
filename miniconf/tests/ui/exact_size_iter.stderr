@@ -8,7 +8,7 @@ note: inside `Schema::nodes::<(), 0>`
  --> src/schema.rs
   |
   |         NodeIter::new(self, [0; D], 0, N::DEFAULT_CONFIG).exact_size()
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 note: inside `NodeIter::<(), 0>::exact_size`
  --> $RUST/core/src/panic.rs
   |

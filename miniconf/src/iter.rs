@@ -1,4 +1,4 @@
-use crate::{DescendError, FromConfig, IntoKeys, KeyError, Keys, Schema, Short, Track, Transcode};
+use crate::{DescendError, FromConfig, IntoKeys, KeyError, Schema, Track, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,8 +39,8 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 ///
 /// A managed indices state for iteration of nodes `N` in a `TreeSchema`.
 ///
-/// `D` is the depth limit. Internal nodes will be returned on iteration where
-/// the depth limit is exceeded.
+/// `D` is the depth limit. If the chosen output representation can encode
+/// non-leaf nodes, those may be returned where the depth limit is exceeded.
 ///
 /// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
 /// not have sufficient capacity and failed to encode the key at the given depth.
@@ -91,10 +91,8 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
         config: N::Config,
     ) -> Result<Self, DescendError<()>> {
         let mut state = [0; D];
-        let mut root = root.into_keys().track();
-        let mut tr = Short::new(state.as_mut());
-        tr.transcode_from(schema, &mut root)?;
-        Ok(Self::new(schema, state, root.depth(), config))
+        let info = schema.node_info_with_state(root, Some(state.as_mut()))?;
+        Ok(Self::new(schema, state, info.depth, config))
     }
 
     /// Wrap the iterator in an exact size counting iterator that is

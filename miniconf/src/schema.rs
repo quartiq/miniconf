@@ -5,6 +5,15 @@ use crate::{
     DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
 };
 
+/// Information about the node reached by a key traversal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct NodeInfo {
+    /// The number of keys consumed.
+    pub depth: usize,
+    /// Whether the traversal reached a leaf node.
+    pub leaf: bool,
+}
+
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
@@ -296,13 +305,51 @@ impl Schema {
         Ok(schema)
     }
 
+    /// Traverse keys while optionally writing consumed indices into `state`.
+    pub(crate) fn node_info_with_state(
+        &self,
+        keys: impl IntoKeys,
+        mut state: Option<&mut [usize]>,
+    ) -> Result<NodeInfo, DescendError<()>> {
+        let mut schema = self;
+        let mut keys = keys.into_keys();
+        let mut depth = 0;
+
+        while let Some(internal) = schema.internal.as_ref() {
+            let idx = match keys.next(internal) {
+                Ok(idx) => idx,
+                Err(KeyError::TooShort) => return Ok(NodeInfo { depth, leaf: false }),
+                Err(err) => return Err(err.into()),
+            };
+            if let Some(state) = state.as_deref_mut() {
+                *state.get_mut(depth).ok_or(DescendError::Inner(()))? = idx;
+            }
+            depth += 1;
+            schema = internal.get_schema(idx);
+        }
+
+        match keys.finalize() {
+            Ok(()) | Err(KeyError::TooLong) => Ok(NodeInfo { depth, leaf: true }),
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    /// Return how far the key traversal gets and whether it reaches a leaf.
+    ///
+    /// A `TooShort` key still identifies an internal node and therefore succeeds with
+    /// `leaf == false`. Invalid lookups such as `NotFound` still return the traversal error.
+    pub fn node_info(&self, keys: impl IntoKeys) -> Result<NodeInfo, KeyError> {
+        self.node_info_with_state(keys, None)
+            .map_err(|err| err.try_into().unwrap())
+    }
+
     /// Transcode keys to a new keys type representation using its default seed.
     ///
-    /// In order to not require the default seed, use [`Self::transcode_with`]
-    /// or [`Transcode::transcode_from`] on an existing `&mut N`.
+    /// In order to not require the default configuration, use [`FromConfig`] and
+    /// [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Packed, Track, Short, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, NodeInfo, Packed, Track, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -324,8 +371,9 @@ impl Schema {
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
-    /// let node = sch.transcode::<Short<Track<()>>>(&path).unwrap();
-    /// assert_eq!((node.leaf(), node.inner().depth()), (true, 2));
+    /// let node = sch.transcode::<Track<()>>(&path).unwrap();
+    /// assert_eq!(node.depth(), 2);
+    /// assert_eq!(sch.node_info(&path), Ok(NodeInfo { depth: 2, leaf: true }));
     /// ```
     ///
     /// # Args
@@ -337,16 +385,7 @@ impl Schema {
         &self,
         keys: impl IntoKeys,
     ) -> Result<N, DescendError<N::Error>> {
-        self.transcode_with(keys, N::DEFAULT_CONFIG)
-    }
-
-    /// Look up the key and transcode it into a fresh output constructed from `config`.
-    pub fn transcode_with<N: Transcode + FromConfig>(
-        &self,
-        keys: impl IntoKeys,
-        config: N::Config,
-    ) -> Result<N, DescendError<N::Error>> {
-        let mut target = N::from_config(&config);
+        let mut target = N::from_config(&N::DEFAULT_CONFIG);
         target.transcode_from(self, keys)?;
         Ok(target)
     }
@@ -365,7 +404,7 @@ impl Schema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Short, Track, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, NodeInfo, Track, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -395,13 +434,20 @@ impl Schema {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     ///
-    /// let nodes: Vec<_> = S::SCHEMA.nodes::<Short<Track<()>>, MAX_DEPTH>()
+    /// let nodes: Vec<_> = S::SCHEMA.nodes_with::<Path<String>, MAX_DEPTH>('/')
     ///     .map(|p| {
     ///         let p = p.unwrap();
-    ///         (p.leaf(), p.inner().depth())
+    ///         (S::SCHEMA.node_info(&p).unwrap(), p.into_inner())
     ///     })
     ///     .collect();
-    /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
+    /// assert_eq!(
+    ///     nodes,
+    ///     [
+    ///         (NodeInfo { depth: 1, leaf: true }, "/foo".into()),
+    ///         (NodeInfo { depth: 2, leaf: true }, "/bar/0".into()),
+    ///         (NodeInfo { depth: 2, leaf: true }, "/bar/1".into()),
+    ///     ]
+    /// );
     /// ```
     pub const fn nodes<N: FromConfig, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
         NodeIter::new(self, [0; D], 0, N::DEFAULT_CONFIG).exact_size()

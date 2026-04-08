@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * ConstPath and ConstPathIter taking the separator as a const generic. That allows compile time specialization of ascii separators.
 * FromConfig trait to enable Transcode/Keys construction from runtime configuration.
 
+### Removed
+
+* Short
+
 ## [0.20.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.0...miniconf-v0.20.1) - 2026-02-12
 
 ### Added
