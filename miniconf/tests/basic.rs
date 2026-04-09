@@ -151,14 +151,8 @@ fn get() {
     ] {
         assert_lookup(Settings::SCHEMA.get(keys).unwrap(), depth, leaf);
     }
-    let err = Settings::SCHEMA.get([2usize, 0, 1]).unwrap_err();
-    assert_eq!(err.error, KeyError::TooLong.into());
-    assert_eq!(err.depth, 2);
-    assert_eq!(err.leaf, Some(true));
-    let err = Settings::SCHEMA.get(["missing"]).unwrap_err();
-    assert_eq!(err.error, KeyError::NotFound.into());
-    assert_eq!(err.depth, 0);
-    assert_eq!(err.leaf, None);
+    assert_eq!(Settings::SCHEMA.get([2usize, 0, 1]), Err(KeyError::TooLong));
+    assert_eq!(Settings::SCHEMA.get(["missing"]), Err(KeyError::NotFound));
 }
 
 #[test]

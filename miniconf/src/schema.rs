@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Result of an exact key lookup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Lookup {
     /// The number of keys consumed.
     pub depth: usize,
@@ -230,12 +230,9 @@ impl Schema {
         self.is_leaf()
     }
 
-    /// Look up the next item from keys and return a child index
-    ///
-    /// # Panics
-    /// On a leaf Schema.
+    /// Look up the next item from keys and return a child index.
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
-        keys.next(self.internal.as_ref().unwrap())
+        keys.next(self.internal.as_ref().ok_or(KeyError::TooLong)?)
     }
 
     /// Traverse from the root to a leaf and call a function for each node.
@@ -386,8 +383,12 @@ impl Schema {
     }
 
     /// Get the schema node identified exactly by `keys`.
-    pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, ResolveError> {
+    pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
         self.walk(keys, |_, _| Ok(()))
+            .map_err(|err| match err.error {
+                DescendError::Key(err) => err,
+                DescendError::Inner(()) => unreachable!("infallible exact lookup"),
+            })
     }
 
     /// Transcode keys to a new keys type representation using its default configuration.

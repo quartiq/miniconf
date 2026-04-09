@@ -447,7 +447,11 @@ where
                 response = response.correlate(cd);
             }
 
-            self.mqtt.client().publish(response).unwrap(); // Note(unwrap) checked can_publish()
+            if let Err(err) = self.mqtt.client().publish(response) {
+                info!("Multipart list publish failure: {err:?}");
+                self.state.process_event(sm::Events::Complete).unwrap();
+                break;
+            }
 
             if code != ResponseCode::Continue {
                 self.state.process_event(sm::Events::Complete).unwrap();
@@ -517,9 +521,18 @@ where
                         response = response.correlate(cd);
                     }
 
-                    self.mqtt.client().publish(response).unwrap(); // Note(unwrap): checked can_publish, error message is short
+                    if let Err(err) = self.mqtt.client().publish(response) {
+                        info!("Multipart dump error response failure: {err:?}");
+                        self.state.process_event(sm::Events::Complete).unwrap();
+                        break;
+                    }
                 }
-                other => other.unwrap(),
+                Err(err) => {
+                    info!("Multipart dump publish failure: {err:?}");
+                    self.state.process_event(sm::Events::Complete).unwrap();
+                    break;
+                }
+                Ok(()) => {}
             }
         }
     }
@@ -563,8 +576,9 @@ where
             if payload.is_empty() {
                 // Get, Dump, or List
                 // Try a Get assuming a leaf node
-                if let Err(err) = client.publish(
-                    Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
+                let response_props = [ResponseCode::Ok.into()];
+                let response =
+                    match Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
                         resolve::<_, _, Y>(Settings::SCHEMA, path, |keys, info| {
                             json_core::get_by_keys(settings, keys, buf).map_err(|inner| match inner
                             {
@@ -575,11 +589,14 @@ where
                                 _ => inner,
                             })
                         })
-                    })
-                    .unwrap()
-                    .properties(&[ResponseCode::Ok.into()])
-                    .qos(QoS::AtLeastOnce),
-                ) {
+                    }) {
+                        Ok(response) => response.properties(&response_props).qos(QoS::AtLeastOnce),
+                        Err(err) => {
+                            info!("Get response build failure: {err:?}");
+                            return State::Unchanged;
+                        }
+                    };
+                if let Err(err) = client.publish(response) {
                     match err {
                         minimq::PubError::Serialization(DepthError {
                             inner: SerdeError::Value(ValueError::Key(KeyError::TooShort)),
