@@ -235,8 +235,11 @@ where
         let reply = match message.reply_owned() {
             Ok(reply) => reply,
             Err(err) => {
-                warn!("Discarding request {}: {err:?}", message.topic);
-                return Action::None(State::Unchanged);
+                warn!(
+                    "Ignoring oversized reply target on {}: {err:?}",
+                    message.topic
+                );
+                None
             }
         };
 
