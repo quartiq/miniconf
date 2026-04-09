@@ -53,16 +53,9 @@ pub(crate) enum Action<const Y: usize> {
         reply: Option<ReplyTarget>,
         state: [usize; Y],
         depth: usize,
-        leaf: bool,
     },
-    StartList {
-        reply: Option<ReplyTarget>,
-        state: [usize; Y],
-        depth: usize,
-    },
-    StartDump {
-        state: [usize; Y],
-        depth: usize,
+    SetPending {
+        pending: Pending<Y>,
     },
 }
 
@@ -95,6 +88,18 @@ where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     C: Connector,
 {
+    fn with_leaf<T, E>(
+        full: &[usize],
+        func: impl FnOnce(&mut &[usize]) -> Result<T, SerdeError<E>>,
+    ) -> Result<T, DepthError<E>> {
+        let mut keys = full;
+        func(&mut keys).map_err(|inner| DepthError {
+            inner,
+            depth: full.len() - keys.len(),
+            leaf: Some(true),
+        })
+    }
+
     /// Construct a new MQTT settings interface.
     pub fn new(
         prefix: &'a str,
@@ -281,18 +286,24 @@ where
                     reply,
                     state,
                     depth: lookup.depth,
-                    leaf: true,
                 }
-            } else if reply.is_some() {
-                Action::StartList {
-                    reply,
-                    state,
-                    depth: lookup.depth,
+            } else if let Some(reply) = reply {
+                match Pending::list(Settings::SCHEMA, &state[..lookup.depth], reply) {
+                    Ok(pending) => Action::SetPending { pending },
+                    Err(err) => Action::ReplyText {
+                        state: State::Unchanged,
+                        reply: None,
+                        code: ResponseCode::Error,
+                        text: format_message(err),
+                    },
                 }
             } else {
-                Action::StartDump {
-                    state,
-                    depth: lookup.depth,
+                match Pending::dump_root(Settings::SCHEMA, &state[..lookup.depth]) {
+                    Ok(pending) => Action::SetPending { pending },
+                    Err(err) => {
+                        info!("Dump scheduling failure: {err}");
+                        Action::None(State::Unchanged)
+                    }
                 }
             }
         } else if !lookup.schema.is_leaf() {
@@ -304,8 +315,9 @@ where
             }
         } else {
             let full = &state[..lookup.depth];
-            let mut keys = full;
-            match json_core::set_by_keys(settings, &mut keys, message.payload) {
+            match Self::with_leaf(full, |keys| {
+                json_core::set_by_keys(settings, keys, message.payload)
+            }) {
                 Ok(_) => Action::ReplyText {
                     state: State::Changed,
                     reply,
@@ -316,11 +328,7 @@ where
                     state: State::Unchanged,
                     reply,
                     code: ResponseCode::Error,
-                    text: format_message(DepthError {
-                        inner,
-                        depth: full.len() - keys.len(),
-                        leaf: Some(lookup.schema.is_leaf()),
-                    }),
+                    text: format_message(inner),
                 },
             }
         }
@@ -342,28 +350,13 @@ where
                 reply,
                 state,
                 depth,
-                leaf,
             } => {
-                self.reply_leaf(settings, reply.as_ref(), state, depth, leaf)
+                self.reply_leaf(settings, reply.as_ref(), state, depth)
                     .await;
                 State::Unchanged
             }
-            Action::StartList {
-                reply,
-                state,
-                depth,
-            } => {
-                match Pending::list(Settings::SCHEMA, &state[..depth], reply) {
-                    Ok(pending) => self.pending = pending,
-                    Err(err) => self.reply_text(None, ResponseCode::Error, err).await,
-                }
-                State::Unchanged
-            }
-            Action::StartDump { state, depth } => {
-                match Pending::dump_root(Settings::SCHEMA, &state[..depth]) {
-                    Ok(pending) => self.pending = pending,
-                    Err(err) => info!("Dump scheduling failure: {err}"),
-                }
+            Action::SetPending { pending } => {
+                self.pending = pending;
                 State::Unchanged
             }
         }
@@ -389,17 +382,11 @@ where
         reply: Option<&ReplyTarget>,
         state: [usize; Y],
         depth: usize,
-        leaf: bool,
     ) {
         let Some(publication) = reply.map(|target| {
             target.publication(|buf: &mut [u8]| {
                 let full = &state[..depth];
-                let mut keys = full;
-                json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
-                    inner,
-                    depth: full.len() - keys.len(),
-                    leaf: Some(leaf),
-                })
+                Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
             })
         }) else {
             return;
@@ -462,21 +449,14 @@ where
                     }
                 }
                 Pending::Dump { .. } => {
-                    let Some((topic, state, depth, leaf)) = self.next_dump_step() else {
+                    let Some((topic, state, depth)) = self.next_dump_step() else {
                         self.pending.clear();
                         break;
                     };
                     let props = [ResponseCode::Ok.into()];
                     let publication = Publication::new(&topic, |buf: &mut [u8]| {
                         let full = &state[..depth];
-                        let mut keys = full;
-                        json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
-                            DepthError {
-                                inner,
-                                depth: full.len() - keys.len(),
-                                leaf: Some(leaf),
-                            }
-                        })
+                        Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
                     })
                     .properties(&props)
                     .qos(QoS::AtLeastOnce);
@@ -503,7 +483,7 @@ where
         }
     }
 
-    fn next_dump_step(&mut self) -> Option<(String<MAX_TOPIC_LENGTH>, [usize; Y], usize, bool)> {
+    fn next_dump_step(&mut self) -> Option<(String<MAX_TOPIC_LENGTH>, [usize; Y], usize)> {
         let Pending::Dump { iter } = &mut self.pending else {
             return None;
         };
@@ -517,13 +497,12 @@ where
                 }
             };
             let full = iter.state()?;
-            let lookup = Settings::SCHEMA.get(full).unwrap();
             let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().ok()?;
             topic.push_str("/settings").ok()?;
             topic.push_str(&path).ok()?;
             let mut state = [0; Y];
             state[..full.len()].copy_from_slice(full);
-            return Some((topic, state, full.len(), lookup.schema.is_leaf()));
+            return Some((topic, state, full.len()));
         }
     }
 }

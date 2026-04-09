@@ -1,4 +1,4 @@
-use crate::{MqttClient, State, client::Action};
+use crate::{MqttClient, State, client::Action, pending::Pending};
 use miniconf::{Tree, TreeSchema};
 use minimq::{
     Broker, BufferLayout, InboundPublish, Property, ProtocolError, QoS, Retain,
@@ -102,9 +102,8 @@ fn plan_leaf_get() {
         &mut settings,
         &message,
     ) {
-        Action::ReplyLeaf { depth, leaf, .. } => {
+        Action::ReplyLeaf { depth, .. } => {
             assert_eq!(depth, 1);
-            assert!(leaf);
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
@@ -127,7 +126,9 @@ fn plan_internal_get_without_response_topic_starts_dump() {
         &mut settings,
         &message,
     ) {
-        Action::StartDump { depth, .. } => assert_eq!(depth, 1),
+        Action::SetPending {
+            pending: Pending::Dump { iter },
+        } => assert_eq!(iter.root(), 1),
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
 }
@@ -150,7 +151,9 @@ fn plan_internal_get_with_response_topic_starts_list() {
         &mut settings,
         &message,
     ) {
-        Action::StartList { depth, .. } => assert_eq!(depth, 1),
+        Action::SetPending {
+            pending: Pending::List { iter, .. },
+        } => assert_eq!(iter.root(), 1),
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
 }

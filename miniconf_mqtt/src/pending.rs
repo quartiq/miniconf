@@ -43,12 +43,9 @@ impl<const Y: usize> Pending<Y> {
     pub(crate) fn list(
         schema: &'static Schema,
         root: &[usize],
-        reply: Option<ReplyTarget>,
-    ) -> Result<Self, &'static str> {
-        let Some(reply) = reply else {
-            return Err("Internal node listing requires response topic");
-        };
-        let iter = NodeIter::with_root(schema, root, SEPARATOR).map_err(|_| "Invalid list root")?;
+        reply: ReplyTarget,
+    ) -> Result<Self, DescendError<()>> {
+        let iter = NodeIter::with_root(schema, root, SEPARATOR)?;
         Ok(Self::List { iter, reply })
     }
 
