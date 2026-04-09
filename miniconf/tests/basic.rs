@@ -6,7 +6,7 @@ mod common;
 
 fn assert_lookup(have: Lookup, depth: usize, leaf: bool) {
     assert_eq!(have.depth, depth);
-    assert_eq!(have.leaf, leaf);
+    assert_eq!(have.schema.is_leaf(), leaf);
 }
 
 #[test]

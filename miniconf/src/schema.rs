@@ -10,8 +10,6 @@ use crate::{
 pub struct Lookup {
     /// The number of keys consumed.
     pub depth: usize,
-    /// Whether the traversal reached a leaf node.
-    pub leaf: bool,
     /// The schema reached by the traversal.
     pub schema: &'static Schema,
 }
@@ -328,13 +326,8 @@ impl Schema {
             let idx = match keys.next(internal) {
                 Ok(idx) => idx,
                 Err(KeyError::TooShort) => {
-                    let leaf = schema.is_leaf();
-                    debug_assert!(!leaf);
-                    return Ok(Lookup {
-                        depth,
-                        leaf,
-                        schema,
-                    });
+                    debug_assert!(!schema.is_leaf());
+                    return Ok(Lookup { depth, schema });
                 }
                 Err(err) => {
                     return Err(ResolveError {
@@ -354,11 +347,7 @@ impl Schema {
         }
 
         match keys.finalize() {
-            Ok(()) => Ok(Lookup {
-                depth,
-                leaf: true,
-                schema,
-            }),
+            Ok(()) => Ok(Lookup { depth, schema }),
             Err(KeyError::TooLong) => Err(ResolveError {
                 error: KeyError::TooLong.into(),
                 depth,
@@ -422,7 +411,7 @@ impl Schema {
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
     /// let lookup = sch.get(&path).unwrap();
-    /// assert_eq!((lookup.depth, lookup.leaf), (2, true));
+    /// assert_eq!((lookup.depth, lookup.schema.is_leaf()), (2, true));
     /// ```
     ///
     /// # Args
@@ -496,7 +485,7 @@ impl Schema {
     ///     .map(|p| {
     ///         let p = p.unwrap();
     ///         let lookup = S::SCHEMA.get(&p).unwrap();
-    ///         ((lookup.depth, lookup.leaf), p.into_inner())
+    ///         ((lookup.depth, lookup.schema.is_leaf()), p.into_inner())
     ///     })
     ///     .collect();
     /// assert_eq!(
