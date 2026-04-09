@@ -3,14 +3,13 @@ use miniconf::{Leaf, Tree, TreeSchema, leaf};
 use miniconf_mqtt::minimq::{
     self, Broker, BufferLayout,
     embedded_io_async::{ErrorKind, ErrorType, Read, Write},
-    timer::Timer,
     transport::Connector,
 };
 use serde::{Deserialize, Serialize};
 use std::{
     io,
     net::{SocketAddr, TcpStream},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 
 #[derive(Clone, Default, Tree, Debug)]
@@ -112,6 +111,7 @@ impl Write for StdConnection {
 struct StdConnector;
 
 impl Connector for StdConnector {
+    type Error = ErrorKind;
     type Connection<'a> = StdConnection;
 
     async fn connect<'a>(&'a self, broker: &Broker) -> Result<Self::Connection<'a>, minimq::Error> {
@@ -136,28 +136,6 @@ impl Connector for StdConnector {
     }
 }
 
-#[derive(Default)]
-struct TokioTimer;
-
-impl Timer for TokioTimer {
-    type Error = core::convert::Infallible;
-
-    fn now(&mut self) -> Result<u64, Self::Error> {
-        Ok(SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64)
-    }
-
-    async fn sleep_until(&mut self, deadline_ms: u64) -> Result<(), Self::Error> {
-        let now = self.now().unwrap();
-        if deadline_ms > now {
-            tokio::time::sleep(Duration::from_millis(deadline_ms - now)).await;
-        }
-        Ok(())
-    }
-}
-
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -171,10 +149,9 @@ async fn main() {
 
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
 
-    let mut client = miniconf_mqtt::MqttClient::<_, _, _, MAX_DEPTH>::new(
+    let mut client = miniconf_mqtt::MqttClient::<_, _, MAX_DEPTH>::new(
         "test/id",
         &connector,
-        TokioTimer,
         minimq::ConfigBuilder::from_buffer_layout(
             broker,
             &mut buffer,

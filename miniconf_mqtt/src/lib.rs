@@ -9,7 +9,7 @@ use core::{
     marker::PhantomData,
 };
 
-use heapless::{String, Vec};
+use heapless::String;
 use log::{error, info, warn};
 use miniconf::{
     DescendError, IntoKeys, Lookup, NodeIter, Path, Schema, SerdeError, TreeDeserializeOwned,
@@ -17,8 +17,8 @@ use miniconf::{
 };
 pub use minimq;
 use minimq::{
-    ConfigBuilder, Event, InboundPublish, ProtocolError, Publication, QoS, Session,
-    timer::Timer,
+    ConfigBuilder, Event, InboundPublish, OwnedResponseTarget, ProtocolError, Publication, QoS,
+    Session,
     transport::Connector,
     types::{SubscriptionOptions, TopicFilter},
 };
@@ -26,7 +26,6 @@ use strum::IntoStaticStr;
 
 const MAX_TOPIC_LENGTH: usize = 128;
 const MAX_RESPONSE_LENGTH: usize = 128;
-const MAX_CD_LENGTH: usize = 32;
 const SEPARATOR: char = '/';
 
 /// Miniconf MQTT error.
@@ -84,48 +83,20 @@ impl<E> Display for DepthError<E> {
     }
 }
 
-#[derive(Clone)]
-struct Request {
-    response_topic: Option<String<MAX_TOPIC_LENGTH>>,
-    correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
+type Request = Option<OwnedResponseTarget<MAX_TOPIC_LENGTH, 32>>;
+
+fn parse_request(message: &InboundPublish<'_>) -> Result<Request, &'static str> {
+    message
+        .reply_owned()
+        .map_err(|_| "Response topic or correlation data too long")
 }
 
-impl Request {
-    fn parse(message: &InboundPublish<'_>) -> Result<Self, &'static str> {
-        let response_topic = (&message.properties)
-            .into_iter()
-            .response_topic()
-            .map(TryInto::try_into)
-            .transpose()
-            .map_err(|_| "Response topic too long")?;
-        let correlation_data = (&message.properties)
-            .into_iter()
-            .find_map(|prop| {
-                if let Ok(minimq::Property::CorrelationData(cd)) = prop {
-                    Some(Vec::try_from(cd.0))
-                } else {
-                    None
-                }
-            })
-            .transpose()
-            .map_err(|_| "Correlation data too long")?;
-        Ok(Self {
-            response_topic,
-            correlation_data,
-        })
-    }
+fn request_publication<P>(request: &Request, payload: P) -> Option<Publication<'_, P>> {
+    request.as_ref().map(|target| target.publication(payload))
+}
 
-    fn publication<P>(&self, payload: P) -> Option<Publication<'_, P>> {
-        let mut publication = Publication::new(self.response_topic.as_deref()?, payload);
-        if let Some(correlation_data) = &self.correlation_data {
-            publication = publication.correlate(correlation_data);
-        }
-        Some(publication)
-    }
-
-    fn requires_reply(&self) -> bool {
-        self.response_topic.is_some()
-    }
+fn requires_reply(request: &Request) -> bool {
+    request.is_some()
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -176,7 +147,7 @@ impl<const Y: usize> Pending<Y> {
         root: &[usize],
         request: Request,
     ) -> Result<Self, &'static str> {
-        if !request.requires_reply() {
+        if !requires_reply(&request) {
             return Err("Internal node listing requires response topic");
         }
         let iter = NodeIter::with_root(schema, root, SEPARATOR).map_err(|_| "Invalid list root")?;
@@ -275,37 +246,28 @@ pub enum State {
 }
 
 /// Async MQTT settings interface.
-pub struct MqttClient<'a, Settings, C, T, const Y: usize>
+pub struct MqttClient<'a, Settings, C, const Y: usize>
 where
     C: Connector,
-    T: Timer,
 {
-    session: Session<'a, 'a, C, T>,
+    session: Session<'a, 'a, C>,
     prefix: &'a str,
     alive: &'a str,
     subscribed: bool,
     needs_alive: bool,
-    connected_once: bool,
     pending: Pending<Y>,
     _settings: PhantomData<Settings>,
 }
 
-impl<'a, Settings, C, T, const Y: usize> MqttClient<'a, Settings, C, T, Y>
+impl<'a, Settings, C, const Y: usize> MqttClient<'a, Settings, C, Y>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     C: Connector,
-    C::Connection<'a>: minimq::embedded_io_async::Read
-        + minimq::embedded_io_async::Write
-        + minimq::embedded_io_async::ErrorType,
-    <C::Connection<'a> as minimq::embedded_io_async::ErrorType>::Error:
-        minimq::embedded_io_async::Error,
-    T: Timer,
 {
     /// Construct a new MQTT settings interface.
     pub fn new(
         prefix: &'a str,
         connector: &'a C,
-        timer: T,
         config: ConfigBuilder<'a>,
     ) -> Result<Self, ProtocolError> {
         const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
@@ -325,12 +287,11 @@ where
         let config = config.autodowngrade_qos().will(will)?.build();
 
         Ok(Self {
-            session: Session::new(config, connector, timer),
+            session: Session::new(config, connector),
             prefix,
             alive: "1",
             subscribed: false,
             needs_alive: true,
-            connected_once: false,
             pending: Pending::new(Settings::SCHEMA),
             _settings: PhantomData,
         })
@@ -355,17 +316,18 @@ where
     pub async fn poll(&mut self, settings: &mut Settings) -> Result<State, Error> {
         let pending_active = self.pending.is_active();
         let prefix = self.prefix;
-        let (reconnected, action) = match self.session.poll().await? {
-            Event::Reconnected => (true, Action::None(State::Unchanged)),
-            Event::Idle => (false, Action::None(State::Unchanged)),
+        let (activation, action) = match self.session.poll().await? {
+            Event::Connected => (Some(false), Action::None(State::Unchanged)),
+            Event::Reconnected => (Some(true), Action::None(State::Unchanged)),
+            Event::Idle => (None, Action::None(State::Unchanged)),
             Event::Inbound(message) => (
-                false,
+                None,
                 Self::plan_request(prefix, pending_active, settings, &message),
             ),
         };
 
-        if reconnected {
-            self.on_reconnected();
+        if let Some(reconnected) = activation {
+            self.on_session_active(reconnected);
         }
 
         self.ensure_ready().await?;
@@ -375,11 +337,10 @@ where
         Ok(changed)
     }
 
-    fn on_reconnected(&mut self) {
-        if self.connected_once {
+    fn on_session_active(&mut self, reconnected: bool) {
+        if reconnected {
             self.pending.clear();
         }
-        self.connected_once = true;
         self.subscribed = false;
         self.needs_alive = true;
     }
@@ -440,7 +401,7 @@ where
             return Action::None(State::Unchanged);
         };
 
-        let request = match Request::parse(message) {
+        let request = match parse_request(message) {
             Ok(request) => request,
             Err(err) => {
                 warn!("Discarding request {}: {err}", message.topic);
@@ -488,7 +449,7 @@ where
                     depth: lookup.depth,
                     leaf: true,
                 }
-            } else if request.requires_reply() {
+            } else if requires_reply(&request) {
                 Action::StartList {
                     request,
                     state,
@@ -571,7 +532,7 @@ where
     }
 
     async fn reply_text(&mut self, request: &Request, code: ResponseCode, text: &str) {
-        let Some(publication) = request.publication(text.as_bytes()) else {
+        let Some(publication) = request_publication(request, text.as_bytes()) else {
             return;
         };
         let props = [code.into()];
@@ -592,7 +553,7 @@ where
         depth: usize,
         leaf: bool,
     ) {
-        let Some(publication) = request.publication(|buf: &mut [u8]| {
+        let Some(publication) = request_publication(request, |buf: &mut [u8]| {
             let full = &state[..depth];
             let mut keys = full;
             json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
@@ -642,7 +603,7 @@ where
                         (request, code, payload, done)
                     };
 
-                    let Some(publication) = request.publication(payload.as_bytes()) else {
+                    let Some(publication) = request_publication(&request, payload.as_bytes()) else {
                         self.pending.clear();
                         break;
                     };
@@ -755,8 +716,6 @@ mod test {
     }
 
     #[derive(Default)]
-    struct TestTimer;
-
     struct DummyConnection;
 
     impl ErrorType for DummyConnection {
@@ -782,6 +741,7 @@ mod test {
     struct DummyConnector;
 
     impl Connector for DummyConnector {
+        type Error = ErrorKind;
         type Connection<'a> = DummyConnection;
 
         async fn connect<'a>(
@@ -792,18 +752,6 @@ mod test {
         }
     }
 
-    impl Timer for TestTimer {
-        type Error = ();
-
-        fn now(&mut self) -> Result<u64, Self::Error> {
-            Ok(0)
-        }
-
-        async fn sleep_until(&mut self, _deadline_ms: u64) -> Result<(), Self::Error> {
-            Ok(())
-        }
-    }
-
     #[test]
     fn constructor_rejects_long_prefix() {
         let mut buffer = [0u8; 1024];
@@ -811,10 +759,9 @@ mod test {
         const MAX_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
         let prefix = "x".repeat(MAX_TOPIC_LENGTH);
 
-        let client = MqttClient::<Tiny, _, _, MAX_DEPTH>::new(
+        let client = MqttClient::<Tiny, _, MAX_DEPTH>::new(
             &prefix,
             &DummyConnector,
-            TestTimer,
             minimq::ConfigBuilder::from_buffer_layout(
                 broker,
                 &mut buffer,
@@ -841,7 +788,7 @@ mod test {
             qos: QoS::AtMostOnce,
         };
 
-        match MqttClient::<TreeSettings, DummyConnector, TestTimer, 2>::plan_request(
+        match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
             "test/id",
             false,
             &mut settings,
@@ -866,7 +813,7 @@ mod test {
             qos: QoS::AtMostOnce,
         };
 
-        match MqttClient::<TreeSettings, DummyConnector, TestTimer, 2>::plan_request(
+        match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
             "test/id",
             false,
             &mut settings,
@@ -889,7 +836,7 @@ mod test {
             qos: QoS::AtMostOnce,
         };
 
-        match MqttClient::<TreeSettings, DummyConnector, TestTimer, 2>::plan_request(
+        match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
             "test/id",
             false,
             &mut settings,
@@ -912,7 +859,7 @@ mod test {
             qos: QoS::AtMostOnce,
         };
 
-        match MqttClient::<TreeSettings, DummyConnector, TestTimer, 2>::plan_request(
+        match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
             "test/id",
             false,
             &mut settings,
