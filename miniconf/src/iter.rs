@@ -90,7 +90,7 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     ) -> Result<Self, DescendError<()>> {
         let mut state = [0; D];
         let info = schema
-            .resolve_into(root, state.as_mut())
+            .classify_into(root, state.as_mut())
             .map_err(|err| err.error)?;
         Ok(Self::new(schema, state, info.depth, config))
     }
