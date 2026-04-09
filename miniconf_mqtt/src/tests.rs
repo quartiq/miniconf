@@ -54,7 +54,7 @@ impl Connector for DummyConnector {
 
     async fn connect<'a>(
         &'a self,
-        _broker: &Broker,
+        _broker: &Broker<'_>,
     ) -> Result<Self::Connection<'a>, minimq::Error> {
         Ok(DummyConnection)
     }

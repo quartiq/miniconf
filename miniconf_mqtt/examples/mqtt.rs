@@ -114,7 +114,7 @@ impl Connector for StdConnector {
     type Error = ErrorKind;
     type Connection<'a> = StdConnection;
 
-    async fn connect<'a>(&'a self, broker: &Broker) -> Result<Self::Connection<'a>, minimq::Error> {
+    async fn connect<'a>(&'a self, broker: &Broker<'_>) -> Result<Self::Connection<'a>, minimq::Error> {
         let remote = match broker {
             Broker::SocketAddr(addr) => *addr,
             Broker::Hostname { .. } => {

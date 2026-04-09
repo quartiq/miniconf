@@ -112,10 +112,10 @@ where
         will_topic
             .push_str("/alive")
             .map_err(|_| ProtocolError::BufferSize)?;
-        let will = minimq::Will::new_owned(&will_topic, b"", &[])?
+        let will = minimq::OwnedWill::new(&will_topic, b"", &[])?
             .retained()
             .qos(QoS::AtMostOnce);
-        let config = config.autodowngrade_qos().will(will)?.build();
+        let config = config.autodowngrade_qos().owned_will(will)?.build();
 
         Ok(Self {
             session: Session::new(config, connector),
