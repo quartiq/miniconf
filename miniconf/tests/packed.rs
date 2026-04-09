@@ -1,6 +1,4 @@
-use miniconf::{
-    Indices, KeyError, NodeInfo, Packed, Path, Shape, Track, Tree, TreeSchema, TreeSerialize,
-};
+use miniconf::{Indices, KeyError, NodeInfo, Packed, Path, Shape, Tree, TreeSchema, TreeSerialize};
 mod common;
 
 #[derive(Tree, Default)]
@@ -25,14 +23,14 @@ fn packed() {
         .nodes_with::<Path<String>, 2>('/')
         .map(Result::unwrap)
     {
-        let packed: Track<Packed> = Settings::SCHEMA.transcode(&iter_path).unwrap();
-        let path: Path<String> = Settings::SCHEMA.transcode(*packed.inner()).unwrap();
+        let packed: Packed = Settings::SCHEMA.transcode(&iter_path).unwrap();
+        let path: Path<String> = Settings::SCHEMA.transcode(packed).unwrap();
         assert_eq!(path, iter_path);
         println!(
             "{path:?} {iter_path:?}, {:#06b} {} {:?}",
-            packed.inner().get() >> 60,
-            packed.inner().into_lsb(),
-            packed.depth()
+            packed.get() >> 60,
+            packed.into_lsb(),
+            Settings::SCHEMA.node_info(&iter_path).unwrap().depth
         );
     }
     println!(
@@ -45,9 +43,9 @@ fn packed() {
 
     // Check that Packed `marker + 0b0` is equivalent to `/a`
     let a = Packed::from_lsb(0b10.try_into().unwrap());
-    let path: Track<Path<String>> = Settings::SCHEMA.transcode(a).unwrap();
-    assert_eq!(path.depth(), 1);
-    assert_eq!(path.inner().as_ref(), "/a");
+    let path: Path<String> = Settings::SCHEMA.transcode(a).unwrap();
+    assert_eq!(Settings::SCHEMA.node_info(a).unwrap().depth, 1);
+    assert_eq!(path.as_ref(), "/a");
 }
 
 #[test]
@@ -71,8 +69,14 @@ fn top() {
             .collect::<Vec<_>>(),
         [Indices::new([0, 0], 2), Indices::new([1, 0], 1)]
     );
-    let p: Track<Packed> = S::SCHEMA.transcode([1usize]).unwrap();
-    assert_eq!((p.inner().into_lsb().get(), p.depth()), (0b11, 1));
+    let p: Packed = S::SCHEMA.transcode([1usize]).unwrap();
+    assert_eq!(
+        (
+            p.into_lsb().get(),
+            S::SCHEMA.node_info([1usize]).unwrap().depth
+        ),
+        (0b11, 1)
+    );
     assert_eq!(
         S::SCHEMA
             .nodes::<Packed, 2>()
@@ -152,11 +156,9 @@ fn size() {
         1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1]; 1];
     assert_eq!(core::mem::size_of::<A31>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
-    let path = A31::SCHEMA
-        .transcode::<Track<Path<String>>>(packed)
-        .unwrap();
-    assert_eq!(path.depth(), 31);
-    assert_eq!(path.inner().as_ref().len(), 2 * 31);
+    let path = A31::SCHEMA.transcode::<Path<String>>(packed).unwrap();
+    assert_eq!(A31::SCHEMA.node_info(packed).unwrap().depth, 31);
+    assert_eq!(path.as_ref().len(), 2 * 31);
     const META: Shape = A31::SCHEMA.shape();
     assert_eq!(META.max_bits, 31);
     assert_eq!(META.max_depth, 31);
@@ -168,11 +170,9 @@ fn size() {
     type A16 = [[[[[[[[[[[[[[[[(); 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 3]; 1];
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
-    let path = A16::SCHEMA
-        .transcode::<Track<Path<String>>>(packed)
-        .unwrap();
-    assert_eq!(path.depth(), 16);
-    assert_eq!(path.inner().as_ref().len(), 2 * 16);
+    let path = A16::SCHEMA.transcode::<Path<String>>(packed).unwrap();
+    assert_eq!(A16::SCHEMA.node_info(packed).unwrap().depth, 16);
+    assert_eq!(path.as_ref().len(), 2 * 16);
     const META16: Shape = A16::SCHEMA.shape();
     assert_eq!(META16.max_bits, 31);
     assert_eq!(META16.max_depth, 16);

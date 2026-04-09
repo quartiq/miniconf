@@ -1,4 +1,4 @@
-use crate::{DescendError, FromConfig, IntoKeys, KeyError, Schema, Track, Transcode};
+use crate::{DescendError, FromConfig, IntoKeys, KeyError, Schema, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,8 +42,8 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// `D` is the depth limit. If the chosen output representation can encode
 /// non-leaf nodes, those may be returned where the depth limit is exceeded.
 ///
-/// The `Err(usize)` variant of the `Iterator::Item` indicates that `N` does
-/// not have sufficient capacity and failed to encode the key at the given depth.
+/// The `Err(N::Error)` variant of the `Iterator::Item` indicates that `N`
+/// failed to encode a yielded node.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NodeIter<N: FromConfig, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
@@ -72,7 +72,7 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
             schema,
             state,
             root,
-            // Marker to prevent initial index increment in `next()`
+            // Marker to prevent initial increment in `next()`.
             depth: D + 1,
             config,
         }
@@ -130,12 +130,49 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
 
     /// Return the current state
     pub fn state(&self) -> Option<&[usize]> {
-        self.state.get(..self.depth)
+        (self.depth <= D).then(|| &self.state[..self.depth])
     }
 
     /// Return the root depth
     pub const fn root(&self) -> usize {
         self.root
+    }
+
+    fn descend_leftmost(&mut self) {
+        while self.depth < D {
+            let Some(_internal) = self
+                .schema
+                .get_indexed(&self.state[..self.depth])
+                .internal
+                .as_ref()
+            else {
+                break;
+            };
+            self.state[self.depth] = 0;
+            self.depth += 1;
+        }
+    }
+
+    fn bump(&mut self) -> bool {
+        let mut depth = self.depth;
+        while depth > self.root {
+            let parent = depth - 1;
+            let internal = self
+                .schema
+                .get_indexed(&self.state[..parent])
+                .internal
+                .as_ref()
+                .unwrap();
+            let next = self.state[parent] + 1;
+            if next < internal.len().get() {
+                self.state[parent] = next;
+                self.depth = parent + 1;
+                return true;
+            }
+            depth = parent;
+        }
+        self.depth = self.root;
+        false
     }
 }
 
@@ -150,27 +187,22 @@ impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
                 return None;
             }
             if self.depth <= self.state.len() {
-                self.state[self.depth - 1] += 1;
+                if !self.bump() {
+                    return None;
+                }
+            } else {
+                self.depth = self.root;
             }
-            let mut item = Track::new(N::from_config(&self.config));
-            let ret = item.transcode_from(self.schema, &self.state[..]);
-            let (item, depth) = item.into_inner();
-            match ret {
-                Err(DescendError::Key(KeyError::NotFound)) => {
-                    self.state[depth] = 0;
-                    self.depth = depth.max(self.root);
-                }
-                Err(DescendError::Key(KeyError::TooLong)) | Ok(()) => {
-                    self.depth = depth;
-                    return Some(Ok(item));
-                }
-                Err(DescendError::Key(KeyError::TooShort)) => {
-                    self.depth = depth;
-                }
-                Err(DescendError::Inner(e)) => {
-                    self.depth = depth;
-                    return Some(Err(e));
-                }
+
+            self.descend_leftmost();
+            debug_assert!(self.depth >= self.root);
+            debug_assert!(self.depth <= self.state.len());
+            let mut item = N::from_config(&self.config);
+            match item.transcode_from(self.schema, &self.state[..self.depth]) {
+                Ok(()) => return Some(Ok(item)),
+                Err(DescendError::Key(KeyError::TooShort)) => {}
+                Err(DescendError::Inner(e)) => return Some(Err(e)),
+                Err(DescendError::Key(KeyError::NotFound | KeyError::TooLong)) => unreachable!(),
             }
         }
     }

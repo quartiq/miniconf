@@ -1,7 +1,5 @@
 use core::{convert::Infallible, iter::Fuse};
 
-use serde::Serialize;
-
 use crate::{DescendError, Internal, KeyError, Schema};
 
 /// Convert a key into a node index given an internal node schema
@@ -41,17 +39,6 @@ pub trait Keys {
     {
         Chain(self, other.into_keys())
     }
-
-    /// Track depth
-    fn track(self) -> Track<Self>
-    where
-        Self: Sized,
-    {
-        Track {
-            inner: self,
-            depth: 0,
-        }
-    }
 }
 
 impl<T: Keys + ?Sized> Keys for &mut T {
@@ -87,8 +74,6 @@ pub trait Transcode {
     /// handling is representation-specific: fixed-capacity/key views typically overwrite, while
     /// append-oriented buffers and writers may append.
     ///
-    /// Use this to report insufficient capacity or unencodable values at the depth where they
-    /// occur.
     fn transcode_from(
         &mut self,
         schema: &Schema,
@@ -119,88 +104,7 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
     }
 }
 
-/// Track key depth
-///
-/// This tracks the depth during [`Keys`] and [`Transcode`].
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct Track<K> {
-    /// The inner keys
-    inner: K,
-    /// The keys terminate at the given depth
-    depth: usize,
-}
-
-impl<K> Track<K> {
-    /// Create a new `Track`
-    pub fn new(inner: K) -> Self {
-        Self { inner, depth: 0 }
-    }
-
-    /// Whether a leaf node as been encountered
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
-
-    /// Borrow the inner `Keys`
-    pub fn inner(&self) -> &K {
-        &self.inner
-    }
-
-    /// Split into inner `Keys` and leaf node flag
-    pub fn into_inner(self) -> (K, usize) {
-        (self.inner, self.depth)
-    }
-}
-
-impl<K: Keys> IntoKeys for &mut Track<K> {
-    type IntoKeys = Self;
-
-    fn into_keys(self) -> Self::IntoKeys {
-        self.depth = 0;
-        self
-    }
-}
-
-impl<K: Keys> Keys for Track<K> {
-    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        let k = self.inner.next(internal);
-        if k.is_ok() {
-            self.depth += 1;
-        }
-        k
-    }
-
-    fn finalize(&mut self) -> Result<(), KeyError> {
-        self.inner.finalize()
-    }
-}
-
-impl<T: Transcode> Transcode for Track<T> {
-    type Error = T::Error;
-
-    fn transcode_from(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        self.depth = 0;
-        let mut tracked = keys.into_keys().track();
-        let ret = self.inner.transcode_from(schema, &mut tracked);
-        self.depth = tracked.depth;
-        ret
-    }
-}
-
-impl<T: FromConfig> FromConfig for Track<T> {
-    type Config = T::Config;
-    const DEFAULT_CONFIG: Self::Config = T::DEFAULT_CONFIG;
-
-    fn from_config(config: &Self::Config) -> Self {
-        Self::new(T::from_config(config))
-    }
-}
-
-/// Shim to provide the bare lookup/Track without transcoding target
+/// Shim to provide the bare lookup without transcoding target
 impl Transcode for () {
     type Error = Infallible;
     fn transcode_from(
@@ -208,7 +112,7 @@ impl Transcode for () {
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_, _| Ok(()))
+        schema.descend(keys.into_keys(), |_, _| Ok::<_, Infallible>(()))
     }
 }
 

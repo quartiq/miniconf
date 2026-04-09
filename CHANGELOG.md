@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-* Short
+* Short and Track
 
 ## [0.20.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.0...miniconf-v0.20.1) - 2026-02-12
 

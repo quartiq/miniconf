@@ -305,6 +305,17 @@ impl Schema {
         Ok(schema)
     }
 
+    pub(crate) fn get_indexed(&self, indices: &[usize]) -> &Self {
+        let mut schema = self;
+        let mut i = 0;
+        while i < indices.len() {
+            let internal = schema.internal.as_ref().unwrap();
+            schema = internal.get_schema(indices[i]);
+            i += 1;
+        }
+        schema
+    }
+
     /// Traverse keys while optionally writing consumed indices into `state`.
     pub(crate) fn node_info_with_state(
         &self,
@@ -349,7 +360,7 @@ impl Schema {
     /// [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, NodeInfo, Packed, Track, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, NodeInfo, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -371,8 +382,6 @@ impl Schema {
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
-    /// let node = sch.transcode::<Track<()>>(&path).unwrap();
-    /// assert_eq!(node.depth(), 2);
     /// assert_eq!(sch.node_info(&path), Ok(NodeInfo { depth: 2, leaf: true }));
     /// ```
     ///
@@ -404,7 +413,7 @@ impl Schema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, NodeInfo, Track, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, NodeInfo, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
