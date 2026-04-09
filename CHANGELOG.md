@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Path takes thes separator as a member reducing monomorphization bloat.
 * `Schema::get()` now performs exact lookup and returns `Lookup`.
 * `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
-* [breaking][miniconf_mqtt] `MqttClient` is now async-first and built on async `minimq::Runner`,
+* [breaking][miniconf_mqtt] `MqttClient` is now async-first and built on async `minimq::Session`,
   `Connector`, and `Timer`. `update()` was replaced by `poll().await`.
 
 ### Added

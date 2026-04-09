@@ -17,8 +17,7 @@ use miniconf::{
 };
 pub use minimq;
 use minimq::{
-    ConfigBuilder, InboundPublish, ProtocolError, Publication, QoS, Runner, RunnerError,
-    RunnerPubError,
+    ConfigBuilder, Event, InboundPublish, ProtocolError, Publication, QoS, Session,
     timer::Timer,
     transport::Connector,
     types::{SubscriptionOptions, TopicFilter},
@@ -32,49 +31,24 @@ const SEPARATOR: char = '/';
 
 /// Miniconf MQTT error.
 #[derive(Debug, PartialEq)]
-pub enum Error<Connect, Io, Time> {
+pub enum Error {
     /// A multipart operation is already in progress.
     Busy,
     /// Miniconf path resolution failed.
     Miniconf(DescendError<()>),
-    /// Establishing a TCP connection failed.
-    Connect(Connect),
-    /// MQTT or transport I/O failed.
-    Mqtt(minimq::Error<Io>),
-    /// Timer access failed.
-    Timer(Time),
-    /// `minimq::Runner` entered an invalid internal state.
-    State,
+    /// MQTT or transport operation failed.
+    Mqtt(minimq::Error),
 }
 
-impl<Connect, Io, Time> From<DescendError<()>> for Error<Connect, Io, Time> {
+impl From<DescendError<()>> for Error {
     fn from(value: DescendError<()>) -> Self {
         Self::Miniconf(value)
     }
 }
 
-impl<Connect, Io, Time> From<RunnerError<Connect, Io, Time>> for Error<Connect, Io, Time> {
-    fn from(value: RunnerError<Connect, Io, Time>) -> Self {
-        match value {
-            RunnerError::Connect(err) => Self::Connect(err),
-            RunnerError::Network(err) => Self::Mqtt(err),
-            RunnerError::Timer(err) => Self::Timer(err),
-            RunnerError::State => Self::State,
-        }
-    }
-}
-
-impl<Connect, Io, Time> From<RunnerPubError<Connect, Io, Time, Infallible>>
-    for Error<Connect, Io, Time>
-{
-    fn from(value: RunnerPubError<Connect, Io, Time, Infallible>) -> Self {
-        match value {
-            RunnerPubError::Publish(err) => match err {
-                minimq::PubError::Error(err) => Self::Mqtt(err),
-                minimq::PubError::Serialization(err) => match err {},
-            },
-            RunnerPubError::Runner(err) => err.into(),
-        }
+impl From<minimq::Error> for Error {
+    fn from(value: minimq::Error) -> Self {
+        Self::Mqtt(value)
     }
 }
 
@@ -112,14 +86,12 @@ impl<E> Display for DepthError<E> {
 
 #[derive(Clone)]
 struct Request {
-    topic: String<MAX_TOPIC_LENGTH>,
     response_topic: Option<String<MAX_TOPIC_LENGTH>>,
     correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
 }
 
 impl Request {
     fn parse(message: &InboundPublish<'_>) -> Result<Self, &'static str> {
-        let topic = String::try_from(message.topic).map_err(|_| "Topic too long")?;
         let response_topic = (&message.properties)
             .into_iter()
             .response_topic()
@@ -138,29 +110,21 @@ impl Request {
             .transpose()
             .map_err(|_| "Correlation data too long")?;
         Ok(Self {
-            topic,
             response_topic,
             correlation_data,
         })
     }
 
-    fn reply<P>(&self, payload: P) -> Publication<'_, P> {
-        let mut publication = Publication::new(
-            self.response_topic
-                .as_deref()
-                .unwrap_or(self.topic.as_str()),
-            payload,
-        );
+    fn publication<P>(&self, payload: P) -> Option<Publication<'_, P>> {
+        let mut publication = Publication::new(self.response_topic.as_deref()?, payload);
         if let Some(correlation_data) = &self.correlation_data {
             publication = publication.correlate(correlation_data);
         }
-        publication
+        Some(publication)
     }
 
-    fn list_topic(&self) -> Result<&str, &'static str> {
-        self.response_topic
-            .as_deref()
-            .ok_or("Internal node listing requires response topic")
+    fn requires_reply(&self) -> bool {
+        self.response_topic.is_some()
     }
 }
 
@@ -212,12 +176,22 @@ impl<const Y: usize> Pending<Y> {
         root: &[usize],
         request: Request,
     ) -> Result<Self, &'static str> {
-        request.list_topic()?;
+        if !request.requires_reply() {
+            return Err("Internal node listing requires response topic");
+        }
         let iter = NodeIter::with_root(schema, root, SEPARATOR).map_err(|_| "Invalid list root")?;
         Ok(Self {
             kind: PendingKind::List,
             iter,
             request: Some(request),
+        })
+    }
+
+    fn dump_root(schema: &'static Schema, root: &[usize]) -> Result<Self, DescendError<()>> {
+        Ok(Self {
+            kind: PendingKind::Dump,
+            iter: NodeIter::with_root(schema, root, SEPARATOR)?,
+            request: None,
         })
     }
 }
@@ -238,6 +212,10 @@ enum Action<const Y: usize> {
     },
     StartList {
         request: Request,
+        state: [usize; Y],
+        depth: usize,
+    },
+    StartDump {
         state: [usize; Y],
         depth: usize,
     },
@@ -279,6 +257,13 @@ fn resolve<T, E, const Y: usize>(
     })
 }
 
+fn simple_pub_error(err: minimq::PubError<()>) -> Error {
+    match err {
+        minimq::PubError::Error(err) => Error::Mqtt(err),
+        minimq::PubError::Serialization(()) => Error::Mqtt(ProtocolError::BufferSize.into()),
+    }
+}
+
 /// Result of polling the MQTT service.
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum State {
@@ -289,24 +274,18 @@ pub enum State {
     Changed,
 }
 
-type ClientError<C, T> =
-    Error<<C as Connector>::ConnectError, <C as Connector>::IoError, <T as Timer>::Error>;
-
 /// Async MQTT settings interface.
 pub struct MqttClient<'a, Settings, C, T, const Y: usize>
 where
     C: Connector,
     T: Timer,
 {
-    mqtt: minimq::MqttClient<'a>,
-    connector: &'a C,
-    connection: Option<C::Connection<'a>>,
-    timer: T,
+    session: Session<'a, 'a, C, T>,
     prefix: &'a str,
     alive: &'a str,
     subscribed: bool,
     needs_alive: bool,
-    needs_initial_dump: bool,
+    connected_once: bool,
     pending: Pending<Y>,
     _settings: PhantomData<Settings>,
 }
@@ -315,6 +294,11 @@ impl<'a, Settings, C, T, const Y: usize> MqttClient<'a, Settings, C, T, Y>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     C: Connector,
+    C::Connection<'a>: minimq::embedded_io_async::Read
+        + minimq::embedded_io_async::Write
+        + minimq::embedded_io_async::ErrorType,
+    <C::Connection<'a> as minimq::embedded_io_async::ErrorType>::Error:
+        minimq::embedded_io_async::Error,
     T: Timer,
 {
     /// Construct a new MQTT settings interface.
@@ -341,15 +325,12 @@ where
         let config = config.autodowngrade_qos().will(will)?.build();
 
         Ok(Self {
-            mqtt: minimq::MqttClient::new(config),
-            connector,
-            connection: None,
-            timer,
+            session: Session::new(config, connector, timer),
             prefix,
             alive: "1",
             subscribed: false,
             needs_alive: true,
-            needs_initial_dump: false,
+            connected_once: false,
             pending: Pending::new(Settings::SCHEMA),
             _settings: PhantomData,
         })
@@ -362,7 +343,7 @@ where
     }
 
     /// Schedule a dump of all leaf settings at or below `path`.
-    pub fn dump(&mut self, path: Option<&str>) -> Result<(), ClientError<C, T>> {
+    pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error> {
         if self.pending.is_active() {
             return Err(Error::Busy);
         }
@@ -371,47 +352,39 @@ where
     }
 
     /// Poll the MQTT service once.
-    pub async fn poll(&mut self, settings: &mut Settings) -> Result<State, ClientError<C, T>> {
-        let prefix = self.prefix;
+    pub async fn poll(&mut self, settings: &mut Settings) -> Result<State, Error> {
         let pending_active = self.pending.is_active();
-        let (reconnected, action) = {
-            let mut runner = Runner::new(
-                &mut self.mqtt,
-                self.connector,
-                &mut self.timer,
-                &mut self.connection,
-            );
-            let outcome = runner.poll().await?;
-            let action = outcome
-                .inbound
-                .as_ref()
-                .map(|message| Self::plan_request(prefix, pending_active, settings, message))
-                .unwrap_or(Action::None(State::Unchanged));
-            (outcome.reconnected, action)
+        let prefix = self.prefix;
+        let (reconnected, action) = match self.session.poll().await? {
+            Event::Reconnected => (true, Action::None(State::Unchanged)),
+            Event::Idle => (false, Action::None(State::Unchanged)),
+            Event::Inbound(message) => (
+                false,
+                Self::plan_request(prefix, pending_active, settings, &message),
+            ),
         };
 
-        self.on_reconnected(reconnected);
-        self.ensure_subscription().await?;
-
-        if self.needs_initial_dump && !self.pending.is_active() {
-            self.dump(None)?;
-            self.needs_initial_dump = false;
+        if reconnected {
+            self.on_reconnected();
         }
+
+        self.ensure_ready().await?;
+
         let changed = self.execute(settings, action).await;
         self.advance_pending(settings).await;
         Ok(changed)
     }
 
-    fn on_reconnected(&mut self, reconnected: bool) {
-        if reconnected {
-            self.subscribed = false;
-            self.needs_alive = true;
-            self.needs_initial_dump = false;
+    fn on_reconnected(&mut self) {
+        if self.connected_once {
             self.pending.clear();
         }
+        self.connected_once = true;
+        self.subscribed = false;
+        self.needs_alive = true;
     }
 
-    async fn ensure_subscription(&mut self) -> Result<(), ClientError<C, T>> {
+    async fn ensure_ready(&mut self) -> Result<(), Error> {
         if self.needs_alive {
             self.publish_alive().await?;
             self.needs_alive = false;
@@ -423,50 +396,33 @@ where
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
             .try_into()
-            .map_err(|_| Error::Mqtt(minimq::ProtocolError::BufferSize.into()))?;
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         topic
             .push_str("/settings/#")
-            .map_err(|_| Error::Mqtt(minimq::ProtocolError::BufferSize.into()))?;
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         let opts = SubscriptionOptions::default().ignore_local_messages();
         let topics = [TopicFilter::new(&topic).options(opts)];
-
-        let mut runner = Runner::new(
-            &mut self.mqtt,
-            self.connector,
-            &mut self.timer,
-            &mut self.connection,
-        );
-        runner.subscribe(&topics, &[]).await?;
-
-        info!("Subscribed");
+        self.session.subscribe(&topics, &[]).await?;
         self.subscribed = true;
-        self.needs_initial_dump = true;
+        info!("Subscribed");
         Ok(())
     }
 
-    async fn publish_alive(&mut self) -> Result<(), ClientError<C, T>> {
+    async fn publish_alive(&mut self) -> Result<(), Error> {
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
             .try_into()
-            .map_err(|_| Error::Mqtt(minimq::ProtocolError::BufferSize.into()))?;
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         topic
             .push_str("/alive")
-            .map_err(|_| Error::Mqtt(minimq::ProtocolError::BufferSize.into()))?;
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         let publication = Publication::new(&topic, self.alive.as_bytes())
             .qos(QoS::AtLeastOnce)
             .retain();
-        let mut runner = Runner::new(
-            &mut self.mqtt,
-            self.connector,
-            &mut self.timer,
-            &mut self.connection,
-        );
-        runner.publish(publication).await.map_err(|err| match err {
-            RunnerPubError::Publish(minimq::PubError::Error(err)) => Error::Mqtt(err),
-            RunnerPubError::Publish(minimq::PubError::Serialization(_)) => Error::State,
-            RunnerPubError::Runner(err) => err.into(),
-        })?;
-        Ok(())
+        self.session
+            .publish(publication)
+            .await
+            .map_err(simple_pub_error)
     }
 
     fn plan_request(
@@ -487,16 +443,8 @@ where
         let request = match Request::parse(message) {
             Ok(request) => request,
             Err(err) => {
-                return Action::ReplyText {
-                    state: State::Unchanged,
-                    request: Request {
-                        topic: String::try_from(message.topic).unwrap_or_default(),
-                        response_topic: None,
-                        correlation_data: None,
-                    },
-                    code: ResponseCode::Error,
-                    text: format_message(err),
-                };
+                warn!("Discarding request {}: {err}", message.topic);
+                return Action::None(State::Unchanged);
             }
         };
 
@@ -532,27 +480,24 @@ where
             }
         };
 
-        let depth = lookup.depth;
         if message.payload.is_empty() {
             if lookup.leaf {
                 Action::ReplyLeaf {
                     request,
                     state,
-                    depth,
+                    depth: lookup.depth,
                     leaf: true,
                 }
-            } else if request.response_topic.is_none() {
-                Action::ReplyText {
-                    state: State::Unchanged,
-                    request,
-                    code: ResponseCode::Error,
-                    text: format_message("Internal node listing requires response topic"),
-                }
-            } else {
+            } else if request.requires_reply() {
                 Action::StartList {
                     request,
                     state,
-                    depth,
+                    depth: lookup.depth,
+                }
+            } else {
+                Action::StartDump {
+                    state,
+                    depth: lookup.depth,
                 }
             }
         } else if !lookup.leaf {
@@ -615,24 +560,27 @@ where
                 }
                 State::Unchanged
             }
+            Action::StartDump { state, depth } => {
+                match Pending::dump_root(Settings::SCHEMA, &state[..depth]) {
+                    Ok(pending) => self.pending = pending,
+                    Err(err) => info!("Dump scheduling failure: {err}"),
+                }
+                State::Unchanged
+            }
         }
     }
 
     async fn reply_text(&mut self, request: &Request, code: ResponseCode, text: &str) {
+        let Some(publication) = request.publication(text.as_bytes()) else {
+            return;
+        };
         let props = [code.into()];
-        let publication = request
-            .reply(text.as_bytes())
-            .properties(&props)
-            .qos(QoS::AtLeastOnce);
-        let mut runner = Runner::new(
-            &mut self.mqtt,
-            self.connector,
-            &mut self.timer,
-            &mut self.connection,
-        );
-        let result = runner.publish(publication).await;
-        if result.is_err() {
-            info!("Response failure");
+        if let Err(err) = self
+            .session
+            .publish(publication.properties(&props).qos(QoS::AtLeastOnce))
+            .await
+        {
+            info!("Response failure: {:?}", simple_pub_error(err));
         }
     }
 
@@ -644,40 +592,35 @@ where
         depth: usize,
         leaf: bool,
     ) {
-        let props = [ResponseCode::Ok.into()];
-        let full = &state[..depth];
-        let publication = request
-            .reply(|buf: &mut [u8]| {
-                let mut keys = full;
-                json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
-                    inner,
-                    depth: full.len() - keys.len(),
-                    leaf: Some(leaf),
-                })
+        let Some(publication) = request.publication(|buf: &mut [u8]| {
+            let full = &state[..depth];
+            let mut keys = full;
+            json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
+                inner,
+                depth: full.len() - keys.len(),
+                leaf: Some(leaf),
             })
-            .properties(&props)
-            .qos(QoS::AtLeastOnce);
+        }) else {
+            return;
+        };
+        let props = [ResponseCode::Ok.into()];
 
-        let mut runner = Runner::new(
-            &mut self.mqtt,
-            self.connector,
-            &mut self.timer,
-            &mut self.connection,
-        );
-        let result = runner.publish(publication).await;
-
-        match result {
+        match self
+            .session
+            .publish(publication.properties(&props).qos(QoS::AtLeastOnce))
+            .await
+        {
             Ok(()) => {}
-            Err(RunnerPubError::Publish(minimq::PubError::Serialization(err))) => {
+            Err(minimq::PubError::Serialization(err)) => {
                 self.reply_text(request, ResponseCode::Error, format_message(err).as_str())
                     .await;
             }
-            Err(_) => info!("Leaf response failure"),
+            Err(minimq::PubError::Error(err)) => info!("Leaf response failure: {err:?}"),
         }
     }
 
     async fn advance_pending(&mut self, settings: &Settings) {
-        while self.mqtt.can_publish(QoS::AtLeastOnce) {
+        while self.session.can_publish(QoS::AtLeastOnce) {
             match self.pending.kind {
                 PendingKind::Idle => break,
                 PendingKind::List => {
@@ -699,19 +642,20 @@ where
                         (request, code, payload, done)
                     };
 
+                    let Some(publication) = request.publication(payload.as_bytes()) else {
+                        self.pending.clear();
+                        break;
+                    };
                     let props = [code.into()];
-                    let publication = request
-                        .reply(payload.as_bytes())
-                        .properties(&props)
-                        .qos(QoS::AtLeastOnce);
-                    let mut runner = Runner::new(
-                        &mut self.mqtt,
-                        self.connector,
-                        &mut self.timer,
-                        &mut self.connection,
-                    );
-                    if runner.publish(publication).await.is_err() {
-                        info!("Multipart list publish failure");
+                    if let Err(err) = self
+                        .session
+                        .publish(publication.properties(&props).qos(QoS::AtLeastOnce))
+                        .await
+                    {
+                        info!(
+                            "Multipart list publish failure: {:?}",
+                            simple_pub_error(err)
+                        );
                         self.pending.clear();
                         break;
                     }
@@ -725,10 +669,9 @@ where
                         self.pending.clear();
                         break;
                     };
-
                     let props = [ResponseCode::Ok.into()];
-                    let full = &state[..depth];
                     let publication = Publication::new(&topic, |buf: &mut [u8]| {
+                        let full = &state[..depth];
                         let mut keys = full;
                         json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
                             DepthError {
@@ -740,27 +683,20 @@ where
                     })
                     .properties(&props)
                     .qos(QoS::AtLeastOnce);
-                    let mut runner = Runner::new(
-                        &mut self.mqtt,
-                        self.connector,
-                        &mut self.timer,
-                        &mut self.connection,
-                    );
-                    match runner.publish(publication).await {
+
+                    match self.session.publish(publication).await {
                         Ok(()) => {}
-                        Err(RunnerPubError::Publish(minimq::PubError::Serialization(
-                            DepthError {
-                                inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                                ..
-                            },
-                        ))) => {}
-                        Err(RunnerPubError::Publish(minimq::PubError::Serialization(err))) => {
+                        Err(minimq::PubError::Serialization(DepthError {
+                            inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
+                            ..
+                        })) => {}
+                        Err(minimq::PubError::Serialization(err)) => {
                             info!("Multipart dump serialization failure: {err}");
                             self.pending.clear();
                             break;
                         }
-                        Err(_) => {
-                            info!("Multipart dump publish failure");
+                        Err(minimq::PubError::Error(err)) => {
+                            info!("Multipart dump publish failure: {err:?}");
                             self.pending.clear();
                             break;
                         }
@@ -846,14 +782,12 @@ mod test {
     struct DummyConnector;
 
     impl Connector for DummyConnector {
-        type ConnectError = ErrorKind;
-        type IoError = ErrorKind;
         type Connection<'a> = DummyConnection;
 
-        async fn connect<'a, const N: usize>(
+        async fn connect<'a>(
             &'a self,
-            _broker: &Broker<N>,
-        ) -> Result<Self::Connection<'a>, Self::ConnectError> {
+            _broker: &Broker,
+        ) -> Result<Self::Connection<'a>, minimq::Error> {
             Ok(DummyConnection)
         }
     }
@@ -922,7 +856,7 @@ mod test {
     }
 
     #[test]
-    fn plan_internal_get_requires_response_topic() {
+    fn plan_internal_get_without_response_topic_starts_dump() {
         let mut settings = TreeSettings::default();
         let message = InboundPublish {
             topic: "test/id/settings/nested",
@@ -938,11 +872,30 @@ mod test {
             &mut settings,
             &message,
         ) {
-            Action::StartList { .. } => panic!("internal GET without response topic must not list"),
-            Action::ReplyText { code, text, .. } => {
-                assert_eq!(code, ResponseCode::Error);
-                assert!(text.contains("response topic"));
-            }
+            Action::StartDump { depth, .. } => assert_eq!(depth, 1),
+            other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+        }
+    }
+
+    #[test]
+    fn plan_internal_get_with_response_topic_starts_list() {
+        let mut settings = TreeSettings::default();
+        let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
+        let message = InboundPublish {
+            topic: "test/id/settings/nested",
+            payload: b"",
+            properties: Properties::Slice(&props),
+            retain: Retain::NotRetained,
+            qos: QoS::AtMostOnce,
+        };
+
+        match MqttClient::<TreeSettings, DummyConnector, TestTimer, 2>::plan_request(
+            "test/id",
+            false,
+            &mut settings,
+            &message,
+        ) {
+            Action::StartList { depth, .. } => assert_eq!(depth, 1),
             other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
         }
     }

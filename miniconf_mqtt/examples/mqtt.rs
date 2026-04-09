@@ -112,29 +112,26 @@ impl Write for StdConnection {
 struct StdConnector;
 
 impl Connector for StdConnector {
-    type ConnectError = ErrorKind;
-    type IoError = ErrorKind;
     type Connection<'a> = StdConnection;
 
-    async fn connect<'a, const N: usize>(
-        &'a self,
-        broker: &Broker<N>,
-    ) -> Result<Self::Connection<'a>, Self::ConnectError> {
+    async fn connect<'a>(&'a self, broker: &Broker) -> Result<Self::Connection<'a>, minimq::Error> {
         let remote = match broker {
             Broker::SocketAddr(addr) => *addr,
-            Broker::Hostname { .. } => return Err(ErrorKind::Unsupported),
+            Broker::Hostname { .. } => {
+                return Err(minimq::Error::Transport(ErrorKind::Unsupported));
+            }
         };
         let stream = TcpStream::connect_timeout(&remote, Duration::from_secs(5))
-            .map_err(|err| io_kind(err.kind()))?;
+            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
         stream
             .set_read_timeout(Some(Duration::from_millis(200)))
-            .map_err(|err| io_kind(err.kind()))?;
+            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
         stream
             .set_write_timeout(Some(Duration::from_secs(5)))
-            .map_err(|err| io_kind(err.kind()))?;
+            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
         stream
             .set_nodelay(true)
-            .map_err(|err| io_kind(err.kind()))?;
+            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
         Ok(StdConnection(stream))
     }
 }
@@ -194,14 +191,14 @@ async fn main() {
     )
     .unwrap();
     client.set_alive("\"hello\"");
+    client.dump(None).unwrap();
 
     let mut settings = Settings::default();
     while !settings.exit {
         tokio::time::sleep(Duration::from_millis(10)).await;
         match client.poll(&mut settings).await {
             Ok(miniconf_mqtt::State::Changed) => println!("Settings updated: {:?}", settings),
-            Ok(miniconf_mqtt::State::Unchanged)
-            | Err(miniconf_mqtt::Error::Mqtt(minimq::Error::Network(ErrorKind::TimedOut))) => {}
+            Ok(miniconf_mqtt::State::Unchanged) => {}
             Err(err) => panic!("{err:?}"),
         }
     }
