@@ -1,7 +1,5 @@
 use core::{convert::Infallible, iter::Fuse};
 
-use serde::Serialize;
-
 use crate::{DescendError, Internal, KeyError, Schema};
 
 /// Convert a key into a node index given an internal node schema
@@ -41,28 +39,6 @@ pub trait Keys {
     {
         Chain(self, other.into_keys())
     }
-
-    /// Track depth
-    fn track(self) -> Track<Self>
-    where
-        Self: Sized,
-    {
-        Track {
-            inner: self,
-            depth: 0,
-        }
-    }
-
-    /// Track whether a leaf node is reached
-    fn short(self) -> Short<Self>
-    where
-        Self: Sized,
-    {
-        Short {
-            inner: self,
-            leaf: false,
-        }
-    }
 }
 
 impl<T: Keys + ?Sized> Keys for &mut T {
@@ -72,6 +48,23 @@ impl<T: Keys + ?Sized> Keys for &mut T {
 
     fn finalize(&mut self) -> Result<(), KeyError> {
         (**self).finalize()
+    }
+}
+
+impl<T: Key> Keys for &[T] {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let (key, tail) = self.split_first().ok_or(KeyError::TooShort)?;
+        let index = key.find(internal).ok_or(KeyError::NotFound)?;
+        *self = tail;
+        Ok(index)
+    }
+
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(KeyError::TooLong)
+        }
     }
 }
 
@@ -93,222 +86,83 @@ pub trait Transcode {
 
     /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
     ///
-    /// This modifies `self` such that afterwards `Self: IntoKeys` can be used on `M` again.
-    /// It returns a `Node` with node type and depth information.
+    /// This is the low-level, in-place transcoding API. Fresh output construction is provided by
+    /// [`FromConfig::transcode`] and [`FromConfig::transcode_with`]. Existing target content
+    /// handling is representation-specific: fixed-capacity/key views typically overwrite, while
+    /// append-oriented buffers and writers may append.
     ///
-    /// Returning `Err(ValueError::Absent)` indicates that there was insufficient
-    /// capacity and a key could not be encoded at the given depth.
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>>;
 }
 
-/// Construct a fresh transcoding target from compact seed/config state.
-pub trait Seeded: Sized {
+/// Construct a fresh transcoding target from compact configuration state.
+pub trait FromConfig: Sized {
     /// The configuration required to construct `Self`.
-    type Seed: Copy;
+    type Config: Copy;
 
     /// Default configuration for `Self`.
-    const DEFAULT_SEED: Self::Seed;
+    const DEFAULT_CONFIG: Self::Config;
 
-    /// Construct a fresh transcoding target from the provided seed.
-    fn from_seed(seed: &Self::Seed) -> Self;
+    /// Construct a fresh transcoding target from the provided configuration.
+    fn from_config(config: &Self::Config) -> Self;
+
+    /// Transcode keys into a fresh output constructed from `config`.
+    fn transcode_with(
+        schema: &Schema,
+        keys: impl IntoKeys,
+        config: Self::Config,
+    ) -> Result<Self, DescendError<<Self as Transcode>::Error>>
+    where
+        Self: Transcode,
+    {
+        let mut target = Self::from_config(&config);
+        target.transcode_from(schema, keys)?;
+        Ok(target)
+    }
+
+    /// Transcode keys into a fresh output constructed from the default configuration.
+    fn transcode(
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<Self, DescendError<<Self as Transcode>::Error>>
+    where
+        Self: Transcode,
+    {
+        Self::transcode_with(schema, keys, Self::DEFAULT_CONFIG)
+    }
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {
     type Error = T::Error;
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        (**self).transcode(schema, keys)
+        (**self).transcode_from(schema, keys)
     }
 }
 
-/// Track leaf node encounter
-///
-/// This records whether a leaf node has been reached during [`Keys`] and [`Transcode`].
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct Short<K> {
-    /// The inner Keys
-    inner: K,
-    /// The inner keys terminates at a leaf node
-    leaf: bool,
-}
-
-impl<K> Short<K> {
-    /// Create a new `Short`
-    pub fn new(inner: K) -> Self {
-        Self { inner, leaf: false }
-    }
-
-    /// Whether a leaf node as been encountered
-    pub fn leaf(&self) -> bool {
-        self.leaf
-    }
-
-    /// Borrow the inner `Keys`
-    pub fn inner(&self) -> &K {
-        &self.inner
-    }
-
-    /// Split into inner `Keys` and leaf node flag
-    pub fn into_inner(self) -> (K, bool) {
-        (self.inner, self.leaf)
-    }
-}
-
-impl<K: Keys> IntoKeys for &mut Short<K> {
-    type IntoKeys = Self;
-
-    fn into_keys(self) -> Self::IntoKeys {
-        self.leaf = false;
-        self
-    }
-}
-
-impl<K: Keys> Keys for Short<K> {
-    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        self.inner.next(internal)
-    }
-
-    fn finalize(&mut self) -> Result<(), KeyError> {
-        self.inner.finalize()?;
-        self.leaf = true;
-        Ok(())
-    }
-}
-
-impl<T: Transcode> Transcode for Short<T> {
-    type Error = T::Error;
-
-    fn transcode(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        self.leaf = false;
-        match self.inner.transcode(schema, keys) {
-            Err(DescendError::Key(KeyError::TooShort)) => Ok(()),
-            Ok(()) | Err(DescendError::Key(KeyError::TooLong)) => {
-                self.leaf = true;
-                Ok(())
-            }
-            ret => ret,
-        }
-    }
-}
-
-impl<T: Seeded> Seeded for Short<T> {
-    type Seed = T::Seed;
-    const DEFAULT_SEED: Self::Seed = T::DEFAULT_SEED;
-
-    fn from_seed(seed: &Self::Seed) -> Self {
-        Self::new(T::from_seed(seed))
-    }
-}
-
-/// Track key depth
-///
-/// This tracks the depth during [`Keys`] and [`Transcode`].
-#[derive(Clone, Debug, Default, PartialEq, PartialOrd, Hash, Serialize)]
-pub struct Track<K> {
-    /// The inner keys
-    inner: K,
-    /// The keys terminate at the given depth
-    depth: usize,
-}
-
-impl<K> Track<K> {
-    /// Create a new `Track`
-    pub fn new(inner: K) -> Self {
-        Self { inner, depth: 0 }
-    }
-
-    /// Whether a leaf node as been encountered
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
-
-    /// Borrow the inner `Keys`
-    pub fn inner(&self) -> &K {
-        &self.inner
-    }
-
-    /// Split into inner `Keys` and leaf node flag
-    pub fn into_inner(self) -> (K, usize) {
-        (self.inner, self.depth)
-    }
-}
-
-impl<K: Keys> IntoKeys for &mut Track<K> {
-    type IntoKeys = Self;
-
-    fn into_keys(self) -> Self::IntoKeys {
-        self.depth = 0;
-        self
-    }
-}
-
-impl<K: Keys> Keys for Track<K> {
-    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
-        let k = self.inner.next(internal);
-        if k.is_ok() {
-            self.depth += 1;
-        }
-        k
-    }
-
-    fn finalize(&mut self) -> Result<(), KeyError> {
-        self.inner.finalize()
-    }
-}
-
-impl<T: Transcode> Transcode for Track<T> {
-    type Error = T::Error;
-
-    fn transcode(
-        &mut self,
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<(), DescendError<Self::Error>> {
-        self.depth = 0;
-        let mut tracked = keys.into_keys().track();
-        let ret = self.inner.transcode(schema, &mut tracked);
-        self.depth = tracked.depth;
-        ret
-    }
-}
-
-impl<T: Seeded> Seeded for Track<T> {
-    type Seed = T::Seed;
-    const DEFAULT_SEED: Self::Seed = T::DEFAULT_SEED;
-
-    fn from_seed(seed: &Self::Seed) -> Self {
-        Self::new(T::from_seed(seed))
-    }
-}
-
-/// Shim to provide the bare lookup/Track/Short without transcoding target
+/// Shim to provide the bare lookup without transcoding target
 impl Transcode for () {
     type Error = Infallible;
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_, _| Ok(()))
+        schema.descend(keys.into_keys(), |_, _| Ok::<_, Infallible>(()))
     }
 }
 
-impl Seeded for () {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl FromConfig for () {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {}
+    fn from_config(_: &Self::Config) -> Self {}
 }
 
 /// [`Keys`]/[`IntoKeys`] for Iterators of [`Key`]

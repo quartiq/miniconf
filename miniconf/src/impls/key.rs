@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, Internal, IntoKeys, Key, Schema, Seeded, Track, Transcode};
+use crate::{DescendError, FromConfig, Internal, IntoKeys, Key, Schema, Transcode};
 
 // index
 macro_rules! impl_key_integer {
@@ -32,6 +32,13 @@ impl<T> Indices<T> {
         Self { len, data }
     }
 
+    /// Split indices into data and length
+    pub fn into_inner(self) -> (T, usize) {
+        (self.data, self.len)
+    }
+}
+
+impl<T: ?Sized> Indices<T> {
     /// The length of the indices keys
     pub fn len(&self) -> usize {
         self.len
@@ -40,11 +47,6 @@ impl<T> Indices<T> {
     /// See [`Self::len()`]
     pub fn is_empty(&self) -> bool {
         self.len == 0
-    }
-
-    /// Split indices into data and length
-    pub fn into_inner(self) -> (T, usize) {
-        (self.data, self.len)
     }
 }
 
@@ -60,6 +62,12 @@ impl<T> From<T> for Indices<T> {
 impl<U, T: AsRef<[U]> + ?Sized> AsRef<[U]> for Indices<T> {
     fn as_ref(&self) -> &[U] {
         &self.data.as_ref()[..self.len]
+    }
+}
+
+impl<U, T: AsMut<[U]> + ?Sized> AsMut<[U]> for Indices<T> {
+    fn as_mut(&mut self) -> &mut [U] {
+        &mut self.data.as_mut()[..self.len]
     }
 }
 
@@ -79,23 +87,28 @@ where
 impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     type Error = <[usize] as Transcode>::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
     ) -> Result<(), DescendError<Self::Error>> {
-        let mut slic = Track::new(self.data.as_mut());
-        let ret = slic.transcode(schema, keys);
-        self.len = slic.depth();
-        ret
+        self.len = 0;
+        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+            if let Some((index, _schema)) = idx_schema {
+                let idx = self.data.as_mut().get_mut(self.len).ok_or(())?;
+                *idx = index;
+                self.len += 1;
+            }
+            Ok(())
+        })
     }
 }
 
-impl<T: Default> Seeded for Indices<T> {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl<T: Default> FromConfig for Indices<T> {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {
+    fn from_config(_: &Self::Config) -> Self {
         Self::from(T::default())
     }
 }
@@ -105,7 +118,7 @@ macro_rules! impl_transcode_slice {
         impl Transcode for [$t] {
             type Error = ();
 
-            fn transcode(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError<Self::Error>> {
+            fn transcode_from(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError<Self::Error>> {
                 let mut it = self.iter_mut();
                 schema.descend(keys.into_keys(), |_meta, idx_schema| {
                     if let Some((index, internal)) = idx_schema {
@@ -129,7 +142,7 @@ where
 {
     type Error = <usize as TryInto<T>>::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
@@ -144,11 +157,11 @@ where
 }
 
 #[cfg(feature = "alloc")]
-impl<T> Seeded for Vec<T> {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl<T> FromConfig for Vec<T> {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {
+    fn from_config(_: &Self::Config) -> Self {
         Self::default()
     }
 }
@@ -160,7 +173,7 @@ where
 {
     type Error = ();
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
@@ -176,11 +189,11 @@ where
 }
 
 #[cfg(feature = "heapless")]
-impl<T, const N: usize> Seeded for heapless::Vec<T, N> {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl<T, const N: usize> FromConfig for heapless::Vec<T, N> {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {
+    fn from_config(_: &Self::Config) -> Self {
         Self::default()
     }
 }
@@ -192,7 +205,7 @@ where
 {
     type Error = ();
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
@@ -208,11 +221,11 @@ where
 }
 
 #[cfg(feature = "heapless-09")]
-impl<T, const N: usize> Seeded for heapless_09::Vec<T, N> {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl<T, const N: usize> FromConfig for heapless_09::Vec<T, N> {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {
+    fn from_config(_: &Self::Config) -> Self {
         Self::default()
     }
 }
@@ -231,7 +244,7 @@ impl Key for str {
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [Schema::transcode()] and `Shape.max_length` for upper bounds
+///   See also [`crate::FromConfig::transcode()`], [`crate::Schema::transcode()`], and `Shape.max_length` for upper bounds
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
 /// * `separator`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
@@ -284,12 +297,12 @@ impl<T: core::fmt::Display> core::fmt::Display for Path<T> {
     }
 }
 
-impl<T: Default> Seeded for Path<T> {
-    type Seed = char;
-    const DEFAULT_SEED: Self::Seed = '/';
+impl<T: Default> FromConfig for Path<T> {
+    type Config = char;
+    const DEFAULT_CONFIG: Self::Config = '/';
 
-    fn from_seed(seed: &Self::Seed) -> Self {
-        Self::new(T::default(), *seed)
+    fn from_config(config: &Self::Config) -> Self {
+        Self::new(T::default(), *config)
     }
 }
 
@@ -323,11 +336,11 @@ impl<T: core::fmt::Display, const S: char> core::fmt::Display for ConstPath<T, S
     }
 }
 
-impl<T: Default, const S: char> Seeded for ConstPath<T, S> {
-    type Seed = ();
-    const DEFAULT_SEED: Self::Seed = ();
+impl<T: Default, const S: char> FromConfig for ConstPath<T, S> {
+    type Config = ();
+    const DEFAULT_CONFIG: Self::Config = ();
 
-    fn from_seed(_: &Self::Seed) -> Self {
+    fn from_config(_: &Self::Config) -> Self {
         Self::default()
     }
 }
@@ -462,7 +475,7 @@ impl<'a, T: AsRef<str>, const S: char> IntoKeys for &'a ConstPath<T, S> {
 impl<T: Write> Transcode for Path<T> {
     type Error = core::fmt::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,
@@ -486,7 +499,7 @@ impl<T: Write> Transcode for Path<T> {
 impl<T: Write, const S: char> Transcode for ConstPath<T, S> {
     type Error = core::fmt::Error;
 
-    fn transcode(
+    fn transcode_from(
         &mut self,
         schema: &Schema,
         keys: impl IntoKeys,

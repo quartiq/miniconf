@@ -1,5 +1,13 @@
-use miniconf::{Indices, KeyError, Path, Shape, Short, Track, Tree, TreeSchema};
+use miniconf::{
+    ConstPath, DescendError, FromConfig, Indices, JsonPath, KeyError, Lookup, NodeIter, Path,
+    Shape, Transcode, Tree, TreeSchema,
+};
 mod common;
+
+fn assert_lookup(have: Lookup, depth: usize, leaf: bool) {
+    assert_eq!(have.depth, depth);
+    assert_eq!(have.leaf, leaf);
+}
 
 #[test]
 fn borrowed() {
@@ -42,45 +50,88 @@ fn meta() {
 
 #[test]
 fn path() {
-    for (keys, path, depth, leaf) in [
-        (&[1usize][..], "/b", 1, true),
-        (&[2, 0], "/c/inner", 2, true),
-        (&[2], "/c", 1, false),
-        (&[], "", 0, false),
-    ] {
-        let s = Settings::SCHEMA
-            .transcode::<Short<Track<Path<String>>>>(keys)
-            .unwrap();
-        assert_eq!(depth, s.inner().depth());
-        assert_eq!(leaf, s.leaf());
-        assert_eq!(s.inner().inner().as_ref(), path);
-    }
+    assert_lookup(Settings::SCHEMA.get([1usize]).unwrap(), 1, true);
+    assert_eq!(
+        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, [1usize], '/')
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_inner(),
+        "/b"
+    );
+
+    assert_lookup(Settings::SCHEMA.get([2usize, 0]).unwrap(), 2, true);
+    assert_eq!(
+        NodeIter::<Path<String>, 2>::with_root(Settings::SCHEMA, [2usize, 0], '/')
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .into_inner(),
+        "/c/inner"
+    );
+
+    assert_lookup(Settings::SCHEMA.get([2usize]).unwrap(), 1, false);
+    assert_lookup(Settings::SCHEMA.get([0usize; 0]).unwrap(), 0, false);
+}
+
+#[test]
+fn transcode_reuse_semantics() {
+    let path = Settings::SCHEMA
+        .transcode::<Path<String>>([1usize])
+        .unwrap();
+    assert_eq!(path.as_ref(), "/b");
+
+    let path = Path::<String>::transcode(Settings::SCHEMA, [1usize]).unwrap();
+    assert_eq!(path.as_ref(), "/b");
+
+    let path = Path::<String>::transcode_with(Settings::SCHEMA, [1usize], ':').unwrap();
+    assert_eq!(path.as_ref(), ":b");
+
+    let mut path = Path::<String>::default();
+    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
+    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    assert_eq!(path.as_ref(), "/b/c/inner");
+
+    let mut path = ConstPath::<String, '/'>::default();
+    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
+    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    assert_eq!(path.as_ref(), "/b/c/inner");
+
+    let mut path = JsonPath::<String>::default();
+    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
+    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    assert_eq!(path.0.as_str(), ".b.c.inner");
 }
 
 #[test]
 fn indices() {
-    for (keys, idx, leaf) in [
-        ("", &[][..], false),
-        ("/b", &[1], true),
-        ("/c/inner", &[2, 0], true),
-        ("/c", &[2], false),
+    for (keys, idx, info) in [
+        ("", None, (0, false)),
+        ("/b", Some(&[1][..]), (1, true)),
+        ("/c/inner", Some(&[2, 0][..]), (2, true)),
+        ("/c", None, (1, false)),
     ] {
-        let indices = Settings::SCHEMA
-            .transcode::<Short<Indices<[usize; 2]>>>(Path {
+        let have = Settings::SCHEMA
+            .get(Path {
                 path: keys,
                 separator: '/',
             })
             .unwrap();
-        println!("{keys} {indices:?}");
-        assert_eq!(indices.leaf(), leaf);
-        assert_eq!(indices.inner().as_ref(), idx);
+        println!("{keys} {have:?}");
+        assert_lookup(have, info.0, info.1);
+        if let Some(idx) = idx {
+            let have = Settings::SCHEMA
+                .transcode::<Indices<[usize; 2]>>(Path {
+                    path: keys,
+                    separator: '/',
+                })
+                .unwrap();
+            assert_eq!(have.as_ref(), idx);
+        }
     }
-    let indices = Option::<i8>::SCHEMA
-        .transcode::<Short<Indices<[usize; 1]>>>([0usize; 0])
-        .unwrap();
-    assert_eq!(indices.inner().as_ref(), [0usize; 0]);
-    assert!(indices.leaf());
-    assert_eq!(indices.inner().len(), 0);
+    assert_lookup(Option::<i8>::SCHEMA.get([0usize; 0]).unwrap(), 0, true);
 
     let mut it = [0usize; 4].into_iter();
     assert_eq!(
@@ -88,6 +139,53 @@ fn indices() {
         Err(KeyError::TooLong.into())
     );
     assert_eq!(it.count(), 2);
+}
+
+#[test]
+fn get() {
+    for (keys, depth, leaf) in [
+        (&[][..], 0, false),
+        (&[1usize][..], 1, true),
+        (&[2usize][..], 1, false),
+        (&[2usize, 0][..], 2, true),
+    ] {
+        assert_lookup(Settings::SCHEMA.get(keys).unwrap(), depth, leaf);
+    }
+    assert_eq!(Settings::SCHEMA.get([2usize, 0, 1]), Err(KeyError::TooLong));
+    assert_eq!(Settings::SCHEMA.get(["missing"]), Err(KeyError::NotFound));
+}
+
+#[test]
+fn indices_capacity() {
+    let mut indices = Indices::from([0usize; 1]);
+    assert_eq!(
+        indices.transcode_from(Settings::SCHEMA, [2usize, 0]),
+        Err(DescendError::Inner(()))
+    );
+    assert_eq!(indices.as_ref(), [2usize]);
+    assert_eq!(indices.len(), 1);
+}
+
+#[cfg(feature = "json-core")]
+#[test]
+fn slice_cursor_keys() {
+    let settings = Settings::default();
+    let full = [2usize, 0];
+    let mut rest = &full[..];
+    let mut buf = [0u8; 32];
+    let len = miniconf::json_core::get_by_keys(&settings, &mut rest, &mut buf).unwrap();
+    assert_eq!(&buf[..len], b"0.0");
+    assert_eq!(full.len() - rest.len(), 2);
+
+    let full = [2usize, 0, 1];
+    let mut rest = &full[..];
+    assert_eq!(
+        miniconf::json_core::get_by_keys(&settings, &mut rest, &mut buf),
+        Err(miniconf::SerdeError::Value(miniconf::ValueError::Key(
+            KeyError::TooLong
+        )))
+    );
+    assert_eq!(full.len() - rest.len(), 2);
 }
 
 #[test]

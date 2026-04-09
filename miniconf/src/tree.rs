@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, Seeded, SerdeError, ValueError};
+use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -12,7 +12,8 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, Seeded, SerdeError, Val
 ///
 /// There is a one-to-one relationship between nodes and keys.
 /// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
-/// obtained from other [`IntoKeys`] through [`Schema::transcode()`].
+/// obtained from other [`IntoKeys`] through [`FromConfig::transcode()`] or
+/// [`Schema::transcode()`].
 /// An iterator of keys for the nodes is available through [`Schema::nodes()`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
@@ -40,13 +41,13 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, Seeded, SerdeError, Val
 /// the `rename` derive macro attribute.
 ///
 /// ```
-/// use miniconf::{Path, Tree, TreeSchema};
+/// use miniconf::{FromConfig, Path, Tree, TreeSchema};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(rename = "OTHER")]
 ///     a: f32,
 /// };
-/// let name = S::SCHEMA.transcode::<Path<String>>([0usize]).unwrap();
+/// let name = Path::<String>::transcode(S::SCHEMA, [0usize]).unwrap();
 /// assert_eq!(name.path.as_str(), "/OTHER");
 /// ```
 ///
@@ -152,7 +153,7 @@ pub trait TreeSchema {
     /// Return an exact size iterator of all leaf nodes
     ///
     /// This ensures sufficient state depth at compile time.
-    fn nodes<N: Seeded, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+    fn nodes<N: FromConfig, const D: usize>() -> ExactSize<NodeIter<N, D>> {
         const { assert!(D >= Self::SCHEMA.shape().max_depth) }
         Self::SCHEMA.nodes()
     }

@@ -1,5 +1,5 @@
 use miniconf::{
-    Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Shape, Track, Tree,
+    Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Shape, Tree,
     TreeSchema, json_core, leaf,
 };
 
@@ -29,26 +29,20 @@ fn set_get(
     common::set_get(tree, path, value);
 
     // Indices
-    let (idx, depth) = Settings::SCHEMA
-        .transcode::<Track<Indices<[usize; 4]>>>(Path {
+    let idx = Settings::SCHEMA
+        .transcode::<Indices<[usize; 4]>>(Path {
             path,
             separator: '/',
         })
-        .unwrap()
-        .into_inner();
-
-    assert_eq!(depth, idx.len());
+        .unwrap();
+    let depth = idx.len();
     json_core::set_by_key(tree, &idx, value)?;
     let mut buf = vec![0; value.len()];
     let len = json_core::get_by_key(tree, &idx, &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let (packed, depth) = Settings::SCHEMA
-        .transcode::<Track<Packed>>(&idx)
-        .unwrap()
-        .into_inner();
-    assert_eq!(depth, idx.len());
+    let packed = Settings::SCHEMA.transcode::<Packed>(&idx).unwrap();
     json_core::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
     let len = json_core::get_by_key(tree, packed, &mut buf[..]).unwrap();

@@ -2,8 +2,30 @@ use core::{convert::Infallible, num::NonZero};
 use serde::Serialize;
 
 use crate::{
-    DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Seeded, Shape, Transcode,
+    DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
 };
+
+/// Result of an exact key lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Lookup {
+    /// The number of keys consumed.
+    pub depth: usize,
+    /// Whether the traversal reached a leaf node.
+    pub leaf: bool,
+    /// The schema reached by the traversal.
+    pub schema: &'static Schema,
+}
+
+/// Error returned by [`Schema::resolve_into()`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolveError {
+    /// The traversal error.
+    pub error: DescendError<()>,
+    /// The number of keys consumed before the error.
+    pub depth: usize,
+    /// Whether the traversal had already reached a leaf when known.
+    pub leaf: Option<bool>,
+}
 
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
@@ -166,7 +188,7 @@ impl Schema {
         internal: None,
     };
 
-    /// Create a new internal node schema with named children and without innner metadata
+    /// Create a new internal node schema with numbered children and without inner metadata
     pub const fn numbered(numbered: &'static [Numbered]) -> Self {
         Self {
             meta: None,
@@ -174,7 +196,7 @@ impl Schema {
         }
     }
 
-    /// Create a new internal node schema with numbered children and without innner metadata
+    /// Create a new internal node schema with named children and without inner metadata
     pub const fn named(named: &'static [Named]) -> Self {
         Self {
             meta: None,
@@ -208,12 +230,9 @@ impl Schema {
         self.is_leaf()
     }
 
-    /// Look up the next item from keys and return a child index
-    ///
-    /// # Panics
-    /// On a leaf Schema.
+    /// Look up the next item from keys and return a child index.
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
-        keys.next(self.internal.as_ref().unwrap())
+        keys.next(self.internal.as_ref().ok_or(KeyError::TooLong)?)
     }
 
     /// Traverse from the root to a leaf and call a function for each node.
@@ -285,24 +304,102 @@ impl Schema {
         Ok((outer, inner))
     }
 
-    /// Get the schema of the node identified by keys.
-    pub fn get(&self, keys: impl IntoKeys) -> Result<&Self, KeyError> {
+    pub(crate) fn get_indexed(&self, indices: &[usize]) -> &Self {
         let mut schema = self;
-        self.descend(keys.into_keys(), |s, _idx_internal| {
-            schema = s;
-            Ok::<_, Infallible>(())
-        })
-        .map_err(|e| e.try_into().unwrap())?;
-        Ok(schema)
+        let mut i = 0;
+        while i < indices.len() {
+            let internal = schema.internal.as_ref().unwrap();
+            schema = internal.get_schema(indices[i]);
+            i += 1;
+        }
+        schema
     }
 
-    /// Transcode keys to a new keys type representation using its default seed.
+    fn walk(
+        &'static self,
+        keys: impl IntoKeys,
+        mut on_index: impl FnMut(usize, usize) -> Result<(), ()>,
+    ) -> Result<Lookup, ResolveError> {
+        let mut schema = self;
+        let mut keys = keys.into_keys();
+        let mut depth = 0;
+
+        while let Some(internal) = schema.internal.as_ref() {
+            let idx = match keys.next(internal) {
+                Ok(idx) => idx,
+                Err(KeyError::TooShort) => {
+                    let leaf = schema.is_leaf();
+                    debug_assert!(!leaf);
+                    return Ok(Lookup {
+                        depth,
+                        leaf,
+                        schema,
+                    });
+                }
+                Err(err) => {
+                    return Err(ResolveError {
+                        error: err.into(),
+                        depth,
+                        leaf: schema.is_leaf().then_some(true),
+                    });
+                }
+            };
+            on_index(depth, idx).map_err(|()| ResolveError {
+                error: DescendError::Inner(()),
+                depth,
+                leaf: None,
+            })?;
+            depth += 1;
+            schema = internal.get_schema(idx);
+        }
+
+        match keys.finalize() {
+            Ok(()) => Ok(Lookup {
+                depth,
+                leaf: true,
+                schema,
+            }),
+            Err(KeyError::TooLong) => Err(ResolveError {
+                error: KeyError::TooLong.into(),
+                depth,
+                leaf: Some(true),
+            }),
+            Err(err) => unreachable!("unexpected finalize error: {err:?}"),
+        }
+    }
+
+    /// Resolve a key traversal while recording the consumed index prefix into `state`.
     ///
-    /// In order to not require the default seed, use [`Self::transcode_with`]
-    /// or [`Transcode::transcode`] on an existing `&mut N`.
+    /// On both success and failure, `state[..depth]` contains the longest valid consumed prefix.
+    pub fn resolve_into(
+        &'static self,
+        keys: impl IntoKeys,
+        state: &mut [usize],
+    ) -> Result<Lookup, ResolveError> {
+        self.walk(keys, |depth, idx| {
+            *state.get_mut(depth).ok_or(())? = idx;
+            Ok(())
+        })
+    }
+
+    /// Get the schema node identified exactly by `keys`.
+    pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
+        self.walk(keys, |_, _| Ok(()))
+            .map_err(|err| match err.error {
+                DescendError::Key(err) => err,
+                DescendError::Inner(()) => unreachable!("infallible exact lookup"),
+            })
+    }
+
+    /// Transcode keys to a new keys type representation using its default configuration.
+    ///
+    /// This is a convenience wrapper around [`FromConfig::transcode()`].
+    ///
+    /// In order to not require the default configuration, use [`FromConfig::transcode_with`] or
+    /// [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Packed, Track, Short, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -324,31 +421,31 @@ impl Schema {
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
-    /// let node = sch.transcode::<Short<Track<()>>>(&path).unwrap();
-    /// assert_eq!((node.leaf(), node.inner().depth()), (true, 2));
+    /// let lookup = sch.get(&path).unwrap();
+    /// assert_eq!((lookup.depth, lookup.leaf), (2, true));
     /// ```
     ///
     /// # Args
     /// * `keys`: `IntoKeys` to identify the node.
     ///
     /// # Returns
-    /// Transcoded target and node information on success
-    pub fn transcode<N: Transcode + Seeded>(
+    /// The transcoded target on success.
+    pub fn transcode<N: Transcode + FromConfig>(
         &self,
         keys: impl IntoKeys,
     ) -> Result<N, DescendError<N::Error>> {
-        self.transcode_with(keys, N::DEFAULT_SEED)
+        N::transcode(self, keys)
     }
 
-    /// Look up the key and transcode it into a fresh output constructed from `seed`.
-    pub fn transcode_with<N: Transcode + Seeded>(
+    /// Transcode keys to a fresh representation using the provided configuration.
+    ///
+    /// This is a convenience wrapper around [`FromConfig::transcode_with()`].
+    pub fn transcode_with<N: Transcode + FromConfig>(
         &self,
         keys: impl IntoKeys,
-        seed: N::Seed,
+        config: N::Config,
     ) -> Result<N, DescendError<N::Error>> {
-        let mut target = N::from_seed(&seed);
-        target.transcode(self, keys)?;
-        Ok(target)
+        N::transcode_with(self, keys, config)
     }
 
     /// The Shape of the schema
@@ -365,7 +462,7 @@ impl Schema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, Short, Track, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -395,26 +492,34 @@ impl Schema {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     ///
-    /// let nodes: Vec<_> = S::SCHEMA.nodes::<Short<Track<()>>, MAX_DEPTH>()
+    /// let nodes: Vec<_> = S::SCHEMA.nodes_with::<Path<String>, MAX_DEPTH>('/')
     ///     .map(|p| {
     ///         let p = p.unwrap();
-    ///         (p.leaf(), p.inner().depth())
+    ///         let lookup = S::SCHEMA.get(&p).unwrap();
+    ///         ((lookup.depth, lookup.leaf), p.into_inner())
     ///     })
     ///     .collect();
-    /// assert_eq!(nodes, [(true, 1), (true, 2), (true, 2)]);
+    /// assert_eq!(
+    ///     nodes,
+    ///     [
+    ///         ((1, true), "/foo".into()),
+    ///         ((2, true), "/bar/0".into()),
+    ///         ((2, true), "/bar/1".into()),
+    ///     ]
+    /// );
     /// ```
-    pub const fn nodes<N: Seeded, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::new(self, [0; D], 0, N::DEFAULT_SEED).exact_size()
+    pub const fn nodes<N: FromConfig, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
+        NodeIter::new(self, [0; D], 0, N::DEFAULT_CONFIG).exact_size()
     }
 
     /// Return an iterator over nodes using a preconfigured output seed.
     ///
     /// This is useful for runtime-configured path encodings such as [`crate::Path`],
     /// where the emitted separator is stored in the target value rather than in a const generic.
-    pub fn nodes_with<N: Seeded, const D: usize>(
+    pub fn nodes_with<N: FromConfig, const D: usize>(
         &'static self,
-        seed: N::Seed,
+        config: N::Config,
     ) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::new(self, [0; D], 0, seed).exact_size()
+        NodeIter::new(self, [0; D], 0, config).exact_size()
     }
 }
