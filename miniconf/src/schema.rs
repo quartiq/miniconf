@@ -316,7 +316,7 @@ impl Schema {
     fn walk(
         &'static self,
         keys: impl IntoKeys,
-        mut on_index: impl FnMut(usize, usize) -> Result<(), ()>,
+        mut on_index: impl FnMut(usize, usize) -> bool,
     ) -> Result<Lookup, ResolveError> {
         let mut schema = self;
         let mut keys = keys.into_keys();
@@ -337,11 +337,13 @@ impl Schema {
                     });
                 }
             };
-            on_index(depth, idx).map_err(|()| ResolveError {
-                error: DescendError::Inner(()),
-                depth,
-                leaf: None,
-            })?;
+            if !on_index(depth, idx) {
+                return Err(ResolveError {
+                    error: DescendError::Inner(()),
+                    depth,
+                    leaf: None,
+                });
+            }
             depth += 1;
             schema = internal.get_schema(idx);
         }
@@ -366,18 +368,20 @@ impl Schema {
         state: &mut [usize],
     ) -> Result<Lookup, ResolveError> {
         self.walk(keys, |depth, idx| {
-            *state.get_mut(depth).ok_or(())? = idx;
-            Ok(())
+            let Some(slot) = state.get_mut(depth) else {
+                return false;
+            };
+            *slot = idx;
+            true
         })
     }
 
     /// Get the schema node identified exactly by `keys`.
     pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
-        self.walk(keys, |_, _| Ok(()))
-            .map_err(|err| match err.error {
-                DescendError::Key(err) => err,
-                DescendError::Inner(()) => unreachable!("infallible exact lookup"),
-            })
+        self.walk(keys, |_, _| true).map_err(|err| match err.error {
+            DescendError::Key(err) => err,
+            DescendError::Inner(()) => unreachable!("infallible exact lookup"),
+        })
     }
 
     /// Transcode keys to a new keys type representation using its default configuration.
