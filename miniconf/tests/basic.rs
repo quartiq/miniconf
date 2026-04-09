@@ -1,8 +1,13 @@
 use miniconf::{
-    ConstPath, DescendError, FromConfig, Indices, JsonPath, KeyError, NodeInfo, NodeIter, Path,
+    ConstPath, DescendError, FromConfig, Indices, JsonPath, KeyError, Lookup, NodeIter, Path,
     Shape, Transcode, Tree, TreeSchema,
 };
 mod common;
+
+fn assert_lookup(have: Lookup, depth: usize, leaf: bool) {
+    assert_eq!(have.depth, depth);
+    assert_eq!(have.leaf, leaf);
+}
 
 #[test]
 fn borrowed() {
@@ -45,13 +50,7 @@ fn meta() {
 
 #[test]
 fn path() {
-    assert_eq!(
-        Settings::SCHEMA.node_info([1usize]),
-        Ok(NodeInfo {
-            depth: 1,
-            leaf: true
-        })
-    );
+    assert_lookup(Settings::SCHEMA.get([1usize]).unwrap(), 1, true);
     assert_eq!(
         NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, [1usize], '/')
             .unwrap()
@@ -62,13 +61,7 @@ fn path() {
         "/b"
     );
 
-    assert_eq!(
-        Settings::SCHEMA.node_info([2usize, 0]),
-        Ok(NodeInfo {
-            depth: 2,
-            leaf: true
-        })
-    );
+    assert_lookup(Settings::SCHEMA.get([2usize, 0]).unwrap(), 2, true);
     assert_eq!(
         NodeIter::<Path<String>, 2>::with_root(Settings::SCHEMA, [2usize, 0], '/')
             .unwrap()
@@ -79,21 +72,8 @@ fn path() {
         "/c/inner"
     );
 
-    assert_eq!(
-        Settings::SCHEMA.node_info([2usize]),
-        Ok(NodeInfo {
-            depth: 1,
-            leaf: false
-        })
-    );
-
-    assert_eq!(
-        Settings::SCHEMA.node_info([0usize; 0]),
-        Ok(NodeInfo {
-            depth: 0,
-            leaf: false
-        })
-    );
+    assert_lookup(Settings::SCHEMA.get([2usize]).unwrap(), 1, false);
+    assert_lookup(Settings::SCHEMA.get([0usize; 0]).unwrap(), 0, false);
 }
 
 #[test]
@@ -128,47 +108,19 @@ fn transcode_reuse_semantics() {
 #[test]
 fn indices() {
     for (keys, idx, info) in [
-        (
-            "",
-            None,
-            NodeInfo {
-                depth: 0,
-                leaf: false,
-            },
-        ),
-        (
-            "/b",
-            Some(&[1][..]),
-            NodeInfo {
-                depth: 1,
-                leaf: true,
-            },
-        ),
-        (
-            "/c/inner",
-            Some(&[2, 0][..]),
-            NodeInfo {
-                depth: 2,
-                leaf: true,
-            },
-        ),
-        (
-            "/c",
-            None,
-            NodeInfo {
-                depth: 1,
-                leaf: false,
-            },
-        ),
+        ("", None, (0, false)),
+        ("/b", Some(&[1][..]), (1, true)),
+        ("/c/inner", Some(&[2, 0][..]), (2, true)),
+        ("/c", None, (1, false)),
     ] {
         let have = Settings::SCHEMA
-            .node_info(Path {
+            .get(Path {
                 path: keys,
                 separator: '/',
             })
             .unwrap();
         println!("{keys} {have:?}");
-        assert_eq!(have, info);
+        assert_lookup(have, info.0, info.1);
         if let Some(idx) = idx {
             let have = Settings::SCHEMA
                 .transcode::<Indices<[usize; 2]>>(Path {
@@ -179,14 +131,7 @@ fn indices() {
             assert_eq!(have.as_ref(), idx);
         }
     }
-    let info = Option::<i8>::SCHEMA.node_info([0usize; 0]).unwrap();
-    assert_eq!(
-        info,
-        NodeInfo {
-            depth: 0,
-            leaf: true
-        }
-    );
+    assert_lookup(Option::<i8>::SCHEMA.get([0usize; 0]).unwrap(), 0, true);
 
     let mut it = [0usize; 4].into_iter();
     assert_eq!(
@@ -197,50 +142,23 @@ fn indices() {
 }
 
 #[test]
-fn node_info() {
-    for (keys, info) in [
-        (
-            &[][..],
-            NodeInfo {
-                depth: 0,
-                leaf: false,
-            },
-        ),
-        (
-            &[1usize][..],
-            NodeInfo {
-                depth: 1,
-                leaf: true,
-            },
-        ),
-        (
-            &[2usize][..],
-            NodeInfo {
-                depth: 1,
-                leaf: false,
-            },
-        ),
-        (
-            &[2usize, 0][..],
-            NodeInfo {
-                depth: 2,
-                leaf: true,
-            },
-        ),
-        (
-            &[2usize, 0, 1][..],
-            NodeInfo {
-                depth: 2,
-                leaf: true,
-            },
-        ),
+fn get() {
+    for (keys, depth, leaf) in [
+        (&[][..], 0, false),
+        (&[1usize][..], 1, true),
+        (&[2usize][..], 1, false),
+        (&[2usize, 0][..], 2, true),
     ] {
-        assert_eq!(Settings::SCHEMA.node_info(keys), Ok(info));
+        assert_lookup(Settings::SCHEMA.get(keys).unwrap(), depth, leaf);
     }
-    assert_eq!(
-        Settings::SCHEMA.node_info(["missing"]),
-        Err(KeyError::NotFound)
-    );
+    let err = Settings::SCHEMA.get([2usize, 0, 1]).unwrap_err();
+    assert_eq!(err.error, KeyError::TooLong.into());
+    assert_eq!(err.depth, 2);
+    assert_eq!(err.leaf, Some(true));
+    let err = Settings::SCHEMA.get(["missing"]).unwrap_err();
+    assert_eq!(err.error, KeyError::NotFound.into());
+    assert_eq!(err.depth, 0);
+    assert_eq!(err.leaf, None);
 }
 
 #[test]

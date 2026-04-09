@@ -5,13 +5,15 @@ use crate::{
     DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
 };
 
-/// Information about the node reached by a key traversal.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct NodeInfo {
+/// Result of an exact key lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct Lookup {
     /// The number of keys consumed.
     pub depth: usize,
     /// Whether the traversal reached a leaf node.
     pub leaf: bool,
+    /// The schema reached by the traversal.
+    pub schema: &'static Schema,
 }
 
 /// Error returned by [`Schema::resolve_into()`].
@@ -305,17 +307,6 @@ impl Schema {
         Ok((outer, inner))
     }
 
-    /// Get the schema of the node identified by keys.
-    pub fn get(&self, keys: impl IntoKeys) -> Result<&Self, KeyError> {
-        let mut schema = self;
-        self.descend(keys.into_keys(), |s, _idx_internal| {
-            schema = s;
-            Ok::<_, Infallible>(())
-        })
-        .map_err(|e| e.try_into().unwrap())?;
-        Ok(schema)
-    }
-
     pub(crate) fn get_indexed(&self, indices: &[usize]) -> &Self {
         let mut schema = self;
         let mut i = 0;
@@ -327,12 +318,11 @@ impl Schema {
         schema
     }
 
-    fn classify_impl(
-        &self,
+    fn walk(
+        &'static self,
         keys: impl IntoKeys,
         mut on_index: impl FnMut(usize, usize) -> Result<(), ()>,
-        exact: bool,
-    ) -> Result<NodeInfo, ResolveError> {
+    ) -> Result<Lookup, ResolveError> {
         let mut schema = self;
         let mut keys = keys.into_keys();
         let mut depth = 0;
@@ -340,19 +330,20 @@ impl Schema {
         while let Some(internal) = schema.internal.as_ref() {
             let idx = match keys.next(internal) {
                 Ok(idx) => idx,
-                Err(KeyError::TooShort) if !exact => return Ok(NodeInfo { depth, leaf: false }),
                 Err(KeyError::TooShort) => {
-                    return Err(ResolveError {
-                        error: KeyError::TooShort.into(),
+                    let leaf = schema.is_leaf();
+                    debug_assert!(!leaf);
+                    return Ok(Lookup {
                         depth,
-                        leaf: Some(false),
+                        leaf,
+                        schema,
                     });
                 }
                 Err(err) => {
                     return Err(ResolveError {
                         error: err.into(),
                         depth,
-                        leaf: None,
+                        leaf: schema.is_leaf().then_some(true),
                     });
                 }
             };
@@ -366,65 +357,37 @@ impl Schema {
         }
 
         match keys.finalize() {
-            Ok(()) => Ok(NodeInfo { depth, leaf: true }),
-            Err(KeyError::TooLong) if !exact => Ok(NodeInfo { depth, leaf: true }),
+            Ok(()) => Ok(Lookup {
+                depth,
+                leaf: true,
+                schema,
+            }),
             Err(KeyError::TooLong) => Err(ResolveError {
                 error: KeyError::TooLong.into(),
                 depth,
                 leaf: Some(true),
             }),
-            Err(err) => Err(ResolveError {
-                error: err.into(),
-                depth,
-                leaf: None,
-            }),
+            Err(err) => unreachable!("unexpected finalize error: {err:?}"),
         }
-    }
-
-    fn classify(&self, keys: impl IntoKeys) -> Result<NodeInfo, ResolveError> {
-        self.classify_impl(keys, |_, _| Ok(()), false)
-    }
-
-    pub(crate) fn classify_into(
-        &self,
-        keys: impl IntoKeys,
-        state: &mut [usize],
-    ) -> Result<NodeInfo, ResolveError> {
-        self.classify_impl(
-            keys,
-            |depth, idx| {
-                *state.get_mut(depth).ok_or(())? = idx;
-                Ok(())
-            },
-            false,
-        )
     }
 
     /// Resolve a key traversal while recording the consumed index prefix into `state`.
     ///
     /// On both success and failure, `state[..depth]` contains the longest valid consumed prefix.
     pub fn resolve_into(
-        &self,
+        &'static self,
         keys: impl IntoKeys,
         state: &mut [usize],
-    ) -> Result<NodeInfo, ResolveError> {
-        self.classify_impl(
-            keys,
-            |depth, idx| {
-                *state.get_mut(depth).ok_or(())? = idx;
-                Ok(())
-            },
-            true,
-        )
+    ) -> Result<Lookup, ResolveError> {
+        self.walk(keys, |depth, idx| {
+            *state.get_mut(depth).ok_or(())? = idx;
+            Ok(())
+        })
     }
 
-    /// Return how far the key traversal gets and whether it reaches a leaf.
-    ///
-    /// A `TooShort` key still identifies an internal node and therefore succeeds with
-    /// `leaf == false`. Invalid lookups such as `NotFound` still return the traversal error.
-    pub fn node_info(&self, keys: impl IntoKeys) -> Result<NodeInfo, KeyError> {
-        self.classify(keys)
-            .map_err(|err| err.error.try_into().unwrap())
+    /// Get the schema node identified exactly by `keys`.
+    pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, ResolveError> {
+        self.walk(keys, |_, _| Ok(()))
     }
 
     /// Transcode keys to a new keys type representation using its default configuration.
@@ -435,7 +398,7 @@ impl Schema {
     /// [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, NodeInfo, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -457,7 +420,8 @@ impl Schema {
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
-    /// assert_eq!(sch.node_info(&path), Ok(NodeInfo { depth: 2, leaf: true }));
+    /// let lookup = sch.get(&path).unwrap();
+    /// assert_eq!((lookup.depth, lookup.leaf), (2, true));
     /// ```
     ///
     /// # Args
@@ -497,7 +461,7 @@ impl Schema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
-    /// use miniconf::{Indices, JsonPath, NodeInfo, Packed, Path, TreeSchema};
+    /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -530,15 +494,16 @@ impl Schema {
     /// let nodes: Vec<_> = S::SCHEMA.nodes_with::<Path<String>, MAX_DEPTH>('/')
     ///     .map(|p| {
     ///         let p = p.unwrap();
-    ///         (S::SCHEMA.node_info(&p).unwrap(), p.into_inner())
+    ///         let lookup = S::SCHEMA.get(&p).unwrap();
+    ///         ((lookup.depth, lookup.leaf), p.into_inner())
     ///     })
     ///     .collect();
     /// assert_eq!(
     ///     nodes,
     ///     [
-    ///         (NodeInfo { depth: 1, leaf: true }, "/foo".into()),
-    ///         (NodeInfo { depth: 2, leaf: true }, "/bar/0".into()),
-    ///         (NodeInfo { depth: 2, leaf: true }, "/bar/1".into()),
+    ///         ((1, true), "/foo".into()),
+    ///         ((2, true), "/bar/0".into()),
+    ///         ((2, true), "/bar/1".into()),
     ///     ]
     /// );
     /// ```

@@ -30,7 +30,7 @@ fn main() -> anyhow::Result<()> {
                 println!("-{} {}", key, core::str::from_utf8(&buf[..len]).unwrap());
             }
             Err(SerdeError::Value(ValueError::Absent)) => {
-                let info = Settings::SCHEMA.node_info(&key).unwrap();
+                let info = Settings::SCHEMA.get(&key).unwrap();
                 println!("-{} absent (depth: {})", key, info.depth);
             }
             err => {

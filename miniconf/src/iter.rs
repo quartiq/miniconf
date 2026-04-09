@@ -90,7 +90,7 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     ) -> Result<Self, DescendError<()>> {
         let mut state = [0; D];
         let info = schema
-            .classify_into(root, state.as_mut())
+            .resolve_into(root, state.as_mut())
             .map_err(|err| err.error)?;
         Ok(Self::new(schema, state, info.depth, config))
     }
@@ -139,17 +139,11 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     }
 
     fn descend_leftmost(&mut self) {
-        while self.depth < D {
-            let Some(_internal) = self
-                .schema
-                .get_indexed(&self.state[..self.depth])
-                .internal
-                .as_ref()
-            else {
-                break;
-            };
+        let mut schema = self.schema.get_indexed(&self.state[..self.depth]);
+        while self.depth < D && !schema.is_leaf() {
             self.state[self.depth] = 0;
             self.depth += 1;
+            schema = schema.internal.as_ref().unwrap().get_schema(0);
         }
     }
 

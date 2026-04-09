@@ -1,4 +1,4 @@
-use miniconf::{Indices, KeyError, NodeInfo, Packed, Path, Shape, Tree, TreeSchema, TreeSerialize};
+use miniconf::{Indices, KeyError, Packed, Path, Shape, Tree, TreeSchema, TreeSerialize};
 mod common;
 
 #[derive(Tree, Default)]
@@ -10,13 +10,8 @@ struct Settings {
 #[test]
 fn packed() {
     // Check empty being too short
-    assert_eq!(
-        Settings::SCHEMA.node_info(Packed::EMPTY),
-        Ok(NodeInfo {
-            depth: 0,
-            leaf: false
-        })
-    );
+    let info = Settings::SCHEMA.get(Packed::EMPTY).unwrap();
+    assert_eq!((info.depth, info.leaf), (0, false));
 
     // Check path-packed round trip.
     for iter_path in Settings::SCHEMA
@@ -30,7 +25,7 @@ fn packed() {
             "{path:?} {iter_path:?}, {:#06b} {} {:?}",
             packed.get() >> 60,
             packed.into_lsb(),
-            Settings::SCHEMA.node_info(&iter_path).unwrap().depth
+            Settings::SCHEMA.get(&iter_path).unwrap().depth
         );
     }
     println!(
@@ -44,7 +39,7 @@ fn packed() {
     // Check that Packed `marker + 0b0` is equivalent to `/a`
     let a = Packed::from_lsb(0b10.try_into().unwrap());
     let path: Path<String> = Settings::SCHEMA.transcode(a).unwrap();
-    assert_eq!(Settings::SCHEMA.node_info(a).unwrap().depth, 1);
+    assert_eq!(Settings::SCHEMA.get(a).unwrap().depth, 1);
     assert_eq!(path.as_ref(), "/a");
 }
 
@@ -71,10 +66,7 @@ fn top() {
     );
     let p: Packed = S::SCHEMA.transcode([1usize]).unwrap();
     assert_eq!(
-        (
-            p.into_lsb().get(),
-            S::SCHEMA.node_info([1usize]).unwrap().depth
-        ),
+        (p.into_lsb().get(), S::SCHEMA.get([1usize]).unwrap().depth),
         (0b11, 1)
     );
     assert_eq!(
@@ -157,7 +149,7 @@ fn size() {
     assert_eq!(core::mem::size_of::<A31>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let path = A31::SCHEMA.transcode::<Path<String>>(packed).unwrap();
-    assert_eq!(A31::SCHEMA.node_info(packed).unwrap().depth, 31);
+    assert_eq!(A31::SCHEMA.get(packed).unwrap().depth, 31);
     assert_eq!(path.as_ref().len(), 2 * 31);
     const META: Shape = A31::SCHEMA.shape();
     assert_eq!(META.max_bits, 31);
@@ -171,7 +163,7 @@ fn size() {
     assert_eq!(core::mem::size_of::<A16>(), 0);
     let packed = Packed::new_from_lsb(1 << 31).unwrap();
     let path = A16::SCHEMA.transcode::<Path<String>>(packed).unwrap();
-    assert_eq!(A16::SCHEMA.node_info(packed).unwrap().depth, 16);
+    assert_eq!(A16::SCHEMA.get(packed).unwrap().depth, 16);
     assert_eq!(path.as_ref().len(), 2 * 16);
     const META16: Shape = A16::SCHEMA.shape();
     assert_eq!(META16.max_bits, 31);

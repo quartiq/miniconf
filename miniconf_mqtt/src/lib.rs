@@ -8,7 +8,7 @@ use core::{fmt::Display, marker::PhantomData};
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    DescendError, IntoKeys, KeyError, NodeInfo, NodeIter, Path, Schema, SerdeError,
+    DescendError, IntoKeys, KeyError, Lookup, NodeIter, Path, Schema, SerdeError,
     TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 pub use minimq;
@@ -198,7 +198,7 @@ impl<E> Display for DepthError<E> {
 fn resolve<T, E, const Y: usize>(
     schema: &'static Schema,
     keys: impl IntoKeys,
-    func: impl FnOnce(&mut &[usize], NodeInfo) -> Result<T, SerdeError<E>>,
+    func: impl FnOnce(&mut &[usize], Lookup) -> Result<T, SerdeError<E>>,
 ) -> Result<T, DepthError<E>> {
     let mut state = [0; Y];
     let info = schema
@@ -481,10 +481,7 @@ where
             let mut response = Publication::new(&topic, |buf: &mut [u8]| {
                 let full = self.pending.iter.state().unwrap();
                 let mut keys = full;
-                let info = NodeInfo {
-                    depth: full.len(),
-                    leaf: true,
-                };
+                let info = Settings::SCHEMA.get(full).unwrap();
                 json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
                     inner,
                     depth: full.len() - keys.len(),
