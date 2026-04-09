@@ -1,9 +1,17 @@
 use heapless::String;
 use miniconf::{Leaf, Tree, TreeSchema, leaf};
+use miniconf_mqtt::minimq::{
+    self, Broker, BufferLayout,
+    embedded_io_async::{ErrorKind, ErrorType, Read, Write},
+    timer::Timer,
+    transport::Connector,
+};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
-use std_embedded_nal::Stack;
-use std_embedded_time::StandardClock;
+use std::{
+    io,
+    net::{SocketAddr, TcpStream},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Inner {
@@ -53,22 +61,136 @@ mod four {
     }
 }
 
+#[derive(Debug)]
+struct StdConnection(TcpStream);
+
+impl ErrorType for StdConnection {
+    type Error = ErrorKind;
+}
+
+fn io_kind(kind: io::ErrorKind) -> ErrorKind {
+    match kind {
+        io::ErrorKind::NotFound => ErrorKind::NotFound,
+        io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
+        io::ErrorKind::ConnectionRefused => ErrorKind::ConnectionRefused,
+        io::ErrorKind::ConnectionReset => ErrorKind::ConnectionReset,
+        io::ErrorKind::ConnectionAborted => ErrorKind::ConnectionAborted,
+        io::ErrorKind::NotConnected => ErrorKind::NotConnected,
+        io::ErrorKind::AddrInUse => ErrorKind::AddrInUse,
+        io::ErrorKind::AddrNotAvailable => ErrorKind::AddrNotAvailable,
+        io::ErrorKind::BrokenPipe => ErrorKind::BrokenPipe,
+        io::ErrorKind::AlreadyExists => ErrorKind::AlreadyExists,
+        io::ErrorKind::InvalidInput => ErrorKind::InvalidInput,
+        io::ErrorKind::InvalidData => ErrorKind::InvalidData,
+        io::ErrorKind::TimedOut => ErrorKind::TimedOut,
+        io::ErrorKind::WouldBlock => ErrorKind::TimedOut,
+        io::ErrorKind::Interrupted => ErrorKind::Interrupted,
+        io::ErrorKind::Unsupported => ErrorKind::Unsupported,
+        io::ErrorKind::OutOfMemory => ErrorKind::OutOfMemory,
+        io::ErrorKind::WriteZero => ErrorKind::WriteZero,
+        _ => ErrorKind::Other,
+    }
+}
+
+impl Read for StdConnection {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        io::Read::read(&mut self.0, buf).map_err(|err| io_kind(err.kind()))
+    }
+}
+
+impl Write for StdConnection {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        io::Write::write(&mut self.0, buf).map_err(|err| io_kind(err.kind()))
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        io::Write::flush(&mut self.0).map_err(|err| io_kind(err.kind()))
+    }
+}
+
+#[derive(Debug, Copy, Clone)]
+struct StdConnector;
+
+impl Connector for StdConnector {
+    type ConnectError = ErrorKind;
+    type IoError = ErrorKind;
+    type Connection<'a> = StdConnection;
+
+    async fn connect<'a, const N: usize>(
+        &'a self,
+        broker: &Broker<N>,
+    ) -> Result<Self::Connection<'a>, Self::ConnectError> {
+        let remote = match broker {
+            Broker::SocketAddr(addr) => *addr,
+            Broker::Hostname { .. } => return Err(ErrorKind::Unsupported),
+        };
+        let stream = TcpStream::connect_timeout(&remote, Duration::from_secs(5))
+            .map_err(|err| io_kind(err.kind()))?;
+        stream
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .map_err(|err| io_kind(err.kind()))?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .map_err(|err| io_kind(err.kind()))?;
+        stream
+            .set_nodelay(true)
+            .map_err(|err| io_kind(err.kind()))?;
+        Ok(StdConnection(stream))
+    }
+}
+
+#[derive(Default)]
+struct TokioTimer;
+
+impl Timer for TokioTimer {
+    type Error = core::convert::Infallible;
+
+    fn now(&mut self) -> Result<u64, Self::Error> {
+        Ok(SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64)
+    }
+
+    async fn sleep_until(&mut self, deadline_ms: u64) -> Result<(), Self::Error> {
+        let now = self.now().unwrap();
+        if deadline_ms > now {
+            tokio::time::sleep(Duration::from_millis(deadline_ms - now)).await;
+        }
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
 
-    let mut buffer = [0u8; 1024];
-    let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
+    let mut buffer = [0u8; 2048];
+    let broker = Broker::socket_addr(SocketAddr::new(
+        "127.0.0.1".parse().unwrap(),
+        minimq::MQTT_INSECURE_DEFAULT_PORT,
+    ));
+    let connector = StdConnector;
 
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
 
-    // Construct a settings configuration interface.
-    let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, MAX_DEPTH>::new(
-        Stack,
+    let mut client = miniconf_mqtt::MqttClient::<_, _, _, MAX_DEPTH>::new(
         "test/id",
-        StandardClock::default(),
-        minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer)
-            .keepalive_interval(60),
+        &connector,
+        TokioTimer,
+        minimq::ConfigBuilder::from_buffer_layout(
+            broker,
+            &mut buffer,
+            BufferLayout {
+                rx: 512,
+                tx: 512,
+                inflight: 1024,
+            },
+        )
+        .unwrap()
+        .client_id("miniconf-mqtt-example")
+        .unwrap()
+        .keepalive_interval(60),
     )
     .unwrap();
     client.set_alive("\"hello\"");
@@ -76,8 +198,11 @@ async fn main() {
     let mut settings = Settings::default();
     while !settings.exit {
         tokio::time::sleep(Duration::from_millis(10)).await;
-        if client.update(&mut settings).unwrap() {
-            println!("Settings updated: {:?}", settings);
+        match client.poll(&mut settings).await {
+            Ok(miniconf_mqtt::State::Changed) => println!("Settings updated: {:?}", settings),
+            Ok(miniconf_mqtt::State::Unchanged)
+            | Err(miniconf_mqtt::Error::Mqtt(minimq::Error::Network(ErrorKind::TimedOut))) => {}
+            Err(err) => panic!("{err:?}"),
         }
     }
     println!("Exiting on request");
