@@ -15,7 +15,7 @@ test "$ALIVE" = "" -o "$ALIVE" = "0"
 
 # build and start DUT
 cargo build -p miniconf_mqtt --example mqtt
-cargo run -p miniconf_mqtt --example mqtt &
+target/debug/examples/mqtt &
 DUT_PID=$!
 
 # check initial dump (9 settings)

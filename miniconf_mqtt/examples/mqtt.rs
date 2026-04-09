@@ -1,16 +1,9 @@
 use heapless::String;
 use miniconf::{Leaf, Tree, TreeSchema, leaf};
-use miniconf_mqtt::minimq::{
-    self, Broker, BufferLayout,
-    embedded_io_async::{ErrorKind, ErrorType, Read, Write},
-    transport::Connector,
-};
+use miniconf_mqtt::minimq::{Broker, BufferLayout, transport::TcpConnector};
 use serde::{Deserialize, Serialize};
-use std::{
-    io,
-    net::{SocketAddr, TcpStream},
-    time::Duration,
-};
+use std::{net::SocketAddr, time::Duration};
+use std_embedded_nal_async::Stack;
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Inner {
@@ -60,85 +53,6 @@ mod four {
     }
 }
 
-#[derive(Debug)]
-struct StdConnection(TcpStream);
-
-impl ErrorType for StdConnection {
-    type Error = ErrorKind;
-}
-
-fn io_kind(kind: io::ErrorKind) -> ErrorKind {
-    match kind {
-        io::ErrorKind::NotFound => ErrorKind::NotFound,
-        io::ErrorKind::PermissionDenied => ErrorKind::PermissionDenied,
-        io::ErrorKind::ConnectionRefused => ErrorKind::ConnectionRefused,
-        io::ErrorKind::ConnectionReset => ErrorKind::ConnectionReset,
-        io::ErrorKind::ConnectionAborted => ErrorKind::ConnectionAborted,
-        io::ErrorKind::NotConnected => ErrorKind::NotConnected,
-        io::ErrorKind::AddrInUse => ErrorKind::AddrInUse,
-        io::ErrorKind::AddrNotAvailable => ErrorKind::AddrNotAvailable,
-        io::ErrorKind::BrokenPipe => ErrorKind::BrokenPipe,
-        io::ErrorKind::AlreadyExists => ErrorKind::AlreadyExists,
-        io::ErrorKind::InvalidInput => ErrorKind::InvalidInput,
-        io::ErrorKind::InvalidData => ErrorKind::InvalidData,
-        io::ErrorKind::TimedOut => ErrorKind::TimedOut,
-        io::ErrorKind::WouldBlock => ErrorKind::TimedOut,
-        io::ErrorKind::Interrupted => ErrorKind::Interrupted,
-        io::ErrorKind::Unsupported => ErrorKind::Unsupported,
-        io::ErrorKind::OutOfMemory => ErrorKind::OutOfMemory,
-        io::ErrorKind::WriteZero => ErrorKind::WriteZero,
-        _ => ErrorKind::Other,
-    }
-}
-
-impl Read for StdConnection {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        io::Read::read(&mut self.0, buf).map_err(|err| io_kind(err.kind()))
-    }
-}
-
-impl Write for StdConnection {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        io::Write::write(&mut self.0, buf).map_err(|err| io_kind(err.kind()))
-    }
-
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        io::Write::flush(&mut self.0).map_err(|err| io_kind(err.kind()))
-    }
-}
-
-#[derive(Debug, Copy, Clone)]
-struct StdConnector;
-
-impl Connector for StdConnector {
-    type Error = ErrorKind;
-    type Connection<'a> = StdConnection;
-
-    async fn connect<'a>(
-        &'a self,
-        broker: &Broker<'_>,
-    ) -> Result<Self::Connection<'a>, minimq::Error> {
-        let remote = match broker {
-            Broker::SocketAddr(addr) => *addr,
-            Broker::Hostname { .. } => {
-                return Err(minimq::Error::Transport(ErrorKind::Unsupported));
-            }
-        };
-        let stream = TcpStream::connect_timeout(&remote, Duration::from_secs(5))
-            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
-        stream
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(5)))
-            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
-        stream
-            .set_nodelay(true)
-            .map_err(|err| minimq::Error::Transport(io_kind(err.kind())))?;
-        Ok(StdConnection(stream))
-    }
-}
-
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -148,7 +62,7 @@ async fn main() {
         "127.0.0.1".parse().unwrap(),
         minimq::MQTT_INSECURE_DEFAULT_PORT,
     ));
-    let connector = StdConnector;
+    let connector = TcpConnector::new(Stack::default());
 
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
 
