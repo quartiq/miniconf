@@ -391,7 +391,7 @@ impl Schema {
     /// * `keys`: `IntoKeys` to identify the node.
     ///
     /// # Returns
-    /// Transcoded target and node information on success
+    /// The transcoded target on success.
     pub fn transcode<N: Transcode + FromConfig>(
         &self,
         keys: impl IntoKeys,

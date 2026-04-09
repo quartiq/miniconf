@@ -37,10 +37,9 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 
 /// Node iterator
 ///
-/// A managed indices state for iteration of nodes `N` in a `TreeSchema`.
+/// A managed indices state for iteration of leaf nodes `N` in a `TreeSchema`.
 ///
-/// `D` is the depth limit. If the chosen output representation can encode
-/// non-leaf nodes, those may be returned where the depth limit is exceeded.
+/// `D` is the depth limit. Leaf nodes deeper than `D` are skipped.
 ///
 /// The `Err(N::Error)` variant of the `Iterator::Item` indicates that `N`
 /// failed to encode a yielded node.
@@ -80,9 +79,8 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
 
     /// Limit and start iteration from the provided root key.
     ///
-    /// If the selected root is itself yielded by the iterator (because it is already a leaf or
-    /// because the depth limit stops there), it is returned first. Otherwise iteration continues
-    /// below that root.
+    /// If the selected root is itself a leaf node, it is returned first. Otherwise iteration
+    /// continues below that root.
     ///
     /// This requires moving `self` to ensure `FusedIterator`.
     pub fn with_root(
