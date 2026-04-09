@@ -19,7 +19,6 @@ miniconf = { version = "0.20.1", features = [
     "json-core",
 ], default-features = false, path = "../miniconf" }
 minimq = "0.10.0"
-smlang = "0.8"
 embedded-io = "0.7"
 log = "0.4"
 heapless = "0.9"

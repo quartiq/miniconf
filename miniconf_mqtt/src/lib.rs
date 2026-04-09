@@ -39,16 +39,8 @@ const DUMP_TIMEOUT_SECONDS: u32 = 2;
 pub enum Error<E> {
     /// Miniconf
     Miniconf(DescendError<()>),
-    /// State machine
-    State(sm::Error),
     /// Minimq
     Minimq(minimq::Error<E>),
-}
-
-impl<E> From<sm::Error> for Error<E> {
-    fn from(value: sm::Error) -> Self {
-        Self::State(value)
-    }
 }
 
 impl<E> From<DescendError<()>> for Error<E> {
@@ -66,47 +58,71 @@ impl<E> From<minimq::Error<E>> for Error<E> {
 mod sm {
     use super::DUMP_TIMEOUT_SECONDS;
     use minimq::embedded_time::{self, Instant, duration::Extensions};
-    use smlang::statemachine;
 
-    statemachine! {
-        transitions: {
-            *Connect + Connect = Alive,
-            Alive + Alive = Subscribe,
-            Subscribe + Subscribe / start_timeout = Wait,
-            Wait + Tick [timed_out] = Init,
-            Init + Multipart = Multipart,
-            Multipart + Complete = Single,
-            Single + Multipart = Multipart,
-            _ + Reset = Connect,
-        }
+    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+    pub enum Phase {
+        Connect,
+        Alive,
+        Subscribe,
+        Wait,
+        Init,
+        Multipart,
+        Single,
     }
 
-    pub struct Context<C: embedded_time::Clock> {
+    pub struct Machine<C: embedded_time::Clock> {
+        phase: Phase,
         clock: C,
         timeout: Option<Instant<C>>,
     }
 
-    impl<C: embedded_time::Clock> Context<C> {
+    impl<C: embedded_time::Clock> Machine<C> {
         pub fn new(clock: C) -> Self {
             Self {
+                phase: Phase::Connect,
                 clock,
                 timeout: None,
             }
         }
-    }
 
-    impl<C: embedded_time::Clock> StateMachineContext for Context<C> {
-        fn timed_out(&self) -> Result<bool, ()> {
-            Ok(self
-                .timeout
-                .map(|t| self.clock.try_now().unwrap() >= t)
-                .unwrap_or_default())
+        pub fn phase(&self) -> Phase {
+            self.phase
         }
 
-        fn start_timeout(&mut self) -> Result<(), ()> {
-            self.timeout
-                .replace(self.clock.try_now().unwrap() + DUMP_TIMEOUT_SECONDS.seconds());
-            Ok(())
+        pub fn reset(&mut self) {
+            self.phase = Phase::Connect;
+            self.timeout = None;
+        }
+
+        pub fn on_connected(&mut self) {
+            self.phase = Phase::Alive;
+        }
+
+        pub fn on_alive(&mut self) {
+            self.phase = Phase::Subscribe;
+        }
+
+        pub fn on_subscribed(&mut self) {
+            self.timeout = Some(self.clock.try_now().unwrap() + DUMP_TIMEOUT_SECONDS.seconds());
+            self.phase = Phase::Wait;
+        }
+
+        pub fn poll_timeout(&mut self) {
+            if self
+                .timeout
+                .map(|t| self.clock.try_now().unwrap() >= t)
+                .unwrap_or_default()
+            {
+                self.phase = Phase::Init;
+            }
+        }
+
+        pub fn start_multipart(&mut self) {
+            self.phase = Phase::Multipart;
+        }
+
+        pub fn complete(&mut self) {
+            self.phase = Phase::Single;
         }
     }
 }
@@ -264,7 +280,7 @@ where
     Broker: minimq::Broker,
 {
     mqtt: minimq::Minimq<'a, Stack, Clock, Broker>,
-    state: sm::StateMachine<sm::Context<Clock>>,
+    state: sm::Machine<Clock>,
     prefix: &'a str,
     alive: &'a str,
     pending: Multipart<Y>,
@@ -311,7 +327,7 @@ where
 
         Ok(Self {
             mqtt: minimq::Minimq::new(stack, clock.clone(), config),
-            state: sm::StateMachine::new(sm::Context::new(clock)),
+            state: sm::Machine::new(clock),
             prefix,
             alive: "1",
             pending: Multipart::new(Settings::SCHEMA),
@@ -334,7 +350,7 @@ where
     /// This will connect (if not connected), send the alive message, subscribe,
     /// and perform the initial settings dump.
     pub fn reset(&mut self) {
-        self.state.process_event(sm::Events::Reset).unwrap();
+        self.state.reset();
     }
 
     /// Update the MQTT interface and service the network.
@@ -343,43 +359,42 @@ where
     /// True if the settings changed. False otherwise.
     pub fn update(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
         if !self.mqtt.client().is_connected() {
-            // Note(unwrap): It's always safe to reset.
-            self.state.process_event(sm::Events::Reset).unwrap();
+            self.state.reset();
         }
 
-        match self.state.state() {
-            sm::States::Connect => {
+        match self.state.phase() {
+            sm::Phase::Connect => {
                 if self.mqtt.client().is_connected() {
                     info!("Connected");
-                    self.state.process_event(sm::Events::Connect).unwrap();
+                    self.state.on_connected();
                 }
             }
-            sm::States::Alive => {
+            sm::Phase::Alive => {
                 if self.alive().is_ok() {
-                    self.state.process_event(sm::Events::Alive).unwrap();
+                    self.state.on_alive();
                 }
             }
-            sm::States::Subscribe => {
+            sm::Phase::Subscribe => {
                 if self.subscribe().is_ok() {
                     info!("Subscribed");
-                    self.state.process_event(sm::Events::Subscribe).unwrap();
+                    self.state.on_subscribed();
                 }
             }
-            sm::States::Wait => {
-                self.state.process_event(sm::Events::Tick).ok();
+            sm::Phase::Wait => {
+                self.state.poll_timeout();
             }
-            sm::States::Init => {
+            sm::Phase::Init => {
                 info!("Dumping");
                 self.dump(None).ok();
             }
-            sm::States::Multipart => {
+            sm::Phase::Multipart => {
                 if self.pending.response_topic.is_some() {
                     self.iter_list();
                 } else {
                     self.iter_dump(settings);
                 }
             }
-            sm::States::Single => { // handled in poll()
+            sm::Phase::Single => { // handled in poll()
             }
         }
         // All states must handle MQTT traffic.
@@ -414,7 +429,7 @@ where
         if let Some(path) = path {
             m = m.root(Path::new(path, SEPARATOR))?;
         }
-        self.state.process_event(sm::Events::Multipart)?;
+        self.state.start_multipart();
         self.pending = m;
         Ok(())
     }
@@ -449,12 +464,12 @@ where
 
             if let Err(err) = self.mqtt.client().publish(response) {
                 info!("Multipart list publish failure: {err:?}");
-                self.state.process_event(sm::Events::Complete).unwrap();
+                self.state.complete();
                 break;
             }
 
             if code != ResponseCode::Continue {
-                self.state.process_event(sm::Events::Complete).unwrap();
+                self.state.complete();
                 break;
             }
         }
@@ -463,7 +478,7 @@ where
     fn iter_dump(&mut self, settings: &Settings) {
         while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
             let Some(path) = self.pending.iter.next() else {
-                self.state.process_event(sm::Events::Complete).unwrap();
+                self.state.complete();
                 break;
             };
 
@@ -523,13 +538,13 @@ where
 
                     if let Err(err) = self.mqtt.client().publish(response) {
                         info!("Multipart dump error response failure: {err:?}");
-                        self.state.process_event(sm::Events::Complete).unwrap();
+                        self.state.complete();
                         break;
                     }
                 }
                 Err(err) => {
                     info!("Multipart dump publish failure: {err:?}");
-                    self.state.process_event(sm::Events::Complete).unwrap();
+                    self.state.complete();
                     break;
                 }
                 Ok(()) => {}
@@ -603,11 +618,11 @@ where
                             ..
                         }) => {
                             // Internal node: Dump or List
-                            if state.state() == &sm::States::Single {
+                            if state.phase() == sm::Phase::Single {
                                 match Multipart::from_properties(Settings::SCHEMA, properties) {
                                     Ok(m) => {
                                         *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
-                                        state.process_event(sm::Events::Multipart).unwrap();
+                                        state.start_multipart();
                                         // Responses come through iter_list/iter_dump
                                     }
                                     Err(err) => {
@@ -655,7 +670,7 @@ where
         .or_else(|err| match err {
             minimq::Error::SessionReset => {
                 warn!("Session reset");
-                self.state.process_event(sm::Events::Reset).unwrap();
+                self.state.reset();
                 Ok(State::Unchanged)
             }
             other => Err(other.into()),
