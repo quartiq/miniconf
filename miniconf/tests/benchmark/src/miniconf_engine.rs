@@ -21,19 +21,13 @@ impl crate::Engine for Engine {
 
     fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error> {
         self.settings
-            .deserialize_by_key(
-                ConstPath::<_, '/'>(path).into_keys(),
-                ValueDeserializer::new(value),
-            )
+            .deserialize_by_key(ConstPath::<_, '/'>(path).into_keys(), ValueDeserializer::new(value))
             .map_err(|_| MiniconfError::Serde)
     }
 
     fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error> {
         self.settings
-            .serialize_by_key(
-                ConstPath::<_, '/'>(path).into_keys(),
-                ResponseSerializer::new(out),
-            )
+            .serialize_by_key(ConstPath::<_, '/'>(path).into_keys(), ResponseSerializer::new(out))
             .map_err(|_| MiniconfError::Serde)
     }
 

@@ -8,7 +8,7 @@ use core::{fmt::Display, marker::PhantomData};
 use heapless::{String, Vec};
 use log::{error, info, warn};
 use miniconf::{
-    DescendError, IntoKeys, KeyError, NodeInfo, NodeIter, Path, Schema, SerdeError,
+    DescendError, IntoKeys, KeyError, NodeIter, Path, Resolved, Schema, SerdeError,
     TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 pub use minimq;
@@ -182,30 +182,43 @@ impl From<ResponseCode> for minimq::Property<'static> {
 #[derive(Debug, Clone, PartialEq)]
 struct DepthError<E> {
     inner: SerdeError<E>,
-    info: Option<NodeInfo>,
+    depth: usize,
+    leaf: Option<bool>,
 }
 
 impl<E> Display for DepthError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.info {
-            Some(info) => write!(
-                f,
-                "{} (depth {}, leaf {})",
-                self.inner, info.depth, info.leaf
-            ),
-            None => self.inner.fmt(f),
+        match self.leaf {
+            Some(leaf) => write!(f, "{} (depth {}, leaf {})", self.inner, self.depth, leaf),
+            None => write!(f, "{} (depth {})", self.inner, self.depth),
         }
     }
 }
 
-fn with_node_info<T, E>(
+fn resolve<T, E, const Y: usize>(
     schema: &'static Schema,
     keys: impl IntoKeys,
-    result: Result<T, SerdeError<E>>,
+    func: impl FnOnce(&mut &[usize], Resolved) -> Result<T, SerdeError<E>>,
 ) -> Result<T, DepthError<E>> {
-    result.map_err(|inner| DepthError {
-        info: schema.node_info(keys).ok(),
+    let mut state = [0; Y];
+    let info = schema
+        .resolve_into(keys, &mut state)
+        .map_err(|err| DepthError {
+            inner: match err.error {
+                DescendError::Key(err) => SerdeError::Value(ValueError::Key(err)),
+                DescendError::Inner(()) => {
+                    SerdeError::Value(ValueError::Access("Insufficient state"))
+                }
+            },
+            depth: err.depth,
+            leaf: err.leaf,
+        })?;
+    let full = &state[..info.depth];
+    let mut rest = full;
+    func(&mut rest, info).map_err(|inner| DepthError {
         inner,
+        depth: full.len() - rest.len(),
+        leaf: Some(info.leaf),
     })
 }
 
@@ -466,11 +479,17 @@ where
 
             let props = [ResponseCode::Ok.into()];
             let mut response = Publication::new(&topic, |buf: &mut [u8]| {
-                with_node_info(
-                    Settings::SCHEMA,
-                    &path,
-                    json_core::get_by_key(settings, &path, buf),
-                )
+                let full = self.pending.iter.state().unwrap();
+                let mut keys = full;
+                let info = Resolved {
+                    depth: full.len(),
+                    leaf: true,
+                };
+                json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
+                    inner,
+                    depth: full.len() - keys.len(),
+                    leaf: Some(info.leaf),
+                })
             })
             .properties(&props)
             .qos(QoS::AtLeastOnce);
@@ -549,11 +568,16 @@ where
                 // Try a Get assuming a leaf node
                 if let Err(err) = client.publish(
                     Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
-                        with_node_info(
-                            Settings::SCHEMA,
-                            path,
-                            json_core::get_by_key(settings, path, buf),
-                        )
+                        resolve::<_, _, Y>(Settings::SCHEMA, path, |keys, info| {
+                            json_core::get_by_keys(settings, keys, buf).map_err(|inner| match inner
+                            {
+                                SerdeError::Value(ValueError::Key(KeyError::TooShort)) => {
+                                    debug_assert!(!info.leaf);
+                                    inner
+                                }
+                                _ => inner,
+                            })
+                        })
                     })
                     .unwrap()
                     .properties(&[ResponseCode::Ok.into()])
@@ -599,11 +623,9 @@ where
                 State::Unchanged
             } else {
                 // Set
-                match with_node_info(
-                    Settings::SCHEMA,
-                    path,
-                    json_core::set_by_key(settings, path, payload),
-                ) {
+                match resolve::<_, _, Y>(Settings::SCHEMA, path, |keys, _info| {
+                    json_core::set_by_keys(settings, keys, payload)
+                }) {
                     Err(err) => {
                         Self::respond(err, ResponseCode::Error, properties, client);
                         State::Unchanged

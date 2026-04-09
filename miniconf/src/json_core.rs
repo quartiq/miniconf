@@ -23,7 +23,7 @@
 
 use serde_json_core::{de, ser};
 
-use crate::{ConstPath, IntoKeys, SerdeError, TreeDeserialize, TreeSerialize};
+use crate::{ConstPath, IntoKeys, Keys, SerdeError, TreeDeserialize, TreeSerialize};
 
 /// Update a node by path.
 ///
@@ -68,8 +68,17 @@ pub fn set_by_key<'de>(
     keys: impl IntoKeys,
     data: &'de [u8],
 ) -> Result<usize, SerdeError<de::Error>> {
+    set_by_keys(tree, keys.into_keys(), data)
+}
+
+/// Update a node by a live key cursor.
+pub fn set_by_keys<'de>(
+    tree: &mut (impl TreeDeserialize<'de> + ?Sized),
+    keys: impl Keys,
+    data: &'de [u8],
+) -> Result<usize, SerdeError<de::Error>> {
     let mut de = de::Deserializer::new(data, None);
-    tree.deserialize_by_key(keys.into_keys(), &mut de)?;
+    tree.deserialize_by_key(keys, &mut de)?;
     de.end().map_err(SerdeError::Finalization)
 }
 
@@ -82,7 +91,16 @@ pub fn get_by_key(
     keys: impl IntoKeys,
     data: &mut [u8],
 ) -> Result<usize, SerdeError<ser::Error>> {
+    get_by_keys(tree, keys.into_keys(), data)
+}
+
+/// Retrieve a serialized value by a live key cursor.
+pub fn get_by_keys(
+    tree: &(impl TreeSerialize + ?Sized),
+    keys: impl Keys,
+    data: &mut [u8],
+) -> Result<usize, SerdeError<ser::Error>> {
     let mut ser = ser::Serializer::new(data);
-    tree.serialize_by_key(keys.into_keys(), &mut ser)?;
+    tree.serialize_by_key(keys, &mut ser)?;
     Ok(ser.end())
 }

@@ -32,6 +32,13 @@ impl<T> Indices<T> {
         Self { len, data }
     }
 
+    /// Split indices into data and length
+    pub fn into_inner(self) -> (T, usize) {
+        (self.data, self.len)
+    }
+}
+
+impl<T: ?Sized> Indices<T> {
     /// The length of the indices keys
     pub fn len(&self) -> usize {
         self.len
@@ -40,11 +47,6 @@ impl<T> Indices<T> {
     /// See [`Self::len()`]
     pub fn is_empty(&self) -> bool {
         self.len == 0
-    }
-
-    /// Split indices into data and length
-    pub fn into_inner(self) -> (T, usize) {
-        (self.data, self.len)
     }
 }
 
@@ -60,6 +62,12 @@ impl<T> From<T> for Indices<T> {
 impl<U, T: AsRef<[U]> + ?Sized> AsRef<[U]> for Indices<T> {
     fn as_ref(&self) -> &[U] {
         &self.data.as_ref()[..self.len]
+    }
+}
+
+impl<U, T: AsMut<[U]> + ?Sized> AsMut<[U]> for Indices<T> {
+    fn as_mut(&mut self) -> &mut [U] {
+        &mut self.data.as_mut()[..self.len]
     }
 }
 

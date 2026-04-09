@@ -14,6 +14,35 @@ pub struct NodeInfo {
     pub leaf: bool,
 }
 
+/// Result of resolving a key traversal.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Resolved {
+    /// The number of keys consumed.
+    pub depth: usize,
+    /// Whether the traversal reached a leaf node.
+    pub leaf: bool,
+}
+
+impl From<Resolved> for NodeInfo {
+    fn from(value: Resolved) -> Self {
+        Self {
+            depth: value.depth,
+            leaf: value.leaf,
+        }
+    }
+}
+
+/// Error returned by [`Schema::resolve_into()`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolveError {
+    /// The traversal error.
+    pub error: DescendError<()>,
+    /// The number of keys consumed before the error.
+    pub depth: usize,
+    /// Whether the traversal had already reached a leaf when known.
+    pub leaf: Option<bool>,
+}
+
 /// A numbered schema item
 #[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
@@ -316,12 +345,11 @@ impl Schema {
         schema
     }
 
-    /// Traverse keys while optionally writing consumed indices into `state`.
-    pub(crate) fn node_info_with_state(
+    fn classify_impl(
         &self,
         keys: impl IntoKeys,
-        mut state: Option<&mut [usize]>,
-    ) -> Result<NodeInfo, DescendError<()>> {
+        mut on_index: impl FnMut(usize, usize) -> Result<(), ()>,
+    ) -> Result<Resolved, ResolveError> {
         let mut schema = self;
         let mut keys = keys.into_keys();
         let mut depth = 0;
@@ -329,20 +357,51 @@ impl Schema {
         while let Some(internal) = schema.internal.as_ref() {
             let idx = match keys.next(internal) {
                 Ok(idx) => idx,
-                Err(KeyError::TooShort) => return Ok(NodeInfo { depth, leaf: false }),
-                Err(err) => return Err(err.into()),
+                Err(KeyError::TooShort) => return Ok(Resolved { depth, leaf: false }),
+                Err(err) => {
+                    return Err(ResolveError {
+                        error: err.into(),
+                        depth,
+                        leaf: None,
+                    });
+                }
             };
-            if let Some(state) = state.as_deref_mut() {
-                *state.get_mut(depth).ok_or(DescendError::Inner(()))? = idx;
-            }
+            on_index(depth, idx).map_err(|()| ResolveError {
+                error: DescendError::Inner(()),
+                depth,
+                leaf: None,
+            })?;
             depth += 1;
             schema = internal.get_schema(idx);
         }
 
         match keys.finalize() {
-            Ok(()) | Err(KeyError::TooLong) => Ok(NodeInfo { depth, leaf: true }),
-            Err(err) => Err(err.into()),
+            Ok(()) | Err(KeyError::TooLong) => Ok(Resolved { depth, leaf: true }),
+            Err(err) => Err(ResolveError {
+                error: err.into(),
+                depth,
+                leaf: None,
+            }),
         }
+    }
+
+    /// Resolve how far a key traversal gets and whether it reaches a leaf.
+    pub(crate) fn resolve(&self, keys: impl IntoKeys) -> Result<Resolved, ResolveError> {
+        self.classify_impl(keys, |_, _| Ok(()))
+    }
+
+    /// Resolve a key traversal while recording the consumed index prefix into `state`.
+    ///
+    /// On both success and failure, `state[..depth]` contains the longest valid consumed prefix.
+    pub fn resolve_into(
+        &self,
+        keys: impl IntoKeys,
+        state: &mut [usize],
+    ) -> Result<Resolved, ResolveError> {
+        self.classify_impl(keys, |depth, idx| {
+            *state.get_mut(depth).ok_or(())? = idx;
+            Ok(())
+        })
     }
 
     /// Return how far the key traversal gets and whether it reaches a leaf.
@@ -350,8 +409,9 @@ impl Schema {
     /// A `TooShort` key still identifies an internal node and therefore succeeds with
     /// `leaf == false`. Invalid lookups such as `NotFound` still return the traversal error.
     pub fn node_info(&self, keys: impl IntoKeys) -> Result<NodeInfo, KeyError> {
-        self.node_info_with_state(keys, None)
-            .map_err(|err| err.try_into().unwrap())
+        self.resolve(keys)
+            .map(NodeInfo::from)
+            .map_err(|err| err.error.try_into().unwrap())
     }
 
     /// Transcode keys to a new keys type representation using its default configuration.

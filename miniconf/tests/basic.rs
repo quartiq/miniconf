@@ -254,6 +254,28 @@ fn indices_capacity() {
     assert_eq!(indices.len(), 1);
 }
 
+#[cfg(feature = "json-core")]
+#[test]
+fn slice_cursor_keys() {
+    let settings = Settings::default();
+    let full = [2usize, 0];
+    let mut rest = &full[..];
+    let mut buf = [0u8; 32];
+    let len = miniconf::json_core::get_by_keys(&settings, &mut rest, &mut buf).unwrap();
+    assert_eq!(&buf[..len], b"0.0");
+    assert_eq!(full.len() - rest.len(), 2);
+
+    let full = [2usize, 0, 1];
+    let mut rest = &full[..];
+    assert_eq!(
+        miniconf::json_core::get_by_keys(&settings, &mut rest, &mut buf),
+        Err(miniconf::SerdeError::Value(miniconf::ValueError::Key(
+            KeyError::TooLong
+        )))
+    );
+    assert_eq!(full.len() - rest.len(), 2);
+}
+
 #[test]
 fn tuple() {
     type T = (u32, (i32, u8), [u16; 3]);

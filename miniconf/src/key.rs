@@ -51,6 +51,23 @@ impl<T: Keys + ?Sized> Keys for &mut T {
     }
 }
 
+impl<T: Key> Keys for &[T] {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let (key, tail) = self.split_first().ok_or(KeyError::TooShort)?;
+        let index = key.find(internal).ok_or(KeyError::NotFound)?;
+        *self = tail;
+        Ok(index)
+    }
+
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(KeyError::TooLong)
+        }
+    }
+}
+
 /// Be converted into a `Keys`
 pub trait IntoKeys {
     /// The specific `Keys` implementor.
