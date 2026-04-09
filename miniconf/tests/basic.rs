@@ -1,6 +1,6 @@
 use miniconf::{
-    ConstPath, DescendError, Indices, JsonPath, KeyError, NodeInfo, NodeIter, Path, Shape,
-    Transcode, Tree, TreeSchema,
+    ConstPath, DescendError, FromConfig, Indices, JsonPath, KeyError, NodeInfo, NodeIter, Path,
+    Shape, Transcode, Tree, TreeSchema,
 };
 mod common;
 
@@ -102,6 +102,12 @@ fn transcode_reuse_semantics() {
         .transcode::<Path<String>>([1usize])
         .unwrap();
     assert_eq!(path.as_ref(), "/b");
+
+    let path = Path::<String>::transcode(Settings::SCHEMA, [1usize]).unwrap();
+    assert_eq!(path.as_ref(), "/b");
+
+    let path = Path::<String>::transcode_with(Settings::SCHEMA, [1usize], ':').unwrap();
+    assert_eq!(path.as_ref(), ":b");
 
     let mut path = Path::<String>::default();
     path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();

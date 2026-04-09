@@ -70,7 +70,7 @@ pub trait Transcode {
     /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
     ///
     /// This is the low-level, in-place transcoding API. Fresh output construction is provided by
-    /// [`Schema::transcode()`](crate::Schema::transcode) and [`FromConfig`]. Existing target content
+    /// [`FromConfig::transcode`] and [`FromConfig::transcode_with`]. Existing target content
     /// handling is representation-specific: fixed-capacity/key views typically overwrite, while
     /// append-oriented buffers and writers may append.
     ///
@@ -89,8 +89,33 @@ pub trait FromConfig: Sized {
     /// Default configuration for `Self`.
     const DEFAULT_CONFIG: Self::Config;
 
-    /// Construct a fresh transcoding target from the provided seed.
+    /// Construct a fresh transcoding target from the provided configuration.
     fn from_config(config: &Self::Config) -> Self;
+
+    /// Transcode keys into a fresh output constructed from `config`.
+    fn transcode_with(
+        schema: &Schema,
+        keys: impl IntoKeys,
+        config: Self::Config,
+    ) -> Result<Self, DescendError<<Self as Transcode>::Error>>
+    where
+        Self: Transcode,
+    {
+        let mut target = Self::from_config(&config);
+        target.transcode_from(schema, keys)?;
+        Ok(target)
+    }
+
+    /// Transcode keys into a fresh output constructed from the default configuration.
+    fn transcode(
+        schema: &Schema,
+        keys: impl IntoKeys,
+    ) -> Result<Self, DescendError<<Self as Transcode>::Error>>
+    where
+        Self: Transcode,
+    {
+        Self::transcode_with(schema, keys, Self::DEFAULT_CONFIG)
+    }
 }
 
 impl<T: Transcode + ?Sized> Transcode for &mut T {

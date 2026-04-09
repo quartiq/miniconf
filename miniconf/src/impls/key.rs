@@ -236,7 +236,7 @@ impl Key for str {
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [Schema::transcode()] and `Shape.max_length` for upper bounds
+///   See also [`crate::FromConfig::transcode()`], [`crate::Schema::transcode()`], and `Shape.max_length` for upper bounds
 ///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
 /// * `separator`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.

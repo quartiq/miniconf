@@ -354,9 +354,11 @@ impl Schema {
             .map_err(|err| err.try_into().unwrap())
     }
 
-    /// Transcode keys to a new keys type representation using its default seed.
+    /// Transcode keys to a new keys type representation using its default configuration.
     ///
-    /// In order to not require the default configuration, use [`FromConfig`] and
+    /// This is a convenience wrapper around [`FromConfig::transcode()`].
+    ///
+    /// In order to not require the default configuration, use [`FromConfig::transcode_with`] or
     /// [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
@@ -394,9 +396,18 @@ impl Schema {
         &self,
         keys: impl IntoKeys,
     ) -> Result<N, DescendError<N::Error>> {
-        let mut target = N::from_config(&N::DEFAULT_CONFIG);
-        target.transcode_from(self, keys)?;
-        Ok(target)
+        N::transcode(self, keys)
+    }
+
+    /// Transcode keys to a fresh representation using the provided configuration.
+    ///
+    /// This is a convenience wrapper around [`FromConfig::transcode_with()`].
+    pub fn transcode_with<N: Transcode + FromConfig>(
+        &self,
+        keys: impl IntoKeys,
+        config: N::Config,
+    ) -> Result<N, DescendError<N::Error>> {
+        N::transcode_with(self, keys, config)
     }
 
     /// The Shape of the schema
