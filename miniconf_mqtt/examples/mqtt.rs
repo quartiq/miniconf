@@ -1,6 +1,6 @@
 use heapless::String;
 use miniconf::{Leaf, Tree, TreeSchema, leaf};
-use miniconf_mqtt::minimq::{Broker, BufferLayout, transport::TcpConnector};
+use miniconf_mqtt::minimq::{BufferLayout, transport::TcpConnector};
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, time::Duration};
 use std_embedded_nal_async::Stack;
@@ -58,10 +58,11 @@ async fn main() {
     env_logger::init();
 
     let mut buffer = [0u8; 2048];
-    let broker = Broker::socket_addr(SocketAddr::new(
+    let broker = SocketAddr::new(
         "127.0.0.1".parse().unwrap(),
         minimq::MQTT_INSECURE_DEFAULT_PORT,
-    ));
+    )
+    .into();
     let connector = TcpConnector::new(Stack::default());
 
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
@@ -74,8 +75,7 @@ async fn main() {
             &mut buffer,
             BufferLayout {
                 rx: 512,
-                tx: 512,
-                inflight: 1024,
+                outbound: 1536,
             },
         )
         .unwrap()

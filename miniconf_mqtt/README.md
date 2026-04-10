@@ -3,6 +3,9 @@
 This crate exposes a [`miniconf`](https://crates.io/crates/miniconf) tree over MQTT using
 [`minimq`](https://crates.io/crates/minimq).
 
+It is built around one long-lived `minimq::Session`: reconnects, keepalive, and MQTT request/reply
+routing stay inside the MQTT layer, while `miniconf_mqtt` only adds settings-tree behavior on top.
+
 ## MQTT Contract
 
 The public MQTT behavior is intentionally stable and matches the Python client in

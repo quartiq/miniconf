@@ -63,7 +63,10 @@ impl Connector for DummyConnector {
 #[test]
 fn constructor_rejects_long_prefix() {
     let mut buffer = [0u8; 1024];
-    let broker = Broker::from("127.0.0.1".parse::<core::net::IpAddr>().unwrap());
+    let broker: Broker<'_> = "127.0.0.1:1883"
+        .parse::<core::net::SocketAddr>()
+        .unwrap()
+        .into();
     const MAX_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
     let prefix = "x".repeat(crate::MAX_TOPIC_LENGTH);
 
@@ -75,8 +78,7 @@ fn constructor_rejects_long_prefix() {
             &mut buffer,
             BufferLayout {
                 rx: 256,
-                tx: 256,
-                inflight: 512,
+                outbound: 768,
             },
         )
         .unwrap(),

@@ -1,7 +1,7 @@
 #![no_std]
 #![warn(missing_docs)]
 
-//! Async MQTT interface for `miniconf`.
+//! Async MQTT interface for `miniconf` built on a single long-lived [`minimq::Session`].
 
 mod client;
 mod pending;
