@@ -19,25 +19,22 @@ use crate::{
 };
 
 /// Miniconf MQTT error.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, thiserror::Error)]
 pub enum Error {
     /// A multipart operation is already in progress.
+    #[error("a multipart operation is already in progress")]
     Busy,
     /// Miniconf path resolution failed.
+    #[error("miniconf path resolution failed: {0}")]
     Miniconf(DescendError<()>),
     /// MQTT or transport operation failed.
-    Mqtt(minimq::Error),
+    #[error(transparent)]
+    Mqtt(#[from] minimq::Error),
 }
 
 impl From<DescendError<()>> for Error {
     fn from(value: DescendError<()>) -> Self {
         Self::Miniconf(value)
-    }
-}
-
-impl From<minimq::Error> for Error {
-    fn from(value: minimq::Error) -> Self {
-        Self::Mqtt(value)
     }
 }
 

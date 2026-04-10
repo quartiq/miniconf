@@ -89,8 +89,8 @@ async fn main() {
         tokio::time::sleep(Duration::from_millis(10)).await;
         match client.poll(&mut settings).await {
             Ok(miniconf_mqtt::State::Changed) => println!("Settings updated: {:?}", settings),
-            Ok(miniconf_mqtt::State::Unchanged) => {}
-            Err(err) => panic!("{err:?}"),
+            Ok(_) => {}
+            Err(err) => panic!("{err}"),
         }
     }
     println!("Exiting on request");

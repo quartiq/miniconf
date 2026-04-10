@@ -33,11 +33,12 @@ impl<const Y: usize> Pending<Y> {
         schema: &'static Schema,
         path: Option<&str>,
     ) -> Result<Self, DescendError<()>> {
-        let iter = match path {
-            Some(path) => NodeIter::with_root(schema, Path::new(path, SEPARATOR), SEPARATOR)?,
-            None => NodeIter::new(schema, [0; Y], 0, SEPARATOR),
-        };
-        Ok(Self::Dump { iter })
+        Ok(Self::Dump {
+            iter: match path {
+                Some(path) => NodeIter::with_root(schema, Path::new(path, SEPARATOR), SEPARATOR)?,
+                None => NodeIter::new(schema, [0; Y], 0, SEPARATOR),
+            },
+        })
     }
 
     pub(crate) fn list(
