@@ -407,7 +407,7 @@ where
     }
 
     async fn advance_pending(&mut self, settings: &Settings) {
-        while self.session.can_publish(QoS::AtLeastOnce) {
+        while self.session.is_publish_ready(QoS::AtLeastOnce) {
             match &mut self.pending {
                 Pending::Idle => break,
                 Pending::List { iter, reply } => {
