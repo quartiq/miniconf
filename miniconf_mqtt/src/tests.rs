@@ -76,10 +76,7 @@ fn constructor_rejects_long_prefix() {
         minimq::ConfigBuilder::from_buffer_layout(
             broker,
             &mut buffer,
-            BufferLayout {
-                rx: 256,
-                outbound: 768,
-            },
+            BufferLayout { rx: 256, tx: 768 },
         )
         .unwrap(),
     );

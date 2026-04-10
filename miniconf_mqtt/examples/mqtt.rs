@@ -73,10 +73,7 @@ async fn main() {
         minimq::ConfigBuilder::from_buffer_layout(
             broker,
             &mut buffer,
-            BufferLayout {
-                rx: 512,
-                outbound: 1536,
-            },
+            BufferLayout { rx: 512, tx: 1536 },
         )
         .unwrap()
         .client_id("miniconf-mqtt-example")

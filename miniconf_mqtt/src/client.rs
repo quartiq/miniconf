@@ -177,7 +177,7 @@ where
         if reconnected {
             self.pending.clear();
         }
-        self.subscribed = false;
+        self.subscribed = reconnected;
         self.needs_alive = true;
     }
 
