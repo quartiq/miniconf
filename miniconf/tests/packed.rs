@@ -11,7 +11,7 @@ struct Settings {
 fn packed() {
     // Check empty being too short
     let info = Settings::SCHEMA.get(Packed::EMPTY).unwrap();
-    assert_eq!((info.depth, info.leaf), (0, false));
+    assert_eq!((info.depth, info.schema.is_leaf()), (0, false));
 
     // Check path-packed round trip.
     for iter_path in Settings::SCHEMA

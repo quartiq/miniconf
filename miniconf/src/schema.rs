@@ -10,8 +10,6 @@ use crate::{
 pub struct Lookup {
     /// The number of keys consumed.
     pub depth: usize,
-    /// Whether the traversal reached a leaf node.
-    pub leaf: bool,
     /// The schema reached by the traversal.
     pub schema: &'static Schema,
 }
@@ -318,7 +316,7 @@ impl Schema {
     fn walk(
         &'static self,
         keys: impl IntoKeys,
-        mut on_index: impl FnMut(usize, usize) -> Result<(), ()>,
+        mut on_index: impl FnMut(usize, usize) -> bool,
     ) -> Result<Lookup, ResolveError> {
         let mut schema = self;
         let mut keys = keys.into_keys();
@@ -328,13 +326,8 @@ impl Schema {
             let idx = match keys.next(internal) {
                 Ok(idx) => idx,
                 Err(KeyError::TooShort) => {
-                    let leaf = schema.is_leaf();
-                    debug_assert!(!leaf);
-                    return Ok(Lookup {
-                        depth,
-                        leaf,
-                        schema,
-                    });
+                    debug_assert!(!schema.is_leaf());
+                    return Ok(Lookup { depth, schema });
                 }
                 Err(err) => {
                     return Err(ResolveError {
@@ -344,21 +337,19 @@ impl Schema {
                     });
                 }
             };
-            on_index(depth, idx).map_err(|()| ResolveError {
-                error: DescendError::Inner(()),
-                depth,
-                leaf: None,
-            })?;
+            if !on_index(depth, idx) {
+                return Err(ResolveError {
+                    error: DescendError::Inner(()),
+                    depth,
+                    leaf: None,
+                });
+            }
             depth += 1;
             schema = internal.get_schema(idx);
         }
 
         match keys.finalize() {
-            Ok(()) => Ok(Lookup {
-                depth,
-                leaf: true,
-                schema,
-            }),
+            Ok(()) => Ok(Lookup { depth, schema }),
             Err(KeyError::TooLong) => Err(ResolveError {
                 error: KeyError::TooLong.into(),
                 depth,
@@ -377,18 +368,20 @@ impl Schema {
         state: &mut [usize],
     ) -> Result<Lookup, ResolveError> {
         self.walk(keys, |depth, idx| {
-            *state.get_mut(depth).ok_or(())? = idx;
-            Ok(())
+            let Some(slot) = state.get_mut(depth) else {
+                return false;
+            };
+            *slot = idx;
+            true
         })
     }
 
     /// Get the schema node identified exactly by `keys`.
     pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
-        self.walk(keys, |_, _| Ok(()))
-            .map_err(|err| match err.error {
-                DescendError::Key(err) => err,
-                DescendError::Inner(()) => unreachable!("infallible exact lookup"),
-            })
+        self.walk(keys, |_, _| true).map_err(|err| match err.error {
+            DescendError::Key(err) => err,
+            DescendError::Inner(()) => unreachable!("infallible exact lookup"),
+        })
     }
 
     /// Transcode keys to a new keys type representation using its default configuration.
@@ -422,7 +415,7 @@ impl Schema {
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
     /// let lookup = sch.get(&path).unwrap();
-    /// assert_eq!((lookup.depth, lookup.leaf), (2, true));
+    /// assert_eq!((lookup.depth, lookup.schema.is_leaf()), (2, true));
     /// ```
     ///
     /// # Args
@@ -496,7 +489,7 @@ impl Schema {
     ///     .map(|p| {
     ///         let p = p.unwrap();
     ///         let lookup = S::SCHEMA.get(&p).unwrap();
-    ///         ((lookup.depth, lookup.leaf), p.into_inner())
+    ///         ((lookup.depth, lookup.schema.is_leaf()), p.into_inner())
     ///     })
     ///     .collect();
     /// assert_eq!(

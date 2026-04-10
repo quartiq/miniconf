@@ -156,10 +156,11 @@ Blanket implementations are provided for all
 `miniconf` is also protocol-agnostic. Any means that can receive or emit serialized key-value data
 can be used to access nodes by path.
 
-The `MqttClient` in the `miniconf_mqtt` crate implements settings management over the [MQTT
-protocol](https://mqtt.org) with JSON payloads. A Python reference library is provided that
-interfaces with it. This example discovers the unique prefix of an application listening to messages
-under the topic `quartiq/application/12345` and set its `/foo` setting to `true`.
+The `MqttClient` in the `miniconf_mqtt` crate implements async settings management over the [MQTT
+protocol](https://mqtt.org) with JSON payloads on top of async `minimq`. A Python reference
+library is provided that interfaces with it. This example discovers the unique prefix of an
+application listening to messages under the topic `quartiq/application/12345` and sets its `/foo`
+setting to `true`.
 
 ```sh
 python -m miniconf -d quartiq/application/+ /foo=true
