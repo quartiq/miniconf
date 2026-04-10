@@ -234,7 +234,7 @@ fn resolve<T, E, const Y: usize>(
     func(&mut rest, info).map_err(|inner| DepthError {
         inner,
         depth: full.len() - rest.len(),
-        leaf: Some(info.leaf),
+        leaf: Some(info.schema.is_leaf()),
     })
 }
 
@@ -504,7 +504,7 @@ where
                 json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
                     inner,
                     depth: full.len() - keys.len(),
-                    leaf: Some(info.leaf),
+                    leaf: Some(info.schema.is_leaf()),
                 })
             })
             .properties(&props)
@@ -598,7 +598,7 @@ where
                             json_core::get_by_keys(settings, keys, buf).map_err(|inner| match inner
                             {
                                 SerdeError::Value(ValueError::Key(KeyError::TooShort)) => {
-                                    debug_assert!(!info.leaf);
+                                    debug_assert!(!info.schema.is_leaf());
                                     inner
                                 }
                                 _ => inner,

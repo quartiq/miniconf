@@ -10,14 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* Path takes thes separator as a member reducing monomorphization bloat.
+* `Path` takes thes separator as a member reducing monomorphization bloat.
 * `Schema::get()` now performs exact lookup and returns `Lookup`.
 * `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
+* `miniconf_mqtt`: `MqttClient` is now async-first and built on async `minimq::Session`.
+  `update()` was replaced by `poll().await`.
 
 ### Added
 
-* ConstPath and ConstPathIter taking the separator as a const generic. That allows compile time specialization of ascii separators.
-* FromConfig trait to enable Transcode/Keys construction from runtime configuration.
+* `ConstPath` and `ConstPathIter` taking the separator as a const generic. That allows compile time specialization of ASCII separators.
+* `FromConfig` trait to enable `Transcode`/`Keys` construction from runtime configuration.
 * `Schema::resolve_into()` and `Lookup` for exact lookup with consumed-depth reporting.
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
