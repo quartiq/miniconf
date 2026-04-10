@@ -174,10 +174,9 @@ where
     }
 
     fn on_session_active(&mut self, reconnected: bool) {
-        if reconnected {
-            self.pending.clear();
+        if !reconnected {
+            self.subscribed = false;
         }
-        self.subscribed = reconnected;
         self.needs_alive = true;
     }
 
