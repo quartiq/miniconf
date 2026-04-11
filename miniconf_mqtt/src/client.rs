@@ -6,8 +6,9 @@ use miniconf::{
     DescendError, Path, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
     json_core,
 };
+use minimq::publication::ToPayload;
 use minimq::{
-    ConfigBuilder, Event, InboundPublish, ProtocolError, Publication, QoS, Session,
+    ConfigBuilder, Event, InboundPublish, ProtocolError, PubError, Publication, QoS, Session,
     transport::Connector,
     types::{SubscriptionOptions, TopicFilter},
 };
@@ -168,6 +169,35 @@ where
         let changed = self.execute(settings, action).await;
         self.advance_pending(settings).await;
         Ok(changed)
+    }
+
+    /// Return whether the shared session is locally ready for a publish at the requested QoS.
+    pub fn is_publish_ready(&mut self, qos: QoS) -> bool {
+        self.session.is_publish_ready(qos)
+    }
+
+    /// Ensure the session is connected, has published its alive state, and has installed the
+    /// settings subscription.
+    pub async fn ready(&mut self) -> Result<(), Error> {
+        self.ensure_ready().await?;
+        Ok(())
+    }
+
+    /// Publish an application message on the shared MQTT session.
+    pub async fn publish<P>(
+        &mut self,
+        publication: Publication<'_, P>,
+    ) -> Result<(), PubError<P::Error>>
+    where
+        P: ToPayload,
+    {
+        self.ensure_ready().await.map_err(|err| match err {
+            Error::Mqtt(err) => PubError::Error(err),
+            Error::Busy | Error::Miniconf(_) => {
+                unreachable!("ready path does not produce miniconf-specific errors")
+            }
+        })?;
+        self.session.publish(publication).await
     }
 
     fn on_session_active(&mut self, reconnected: bool) {
