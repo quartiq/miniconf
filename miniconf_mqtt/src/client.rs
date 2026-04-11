@@ -404,75 +404,74 @@ where
     }
 
     async fn advance_pending(&mut self, settings: &Settings) {
-        while self.session.is_publish_ready(QoS::AtLeastOnce) {
-            match &mut self.pending {
-                Pending::Idle => break,
-                Pending::List { iter, reply } => {
-                    let (code, payload, done) = if let Some(path) = iter.next() {
-                        let path = match path {
-                            Ok(path) => path.into_inner(),
-                            Err(err) => {
-                                error!("Path iter error: {err}");
-                                continue;
-                            }
-                        };
-                        (ResponseCode::Continue, path, false)
-                    } else {
-                        (ResponseCode::Ok, String::new(), true)
-                    };
+        if !self.session.is_publish_ready(QoS::AtLeastOnce) {
+            return;
+        }
 
-                    let props = [code.into()];
-                    if let Err(err) = self
-                        .session
-                        .publish(
-                            reply
-                                .publication(payload.as_bytes())
-                                .properties(&props)
-                                .qos(QoS::AtLeastOnce),
-                        )
-                        .await
-                    {
-                        info!(
-                            "Multipart list publish failure: {:?}",
-                            simple_pub_error(err)
-                        );
-                        self.pending.clear();
-                        break;
-                    }
-                    if done {
-                        self.pending.clear();
-                        break;
-                    }
+        match &mut self.pending {
+            Pending::Idle => {}
+            Pending::List { iter, reply } => {
+                let (code, payload, done) = if let Some(path) = iter.next() {
+                    let path = match path {
+                        Ok(path) => path.into_inner(),
+                        Err(err) => {
+                            error!("Path iter error: {err}");
+                            return;
+                        }
+                    };
+                    (ResponseCode::Continue, path, false)
+                } else {
+                    (ResponseCode::Ok, String::new(), true)
+                };
+
+                let props = [code.into()];
+                if let Err(err) = self
+                    .session
+                    .publish(
+                        reply
+                            .publication(payload.as_bytes())
+                            .properties(&props)
+                            .qos(QoS::AtLeastOnce),
+                    )
+                    .await
+                {
+                    info!(
+                        "Multipart list publish failure: {:?}",
+                        simple_pub_error(err)
+                    );
+                    self.pending.clear();
+                    return;
                 }
-                Pending::Dump { .. } => {
-                    let Some((topic, state, depth)) = self.next_dump_step() else {
-                        self.pending.clear();
-                        break;
-                    };
-                    let props = [ResponseCode::Ok.into()];
-                    let publication = Publication::new(&topic, |buf: &mut [u8]| {
-                        let full = &state[..depth];
-                        Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
-                    })
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce);
+                if done {
+                    self.pending.clear();
+                }
+            }
+            Pending::Dump { .. } => {
+                let Some((topic, state, depth)) = self.next_dump_step() else {
+                    self.pending.clear();
+                    return;
+                };
+                let props = [ResponseCode::Ok.into()];
+                let publication = Publication::new(&topic, |buf: &mut [u8]| {
+                    let full = &state[..depth];
+                    Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
+                })
+                .properties(&props)
+                .qos(QoS::AtLeastOnce);
 
-                    match self.session.publish(publication).await {
-                        Ok(()) => {}
-                        Err(minimq::PubError::Serialization(DepthError {
-                            inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                            ..
-                        })) => {}
-                        Err(minimq::PubError::Serialization(err)) => {
-                            info!("Multipart dump serialization failure: {err}");
-                            self.pending.clear();
-                            break;
-                        }
-                        Err(minimq::PubError::Error(err)) => {
-                            info!("Multipart dump publish failure: {err:?}");
-                            self.pending.clear();
-                            break;
-                        }
+                match self.session.publish(publication).await {
+                    Ok(()) => {}
+                    Err(minimq::PubError::Serialization(DepthError {
+                        inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
+                        ..
+                    })) => {}
+                    Err(minimq::PubError::Serialization(err)) => {
+                        info!("Multipart dump serialization failure: {err}");
+                        self.pending.clear();
+                    }
+                    Err(minimq::PubError::Error(err)) => {
+                        info!("Multipart dump publish failure: {err:?}");
+                        self.pending.clear();
                     }
                 }
             }
