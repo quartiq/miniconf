@@ -29,15 +29,11 @@ impl From<ResponseCode> for minimq::Property<'static> {
 pub(crate) struct DepthError<E> {
     pub(crate) inner: SerdeError<E>,
     pub(crate) depth: usize,
-    pub(crate) leaf: Option<bool>,
 }
 
 impl<E> Display for DepthError<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.leaf {
-            Some(leaf) => write!(f, "{} (depth {}, leaf {})", self.inner, self.depth, leaf),
-            None => write!(f, "{} (depth {})", self.inner, self.depth),
-        }
+        write!(f, "{} (depth {})", self.inner, self.depth)
     }
 }
 

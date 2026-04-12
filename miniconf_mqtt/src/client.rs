@@ -94,7 +94,6 @@ where
         func(&mut keys).map_err(|inner| DepthError {
             inner,
             depth: full.len() - keys.len(),
-            leaf: Some(true),
         })
     }
 
@@ -295,7 +294,6 @@ where
                         }
                     },
                     depth: err.depth,
-                    leaf: err.leaf,
                 };
                 return Action::ReplyText {
                     state: State::Unchanged,
