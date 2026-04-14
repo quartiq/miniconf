@@ -178,8 +178,7 @@ where
     /// Ensure the session is connected, has published its alive state, and has installed the
     /// settings subscription.
     pub async fn ready(&mut self) -> Result<(), Error> {
-        self.ensure_ready().await?;
-        Ok(())
+        self.ensure_ready().await
     }
 
     /// Publish an application message on the shared MQTT session.
@@ -387,13 +386,18 @@ where
     }
 
     async fn reply_text(&mut self, reply: Option<&ReplyTarget>, code: ResponseCode, text: &str) {
-        let Some(publication) = reply.map(|target| target.publication(text.as_bytes())) else {
+        let Some(reply) = reply else {
             return;
         };
         let props = [code.into()];
         if let Err(err) = self
             .session
-            .publish(publication.properties(&props).qos(QoS::AtLeastOnce))
+            .publish(
+                reply
+                    .publication(text.as_bytes())
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce),
+            )
             .await
         {
             info!("Response failure: {:?}", simple_pub_error(err));
@@ -407,14 +411,13 @@ where
         state: [usize; Y],
         depth: usize,
     ) {
-        let Some(publication) = reply.map(|target| {
-            target.publication(|buf: &mut [u8]| {
-                let full = &state[..depth];
-                Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
-            })
-        }) else {
+        let Some(reply) = reply else {
             return;
         };
+        let publication = reply.publication(|buf: &mut [u8]| {
+            let full = &state[..depth];
+            Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
+        });
         let props = [ResponseCode::Ok.into()];
 
         match self
@@ -424,8 +427,12 @@ where
         {
             Ok(()) => {}
             Err(minimq::PubError::Serialization(err)) => {
-                self.reply_text(reply, ResponseCode::Error, format_message(err).as_str())
-                    .await;
+                self.reply_text(
+                    Some(reply),
+                    ResponseCode::Error,
+                    format_message(err).as_str(),
+                )
+                .await;
             }
             Err(minimq::PubError::Error(err)) => info!("Leaf response failure: {err:?}"),
         }
@@ -451,18 +458,12 @@ where
                 } else {
                     (ResponseCode::Ok, String::new(), true)
                 };
-
                 let props = [code.into()];
-                if let Err(err) = self
-                    .session
-                    .publish(
-                        reply
-                            .publication(payload.as_bytes())
-                            .properties(&props)
-                            .qos(QoS::AtLeastOnce),
-                    )
-                    .await
-                {
+                let publication = reply
+                    .publication(payload.as_bytes())
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce);
+                if let Err(err) = self.session.publish(publication).await {
                     info!(
                         "Multipart list publish failure: {:?}",
                         simple_pub_error(err)
