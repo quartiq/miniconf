@@ -172,7 +172,7 @@ where
 
     /// Return whether the shared session is locally ready for a publish at the requested QoS.
     pub fn is_publish_ready(&mut self, qos: QoS) -> bool {
-        self.session.is_publish_ready(qos)
+        self.session.ensure_ready(qos)
     }
 
     /// Ensure the session is connected, has published its alive state, and has installed the
@@ -261,14 +261,15 @@ where
             return Action::None(State::Unchanged);
         };
 
+        let has_response_topic = message.response_topic().is_some();
         let reply = match message.reply_owned() {
             Ok(reply) => reply,
             Err(err) => {
                 warn!(
-                    "Ignoring oversized reply target on {}: {err:?}",
+                    "Rejecting request with oversized reply target on {}: {err:?}",
                     message.topic
                 );
-                None
+                return Action::None(State::Unchanged);
             }
         };
 
@@ -320,6 +321,8 @@ where
                         text: format_message(err),
                     },
                 }
+            } else if has_response_topic {
+                Action::None(State::Unchanged)
             } else {
                 match Pending::dump_root(Settings::SCHEMA, &state[..lookup.depth]) {
                     Ok(pending) => Action::SetPending { pending },
@@ -366,7 +369,9 @@ where
                 code,
                 text,
             } => {
-                self.reply_text(reply.as_ref(), code, text.as_str()).await;
+                if let Some(reply) = &reply {
+                    self.reply_text(reply, code, text.as_str()).await;
+                }
                 state
             }
             Action::ReplyLeaf {
@@ -374,8 +379,9 @@ where
                 state,
                 depth,
             } => {
-                self.reply_leaf(settings, reply.as_ref(), state, depth)
-                    .await;
+                if let Some(reply) = &reply {
+                    self.reply_leaf(settings, reply, state, depth).await;
+                }
                 State::Unchanged
             }
             Action::SetPending { pending } => {
@@ -385,10 +391,7 @@ where
         }
     }
 
-    async fn reply_text(&mut self, reply: Option<&ReplyTarget>, code: ResponseCode, text: &str) {
-        let Some(reply) = reply else {
-            return;
-        };
+    async fn reply_text(&mut self, reply: &ReplyTarget, code: ResponseCode, text: &str) {
         let props = [code.into()];
         if let Err(err) = self
             .session
@@ -407,13 +410,10 @@ where
     async fn reply_leaf(
         &mut self,
         settings: &Settings,
-        reply: Option<&ReplyTarget>,
+        reply: &ReplyTarget,
         state: [usize; Y],
         depth: usize,
     ) {
-        let Some(reply) = reply else {
-            return;
-        };
         let publication = reply.publication(|buf: &mut [u8]| {
             let full = &state[..depth];
             Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
@@ -427,80 +427,86 @@ where
         {
             Ok(()) => {}
             Err(minimq::PubError::Serialization(err)) => {
-                self.reply_text(
-                    Some(reply),
-                    ResponseCode::Error,
-                    format_message(err).as_str(),
-                )
-                .await;
+                self.reply_text(reply, ResponseCode::Error, format_message(err).as_str())
+                    .await;
             }
             Err(minimq::PubError::Error(err)) => info!("Leaf response failure: {err:?}"),
         }
     }
 
     async fn advance_pending(&mut self, settings: &Settings) {
-        if !self.session.is_publish_ready(QoS::AtLeastOnce) {
-            return;
-        }
-
-        match &mut self.pending {
-            Pending::Idle => {}
-            Pending::List { iter, reply } => {
-                let (code, payload, done) = if let Some(path) = iter.next() {
-                    let path = match path {
-                        Ok(path) => path.into_inner(),
-                        Err(err) => {
-                            error!("Path iter error: {err}");
-                            return;
-                        }
+        while self.session.ensure_ready(QoS::AtLeastOnce) {
+            match &mut self.pending {
+                Pending::Idle => return,
+                Pending::List { iter, reply } => {
+                    let (code, payload, done) = if let Some(path) = iter.next() {
+                        let path = match path {
+                            Ok(path) => path.into_inner(),
+                            Err(err) => {
+                                error!("Path iter error: {err}");
+                                return;
+                            }
+                        };
+                        (ResponseCode::Continue, path, false)
+                    } else {
+                        (ResponseCode::Ok, String::new(), true)
                     };
-                    (ResponseCode::Continue, path, false)
-                } else {
-                    (ResponseCode::Ok, String::new(), true)
-                };
-                let props = [code.into()];
-                let publication = reply
-                    .publication(payload.as_bytes())
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce);
-                if let Err(err) = self.session.publish(publication).await {
-                    info!(
-                        "Multipart list publish failure: {:?}",
-                        simple_pub_error(err)
-                    );
-                    self.pending.clear();
-                    return;
-                }
-                if done {
-                    self.pending.clear();
-                }
-            }
-            Pending::Dump { .. } => {
-                let Some((topic, state, depth)) = self.next_dump_step() else {
-                    self.pending.clear();
-                    return;
-                };
-                let props = [ResponseCode::Ok.into()];
-                let publication = Publication::new(&topic, |buf: &mut [u8]| {
-                    let full = &state[..depth];
-                    Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
-                })
-                .properties(&props)
-                .qos(QoS::AtLeastOnce);
-
-                match self.session.publish(publication).await {
-                    Ok(()) => {}
-                    Err(minimq::PubError::Serialization(DepthError {
-                        inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                        ..
-                    })) => {}
-                    Err(minimq::PubError::Serialization(err)) => {
-                        info!("Multipart dump serialization failure: {err}");
+                    let props = [code.into()];
+                    let publication = reply
+                        .publication(payload.as_bytes())
+                        .properties(&props)
+                        .qos(QoS::AtLeastOnce);
+                    if let Err(err) = self.session.publish(publication).await {
+                        info!(
+                            "Multipart list publish failure: {:?}",
+                            simple_pub_error(err)
+                        );
+                        self.pending.clear();
+                        return;
+                    }
+                    if done {
                         self.pending.clear();
                     }
-                    Err(minimq::PubError::Error(err)) => {
-                        info!("Multipart dump publish failure: {err:?}");
+                }
+                Pending::Dump { .. } => {
+                    let Some((topic, state, depth)) = self.next_dump_step() else {
                         self.pending.clear();
+                        return;
+                    };
+                    let props = [ResponseCode::Ok.into()];
+                    let publication = Publication::new(&topic, |buf: &mut [u8]| {
+                        let full = &state[..depth];
+                        Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
+                    })
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce);
+
+                    match self.session.publish(publication).await {
+                        Ok(()) => {}
+                        Err(minimq::PubError::Serialization(DepthError {
+                            inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
+                            ..
+                        })) => {}
+                        Err(minimq::PubError::Serialization(err)) => {
+                            let props = [ResponseCode::Error.into()];
+                            let text = format_message(err);
+                            let publication = Publication::new(&topic, text.as_str())
+                                .properties(&props)
+                                .qos(QoS::AtLeastOnce);
+                            if let Err(err) = self.session.publish(publication).await {
+                                info!(
+                                    "Multipart dump error response failure: {:?}",
+                                    simple_pub_error(err)
+                                );
+                                self.pending.clear();
+                                return;
+                            }
+                        }
+                        Err(minimq::PubError::Error(err)) => {
+                            info!("Multipart dump publish failure: {err:?}");
+                            self.pending.clear();
+                            return;
+                        }
                     }
                 }
             }

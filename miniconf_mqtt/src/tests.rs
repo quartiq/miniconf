@@ -158,6 +158,30 @@ fn plan_internal_get_with_response_topic_starts_list() {
 }
 
 #[test]
+fn plan_internal_get_with_oversized_response_topic_is_rejected() {
+    let mut settings = TreeSettings::default();
+    let response = "x".repeat(crate::MAX_TOPIC_LENGTH + 1);
+    let props = [Property::ResponseTopic(Utf8String(&response))];
+    let message = InboundPublish {
+        topic: "test/id/settings/nested",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+
+    assert!(matches!(
+        MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+            "test/id",
+            false,
+            &mut settings,
+            &message,
+        ),
+        Action::None(State::Unchanged)
+    ));
+}
+
+#[test]
 fn plan_set_marks_changed() {
     let mut settings = TreeSettings::default();
     let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
@@ -182,4 +206,29 @@ fn plan_set_marks_changed() {
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
+}
+
+#[test]
+fn plan_set_with_oversized_response_topic_is_rejected() {
+    let mut settings = TreeSettings::default();
+    let response = "x".repeat(crate::MAX_TOPIC_LENGTH + 1);
+    let props = [Property::ResponseTopic(Utf8String(&response))];
+    let message = InboundPublish {
+        topic: "test/id/settings/value",
+        payload: b"42",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+
+    assert!(matches!(
+        MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+            "test/id",
+            false,
+            &mut settings,
+            &message,
+        ),
+        Action::None(State::Unchanged)
+    ));
+    assert_eq!(settings.value, 0);
 }
