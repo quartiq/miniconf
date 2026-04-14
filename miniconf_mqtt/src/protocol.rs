@@ -48,7 +48,7 @@ pub(crate) fn format_message<T: Display>(value: T) -> String<MAX_RESPONSE_LENGTH
 
 pub(crate) fn simple_pub_error(err: minimq::PubError<()>) -> Error {
     match err {
-        minimq::PubError::Error(err) => Error::Mqtt(err),
-        minimq::PubError::Serialization(()) => Error::Mqtt(ProtocolError::BufferSize.into()),
+        minimq::PubError::Session(err) => Error::Mqtt(err),
+        minimq::PubError::Payload(()) => Error::Mqtt(ProtocolError::BufferSize.into()),
     }
 }

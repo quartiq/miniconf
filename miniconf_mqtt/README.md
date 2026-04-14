@@ -6,6 +6,26 @@ This crate exposes a [`miniconf`](https://crates.io/crates/miniconf) tree over M
 It is built around one long-lived `minimq::Session`: reconnects, keepalive, and MQTT request/reply
 routing stay inside the MQTT layer, while `miniconf_mqtt` only adds settings-tree behavior on top.
 
+## Driver Model
+
+`MqttClient` is a manually driven async service.
+
+- Call `poll()` regularly. It drives the MQTT session, handles inbound requests,
+  activates the settings service after each connection, and drains queued multipart
+  replies and dumps.
+- Call `activate()` only if you need the retained `/<prefix>/alive` publish and
+  `/<prefix>/settings/#` subscription installed before your first application
+  `publish()`. Regular `poll()` calls do this automatically.
+- Call `publish()` for application messages on the shared MQTT session. It calls
+  `activate()` first.
+- Call `dump()` to queue a settings dump. The dump is emitted incrementally by
+  subsequent `poll()` calls; `dump()` itself does not publish anything.
+- Call `can_publish()` only to check local publish capacity. It is pessimistic
+  for local backpressure: `false` means a publish would currently be blocked by
+  local session capacity. It is optimistic overall: `true` still does not rule
+  out serialization, packet-size, disconnect, or transport failures from the
+  actual `publish()`.
+
 ## MQTT Contract
 
 The public MQTT behavior is intentionally stable and matches the Python client in

@@ -137,6 +137,10 @@ where
     }
 
     /// Schedule a dump of all leaf settings at or below `path`.
+    ///
+    /// The dump is queued immediately and then published incrementally from later
+    /// [`poll`](Self::poll) calls after the client has been
+    /// [`activate`](Self::activate)d.
     pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error> {
         if self.pending.is_active() {
             return Err(Error::Busy);
@@ -146,6 +150,18 @@ where
     }
 
     /// Poll the MQTT service once.
+    ///
+    /// This is the primary driver entry point. Call it regularly in the main loop.
+    /// `poll()` advances the shared MQTT session, processes inbound settings
+    /// requests, ensures the service is activated on each fresh connection, and
+    /// drains pending multipart replies and dumps.
+    ///
+    /// Normal usage is:
+    /// - construct the client with [`new`](Self::new)
+    /// - call `poll()` regularly
+    /// - call [`publish`](Self::publish) for application messages when needed
+    /// - call [`dump`](Self::dump) to enqueue a settings dump that later `poll()`
+    ///   iterations will publish
     pub async fn poll(&mut self, settings: &mut Settings) -> Result<State, Error> {
         let pending_active = self.pending.is_active();
         let prefix = self.prefix;
@@ -163,7 +179,7 @@ where
             self.on_session_active(reconnected);
         }
 
-        self.ensure_ready().await?;
+        self.activate().await?;
 
         let changed = self.execute(settings, action).await;
         self.advance_pending(settings).await;
@@ -171,41 +187,28 @@ where
     }
 
     /// Return whether the shared session is locally ready for a publish at the requested QoS.
-    pub fn is_publish_ready(&mut self, qos: QoS) -> bool {
-        self.session.ensure_ready(qos)
+    ///
+    /// This is pessimistic for local backpressure: if it returns `false`,
+    /// [`publish`](Self::publish) would currently fail because the shared MQTT
+    /// session has no local publish capacity for that QoS.
+    ///
+    /// It is optimistic overall: if it returns `true`, `publish()` can still
+    /// fail for serialization, packet-size, disconnect, or transport reasons.
+    pub fn can_publish(&mut self, qos: QoS) -> bool {
+        self.session.can_publish(qos)
     }
 
-    /// Ensure the session is connected, has published its alive state, and has installed the
-    /// settings subscription.
-    pub async fn ready(&mut self) -> Result<(), Error> {
-        self.ensure_ready().await
-    }
-
-    /// Publish an application message on the shared MQTT session.
-    pub async fn publish<P>(
-        &mut self,
-        publication: Publication<'_, P>,
-    ) -> Result<(), PubError<P::Error>>
-    where
-        P: ToPayload,
-    {
-        self.ensure_ready().await.map_err(|err| match err {
-            Error::Mqtt(err) => PubError::Error(err),
-            Error::Busy | Error::Miniconf(_) => {
-                unreachable!("ready path does not produce miniconf-specific errors")
-            }
-        })?;
-        self.session.publish(publication).await
-    }
-
-    fn on_session_active(&mut self, reconnected: bool) {
-        if !reconnected {
-            self.subscribed = false;
-        }
-        self.needs_alive = true;
-    }
-
-    async fn ensure_ready(&mut self) -> Result<(), Error> {
+    /// Ensure the MQTT service is active on the current connection.
+    ///
+    /// Activation means the client is connected, has published the retained
+    /// `"<prefix>/alive"` state for this connection, and has installed the
+    /// `"<prefix>/settings/#"` subscription.
+    ///
+    /// You usually do not need to call this directly if you already call
+    /// [`poll`](Self::poll) regularly, because `poll()` activates automatically.
+    /// It is available for callers that want to force that setup before their
+    /// first application publish.
+    pub async fn activate(&mut self) -> Result<(), Error> {
         if self.needs_alive {
             self.publish_alive().await?;
             self.needs_alive = false;
@@ -227,6 +230,33 @@ where
         self.subscribed = true;
         info!("Subscribed");
         Ok(())
+    }
+
+    /// Publish an application message on the shared MQTT session.
+    ///
+    /// This first [`activate`](Self::activate)s the service on the current
+    /// connection and then publishes the provided message.
+    pub async fn publish<P>(
+        &mut self,
+        publication: Publication<'_, P>,
+    ) -> Result<(), PubError<P::Error>>
+    where
+        P: ToPayload,
+    {
+        self.activate().await.map_err(|err| match err {
+            Error::Mqtt(err) => PubError::Session(err),
+            Error::Busy | Error::Miniconf(_) => {
+                unreachable!("activate path does not produce miniconf-specific errors")
+            }
+        })?;
+        self.session.publish(publication).await
+    }
+
+    fn on_session_active(&mut self, reconnected: bool) {
+        if !reconnected {
+            self.subscribed = false;
+        }
+        self.needs_alive = true;
     }
 
     async fn publish_alive(&mut self) -> Result<(), Error> {
@@ -426,16 +456,16 @@ where
             .await
         {
             Ok(()) => {}
-            Err(minimq::PubError::Serialization(err)) => {
+            Err(minimq::PubError::Payload(err)) => {
                 self.reply_text(reply, ResponseCode::Error, format_message(err).as_str())
                     .await;
             }
-            Err(minimq::PubError::Error(err)) => info!("Leaf response failure: {err:?}"),
+            Err(minimq::PubError::Session(err)) => info!("Leaf response failure: {err:?}"),
         }
     }
 
     async fn advance_pending(&mut self, settings: &Settings) {
-        while self.session.ensure_ready(QoS::AtLeastOnce) {
+        while self.session.can_publish(QoS::AtLeastOnce) {
             match &mut self.pending {
                 Pending::Idle => return,
                 Pending::List { iter, reply } => {
@@ -483,11 +513,11 @@ where
 
                     match self.session.publish(publication).await {
                         Ok(()) => {}
-                        Err(minimq::PubError::Serialization(DepthError {
+                        Err(minimq::PubError::Payload(DepthError {
                             inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
                             ..
                         })) => {}
-                        Err(minimq::PubError::Serialization(err)) => {
+                        Err(minimq::PubError::Payload(err)) => {
                             let props = [ResponseCode::Error.into()];
                             let text = format_message(err);
                             let publication = Publication::new(&topic, text.as_str())
@@ -502,7 +532,7 @@ where
                                 return;
                             }
                         }
-                        Err(minimq::PubError::Error(err)) => {
+                        Err(minimq::PubError::Session(err)) => {
                             info!("Multipart dump publish failure: {err:?}");
                             self.pending.clear();
                             return;
