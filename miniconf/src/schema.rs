@@ -493,7 +493,7 @@ impl Internal {
 #[cfg(feature = "attrs")]
 pub type Attrs = &'static [(&'static str, &'static str)];
 #[cfg(not(any(feature = "attrs")))]
-#[derive(Debug, Clone, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize)]
 /// The attrs type
 ///
 /// Uninhabited

@@ -1,6 +1,8 @@
 #[cfg(feature = "sem")]
 use miniconf::TreeSchema;
 use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core};
+#[cfg(all(feature = "schema", feature = "sem"))]
+use schemars::transform::Transform;
 
 mod common;
 use common::*;
@@ -175,4 +177,24 @@ fn option_sem() {
             }
         })
     );
+}
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn option_json_schema_matches_omitted_named_child() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    let settings = Settings::default();
+    let json = to_json_value(&settings).unwrap();
+    assert_eq!(json, serde_json::json!({}));
+
+    let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
 }

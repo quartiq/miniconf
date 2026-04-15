@@ -152,3 +152,31 @@ fn enum_json_schema_matches_json_value() {
         .validate(&json)
         .unwrap();
 }
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn enum_json_schema_matches_absent_active_variant() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    #[tree(meta(enum))]
+    enum E {
+        A(Option<u32>),
+        B(i32),
+    }
+
+    let value = E::A(None);
+    let json = to_json_value(&value).unwrap();
+    assert_eq!(json, serde_json::json!({}));
+
+    let mut schema = TreeJsonSchema::new(Some(&value)).unwrap();
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
+}
