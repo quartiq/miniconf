@@ -118,10 +118,12 @@ pub mod leaf {
 /// This wraps [`Serialize`], [`Deserialize`], and [`Any`] into `Tree` a leaf node.
 ///
 /// ```
-/// use miniconf::{json_core, Leaf, Tree};
+/// # #[cfg(feature = "json-core")] {
+/// use miniconf::{json_core, Leaf};
 /// let mut s = Leaf(0);
 /// json_core::set(&mut s, "", b"7").unwrap();
 /// assert!(matches!(*s, 7));
+/// # }
 /// ```
 #[derive(
     Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
@@ -577,6 +579,7 @@ mod heapless_09_impls {
 /// Inner enum variant field access can be implemented using `defer`.
 ///
 /// ```
+/// # #[cfg(all(feature = "derive", feature = "json-core"))] {
 /// use miniconf::{json_core::set, str_leaf, Tree};
 /// #[derive(Tree, strum::AsRefStr, strum::EnumString)]
 /// enum En {
@@ -596,6 +599,7 @@ mod heapless_09_impls {
 /// set(&mut s, "/t", b"\"B\"").unwrap();
 /// set(&mut s, "/e/B", b"1.2").unwrap();
 /// assert!(matches!(s.e, En::B(1.2)));
+/// # }
 /// ```
 pub mod str_leaf {
     use super::*;

@@ -41,6 +41,7 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// the `rename` derive macro attribute.
 ///
 /// ```
+/// # #[cfg(feature = "derive")] {
 /// use miniconf::{FromConfig, Path, Tree, TreeSchema};
 /// #[derive(Tree, Default)]
 /// struct S {
@@ -49,6 +50,7 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// };
 /// let name = Path::<String>::transcode(S::SCHEMA, [0usize]).unwrap();
 /// assert_eq!(name.path.as_str(), "/OTHER");
+/// # }
 /// ```
 ///
 /// ## Skip
@@ -58,9 +60,11 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// Note that for tuple structs skipping is only supported for terminal fields:
 ///
 /// ```
+/// # #[cfg(feature = "derive")] {
 /// use miniconf::{Tree};
 /// #[derive(Tree)]
 /// struct S(i32, #[tree(skip)] ());
+/// # }
 /// ```
 ///
 /// ```compile_fail
@@ -85,6 +89,7 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 ///
 /// Also use this to relax bounds and deny operations.
 /// ```
+/// # #[cfg(feature = "derive")] {
 /// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
 /// # use serde::Deserializer;
 /// #[derive(Tree, Default)]
@@ -111,6 +116,7 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 ///         }
 ///     }
 /// }
+/// # }
 /// ```
 ///
 /// ### `defer`
@@ -164,6 +170,7 @@ pub trait TreeSchema {
 /// This uses the `dyn Any` trait object.
 ///
 /// ```
+/// # #[cfg(feature = "derive")] {
 /// use core::any::Any;
 /// use miniconf::{Indices, IntoKeys, JsonPath, TreeAny, TreeSchema};
 /// #[derive(TreeSchema, TreeAny, Default)]
@@ -184,6 +191,7 @@ pub trait TreeSchema {
 ///
 /// let val: &u16 = s.ref_by_key(JsonPath(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
+/// # }
 /// ```
 pub trait TreeAny: TreeSchema {
     /// Obtain a reference to a `dyn Any` trait object for a leaf node.

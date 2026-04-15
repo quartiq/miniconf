@@ -241,6 +241,7 @@ impl Schema {
     /// `Err(KeyError::TooShort)` is returned.
     ///
     /// ```
+    /// # #[cfg(feature = "derive")] {
     /// # use core::convert::Infallible;
     /// use miniconf::{IntoKeys, TreeSchema};
     /// #[derive(TreeSchema)]
@@ -258,6 +259,7 @@ impl Schema {
     ///     Ok::<_, Infallible>(())
     /// };
     /// assert_eq!(S::SCHEMA.descend(["bar", "0"].into_keys(), func), Ok(()));
+    /// # }
     /// ```
     ///
     /// # Args
@@ -392,6 +394,7 @@ impl Schema {
     /// [`Transcode::transcode_from`] on an existing `&mut N`.
     ///
     /// ```
+    /// # #[cfg(feature = "derive")] {
     /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
@@ -416,6 +419,7 @@ impl Schema {
     /// assert_eq!(path.path.as_str(), "/bar/4");
     /// let lookup = sch.get(&path).unwrap();
     /// assert_eq!((lookup.depth, lookup.schema.is_leaf()), (2, true));
+    /// # }
     /// ```
     ///
     /// # Args
@@ -455,6 +459,7 @@ impl Schema {
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
+    /// # #[cfg(feature = "derive")] {
     /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
@@ -500,6 +505,7 @@ impl Schema {
     ///         ((2, true), "/bar/1".into()),
     ///     ]
     /// );
+    /// # }
     /// ```
     pub const fn nodes<N: FromConfig, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
         NodeIter::new(self, [0; D], 0, N::DEFAULT_CONFIG).exact_size()
