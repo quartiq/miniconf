@@ -35,6 +35,8 @@ Topics:
 
 - settings requests and dumps use `"<prefix>/settings<path>"`
 - liveness uses `"<prefix>/alive"`
+- with the `introspection` feature, static schema requests use `"<prefix>/schema<path>"`
+- with the `introspection` feature, runtime state requests use `"<prefix>/state<path>"`
 
 Request routing:
 
@@ -55,6 +57,7 @@ More precisely:
 - Unknown topics under other prefixes are ignored.
 - Overlong leaf paths are rejected rather than truncated.
 - Path-resolution errors report the actual consumed depth.
+- `schema` and `state` requests are read-only and require a response topic.
 
 ## Response Semantics
 
@@ -69,6 +72,35 @@ User property `code` distinguishes reply state:
 
 `DUMP` does not use the response topic. It publishes current settings values directly into the
 settings namespace and does not wait for completion.
+
+## Introspection
+
+Enable the `introspection` feature to expose compact schema and runtime-state queries.
+
+- `schema` returns one node descriptor for the addressed path.
+- `state` returns runtime accessibility information for the addressed path.
+- Both use normal MQTT v5 request/reply on the response topic.
+
+`schema` replies are compact JSON objects:
+
+- leaf: `{"meta":...}` or `{}`
+- named internal: `{"kind":"named","children":[{"name":"child","meta":...},...],...}`
+- numbered internal: `{"kind":"numbered","children":[{"meta":...},...],...}`
+- homogeneous internal: `{"kind":"homogeneous","child":{"meta":...},"len":N,...}`
+
+Node metadata is included on the addressed node when present. Child edge metadata is kept on the
+parent internal node, mirroring `Schema`/`Internal`. This is the intended channel for downstream
+hints such as:
+
+- `#[tree(meta(enum))]` on enums, which yields `{"enum":"oneof"}`
+- `#[tree(meta(switches = "mode"))]` on selector fields, exposed on that child edge
+
+`state` replies are compact JSON objects:
+
+- present subtree: `{"state":"present"}`
+- absent subtree: `{"state":"absent"}`
+- unknown/inaccessible subtree: `{"state":"unknown"}`
+- enum-like subtree with one active child: `{"state":"present","active":"Variant"}`
 
 ## Notes
 

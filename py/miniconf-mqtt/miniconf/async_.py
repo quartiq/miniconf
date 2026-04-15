@@ -108,7 +108,7 @@ class Miniconf:
             fut.set_exception(MiniconfException(code, resp))
             del self._inflight[cd]
 
-    async def _do(self, path: str, *, response=1, **kwargs):
+    async def _do(self, path: str, *, namespace="settings", response=1, **kwargs):
         response = int(response)
         props = Properties(PacketTypes.PUBLISH)
         if response:
@@ -120,7 +120,7 @@ class Miniconf:
             assert cd not in self._inflight
             self._inflight[cd] = fut, []
 
-        topic = f"{self.prefix}/settings{path}"
+        topic = f"{self.prefix}/{namespace}{path}"
         LOGGER.debug("Publishing %s: %s, [%s]", topic, kwargs.get("payload"), props)
         await self.client.publish(
             topic,
@@ -181,6 +181,22 @@ class Miniconf:
             path: The path to get. Must be a leaf node.
         """
         return json.loads(await self._do(path, **kwargs))
+
+    async def schema(self, path: str = "", **kwargs):
+        """Get static schema information for a node.
+
+        Args:
+            path: The path to inspect. Can be a leaf or an internal node.
+        """
+        return json.loads(await self._do(path, namespace="schema", **kwargs))
+
+    async def state(self, path: str = "", **kwargs):
+        """Get runtime presence/activity information for a node.
+
+        Args:
+            path: The path to inspect. Can be a leaf or an internal node.
+        """
+        return json.loads(await self._do(path, namespace="state", **kwargs))
 
     async def clear(self, path: str, response=True, **kwargs):
         """Clear retained value from a path.

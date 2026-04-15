@@ -4,6 +4,8 @@
 //! Async MQTT interface for `miniconf` built on a single long-lived [`minimq::Session`].
 
 mod client;
+#[cfg(feature = "introspection")]
+mod introspection;
 mod pending;
 mod protocol;
 #[cfg(test)]

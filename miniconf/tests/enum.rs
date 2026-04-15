@@ -1,4 +1,4 @@
-use miniconf::{SerdeError, Tree, ValueError, json_core, str_leaf};
+use miniconf::{SerdeError, Tree, TreeSchema, ValueError, json_core, str_leaf};
 
 mod common;
 use common::*;
@@ -89,4 +89,25 @@ fn option() {
     }
     assert_eq!(paths::<Option::<[i32; 1]>, 1>(), ["/0"]);
     assert_eq!(paths::<Option::<::core::option::Option<i32>>, 1>(), [""]);
+}
+
+#[test]
+fn enum_meta() {
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    #[tree(meta(enum))]
+    enum E {
+        A(i32),
+        B(Inner),
+    }
+
+    let node = serde_json::to_value(E::SCHEMA.node_info()).unwrap();
+    assert_eq!(
+        node,
+        serde_json::json!({
+            "kind": "named",
+            "children": [{"name": "A"}, {"name": "B"}],
+            "meta": {"enum": "oneof"},
+        })
+    );
 }

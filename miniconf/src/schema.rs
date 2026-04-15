@@ -1,5 +1,10 @@
 use core::{convert::Infallible, num::NonZero};
-use serde::Serialize;
+#[cfg(feature = "meta-str")]
+use serde::ser::SerializeMap;
+use serde::{
+    Serialize,
+    ser::{SerializeSeq, Serializer},
+};
 
 use crate::{
     DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
@@ -23,6 +28,215 @@ pub struct ResolveError {
     pub depth: usize,
     /// Whether the traversal had already reached a leaf when known.
     pub leaf: Option<bool>,
+}
+
+/// Compact kind of an internal schema node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeKind {
+    /// Named children
+    Named,
+    /// Numbered heterogeneous children
+    Numbered,
+    /// Homogeneous numbered children
+    Homogeneous,
+}
+
+/// Serializable view of metadata.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MetaView<'a>(pub &'a Meta);
+
+impl<'a> MetaView<'a> {
+    fn new(meta: Option<&'a Meta>) -> Option<Self> {
+        meta.map(Self)
+    }
+}
+
+impl Serialize for MetaView<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        #[cfg(feature = "meta-str")]
+        {
+            let mut map = serializer.serialize_map(Some(self.0.len()))?;
+            for (key, value) in *self.0 {
+                map.serialize_entry(key, value)?;
+            }
+            map.end()
+        }
+        #[cfg(not(feature = "meta-str"))]
+        {
+            let _ = serializer;
+            match *self.0 {}
+        }
+    }
+}
+
+/// Return whether metadata contains the exact `key`/`value` pair.
+pub fn meta_contains(meta: &Meta, key: &str, value: &str) -> bool {
+    #[cfg(feature = "meta-str")]
+    {
+        meta.iter()
+            .any(|(have_key, have_value)| *have_key == key && *have_value == value)
+    }
+    #[cfg(not(feature = "meta-str"))]
+    {
+        let _ = (key, value);
+        match *meta {}
+    }
+}
+
+/// Serializable view of one named child edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct ChildInfo<'a> {
+    /// Child name.
+    pub name: &'a str,
+    /// Child edge metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Serializable view of named child edges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ChildInfos<'a>(pub &'a [Named]);
+
+impl Serialize for ChildInfos<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for child in self.0 {
+            seq.serialize_element(&ChildInfo {
+                name: child.name,
+                meta: MetaView::new(child.meta.as_ref()),
+            })?;
+        }
+        seq.end()
+    }
+}
+
+/// Serializable view of one numbered child edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct NumberedChildInfo<'a> {
+    /// Child edge metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Serializable view of numbered child edges.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NumberedChildInfos<'a>(pub &'a [Numbered]);
+
+impl Serialize for NumberedChildInfos<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for child in self.0 {
+            seq.serialize_element(&NumberedChildInfo {
+                meta: MetaView::new(child.meta.as_ref()),
+            })?;
+        }
+        seq.end()
+    }
+}
+
+/// Serializable view of a homogeneous child edge.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+pub struct HomogeneousChildInfo<'a> {
+    /// Child edge metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Compact serializable view of a leaf schema node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct LeafInfo<'a> {
+    /// Node metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Compact serializable view of a named internal schema node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct NamedInfo<'a> {
+    /// Kind of internal node.
+    pub kind: NodeKind,
+    /// Immediate named child edges.
+    pub children: ChildInfos<'a>,
+    /// Node metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Compact serializable view of a numbered internal schema node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct NumberedInfo<'a> {
+    /// Kind of internal node.
+    pub kind: NodeKind,
+    /// Immediate numbered child edges.
+    pub children: NumberedChildInfos<'a>,
+    /// Node metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Compact serializable view of a homogeneous internal schema node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct HomogeneousInfo<'a> {
+    /// Kind of internal node.
+    pub kind: NodeKind,
+    /// Representative homogeneous child edge.
+    pub child: HomogeneousChildInfo<'a>,
+    /// Number of immediate children.
+    pub len: usize,
+    /// Node metadata when present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub meta: Option<MetaView<'a>>,
+}
+
+/// Compact serializable view of a schema node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum NodeInfo<'a> {
+    /// Leaf node view.
+    Leaf(LeafInfo<'a>),
+    /// Named internal node view.
+    Named(NamedInfo<'a>),
+    /// Numbered internal node view.
+    Numbered(NumberedInfo<'a>),
+    /// Homogeneous internal node view.
+    Homogeneous(HomogeneousInfo<'a>),
+}
+
+impl<'a> From<&'a Schema> for NodeInfo<'a> {
+    fn from(schema: &'a Schema) -> Self {
+        let meta = MetaView::new(schema.meta.as_ref());
+        match schema.internal.as_ref() {
+            None => Self::Leaf(LeafInfo { meta }),
+            Some(Internal::Named(children)) => Self::Named(NamedInfo {
+                kind: NodeKind::Named,
+                children: ChildInfos(children),
+                meta,
+            }),
+            Some(Internal::Numbered(children)) => Self::Numbered(NumberedInfo {
+                kind: NodeKind::Numbered,
+                children: NumberedChildInfos(children),
+                meta,
+            }),
+            Some(Internal::Homogeneous(child)) => Self::Homogeneous(HomogeneousInfo {
+                kind: NodeKind::Homogeneous,
+                child: HomogeneousChildInfo {
+                    meta: MetaView::new(child.meta.as_ref()),
+                },
+                len: child.len.get(),
+                meta,
+            }),
+        }
+    }
 }
 
 /// A numbered schema item
@@ -226,6 +440,53 @@ impl Schema {
     /// See [`Self::is_leaf()`]
     pub const fn is_empty(&self) -> bool {
         self.is_leaf()
+    }
+
+    /// Compact serializable view of this node.
+    pub fn node_info(&'static self) -> NodeInfo<'static> {
+        self.into()
+    }
+
+    /// Compact serializable view of the node identified by `keys`.
+    ///
+    /// Child edge metadata is exposed on the parent `children` list. Node metadata here is only
+    /// the inner metadata attached to the addressed schema node.
+    pub fn get_node_info(
+        &'static self,
+        keys: impl IntoKeys,
+    ) -> Result<NodeInfo<'static>, KeyError> {
+        let mut schema = self;
+        let mut keys = keys.into_keys();
+        while let Some(internal) = schema.internal.as_ref() {
+            match keys.next(internal) {
+                Ok(index) => schema = internal.get_schema(index),
+                Err(KeyError::TooShort) => break,
+                Err(err) => return Err(err),
+            }
+        }
+        keys.finalize()?;
+        let meta = MetaView::new(schema.meta.as_ref());
+        Ok(match schema.internal.as_ref() {
+            None => NodeInfo::Leaf(LeafInfo { meta }),
+            Some(Internal::Named(children)) => NodeInfo::Named(NamedInfo {
+                kind: NodeKind::Named,
+                children: ChildInfos(children),
+                meta,
+            }),
+            Some(Internal::Numbered(children)) => NodeInfo::Numbered(NumberedInfo {
+                kind: NodeKind::Numbered,
+                children: NumberedChildInfos(children),
+                meta,
+            }),
+            Some(Internal::Homogeneous(child)) => NodeInfo::Homogeneous(HomogeneousInfo {
+                kind: NodeKind::Homogeneous,
+                child: HomogeneousChildInfo {
+                    meta: MetaView::new(child.meta.as_ref()),
+                },
+                len: child.len.get(),
+                meta,
+            }),
+        })
     }
 
     /// Look up the next item from keys and return a child index.

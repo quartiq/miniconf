@@ -13,6 +13,8 @@ use minimq::{
     types::{SubscriptionOptions, TopicFilter},
 };
 
+#[cfg(feature = "introspection")]
+use crate::introspection::{json_text, state_info};
 use crate::{
     MAX_TOPIC_LENGTH, SEPARATOR,
     pending::Pending,
@@ -55,6 +57,26 @@ pub(crate) enum Action<const Y: usize> {
     SetPending {
         pending: Pending<Y>,
     },
+}
+
+#[derive(Copy, Clone)]
+enum Resource {
+    Settings,
+    Schema,
+    State,
+}
+
+impl Resource {
+    fn parse<'a>(topic: &'a str, prefix: &str) -> Option<(Self, &'a str)> {
+        let tail = topic.strip_prefix(prefix)?;
+        [
+            (Self::Settings, "/settings"),
+            (Self::Schema, "/schema"),
+            (Self::State, "/state"),
+        ]
+        .into_iter()
+        .find_map(|(resource, base)| tail.strip_prefix(base).map(|path| (resource, path)))
+    }
 }
 
 /// Result of polling the MQTT service.
@@ -103,7 +125,17 @@ where
         connector: &'a C,
         config: ConfigBuilder<'a>,
     ) -> Result<Self, ProtocolError> {
-        const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
+        #[cfg(feature = "introspection")]
+        // Introspection probes append one impossible descendant key to distinguish
+        // present subtrees from `Absent`/`Access`, so callers need one slot beyond
+        // the maximum valid key depth.
+        const {
+            assert!(Settings::SCHEMA.shape().max_depth < Y)
+        }
+        #[cfg(not(feature = "introspection"))]
+        const {
+            assert!(Settings::SCHEMA.shape().max_depth <= Y)
+        }
         let shape = Settings::SCHEMA.shape();
         if prefix.len() + "/settings".len() + shape.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);
@@ -217,15 +249,28 @@ where
             return Ok(());
         }
 
-        let mut topic: String<MAX_TOPIC_LENGTH> = self
+        let topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
             .try_into()
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        topic
+        let opts = SubscriptionOptions::default().ignore_local_messages();
+        let mut settings = topic.clone();
+        settings
             .push_str("/settings/#")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let opts = SubscriptionOptions::default().ignore_local_messages();
-        let topics = [TopicFilter::new(&topic).options(opts)];
+        let mut schema = topic.clone();
+        schema
+            .push_str("/schema/#")
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        let mut state = topic;
+        state
+            .push_str("/state/#")
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        let topics = [
+            TopicFilter::new(&settings).options(opts),
+            TopicFilter::new(&schema).options(opts),
+            TopicFilter::new(&state).options(opts),
+        ];
         self.session.subscribe(&topics, &[]).await?;
         self.subscribed = true;
         info!("Subscribed");
@@ -282,11 +327,8 @@ where
         settings: &mut Settings,
         message: &InboundPublish<'_>,
     ) -> Action<Y> {
-        let Some(path) = message
-            .topic
-            .strip_prefix(prefix)
-            .and_then(|tail| tail.strip_prefix("/settings"))
-            .map(|tail| Path::new(tail, SEPARATOR))
+        let Some((resource, path)) = Resource::parse(message.topic, prefix)
+            .map(|(resource, path)| (resource, Path::new(path, SEPARATOR)))
         else {
             return Action::None(State::Unchanged);
         };
@@ -333,6 +375,59 @@ where
                 };
             }
         };
+
+        if matches!(resource, Resource::Schema | Resource::State) {
+            #[cfg(not(feature = "introspection"))]
+            {
+                return if let Some(reply) = reply {
+                    Action::ReplyText {
+                        state: State::Unchanged,
+                        reply: Some(reply),
+                        code: ResponseCode::Error,
+                        text: format_message("Introspection is disabled"),
+                    }
+                } else {
+                    Action::None(State::Unchanged)
+                };
+            }
+            #[cfg(feature = "introspection")]
+            {
+                if !message.payload.is_empty() {
+                    return Action::ReplyText {
+                        state: State::Unchanged,
+                        reply,
+                        code: ResponseCode::Error,
+                        text: format_message("Schema/state endpoints are read-only"),
+                    };
+                }
+                if reply.is_none() {
+                    return Action::None(State::Unchanged);
+                }
+                let text = match resource {
+                    Resource::Schema => json_text(&Settings::SCHEMA.get_node_info(path).unwrap()),
+                    Resource::State => json_text(&state_info::<_, Y>(
+                        settings,
+                        &state[..lookup.depth],
+                        lookup.schema,
+                    )),
+                    Resource::Settings => unreachable!(),
+                };
+                return match text {
+                    Ok(text) => Action::ReplyText {
+                        state: State::Unchanged,
+                        reply,
+                        code: ResponseCode::Ok,
+                        text,
+                    },
+                    Err(()) => Action::ReplyText {
+                        state: State::Unchanged,
+                        reply,
+                        code: ResponseCode::Error,
+                        text: format_message("Response too long"),
+                    },
+                };
+            }
+        }
 
         if message.payload.is_empty() {
             if lookup.schema.is_leaf() {

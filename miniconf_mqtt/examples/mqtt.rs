@@ -18,10 +18,32 @@ enum Gain {
     G100,
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Tree, Debug)]
+#[tree(meta(enum))]
+enum Mode {
+    A(u8),
+    B(Inner),
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Self::A(0)
+    }
+}
+
+#[derive(Clone, Default, Tree, Debug)]
+struct Control {
+    #[tree(meta(switches = "mode"))]
+    tag: String<8>,
+    mode: Mode,
+}
+
 #[derive(Clone, Default, Tree, Debug)]
 struct Settings {
     stream: String<32>,
     afe: [Leaf<Gain>; 2],
+    control: Control,
     inner: Inner,
     values: [f32; 2],
     #[tree(with=leaf)]
@@ -65,7 +87,7 @@ async fn main() {
     .into();
     let connector = TcpConnector::new(Stack::default());
 
-    const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+    const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth + 1;
 
     let mut client = miniconf_mqtt::MqttClient::<_, _, MAX_DEPTH>::new(
         "test/id",

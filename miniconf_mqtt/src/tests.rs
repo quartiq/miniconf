@@ -1,4 +1,6 @@
 use crate::{MqttClient, State, client::Action, pending::Pending};
+#[cfg(feature = "introspection")]
+use heapless::String as HString;
 use miniconf::{Tree, TreeSchema};
 use minimq::{
     Broker, BufferLayout, InboundPublish, Property, ProtocolError, QoS, Retain,
@@ -22,6 +24,36 @@ struct TreeSettings {
     value: u8,
     nested: Nested,
 }
+
+#[cfg(feature = "introspection")]
+#[allow(dead_code)]
+#[derive(Tree)]
+#[tree(meta(enum))]
+enum Mode {
+    A(u8),
+    B(Nested),
+}
+
+#[cfg(feature = "introspection")]
+impl Default for Mode {
+    fn default() -> Self {
+        Self::A(0)
+    }
+}
+
+#[cfg(feature = "introspection")]
+#[derive(Tree, Default)]
+struct StateSettings {
+    #[tree(meta(switches = "mode"))]
+    tag: HString<8>,
+    mode: Mode,
+    optional: Option<Nested>,
+}
+
+const TINY_DEPTH: usize = Tiny::SCHEMA.shape().max_depth + 1;
+const TREE_DEPTH: usize = TreeSettings::SCHEMA.shape().max_depth + 1;
+#[cfg(feature = "introspection")]
+const STATE_DEPTH: usize = StateSettings::SCHEMA.shape().max_depth + 1;
 
 #[derive(Default)]
 struct DummyConnection;
@@ -67,10 +99,9 @@ fn constructor_rejects_long_prefix() {
         .parse::<core::net::SocketAddr>()
         .unwrap()
         .into();
-    const MAX_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
     let prefix = "x".repeat(crate::MAX_TOPIC_LENGTH);
 
-    let client = MqttClient::<Tiny, _, MAX_DEPTH>::new(
+    let client = MqttClient::<Tiny, _, TINY_DEPTH>::new(
         &prefix,
         &DummyConnector,
         minimq::ConfigBuilder::from_buffer_layout(
@@ -95,7 +126,7 @@ fn plan_leaf_get() {
         qos: QoS::AtMostOnce,
     };
 
-    match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
         "test/id",
         false,
         &mut settings,
@@ -119,7 +150,7 @@ fn plan_internal_get_without_response_topic_starts_dump() {
         qos: QoS::AtMostOnce,
     };
 
-    match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
         "test/id",
         false,
         &mut settings,
@@ -144,7 +175,7 @@ fn plan_internal_get_with_response_topic_starts_list() {
         qos: QoS::AtMostOnce,
     };
 
-    match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
         "test/id",
         false,
         &mut settings,
@@ -171,7 +202,7 @@ fn plan_internal_get_with_oversized_response_topic_is_rejected() {
     };
 
     assert!(matches!(
-        MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+        MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
             "test/id",
             false,
             &mut settings,
@@ -193,7 +224,7 @@ fn plan_set_marks_changed() {
         qos: QoS::AtMostOnce,
     };
 
-    match MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
         "test/id",
         false,
         &mut settings,
@@ -222,7 +253,7 @@ fn plan_set_with_oversized_response_topic_is_rejected() {
     };
 
     assert!(matches!(
-        MqttClient::<TreeSettings, DummyConnector, 2>::plan_request(
+        MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
             "test/id",
             false,
             &mut settings,
@@ -231,4 +262,104 @@ fn plan_set_with_oversized_response_topic_is_rejected() {
         Action::None(State::Unchanged)
     ));
     assert_eq!(settings.value, 0);
+}
+
+#[cfg(feature = "introspection")]
+#[test]
+fn plan_schema_replies_with_node_info() {
+    let mut settings = StateSettings::default();
+    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
+    let root = InboundPublish {
+        topic: "test/id/schema",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+    let mode = InboundPublish {
+        topic: "test/id/schema/mode",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+
+    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+        "test/id",
+        false,
+        &mut settings,
+        &root,
+    ) {
+        Action::ReplyText { code, text, .. } => {
+            assert_eq!(code, crate::protocol::ResponseCode::Ok);
+            assert_eq!(
+                text.as_str(),
+                r#"{"kind":"named","children":[{"name":"tag","meta":{"switches":"mode"}},{"name":"mode"},{"name":"optional"}]}"#
+            );
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+
+    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+        "test/id",
+        false,
+        &mut settings,
+        &mode,
+    ) {
+        Action::ReplyText { code, text, .. } => {
+            assert_eq!(code, crate::protocol::ResponseCode::Ok);
+            assert_eq!(
+                text.as_str(),
+                r#"{"kind":"named","children":[{"name":"A"},{"name":"B"}],"meta":{"enum":"oneof"}}"#
+            );
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+}
+
+#[cfg(feature = "introspection")]
+#[test]
+fn plan_state_reports_active_variant_and_absent_subtree() {
+    let mut settings = StateSettings::default();
+    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
+    let mode = InboundPublish {
+        topic: "test/id/state/mode",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+    let optional = InboundPublish {
+        topic: "test/id/state/optional",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+
+    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+        "test/id",
+        false,
+        &mut settings,
+        &mode,
+    ) {
+        Action::ReplyText { code, text, .. } => {
+            assert_eq!(code, crate::protocol::ResponseCode::Ok);
+            assert_eq!(text.as_str(), r#"{"state":"present","active":"A"}"#);
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+
+    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+        "test/id",
+        false,
+        &mut settings,
+        &optional,
+    ) {
+        Action::ReplyText { code, text, .. } => {
+            assert_eq!(code, crate::protocol::ResponseCode::Ok);
+            assert_eq!(text.as_str(), r#"{"state":"absent"}"#);
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
 }

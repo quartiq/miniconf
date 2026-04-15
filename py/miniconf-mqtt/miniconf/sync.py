@@ -103,7 +103,7 @@ class Miniconf:
             event.set()
             del self._inflight[cd]
 
-    def _do(self, path: str, *, response=1, timeout=None, **kwargs):
+    def _do(self, path: str, *, namespace="settings", response=1, timeout=None, **kwargs):
         response = int(response)
 
         props = Properties(PacketTypes.PUBLISH)
@@ -117,7 +117,7 @@ class Miniconf:
             assert cd not in self._inflight
             self._inflight[cd] = event, ret
 
-        topic = f"{self.prefix}/settings{path}"
+        topic = f"{self.prefix}/{namespace}{path}"
         LOGGER.debug("Publishing %s: %s, [%s]", topic, kwargs.get("payload"), props)
         _pub = self.client.publish(topic, properties=props, **kwargs)
 
@@ -178,6 +178,22 @@ class Miniconf:
             path: The path to get. Must be a leaf node.
         """
         return json.loads(self._do(path, **kwargs))
+
+    def schema(self, path: str = "", **kwargs):
+        """Get static schema information for a node.
+
+        Args:
+            path: The path to inspect. Can be a leaf or an internal node.
+        """
+        return json.loads(self._do(path, namespace="schema", **kwargs))
+
+    def state(self, path: str = "", **kwargs):
+        """Get runtime presence/activity information for a node.
+
+        Args:
+            path: The path to inspect. Can be a leaf or an internal node.
+        """
+        return json.loads(self._do(path, namespace="state", **kwargs))
 
     def clear(self, path: str, response=True, **kwargs):
         """Clear retained value from a path.

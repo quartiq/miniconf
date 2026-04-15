@@ -201,6 +201,10 @@ impl Tree {
                 Override::Explicit(self.ident.to_string()),
             );
         }
+        if matches!(self.data, Data::Enum(_)) && self.meta.get("enum") == Some(&Override::Inherit) {
+            self.meta
+                .insert("enum".to_string(), Override::Explicit("oneof".to_string()));
+        }
         let force = self.meta.get("doc") == Some(&Override::Inherit);
         doc_to_meta(&self.attrs, &mut self.meta, false)?;
         match &mut self.data {
