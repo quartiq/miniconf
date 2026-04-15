@@ -309,6 +309,13 @@ fn plan_schema_replies_with_view() {
         retain: Retain::NotRetained,
         qos: QoS::AtMostOnce,
     };
+    let tag = InboundPublish {
+        topic: "test/id/schema/tag",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
 
     match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
         "test/id",
@@ -338,6 +345,19 @@ fn plan_schema_replies_with_view() {
                 text.as_str(),
                 r#"{"sem":{"oneof":true},"internal":{"kind":"named","children":[{"name":"A"},{"name":"B"}]}}"#
             );
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+
+    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+        "test/id",
+        false,
+        &mut settings,
+        &tag,
+    ) {
+        Action::ReplyText { code, text, .. } => {
+            assert_eq!(code, crate::protocol::ResponseCode::Ok);
+            assert_eq!(text.as_str(), r#"{"sem":{"ty":"str"}}"#);
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }

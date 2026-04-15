@@ -10,7 +10,7 @@ mod check {
     use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
 
     pub use miniconf::leaf::{
-        SCHEMA, mut_any_by_key, probe_by_key, ref_any_by_key, serialize_by_key,
+        mut_any_by_key, probe_by_key, ref_any_by_key, schema, serialize_by_key,
     };
 
     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
@@ -62,7 +62,9 @@ mod page4 {
 
     pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
 
-    pub const SCHEMA: &Schema = <[i32; LENGTH] as TreeSchema>::SCHEMA;
+    pub const fn schema<T>() -> &'static Schema {
+        <[i32; LENGTH] as TreeSchema>::SCHEMA
+    }
 
     pub fn serialize_by_key<S: Serializer>(
         value: &Page,
@@ -124,8 +126,7 @@ mod lock {
         Deserializer, Keys, SerdeError, Serializer, TreeDeserialize, TreeSerialize, ValueError,
     };
 
-    pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
-    pub use miniconf::leaf::SCHEMA;
+    pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key, schema};
 
     pub fn serialize_by_key<S: Serializer>(
         value: &Lock,

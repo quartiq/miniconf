@@ -14,6 +14,11 @@ use crate::{
 pub mod passthrough {
     use super::*;
 
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T: TreeSchema + ?Sized>() -> &'static Schema {
+        T::SCHEMA
+    }
+
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<T: TreeSerialize + ?Sized, S: Serializer>(
         value: &T,
@@ -65,6 +70,11 @@ pub mod leaf {
 
     /// [`TreeSchema::SCHEMA`]
     pub const SCHEMA: &Schema = &Schema::LEAF;
+
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T>() -> &'static Schema {
+        SCHEMA
+    }
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<T: Serialize + ?Sized, S: Serializer>(
@@ -719,6 +729,11 @@ pub mod str_leaf {
     /// [`TreeSchema::SCHEMA`]
     pub const SCHEMA: &Schema = &Schema::leaf_ty(Ty::Str);
 
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T>() -> &'static Schema {
+        SCHEMA
+    }
+
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<S: Serializer>(
         value: &(impl AsRef<str> + ?Sized),
@@ -761,7 +776,10 @@ pub mod str_leaf {
 pub mod deny {
     use super::*;
 
-    pub use leaf::SCHEMA;
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T>() -> &'static Schema {
+        leaf::schema::<T>()
+    }
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<S: Serializer>(

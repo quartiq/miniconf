@@ -95,8 +95,8 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// `#[tree(with=path)]`
 ///
 /// This overrides the calls to the child node/variant traits using pub functions
-/// and constants in the module at the given path:
-/// (`SCHEMA`, `serialize_by_key`, `deserialize_by_key`, `probe_by_key`,
+/// in the module at the given path:
+/// (`schema::<T>()`, `serialize_by_key`, `deserialize_by_key`, `probe_by_key`,
 /// `ref_any_by_key`, `mut_any_by_key`).
 ///
 /// Also use this to relax bounds and deny operations.
@@ -111,7 +111,7 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// }
 /// mod check {
 ///     use miniconf::{SerdeError, Deserializer, TreeDeserialize, ValueError, Keys};
-///     pub use miniconf::leaf::{SCHEMA, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
+///     pub use miniconf::leaf::{schema, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
 ///
 ///     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
 ///         value: &mut f32,

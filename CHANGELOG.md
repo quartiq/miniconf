@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
 * `miniconf_mqtt`: `MqttClient` is now async-first and built on async `minimq::Session`.
   `update()` was replaced by `poll().await`.
+* Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a monomorphic `SCHEMA` constant.
 
 ### Added
 

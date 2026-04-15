@@ -62,7 +62,8 @@ impl TreeField {
 
     pub fn schema(&self) -> TokenStream {
         if let Some(all) = self.with.as_ref() {
-            quote_spanned!(self.span()=> #all::SCHEMA)
+            let typ = self.typ();
+            quote_spanned!(self.span()=> #all::schema::<#typ>())
         } else {
             let typ = self.typ();
             quote_spanned!(self.span()=> <#typ as ::miniconf::TreeSchema>::SCHEMA)
