@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Structured `sem.maybe_absent` on `Option<T>` schema views.
 * Structured `sem.oneof` on built-in `Result<T, E>` and `Bound<T>` schema views.
 * `nullable` as an outer attr hint, e.g. `#[tree(with = leaf, attrs(nullable))]`, propagated into JSON Schema as `null`.
-* Generated JSON Schema now carries explicit `tree-kind` annotations and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
+* Generated JSON Schema now carries an explicit `tree-leaf` marker and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
 
 ### Removed
 

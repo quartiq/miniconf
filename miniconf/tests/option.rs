@@ -254,18 +254,15 @@ fn option_json_schema_matches_omitted_named_child() {
     assert_eq!(json, serde_json::json!({}));
 
     let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
-    assert_eq!(
-        schema.root.get("tree-kind"),
-        Some(&serde_json::json!("named"))
-    );
+    assert_eq!(schema.root.get("tree-leaf"), None);
     assert_eq!(
         schema
             .root
             .get("properties")
             .and_then(serde_json::Value::as_object)
             .and_then(|properties| properties.get("value"))
-            .and_then(|value| value.get("tree-kind")),
-        Some(&serde_json::json!("named"))
+            .and_then(|value| value.get("tree-leaf")),
+        None
     );
     AllowAbsent.transform(&mut schema.root);
     jsonschema::validator_for(schema.root.as_value())
@@ -293,18 +290,15 @@ fn option_json_schema_matches_nullable_leaf() {
     assert_eq!(json, serde_json::json!({"value": null}));
 
     let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
-    assert_eq!(
-        schema.root.get("tree-kind"),
-        Some(&serde_json::json!("named"))
-    );
+    assert_eq!(schema.root.get("tree-leaf"), None);
     assert_eq!(
         schema
             .root
             .get("properties")
             .and_then(serde_json::Value::as_object)
             .and_then(|properties| properties.get("value"))
-            .and_then(|value| value.get("tree-kind")),
-        Some(&serde_json::json!("leaf"))
+            .and_then(|value| value.get("tree-leaf")),
+        Some(&serde_json::json!(true))
     );
     AllowAbsent.transform(&mut schema.root);
     jsonschema::validator_for(schema.root.as_value())

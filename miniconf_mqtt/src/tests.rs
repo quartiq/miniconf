@@ -138,6 +138,33 @@ fn plan_leaf_get() {
     }
 }
 
+#[cfg(feature = "introspection")]
+#[test]
+fn plan_schema_leaf_reports_ty() {
+    let mut settings = TreeSettings::default();
+    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
+    let message = InboundPublish {
+        topic: "test/id/schema/value",
+        payload: b"",
+        properties: Properties::Slice(&props),
+        retain: Retain::NotRetained,
+        qos: QoS::AtMostOnce,
+    };
+
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
+        "test/id",
+        false,
+        &mut settings,
+        &message,
+    ) {
+        Action::ReplyText { code, text, .. } => {
+            assert_eq!(code, crate::protocol::ResponseCode::Ok);
+            assert_eq!(text.as_str(), r#"{"sem":{"ty":"u8"}}"#);
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+}
+
 #[test]
 fn plan_internal_get_without_response_topic_starts_dump() {
     let mut settings = TreeSettings::default();

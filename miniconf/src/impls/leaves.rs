@@ -302,7 +302,11 @@ impl_typed_leaf! {
     u128 => U128,
     usize => Usize,
 }
-impl_leaf! {core::net::SocketAddr, core::net::SocketAddrV4, core::net::SocketAddrV6}
+impl_typed_leaf! {
+    core::net::SocketAddr => Str,
+    core::net::SocketAddrV4 => Str,
+    core::net::SocketAddrV6 => Str,
+}
 impl_leaf! {core::time::Duration}
 
 #[allow(unused_macros)]
@@ -468,8 +472,8 @@ mod std_impls {
 
     impl_leaf! {std::ffi::CString, std::ffi::OsString}
     impl_leaf! {std::time::SystemTime}
-    impl_leaf! {std::path::PathBuf}
-    impl_unsized_leaf! {std::path::Path}
+    impl_typed_leaf! {std::path::PathBuf => Str}
+    impl_typed_unsized_leaf! {std::path::Path => Str}
 
     #[cfg(target_has_atomic = "8")]
     impl_typed_leaf! {

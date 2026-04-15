@@ -3,7 +3,7 @@
 //! The generated schemas use a small set of `miniconf`-specific extension keys in addition to
 //! standard JSON Schema:
 //!
-//! - `tree-kind`: one of `"leaf"`, `"named"`, `"numbered"`, or `"homogeneous"`
+//! - `tree-leaf`: this schema node is a `miniconf` leaf
 //! - `tree-inner-attrs`: attrs attached to the addressed node itself
 //! - `tree-outer-attrs`: attrs attached to the parent-child edge
 //! - `tree-maybe-absent`: this node may serialize as [`TREE_ABSENT`]
@@ -245,15 +245,6 @@ fn maybe_absent(node: &TraceNode) -> bool {
     node.data.0.sem().is_some_and(crate::Sem::maybe_absent)
 }
 
-fn tree_kind(node: &TraceNode) -> &'static str {
-    match node.data.0.internal.as_ref() {
-        Some(Internal::Named(_)) => "named",
-        Some(Internal::Numbered(_)) => "numbered",
-        Some(Internal::Homogeneous(_)) => "homogeneous",
-        None => "leaf",
-    }
-}
-
 fn has_attr(attrs: &Option<Attrs>, key: &str, value: &str) -> bool {
     #[cfg(feature = "attrs")]
     {
@@ -295,11 +286,11 @@ fn nullable_schema(mut schema: schemars::Schema) -> schemars::Schema {
     if value_allows_null(schema.as_value()) {
         return schema;
     }
-    let tree_kind = schema.remove("tree-kind");
+    let tree_leaf = schema.remove("tree-leaf");
     let tree_inner_attrs = schema.remove("tree-inner-attrs");
     let mut wrapper = json_schema!({"oneOf": [schema, {"const": null}]});
-    if let Some(tree_kind) = tree_kind {
-        wrapper.insert("tree-kind".to_string(), tree_kind);
+    if let Some(tree_leaf) = tree_leaf {
+        wrapper.insert("tree-leaf".to_string(), tree_leaf);
     }
     if let Some(tree_inner_attrs) = tree_inner_attrs {
         wrapper.insert("tree-inner-attrs".to_string(), tree_inner_attrs);
@@ -422,7 +413,7 @@ fn node_json_schema(
         node.data.1.as_ref()?.json_schema(generator)?
     };
     let maybe_absent = maybe_absent(node);
-    push_tree_kind(&mut sch, tree_kind(node));
+    push_tree_leaf(&mut sch, node.data.0.internal.is_none());
     push_attrs(&mut sch, "tree-inner-attrs", &node.data.0.attrs);
     if let Some(name) = definition_name(&node.data.0.attrs) {
         let mut def = sch.clone();
@@ -437,7 +428,7 @@ fn node_json_schema(
                 .insert(name.to_string(), def.into());
         }
         let mut reference = schemars::Schema::new_ref(format!("#/$defs/{name}"));
-        push_tree_kind(&mut reference, tree_kind(node));
+        push_tree_leaf(&mut reference, node.data.0.internal.is_none());
         if has_attr(&node.data.0.attrs, "nullable", "true") {
             reference = nullable_schema(reference);
         }
@@ -480,8 +471,10 @@ fn push_attrs(sch: &mut schemars::Schema, key: &str, attrs: &Option<Attrs>) {
     }
 }
 
-fn push_tree_kind(sch: &mut schemars::Schema, kind: &str) {
-    assert_eq!(sch.insert("tree-kind".to_string(), kind.into()), None);
+fn push_tree_leaf(sch: &mut schemars::Schema, leaf: bool) {
+    if leaf {
+        assert_eq!(sch.insert("tree-leaf".to_string(), true.into()), None);
+    }
 }
 
 /// A JSON Schema and byproducts built from a Tree

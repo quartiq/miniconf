@@ -235,6 +235,23 @@ fn builtin_oneof_sem() {
     );
 }
 
+#[cfg(all(feature = "sem", feature = "std"))]
+#[test]
+fn string_like_leaf_ty() {
+    assert_eq!(
+        serde_json::to_value(std::net::SocketAddr::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"ty": "str"},
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(std::path::PathBuf::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"ty": "str"},
+        })
+    );
+}
+
 #[cfg(feature = "sem")]
 #[test]
 fn builtin_ty_sem() {
