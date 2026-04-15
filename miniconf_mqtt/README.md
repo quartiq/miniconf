@@ -96,9 +96,14 @@ internal node, mirroring `Schema`/`Internal`. Current structured semantics inclu
 
 This is the intended channel for downstream hints such as:
 
-- `#[tree(meta(enum))]` on enums, which yields `{"sem":{"oneof":true}}`
+- derived enums, which yield `{"sem":{"oneof":true}}`
 - `Option<T>`, which yields `{"sem":{"maybe_absent":true}}`
-- `#[tree(meta(switches = "mode"))]` on selector fields, exposed on that child edge
+- `#[tree(attrs(switches = "mode"))]` on selector fields, exposed on that child edge
+
+`nullable` is also an outer child-edge attr, for example `#[tree(with = leaf, attrs(nullable))]`.
+It is only meaningful for leaf encodings such as `with = leaf`. It is visible on the parent
+node's `children` entry and, for flattened fields, promoted onto the flattened root node. Point
+lookups of the addressed child node do not inherit outer attrs.
 
 `state` replies are compact JSON objects:
 

@@ -25,9 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
 * `miniconf_mqtt` `introspection` feature exposing `/schema<path>` and `/state<path>` request/reply endpoints.
-* `#[tree(meta(enum))]` on derived enums yielding structured schema semantics `{"sem":{"oneof":true}}`.
+* `#[tree(attrs(...))]` replacing the old derive metadata syntax.
+  Derived enums now always yield structured schema semantics `{"sem":{"oneof":true}}`.
 * Structured `sem.maybe_absent` on `Option<T>` schema views.
 * Structured `sem.oneof` on built-in `Result<T, E>` and `Bound<T>` schema views.
+* `nullable` as an outer attr hint, e.g. `#[tree(with = leaf, attrs(nullable))]`, propagated into JSON Schema as `null`.
+* Generated JSON Schema now carries explicit `tree-kind` annotations and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
 
 ### Removed
 

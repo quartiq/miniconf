@@ -1,4 +1,4 @@
-error: 'foo' is not supported as inherited meta
+error: 'foo' is not supported as inherited attrs
  --> tests/ui/inherited-meta.rs:3:10
   |
 3 | #[derive(Tree)]

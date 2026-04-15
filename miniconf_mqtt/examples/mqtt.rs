@@ -20,7 +20,6 @@ enum Gain {
 
 #[allow(dead_code)]
 #[derive(Clone, Tree, Debug)]
-#[tree(meta(enum))]
 enum Mode {
     A(u8),
     B(Inner),
@@ -34,7 +33,7 @@ impl Default for Mode {
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Control {
-    #[tree(meta(switches = "mode"))]
+    #[tree(attrs(switches = "mode"))]
     tag: String<8>,
     mode: Mode,
 }

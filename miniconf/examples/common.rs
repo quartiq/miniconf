@@ -5,9 +5,9 @@ use serde::{Deserialize, Serialize};
 
 /// Inner doc
 #[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq, Tree)]
-#[tree(meta(doc, typename))]
+#[tree(attrs(doc, typename))]
 pub struct MyStruct {
-    #[tree(meta(max = "10"))]
+    #[tree(attrs(max = "10"))]
     pub a: i32,
     /// Outer doc
     pub b: u8,
@@ -15,7 +15,7 @@ pub struct MyStruct {
 
 /// Inner doc
 #[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq, Tree)]
-#[tree(meta(doc, typename))]
+#[tree(attrs(doc, typename))]
 pub enum MyEnum {
     #[default]
     Bad,
@@ -30,7 +30,7 @@ pub enum MyEnum {
 pub struct Uni;
 
 #[derive(Tree, Default, Clone, PartialEq, Eq)]
-#[tree(meta(typename))]
+#[tree(attrs(typename))]
 pub struct Settings {
     pub foo: bool,
     #[tree(with=leaf)]

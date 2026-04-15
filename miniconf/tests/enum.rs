@@ -100,7 +100,6 @@ fn option() {
 fn enum_meta() {
     #[allow(dead_code)]
     #[derive(Tree)]
-    #[tree(meta(enum))]
     enum E {
         A(i32),
         B(Inner),
@@ -129,7 +128,6 @@ fn enum_json_schema_matches_json_value() {
 
     #[allow(dead_code)]
     #[derive(Tree)]
-    #[tree(meta(enum))]
     enum E {
         A(i32),
         B(Inner),
@@ -163,7 +161,6 @@ fn enum_json_schema_matches_absent_active_variant() {
 
     #[allow(dead_code)]
     #[derive(Tree)]
-    #[tree(meta(enum))]
     enum E {
         A(Option<u32>),
         B(i32),

@@ -35,6 +35,18 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 ///
 /// The derive macros support per-field/per-variant attributes to control the derived trait implementations.
 ///
+/// ## Attrs
+///
+/// `#[tree(attrs(...))]` attaches string key/value attrs to the schema. Most attrs are passed
+/// through literally. The shorthand flags are:
+///
+/// - `doc`: inherit the Rust doc comment text
+/// - `typename`: inherit the Rust type name
+/// - `nullable`: shorthand for `nullable = "true"` on leaf encodings such as `with = leaf`
+///
+/// Derived enums always carry `sem.oneof`; `attrs(enum)` remains an ordinary user attr and has no
+/// special meaning.
+///
 /// ## Rename
 ///
 /// The key for named struct fields or enum variants may be changed from the default field ident using

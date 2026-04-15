@@ -35,22 +35,28 @@ fn get_doc(attrs: &[syn::Attribute]) -> Option<String> {
         })
 }
 
-fn doc_to_meta(
+fn doc_to_attrs(
     attrs: &[syn::Attribute],
-    meta: &mut BTreeMap<String, Override<String>>,
+    kv_attrs: &mut BTreeMap<String, Override<String>>,
     force: bool,
 ) -> Result<()> {
-    if meta.get("doc") == Some(&Override::Inherit) || (!meta.contains_key("doc") && force) {
+    if kv_attrs.get("doc") == Some(&Override::Inherit) || (!kv_attrs.contains_key("doc") && force) {
         if let Some(doc) = get_doc(attrs) {
-            meta.insert("doc".to_string(), Override::Explicit(doc));
+            kv_attrs.insert("doc".to_string(), Override::Explicit(doc));
         } else {
-            meta.remove("doc");
+            kv_attrs.remove("doc");
         }
     }
-    for (k, v) in meta.iter() {
+    if kv_attrs.get("nullable") == Some(&Override::Inherit) {
+        kv_attrs.insert(
+            "nullable".to_string(),
+            Override::Explicit("true".to_string()),
+        );
+    }
+    for (k, v) in kv_attrs.iter() {
         if !v.is_explicit() {
             return Err(
-                Error::custom(format!("'{k}' is not supported as inherited meta"))
+                Error::custom(format!("'{k}' is not supported as inherited attrs"))
                     .with_span(&k.span()),
             );
         }
@@ -58,20 +64,20 @@ fn doc_to_meta(
     Ok(())
 }
 
-fn attrs_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
+fn attrs_to_tokens(kv_attrs: &BTreeMap<String, Override<String>>) -> TokenStream {
     #[cfg(feature = "attrs")]
-    if !meta.is_empty() {
-        let meta: TokenStream = meta
+    if !kv_attrs.is_empty() {
+        let attrs: TokenStream = kv_attrs
             .iter()
             .map(|(k, v)| {
-                let v = v.as_ref().explicit().unwrap(); // All inherited metas have been converted
+                let v = v.as_ref().explicit().unwrap(); // All inherited attrs have been converted
                 quote!((#k, #v), )
             })
             .collect();
-        return quote!(::core::option::Option::Some(&[#meta]));
+        return quote!(::core::option::Option::Some(&[#attrs]));
     }
     #[cfg(not(any(feature = "attrs")))]
-    let _ = meta;
+    let _ = kv_attrs;
     quote!(::core::option::Option::None)
 }
 
@@ -95,8 +101,8 @@ struct TreeVariant {
     skip: Flag,
     fields: ast::Fields<TreeField>,
     attrs: Vec<syn::Attribute>,
-    #[darling(default)]
-    meta: BTreeMap<String, Override<String>>,
+    #[darling(default, rename = "attrs")]
+    kv_attrs: BTreeMap<String, Override<String>>,
 }
 
 impl TreeVariant {
@@ -143,8 +149,8 @@ pub struct Tree {
     flatten: Flag,
     data: Data<TreeVariant, TreeField>,
     attrs: Vec<syn::Attribute>,
-    #[darling(default)]
-    meta: BTreeMap<String, Override<String>>,
+    #[darling(default, rename = "attrs")]
+    kv_attrs: BTreeMap<String, Override<String>>,
     #[darling(skip)]
     oneof: bool,
 }
@@ -183,9 +189,9 @@ impl Tree {
                         )
                         .with_span(&v.ident.span()));
                     }
-                    if !v.field().meta.is_empty() {
+                    if !v.field().kv_attrs.is_empty() {
                         return Err(Error::custom(
-                            "Outer metadata must be placed on the variant, not on the tuple field.",
+                            "Outer attrs must be placed on the variant, not on the tuple field.",
                         )
                         .with_span(&v.ident.span()));
                     }
@@ -200,31 +206,31 @@ impl Tree {
             return Err(Error::custom("Internal nodes must have at least one leaf")
                 .with_span(&self.ident.span()));
         }
-        self.fill_inherit_meta()?;
+        self.fill_inherit_attrs()?;
         Ok(self)
     }
 
-    fn fill_inherit_meta(&mut self) -> Result<()> {
-        if self.meta.get("typename") == Some(&Override::Inherit) {
-            self.meta.insert(
+    fn fill_inherit_attrs(&mut self) -> Result<()> {
+        if self.kv_attrs.get("typename") == Some(&Override::Inherit) {
+            self.kv_attrs.insert(
                 "typename".to_string(),
                 Override::Explicit(self.ident.to_string()),
             );
         }
-        self.oneof = matches!(self.data, Data::Enum(_)) && self.meta.remove("enum").is_some();
-        let force = self.meta.get("doc") == Some(&Override::Inherit);
-        doc_to_meta(&self.attrs, &mut self.meta, false)?;
+        self.oneof = matches!(self.data, Data::Enum(_));
+        let force = self.kv_attrs.get("doc") == Some(&Override::Inherit);
+        doc_to_attrs(&self.attrs, &mut self.kv_attrs, false)?;
         match &mut self.data {
             Data::Struct(fields) => {
                 for field in fields.fields.iter_mut() {
-                    doc_to_meta(&field.attrs, &mut field.meta, force)?;
+                    doc_to_attrs(&field.attrs, &mut field.kv_attrs, force)?;
                 }
             }
             Data::Enum(variants) => {
                 for variant in variants.iter_mut() {
-                    doc_to_meta(&variant.attrs, &mut variant.meta, force)?;
+                    doc_to_attrs(&variant.attrs, &mut variant.kv_attrs, force)?;
                     let field = variant.fields.fields.first_mut().unwrap();
-                    doc_to_meta(&field.attrs, &mut field.meta, force)?;
+                    doc_to_attrs(&field.attrs, &mut field.kv_attrs, force)?;
                 }
             }
         }
@@ -309,7 +315,19 @@ impl Tree {
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Schema, orig_where_clause);
         let schema = if self.flatten.is_present() {
-            self.fields().first().unwrap().schema()
+            let fields = self.fields();
+            let field = fields.first().unwrap();
+            if field.kv_attrs.is_empty() {
+                field.schema()
+            } else {
+                let schema = field.schema();
+                let attrs = attrs_to_tokens(&field.kv_attrs);
+                quote! { &::miniconf::Schema {
+                    attrs: #attrs,
+                    sem: (#schema).sem,
+                    internal: (#schema).internal,
+                } }
+            }
         } else {
             let internal = match &self.data {
                 Data::Struct(fields) => {
@@ -319,7 +337,7 @@ impl Tree {
                                 .iter()
                                 .map(|f| {
                                     let schema = f.schema();
-                                    let attrs = attrs_to_tokens(&f.meta);
+                                    let attrs = attrs_to_tokens(&f.kv_attrs);
                                     quote_spanned! { f.span()=> ::miniconf::Numbered {
                                         schema: #schema,
                                         attrs: #attrs,
@@ -335,7 +353,7 @@ impl Tree {
                                     // ident is Some
                                     let name = f.name().unwrap();
                                     let schema = f.schema();
-                                    let attrs = attrs_to_tokens(&f.meta);
+                                    let attrs = attrs_to_tokens(&f.kv_attrs);
                                     quote_spanned! { name.span()=> ::miniconf::Named {
                                         name: stringify!(#name),
                                         schema: #schema,
@@ -355,7 +373,7 @@ impl Tree {
                             let name = v.name();
                             // ident is Some
                             let schema = v.field().schema();
-                            let attrs = attrs_to_tokens(&v.meta);
+                            let attrs = attrs_to_tokens(&v.kv_attrs);
                             quote_spanned! { v.field().span()=> ::miniconf::Named {
                                 name: stringify!(#name),
                                 schema: #schema,
@@ -366,7 +384,7 @@ impl Tree {
                     quote! { ::miniconf::Internal::Named(&[#named]) }
                 }
             };
-            let attrs = attrs_to_tokens(&self.meta);
+            let attrs = attrs_to_tokens(&self.kv_attrs);
             let sem = sem_to_tokens(self.oneof);
             quote! { &::miniconf::Schema {
                 attrs: #attrs,

@@ -1,6 +1,6 @@
-#[cfg(feature = "sem")]
+#[cfg(any(feature = "attrs", feature = "sem"))]
 use miniconf::TreeSchema;
-use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core};
+use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core, leaf};
 #[cfg(all(feature = "schema", feature = "sem"))]
 use schemars::transform::Transform;
 
@@ -98,6 +98,37 @@ fn option_test_defer_option() {
 }
 
 #[test]
+fn option_test_nullable_option() {
+    #[derive(Copy, Clone, Default, Tree)]
+    struct S {
+        #[tree(with = leaf, attrs(nullable))]
+        data: Option<u32>,
+    }
+    assert_eq!(paths::<S, 1>(), ["/data"]);
+
+    let mut s = S::default();
+    set_get(&mut s, "/data", b"7");
+    assert_eq!(s.data, Some(7));
+
+    set_get(&mut s, "/data", b"null");
+    assert_eq!(s.data, None);
+}
+
+#[test]
+fn option_test_nullable_root() {
+    #[derive(Copy, Clone, Default, Tree)]
+    #[tree(flatten)]
+    struct S(#[tree(with = leaf, attrs(nullable))] Option<u32>);
+
+    let mut s = S::default();
+    set_get(&mut s, "", b"7");
+    assert_eq!(s.0, Some(7));
+
+    set_get(&mut s, "", b"null");
+    assert_eq!(s.0, None);
+}
+
+#[test]
 fn option_absent() {
     #[derive(Copy, Clone, Default, Tree)]
     struct I(());
@@ -157,6 +188,37 @@ fn array_option() {
     }
 }
 
+#[cfg(feature = "attrs")]
+#[test]
+fn option_nullable_attrs() {
+    #[derive(Copy, Clone, Default, Tree)]
+    struct NullableField {
+        #[tree(with = leaf, attrs(nullable))]
+        data: Option<u32>,
+    }
+
+    assert_eq!(
+        serde_json::to_value(NullableField::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "internal": {
+                "kind": "named",
+                "children": [{"name": "data", "attrs": {"nullable": "true"}}],
+            }
+        })
+    );
+
+    #[derive(Copy, Clone, Default, Tree)]
+    #[tree(flatten)]
+    struct NullableRoot(#[tree(with = leaf, attrs(nullable))] Option<u32>);
+
+    assert_eq!(
+        serde_json::to_value(NullableRoot::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "attrs": {"nullable": "true"},
+        })
+    );
+}
+
 #[cfg(feature = "sem")]
 #[test]
 fn option_sem() {
@@ -192,6 +254,58 @@ fn option_json_schema_matches_omitted_named_child() {
     assert_eq!(json, serde_json::json!({}));
 
     let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
+    assert_eq!(
+        schema.root.get("tree-kind"),
+        Some(&serde_json::json!("named"))
+    );
+    assert_eq!(
+        schema
+            .root
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|properties| properties.get("value"))
+            .and_then(|value| value.get("tree-kind")),
+        Some(&serde_json::json!("named"))
+    );
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
+}
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn option_json_schema_matches_nullable_leaf() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    #[derive(Copy, Clone, Default, Tree)]
+    struct Settings {
+        #[tree(with = leaf, attrs(nullable))]
+        value: Option<u32>,
+    }
+
+    let settings = Settings::default();
+    let json = to_json_value(&settings).unwrap();
+    assert_eq!(json, serde_json::json!({"value": null}));
+
+    let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
+    assert_eq!(
+        schema.root.get("tree-kind"),
+        Some(&serde_json::json!("named"))
+    );
+    assert_eq!(
+        schema
+            .root
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|properties| properties.get("value"))
+            .and_then(|value| value.get("tree-kind")),
+        Some(&serde_json::json!("leaf"))
+    );
     AllowAbsent.transform(&mut schema.root);
     jsonschema::validator_for(schema.root.as_value())
         .unwrap()

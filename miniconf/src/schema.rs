@@ -44,7 +44,6 @@ pub const ONEOF_SEM: MaybeSem = MaybeSem;
 #[cfg(not(feature = "sem"))]
 /// Structured semantics for a node that may be absent at runtime.
 pub const MAYBE_ABSENT_SEM: MaybeSem = MaybeSem;
-
 /// Result of an exact key lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Lookup {

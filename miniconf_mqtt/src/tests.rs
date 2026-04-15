@@ -28,7 +28,6 @@ struct TreeSettings {
 #[cfg(feature = "introspection")]
 #[allow(dead_code)]
 #[derive(Tree)]
-#[tree(meta(enum))]
 enum Mode {
     A(u8),
     B(Nested),
@@ -44,7 +43,7 @@ impl Default for Mode {
 #[cfg(feature = "introspection")]
 #[derive(Tree, Default)]
 struct StateSettings {
-    #[tree(meta(switches = "mode"))]
+    #[tree(attrs(switches = "mode"))]
     tag: HString<8>,
     mode: Mode,
     optional: Option<Nested>,
