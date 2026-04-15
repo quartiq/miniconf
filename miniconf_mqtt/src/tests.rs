@@ -266,7 +266,7 @@ fn plan_set_with_oversized_response_topic_is_rejected() {
 
 #[cfg(feature = "introspection")]
 #[test]
-fn plan_schema_replies_with_node_info() {
+fn plan_schema_replies_with_view() {
     let mut settings = StateSettings::default();
     let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
     let root = InboundPublish {
@@ -294,7 +294,7 @@ fn plan_schema_replies_with_node_info() {
             assert_eq!(code, crate::protocol::ResponseCode::Ok);
             assert_eq!(
                 text.as_str(),
-                r#"{"kind":"named","children":[{"name":"tag","meta":{"switches":"mode"}},{"name":"mode"},{"name":"optional"}]}"#
+                r#"{"internal":{"kind":"named","children":[{"name":"tag","attrs":{"switches":"mode"}},{"name":"mode"},{"name":"optional"}]}}"#
             );
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
@@ -310,7 +310,7 @@ fn plan_schema_replies_with_node_info() {
             assert_eq!(code, crate::protocol::ResponseCode::Ok);
             assert_eq!(
                 text.as_str(),
-                r#"{"kind":"named","children":[{"name":"A"},{"name":"B"}],"meta":{"enum":"oneof"}}"#
+                r#"{"sem":{"oneof":true},"internal":{"kind":"named","children":[{"name":"A"},{"name":"B"}]}}"#
             );
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),

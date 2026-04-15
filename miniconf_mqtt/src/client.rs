@@ -404,7 +404,7 @@ where
                     return Action::None(State::Unchanged);
                 }
                 let text = match resource {
-                    Resource::Schema => json_text(&Settings::SCHEMA.get_node_info(path).unwrap()),
+                    Resource::Schema => json_text(&Settings::SCHEMA.get_view(path).unwrap()),
                     Resource::State => json_text(&state_info::<_, Y>(
                         settings,
                         &state[..lookup.depth],

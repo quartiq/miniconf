@@ -1,5 +1,5 @@
 use heapless::String;
-use miniconf::{Schema, SerdeError, TreeSerialize, ValueError, json_core, meta_contains};
+use miniconf::{Schema, SerdeError, TreeSerialize, ValueError, json_core};
 use serde::Serialize;
 
 use crate::MAX_RESPONSE_LENGTH;
@@ -80,10 +80,8 @@ where
             active: None,
         },
         Presence::Present => {
-            let active = match (schema.internal.as_ref(), schema.meta.as_ref()) {
-                (Some(miniconf::Internal::Named(children)), Some(meta))
-                    if meta_contains(meta, "enum", "oneof") =>
-                {
+            let active = match (schema.internal.as_ref(), schema.sem()) {
+                (Some(miniconf::Internal::Named(children)), Some(sem)) if sem.oneof() => {
                     let mut active = None;
                     for (index, child) in children.iter().enumerate() {
                         match child_presence::<_, Y>(settings, prefix, index, child.schema) {

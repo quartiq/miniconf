@@ -184,6 +184,23 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeSchema> TreeSchema for Option<T> {
+    #[cfg(feature = "sem")]
+    const SCHEMA: &'static Schema = &Schema {
+        attrs: T::SCHEMA.attrs,
+        sem: Some(match T::SCHEMA.sem {
+            Some(sem) => crate::Sem {
+                maybe_absent: true,
+                ..sem
+            },
+            None => crate::Sem {
+                ty: None,
+                oneof: false,
+                maybe_absent: true,
+            },
+        }),
+        internal: T::SCHEMA.internal,
+    };
+    #[cfg(not(feature = "sem"))]
     const SCHEMA: &'static Schema = T::SCHEMA;
 }
 
@@ -235,8 +252,14 @@ impl<T: TreeAny> TreeAny for Option<T> {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeSchema, E: TreeSchema> TreeSchema for Result<T, E> {
-    const SCHEMA: &'static Schema =
-        &Schema::named(&[Named::new("Ok", T::SCHEMA), Named::new("Err", E::SCHEMA)]);
+    const SCHEMA: &'static Schema = &Schema {
+        attrs: None,
+        sem: crate::ONEOF_SEM,
+        internal: Some(crate::Internal::Named(&[
+            Named::new("Ok", T::SCHEMA),
+            Named::new("Err", E::SCHEMA),
+        ])),
+    };
 }
 
 impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
@@ -299,10 +322,14 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeSchema> TreeSchema for Bound<T> {
-    const SCHEMA: &'static Schema = &Schema::named(&[
-        Named::new("Included", T::SCHEMA),
-        Named::new("Excluded", T::SCHEMA),
-    ]);
+    const SCHEMA: &'static Schema = &Schema {
+        attrs: None,
+        sem: crate::ONEOF_SEM,
+        internal: Some(crate::Internal::Named(&[
+            Named::new("Included", T::SCHEMA),
+            Named::new("Excluded", T::SCHEMA),
+        ])),
+    };
 }
 
 impl<T: TreeSerialize> TreeSerialize for Bound<T> {

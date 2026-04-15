@@ -58,8 +58,8 @@ fn doc_to_meta(
     Ok(())
 }
 
-fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
-    #[cfg(feature = "meta-str")]
+fn attrs_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
+    #[cfg(feature = "attrs")]
     if !meta.is_empty() {
         let meta: TokenStream = meta
             .iter()
@@ -70,9 +70,17 @@ fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
             .collect();
         return quote!(::core::option::Option::Some(&[#meta]));
     }
-    #[cfg(not(any(feature = "meta-str")))]
+    #[cfg(not(any(feature = "attrs")))]
     let _ = meta;
     quote!(::core::option::Option::None)
+}
+
+fn sem_to_tokens(oneof: bool) -> TokenStream {
+    if oneof {
+        quote!(::miniconf::ONEOF_SEM)
+    } else {
+        quote!(::miniconf::NO_SEM)
+    }
 }
 
 #[derive(Debug, FromVariant, Clone)]
@@ -137,6 +145,8 @@ pub struct Tree {
     attrs: Vec<syn::Attribute>,
     #[darling(default)]
     meta: BTreeMap<String, Override<String>>,
+    #[darling(skip)]
+    oneof: bool,
 }
 
 impl Tree {
@@ -201,10 +211,7 @@ impl Tree {
                 Override::Explicit(self.ident.to_string()),
             );
         }
-        if matches!(self.data, Data::Enum(_)) && self.meta.get("enum") == Some(&Override::Inherit) {
-            self.meta
-                .insert("enum".to_string(), Override::Explicit("oneof".to_string()));
-        }
+        self.oneof = matches!(self.data, Data::Enum(_)) && self.meta.remove("enum").is_some();
         let force = self.meta.get("doc") == Some(&Override::Inherit);
         doc_to_meta(&self.attrs, &mut self.meta, false)?;
         match &mut self.data {
@@ -312,10 +319,10 @@ impl Tree {
                                 .iter()
                                 .map(|f| {
                                     let schema = f.schema();
-                                    let meta = meta_to_tokens(&f.meta);
+                                    let attrs = attrs_to_tokens(&f.meta);
                                     quote_spanned! { f.span()=> ::miniconf::Numbered {
                                         schema: #schema,
-                                        meta: #meta,
+                                        attrs: #attrs,
                                     }, }
                                 })
                                 .collect();
@@ -328,11 +335,11 @@ impl Tree {
                                     // ident is Some
                                     let name = f.name().unwrap();
                                     let schema = f.schema();
-                                    let meta = meta_to_tokens(&f.meta);
+                                    let attrs = attrs_to_tokens(&f.meta);
                                     quote_spanned! { name.span()=> ::miniconf::Named {
                                         name: stringify!(#name),
                                         schema: #schema,
-                                        meta: #meta,
+                                        attrs: #attrs,
                                     }, }
                                 })
                                 .collect();
@@ -348,20 +355,22 @@ impl Tree {
                             let name = v.name();
                             // ident is Some
                             let schema = v.field().schema();
-                            let meta = meta_to_tokens(&v.meta);
+                            let attrs = attrs_to_tokens(&v.meta);
                             quote_spanned! { v.field().span()=> ::miniconf::Named {
                                 name: stringify!(#name),
                                 schema: #schema,
-                                meta: #meta,
+                                attrs: #attrs,
                             }, }
                         })
                         .collect();
                     quote! { ::miniconf::Internal::Named(&[#named]) }
                 }
             };
-            let meta = meta_to_tokens(&self.meta);
+            let attrs = attrs_to_tokens(&self.meta);
+            let sem = sem_to_tokens(self.oneof);
             quote! { &::miniconf::Schema {
-                meta: #meta,
+                attrs: #attrs,
+                sem: #sem,
                 internal: ::core::option::Option::Some(#internal),
             } }
         };

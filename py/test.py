@@ -125,14 +125,15 @@ def main() -> None:
         mc = Miniconf(client, TARGET)
 
         control = mc.schema("/control")
-        tag = next(child for child in control["children"] if child["name"] == "tag")
-        assert tag["meta"]["switches"] == "mode", control
+        tag = next(child for child in control["internal"]["children"] if child["name"] == "tag")
+        assert tag["attrs"]["switches"] == "mode", control
         mode = mc.schema("/control/mode")
-        assert mode["meta"]["enum"] == "oneof", mode
+        assert mode["sem"]["oneof"] is True, mode
         mode_state = mc.state("/control/mode")
         assert mode_state == {"state": "present", "active": "A"}, mode_state
         schema = mc.schema("/afe")
-        assert schema["kind"] == "homogeneous" and schema["len"] == 2, schema
+        assert schema["internal"]["kind"] == "homogeneous", schema
+        assert schema["internal"]["len"] == 2, schema
         state = mc.state("/opt")
         assert state["state"] == "absent", state
 

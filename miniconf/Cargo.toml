@@ -31,10 +31,11 @@ heapless-09 = { package = "heapless", version = "0.9", optional = true, features
 ] }
 
 [features]
-default = ["derive", "meta-str"]
+default = ["derive", "attrs"]
 alloc = ["heapless-09?/alloc"]
 std = ["alloc"]
-meta-str = ["miniconf_derive/meta-str"]
+attrs = ["miniconf_derive/attrs"]
+sem = []
 json-core = ["dep:serde-json-core"]
 json = ["dep:serde_json"]
 postcard = ["dep:postcard"]

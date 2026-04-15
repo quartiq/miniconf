@@ -208,3 +208,47 @@ fn cell() {
     let mut r = &c;
     common::set_get(&mut r, "", b"9");
 }
+
+#[cfg(feature = "sem")]
+#[test]
+fn builtin_oneof_sem() {
+    assert_eq!(
+        serde_json::to_value(Result::<u32, i32>::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"oneof": true},
+            "internal": {
+                "kind": "named",
+                "children": [{"name": "Ok"}, {"name": "Err"}],
+            }
+        })
+    );
+
+    assert_eq!(
+        serde_json::to_value(core::ops::Bound::<u32>::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"oneof": true},
+            "internal": {
+                "kind": "named",
+                "children": [{"name": "Included"}, {"name": "Excluded"}],
+            }
+        })
+    );
+}
+
+#[cfg(feature = "sem")]
+#[test]
+fn builtin_ty_sem() {
+    assert_eq!(
+        serde_json::to_value(u32::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"ty": "u32"},
+        })
+    );
+
+    assert_eq!(
+        serde_json::to_value(miniconf::str_leaf::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"ty": "str"},
+        })
+    );
+}

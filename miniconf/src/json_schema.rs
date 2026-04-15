@@ -9,7 +9,7 @@ use serde_reflection::{
 };
 
 use crate::{
-    Internal, Meta, TreeDeserializeOwned, TreeSerialize,
+    Attrs, Internal, TreeDeserializeOwned, TreeSerialize,
     trace::{Node, Types},
 };
 
@@ -192,19 +192,37 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
         let mut sch = if let Some(internal) = self.data.0.internal.as_ref() {
             match internal {
                 Internal::Named(nameds) => {
-                    let items: Option<Map<_, _>> = nameds
-                        .iter()
-                        .zip(&self.children)
-                        .map(|(named, child)| {
-                            let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "tree-outer-meta", &named.meta);
-                            Some((named.name.to_string(), sch.into()))
+                    if self.data.0.sem().is_some_and(crate::Sem::oneof) {
+                        let variants: Option<Vec<_>> = nameds
+                            .iter()
+                            .zip(&self.children)
+                            .map(|(named, child)| {
+                                let mut sch = child.json_schema(generator)?;
+                                push_attrs(&mut sch, "tree-outer-attrs", &named.attrs);
+                                Some(json_schema!({
+                                    "type": "object",
+                                    "properties": {named.name: sch},
+                                    "required": [named.name],
+                                    "additionalProperties": false
+                                }))
+                            })
+                            .collect();
+                        json_schema!({"oneOf": variants?})
+                    } else {
+                        let items: Option<Map<_, _>> = nameds
+                            .iter()
+                            .zip(&self.children)
+                            .map(|(named, child)| {
+                                let mut sch = child.json_schema(generator)?;
+                                push_attrs(&mut sch, "tree-outer-attrs", &named.attrs);
+                                Some((named.name.to_string(), sch.into()))
+                            })
+                            .collect();
+                        json_schema!({
+                            "type": "object",
+                            "properties": items?,
                         })
-                        .collect();
-                    json_schema!({
-                        "type": "object",
-                        "properties": items?,
-                    })
+                    }
                 }
                 Internal::Numbered(numbereds) => {
                     let items: Option<Vec<_>> = numbereds
@@ -212,7 +230,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                         .zip(&self.children)
                         .map(|(numbered, child)| {
                             let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "tree-outer-meta", &numbered.meta);
+                            push_attrs(&mut sch, "tree-outer-attrs", &numbered.attrs);
                             Some(sch)
                         })
                         .collect();
@@ -223,7 +241,7 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
                 }
                 Internal::Homogeneous(homogeneous) => {
                     let mut sch = self.children[0].json_schema(generator)?;
-                    push_meta(&mut sch, "tree-outer-meta", &homogeneous.meta);
+                    push_attrs(&mut sch, "tree-outer-attrs", &homogeneous.attrs);
                     json_schema!({
                         "type": "array",
                         "items": sch,
@@ -235,11 +253,13 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
         } else {
             self.data.1.as_ref()?.json_schema(generator)?
         };
-        sch.insert("tree-maybe-absent".to_string(), true.into());
-        push_meta(&mut sch, "tree-inner-meta", &self.data.0.meta);
-        #[cfg(feature = "meta-str")]
-        if let Some(meta) = &self.data.0.meta
-            && let Some(name) = meta.iter().find_map(|(key, typename)| {
+        if self.data.0.sem().is_some_and(crate::Sem::maybe_absent) {
+            sch.insert("tree-maybe-absent".to_string(), true.into());
+        }
+        push_attrs(&mut sch, "tree-inner-attrs", &self.data.0.attrs);
+        #[cfg(feature = "attrs")]
+        if let Some(attrs) = &self.data.0.attrs
+            && let Some(name) = attrs.iter().find_map(|(key, typename)| {
                 (*key == "typename").then_some(format!("tree-internal-{typename}"))
             })
         {
@@ -257,21 +277,22 @@ impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
     }
 }
 
-fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
-    if let Some(meta) = meta {
-        #[cfg(feature = "meta-str")]
+fn push_attrs(sch: &mut schemars::Schema, key: &str, attrs: &Option<Attrs>) {
+    if let Some(attrs) = attrs {
+        #[cfg(feature = "attrs")]
         assert_eq!(
             sch.insert(
                 key.to_string(),
-                meta.iter()
+                attrs
+                    .iter()
                     .map(|(k, v)| (k.to_string(), v.to_string().into()))
                     .collect::<Map<_, _>>()
                     .into(),
             ),
             None
         );
-        #[cfg(not(any(feature = "meta-str")))]
-        let _ = (sch, meta, key);
+        #[cfg(not(any(feature = "attrs")))]
+        let _ = (sch, attrs, key);
     }
 }
 

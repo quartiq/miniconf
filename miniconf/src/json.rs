@@ -34,15 +34,18 @@ pub fn to_json_value<T: TreeSerialize>(
                             })
                             .collect::<Result<_, _>>()?,
                     ),
-                    Internal::Named(n) => Value::Object(
-                        n.iter()
-                            .enumerate()
-                            .map(|(i, n)| {
-                                idx[depth] = i;
-                                Ok((n.name.to_string(), visit(idx, depth + 1, n.schema, value)?))
-                            })
-                            .collect::<Result<_, SerdeError<_>>>()?,
-                    ),
+                    Internal::Named(n) => {
+                        let mut object = serde_json::Map::with_capacity(n.len());
+                        for (i, n) in n.iter().enumerate() {
+                            idx[depth] = i;
+                            let value = visit(idx, depth + 1, n.schema, value)?;
+                            if matches!(&value, Value::String(absent) if absent == TREE_ABSENT) {
+                                continue;
+                            }
+                            object.insert(n.name.to_string(), value);
+                        }
+                        Value::Object(object)
+                    }
                     Internal::Numbered(n) => Value::Array(
                         n.iter()
                             .enumerate()

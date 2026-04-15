@@ -16,7 +16,7 @@ workspace = true
 
 [features]
 default = []
-introspection = ["dep:serde", "dep:serde-json-core", "miniconf/meta-str"]
+introspection = ["dep:serde", "dep:serde-json-core", "miniconf/attrs", "miniconf/sem"]
 
 [dependencies]
 miniconf = { version = "0.20.1", features = [

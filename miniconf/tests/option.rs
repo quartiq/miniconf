@@ -1,3 +1,5 @@
+#[cfg(feature = "sem")]
+use miniconf::TreeSchema;
 use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core};
 
 mod common;
@@ -151,4 +153,26 @@ fn array_option() {
         c: [Option<u32>; 1],
         d: [Option<Leaf<u32>>; 1],
     }
+}
+
+#[cfg(feature = "sem")]
+#[test]
+fn option_sem() {
+    assert_eq!(
+        serde_json::to_value(Option::<u32>::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"ty": "u32", "maybe_absent": true},
+        })
+    );
+
+    assert_eq!(
+        serde_json::to_value(Option::<Inner>::SCHEMA.view()).unwrap(),
+        serde_json::json!({
+            "sem": {"maybe_absent": true},
+            "internal": {
+                "kind": "named",
+                "children": [{"name": "data"}],
+            }
+        })
+    );
 }

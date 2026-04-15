@@ -81,18 +81,23 @@ Enable the `introspection` feature to expose compact schema and runtime-state qu
 - `state` returns runtime accessibility information for the addressed path.
 - Both use normal MQTT v5 request/reply on the response topic.
 
-`schema` replies are compact JSON objects:
+`schema` replies mirror `miniconf::Schema`:
 
-- leaf: `{"meta":...}` or `{}`
-- named internal: `{"kind":"named","children":[{"name":"child","meta":...},...],...}`
-- numbered internal: `{"kind":"numbered","children":[{"meta":...},...],...}`
-- homogeneous internal: `{"kind":"homogeneous","child":{"meta":...},"len":N,...}`
+- leaf: `{"attrs":...,"sem":...}` or `{}`
+- named internal: `{"internal":{"kind":"named","children":[{"name":"child","attrs":...},...]},...}`
+- numbered internal: `{"internal":{"kind":"numbered","children":[{"attrs":...},...]},...}`
+- homogeneous internal: `{"internal":{"kind":"homogeneous","child":{"attrs":...},"len":N},...}`
 
-Node metadata is included on the addressed node when present. Child edge metadata is kept on the
-parent internal node, mirroring `Schema`/`Internal`. This is the intended channel for downstream
-hints such as:
+Node attrs and sem are attached to the addressed node. Child-edge attrs are kept on the parent
+internal node, mirroring `Schema`/`Internal`. Current structured semantics include:
 
-- `#[tree(meta(enum))]` on enums, which yields `{"enum":"oneof"}`
+- `oneof` for mutually exclusive named internals
+- `maybe_absent` for nodes that may be absent at runtime
+
+This is the intended channel for downstream hints such as:
+
+- `#[tree(meta(enum))]` on enums, which yields `{"sem":{"oneof":true}}`
+- `Option<T>`, which yields `{"sem":{"maybe_absent":true}}`
 - `#[tree(meta(switches = "mode"))]` on selector fields, exposed on that child edge
 
 `state` replies are compact JSON objects:
