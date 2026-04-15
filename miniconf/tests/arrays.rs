@@ -138,3 +138,15 @@ fn metadata() {
     assert_eq!(SHAPE.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(SHAPE.count.get(), 11);
 }
+
+#[test]
+fn metadata_power_of_ten_homogeneous_len() {
+    #[derive(Tree)]
+    struct Ten {
+        a: [u8; 10],
+    }
+
+    const SHAPE: Shape = Ten::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 2);
+    assert_eq!(SHAPE.max_length("/"), "/a/9".len());
+}
