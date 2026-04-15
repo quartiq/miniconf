@@ -1,11 +1,11 @@
 use miniconf::Tree;
 
 #[derive(Tree)]
-#[tree(attrs(foo))]
+#[tree(meta(foo))]
 struct S(i32);
 
 #[derive(Tree)]
-#[tree(attrs(doc = "foo"))]
+#[tree(meta(doc = "foo"))]
 /// Docs
 struct T(i32);
 

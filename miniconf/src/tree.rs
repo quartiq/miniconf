@@ -16,11 +16,11 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// [`Schema::transcode()`].
 /// An iterator of keys for the nodes is available through [`Schema::nodes()`].
 ///
-/// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
+/// * `usize` is modelled after ASN.1 Object Identifiers, see [`Indices`].
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
-///   by some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
-///   complex notation, see [`crate::JsonPath`].
-/// * [`crate::Packed`] is a bit-packed compact compressed notation of
+///   by some path hierarchy separator, e.g. `'/'`, see [`Path`], or by some more
+///   complex notation, see [`JsonPath`].
+/// * [`Packed`] is a bit-packed compact compressed notation of
 ///   hierarchical compound indices.
 /// * See the `scpi` example for how to implement case-insensitive, relative, and abbreviated/partial
 ///   matches.
@@ -28,23 +28,23 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 /// # Derive macros
 ///
 /// Derive macros to automatically implement the correct traits on a struct or enum are available through
-/// [`macro@crate::TreeSchema`], [`macro@crate::TreeSerialize`], [`macro@crate::TreeDeserialize`],
-/// and [`macro@crate::TreeAny`].
+/// [`macro@TreeSchema`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and
+/// [`macro@TreeAny`].
 /// A shorthand derive macro that derives all four trait implementations is also available at
-/// [`macro@crate::Tree`].
+/// [`macro@Tree`].
 ///
 /// The derive macros support per-field/per-variant attributes to control the derived trait implementations.
 ///
-/// ## Attrs
+/// ## Meta
 ///
-/// `#[tree(attrs(...))]` attaches string key/value attrs to the schema. Most attrs are passed
+/// `#[tree(meta(...))]` attaches string key/value metadata to the schema. Most metadata is passed
 /// through literally. The shorthand flags are:
 ///
 /// - `doc`: inherit the Rust doc comment text
 /// - `typename`: inherit the Rust type name
 /// - `nullable`: shorthand for `nullable = "true"` on leaf encodings such as `with = leaf`
 ///
-/// Derived enums always carry `sem.oneof`; `attrs(enum)` remains an ordinary user attr and has no
+/// Derived enums always carry `sem.oneof`; `meta(enum)` remains an ordinary user metadata item and has no
 /// special meaning.
 ///
 /// ## Rename
@@ -229,11 +229,11 @@ pub trait TreeAny: TreeSchema {
 
 /// Serialize a leaf node by its keys.
 ///
-/// See also [`crate::json_core`] or `crate::postcard` for convenient wrappers using this trait.
+/// See also [`json_core`] or [`postcard`] for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
-/// See [`macro@crate::TreeSerialize`].
+/// See [`macro@TreeSerialize`].
 /// The derive macro attributes are described in the [`TreeSchema`] trait.
 pub trait TreeSerialize: TreeSchema {
     /// Serialize a node by keys.
@@ -270,11 +270,11 @@ pub trait TreeSerialize: TreeSchema {
 
 /// Deserialize a leaf node by its keys.
 ///
-/// See also [`crate::json_core`] or `crate::postcard` for convenient wrappers using this trait.
+/// See also [`json_core`] or [`postcard`] for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
-/// See [`macro@crate::TreeDeserialize`].
+/// See [`macro@TreeDeserialize`].
 /// The derive macro attributes are described in the [`TreeSchema`] trait.
 pub trait TreeDeserialize<'de>: TreeSchema {
     /// Deserialize a leaf node by its keys.

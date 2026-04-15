@@ -1,5 +1,5 @@
 use core::{convert::Infallible, num::NonZero};
-#[cfg(feature = "attrs")]
+#[cfg(feature = "meta-str")]
 use serde::ser::SerializeMap;
 use serde::{
     Serialize,
@@ -174,22 +174,22 @@ pub enum Ty {
     Str,
 }
 
-/// Serializable view of attrs.
+/// Serializable view of metadata.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AttrsView<'a>(pub &'a Attrs);
+pub struct MetaView<'a>(pub &'a Meta);
 
-impl<'a> AttrsView<'a> {
-    fn new(attrs: Option<&'a Attrs>) -> Option<Self> {
-        attrs.map(Self)
+impl<'a> MetaView<'a> {
+    fn new(meta: Option<&'a Meta>) -> Option<Self> {
+        meta.map(Self)
     }
 }
 
-impl Serialize for AttrsView<'_> {
+impl Serialize for MetaView<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        #[cfg(feature = "attrs")]
+        #[cfg(feature = "meta-str")]
         {
             let mut map = serializer.serialize_map(Some(self.0.len()))?;
             for (key, value) in *self.0 {
@@ -197,7 +197,7 @@ impl Serialize for AttrsView<'_> {
             }
             map.end()
         }
-        #[cfg(not(feature = "attrs"))]
+        #[cfg(not(feature = "meta-str"))]
         {
             let _ = serializer;
             match *self.0 {}
@@ -205,18 +205,17 @@ impl Serialize for AttrsView<'_> {
     }
 }
 
-/// Return whether attrs contain the exact `key`/`value` pair.
-pub fn attrs_contains(attrs: &Attrs, key: &str, value: &str) -> bool {
-    #[cfg(feature = "attrs")]
+/// Return whether metadata contains the exact `key`/`value` pair.
+pub fn meta_contains(meta: &Meta, key: &str, value: &str) -> bool {
+    #[cfg(feature = "meta-str")]
     {
-        attrs
-            .iter()
+        meta.iter()
             .any(|(have_key, have_value)| *have_key == key && *have_value == value)
     }
-    #[cfg(not(feature = "attrs"))]
+    #[cfg(not(feature = "meta-str"))]
     {
         let _ = (key, value);
-        match *attrs {}
+        match *meta {}
     }
 }
 
@@ -225,9 +224,9 @@ pub fn attrs_contains(attrs: &Attrs, key: &str, value: &str) -> bool {
 pub struct NamedView<'a> {
     /// Child name.
     pub name: &'a str,
-    /// Child attrs when present.
+    /// Child metadata when present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attrs: Option<AttrsView<'a>>,
+    pub meta: Option<MetaView<'a>>,
 }
 
 /// Serializable view of named children.
@@ -243,7 +242,7 @@ impl Serialize for NamedViews<'_> {
         for child in self.0 {
             seq.serialize_element(&NamedView {
                 name: child.name,
-                attrs: AttrsView::new(child.attrs.as_ref()),
+                meta: MetaView::new(child.meta.as_ref()),
             })?;
         }
         seq.end()
@@ -253,9 +252,9 @@ impl Serialize for NamedViews<'_> {
 /// Serializable view of one numbered child.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct NumberedView<'a> {
-    /// Child attrs when present.
+    /// Child metadata when present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attrs: Option<AttrsView<'a>>,
+    pub meta: Option<MetaView<'a>>,
 }
 
 /// Serializable view of numbered children.
@@ -270,7 +269,7 @@ impl Serialize for NumberedViews<'_> {
         let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
         for child in self.0 {
             seq.serialize_element(&NumberedView {
-                attrs: AttrsView::new(child.attrs.as_ref()),
+                meta: MetaView::new(child.meta.as_ref()),
             })?;
         }
         seq.end()
@@ -280,9 +279,9 @@ impl Serialize for NumberedViews<'_> {
 /// Serializable view of a homogeneous child.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 pub struct HomogeneousView<'a> {
-    /// Child attrs when present.
+    /// Child metadata when present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attrs: Option<AttrsView<'a>>,
+    pub meta: Option<MetaView<'a>>,
 }
 
 /// Serializable view of an internal node.
@@ -319,7 +318,7 @@ impl<'a> From<&'a Internal> for InternalView<'a> {
             },
             Internal::Homogeneous(child) => Self::Homogeneous {
                 child: HomogeneousView {
-                    attrs: AttrsView::new(child.attrs.as_ref()),
+                    meta: MetaView::new(child.meta.as_ref()),
                 },
                 len: child.len.get(),
             },
@@ -330,9 +329,9 @@ impl<'a> From<&'a Internal> for InternalView<'a> {
 /// Serializable view of a schema node.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct SchemaView<'a> {
-    /// Node attrs when present.
+    /// Node metadata when present.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attrs: Option<AttrsView<'a>>,
+    pub meta: Option<MetaView<'a>>,
     /// Structured semantics when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sem: Option<&'a Sem>,
@@ -344,7 +343,7 @@ pub struct SchemaView<'a> {
 impl<'a> From<&'a Schema> for SchemaView<'a> {
     fn from(schema: &'a Schema) -> Self {
         Self {
-            attrs: AttrsView::new(schema.attrs.as_ref()),
+            meta: MetaView::new(schema.meta.as_ref()),
             sem: schema.sem(),
             internal: schema.internal.as_ref().map(InternalView::from),
         }
@@ -356,17 +355,14 @@ impl<'a> From<&'a Schema> for SchemaView<'a> {
 pub struct Numbered {
     /// The child schema
     pub schema: &'static Schema,
-    /// The outer attrs
-    pub attrs: Option<Attrs>,
+    /// The outer metadata
+    pub meta: Option<Meta>,
 }
 
 impl Numbered {
-    /// Create a new Numbered schema item with no outer attrs.
+    /// Create a new Numbered schema item with no outer metadata.
     pub const fn new(schema: &'static Schema) -> Self {
-        Self {
-            attrs: None,
-            schema,
-        }
+        Self { meta: None, schema }
     }
 }
 
@@ -377,15 +373,15 @@ pub struct Named {
     pub name: &'static str,
     /// The child schema
     pub schema: &'static Schema,
-    /// The outer attrs
-    pub attrs: Option<Attrs>,
+    /// The outer metadata
+    pub meta: Option<Meta>,
 }
 
 impl Named {
-    /// Create a new Named schema item with no outer attrs.
+    /// Create a new Named schema item with no outer metadata.
     pub const fn new(name: &'static str, schema: &'static Schema) -> Self {
         Self {
-            attrs: None,
+            meta: None,
             name,
             schema,
         }
@@ -399,15 +395,15 @@ pub struct Homogeneous {
     pub len: NonZero<usize>,
     /// The schema of the child nodes
     pub schema: &'static Schema,
-    /// The outer attrs
-    pub attrs: Option<Attrs>,
+    /// The outer metadata
+    pub meta: Option<Meta>,
 }
 
 impl Homogeneous {
-    /// Create a new Homogeneous schema item with no outer attrs.
+    /// Create a new Homogeneous schema item with no outer metadata.
     pub const fn new(len: usize, schema: &'static Schema) -> Self {
         Self {
-            attrs: None,
+            meta: None,
             len: NonZero::new(len).expect("Must have at least one child"),
             schema,
         }
@@ -449,15 +445,15 @@ impl Internal {
         }
     }
 
-    /// Return the outer attrs for the given child
+    /// Return the outer metadata for the given child
     ///
     /// # Panics
     /// If the index is out of bounds
-    pub const fn get_attrs(&self, idx: usize) -> &Option<Attrs> {
+    pub const fn get_meta(&self, idx: usize) -> &Option<Meta> {
         match self {
-            Internal::Named(nameds) => &nameds[idx].attrs,
-            Internal::Numbered(numbereds) => &numbereds[idx].attrs,
-            Internal::Homogeneous(homogeneous) => &homogeneous.attrs,
+            Internal::Named(nameds) => &nameds[idx].meta,
+            Internal::Numbered(numbereds) => &numbereds[idx].meta,
+            Internal::Homogeneous(homogeneous) => &homogeneous.meta,
         }
     }
 
@@ -486,23 +482,23 @@ impl Internal {
     }
 }
 
-/// The attrs type
+/// The metadata type
 ///
 /// A slice of key-value pairs
-#[cfg(feature = "attrs")]
-pub type Attrs = &'static [(&'static str, &'static str)];
-#[cfg(not(any(feature = "attrs")))]
+#[cfg(feature = "meta-str")]
+pub type Meta = &'static [(&'static str, &'static str)];
+#[cfg(not(feature = "meta-str"))]
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize)]
-/// The attrs type
+/// The metadata type
 ///
 /// Uninhabited
-pub enum Attrs {}
+pub enum Meta {}
 
 /// Type of a node: leaf or internal
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Default)]
 pub struct Schema {
-    /// Inner attrs
-    pub attrs: Option<Attrs>,
+    /// Inner metadata
+    pub meta: Option<Meta>,
 
     /// Structured semantics
     pub sem: MaybeSem,
@@ -512,9 +508,9 @@ pub struct Schema {
 }
 
 impl Schema {
-    /// A leaf without attrs or sem.
+    /// A leaf without metadata or sem.
     pub const LEAF: Self = Self {
-        attrs: None,
+        meta: None,
         sem: NO_SEM,
         internal: None,
     };
@@ -524,7 +520,7 @@ impl Schema {
         #[cfg(feature = "sem")]
         {
             Self {
-                attrs: None,
+                meta: None,
                 sem: Some(Sem {
                     ty: Some(ty),
                     oneof: false,
@@ -540,28 +536,28 @@ impl Schema {
         }
     }
 
-    /// Create a new internal node schema with numbered children and without inner attrs
+    /// Create a new internal node schema with numbered children and without inner metadata
     pub const fn numbered(numbered: &'static [Numbered]) -> Self {
         Self {
-            attrs: None,
+            meta: None,
             sem: NO_SEM,
             internal: Some(Internal::Numbered(numbered)),
         }
     }
 
-    /// Create a new internal node schema with named children and without inner attrs
+    /// Create a new internal node schema with named children and without inner metadata
     pub const fn named(named: &'static [Named]) -> Self {
         Self {
-            attrs: None,
+            meta: None,
             sem: NO_SEM,
             internal: Some(Internal::Named(named)),
         }
     }
 
-    /// Create a new internal node schema with homogenous children and without innner attrs
+    /// Create a new internal node schema with homogenous children and without innner metadata
     pub const fn homogeneous(homogeneous: Homogeneous) -> Self {
         Self {
-            attrs: None,
+            meta: None,
             sem: NO_SEM,
             internal: Some(Internal::Homogeneous(homogeneous)),
         }
@@ -675,18 +671,18 @@ impl Schema {
         func(schema, None).map_err(DescendError::Inner)
     }
 
-    /// Look up outer and inner attrs given keys.
-    pub fn get_attrs(
+    /// Look up outer and inner metadata given keys.
+    pub fn get_meta(
         &self,
         keys: impl IntoKeys,
-    ) -> Result<(Option<&Option<Attrs>>, &Option<Attrs>), KeyError> {
+    ) -> Result<(Option<&Option<Meta>>, &Option<Meta>), KeyError> {
         let mut outer = None;
-        let mut inner = &self.attrs;
+        let mut inner = &self.meta;
         self.descend(keys.into_keys(), |schema, idx_internal| {
             if let Some((idx, internal)) = idx_internal {
-                outer = Some(internal.get_attrs(idx));
+                outer = Some(internal.get_meta(idx));
             }
-            inner = &schema.attrs;
+            inner = &schema.meta;
             Ok::<_, Infallible>(())
         })
         .map_err(|e| e.try_into().unwrap())?;
@@ -843,7 +839,7 @@ impl Schema {
     ///
     /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`crate::TreeSchema#option`]).
+    /// runtime (see [`TreeSchema#option`]).
     /// The iterator has an exact and trusted `size_hint()`.
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
@@ -902,7 +898,7 @@ impl Schema {
 
     /// Return an iterator over nodes using a preconfigured output seed.
     ///
-    /// This is useful for runtime-configured path encodings such as [`crate::Path`],
+    /// This is useful for runtime-configured path encodings such as [`Path`],
     /// where the emitted separator is stored in the target value rather than in a const generic.
     pub fn nodes_with<N: FromConfig, const D: usize>(
         &'static self,

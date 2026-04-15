@@ -11,6 +11,17 @@ enum Presence {
     Unknown,
 }
 
+impl Presence {
+    fn from_result<E>(result: Result<usize, SerdeError<E>>) -> Self {
+        match result {
+            Ok(_) | Err(SerdeError::Value(ValueError::Key(_))) => Self::Present,
+            Err(SerdeError::Value(ValueError::Absent)) => Self::Absent,
+            Err(SerdeError::Value(ValueError::Access(_)))
+            | Err(SerdeError::Inner(_) | SerdeError::Finalization(_)) => Self::Unknown,
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum RuntimeState {
@@ -30,12 +41,7 @@ fn probe_presence<Settings>(settings: &Settings, keys: impl miniconf::Keys) -> P
 where
     Settings: TreeSerialize,
 {
-    match json_core::get_by_keys(settings, keys, &mut []) {
-        Ok(_) | Err(SerdeError::Value(ValueError::Key(_))) => Presence::Present,
-        Err(SerdeError::Value(ValueError::Absent)) => Presence::Absent,
-        Err(SerdeError::Value(ValueError::Access(_)))
-        | Err(SerdeError::Inner(_) | SerdeError::Finalization(_)) => Presence::Unknown,
-    }
+    Presence::from_result(json_core::get_by_keys(settings, keys, &mut []))
 }
 
 fn probe_path<const Y: usize>(prefix: &[usize], extra: &[usize]) -> [usize; Y] {

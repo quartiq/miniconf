@@ -4,8 +4,8 @@
 //! standard JSON Schema:
 //!
 //! - `tree-leaf`: this schema node is a `miniconf` leaf
-//! - `tree-inner-attrs`: attrs attached to the addressed node itself
-//! - `tree-outer-attrs`: attrs attached to the parent-child edge
+//! - `tree-inner-meta`: metadata attached to the addressed node itself
+//! - `tree-outer-meta`: metadata attached to the parent-child edge
 //! - `tree-maybe-absent`: this node may serialize as [`TREE_ABSENT`]
 //!
 //! [`AllowAbsent`] lowers `tree-maybe-absent` into plain JSON Schema `oneOf` forms for validators
@@ -20,7 +20,7 @@ use serde_reflection::{
 };
 
 use crate::{
-    Attrs, Internal, TreeDeserializeOwned, TreeSerialize,
+    Internal, Meta, Schema, Sem, TreeDeserializeOwned, TreeSerialize, json,
     trace::{Node, Types},
 };
 
@@ -182,7 +182,7 @@ impl ReflectJsonSchema for VariantFormat {
     }
 }
 
-type TraceNode = Node<(&'static crate::Schema, Option<Format>)>;
+type TraceNode = Node<(&'static Schema, Option<Format>)>;
 
 fn strict_object(
     properties: Map<String, serde_json::Value>,
@@ -222,7 +222,7 @@ fn required_named_child(
     if let Some(sample) = sample {
         sample.contains_key(name)
     } else {
-        !child.data.0.sem().is_some_and(crate::Sem::maybe_absent)
+        !child.data.0.sem().is_some_and(Sem::maybe_absent)
     }
 }
 
@@ -242,21 +242,20 @@ fn strict_named_variant(
 }
 
 fn maybe_absent(node: &TraceNode) -> bool {
-    node.data.0.sem().is_some_and(crate::Sem::maybe_absent)
+    node.data.0.sem().is_some_and(Sem::maybe_absent)
 }
 
-fn has_attr(attrs: &Option<Attrs>, key: &str, value: &str) -> bool {
-    #[cfg(feature = "attrs")]
+fn has_meta(meta: &Option<Meta>, key: &str, value: &str) -> bool {
+    #[cfg(feature = "meta-str")]
     {
-        attrs.as_ref().is_some_and(|attrs| {
-            attrs
-                .iter()
+        meta.as_ref().is_some_and(|meta| {
+            meta.iter()
                 .any(|(have_key, have_value)| *have_key == key && *have_value == value)
         })
     }
-    #[cfg(not(feature = "attrs"))]
+    #[cfg(not(feature = "meta-str"))]
     {
-        let _ = (attrs, key, value);
+        let _ = (meta, key, value);
         false
     }
 }
@@ -287,29 +286,29 @@ fn nullable_schema(mut schema: schemars::Schema) -> schemars::Schema {
         return schema;
     }
     let tree_leaf = schema.remove("tree-leaf");
-    let tree_inner_attrs = schema.remove("tree-inner-attrs");
+    let tree_inner_meta = schema.remove("tree-inner-meta");
     let mut wrapper = json_schema!({"oneOf": [schema, {"const": null}]});
     if let Some(tree_leaf) = tree_leaf {
         wrapper.insert("tree-leaf".to_string(), tree_leaf);
     }
-    if let Some(tree_inner_attrs) = tree_inner_attrs {
-        wrapper.insert("tree-inner-attrs".to_string(), tree_inner_attrs);
+    if let Some(tree_inner_meta) = tree_inner_meta {
+        wrapper.insert("tree-inner-meta".to_string(), tree_inner_meta);
     }
     wrapper
 }
 
-fn definition_name(attrs: &Option<Attrs>) -> Option<String> {
-    #[cfg(feature = "attrs")]
+fn definition_name(meta: &Option<Meta>) -> Option<String> {
+    #[cfg(feature = "meta-str")]
     {
-        attrs.as_ref().and_then(|attrs| {
-            attrs.iter().find_map(|(key, typename)| {
+        meta.as_ref().and_then(|meta| {
+            meta.iter().find_map(|(key, typename)| {
                 (*key == "typename").then_some(format!("tree-internal-{typename}"))
             })
         })
     }
-    #[cfg(not(feature = "attrs"))]
+    #[cfg(not(feature = "meta-str"))]
     {
-        let _ = attrs;
+        let _ = meta;
         None
     }
 }
@@ -324,7 +323,7 @@ fn node_json_schema(
             Internal::Named(nameds) => {
                 let sample = object_sample(sample);
                 let maybe_absent = node.children.iter().map(maybe_absent).collect::<Vec<_>>();
-                if node.data.0.sem().is_some_and(crate::Sem::oneof)
+                if node.data.0.sem().is_some_and(Sem::oneof)
                     && maybe_absent.iter().filter(|&&child| child).count() <= 1
                 {
                     let variants: Option<Vec<_>> = nameds
@@ -337,10 +336,10 @@ fn node_json_schema(
                                 child_sample(sample, named.name),
                                 generator,
                             )?;
-                            if has_attr(&named.attrs, "nullable", "true") {
+                            if has_meta(&named.meta, "nullable", "true") {
                                 sch = nullable_schema(sch);
                             }
-                            push_attrs(&mut sch, "tree-outer-attrs", &named.attrs);
+                            push_meta(&mut sch, "tree-outer-meta", &named.meta);
                             Some(strict_named_variant(named.name, sch, !maybe_absent))
                         })
                         .collect();
@@ -356,10 +355,10 @@ fn node_json_schema(
                                 child_sample(sample, named.name),
                                 generator,
                             )?;
-                            if has_attr(&named.attrs, "nullable", "true") {
+                            if has_meta(&named.meta, "nullable", "true") {
                                 sch = nullable_schema(sch);
                             }
-                            push_attrs(&mut sch, "tree-outer-attrs", &named.attrs);
+                            push_meta(&mut sch, "tree-outer-meta", &named.meta);
                             if required_named_child(sample, child, named.name) {
                                 required.push(named.name);
                             }
@@ -381,10 +380,10 @@ fn node_json_schema(
                             sample.and_then(|sample| sample.get(index)),
                             generator,
                         )?;
-                        if has_attr(&numbered.attrs, "nullable", "true") {
+                        if has_meta(&numbered.meta, "nullable", "true") {
                             sch = nullable_schema(sch);
                         }
-                        push_attrs(&mut sch, "tree-outer-attrs", &numbered.attrs);
+                        push_meta(&mut sch, "tree-outer-meta", &numbered.meta);
                         Some(sch)
                     })
                     .collect();
@@ -397,10 +396,10 @@ fn node_json_schema(
             Internal::Homogeneous(homogeneous) => {
                 let sample = array_sample(sample).and_then(|sample| sample.first());
                 let mut sch = node_json_schema(&node.children[0], sample, generator)?;
-                if has_attr(&homogeneous.attrs, "nullable", "true") {
+                if has_meta(&homogeneous.meta, "nullable", "true") {
                     sch = nullable_schema(sch);
                 }
-                push_attrs(&mut sch, "tree-outer-attrs", &homogeneous.attrs);
+                push_meta(&mut sch, "tree-outer-meta", &homogeneous.meta);
                 json_schema!({
                     "type": "array",
                     "items": sch,
@@ -414,8 +413,8 @@ fn node_json_schema(
     };
     let maybe_absent = maybe_absent(node);
     push_tree_leaf(&mut sch, node.data.0.internal.is_none());
-    push_attrs(&mut sch, "tree-inner-attrs", &node.data.0.attrs);
-    if let Some(name) = definition_name(&node.data.0.attrs) {
+    push_meta(&mut sch, "tree-inner-meta", &node.data.0.meta);
+    if let Some(name) = definition_name(&node.data.0.meta) {
         let mut def = sch.clone();
         if maybe_absent {
             def.remove("tree-maybe-absent");
@@ -429,7 +428,7 @@ fn node_json_schema(
         }
         let mut reference = schemars::Schema::new_ref(format!("#/$defs/{name}"));
         push_tree_leaf(&mut reference, node.data.0.internal.is_none());
-        if has_attr(&node.data.0.attrs, "nullable", "true") {
+        if has_meta(&node.data.0.meta, "nullable", "true") {
             reference = nullable_schema(reference);
         }
         if maybe_absent {
@@ -437,7 +436,7 @@ fn node_json_schema(
         }
         return Some(reference);
     }
-    if has_attr(&node.data.0.attrs, "nullable", "true") {
+    if has_meta(&node.data.0.meta, "nullable", "true") {
         sch = nullable_schema(sch);
     }
     if maybe_absent {
@@ -452,22 +451,21 @@ impl ReflectJsonSchema for TraceNode {
     }
 }
 
-fn push_attrs(sch: &mut schemars::Schema, key: &str, attrs: &Option<Attrs>) {
-    if let Some(attrs) = attrs {
-        #[cfg(feature = "attrs")]
+fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
+    if let Some(meta) = meta {
+        #[cfg(feature = "meta-str")]
         assert_eq!(
             sch.insert(
                 key.to_string(),
-                attrs
-                    .iter()
+                meta.iter()
                     .map(|(k, v)| (k.to_string(), v.to_string().into()))
                     .collect::<Map<_, _>>()
                     .into(),
             ),
             None
         );
-        #[cfg(not(any(feature = "attrs")))]
-        let _ = (sch, attrs, key);
+        #[cfg(not(feature = "meta-str"))]
+        let _ = (sch, meta, key);
     }
 }
 
@@ -495,7 +493,7 @@ impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
     /// Convert a Tree into a JSON Schema
     pub fn new(value: Option<&T>) -> Result<Self, serde_reflection::Error> {
         let sample = value
-            .map(crate::json::to_json_value)
+            .map(json::to_json_value)
             .transpose()
             .map_err(|e| serde_reflection::Error::Custom(e.to_string()))?;
         let mut types: Types<T> = Default::default();

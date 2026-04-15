@@ -43,7 +43,7 @@ impl Default for Mode {
 #[cfg(feature = "introspection")]
 #[derive(Tree, Default)]
 struct StateSettings {
-    #[tree(attrs(switches = "mode"))]
+    #[tree(meta(switches = "mode"))]
     tag: HString<8>,
     mode: Mode,
     optional: Option<Nested>,
@@ -327,7 +327,7 @@ fn plan_schema_replies_with_view() {
             assert_eq!(code, crate::protocol::ResponseCode::Ok);
             assert_eq!(
                 text.as_str(),
-                r#"{"internal":{"kind":"named","children":[{"name":"tag","attrs":{"switches":"mode"}},{"name":"mode"},{"name":"optional"}]}}"#
+                r#"{"internal":{"kind":"named","children":[{"name":"tag","meta":{"switches":"mode"}},{"name":"mode"},{"name":"optional"}]}}"#
             );
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),

@@ -4,14 +4,14 @@ use crate::{Internal, Packed, Schema};
 
 /// Metadata about a `TreeSchema` namespace.
 ///
-/// Metadata includes paths that may be [`crate::ValueError::Absent`] at runtime.
+/// Metadata includes paths that may be [`ValueError::Absent`] at runtime.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Shape {
     /// The maximum length of a path in bytes.
     ///
     /// This is the exact maximum of the length of the concatenation of the node names
-    /// in a [`crate::Path`] excluding the separators. See [`Self::max_length()`] for
+    /// in a [`Path`] excluding the separators. See [`Self::max_length()`] for
     /// the maximum length including separators.
     pub max_length: usize,
 
@@ -24,7 +24,7 @@ pub struct Shape {
     /// The exact total number of leaf nodes.
     pub count: NonZero<usize>,
 
-    /// The maximum number of bits (see [`crate::Packed`])
+    /// The maximum number of bits (see [`Packed`])
     pub max_bits: u32,
 }
 

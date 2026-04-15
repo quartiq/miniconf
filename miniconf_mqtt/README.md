@@ -83,12 +83,12 @@ Enable the `introspection` feature to expose compact schema and runtime-state qu
 
 `schema` replies mirror `miniconf::Schema`:
 
-- leaf: `{"attrs":...,"sem":...}` or `{}`
-- named internal: `{"internal":{"kind":"named","children":[{"name":"child","attrs":...},...]},...}`
-- numbered internal: `{"internal":{"kind":"numbered","children":[{"attrs":...},...]},...}`
-- homogeneous internal: `{"internal":{"kind":"homogeneous","child":{"attrs":...},"len":N},...}`
+- leaf: `{"meta":...,"sem":...}` or `{}`
+- named internal: `{"internal":{"kind":"named","children":[{"name":"child","meta":...},...]},...}`
+- numbered internal: `{"internal":{"kind":"numbered","children":[{"meta":...},...]},...}`
+- homogeneous internal: `{"internal":{"kind":"homogeneous","child":{"meta":...},"len":N},...}`
 
-Node attrs and sem are attached to the addressed node. Child-edge attrs are kept on the parent
+Node metadata and sem are attached to the addressed node. Child-edge metadata is kept on the parent
 internal node, mirroring `Schema`/`Internal`. Current structured semantics include:
 
 - `oneof` for mutually exclusive named internals
@@ -98,12 +98,12 @@ This is the intended channel for downstream hints such as:
 
 - derived enums, which yield `{"sem":{"oneof":true}}`
 - `Option<T>`, which yields `{"sem":{"maybe_absent":true}}`
-- `#[tree(attrs(switches = "mode"))]` on selector fields, exposed on that child edge
+- `#[tree(meta(switches = "mode"))]` on selector fields, exposed on that child edge
 
-`nullable` is also an outer child-edge attr, for example `#[tree(with = leaf, attrs(nullable))]`.
+`nullable` is also an outer child-edge metadata item, for example `#[tree(with = leaf, meta(nullable))]`.
 It is only meaningful for leaf encodings such as `with = leaf`. It is visible on the parent
 node's `children` entry and, for flattened fields, promoted onto the flattened root node. Point
-lookups of the addressed child node do not inherit outer attrs.
+lookups of the addressed child node do not inherit outer metadata.
 
 `state` replies are compact JSON objects:
 

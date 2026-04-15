@@ -1,4 +1,4 @@
-#[cfg(any(feature = "attrs", feature = "sem"))]
+#[cfg(any(feature = "meta-str", feature = "sem"))]
 use miniconf::TreeSchema;
 use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core, leaf};
 #[cfg(all(feature = "schema", feature = "sem"))]
@@ -101,7 +101,7 @@ fn option_test_defer_option() {
 fn option_test_nullable_option() {
     #[derive(Copy, Clone, Default, Tree)]
     struct S {
-        #[tree(with = leaf, attrs(nullable))]
+        #[tree(with = leaf, meta(nullable))]
         data: Option<u32>,
     }
     assert_eq!(paths::<S, 1>(), ["/data"]);
@@ -118,7 +118,7 @@ fn option_test_nullable_option() {
 fn option_test_nullable_root() {
     #[derive(Copy, Clone, Default, Tree)]
     #[tree(flatten)]
-    struct S(#[tree(with = leaf, attrs(nullable))] Option<u32>);
+    struct S(#[tree(with = leaf, meta(nullable))] Option<u32>);
 
     let mut s = S::default();
     set_get(&mut s, "", b"7");
@@ -188,12 +188,12 @@ fn array_option() {
     }
 }
 
-#[cfg(feature = "attrs")]
+#[cfg(feature = "meta-str")]
 #[test]
-fn option_nullable_attrs() {
+fn option_nullable_meta() {
     #[derive(Copy, Clone, Default, Tree)]
     struct NullableField {
-        #[tree(with = leaf, attrs(nullable))]
+        #[tree(with = leaf, meta(nullable))]
         data: Option<u32>,
     }
 
@@ -202,19 +202,19 @@ fn option_nullable_attrs() {
         serde_json::json!({
             "internal": {
                 "kind": "named",
-                "children": [{"name": "data", "attrs": {"nullable": "true"}}],
+                "children": [{"name": "data", "meta": {"nullable": "true"}}],
             }
         })
     );
 
     #[derive(Copy, Clone, Default, Tree)]
     #[tree(flatten)]
-    struct NullableRoot(#[tree(with = leaf, attrs(nullable))] Option<u32>);
+    struct NullableRoot(#[tree(with = leaf, meta(nullable))] Option<u32>);
 
     assert_eq!(
         serde_json::to_value(NullableRoot::SCHEMA.view()).unwrap(),
         serde_json::json!({
-            "attrs": {"nullable": "true"},
+            "meta": {"nullable": "true"},
         })
     );
 }
@@ -281,7 +281,7 @@ fn option_json_schema_matches_nullable_leaf() {
 
     #[derive(Copy, Clone, Default, Tree)]
     struct Settings {
-        #[tree(with = leaf, attrs(nullable))]
+        #[tree(with = leaf, meta(nullable))]
         value: Option<u32>,
     }
 

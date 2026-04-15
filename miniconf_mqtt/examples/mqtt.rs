@@ -33,7 +33,7 @@ impl Default for Mode {
 
 #[derive(Clone, Default, Tree, Debug)]
 struct Control {
-    #[tree(attrs(switches = "mode"))]
+    #[tree(meta(switches = "mode"))]
     tag: String<8>,
     mode: Mode,
 }

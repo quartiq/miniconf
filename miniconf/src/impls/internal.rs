@@ -4,9 +4,11 @@ use core::ops::{Bound, Range, RangeFrom, RangeInclusive, RangeTo};
 
 use serde::{Deserializer, Serializer};
 
+#[cfg(feature = "sem")]
+use crate::Sem;
 use crate::{
-    Homogeneous, Keys, Named, Numbered, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema,
-    TreeSerialize, ValueError,
+    Homogeneous, Internal, Keys, Named, Numbered, ONEOF_SEM, Schema, SerdeError, TreeAny,
+    TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -186,13 +188,13 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
 impl<T: TreeSchema> TreeSchema for Option<T> {
     #[cfg(feature = "sem")]
     const SCHEMA: &'static Schema = &Schema {
-        attrs: T::SCHEMA.attrs,
+        meta: T::SCHEMA.meta,
         sem: Some(match T::SCHEMA.sem {
-            Some(sem) => crate::Sem {
+            Some(sem) => Sem {
                 maybe_absent: true,
                 ..sem
             },
-            None => crate::Sem {
+            None => Sem {
                 ty: None,
                 oneof: false,
                 maybe_absent: true,
@@ -253,9 +255,9 @@ impl<T: TreeAny> TreeAny for Option<T> {
 
 impl<T: TreeSchema, E: TreeSchema> TreeSchema for Result<T, E> {
     const SCHEMA: &'static Schema = &Schema {
-        attrs: None,
-        sem: crate::ONEOF_SEM,
-        internal: Some(crate::Internal::Named(&[
+        meta: None,
+        sem: ONEOF_SEM,
+        internal: Some(Internal::Named(&[
             Named::new("Ok", T::SCHEMA),
             Named::new("Err", E::SCHEMA),
         ])),
@@ -323,9 +325,9 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
 
 impl<T: TreeSchema> TreeSchema for Bound<T> {
     const SCHEMA: &'static Schema = &Schema {
-        attrs: None,
-        sem: crate::ONEOF_SEM,
-        internal: Some(crate::Internal::Named(&[
+        meta: None,
+        sem: ONEOF_SEM,
+        internal: Some(Internal::Named(&[
             Named::new("Included", T::SCHEMA),
             Named::new("Excluded", T::SCHEMA),
         ])),

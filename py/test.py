@@ -126,7 +126,7 @@ def main() -> None:
 
         control = mc.schema("/control")
         tag = next(child for child in control["internal"]["children"] if child["name"] == "tag")
-        assert tag["attrs"]["switches"] == "mode", control
+        assert tag["meta"]["switches"] == "mode", control
         mode = mc.schema("/control/mode")
         assert mode["sem"]["oneof"] is True, mode
         mode_state = mc.state("/control/mode")

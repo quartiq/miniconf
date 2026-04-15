@@ -32,8 +32,8 @@ pub(crate) struct TreeField {
     with: Option<syn::Path>,
     #[darling(default)]
     bounds: Bounds,
-    #[darling(default, rename = "attrs")]
-    pub kv_attrs: BTreeMap<String, Override<String>>,
+    #[darling(default)]
+    pub meta: BTreeMap<String, Override<String>>,
     pub attrs: Vec<syn::Attribute>,
 }
 

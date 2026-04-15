@@ -17,7 +17,7 @@ proc-macro = true
 
 [features]
 default = []
-attrs = []
+meta-str = []
 
 [dependencies]
 syn = "2.0"
