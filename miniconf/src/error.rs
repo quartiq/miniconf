@@ -23,7 +23,7 @@ pub enum KeyError {
     TooLong,
 }
 
-/// Errors that can occur while visting nodes with [`Schema::descend`].
+/// Errors that can occur while visiting nodes with [`Schema::descend()`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DescendError<E> {
     /// The key is invalid.
@@ -46,7 +46,7 @@ pub enum ValueError {
     ///
     /// An `enum` variant in the tree towards the node is currently absent.
     /// This is for example the case if an [`Option`] using the `Tree*`
-    /// traits is `None` at runtime. See also [`TreeSchema#option`].
+    /// traits is `None` at runtime. See also [the `Option` section on `TreeSchema`](TreeSchema#option).
     #[error("Variant absent")]
     Absent,
 

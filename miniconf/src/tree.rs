@@ -27,11 +27,9 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 ///
 /// # Derive macros
 ///
-/// Derive macros to automatically implement the correct traits on a struct or enum are available through
-/// [`macro@TreeSchema`], [`macro@TreeSerialize`], [`macro@TreeDeserialize`], and
-/// [`macro@TreeAny`].
-/// A shorthand derive macro that derives all four trait implementations is also available at
-/// [`macro@Tree`].
+/// Derive macros to automatically implement the correct traits on a struct or enum are available
+/// for [`trait@TreeSchema`], [`trait@TreeSerialize`], [`trait@TreeDeserialize`], and
+/// [`trait@TreeAny`]. A shorthand `Tree` derive is also available.
 ///
 /// The derive macros support per-field/per-variant attributes to control the derived trait implementations.
 ///
@@ -233,7 +231,7 @@ pub trait TreeAny: TreeSchema {
 ///
 /// # Derive macro
 ///
-/// See [`macro@TreeSerialize`].
+/// See the `TreeSerialize` derive macro.
 /// The derive macro attributes are described in the [`TreeSchema`] trait.
 pub trait TreeSerialize: TreeSchema {
     /// Serialize a node by keys.
@@ -274,7 +272,7 @@ pub trait TreeSerialize: TreeSchema {
 ///
 /// # Derive macro
 ///
-/// See [`macro@TreeDeserialize`].
+/// See the `TreeDeserialize` derive macro.
 /// The derive macro attributes are described in the [`TreeSchema`] trait.
 pub trait TreeDeserialize<'de>: TreeSchema {
     /// Deserialize a leaf node by its keys.

@@ -156,45 +156,8 @@ pub struct Tree {
 impl Tree {
     fn parse(mut self) -> Result<Self> {
         match &mut self.data {
-            Data::Struct(fields) => {
-                while fields
-                    .fields
-                    .last()
-                    .map(|f| f.ident.is_none() && f.skip.is_present())
-                    .unwrap_or_default()
-                {
-                    fields.fields.pop();
-                }
-                fields
-                    .fields
-                    .retain(|f| f.ident.is_none() || !f.skip.is_present());
-                if let Some(f) = fields.fields.iter().find(|f| f.skip.is_present()) {
-                    return Err(
-                        // TODO: If non-terminal tuple fields are skipped, there is a gap in the indices.
-                        // This could be lifted by correct indices.
-                        Error::custom("Can only `skip` terminal tuple struct fields")
-                            .with_span(&f.skip.span()),
-                    );
-                }
-            }
-            Data::Enum(variants) => {
-                variants.retain(|v| !v.skip.is_present() && !v.fields.is_empty());
-                for v in variants.iter() {
-                    if v.fields.len() != 1 {
-                        // TODO: support this using a deeper Schema
-                        return Err(Error::custom(
-                            "Only newtype (single field tuple) and unit enum variants are supported.",
-                        )
-                        .with_span(&v.ident.span()));
-                    }
-                    if !v.field().meta.is_empty() {
-                        return Err(Error::custom(
-                            "Outer metadata must be placed on the variant, not on the tuple field.",
-                        )
-                        .with_span(&v.ident.span()));
-                    }
-                }
-            }
+            Data::Struct(fields) => Self::parse_struct(fields)?,
+            Data::Enum(variants) => Self::parse_enum(variants)?,
         }
         if self.flatten.is_present() && self.fields().len() != 1 {
             return Err(Error::custom("Can't flatten multiple fields/variants")
@@ -208,6 +171,46 @@ impl Tree {
         Ok(self)
     }
 
+    fn parse_struct(fields: &mut ast::Fields<TreeField>) -> Result<()> {
+        while fields
+            .fields
+            .last()
+            .map(|f| f.ident.is_none() && f.skip.is_present())
+            .unwrap_or_default()
+        {
+            fields.fields.pop();
+        }
+        fields
+            .fields
+            .retain(|f| f.ident.is_none() || !f.skip.is_present());
+        if let Some(field) = fields.fields.iter().find(|f| f.skip.is_present()) {
+            return Err(
+                Error::custom("Can only `skip` terminal tuple struct fields")
+                    .with_span(&field.skip.span()),
+            );
+        }
+        Ok(())
+    }
+
+    fn parse_enum(variants: &mut Vec<TreeVariant>) -> Result<()> {
+        variants.retain(|variant| !variant.skip.is_present() && !variant.fields.is_empty());
+        for variant in variants.iter() {
+            if variant.fields.len() != 1 {
+                return Err(Error::custom(
+                    "Only newtype (single field tuple) and unit enum variants are supported.",
+                )
+                .with_span(&variant.ident.span()));
+            }
+            if !variant.field().meta.is_empty() {
+                return Err(Error::custom(
+                    "Outer metadata must be placed on the variant, not on the tuple field.",
+                )
+                .with_span(&variant.ident.span()));
+            }
+        }
+        Ok(())
+    }
+
     fn fill_inherit_meta(&mut self) -> Result<()> {
         if self.meta.get("typename") == Some(&Override::Inherit) {
             self.meta.insert(
@@ -218,18 +221,24 @@ impl Tree {
         let force = self.meta.get("doc") == Some(&Override::Inherit);
         doc_to_meta(&self.attrs, &mut self.meta, false)?;
         match &mut self.data {
-            Data::Struct(fields) => {
-                for field in fields.fields.iter_mut() {
-                    doc_to_meta(&field.attrs, &mut field.meta, force)?;
-                }
-            }
-            Data::Enum(variants) => {
-                for variant in variants.iter_mut() {
-                    doc_to_meta(&variant.attrs, &mut variant.meta, force)?;
-                    let field = variant.fields.fields.first_mut().unwrap();
-                    doc_to_meta(&field.attrs, &mut field.meta, force)?;
-                }
-            }
+            Data::Struct(fields) => Self::fill_struct_meta(fields, force)?,
+            Data::Enum(variants) => Self::fill_enum_meta(variants, force)?,
+        }
+        Ok(())
+    }
+
+    fn fill_struct_meta(fields: &mut ast::Fields<TreeField>, force: bool) -> Result<()> {
+        for field in fields.fields.iter_mut() {
+            doc_to_meta(&field.attrs, &mut field.meta, force)?;
+        }
+        Ok(())
+    }
+
+    fn fill_enum_meta(variants: &mut [TreeVariant], force: bool) -> Result<()> {
+        for variant in variants.iter_mut() {
+            doc_to_meta(&variant.attrs, &mut variant.meta, force)?;
+            let field = variant.fields.fields.first_mut().unwrap();
+            doc_to_meta(&field.attrs, &mut field.meta, force)?;
         }
         Ok(())
     }
@@ -307,80 +316,90 @@ impl Tree {
         }
     }
 
+    fn flattened_schema(&self) -> TokenStream {
+        let fields = self.fields();
+        let field = fields.first().unwrap();
+        if field.meta.is_empty() {
+            field.schema()
+        } else {
+            let schema = field.schema();
+            let meta = meta_to_tokens(&field.meta);
+            quote! { &::miniconf::Schema {
+                meta: #meta,
+                sem: (#schema).sem,
+                internal: (#schema).internal,
+            } }
+        }
+    }
+
+    fn schema_internal(&self) -> TokenStream {
+        match &self.data {
+            Data::Struct(fields) => self.struct_internal(fields),
+            Data::Enum(variants) => self.enum_internal(variants),
+        }
+    }
+
+    fn struct_internal(&self, fields: &ast::Fields<TreeField>) -> TokenStream {
+        match fields.style {
+            Style::Tuple => {
+                let numbered: TokenStream = fields
+                    .iter()
+                    .map(|field| {
+                        let schema = field.schema();
+                        let meta = meta_to_tokens(&field.meta);
+                        quote_spanned! { field.span()=> ::miniconf::Numbered {
+                            schema: #schema,
+                            meta: #meta,
+                        }, }
+                    })
+                    .collect();
+                quote! { ::miniconf::Internal::Numbered(&[#numbered]) }
+            }
+            Style::Struct => {
+                let named: TokenStream = fields
+                    .iter()
+                    .map(|field| {
+                        let name = field.name().unwrap();
+                        let schema = field.schema();
+                        let meta = meta_to_tokens(&field.meta);
+                        quote_spanned! { name.span()=> ::miniconf::Named {
+                            name: stringify!(#name),
+                            schema: #schema,
+                            meta: #meta,
+                        }, }
+                    })
+                    .collect();
+                quote! { ::miniconf::Internal::Named(&[#named]) }
+            }
+            Style::Unit => unreachable!(),
+        }
+    }
+
+    fn enum_internal(&self, variants: &[TreeVariant]) -> TokenStream {
+        let named: TokenStream = variants
+            .iter()
+            .map(|variant| {
+                let name = variant.name();
+                let schema = variant.field().schema();
+                let meta = meta_to_tokens(&variant.meta);
+                quote_spanned! { variant.field().span()=> ::miniconf::Named {
+                    name: stringify!(#name),
+                    schema: #schema,
+                    meta: #meta,
+                }, }
+            })
+            .collect();
+        quote! { ::miniconf::Internal::Named(&[#named]) }
+    }
+
     pub fn tree_schema(&self) -> TokenStream {
         let ident = &self.ident;
         let (impl_generics, ty_generics, orig_where_clause) = self.generics.split_for_impl();
         let where_clause = self.bound_generics(TreeTrait::Schema, orig_where_clause);
         let schema = if self.flatten.is_present() {
-            let fields = self.fields();
-            let field = fields.first().unwrap();
-            if field.meta.is_empty() {
-                field.schema()
-            } else {
-                let schema = field.schema();
-                let meta = meta_to_tokens(&field.meta);
-                quote! { &::miniconf::Schema {
-                    meta: #meta,
-                    sem: (#schema).sem,
-                    internal: (#schema).internal,
-                } }
-            }
+            self.flattened_schema()
         } else {
-            let internal = match &self.data {
-                Data::Struct(fields) => {
-                    match fields.style {
-                        Style::Tuple => {
-                            let numbered: TokenStream = fields
-                                .iter()
-                                .map(|f| {
-                                    let schema = f.schema();
-                                    let meta = meta_to_tokens(&f.meta);
-                                    quote_spanned! { f.span()=> ::miniconf::Numbered {
-                                        schema: #schema,
-                                        meta: #meta,
-                                    }, }
-                                })
-                                .collect();
-                            quote! { ::miniconf::Internal::Numbered(&[#numbered]) }
-                        }
-                        Style::Struct => {
-                            let named: TokenStream = fields
-                                .iter()
-                                .map(|f| {
-                                    // ident is Some
-                                    let name = f.name().unwrap();
-                                    let schema = f.schema();
-                                    let meta = meta_to_tokens(&f.meta);
-                                    quote_spanned! { name.span()=> ::miniconf::Named {
-                                        name: stringify!(#name),
-                                        schema: #schema,
-                                        meta: #meta,
-                                    }, }
-                                })
-                                .collect();
-                            quote! { ::miniconf::Internal::Named(&[#named]) }
-                        }
-                        Style::Unit => unreachable!(),
-                    }
-                }
-                Data::Enum(variants) => {
-                    let named: TokenStream = variants
-                        .iter()
-                        .map(|v| {
-                            let name = v.name();
-                            // ident is Some
-                            let schema = v.field().schema();
-                            let meta = meta_to_tokens(&v.meta);
-                            quote_spanned! { v.field().span()=> ::miniconf::Named {
-                                name: stringify!(#name),
-                                schema: #schema,
-                                meta: #meta,
-                            }, }
-                        })
-                        .collect();
-                    quote! { ::miniconf::Internal::Named(&[#named]) }
-                }
-            };
+            let internal = self.schema_internal();
             let meta = meta_to_tokens(&self.meta);
             let sem = sem_to_tokens(matches!(self.data, Data::Enum(_)));
             quote! { &::miniconf::Schema {

@@ -1,6 +1,4 @@
 use core::{convert::Infallible, num::NonZero};
-#[cfg(feature = "meta-str")]
-use serde::ser::SerializeMap;
 use serde::{
     Serialize,
     ser::{SerializeSeq, Serializer},
@@ -191,6 +189,8 @@ impl Serialize for MetaView<'_> {
     {
         #[cfg(feature = "meta-str")]
         {
+            use serde::ser::SerializeMap;
+
             let mut map = serializer.serialize_map(Some(self.0.len()))?;
             for (key, value) in *self.0 {
                 map.serialize_entry(key, value)?;
@@ -839,7 +839,7 @@ impl Schema {
     ///
     /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [`TreeSchema#option`]).
+    /// runtime (see [the `Option` section on `TreeSchema`](TreeSchema#option)).
     /// The iterator has an exact and trusted `size_hint()`.
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///

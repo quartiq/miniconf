@@ -4,8 +4,6 @@
 //! Async MQTT interface for `miniconf` built on a single long-lived [`minimq::Session`].
 
 mod client;
-#[cfg(feature = "introspection")]
-mod introspection;
 mod pending;
 mod protocol;
 #[cfg(test)]
@@ -15,6 +13,6 @@ pub use client::{Error, MqttClient, State};
 pub use minimq;
 
 pub(crate) const MAX_TOPIC_LENGTH: usize = 128;
-pub(crate) const MAX_RESPONSE_LENGTH: usize = 128;
+pub(crate) const MAX_PAYLOAD_LENGTH: usize = 512;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const SEPARATOR: char = '/';

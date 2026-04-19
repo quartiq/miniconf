@@ -1,13 +1,12 @@
-use crate::{MqttClient, State, client::Action, pending::Pending};
-#[cfg(feature = "introspection")]
-use heapless::String as HString;
-use miniconf::{Tree, TreeSchema};
-use minimq::{
-    Broker, BufferLayout, InboundPublish, Property, ProtocolError, QoS, Retain,
-    embedded_io_async::{ErrorKind, ErrorType, Read, Write},
-    transport::Connector,
-    types::{Properties, Utf8String},
+use crate::{
+    MAX_TOPIC_LENGTH, MqttClient, State,
+    client::Action,
+    protocol::{ReplyTarget, ResponseCode},
 };
+use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
+use heapless::String;
+use miniconf::{SchemaIter, Tree, TreeSchema};
+use minimq::{Broker, ProtocolError, transport::Connector};
 
 #[derive(Tree)]
 struct Tiny {
@@ -25,34 +24,15 @@ struct TreeSettings {
     nested: Nested,
 }
 
-#[cfg(feature = "introspection")]
-#[allow(dead_code)]
-#[derive(Tree)]
-enum Mode {
-    A(u8),
-    B(Nested),
-}
-
-#[cfg(feature = "introspection")]
-impl Default for Mode {
-    fn default() -> Self {
-        Self::A(0)
-    }
-}
-
-#[cfg(feature = "introspection")]
 #[derive(Tree, Default)]
-struct StateSettings {
-    #[tree(meta(switches = "mode"))]
-    tag: HString<8>,
-    mode: Mode,
-    optional: Option<Nested>,
+struct MetaSettings {
+    #[tree(meta(role = "selector"))]
+    value: u8,
 }
 
-const TINY_DEPTH: usize = Tiny::SCHEMA.shape().max_depth + 1;
-const TREE_DEPTH: usize = TreeSettings::SCHEMA.shape().max_depth + 1;
-#[cfg(feature = "introspection")]
-const STATE_DEPTH: usize = StateSettings::SCHEMA.shape().max_depth + 1;
+const TINY_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
+const TREE_DEPTH: usize = TreeSettings::SCHEMA.shape().max_depth;
+const META_DEPTH: usize = MetaSettings::SCHEMA.shape().max_depth;
 
 #[derive(Default)]
 struct DummyConnection;
@@ -86,7 +66,7 @@ impl Connector for DummyConnector {
     async fn connect<'a>(
         &'a self,
         _broker: &Broker<'_>,
-    ) -> Result<Self::Connection<'a>, minimq::Error> {
+    ) -> Result<Self::Connection<'a>, ErrorKind> {
         Ok(DummyConnection)
     }
 }
@@ -98,167 +78,32 @@ fn constructor_rejects_long_prefix() {
         .parse::<core::net::SocketAddr>()
         .unwrap()
         .into();
-    let prefix = "x".repeat(crate::MAX_TOPIC_LENGTH);
+    let prefix = "x".repeat(MAX_TOPIC_LENGTH);
 
     let client = MqttClient::<Tiny, _, TINY_DEPTH>::new(
         &prefix,
         &DummyConnector,
-        minimq::ConfigBuilder::from_buffer_layout(
-            broker,
-            &mut buffer,
-            BufferLayout { rx: 256, tx: 768 },
-        )
-        .unwrap(),
+        minimq::ConfigBuilder::from_buffer(broker, &mut buffer, 256).unwrap(),
     );
 
     assert!(matches!(client, Err(ProtocolError::BufferSize)));
 }
 
 #[test]
-fn plan_leaf_get() {
+fn plan_set_marks_changed_with_explicit_reply() {
     let mut settings = TreeSettings::default();
-    let message = InboundPublish {
-        topic: "test/id/settings/value",
-        payload: b"",
-        properties: Properties::Slice(&[]),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
+    let reply = ReplyTarget::new("test/id/response", None).unwrap();
 
-    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
         "test/id",
-        false,
         &mut settings,
-        &message,
+        "test/id/set/value",
+        b"42",
+        Some(reply),
     ) {
-        Action::ReplyLeaf { depth, .. } => {
+        Action::PublishSet { reply, depth, .. } => {
+            assert!(reply.is_some());
             assert_eq!(depth, 1);
-        }
-        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
-    }
-}
-
-#[cfg(feature = "introspection")]
-#[test]
-fn plan_schema_leaf_reports_ty() {
-    let mut settings = TreeSettings::default();
-    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
-    let message = InboundPublish {
-        topic: "test/id/schema/value",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-
-    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &message,
-    ) {
-        Action::ReplyText { code, text, .. } => {
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
-            assert_eq!(text.as_str(), r#"{"sem":{"ty":"u8"}}"#);
-        }
-        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
-    }
-}
-
-#[test]
-fn plan_internal_get_without_response_topic_starts_dump() {
-    let mut settings = TreeSettings::default();
-    let message = InboundPublish {
-        topic: "test/id/settings/nested",
-        payload: b"",
-        properties: Properties::Slice(&[]),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-
-    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &message,
-    ) {
-        Action::SetPending {
-            pending: Pending::Dump { iter },
-        } => assert_eq!(iter.root(), 1),
-        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
-    }
-}
-
-#[test]
-fn plan_internal_get_with_response_topic_starts_list() {
-    let mut settings = TreeSettings::default();
-    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
-    let message = InboundPublish {
-        topic: "test/id/settings/nested",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-
-    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &message,
-    ) {
-        Action::SetPending {
-            pending: Pending::List { iter, .. },
-        } => assert_eq!(iter.root(), 1),
-        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
-    }
-}
-
-#[test]
-fn plan_internal_get_with_oversized_response_topic_is_rejected() {
-    let mut settings = TreeSettings::default();
-    let response = "x".repeat(crate::MAX_TOPIC_LENGTH + 1);
-    let props = [Property::ResponseTopic(Utf8String(&response))];
-    let message = InboundPublish {
-        topic: "test/id/settings/nested",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-
-    assert!(matches!(
-        MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
-            "test/id",
-            false,
-            &mut settings,
-            &message,
-        ),
-        Action::None(State::Unchanged)
-    ));
-}
-
-#[test]
-fn plan_set_marks_changed() {
-    let mut settings = TreeSettings::default();
-    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
-    let message = InboundPublish {
-        topic: "test/id/settings/value",
-        payload: b"42",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-
-    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &message,
-    ) {
-        Action::ReplyText { state, code, .. } => {
-            assert_eq!(state, State::Changed);
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
             assert_eq!(settings.value, 42);
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
@@ -266,146 +111,193 @@ fn plan_set_marks_changed() {
 }
 
 #[test]
-fn plan_set_with_oversized_response_topic_is_rejected() {
+fn plan_set_without_response_topic_is_fire_and_forget() {
     let mut settings = TreeSettings::default();
-    let response = "x".repeat(crate::MAX_TOPIC_LENGTH + 1);
-    let props = [Property::ResponseTopic(Utf8String(&response))];
-    let message = InboundPublish {
-        topic: "test/id/settings/value",
-        payload: b"42",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
+        "test/id",
+        &mut settings,
+        "test/id/set/value",
+        b"7",
+        None,
+    ) {
+        Action::PublishSet { reply, depth, .. } => {
+            assert!(reply.is_none());
+            assert_eq!(depth, 1);
+            assert_eq!(settings.value, 7);
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+}
 
+#[test]
+fn plan_empty_payload_is_ignored() {
+    let mut settings = TreeSettings::default();
+    let reply = ReplyTarget::new("test/id/response", None).unwrap();
     assert!(matches!(
-        MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_request(
+        MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
             "test/id",
-            false,
             &mut settings,
-            &message,
+            "test/id/set/value",
+            b"",
+            Some(reply),
         ),
         Action::None(State::Unchanged)
     ));
     assert_eq!(settings.value, 0);
 }
 
-#[cfg(feature = "introspection")]
 #[test]
-fn plan_schema_replies_with_view() {
-    let mut settings = StateSettings::default();
-    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
-    let root = InboundPublish {
-        topic: "test/id/schema",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-    let mode = InboundPublish {
-        topic: "test/id/schema/mode",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-    let tag = InboundPublish {
-        topic: "test/id/schema/tag",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
+fn plan_internal_set_path_is_rejected() {
+    let mut settings = TreeSettings::default();
+    let reply = ReplyTarget::new("test/id/response", None).unwrap();
 
-    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
         "test/id",
-        false,
         &mut settings,
-        &root,
+        "test/id/set/nested",
+        b"{}",
+        Some(reply),
     ) {
-        Action::ReplyText { code, text, .. } => {
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
-            assert_eq!(
-                text.as_str(),
-                r#"{"internal":{"kind":"named","children":[{"name":"tag","meta":{"switches":"mode"}},{"name":"mode"},{"name":"optional"}]}}"#
-            );
-        }
-        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
-    }
-
-    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &mode,
-    ) {
-        Action::ReplyText { code, text, .. } => {
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
-            assert_eq!(
-                text.as_str(),
-                r#"{"sem":{"oneof":true},"internal":{"kind":"named","children":[{"name":"A"},{"name":"B"}]}}"#
-            );
-        }
-        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
-    }
-
-    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &tag,
-    ) {
-        Action::ReplyText { code, text, .. } => {
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
-            assert_eq!(text.as_str(), r#"{"sem":{"ty":"str"}}"#);
+        Action::Reply {
+            state,
+            reply,
+            code,
+            text,
+        } => {
+            assert_eq!(state, State::Unchanged);
+            assert!(reply.is_some());
+            assert_eq!(code, ResponseCode::Error);
+            assert_eq!(text.as_str(), "Path does not resolve to a leaf");
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
 }
 
-#[cfg(feature = "introspection")]
 #[test]
-fn plan_state_reports_active_variant_and_absent_subtree() {
-    let mut settings = StateSettings::default();
-    let props = [Property::ResponseTopic(Utf8String("test/id/response"))];
-    let mode = InboundPublish {
-        topic: "test/id/state/mode",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
-    let optional = InboundPublish {
-        topic: "test/id/state/optional",
-        payload: b"",
-        properties: Properties::Slice(&props),
-        retain: Retain::NotRetained,
-        qos: QoS::AtMostOnce,
-    };
+fn plan_missing_path_is_rejected() {
+    let mut settings = TreeSettings::default();
+    let reply = ReplyTarget::new("test/id/response", None).unwrap();
 
-    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
         "test/id",
-        false,
         &mut settings,
-        &mode,
+        "test/id/set/missing",
+        b"1",
+        Some(reply),
     ) {
-        Action::ReplyText { code, text, .. } => {
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
-            assert_eq!(text.as_str(), r#"{"state":"present","active":"A"}"#);
+        Action::Reply {
+            state,
+            reply,
+            code,
+            text,
+        } => {
+            assert_eq!(state, State::Unchanged);
+            assert!(reply.is_some());
+            assert_eq!(code, ResponseCode::Error);
+            assert!(text.as_str().contains("Key not found"));
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
+}
 
-    match MqttClient::<StateSettings, DummyConnector, STATE_DEPTH>::plan_request(
-        "test/id",
-        false,
-        &mut settings,
-        &optional,
-    ) {
-        Action::ReplyText { code, text, .. } => {
-            assert_eq!(code, crate::protocol::ResponseCode::Ok);
-            assert_eq!(text.as_str(), r#"{"state":"absent"}"#);
+#[test]
+fn oversized_response_topic_is_rejected_early() {
+    let response = "x".repeat(MAX_TOPIC_LENGTH + 1);
+    assert!(matches!(
+        ReplyTarget::new(&response, None),
+        Err(ProtocolError::BufferSize)
+    ));
+}
+
+#[test]
+fn schema_iter_includes_internal_nodes_and_child_meta() {
+    let mut iter = SchemaIter::<TREE_DEPTH>::new(TreeSettings::SCHEMA, [0; TREE_DEPTH], 0);
+    let mut saw_root = false;
+    let mut saw_nested = false;
+    while let Some(node) = iter.next() {
+        let path = schema_path(TreeSettings::SCHEMA, node.path());
+        saw_root |= path.as_ref().is_empty();
+        saw_nested |= path.as_ref() == "/nested";
+    }
+    assert!(saw_root);
+    assert!(saw_nested);
+
+    let mut meta_iter = SchemaIter::<META_DEPTH>::new(MetaSettings::SCHEMA, [0; META_DEPTH], 0);
+    let mut meta = None;
+    while let Some(node) = meta_iter.next() {
+        let path = schema_path(MetaSettings::SCHEMA, node.path());
+        if path.as_ref() == "/value" {
+            meta = node.meta();
+            break;
         }
+    }
+    let meta = meta.expect("missing child-edge meta");
+    assert_eq!(meta, [("role", "selector")].as_slice());
+}
+
+fn schema_path(
+    root: &'static miniconf::Schema,
+    state: &[usize],
+) -> miniconf::Path<String<{ MAX_TOPIC_LENGTH }>> {
+    let mut path = miniconf::Path::<String<{ MAX_TOPIC_LENGTH }>>::new(String::new(), '/');
+    let mut schema = root;
+    for index in state {
+        match schema.internal.as_ref().unwrap() {
+            miniconf::Internal::Named(children) => {
+                let child = &children[*index];
+                path.path.push('/').unwrap();
+                path.path.push_str(child.name).unwrap();
+                schema = child.schema;
+            }
+            miniconf::Internal::Numbered(children) => {
+                path.path.push('/').unwrap();
+                use core::fmt::Write as _;
+                write!(&mut path.path, "{index}").unwrap();
+                schema = children[*index].schema;
+            }
+            miniconf::Internal::Homogeneous(child) => {
+                path.path.push('/').unwrap();
+                use core::fmt::Write as _;
+                write!(&mut path.path, "{index}").unwrap();
+                schema = child.schema;
+            }
+        }
+    }
+    path
+}
+
+#[cfg(feature = "compat-settings-ingress")]
+#[test]
+fn compatibility_settings_ingress_is_accepted() {
+    let mut settings = TreeSettings::default();
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
+        "test/id",
+        &mut settings,
+        "test/id/settings/value",
+        b"11",
+        None,
+    ) {
+        Action::PublishSet { reply, depth, .. } => {
+            assert!(reply.is_none());
+            assert_eq!(depth, 1);
+            assert_eq!(settings.value, 11);
+        }
+        other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
+    }
+}
+
+#[cfg(feature = "compat-settings-ingress")]
+#[test]
+fn compatibility_settings_invalid_value_triggers_override() {
+    let mut settings = TreeSettings::default();
+    match MqttClient::<TreeSettings, DummyConnector, TREE_DEPTH>::plan_publish(
+        "test/id",
+        &mut settings,
+        "test/id/settings/value",
+        b"oops",
+        None,
+    ) {
+        Action::OverrideSet { depth, .. } => assert_eq!(depth, 1),
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
 }

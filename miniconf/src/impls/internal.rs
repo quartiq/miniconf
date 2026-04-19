@@ -143,6 +143,137 @@ fn mut_any_by_key_slice<'a, T: TreeAny>(
     values[schema.next(&mut keys)?].mut_any_by_key(keys)
 }
 
+macro_rules! impl_named_single_field {
+    ($ty:ty, $field:ident, $name:literal) => {
+        impl<T: TreeSchema> TreeSchema for $ty {
+            const SCHEMA: &'static Schema = &Schema::named(&[Named::new($name, T::SCHEMA)]);
+        }
+
+        impl<T: TreeSerialize> TreeSerialize for $ty {
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                mut keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => self.$field.serialize_by_key(keys, ser),
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for $ty {
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                mut keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => self.$field.deserialize_by_key(keys, de),
+                    _ => unreachable!(),
+                }
+            }
+
+            fn probe_by_key<D: Deserializer<'de>>(
+                mut keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => T::probe_by_key(keys, de),
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        impl<T: TreeAny> TreeAny for $ty {
+            fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => self.$field.ref_any_by_key(keys),
+                    _ => unreachable!(),
+                }
+            }
+
+            fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => self.$field.mut_any_by_key(keys),
+                    _ => unreachable!(),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_named_pair {
+    ($ty:ty, $left:ident, $right:ident, $left_name:literal, $right_name:literal) => {
+        impl<T: TreeSchema> TreeSchema for $ty {
+            const SCHEMA: &'static Schema = &Schema::named(&[
+                Named::new($left_name, T::SCHEMA),
+                Named::new($right_name, T::SCHEMA),
+            ]);
+        }
+
+        impl<T: TreeSerialize> TreeSerialize for $ty {
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                mut keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => &self.$left,
+                    1 => &self.$right,
+                    _ => unreachable!(),
+                }
+                .serialize_by_key(keys, ser)
+            }
+        }
+
+        impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for $ty {
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                mut keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => &mut self.$left,
+                    1 => &mut self.$right,
+                    _ => unreachable!(),
+                }
+                .deserialize_by_key(keys, de)
+            }
+
+            fn probe_by_key<D: Deserializer<'de>>(
+                mut keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0..=1 => T::probe_by_key(keys, de),
+                    _ => unreachable!(),
+                }
+            }
+        }
+
+        impl<T: TreeAny> TreeAny for $ty {
+            fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => &self.$left,
+                    1 => &self.$right,
+                    _ => unreachable!(),
+                }
+                .ref_any_by_key(keys)
+            }
+
+            fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+                match Self::SCHEMA.next(&mut keys)? {
+                    0 => &mut self.$left,
+                    1 => &mut self.$right,
+                    _ => unreachable!(),
+                }
+                .mut_any_by_key(keys)
+            }
+        }
+    };
+}
+
 impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N]
 where
     Self: TreeSchema,
@@ -392,70 +523,7 @@ impl<T: TreeAny> TreeAny for Bound<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeSchema> TreeSchema for Range<T> {
-    const SCHEMA: &'static Schema =
-        &Schema::named(&[Named::new("start", T::SCHEMA), Named::new("end", T::SCHEMA)]);
-}
-
-impl<T: TreeSerialize> TreeSerialize for Range<T> {
-    fn serialize_by_key<S: Serializer>(
-        &self,
-        mut keys: impl Keys,
-        ser: S,
-    ) -> Result<S::Ok, SerdeError<S::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => &self.start,
-            1 => &self.end,
-            _ => unreachable!(),
-        }
-        .serialize_by_key(keys, ser)
-    }
-}
-
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Range<T> {
-    fn deserialize_by_key<D: Deserializer<'de>>(
-        &mut self,
-        mut keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => &mut self.start,
-            1 => &mut self.end,
-            _ => unreachable!(),
-        }
-        .deserialize_by_key(keys, de)
-    }
-
-    fn probe_by_key<D: Deserializer<'de>>(
-        mut keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0..=1 => T::probe_by_key(keys, de),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<T: TreeAny> TreeAny for Range<T> {
-    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => &self.start,
-            1 => &self.end,
-            _ => unreachable!(),
-        }
-        .ref_any_by_key(keys)
-    }
-
-    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => &mut self.start,
-            1 => &mut self.end,
-            _ => unreachable!(),
-        }
-        .mut_any_by_key(keys)
-    }
-}
+impl_named_pair!(Range<T>, start, end, "start", "end");
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
@@ -480,119 +548,11 @@ impl<T: TreeSerialize> TreeSerialize for RangeInclusive<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeSchema> TreeSchema for RangeFrom<T> {
-    const SCHEMA: &'static Schema = &Schema::named(&[Named::new("start", T::SCHEMA)]);
-}
-
-impl<T: TreeSerialize> TreeSerialize for RangeFrom<T> {
-    fn serialize_by_key<S: Serializer>(
-        &self,
-        mut keys: impl Keys,
-        ser: S,
-    ) -> Result<S::Ok, SerdeError<S::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.serialize_by_key(keys, ser),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeFrom<T> {
-    fn deserialize_by_key<D: Deserializer<'de>>(
-        &mut self,
-        mut keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.deserialize_by_key(keys, de),
-            _ => unreachable!(),
-        }
-    }
-
-    fn probe_by_key<D: Deserializer<'de>>(
-        mut keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => T::probe_by_key(keys, de),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<T: TreeAny> TreeAny for RangeFrom<T> {
-    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.ref_any_by_key(keys),
-            _ => unreachable!(),
-        }
-    }
-
-    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.start.mut_any_by_key(keys),
-            _ => unreachable!(),
-        }
-    }
-}
+impl_named_single_field!(RangeFrom<T>, start, "start");
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeSchema> TreeSchema for RangeTo<T> {
-    const SCHEMA: &'static Schema = &Schema::named(&[Named::new("end", T::SCHEMA)]);
-}
-
-impl<T: TreeSerialize> TreeSerialize for RangeTo<T> {
-    fn serialize_by_key<S: Serializer>(
-        &self,
-        mut keys: impl Keys,
-        ser: S,
-    ) -> Result<S::Ok, SerdeError<S::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.end.serialize_by_key(keys, ser),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RangeTo<T> {
-    fn deserialize_by_key<D: Deserializer<'de>>(
-        &mut self,
-        mut keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.end.deserialize_by_key(keys, de),
-            _ => unreachable!(),
-        }
-    }
-
-    fn probe_by_key<D: Deserializer<'de>>(
-        mut keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => T::probe_by_key(keys, de),
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl<T: TreeAny> TreeAny for RangeTo<T> {
-    fn ref_any_by_key(&self, mut keys: impl Keys) -> Result<&dyn Any, ValueError> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.end.ref_any_by_key(keys),
-            _ => unreachable!(),
-        }
-    }
-
-    fn mut_any_by_key(&mut self, mut keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-        match Self::SCHEMA.next(&mut keys)? {
-            0 => self.end.mut_any_by_key(keys),
-            _ => unreachable!(),
-        }
-    }
-}
+impl_named_single_field!(RangeTo<T>, end, "end");
 
 /////////////////////////////////////////////////////////////////////////////////////////
 

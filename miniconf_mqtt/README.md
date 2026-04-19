@@ -1,121 +1,101 @@
-# `miniconf` MQTT Client
+# `miniconf_mqtt`
 
-This crate exposes a [`miniconf`](https://crates.io/crates/miniconf) tree over MQTT using
-[`minimq`](https://crates.io/crates/minimq).
+`miniconf_mqtt` exposes a [`miniconf`](../miniconf/README.md) tree over MQTT using
+[`minimq`](../../minimq/README.md).
 
-It is built around one long-lived `minimq::Session`: reconnects, keepalive, and MQTT request/reply
-routing stay inside the MQTT layer, while `miniconf_mqtt` only adds settings-tree behavior on top.
+The current protocol is MM2:
 
-## Driver Model
+- retained `/<prefix>/alive` publishes a compact device manifest
+- retained `/<prefix>/schema/<n>` publishes paged compact schemata
+- retained `/<prefix>/settings/<path>` publishes authoritative leaf values
+- `/<prefix>/set/<path>` accepts explicit leaf mutation requests
+- `/<prefix>/response` carries metadata-only ACK/NACK replies when requested
 
-`MqttClient` is a manually driven async service.
+## Quick start
 
-- Call `poll()` regularly. It drives the MQTT session, handles inbound requests,
-  activates the settings service after each connection, and drains queued multipart
-  replies and dumps.
-- Call `activate()` only if you need the retained `/<prefix>/alive` publish and
-  `/<prefix>/settings/#` subscription installed before your first application
-  `publish()`. Regular `poll()` calls do this automatically.
-- Call `publish()` for application messages on the shared MQTT session. It calls
-  `activate()` first.
-- Call `dump()` to queue a settings dump. The dump is emitted incrementally by
-  subsequent `poll()` calls; `dump()` itself does not publish anything.
-- Call `can_publish()` only to check local publish capacity. It is pessimistic
-  for local backpressure: `false` means a publish would currently be blocked by
-  local session capacity. It is optimistic overall: `true` still does not rule
-  out serialization, packet-size, disconnect, or transport failures from the
-  actual `publish()`.
+See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).
+It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
 
-## MQTT Contract
+`MqttClient` is a manually driven async service:
 
-The public MQTT behavior is intentionally stable and matches the Python client in
-[`py/miniconf-mqtt`](../py/miniconf-mqtt).
+- call `poll()` regularly to drive MQTT I/O
+- handle your own application traffic through the shared session via `publish()`
+- let `poll()` incrementally publish `alive`, schema pages, and retained settings
 
-Topics:
+Background schema/settings publication is incremental by design so reconnect/bootstrap does not
+block normal `set/#` handling.
 
-- settings requests and dumps use `"<prefix>/settings<path>"`
-- liveness uses `"<prefix>/alive"`
-- with the `introspection` feature, static schema requests use `"<prefix>/schema<path>"`
-- with the `introspection` feature, runtime state requests use `"<prefix>/state<path>"`
+## Manifest
 
-Request routing:
+The retained `alive` payload is JSON:
 
-| Request | Path kind | Response topic | Payload | Result |
-| --- | --- | --- | --- | --- |
-| `GET` | leaf | set | empty | one reply payload with the serialized leaf value |
-| `LIST` | internal | set | empty | multipart replies on the response topic |
-| `DUMP` | leaf or internal | not set | empty | publishes leaf values under `"<prefix>/settings/..."` |
-| `SET` | leaf | optional | non-empty | updates the leaf and replies `Ok` if a response topic is present |
-| invalid `SET` | internal | optional | non-empty | request is rejected |
+```json
+{"boot_id":1,"schema_rev":12345678,"pages":7}
+```
 
-More precisely:
+- `boot_id` identifies the current device epoch
+- `schema_rev` identifies the current schema page generation
+- `pages` is the number of retained schema pages
 
-- An empty payload means a read-like request.
-- A non-empty payload means `SET`.
-- An internal-node request with a response topic is `LIST`.
-- An internal-node request without a response topic is `DUMP`.
-- Unknown topics under other prefixes are ignored.
-- Overlong leaf paths are rejected rather than truncated.
-- Path-resolution errors report the actual consumed depth.
-- `schema` and `state` requests are read-only and require a response topic.
+The retained will clears `alive` on disconnect so discovery stays live-device oriented even if
+stale retained schema/settings still exist on the broker.
 
-## Response Semantics
+## Schema pages
 
-One-shot replies and multipart `LIST` replies use the MQTT v5 `ResponseTopic` and
-`CorrelationData` properties.
+Each retained `schema/<n>` payload is a UTF-8 text page containing newline-delimited compact
+schema definitions.
 
-User property `code` distinguishes reply state:
+Each definition looks like:
 
-- `Ok`: terminal success
-- `Continue`: more multipart `LIST` payloads follow
-- `Error`: request rejected or operation failed
+```json
+{"i":{"k":"n","c":{"A":1,"B":2}}}
+```
 
-`DUMP` does not use the response topic. It publishes current settings values directly into the
-settings namespace and does not wait for completion.
+Fields:
 
-## Introspection
+- definition ids are implicit: the concatenated line order across pages `0..pages-1` is the
+  definition index, and the root definition is always `0`
+- `m`: metadata for the node or child edge when present
+- `s`: structured Miniconf semantics when present and the crate is built with feature `sem`
+- `i`: internal-node shape when present
+- `i.k`: internal kind: `n` named, `d` numbered, `h` homogeneous
+- `i.c`: child descriptors
+  - named children use object keys for the child names
+  - numbered children use an array
+  - homogeneous children use one child descriptor plus `i.l`
+- child descriptors are either a bare integer ref or `{ "r": <ref>, "m": ... }` when child-edge
+  metadata is present
 
-Enable the `introspection` feature to expose compact schema and runtime-state queries.
+Clients assemble pages `0..pages-1` for the current `schema_rev`.
+The revision is FNV-1a over the exact retained schema page payload bytes in page order.
 
-- `schema` returns one node descriptor for the addressed path.
-- `state` returns runtime accessibility information for the addressed path.
-- Both use normal MQTT v5 request/reply on the response topic.
+## Settings mirror and `set/#`
 
-`schema` replies mirror `miniconf::Schema`:
+Authoritative retained `settings/<path>` publications carry MQTT v5 user property `rev=<u32>`.
 
-- leaf: `{"meta":...,"sem":...}` or `{}`
-- named internal: `{"internal":{"kind":"named","children":[{"name":"child","meta":...},...]},...}`
-- numbered internal: `{"internal":{"kind":"numbered","children":[{"meta":...},...]},...}`
-- homogeneous internal: `{"internal":{"kind":"homogeneous","child":{"meta":...},"len":N},...}`
+- `rev` is monotonic within one `boot_id`
+- clients should treat `(boot_id, rev)` as the ordering key
+- in compatibility mode, `settings/<path>` without `rev` is provisional client traffic, not
+  authoritative state
 
-Node metadata and sem are attached to the addressed node. Child-edge metadata is kept on the parent
-internal node, mirroring `Schema`/`Internal`. Current structured semantics include:
+`set/<path>` accepts one JSON value for one leaf.
 
-- `oneof` for mutually exclusive named internals
-- `maybe_absent` for nodes that may be absent at runtime
+- success republishes authoritative retained `settings/<path>`
+- if `Response Topic` is present, success also emits an `Ok` reply on `response`
+- failure emits only an `Error` reply on `response`
+- explicit replies are metadata-only; the applied value is always learned from `settings/#`
 
-This is the intended channel for downstream hints such as:
+## Compatibility mode
 
-- derived enums, which yield `{"sem":{"oneof":true}}`
-- `Option<T>`, which yields `{"sem":{"maybe_absent":true}}`
-- `#[tree(meta(switches = "mode"))]` on selector fields, exposed on that child edge
+Optional feature `compat-settings-ingress` also accepts client writes on `settings/#` for migration
+from schema-unaware tools such as MQTT Explorer.
 
-`nullable` is also an outer child-edge metadata item, for example `#[tree(with = leaf, meta(nullable))]`.
-It is only meaningful for leaf encodings such as `with = leaf`. It is visible on the parent
-node's `children` entry and, for flattened fields, promoted onto the flattened root node. Point
-lookups of the addressed child node do not inherit outer metadata.
+This is intentionally degraded:
 
-`state` replies are compact JSON objects:
+- raw client writes on `settings/#` are provisional requests
+- only device-origin publications carrying `rev` are authoritative
 
-- present subtree: `{"state":"present"}`
-- absent subtree: `{"state":"absent"}`
-- unknown/inaccessible subtree: `{"state":"unknown"}`
-- enum-like subtree with one active child: `{"state":"present","active":"Variant"}`
+## Optional features
 
-## Notes
-
-- `LIST` emits leaf paths below the requested internal node.
-- Multipart operations temporarily monopolize the interface; concurrent requests may be rejected
-  with `Error`.
-- The example client triggers the initial dump explicitly. That behavior is part of the example and
-  Python smoke-test workflow, not an implicit protocol bootstrap rule.
+- `sem`: include structured Miniconf semantics in published schema records
+- `compat-settings-ingress`: also accept provisional client writes on `settings/#`

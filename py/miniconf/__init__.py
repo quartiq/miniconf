@@ -1,0 +1,1 @@
+"""Miniconf MQTT client package."""

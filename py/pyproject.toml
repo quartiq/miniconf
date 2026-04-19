@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "miniconf-mqtt"
+# Note: keep this in sync with Cargo.toml
+version = "0.20.0"
+description = "Async MM2 Miniconf client and CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "Ryan Summers", email = "ryan.summers@vertigo-designs.com" },
+    { name = "Robert Jördens", email = "rj@quartiq.de" },
+]
+dependencies = ["aiomqtt>=2.1"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.11"]
+
+[project.urls]
+Homepage = "https://github.com/quartiq/miniconf"
+Issues = "https://github.com/quartiq/miniconf/issues"
+Repository = "https://github.com/quartiq/miniconf/tree/main/py"
+Changelog = "https://github.com/quartiq/miniconf/blob/main/CHANGELOG.md"
+
+[project.scripts]
+miniconf = "miniconf.__main__:main"
+
+[tool.setuptools]
+packages = ["miniconf"]
+
+[tool.ruff]
+target-version = "py311"
+src = ["miniconf"]

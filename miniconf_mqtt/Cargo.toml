@@ -2,6 +2,7 @@
 name = "miniconf_mqtt"
 version = "0.20.0"
 description = "MQTT interface for `miniconf`, using `minimq`"
+autoexamples = false
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,28 +17,32 @@ workspace = true
 
 [features]
 default = []
-introspection = ["dep:serde", "dep:serde-json-core", "miniconf/meta-str", "miniconf/sem"]
+compat-settings-ingress = []
+sem = ["miniconf/sem"]
 
 [dependencies]
-miniconf = { version = "0.20.1", features = [
-    "json-core",
-], default-features = false, path = "../miniconf" }
-minimq = { git = "https://github.com/quartiq/minimq.git" }
+miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
+minimq = { path = "../../minimq" }
+embassy-time = "0.5.1"
 embedded-io = "0.7"
 log = "0.4"
 heapless = "0.9.1"
-serde = { version = "1", default-features = false, features = ["derive"], optional = true }
-serde-json-core = { version = "0.6.0", optional = true }
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde-json-core = { version = "0.6.0" }
 strum = { version = "0.28", features = ["derive"], default-features = false }
 thiserror = { version = "2", default-features = false }
+yafnv = { version = "3", default-features = false }
 
 [[example]]
-name = "mqtt"
+name = "miniconf"
 
 [dev-dependencies]
+clap = { version = "4.5", features = ["derive"] }
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
+embedded-io-async = "0.7"
+embedded-nal-async = "0.9"
 std-embedded-nal-async = "0.4"
 miniconf = { features = [
     "json-core",
