@@ -1,13 +1,56 @@
-use core::fmt::{Display, Write as FmtWrite};
+use core::fmt::{Display, Write as _};
 
 use heapless::{String, Vec};
 use miniconf::SerdeError;
 use minimq::{ProtocolError, Publication};
 use strum::IntoStaticStr;
 
-use crate::{
-    MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, client::ClientError,
-};
+use crate::{MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, client::Error};
+
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum Action<const Y: usize> {
+    None(crate::State),
+    Reply {
+        state: crate::State,
+        reply: Option<ReplyTarget>,
+        code: ResponseCode,
+        text: String<MAX_PAYLOAD_LENGTH>,
+    },
+    PublishSet {
+        resource: Resource,
+        reply: Option<ReplyTarget>,
+        state: [usize; Y],
+        depth: usize,
+    },
+    #[cfg(feature = "compat-settings-ingress")]
+    OverrideSet {
+        state: [usize; Y],
+        depth: usize,
+    },
+}
+
+#[derive(Copy, Clone)]
+pub(crate) enum Resource {
+    Set,
+    #[cfg(feature = "compat-settings-ingress")]
+    Settings,
+}
+
+impl Resource {
+    pub(crate) fn parse<'a>(topic: &'a str, prefix: &str) -> Option<(Self, &'a str)> {
+        let tail = topic.strip_prefix(prefix)?;
+        #[cfg(feature = "compat-settings-ingress")]
+        {
+            [(Self::Settings, "/settings"), (Self::Set, "/set")]
+                .into_iter()
+                .find_map(|(resource, base)| tail.strip_prefix(base).map(|path| (resource, path)))
+        }
+        #[cfg(not(feature = "compat-settings-ingress"))]
+        {
+            tail.strip_prefix("/set").map(|path| (Self::Set, path))
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReplyTarget {
@@ -50,15 +93,6 @@ impl From<ResponseCode> for minimq::Property<'static> {
     }
 }
 
-pub(crate) fn rev_property<const N: usize>(buf: &mut String<N>, rev: u32) -> minimq::Property<'_> {
-    buf.clear();
-    write!(buf, "{rev}").ok();
-    minimq::Property::UserProperty(
-        minimq::types::Utf8String("rev"),
-        minimq::types::Utf8String(buf.as_str()),
-    )
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DepthError<E> {
     pub(crate) inner: SerdeError<E>,
@@ -80,9 +114,9 @@ pub(crate) fn format_message<T: Display>(value: T) -> String<MAX_PAYLOAD_LENGTH>
     text
 }
 
-pub(crate) fn simple_pub_error<P, E>(err: minimq::PubError<P, E>) -> ClientError<E> {
+pub(crate) fn simple_pub_error<P, E>(err: minimq::PubError<P, E>) -> Error<E> {
     match err {
-        minimq::PubError::Session(err) => ClientError::Mqtt(err),
-        minimq::PubError::Payload(_) => ClientError::Mqtt(ProtocolError::BufferSize.into()),
+        minimq::PubError::Session(err) => Error::Mqtt(err),
+        minimq::PubError::Payload(_) => Error::Mqtt(ProtocolError::BufferSize.into()),
     }
 }

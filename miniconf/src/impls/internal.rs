@@ -96,10 +96,6 @@ impl_tuple!(0 T0 1 T1 2 T2 3 T3 4 T4 5 T5 6 T6 7 T7);
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
-impl<T: TreeSchema, const N: usize> TreeSchema for [T; N] {
-    const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
-}
-
 fn serialize_by_key_slice<T: TreeSerialize, S: Serializer>(
     values: &[T],
     schema: &'static Schema,
@@ -272,6 +268,10 @@ macro_rules! impl_named_pair {
             }
         }
     };
+}
+
+impl<T: TreeSchema, const N: usize> TreeSchema for [T; N] {
+    const SCHEMA: &'static Schema = &Schema::homogeneous(Homogeneous::new(N, T::SCHEMA));
 }
 
 impl<T: TreeSerialize, const N: usize> TreeSerialize for [T; N]

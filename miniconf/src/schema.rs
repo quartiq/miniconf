@@ -835,6 +835,31 @@ impl Schema {
         Shape::new(self)
     }
 
+    /// The exact total number of schema nodes reachable from this root.
+    pub const fn node_count(&self) -> usize {
+        let mut count = 1;
+        if let Some(internal) = self.internal.as_ref() {
+            match internal {
+                Internal::Named(children) => {
+                    let mut index = 0;
+                    while index < children.len() {
+                        count += children[index].schema.node_count();
+                        index += 1;
+                    }
+                }
+                Internal::Numbered(children) => {
+                    let mut index = 0;
+                    while index < children.len() {
+                        count += children[index].schema.node_count();
+                        index += 1;
+                    }
+                }
+                Internal::Homogeneous(child) => count += child.schema.node_count(),
+            }
+        }
+        count
+    }
+
     /// Return an iterator over nodes of a given type
     ///
     /// This is a walk of all leaf nodes.

@@ -151,9 +151,9 @@ async def main() -> None:
     compressed_sem = render_schema_tree(
         Schema.from_defs(
             [
-                {"i": {"k": "n", "c": {"array_tree": 1}}},
-                {"i": {"k": "h", "l": 2, "c": 2}},
                 {"s": {"ty": "i32"}},
+                {"i": {"k": "h", "l": 2, "c": 0}},
+                {"i": {"k": "n", "c": {"array_tree": 1}}},
             ],
             1,
         )
@@ -165,8 +165,8 @@ async def main() -> None:
     quoted_meta = render_schema_tree(
         Schema.from_defs(
             [
-                {"i": {"k": "n", "c": {"node": {"r": 1, "m": {"doc": "Outer doc"}}}}},
                 {"m": {"typename": "InnerType"}},
+                {"i": {"k": "n", "c": {"node": {"r": 0, "m": {"doc": "Outer doc"}}}}},
             ],
             1,
         )
@@ -217,8 +217,8 @@ async def main() -> None:
             assert array_tree2.kind == "homogeneous", array_tree2
             assert array_tree2.schema["internal"]["len"] == 2, array_tree2
             assert struct_schema["path"] == "/struct_tree", struct_schema
-            assert struct_schema["defs"][0]["i"]["k"] == "n", struct_schema
-            assert set(struct_schema["defs"][0]["i"]["c"]) == {
+            assert struct_schema["defs"][-1]["i"]["k"] == "n", struct_schema
+            assert set(struct_schema["defs"][-1]["i"]["c"]) == {
                 "a",
                 "b",
             }, struct_schema
@@ -300,8 +300,8 @@ async def main() -> None:
         assert any("struct_tree" in line for line in schema_out), schema_out
         schema_raw = cli_stdout(TARGET, "??").splitlines()
         schema_dump = [json.loads(line) for line in schema_raw]
-        assert schema_dump[0]["i"]["k"] == "n", schema_dump
-        assert "struct_tree" in schema_dump[0]["i"]["c"], schema_dump
+        assert schema_dump[-1]["i"]["k"] == "n", schema_dump
+        assert "struct_tree" in schema_dump[-1]["i"]["c"], schema_dump
         dump_out = cli_stdout(TARGET, "!").splitlines()
         assert any("struct_tree" in line for line in dump_out), dump_out
         assert any("─ a " in line for line in dump_out), dump_out

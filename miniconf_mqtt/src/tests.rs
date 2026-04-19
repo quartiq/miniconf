@@ -1,11 +1,10 @@
 use crate::{
     MAX_TOPIC_LENGTH, MqttClient, State,
-    client::Action,
-    protocol::{ReplyTarget, ResponseCode},
+    message::{Action, ReplyTarget, ResponseCode},
+    schema::{SchemaPage, next_schema_page},
 };
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
-use heapless::String;
-use miniconf::{SchemaIter, Tree, TreeSchema};
+use miniconf::{Tree, TreeSchema};
 use minimq::{Broker, ProtocolError, transport::Connector};
 
 #[derive(Tree)]
@@ -32,8 +31,6 @@ struct MetaSettings {
 
 const TINY_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
 const TREE_DEPTH: usize = TreeSettings::SCHEMA.shape().max_depth;
-const META_DEPTH: usize = MetaSettings::SCHEMA.shape().max_depth;
-
 #[derive(Default)]
 struct DummyConnection;
 
@@ -210,60 +207,39 @@ fn oversized_response_topic_is_rejected_early() {
 }
 
 #[test]
-fn schema_iter_includes_internal_nodes_and_child_meta() {
-    let mut iter = SchemaIter::<TREE_DEPTH>::new(TreeSettings::SCHEMA, [0; TREE_DEPTH], 0);
-    let mut saw_root = false;
-    let mut saw_nested = false;
-    while let Some(node) = iter.next() {
-        let path = schema_path(TreeSettings::SCHEMA, node.path());
-        saw_root |= path.as_ref().is_empty();
-        saw_nested |= path.as_ref() == "/nested";
-    }
-    assert!(saw_root);
-    assert!(saw_nested);
+fn schema_pages_are_postorder_and_keep_child_meta() {
+    let mut payload = heapless::String::<{ crate::MAX_PAYLOAD_LENGTH }>::new();
+    let SchemaPage::Ready { count } = next_schema_page(TreeSettings::SCHEMA, 0, &mut payload)
+    else {
+        panic!("missing first schema page");
+    };
+    assert_eq!(count, 3);
+    let mut lines = payload.lines();
+    let leaf = lines.next().unwrap();
+    assert!(leaf.starts_with('{'));
+    assert!(leaf.ends_with('}'));
+    assert_eq!(lines.next(), Some(r#"{"i":{"k":"n","c":{"leaf":0}}}"#));
+    assert_eq!(
+        lines.next(),
+        Some(r#"{"i":{"k":"n","c":{"value":0,"nested":1}}}"#)
+    );
+    assert_eq!(lines.next(), None);
 
-    let mut meta_iter = SchemaIter::<META_DEPTH>::new(MetaSettings::SCHEMA, [0; META_DEPTH], 0);
-    let mut meta = None;
-    while let Some(node) = meta_iter.next() {
-        let path = schema_path(MetaSettings::SCHEMA, node.path());
-        if path.as_ref() == "/value" {
-            meta = node.meta();
-            break;
-        }
-    }
-    let meta = meta.expect("missing child-edge meta");
-    assert_eq!(meta, [("role", "selector")].as_slice());
-}
-
-fn schema_path(
-    root: &'static miniconf::Schema,
-    state: &[usize],
-) -> miniconf::Path<String<{ MAX_TOPIC_LENGTH }>> {
-    let mut path = miniconf::Path::<String<{ MAX_TOPIC_LENGTH }>>::new(String::new(), '/');
-    let mut schema = root;
-    for index in state {
-        match schema.internal.as_ref().unwrap() {
-            miniconf::Internal::Named(children) => {
-                let child = &children[*index];
-                path.path.push('/').unwrap();
-                path.path.push_str(child.name).unwrap();
-                schema = child.schema;
-            }
-            miniconf::Internal::Numbered(children) => {
-                path.path.push('/').unwrap();
-                use core::fmt::Write as _;
-                write!(&mut path.path, "{index}").unwrap();
-                schema = children[*index].schema;
-            }
-            miniconf::Internal::Homogeneous(child) => {
-                path.path.push('/').unwrap();
-                use core::fmt::Write as _;
-                write!(&mut path.path, "{index}").unwrap();
-                schema = child.schema;
-            }
-        }
-    }
-    path
+    payload.clear();
+    let SchemaPage::Ready { count } = next_schema_page(MetaSettings::SCHEMA, 0, &mut payload)
+    else {
+        panic!("missing meta schema page");
+    };
+    assert_eq!(count, 2);
+    let mut lines = payload.lines();
+    let leaf = lines.next().unwrap();
+    assert!(leaf.starts_with('{'));
+    assert!(leaf.ends_with('}'));
+    assert_eq!(
+        lines.next(),
+        Some(r#"{"i":{"k":"n","c":{"value":{"r":0,"m":{"role":"selector"}}}}}"#)
+    );
+    assert_eq!(lines.next(), None);
 }
 
 #[cfg(feature = "compat-settings-ingress")]

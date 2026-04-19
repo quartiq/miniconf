@@ -18,7 +18,6 @@ workspace = true
 [features]
 default = []
 compat-settings-ingress = []
-sem = ["miniconf/sem"]
 
 [dependencies]
 miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
@@ -32,6 +31,7 @@ serde-json-core = { version = "0.6.0" }
 strum = { version = "0.28", features = ["derive"], default-features = false }
 thiserror = { version = "2", default-features = false }
 yafnv = { version = "3", default-features = false }
+itoa = "1.0.4"
 
 [[example]]
 name = "miniconf"

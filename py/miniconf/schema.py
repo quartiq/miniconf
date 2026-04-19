@@ -76,6 +76,7 @@ class Schema:
     def __init__(self, defs: list[dict[str, Any]], rev: int):
         self.rev = rev
         self._defs = defs
+        self._root = len(defs) - 1
 
     @classmethod
     def from_defs(cls, defs: list[dict[str, Any]], rev: int) -> Schema:
@@ -92,7 +93,7 @@ class Schema:
     ) -> tuple[
         int, tuple[int, ...], dict[str, Any] | None, int | dict[str, Any] | None
     ]:
-        schema_id = 0
+        schema_id = self._root
         state: tuple[int, ...] = ()
         parent_internal = None
         child_ref = None
@@ -224,33 +225,42 @@ class Schema:
         def remap(schema_id: int) -> int:
             if schema_id in ids:
                 return ids[schema_id]
+            schema = self._defs[schema_id]
+            internal = schema.get("i")
+            if internal is not None:
+                match internal["k"]:
+                    case "n":
+                        children = {
+                            name: remap_ref(child)
+                            for name, child in internal["c"].items()
+                        }
+                    case "d":
+                        children = [remap_ref(child) for child in internal["c"]]
+                    case "h":
+                        children = remap_ref(internal["c"])
+                    case _:
+                        raise AssertionError("unreachable")
             local = len(defs)
             ids[schema_id] = local
-            defs.append({})
-            schema = self._defs[schema_id]
             compact: dict[str, Any] = {}
             if "m" in schema:
                 compact["m"] = schema["m"]
             if "s" in schema:
                 compact["s"] = schema["s"]
-            internal = schema.get("i")
             if internal is not None:
                 node = {"k": internal["k"]}
                 match internal["k"]:
                     case "n":
-                        node["c"] = {
-                            name: remap_ref(child)
-                            for name, child in internal["c"].items()
-                        }
+                        node["c"] = children
                     case "d":
-                        node["c"] = [remap_ref(child) for child in internal["c"]]
+                        node["c"] = children
                     case "h":
-                        node["c"] = remap_ref(internal["c"])
+                        node["c"] = children
                         node["l"] = internal["l"]
                     case _:
                         raise AssertionError("unreachable")
                 compact["i"] = node
-            defs[local] = compact
+            defs.append(compact)
             return local
 
         remap(self._resolve(root)[0])

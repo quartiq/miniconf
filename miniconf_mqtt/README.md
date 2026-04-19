@@ -54,9 +54,9 @@ Each definition looks like:
 Fields:
 
 - definition ids are implicit: the concatenated line order across pages `0..pages-1` is the
-  definition index, and the root definition is always `0`
+  definition index, and the root definition is the last emitted record
 - `m`: metadata for the node or child edge when present
-- `s`: structured Miniconf semantics when present and the crate is built with feature `sem`
+- `s`: structured Miniconf semantics when present in the linked `miniconf` schema
 - `i`: internal-node shape when present
 - `i.k`: internal kind: `n` named, `d` numbered, `h` homogeneous
 - `i.c`: child descriptors
@@ -97,5 +97,4 @@ This is intentionally degraded:
 
 ## Optional features
 
-- `sem`: include structured Miniconf semantics in published schema records
 - `compat-settings-ingress`: also accept provisional client writes on `settings/#`
