@@ -1,7 +1,7 @@
 use crate::{
     MAX_TOPIC_LENGTH, MqttClient, State,
-    message::{Action, ReplyTarget, ResponseCode},
-    schema::{SchemaPage, next_schema_page},
+    message::{Action, ReplyTarget, ResponseCode, format_slice},
+    schema::serialize_schema_page,
 };
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use miniconf::{Tree, TreeSchema};
@@ -152,12 +152,17 @@ fn plan_internal_set_path_is_rejected() {
             state,
             reply,
             code,
-            text,
+            body,
         } => {
             assert_eq!(state, State::Unchanged);
             assert!(reply.is_some());
             assert_eq!(code, ResponseCode::Error);
-            assert_eq!(text.as_str(), "Path does not resolve to a leaf");
+            let mut text = [0u8; 128];
+            let len = format_slice(&body, &mut text).unwrap();
+            assert_eq!(
+                core::str::from_utf8(&text[..len]).unwrap(),
+                "Path does not resolve to a leaf"
+            );
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
@@ -179,12 +184,18 @@ fn plan_missing_path_is_rejected() {
             state,
             reply,
             code,
-            text,
+            body,
         } => {
             assert_eq!(state, State::Unchanged);
             assert!(reply.is_some());
             assert_eq!(code, ResponseCode::Error);
-            assert!(text.as_str().contains("Key not found"));
+            let mut text = [0u8; 128];
+            let len = format_slice(&body, &mut text).unwrap();
+            assert!(
+                core::str::from_utf8(&text[..len])
+                    .unwrap()
+                    .contains("Key not found")
+            );
         }
         other => panic!("unexpected action: {}", core::any::type_name_of_val(&other)),
     }
@@ -201,13 +212,10 @@ fn oversized_response_topic_is_rejected_early() {
 
 #[test]
 fn schema_pages_match_golden_fixture() {
-    let mut payload = heapless::Vec::<u8, { crate::MAX_PAYLOAD_LENGTH }>::new();
-    let SchemaPage::Ready { count } = next_schema_page(TreeSettings::SCHEMA, 0, &mut payload)
-    else {
-        panic!("missing first schema page");
-    };
-    assert_eq!(count, 3);
-    let normalized = core::str::from_utf8(&payload)
+    let mut payload = [0u8; 1024];
+    let page = serialize_schema_page(TreeSettings::SCHEMA, 0, &mut payload).unwrap();
+    assert_eq!(page.count, 3);
+    let normalized = core::str::from_utf8(&payload[..page.len])
         .unwrap()
         .replace(r#"{"s":{"ty":"u8"}}"#, "{}");
     assert_eq!(

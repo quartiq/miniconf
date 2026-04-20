@@ -18,7 +18,7 @@ use minimq::{
 #[cfg(feature = "compat-settings-ingress")]
 use crate::message::Resource;
 use crate::{
-    MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH,
+    MAX_TOPIC_LENGTH,
     message::{Action, DepthError},
     schema::{Pending, distinct_schema_defs},
 };
@@ -150,9 +150,6 @@ where
         connector: &'a C,
         config: ConfigBuilder<'a>,
     ) -> Result<Self, ProtocolError> {
-        if config.rx_len() < MAX_PAYLOAD_LENGTH || config.tx_len() < MAX_PAYLOAD_LENGTH {
-            return Err(ProtocolError::BufferSize);
-        }
         const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
         if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);

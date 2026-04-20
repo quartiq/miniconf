@@ -1,11 +1,13 @@
+use core::convert::Infallible;
 use core::fmt::{Display, Write as _};
 
 use heapless::{String, Vec};
 use miniconf::SerdeError;
 use minimq::{ProtocolError, Publication};
+use serde_json_core::de;
 use strum::IntoStaticStr;
 
-use crate::{MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, client::Error};
+use crate::{MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, client::Error};
 
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Action {
@@ -14,7 +16,7 @@ pub(crate) enum Action {
         state: crate::State,
         reply: Option<ReplyTarget>,
         code: ResponseCode,
-        text: String<MAX_PAYLOAD_LENGTH>,
+        body: ReplyBody,
     },
     PublishSet {
         resource: Resource,
@@ -27,6 +29,22 @@ pub(crate) enum Action {
         state: [usize; crate::MAX_DEPTH],
         depth: usize,
     },
+}
+
+pub(crate) enum ReplyBody {
+    Static(&'static str),
+    Lookup(DepthError<Infallible>),
+    Set(DepthError<de::Error>),
+}
+
+impl Display for ReplyBody {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Static(text) => f.write_str(text),
+            Self::Lookup(err) => err.fmt(f),
+            Self::Set(err) => err.fmt(f),
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -105,13 +123,28 @@ impl<E> Display for DepthError<E> {
     }
 }
 
-pub(crate) fn format_message<T: Display>(value: T) -> String<MAX_PAYLOAD_LENGTH> {
-    let mut text = String::new();
-    if write!(&mut text, "{value}").is_err() {
-        text.clear();
-        text.push_str("Response too long").ok();
+pub(crate) fn format_slice<T: Display>(value: T, buf: &mut [u8]) -> Result<usize, ()> {
+    struct FmtBuf<'a> {
+        buf: &'a mut [u8],
+        len: usize,
     }
-    text
+
+    impl core::fmt::Write for FmtBuf<'_> {
+        fn write_str(&mut self, s: &str) -> core::fmt::Result {
+            let bytes = s.as_bytes();
+            let end = self.len.checked_add(bytes.len()).ok_or(core::fmt::Error)?;
+            if end > self.buf.len() {
+                return Err(core::fmt::Error);
+            }
+            self.buf[self.len..end].copy_from_slice(bytes);
+            self.len = end;
+            Ok(())
+        }
+    }
+
+    let mut out = FmtBuf { buf, len: 0 };
+    write!(&mut out, "{value}").map_err(|_| ())?;
+    Ok(out.len)
 }
 
 pub(crate) fn simple_pub_error<P, E>(err: minimq::PubError<P, E>) -> Error<E> {

@@ -1,3 +1,4 @@
+use core::cell::Cell;
 use core::fmt::Write as _;
 
 #[cfg(feature = "compat-settings-ingress")]
@@ -11,9 +12,9 @@ use serde::Serialize;
 use super::SettingsIngressPhase;
 use super::{Error, MqttClient};
 use crate::{
-    MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH, json_slice,
+    MAX_TOPIC_LENGTH, json_slice,
     message::{DepthError, simple_pub_error},
-    schema::{Pending, SchemaPage, next_schema_page},
+    schema::{Pending, SchemaPageError, serialize_schema_page},
 };
 
 impl<'a, Settings, C> MqttClient<'a, Settings, C>
@@ -111,51 +112,69 @@ where
     }
 
     async fn advance_schema_pending(&mut self) {
-        let (finished, publish) = {
-            let Pending::Schema {
+        let (root, defs, next, page, hash) = match self.protocol.pending {
+            Pending::Schema {
                 root,
+                defs,
                 next,
                 page,
                 hash,
-            } = &mut self.protocol.pending
-            else {
-                unreachable!()
-            };
-            let mut payload = heapless::Vec::<u8, MAX_PAYLOAD_LENGTH>::new();
-            match next_schema_page(root, *next, &mut payload) {
-                SchemaPage::Done => ((Some((*page, *hash))), None),
-                SchemaPage::Oversized { id } => {
-                    warn!("Aborting schema sync after oversized schema entry for definition {id}");
-                    self.protocol.pending.clear();
-                    return;
-                }
-                SchemaPage::Ready { count } => {
-                    *hash = yafnv::Fnv::fnv1a(*hash, payload.iter().copied());
-                    let current_page = *page;
-                    *page += 1;
-                    *next += count;
-                    (None, Some((current_page, payload)))
-                }
-            }
+            } => (root, defs, next, page, hash),
+            _ => unreachable!(),
         };
-        if let Some((pages, hash)) = finished {
-            self.finish_schema_sync(pages, hash);
+        if next == defs {
+            self.finish_schema_sync(page, hash);
             return;
         }
-        let Some((current_page, payload)) = publish else {
+
+        let topic = self.schema_page_topic(page);
+        let advanced = Cell::new(None::<(usize, u32)>);
+        let publication = Publication::new(&topic, |buf: &mut [u8]| {
+            let page = serialize_schema_page(root, next, buf)?;
+            let next_hash = yafnv::Fnv::fnv1a(hash, buf[..page.len].iter().copied());
+            advanced.set(Some((page.count, next_hash)));
+            Ok(page.len)
+        })
+        .qos(QoS::AtLeastOnce)
+        .retain();
+        if let Err(err) = self.session.publish(publication).await {
+            match err {
+                PubError::Payload(SchemaPageError::Oversized { id }) => {
+                    warn!("Aborting schema sync after oversized schema entry for definition {id}");
+                }
+                err => {
+                    warn!(
+                        "Failed to publish schema page {}: {:?}",
+                        page,
+                        simple_pub_error(err)
+                    );
+                }
+            }
+            self.protocol.pending.clear();
+            return;
+        }
+
+        let Some((count, hash)) = advanced.get() else {
+            self.protocol.pending.clear();
+            return;
+        };
+        let Pending::Schema {
+            next,
+            page,
+            hash: current_hash,
+            ..
+        } = &mut self.protocol.pending
+        else {
             unreachable!()
         };
-        let topic = self.schema_page_topic(current_page);
-        let publication = Publication::new(&topic, payload.as_slice())
-            .qos(QoS::AtLeastOnce)
-            .retain();
-        if let Err(err) = self.session.publish(publication).await {
-            warn!(
-                "Failed to publish schema page {}: {:?}",
-                current_page,
-                simple_pub_error(err)
-            );
-            self.protocol.pending.clear();
+        *next += count;
+        *page += 1;
+        *current_hash = hash;
+        let finished = *next == defs;
+        let pages = *page;
+        let hash = *current_hash;
+        if finished {
+            self.finish_schema_sync(pages, hash);
         }
     }
 

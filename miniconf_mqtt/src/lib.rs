@@ -24,7 +24,6 @@ pub use client::{Error, MqttClient, State};
 pub const MAX_DEPTH: usize = 16;
 
 pub(crate) const MAX_TOPIC_LENGTH: usize = 128;
-pub(crate) const MAX_PAYLOAD_LENGTH: usize = 1024;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const MAX_SCHEMA_DEFS: usize = 128;
 

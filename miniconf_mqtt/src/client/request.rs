@@ -11,7 +11,8 @@ use crate::client::SettingsIngressPhase;
 use crate::{
     Error, MAX_TOPIC_LENGTH, MqttClient, State,
     message::{
-        Action, DepthError, ReplyTarget, Resource, ResponseCode, format_message, simple_pub_error,
+        Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, format_slice,
+        simple_pub_error,
     },
     schema::Pending,
 };
@@ -82,7 +83,7 @@ where
                         state: State::Unchanged,
                         reply,
                         code: ResponseCode::Error,
-                        text: format_message(err),
+                        body: ReplyBody::Lookup(err),
                     };
                 }
                 return Action::None(State::Unchanged);
@@ -114,7 +115,7 @@ where
                     state: State::Unchanged,
                     reply,
                     code: ResponseCode::Error,
-                    text: format_message("Path does not resolve to a leaf"),
+                    body: ReplyBody::Static("Path does not resolve to a leaf"),
                 },
                 #[cfg(feature = "compat-settings-ingress")]
                 Resource::Settings => Action::None(State::Unchanged),
@@ -134,7 +135,7 @@ where
                     state: State::Unchanged,
                     reply,
                     code: ResponseCode::Error,
-                    text: format_message(inner),
+                    body: ReplyBody::Set(inner),
                 },
                 #[cfg(feature = "compat-settings-ingress")]
                 Resource::Settings => Action::OverrideSet {
@@ -152,10 +153,10 @@ where
                 state,
                 reply,
                 code,
-                text,
+                body,
             } => {
                 if let Some(reply) = &reply {
-                    self.reply_text(reply, code, text.as_str()).await;
+                    self.reply_text(reply, code, &body).await;
                 }
                 state
             }
@@ -168,12 +169,8 @@ where
                 if matches!(resource, Resource::Set) {
                     if let Err(err) = self.try_publish_leaf(settings, state, depth).await {
                         if let Some(reply) = &reply {
-                            self.reply_text(
-                                reply,
-                                ResponseCode::Error,
-                                format_message(simple_pub_error(err)).as_str(),
-                            )
-                            .await;
+                            self.reply_text(reply, ResponseCode::Error, simple_pub_error(err))
+                                .await;
                         }
                         return State::Unchanged;
                     }
@@ -216,13 +213,18 @@ where
         }
     }
 
-    async fn reply_text(&mut self, reply: &ReplyTarget, code: ResponseCode, text: &str) {
+    async fn reply_text(
+        &mut self,
+        reply: &ReplyTarget,
+        code: ResponseCode,
+        text: impl core::fmt::Display,
+    ) {
         let props = [code.into()];
         if let Err(err) = self
             .session
             .publish(
                 reply
-                    .publication(text.as_bytes())
+                    .publication(|buf: &mut [u8]| format_slice(text, buf))
                     .properties(&props)
                     .qos(QoS::AtLeastOnce),
             )
