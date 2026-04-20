@@ -1,10 +1,18 @@
+//! Key naming rules:
+//!
+//! - [`Key`] is one selector segment: one child name or one child index.
+//! - [`Keys`] is a normalized cursor over zero or more selector segments.
+//! - [`IntoKeys`] is the outer boundary funnel into a normalized [`Keys`] cursor.
+//! - Public wrapper APIs named `*_by_key` accept `impl IntoKeys`.
+//! - Core APIs named `*_by_keys` operate on normalized `impl Keys`.
+
 use core::{convert::Infallible, iter::Fuse};
 
 use crate::{DescendError, Internal, KeyError, Schema};
 
-/// Convert a key into a node index given an internal node schema
+/// Convert one selector segment into a child index for an internal node schema.
 pub trait Key {
-    /// Convert the key `self` to a `usize` index
+    /// Resolve this selector segment to a child index.
     fn find(&self, internal: &Internal) -> Option<usize>;
 }
 
@@ -20,14 +28,14 @@ impl<T: Key + ?Sized> Key for &mut T {
     }
 }
 
-/// Capability to yield and look up [`Key`]s
+/// Normalized cursor over selector segments.
 pub trait Keys {
-    /// Look up the next key in a [`Internal`] and convert to `usize` index.
+    /// Resolve the next selector segment in `internal` to a child index.
     ///
     /// This must be fused (like [`core::iter::FusedIterator`]).
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError>;
 
-    /// Finalize the keys, ensure there are no more.
+    /// Finalize the cursor and ensure there are no more selector segments.
     ///
     /// This must be fused.
     fn finalize(&mut self) -> Result<(), KeyError>;
@@ -60,7 +68,7 @@ impl<T: Key> Keys for &[T] {
     }
 }
 
-/// Be converted into a `Keys`
+/// Boundary input that can be normalized into a [`Keys`] cursor.
 pub trait IntoKeys {
     /// The specific `Keys` implementor.
     type IntoKeys: Keys;
@@ -84,14 +92,14 @@ pub trait IntoKeys {
     }
 }
 
-/// Look up an `IntoKeys` in a `Schema` and transcode it.
+/// Look up a key path in a [`Schema`] and transcode it.
 pub trait Transcode {
     /// The possible error when transcoding.
     ///
     /// Use this to indicate no space or unencodable/invalid values
     type Error;
 
-    /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
+    /// Perform a node lookup from a boundary key input and transcode it.
     ///
     /// This is the low-level, in-place transcoding API. Fresh output construction is provided by
     /// [`Transcode::transcode()`]. Existing target content handling is representation-specific:
@@ -104,7 +112,7 @@ pub trait Transcode {
         keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>>;
 
-    /// Transcode keys into a fresh default-constructed output.
+    /// Transcode a boundary key input into a fresh default-constructed output.
     fn transcode(schema: &Schema, keys: impl IntoKeys) -> Result<Self, DescendError<Self::Error>>
     where
         Self: Sized + Default,
@@ -217,7 +225,7 @@ where
     }
 }
 
-/// Concatenate two `Keys` of different types
+/// Concatenate two normalized key cursors.
 pub struct Chain<T, U>(T, U);
 
 impl<T: Keys, U: Keys> Keys for Chain<T, U> {

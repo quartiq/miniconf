@@ -7,7 +7,7 @@ use serde::{
     ser::{SerializeMap as _, SerializeSeq as _},
 };
 
-use crate::{MAX_PAYLOAD_LENGTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, json::json_text};
+use crate::{MAX_PAYLOAD_LENGTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH};
 
 #[derive(Clone, Copy)]
 struct SchemaRef(usize);
@@ -195,7 +195,7 @@ struct SchemaPageBuilder<const N: usize> {
     emitted: Vec<&'static Schema, N>,
     skip: usize,
     count: usize,
-    payload: String<MAX_PAYLOAD_LENGTH>,
+    payload: Vec<u8, MAX_PAYLOAD_LENGTH>,
     oversized: Option<usize>,
     full: bool,
 }
@@ -206,7 +206,7 @@ impl<const N: usize> SchemaPageBuilder<N> {
             emitted: Vec::new(),
             skip,
             count: 0,
-            payload: String::new(),
+            payload: Vec::new(),
             oversized: None,
             full: false,
         }
@@ -247,21 +247,29 @@ impl<const N: usize> SchemaPageBuilder<N> {
         }
 
         let id = self.emitted.len();
-        let Ok(line) = json_text::<MAX_PAYLOAD_LENGTH, _>(&SchemaDef {
+        let start = self.payload.len();
+        let Ok(()) = self.payload.resize_default(MAX_PAYLOAD_LENGTH) else {
+            unreachable!()
+        };
+        let buf = &mut self.payload[start..MAX_PAYLOAD_LENGTH - 1];
+        let mut ser = serde_json_core::ser::Serializer::new(buf);
+        let Ok(()) = SchemaDef {
             emitted: &self.emitted,
             schema,
-        }) else {
-            self.oversized = Some(id);
+        }
+        .serialize(&mut ser) else {
+            self.payload.truncate(start);
+            if start == 0 {
+                self.oversized = Some(id);
+            } else {
+                self.full = true;
+            }
             return;
         };
-        let need = line.len() + 1;
-        if !self.payload.is_empty() && self.payload.len() + need > MAX_PAYLOAD_LENGTH {
-            self.full = true;
-            return;
-        }
+        let len = ser.end();
+        self.payload.truncate(start + len);
         self.emitted.push(schema).unwrap();
-        self.payload.push_str(&line).unwrap();
-        self.payload.push('\n').unwrap();
+        self.payload.push(b'\n').unwrap();
         self.count += 1;
     }
 }
@@ -326,7 +334,7 @@ pub(crate) fn distinct_schema_defs(root: &'static Schema) -> Result<usize, usize
 pub(crate) fn next_schema_page(
     root: &'static Schema,
     skip: usize,
-    payload: &mut String<MAX_PAYLOAD_LENGTH>,
+    payload: &mut Vec<u8, MAX_PAYLOAD_LENGTH>,
 ) -> SchemaPage {
     let mut builder = SchemaPageBuilder::<MAX_SCHEMA_DEFS>::new(skip);
     builder.visit(root);
@@ -343,7 +351,7 @@ pub(crate) fn next_schema_page(
 }
 
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum Pending<const Y: usize> {
+pub(crate) enum Pending {
     Idle,
     Schema {
         root: &'static Schema,
@@ -352,11 +360,11 @@ pub(crate) enum Pending<const Y: usize> {
         hash: u32,
     },
     Settings {
-        iter: NodeIter<ConstPath<String<MAX_TOPIC_LENGTH>, '/'>, Y>,
+        iter: NodeIter<ConstPath<String<MAX_TOPIC_LENGTH>, '/'>, { crate::MAX_DEPTH }>,
     },
 }
 
-impl<const Y: usize> Pending<Y> {
+impl Pending {
     pub(crate) const fn new() -> Self {
         Self::Idle
     }
@@ -376,7 +384,7 @@ impl<const Y: usize> Pending<Y> {
 
     pub(crate) fn settings(schema: &'static Schema) -> Self {
         Self::Settings {
-            iter: NodeIter::new(schema, [0; Y], 0),
+            iter: NodeIter::new(schema, [0; crate::MAX_DEPTH], 0),
         }
     }
 }

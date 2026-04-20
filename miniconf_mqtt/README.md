@@ -98,11 +98,21 @@ Authoritative retained `settings/<path>` publications carry MQTT v5 user propert
 Optional feature `compat-settings-ingress` also accepts client writes on `settings/#` for migration
 from schema-unaware tools such as MQTT Explorer.
 
-This is intentionally degraded:
+This is degraded:
 
 - raw client writes on `settings/#` are provisional requests
 - only device-origin publications carrying `rev` are authoritative
+- provisional retained `settings/#` traffic can persist on the broker until the device has
+  completed recovery and republished the authoritative mirror
+- on startup, the device waits for retained `settings/#` ingress to go quiet before publishing its
+  own retained settings mirror
+- valid provisional writes update the in-memory settings immediately; invalid ones are answered by
+  republishing the current authoritative value once recovery has completed
+- long-lived clients should still ignore `settings/#` without `rev`; compatibility mode is for
+  ingress from legacy tools, not for authoritative state tracking
 
-## Optional features
+## Limitations
 
-- `compat-settings-ingress`: also accept provisional client writes on `settings/#`
+- MM2 is small and opinionated. It assumes one authoritative device publisher per MQTT prefix.
+- Publication is incremental, not atomic. Clients must treat retained `alive` as the authority for `epoch` and `schema_rev`, and ignore unversioned `settings/#`.
+- Only the paged schema wire format is Miniconf-specific. `alive`, `set/#`, and retained `settings/#` stay ordinary JSON plus MQTT metadata.

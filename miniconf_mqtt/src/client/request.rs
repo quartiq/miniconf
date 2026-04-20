@@ -16,7 +16,7 @@ use crate::{
     schema::Pending,
 };
 
-impl<'a, Settings, C, const Y: usize> MqttClient<'a, Settings, C, Y>
+impl<'a, Settings, C> MqttClient<'a, Settings, C>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
     C: minimq::transport::Connector,
@@ -25,7 +25,7 @@ where
         prefix: &str,
         settings: &mut Settings,
         message: &InboundPublish<'_>,
-    ) -> Action<Y> {
+    ) -> Action {
         let Some((resource, _)) = Resource::parse(message.topic(), prefix) else {
             return Action::None(State::Unchanged);
         };
@@ -58,12 +58,12 @@ where
         topic: &str,
         payload: &[u8],
         reply: Option<ReplyTarget>,
-    ) -> Action<Y> {
+    ) -> Action {
         let Some((resource, path)) = Resource::parse(topic, prefix) else {
             return Action::None(State::Unchanged);
         };
 
-        let mut state = [0; Y];
+        let mut state = [0; crate::MAX_DEPTH];
         let lookup = match Settings::SCHEMA.resolve_into(path, &mut state) {
             Ok(lookup) => lookup,
             Err(err) => {
@@ -145,7 +145,7 @@ where
         }
     }
 
-    pub(super) async fn execute(&mut self, settings: &Settings, action: Action<Y>) -> State {
+    pub(super) async fn execute(&mut self, settings: &Settings, action: Action) -> State {
         match action {
             Action::None(state) => state,
             Action::Reply {
@@ -235,7 +235,7 @@ where
     pub(super) async fn try_publish_leaf(
         &mut self,
         settings: &Settings,
-        state: [usize; Y],
+        state: [usize; crate::MAX_DEPTH],
         depth: usize,
     ) -> Result<(), PubError<DepthError<serde_json_core::ser::Error>, C::Error>> {
         let topic = self
@@ -298,7 +298,7 @@ where
     async fn publish_current(
         &mut self,
         settings: &Settings,
-        state: [usize; Y],
+        state: [usize; crate::MAX_DEPTH],
         depth: usize,
     ) -> Result<(), Error<C::Error>> {
         let topic = self.settings_topic(&state[..depth])?;

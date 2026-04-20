@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{DescendError, IntoKeys, Keys, KeysIter, Schema, Transcode};
 
-/// JSON style path notation iterator
+/// JSON-style path iterator for boundary key input.
 ///
 /// This is only styled after JSON notation, it does not adhere to it.
 /// Supported are both dot and key notation with and without
@@ -81,13 +81,14 @@ impl<'a> Iterator for JsonPathIter<'a> {
 
 impl core::iter::FusedIterator for JsonPathIter<'_> {}
 
-/// JSON style path notation
+/// JSON-style path notation output.
 ///
 /// `T` can be `Write` for `Transcode` with the following behavior:
 /// * Named fields (struct) are encoded in dot notation.
 /// * Indices (tuple struct, array) are encoded in index notation
 ///
-/// Use [`JsonPathIter`] for input keys. `JsonPath<T>` is the output/transcode representation.
+/// Use [`JsonPathIter`] for boundary key input. `JsonPath<T>` is the output/transcode
+/// representation.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash,
 )]

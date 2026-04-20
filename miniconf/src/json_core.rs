@@ -59,7 +59,7 @@ pub fn get(
     get_by_key(tree, path, data)
 }
 
-/// Update a node by key.
+/// Update a node by a boundary key input.
 ///
 /// # Returns
 /// The number of bytes consumed from `data` or an [SerdeError].
@@ -71,7 +71,7 @@ pub fn set_by_key<'de>(
     set_by_keys(tree, keys.into_keys(), data)
 }
 
-/// Update a node by a live key cursor.
+/// Update a node by a normalized key cursor.
 pub fn set_by_keys<'de>(
     tree: &mut (impl TreeDeserialize<'de> + ?Sized),
     keys: impl Keys,
@@ -82,7 +82,7 @@ pub fn set_by_keys<'de>(
     de.end().map_err(SerdeError::Finalization)
 }
 
-/// Retrieve a serialized value by key.
+/// Retrieve a serialized value by a boundary key input.
 ///
 /// # Returns
 /// The number of bytes used in the `data` buffer or an [SerdeError].
@@ -94,7 +94,7 @@ pub fn get_by_key(
     get_by_keys(tree, keys.into_keys(), data)
 }
 
-/// Retrieve a serialized value by a live key cursor.
+/// Retrieve a serialized value by a normalized key cursor.
 pub fn get_by_keys(
     tree: &(impl TreeSerialize + ?Sized),
     keys: impl Keys,

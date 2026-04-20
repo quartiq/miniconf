@@ -18,7 +18,7 @@ use minimq::{
 #[cfg(feature = "compat-settings-ingress")]
 use crate::message::Resource;
 use crate::{
-    MAX_TOPIC_LENGTH,
+    MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH,
     message::{Action, DepthError},
     schema::{Pending, distinct_schema_defs},
 };
@@ -68,15 +68,15 @@ struct Manifest {
     settings_rev: u32,
 }
 
-struct ProtocolState<const Y: usize> {
-    pending: Pending<Y>,
+struct ProtocolState {
+    pending: Pending,
     manifest: Manifest,
     publish_alive_after_sync: bool,
     #[cfg(feature = "compat-settings-ingress")]
     settings_ingress: SettingsIngressPhase,
 }
 
-impl<const Y: usize> ProtocolState<Y> {
+impl ProtocolState {
     fn new() -> Self {
         Self {
             pending: Pending::new(),
@@ -116,9 +116,7 @@ impl<const Y: usize> ProtocolState<Y> {
 }
 
 /// MM2 MQTT session wrapper for one Miniconf tree.
-///
-/// `Y` is the path-state depth and should usually be `Settings::SCHEMA.shape().max_depth`.
-pub struct MqttClient<'a, Settings, C, const Y: usize>
+pub struct MqttClient<'a, Settings, C>
 where
     C: Connector,
 {
@@ -126,11 +124,11 @@ where
     prefix: &'a str,
     subscribed: bool,
     needs_alive: bool,
-    protocol: ProtocolState<Y>,
+    protocol: ProtocolState,
     _settings: PhantomData<Settings>,
 }
 
-impl<'a, Settings, C, const Y: usize> MqttClient<'a, Settings, C, Y>
+impl<'a, Settings, C> MqttClient<'a, Settings, C>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     C: Connector,
@@ -152,9 +150,11 @@ where
         connector: &'a C,
         config: ConfigBuilder<'a>,
     ) -> Result<Self, ProtocolError> {
-        const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
-        let shape = Settings::SCHEMA.shape();
-        if prefix.len() + "/settings".len() + shape.max_length("/") > MAX_TOPIC_LENGTH {
+        if config.rx_len() < MAX_PAYLOAD_LENGTH || config.tx_len() < MAX_PAYLOAD_LENGTH {
+            return Err(ProtocolError::BufferSize);
+        }
+        const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
+        if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);
         }
         if distinct_schema_defs(Settings::SCHEMA).is_err() {

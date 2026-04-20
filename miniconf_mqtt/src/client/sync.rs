@@ -11,13 +11,12 @@ use serde::Serialize;
 use super::SettingsIngressPhase;
 use super::{Error, MqttClient};
 use crate::{
-    MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH,
-    json::json_text,
+    MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH, json_slice,
     message::{DepthError, simple_pub_error},
     schema::{Pending, SchemaPage, next_schema_page},
 };
 
-impl<'a, Settings, C, const Y: usize> MqttClient<'a, Settings, C, Y>
+impl<'a, Settings, C> MqttClient<'a, Settings, C>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
     C: minimq::transport::Connector,
@@ -37,15 +36,16 @@ where
         topic
             .push_str("/alive")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let body = json_text::<MAX_PAYLOAD_LENGTH, _>(&Alive {
+        let body = Alive {
             epoch: self.protocol.manifest.epoch,
             schema_rev: self.protocol.manifest.schema_rev,
             pages: self.protocol.manifest.schema_pages,
+        };
+        let publication = Publication::new(&topic, |buf: &mut [u8]| {
+            json_slice(&body, buf).map(|text| text.len())
         })
-        .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let publication = Publication::new(&topic, body.as_str())
-            .qos(QoS::AtLeastOnce)
-            .retain();
+        .qos(QoS::AtLeastOnce)
+        .retain();
         self.session
             .publish(publication)
             .await
@@ -121,7 +121,7 @@ where
             else {
                 unreachable!()
             };
-            let mut payload = String::<MAX_PAYLOAD_LENGTH>::new();
+            let mut payload = heapless::Vec::<u8, MAX_PAYLOAD_LENGTH>::new();
             match next_schema_page(root, *next, &mut payload) {
                 SchemaPage::Done => ((Some((*page, *hash))), None),
                 SchemaPage::Oversized { id } => {
@@ -130,7 +130,7 @@ where
                     return;
                 }
                 SchemaPage::Ready { count } => {
-                    *hash = yafnv::Fnv::fnv1a(*hash, payload.as_bytes().iter().copied());
+                    *hash = yafnv::Fnv::fnv1a(*hash, payload.iter().copied());
                     let current_page = *page;
                     *page += 1;
                     *next += count;
@@ -146,7 +146,7 @@ where
             unreachable!()
         };
         let topic = self.schema_page_topic(current_page);
-        let publication = Publication::new(&topic, payload.as_str())
+        let publication = Publication::new(&topic, payload.as_slice())
             .qos(QoS::AtLeastOnce)
             .retain();
         if let Err(err) = self.session.publish(publication).await {
@@ -202,7 +202,7 @@ where
                 self.protocol.pending.clear();
                 return;
             };
-            let mut state = [0; Y];
+            let mut state = [0; crate::MAX_DEPTH];
             state[..full.len()].copy_from_slice(full);
             (path, state, full.len())
         };

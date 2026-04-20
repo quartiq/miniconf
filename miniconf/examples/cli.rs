@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+    const MAX_DEPTH: usize = Settings::SCHEMA.max_depth();
     for item in Settings::SCHEMA.nodes::<ConstPath<String, '-'>, MAX_DEPTH>() {
         let key = item.unwrap();
         match json_core::get_by_key(

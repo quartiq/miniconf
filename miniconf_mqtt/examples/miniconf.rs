@@ -1,7 +1,6 @@
 use clap::Parser;
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use embedded_nal_async::TcpConnect;
-use miniconf::TreeSchema;
 use miniconf_mqtt::{
     MqttClient, State,
     minimq::{self, transport::TcpConnector},
@@ -125,8 +124,7 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     let mut buffer = [0u8; 4096];
     let connector = TcpConnector::new(Stack::default());
 
-    const MAX_DEPTH: usize = common::Settings::SCHEMA.shape().max_depth;
-    let mut client = MqttClient::<_, _, MAX_DEPTH>::new(
+    let mut client = MqttClient::<_, _>::new(
         prefix,
         &connector,
         config(broker, &mut buffer, 1024, client_id),

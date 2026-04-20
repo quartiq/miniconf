@@ -2,7 +2,7 @@ use core::num::NonZero;
 
 use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
-/// A bit-packed representation of multiple indices.
+/// A bit-packed normalized key cursor over multiple child indices.
 ///
 /// Given known bit width of each index, the bits are
 /// concatenated above a marker bit.
@@ -39,7 +39,7 @@ use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Trans
 /// For many realistic `TreeSchema`s a `u16` or even a `u8` is sufficient
 /// to hold a `Packed` in LSB notation. Together with the
 /// `postcard` `serde` format, this then gives access to any node in a nested
-/// heterogeneous `Tree` with just a `u16` or `u8` as compact key and `[u8]` as
+/// heterogeneous `Tree` with just a `u16` or `u8` as a compact key path and `[u8]` as
 /// compact value.
 ///
 /// ```

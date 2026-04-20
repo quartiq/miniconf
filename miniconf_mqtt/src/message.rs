@@ -8,7 +8,7 @@ use strum::IntoStaticStr;
 use crate::{MAX_PAYLOAD_LENGTH, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, client::Error};
 
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum Action<const Y: usize> {
+pub(crate) enum Action {
     None(crate::State),
     Reply {
         state: crate::State,
@@ -19,12 +19,12 @@ pub(crate) enum Action<const Y: usize> {
     PublishSet {
         resource: Resource,
         reply: Option<ReplyTarget>,
-        state: [usize; Y],
+        state: [usize; crate::MAX_DEPTH],
         depth: usize,
     },
     #[cfg(feature = "compat-settings-ingress")]
     OverrideSet {
-        state: [usize; Y],
+        state: [usize; crate::MAX_DEPTH],
         depth: usize,
     },
 }

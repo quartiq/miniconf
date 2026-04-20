@@ -4,19 +4,20 @@ use serde::{Deserializer, Serializer};
 
 use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
 
-/// Traversal, iteration of keys in a tree.
+/// Traversal and iteration of key paths in a tree.
 ///
 /// See also the sub-traits [`TreeSerialize`], [`TreeDeserialize`], [`TreeAny`].
 ///
 /// # Keys
 ///
-/// There is a one-to-one relationship between nodes and keys.
-/// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
+/// There is a one-to-one relationship between nodes and key paths.
+/// Selector segments use [`crate::Key`], normalized key cursors use [`Keys`], and ergonomic
+/// boundary inputs use [`IntoKeys`]. Key paths can be
 /// obtained from other [`IntoKeys`] through [`Schema::transcode()`].
-/// An iterator of keys for the nodes is available through [`Schema::nodes()`].
+/// An iterator of key paths for the nodes is available through [`Schema::nodes()`].
 ///
 /// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
-/// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
+/// * `&str` key inputs are sequences of names, like path names. When concatenated, they are separated
 ///   by some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
 ///   complex notation, see [`crate::JsonPath`].
 /// * [`crate::Packed`] is a bit-packed compact compressed notation of
@@ -169,12 +170,12 @@ pub trait TreeSchema {
     ///
     /// This ensures sufficient state depth at compile time.
     fn nodes<N: crate::Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
-        const { assert!(D >= Self::SCHEMA.shape().max_depth) }
+        const { assert!(D >= Self::SCHEMA.max_depth()) }
         Self::SCHEMA.nodes::<N, D>()
     }
 }
 
-/// Access any node by keys.
+/// Access any node by a normalized key cursor.
 ///
 /// This uses the `dyn Any` trait object.
 ///
@@ -210,14 +211,14 @@ pub trait TreeAny: TreeSchema {
     /// Obtain a mutable reference to a `dyn Any` trait object for a leaf node.
     fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError>;
 
-    /// Obtain a reference to a leaf of known type by key.
+    /// Obtain a reference to a leaf of known type by boundary key input.
     fn ref_by_key<T: Any>(&self, keys: impl IntoKeys) -> Result<&T, ValueError> {
         self.ref_any_by_key(keys.into_keys())?
             .downcast_ref()
             .ok_or(ValueError::Access("Incorrect type"))
     }
 
-    /// Obtain a mutable reference to a leaf of known type by key.
+    /// Obtain a mutable reference to a leaf of known type by boundary key input.
     fn mut_by_key<T: Any>(&mut self, keys: impl IntoKeys) -> Result<&mut T, ValueError> {
         self.mut_any_by_key(keys.into_keys())?
             .downcast_mut()
@@ -225,7 +226,7 @@ pub trait TreeAny: TreeSchema {
     }
 }
 
-/// Serialize a leaf node by its keys.
+/// Serialize a leaf node by a normalized key cursor.
 ///
 /// See also [`crate::json_core`] or [`crate::postcard`] for convenient wrappers using this trait.
 ///
@@ -234,7 +235,7 @@ pub trait TreeAny: TreeSchema {
 /// See the `TreeSerialize` derive macro.
 /// The derive macro attributes are described in the [`TreeSchema`] trait.
 pub trait TreeSerialize: TreeSchema {
-    /// Serialize a node by keys.
+    /// Serialize a node by a normalized key cursor.
     ///
     /// ```
     /// # #[cfg(feature = "json-core")] {
@@ -257,7 +258,7 @@ pub trait TreeSerialize: TreeSchema {
     /// ```
     ///
     /// # Args
-    /// * `keys`: A `Keys` identifying the node.
+    /// * `keys`: A normalized [`Keys`] cursor identifying the node.
     /// * `ser`: A `Serializer` to to serialize the value.
     fn serialize_by_key<S: Serializer>(
         &self,
@@ -266,7 +267,7 @@ pub trait TreeSerialize: TreeSchema {
     ) -> Result<S::Ok, SerdeError<S::Error>>;
 }
 
-/// Deserialize a leaf node by its keys.
+/// Deserialize a leaf node by a normalized key cursor.
 ///
 /// See also [`crate::json_core`] or [`crate::postcard`] for convenient wrappers using this trait.
 ///
@@ -275,7 +276,7 @@ pub trait TreeSerialize: TreeSchema {
 /// See the `TreeDeserialize` derive macro.
 /// The derive macro attributes are described in the [`TreeSchema`] trait.
 pub trait TreeDeserialize<'de>: TreeSchema {
-    /// Deserialize a leaf node by its keys.
+    /// Deserialize a leaf node by a normalized key cursor.
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
@@ -294,7 +295,7 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     /// ```
     ///
     /// # Args
-    /// * `keys`: A `Keys` identifying the node.
+    /// * `keys`: A normalized [`Keys`] cursor identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
     fn deserialize_by_key<D: Deserializer<'de>>(
         &mut self,
@@ -302,7 +303,7 @@ pub trait TreeDeserialize<'de>: TreeSchema {
         de: D,
     ) -> Result<(), SerdeError<D::Error>>;
 
-    /// Blind deserialize a leaf node by its keys.
+    /// Blind deserialize a leaf node by a normalized key cursor.
     ///
     /// This method should succeed at least in those cases where
     /// `deserialize_by_key()` succeeds.
@@ -323,7 +324,7 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     /// ```
     ///
     /// # Args
-    /// * `keys`: A `Keys` identifying the node.
+    /// * `keys`: A normalized [`Keys`] cursor identifying the node.
     /// * `de`: A `Deserializer` to deserialize the value.
     fn probe_by_key<D: Deserializer<'de>>(
         keys: impl Keys,

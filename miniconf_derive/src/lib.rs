@@ -1,6 +1,10 @@
 #![warn(missing_docs)] // avoid hits for tests/examples but see alwo workspace lints
 
-//! Derive macros for `miniconf` traits
+//! Derive macros for `miniconf` traits.
+//!
+//! Limitations:
+//! - internal tree enums are limited to unit and newtype variants
+//! - flattening is only supported where lookup stays unambiguous
 
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;

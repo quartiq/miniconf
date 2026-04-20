@@ -19,7 +19,7 @@ macro_rules! impl_key_integer {
 }
 impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
-/// Indices of `usize` to identify a node in a `TreeSchema`
+/// Sequence of child indices identifying a node in a `TreeSchema`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub struct Indices<T: ?Sized> {
     len: usize,
@@ -39,7 +39,7 @@ impl<T> Indices<T> {
 }
 
 impl<T: ?Sized> Indices<T> {
-    /// The length of the indices keys
+    /// The number of selector segments in this index path.
     pub fn len(&self) -> usize {
         self.len
     }
@@ -200,13 +200,13 @@ impl Key for str {
     }
 }
 
-/// Path with named keys separated by a separator char
+/// Output path with named selector segments separated by a separator char.
 ///
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
 ///   See also [`Schema::transcode()`] and `Shape.max_length` for upper bounds
-///   on path length. Use [`PathIter`] for input keys.
+///   on path length. Use [`PathIter`] for boundary key input.
 /// * `separator`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -258,7 +258,7 @@ impl<T: core::fmt::Display> core::fmt::Display for Path<T> {
     }
 }
 
-/// Const-specialized path with named keys separated by a const separator.
+/// Const-specialized output path with named selector segments separated by a const separator.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -297,7 +297,7 @@ fn split_path(path: &str, separator: char) -> (&str, Option<&str>) {
     (left, right.get(separator.len_utf8()..))
 }
 
-/// String split/skip wrapper, smaller/simpler than `.split(separator).skip(1)`
+/// Runtime-separated path iterator for boundary key input.
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct PathIter<'a> {
     path: Option<&'a str>,
@@ -354,7 +354,7 @@ impl Keys for PathIter<'_> {
     }
 }
 
-/// Const-specialized string split/skip wrapper.
+/// Const-specialized path iterator for boundary key input.
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]

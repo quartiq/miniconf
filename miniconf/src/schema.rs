@@ -603,12 +603,12 @@ impl Schema {
         self.internal.as_ref()
     }
 
-    /// Look up the next item from keys and return a child index.
+    /// Resolve the next selector segment from a normalized key cursor.
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
         keys.next(self.internal.as_ref().ok_or(KeyError::TooLong)?)
     }
 
-    /// Traverse from the root to a leaf and call a function for each node.
+    /// Traverse from the root to a leaf using a normalized key cursor.
     ///
     /// If a leaf is found early (`keys` being longer than required)
     /// `Err(KeyError::TooLong)` is returned.
@@ -638,7 +638,7 @@ impl Schema {
     /// ```
     ///
     /// # Args
-    /// * `keys`: A `Key`s identifying the node.
+    /// * `keys`: A normalized [`Keys`] cursor identifying the node.
     /// * `func`: A `FnMut` to be called for each (internal and leaf) node on the path.
     ///   Its arguments are the current node schema and optionally the traversed edge index and
     ///   internal schema.
@@ -662,7 +662,7 @@ impl Schema {
         func(schema, None).map_err(DescendError::Inner)
     }
 
-    /// Look up edge and node metadata given keys.
+    /// Look up edge and node metadata given a boundary key input.
     pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
         let mut edge = None;
         let mut node = self.node_meta();
@@ -733,7 +733,7 @@ impl Schema {
         }
     }
 
-    /// Resolve a key traversal while recording the consumed index prefix into `state`.
+    /// Resolve a boundary key input while recording the consumed index prefix into `state`.
     ///
     /// On both success and failure, `state[..depth]` contains the longest valid consumed prefix.
     pub fn resolve_into(
@@ -750,7 +750,7 @@ impl Schema {
         })
     }
 
-    /// Get the schema node identified exactly by `keys`.
+    /// Get the schema node identified exactly by a boundary key input.
     pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
         self.walk(keys.into_keys(), |_, _| true)
             .map_err(|err| match err.error {
@@ -759,7 +759,7 @@ impl Schema {
             })
     }
 
-    /// Transcode keys to a new keys type representation using its default configuration.
+    /// Transcode a boundary key input to a new key representation using its default configuration.
     ///
     /// This default-constructs the output and then calls [`Transcode::transcode_from()`].
     ///
@@ -797,7 +797,7 @@ impl Schema {
     /// ```
     ///
     /// # Args
-    /// * `keys`: `IntoKeys` to identify the node.
+    /// * `keys`: A boundary [`IntoKeys`] input identifying the node.
     ///
     /// # Returns
     /// The transcoded target on success.
@@ -808,34 +808,19 @@ impl Schema {
         N::transcode(self, keys)
     }
 
-    /// The Shape of the schema
+    /// Summary bounds and counts for this schema.
     pub const fn shape(&self) -> Shape {
         Shape::new(self)
     }
 
-    /// The exact total number of schema nodes reachable from this root.
-    pub const fn node_count(&self) -> usize {
-        let mut count = 1;
-        if let Some(internal) = self.internal.as_ref() {
-            match internal {
-                Internal::Named(children) => {
-                    let mut index = 0;
-                    while index < children.len() {
-                        count += children[index].schema.node_count();
-                        index += 1;
-                    }
-                }
-                Internal::Numbered(children) => {
-                    let mut index = 0;
-                    while index < children.len() {
-                        count += children[index].schema.node_count();
-                        index += 1;
-                    }
-                }
-                Internal::Homogeneous(child) => count += child.schema.node_count(),
-            }
-        }
-        count
+    /// The maximum key depth.
+    pub const fn max_depth(&self) -> usize {
+        self.shape().max_depth
+    }
+
+    /// The maximum path length in bytes including `separator`.
+    pub const fn max_length(&self, separator: &str) -> usize {
+        self.shape().max_length(separator)
     }
 
     /// Return an iterator over nodes of a given type
@@ -854,7 +839,7 @@ impl Schema {
     ///     foo: u32,
     ///     bar: [u16; 2],
     /// };
-    /// const MAX_DEPTH: usize = S::SCHEMA.shape().max_depth;
+    /// const MAX_DEPTH: usize = S::SCHEMA.max_depth();
     /// assert_eq!(MAX_DEPTH, 2);
     ///
     /// let paths: Vec<_> = S::SCHEMA

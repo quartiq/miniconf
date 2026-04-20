@@ -112,8 +112,8 @@ let len = json_core::get(&settings, "/struct_", &mut buf).unwrap();
 assert_eq!(&buf[..len], br#"{"a":3,"b":3}"#);
 
 // Tree metadata
-const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
-const MAX_LENGTH: usize = Settings::SCHEMA.shape().max_length("/");
+const MAX_DEPTH: usize = Settings::SCHEMA.max_depth();
+const MAX_LENGTH: usize = Settings::SCHEMA.max_length("/");
 assert!(MAX_DEPTH <= 6);
 assert!(MAX_LENGTH <= 32);
 
@@ -198,8 +198,11 @@ Lookup into the tree is done using a [`Keys`] implementation. Public entry point
 
 ## Limitations
 
-* `enum`: The derive macros don't support enums with record (named fields) variants or tuple variants with more than one (non-skip) field. Only unit, newtype and skipped variants are supported. Without the derive macros, any `enum` is still however usable as a `Leaf` node. Note also that netwype variants with a single inline tuple are supported.
-* The derive macros only support flattening in non-ambiguous situations (single field structs and single variant enums, both modulo skipped fields/variants and unit variants).
+* The derive macros only support enums with unit variants, newtype variants, and skipped variants. Enums with named fields or multi-field tuple variants need to stay leaves or use a manual implementation.
+* Flattening is only supported in non-ambiguous cases.
+* Runtime absence is part of the model. `Option` branches and inactive enum variants can make otherwise valid paths return `Absent`.
+* `&str` key input is always slash-separated. Other path syntaxes use explicit iterators such as [`PathIter`] or [`JsonPathIter`].
+* Schema semantics and metadata are optional reflection data. Consumers should not assume they are retained unless the corresponding features are enabled.
 
 ## Features
 
