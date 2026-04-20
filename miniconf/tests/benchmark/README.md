@@ -10,5 +10,5 @@ Compare serial-style get/set using miniconf vs hand-written handler:
 | variant | text | rodata | data | bss | flash | ram |
 |---|---:|---:|---:|---:|---:|---:|
 | baseline | 300 | 1272 | 0 | 0 | 1572 | 0 |
-| manual | 8140 | 1852 | 0 | 8 | 9992 | 8 |
-| miniconf | 7908 | 2248 | 0 | 8 | 10156 | 8 |
+| manual | 8068 | 1852 | 0 | 8 | 9920 | 8 |
+| miniconf | 7428 | 2708 | 0 | 8 | 10136 | 8 |

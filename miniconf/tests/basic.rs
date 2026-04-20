@@ -1,6 +1,6 @@
 use miniconf::{
-    ConstPath, DescendError, FromConfig, Indices, JsonPath, KeyError, Lookup, NodeIter, Path,
-    Shape, Transcode, Tree, TreeSchema,
+    ConstPath, DescendError, Indices, JsonPath, KeyError, Lookup, NodeIter, Path, Shape, Transcode,
+    Tree, TreeSchema,
 };
 mod common;
 
@@ -52,7 +52,7 @@ fn meta() {
 fn path() {
     assert_lookup(Settings::SCHEMA.get([1usize]).unwrap(), 1, true);
     assert_eq!(
-        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, [1usize], '/')
+        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, [1usize])
             .unwrap()
             .next()
             .unwrap()
@@ -63,7 +63,7 @@ fn path() {
 
     assert_lookup(Settings::SCHEMA.get([2usize, 0]).unwrap(), 2, true);
     assert_eq!(
-        NodeIter::<Path<String>, 2>::with_root(Settings::SCHEMA, [2usize, 0], '/')
+        NodeIter::<Path<String>, 2>::with_root(Settings::SCHEMA, [2usize, 0])
             .unwrap()
             .next()
             .unwrap()
@@ -86,22 +86,30 @@ fn transcode_reuse_semantics() {
     let path = Path::<String>::transcode(Settings::SCHEMA, [1usize]).unwrap();
     assert_eq!(path.as_ref(), "/b");
 
-    let path = Path::<String>::transcode_with(Settings::SCHEMA, [1usize], ':').unwrap();
+    let mut path = Path::new(String::new(), ':');
+    path.transcode_from(Settings::SCHEMA, &[1usize][..])
+        .unwrap();
     assert_eq!(path.as_ref(), ":b");
 
     let mut path = Path::<String>::default();
-    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
-    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    path.transcode_from(Settings::SCHEMA, &[1usize][..])
+        .unwrap();
+    path.transcode_from(Settings::SCHEMA, &[2usize, 0][..])
+        .unwrap();
     assert_eq!(path.as_ref(), "/b/c/inner");
 
     let mut path = ConstPath::<String, '/'>::default();
-    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
-    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    path.transcode_from(Settings::SCHEMA, &[1usize][..])
+        .unwrap();
+    path.transcode_from(Settings::SCHEMA, &[2usize, 0][..])
+        .unwrap();
     assert_eq!(path.as_ref(), "/b/c/inner");
 
     let mut path = JsonPath::<String>::default();
-    path.transcode_from(Settings::SCHEMA, [1usize]).unwrap();
-    path.transcode_from(Settings::SCHEMA, [2usize, 0]).unwrap();
+    path.transcode_from(Settings::SCHEMA, &[1usize][..])
+        .unwrap();
+    path.transcode_from(Settings::SCHEMA, &[2usize, 0][..])
+        .unwrap();
     assert_eq!(path.0.as_str(), ".b.c.inner");
 }
 
@@ -113,32 +121,22 @@ fn indices() {
         ("/c/inner", Some(&[2, 0][..]), (2, true)),
         ("/c", None, (1, false)),
     ] {
-        let have = Settings::SCHEMA
-            .get(Path {
-                path: keys,
-                separator: '/',
-            })
-            .unwrap();
+        let have = Settings::SCHEMA.get(keys).unwrap();
         println!("{keys} {have:?}");
         assert_lookup(have, info.0, info.1);
         if let Some(idx) = idx {
             let have = Settings::SCHEMA
-                .transcode::<Indices<[usize; 2]>>(Path {
-                    path: keys,
-                    separator: '/',
-                })
+                .transcode::<Indices<[usize; 2]>>(keys)
                 .unwrap();
             assert_eq!(have.as_ref(), idx);
         }
     }
     assert_lookup(Option::<i8>::SCHEMA.get([0usize; 0]).unwrap(), 0, true);
 
-    let mut it = [0usize; 4].into_iter();
     assert_eq!(
-        Settings::SCHEMA.transcode::<Indices<[usize; 2]>>(&mut it),
+        Settings::SCHEMA.transcode::<Indices<[usize; 2]>>([0usize, 0, 0, 0]),
         Err(KeyError::TooLong.into())
     );
-    assert_eq!(it.count(), 2);
 }
 
 #[test]
@@ -159,7 +157,7 @@ fn get() {
 fn indices_capacity() {
     let mut indices = Indices::from([0usize; 1]);
     assert_eq!(
-        indices.transcode_from(Settings::SCHEMA, [2usize, 0]),
+        indices.transcode_from(Settings::SCHEMA, &[2usize, 0][..]),
         Err(DescendError::Inner(()))
     );
     assert_eq!(indices.as_ref(), [2usize]);

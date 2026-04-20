@@ -30,12 +30,16 @@ block normal `set/#` handling.
 The retained `alive` payload is JSON:
 
 ```json
-{"boot_id":1,"schema_rev":12345678,"pages":7}
+{"epoch":1,"schema_rev":12345678,"pages":7}
 ```
 
-- `boot_id` identifies the current device epoch
+- `epoch` identifies the current authoritative publication epoch
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
+
+`epoch` changes whenever the device starts a fresh retained MM2 publication cycle. Clients should
+invalidate cached retained settings when `epoch` changes, but may reuse a parsed schema if
+`schema_rev` is unchanged.
 
 The retained will clears `alive` on disconnect so discovery stays live-device oriented even if
 stale retained schema/settings still exist on the broker.
@@ -73,10 +77,14 @@ The revision is FNV-1a over the exact retained schema page payload bytes in page
 
 Authoritative retained `settings/<path>` publications carry MQTT v5 user property `rev=<u32>`.
 
-- `rev` is monotonic within one `boot_id`
-- clients should treat `(boot_id, rev)` as the ordering key
+- `rev` is monotonic within one `epoch`
+- clients should scope `rev` to the current `alive` epoch
 - in compatibility mode, `settings/<path>` without `rev` is provisional client traffic, not
   authoritative state
+- long-lived clients should keep `alive` subscribed and invalidate cached settings when `epoch`
+  or `schema_rev` changes
+- clients should ignore `settings/<path>` without `rev`; broad cleanup of such topics is a
+  separate maintenance task, not part of authoritative state handling
 
 `set/<path>` accepts one JSON value for one leaf.
 

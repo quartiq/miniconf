@@ -19,7 +19,7 @@ providers are supported.
 
 ```rust
 use serde::{Deserialize, Serialize};
-use miniconf::{SerdeError, json_core, JsonPath, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Shape, leaf};
+use miniconf::{SerdeError, json_core, JsonPathIter, ValueError, KeyError, Tree, TreeSchema, Path, Packed, Shape, leaf};
 
 #[derive(Deserialize, Serialize, Default, Tree)]
 pub struct Inner {
@@ -88,7 +88,11 @@ let packed: Packed = Settings::SCHEMA.transcode([8, 1, 0]).unwrap();
 assert_eq!(packed.into_lsb().get(), 0b1_1000_1_0);
 json_core::set_by_key(&mut settings, packed, b"9")?;
 // ... or by JSON path
-json_core::set_by_key(&mut settings, JsonPath(".array_tree2[1].b"), b"10")?;
+json_core::set_by_key(
+    &mut settings,
+    JsonPathIter::new(".array_tree2[1].b"),
+    b"10",
+)?;
 
 // Hiding paths by setting an Option to `None` at runtime
 assert_eq!(json_core::set(&mut settings, "/option_tree", b"13"), Err(ValueError::Absent.into()));
@@ -180,14 +184,17 @@ See also the [`TreeSchema`] trait documentation for details.
 
 ## Keys and paths
 
-Lookup into the tree is done using a [`Keys`] implementation. A blanket implementation through [`IntoKeys`]
-is provided for `IntoIterator`s over [`Key`] items. The [`Key`] lookup capability is implemented
-for `usize` indices and `&str` names.
+Lookup into the tree is done using a [`Keys`] implementation. Public entry points accept
+[`IntoKeys`] as the outer normalization funnel and immediately convert to a smaller set of core
+`Keys` carriers.
 
-Path iteration is supported with arbitrary separator `char`s between names.
+- `&str` is the slash-separated shorthand
+- [`PathIter`] supports explicit runtime separators
+- [`ConstPathIter`] supports explicit const-generic separator specialization
+- slices/arrays of indices or names and [`Packed`] are also supported
 
-Very compact hierarchical indices encodings can be obtained from the [`Packed`] structure.
-It implements [`Keys`].
+[`Path`], [`ConstPath`], and [`JsonPath`] are the output/transcode representations.
+[`JsonPathIter`] and the other iterator types are the input-key representations.
 
 ## Limitations
 

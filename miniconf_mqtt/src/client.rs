@@ -60,6 +60,61 @@ pub enum State {
     Changed,
 }
 
+#[derive(Default)]
+struct Manifest {
+    epoch: u32,
+    schema_rev: u32,
+    schema_pages: usize,
+    settings_rev: u32,
+}
+
+struct ProtocolState<const Y: usize> {
+    pending: Pending<Y>,
+    manifest: Manifest,
+    publish_alive_after_sync: bool,
+    #[cfg(feature = "compat-settings-ingress")]
+    settings_ingress: SettingsIngressPhase,
+}
+
+impl<const Y: usize> ProtocolState<Y> {
+    fn new() -> Self {
+        Self {
+            pending: Pending::new(),
+            manifest: Manifest::default(),
+            publish_alive_after_sync: false,
+            #[cfg(feature = "compat-settings-ingress")]
+            settings_ingress: SettingsIngressPhase::Runtime,
+        }
+    }
+
+    fn on_session_active<Settings: TreeSchema>(&mut self, reconnected: bool) {
+        if reconnected {
+            info!("Reconnected MM2 session");
+            #[cfg(feature = "compat-settings-ingress")]
+            {
+                self.settings_ingress = SettingsIngressPhase::Runtime;
+            }
+            return;
+        }
+
+        self.manifest.epoch = self.manifest.epoch.wrapping_add(1);
+        self.manifest.settings_rev = 0;
+        self.manifest.schema_rev = 0;
+        self.manifest.schema_pages = 0;
+        self.pending = Pending::schema(Settings::SCHEMA);
+        self.publish_alive_after_sync = false;
+        info!("Activated MM2 session epoch={}", self.manifest.epoch);
+        #[cfg(feature = "compat-settings-ingress")]
+        {
+            self.settings_ingress = SettingsIngressPhase::Recovering {
+                seen: false,
+                deadline: None,
+            };
+            debug!("Starting settings ingress recovery");
+        }
+    }
+}
+
 /// MM2 MQTT session wrapper for one Miniconf tree.
 ///
 /// `Y` is the path-state depth and should usually be `Settings::SCHEMA.shape().max_depth`.
@@ -71,14 +126,7 @@ where
     prefix: &'a str,
     subscribed: bool,
     needs_alive: bool,
-    pending: Pending<Y>,
-    boot_id: u32,
-    schema_rev: u32,
-    schema_pages: usize,
-    rev: u32,
-    publish_alive_after_sync: bool,
-    #[cfg(feature = "compat-settings-ingress")]
-    settings_ingress: SettingsIngressPhase,
+    protocol: ProtocolState<Y>,
     _settings: PhantomData<Settings>,
 }
 
@@ -128,14 +176,7 @@ where
             prefix,
             subscribed: false,
             needs_alive: true,
-            pending: Pending::new(),
-            boot_id: 0,
-            schema_rev: 0,
-            schema_pages: 0,
-            rev: 0,
-            publish_alive_after_sync: false,
-            #[cfg(feature = "compat-settings-ingress")]
-            settings_ingress: SettingsIngressPhase::Runtime,
+            protocol: ProtocolState::new(),
             _settings: PhantomData,
         })
     }
@@ -252,31 +293,13 @@ where
     fn on_session_active(&mut self, reconnected: bool) {
         if reconnected {
             self.needs_alive = true;
-            info!("Reconnected MM2 session");
-            #[cfg(feature = "compat-settings-ingress")]
-            {
-                self.settings_ingress = SettingsIngressPhase::Runtime;
-            }
+            self.protocol.on_session_active::<Settings>(true);
             return;
         }
 
         self.subscribed = false;
-        self.boot_id = self.boot_id.wrapping_add(1);
-        self.rev = 0;
-        self.schema_rev = 0;
-        self.schema_pages = 0;
-        self.pending = Pending::schema(Settings::SCHEMA);
-        self.publish_alive_after_sync = false;
         self.needs_alive = false;
-        info!("Activated MM2 session boot_id={}", self.boot_id);
-        #[cfg(feature = "compat-settings-ingress")]
-        {
-            self.settings_ingress = SettingsIngressPhase::Recovering {
-                seen: false,
-                deadline: None,
-            };
-            debug!("Starting settings ingress recovery");
-        }
+        self.protocol.on_session_active::<Settings>(false);
     }
 
     #[cfg(feature = "compat-settings-ingress")]

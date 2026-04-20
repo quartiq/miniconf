@@ -15,17 +15,17 @@ fn packed() {
 
     // Check path-packed round trip.
     for iter_path in Settings::SCHEMA
-        .nodes_with::<Path<String>, 2>('/')
+        .nodes::<Path<String>, 2>()
         .map(Result::unwrap)
     {
-        let packed: Packed = Settings::SCHEMA.transcode(&iter_path).unwrap();
+        let packed: Packed = Settings::SCHEMA.transcode(iter_path.as_ref()).unwrap();
         let path: Path<String> = Settings::SCHEMA.transcode(packed).unwrap();
         assert_eq!(path, iter_path);
         println!(
             "{path:?} {iter_path:?}, {:#06b} {} {:?}",
             packed.get() >> 60,
             packed.into_lsb(),
-            Settings::SCHEMA.get(&iter_path).unwrap().depth
+            Settings::SCHEMA.get(iter_path.as_ref()).unwrap().depth
         );
     }
     println!(
@@ -52,7 +52,7 @@ fn top() {
     }
     assert_eq!(
         S::SCHEMA
-            .nodes_with::<Path<String>, 2>('/')
+            .nodes::<Path<String>, 2>()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/baz/0", "/foo"]

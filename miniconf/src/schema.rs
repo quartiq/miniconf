@@ -1,9 +1,7 @@
 use core::{convert::Infallible, num::NonZero};
 use serde::{Serialize, Serializer, ser::SerializeMap as _};
 
-use crate::{
-    DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
-};
+use crate::{DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
 
 #[cfg(feature = "sem")]
 type MaybeSem = Option<Sem>;
@@ -523,11 +521,10 @@ impl Schema {
 
     fn walk(
         &'static self,
-        keys: impl IntoKeys,
+        mut keys: impl Keys,
         mut on_index: impl FnMut(usize, usize) -> bool,
     ) -> Result<Lookup, ResolveError> {
         let mut schema = self;
-        let mut keys = keys.into_keys();
         let mut depth = 0;
 
         while let Some(internal) = schema.internal.as_ref() {
@@ -575,7 +572,7 @@ impl Schema {
         keys: impl IntoKeys,
         state: &mut [usize],
     ) -> Result<Lookup, ResolveError> {
-        self.walk(keys, |depth, idx| {
+        self.walk(keys.into_keys(), |depth, idx| {
             let Some(slot) = state.get_mut(depth) else {
                 return false;
             };
@@ -586,22 +583,20 @@ impl Schema {
 
     /// Get the schema node identified exactly by `keys`.
     pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
-        self.walk(keys, |_, _| true).map_err(|err| match err.error {
-            DescendError::Key(err) => err,
-            DescendError::Inner(()) => unreachable!("infallible exact lookup"),
-        })
+        self.walk(keys.into_keys(), |_, _| true)
+            .map_err(|err| match err.error {
+                DescendError::Key(err) => err,
+                DescendError::Inner(()) => unreachable!("infallible exact lookup"),
+            })
     }
 
     /// Transcode keys to a new keys type representation using its default configuration.
     ///
-    /// This is a convenience wrapper around [`FromConfig::transcode()`].
-    ///
-    /// In order to not require the default configuration, use [`FromConfig::transcode_with`] or
-    /// [`Transcode::transcode_from`] on an existing `&mut N`.
+    /// This default-constructs the output and then calls [`Transcode::transcode_from()`].
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
+    /// use miniconf::{ConstPath, Indices, JsonPath, JsonPathIter, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -613,9 +608,13 @@ impl Schema {
     ///
     /// let path = sch.transcode::<Path<String>>(idx).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/1");
+    /// let path = sch.transcode::<ConstPath<String, ':'>>(idx).unwrap();
+    /// assert_eq!(path.0.as_str(), ":bar:1");
     /// let path = sch.transcode::<JsonPath<String>>(idx).unwrap();
     /// assert_eq!(path.0.as_str(), ".bar[1]");
-    /// let indices = sch.transcode::<Indices<[usize; 2]>>(&path).unwrap();
+    /// let indices = sch
+    ///     .transcode::<Indices<[usize; 2]>>(JsonPathIter::new(path.0.as_str()))
+    ///     .unwrap();
     /// assert_eq!(indices.as_ref(), idx);
     /// let indices = sch.transcode::<Indices<[usize; 2]>>(["bar", "1"]).unwrap();
     /// assert_eq!(indices.as_ref(), [1, 1]);
@@ -623,7 +622,7 @@ impl Schema {
     /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
     /// let path = sch.transcode::<Path<String>>(packed).unwrap();
     /// assert_eq!(path.path.as_str(), "/bar/4");
-    /// let lookup = sch.get(&path).unwrap();
+    /// let lookup = sch.get(path.as_ref()).unwrap();
     /// assert_eq!((lookup.depth, lookup.schema.is_leaf()), (2, true));
     /// # }
     /// ```
@@ -633,22 +632,11 @@ impl Schema {
     ///
     /// # Returns
     /// The transcoded target on success.
-    pub fn transcode<N: Transcode + FromConfig>(
+    pub fn transcode<N: Transcode + Default>(
         &self,
         keys: impl IntoKeys,
     ) -> Result<N, DescendError<N::Error>> {
         N::transcode(self, keys)
-    }
-
-    /// Transcode keys to a fresh representation using the provided configuration.
-    ///
-    /// This is a convenience wrapper around [`FromConfig::transcode_with()`].
-    pub fn transcode_with<N: Transcode + FromConfig>(
-        &self,
-        keys: impl IntoKeys,
-        config: N::Config,
-    ) -> Result<N, DescendError<N::Error>> {
-        N::transcode_with(self, keys, config)
     }
 
     /// The Shape of the schema
@@ -685,13 +673,13 @@ impl Schema {
     ///
     /// This is a walk of all leaf nodes.
     /// The iterator will walk all paths, including those that may be absent at
-    /// runtime (see [the `Option` section on `TreeSchema`](TreeSchema#option)).
+    /// runtime (see [the `Option` section on `TreeSchema`](crate::TreeSchema#option)).
     /// The iterator has an exact and trusted `size_hint()`.
     /// The `D` const generic of [`NodeIter`] is the maximum key depth.
     ///
     /// ```
     /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
+    /// use miniconf::{ConstPath, Indices, JsonPath, Lookup, Packed, Path, TreeSchema};
     /// #[derive(TreeSchema)]
     /// struct S {
     ///     foo: u32,
@@ -701,10 +689,15 @@ impl Schema {
     /// assert_eq!(MAX_DEPTH, 2);
     ///
     /// let paths: Vec<_> = S::SCHEMA
-    ///     .nodes_with::<Path<String>, MAX_DEPTH>('/')
+    ///     .nodes::<Path<String>, MAX_DEPTH>()
     ///     .map(|p| p.unwrap().into_inner())
     ///     .collect();
     /// assert_eq!(paths, ["/foo", "/bar/0", "/bar/1"]);
+    ///
+    /// let paths: Vec<_> = S::SCHEMA.nodes::<ConstPath<String, ':'>, MAX_DEPTH>()
+    ///     .map(|p| p.unwrap().into_inner())
+    ///     .collect();
+    /// assert_eq!(paths, [":foo", ":bar:0", ":bar:1"]);
     ///
     /// let paths: Vec<_> = S::SCHEMA.nodes::<JsonPath<String>, MAX_DEPTH>()
     ///     .map(|p| p.unwrap().into_inner())
@@ -721,10 +714,10 @@ impl Schema {
     ///     .collect();
     /// assert_eq!(packed, [0b1_0, 0b1_1_0, 0b1_1_1]);
     ///
-    /// let nodes: Vec<_> = S::SCHEMA.nodes_with::<Path<String>, MAX_DEPTH>('/')
+    /// let nodes: Vec<_> = S::SCHEMA.nodes::<Path<String>, MAX_DEPTH>()
     ///     .map(|p| {
     ///         let p = p.unwrap();
-    ///         let lookup = S::SCHEMA.get(&p).unwrap();
+    ///         let lookup = S::SCHEMA.get(p.as_ref()).unwrap();
     ///         ((lookup.depth, lookup.schema.is_leaf()), p.into_inner())
     ///     })
     ///     .collect();
@@ -738,18 +731,9 @@ impl Schema {
     /// );
     /// # }
     /// ```
-    pub const fn nodes<N: FromConfig, const D: usize>(&'static self) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::new(self, [0; D], 0, N::DEFAULT_CONFIG).exact_size()
-    }
-
-    /// Return an iterator over nodes using a preconfigured output seed.
-    ///
-    /// This is useful for runtime-configured path encodings such as [`Path`],
-    /// where the emitted separator is stored in the target value rather than in a const generic.
-    pub fn nodes_with<N: FromConfig, const D: usize>(
+    pub const fn nodes<N: Transcode + Default, const D: usize>(
         &'static self,
-        config: N::Config,
     ) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::new(self, [0; D], 0, config).exact_size()
+        NodeIter::<N, D>::new(self, [0; D], 0).exact_size()
     }
 }

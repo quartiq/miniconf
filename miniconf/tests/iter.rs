@@ -1,4 +1,4 @@
-use miniconf::{Indices, NodeIter, Path, Tree, TreeSchema};
+use miniconf::{ConstPath, Indices, NodeIter, Path, Tree, TreeSchema};
 
 mod common;
 use common::*;
@@ -59,14 +59,14 @@ fn array_iter() {
 #[test]
 fn depth_limited_iter() {
     assert_eq!(
-        NodeIter::<Path<String>, 1>::new(Settings::SCHEMA, [0; 1], 0, '/')
+        NodeIter::<Path<String>, 1>::new(Settings::SCHEMA, [0; 1], 0)
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/a"]
     );
 
     assert_eq!(
-        NodeIter::<Path<String>, 0>::new(Settings::SCHEMA, [], 0, '/').next(),
+        NodeIter::<Path<String>, 0>::new(Settings::SCHEMA, [], 0).next(),
         None
     );
 }
@@ -82,7 +82,7 @@ fn panic_short_iter() {
 #[test]
 fn root() {
     assert_eq!(
-        NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["b"], '/')
+        NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["b"])
             .unwrap()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
@@ -93,7 +93,7 @@ fn root() {
 #[test]
 fn root_leaf() {
     assert_eq!(
-        NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["a"], '/')
+        NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["a"])
             .unwrap()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
@@ -104,7 +104,7 @@ fn root_leaf() {
 #[test]
 fn root_insufficient_state() {
     assert_eq!(
-        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, ["d", "0"], '/'),
+        NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, ["d", "0"]),
         Err(miniconf::DescendError::Inner(()))
     );
 }
@@ -113,7 +113,7 @@ fn root_insufficient_state() {
 fn runtime_path_separator() {
     assert_eq!(
         Settings::SCHEMA
-            .nodes_with::<Path<String>, 3>(':')
+            .nodes::<ConstPath<String, ':'>, 3>()
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         [":b:0", ":b:1", ":c:inner", ":d:0:inner", ":a"]

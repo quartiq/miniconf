@@ -23,7 +23,7 @@
 
 use serde_json_core::{de, ser};
 
-use crate::{ConstPath, IntoKeys, Keys, SerdeError, TreeDeserialize, TreeSerialize};
+use crate::{IntoKeys, Keys, SerdeError, TreeDeserialize, TreeSerialize};
 
 /// Update a node by path.
 ///
@@ -39,7 +39,7 @@ pub fn set<'de>(
     path: &str,
     data: &'de [u8],
 ) -> Result<usize, SerdeError<de::Error>> {
-    set_by_key(tree, ConstPath::<_, '/'>(path), data)
+    set_by_key(tree, path, data)
 }
 
 /// Retrieve a serialized value by path.
@@ -56,7 +56,7 @@ pub fn get(
     path: &str,
     data: &mut [u8],
 ) -> Result<usize, SerdeError<ser::Error>> {
-    get_by_key(tree, ConstPath::<_, '/'>(path), data)
+    get_by_key(tree, path, data)
 }
 
 /// Update a node by key.

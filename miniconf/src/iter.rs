@@ -1,4 +1,6 @@
-use crate::{DescendError, FromConfig, IntoKeys, KeyError, Schema, Transcode};
+use core::marker::PhantomData;
+
+use crate::{DescendError, IntoKeys, KeyError, Schema, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,7 +46,7 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// The `Err(N::Error)` variant of the `Iterator::Item` indicates that `N`
 /// failed to encode a yielded node.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NodeIter<N: FromConfig, const D: usize> {
+pub struct NodeIter<N, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
@@ -52,27 +54,22 @@ pub struct NodeIter<N: FromConfig, const D: usize> {
     state: [usize; D],
     root: usize,
     depth: usize,
-    config: N::Config,
+    target: PhantomData<N>,
 }
 
-impl<N: FromConfig, const D: usize> NodeIter<N, D> {
+impl<N, const D: usize> NodeIter<N, D> {
     /// Create a new iterator.
     ///
     /// # Panic
     /// If the root depth exceeds the state length.
-    pub const fn new(
-        schema: &'static Schema,
-        state: [usize; D],
-        root: usize,
-        config: N::Config,
-    ) -> Self {
+    pub const fn new(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
         assert!(root <= D);
         Self {
             schema,
             state,
             root,
             depth: D + 1,
-            config,
+            target: PhantomData,
         }
     }
 
@@ -85,13 +82,12 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     pub fn with_root(
         schema: &'static Schema,
         root: impl IntoKeys,
-        config: N::Config,
     ) -> Result<Self, DescendError<()>> {
         let mut state = [0; D];
         let info = schema
             .resolve_into(root, state.as_mut())
             .map_err(|err| err.error)?;
-        Ok(Self::new(schema, state, info.depth, config))
+        Ok(Self::new(schema, state, info.depth))
     }
 
     /// Wrap the iterator in an exact size counting iterator that is
@@ -169,7 +165,7 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     }
 }
 
-impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
+impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
     type Item = Result<N, N::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -190,7 +186,7 @@ impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
             self.descend_leftmost();
             debug_assert!(self.depth >= self.root);
             debug_assert!(self.depth <= D);
-            let mut item = N::from_config(&self.config);
+            let mut item = N::default();
             match item.transcode_from(self.schema, &self.state[..self.depth]) {
                 Ok(()) => return Some(Ok(item)),
                 Err(DescendError::Key(KeyError::TooShort)) => {}
@@ -202,4 +198,4 @@ impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
 }
 
 // Contract: Do not allow manipulation of `depth` other than through iteration.
-impl<N: Transcode + FromConfig, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}
+impl<N: Transcode + Default, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}

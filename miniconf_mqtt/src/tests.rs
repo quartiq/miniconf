@@ -19,14 +19,9 @@ struct Nested {
 
 #[derive(Tree, Default)]
 struct TreeSettings {
-    value: u8,
-    nested: Nested,
-}
-
-#[derive(Tree, Default)]
-struct MetaSettings {
     #[tree(meta(role = "selector"))]
     value: u8,
+    nested: Nested,
 }
 
 const TINY_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
@@ -207,39 +202,18 @@ fn oversized_response_topic_is_rejected_early() {
 }
 
 #[test]
-fn schema_pages_are_postorder_and_keep_child_meta() {
+fn schema_pages_match_golden_fixture() {
     let mut payload = heapless::String::<{ crate::MAX_PAYLOAD_LENGTH }>::new();
     let SchemaPage::Ready { count } = next_schema_page(TreeSettings::SCHEMA, 0, &mut payload)
     else {
         panic!("missing first schema page");
     };
     assert_eq!(count, 3);
-    let mut lines = payload.lines();
-    let leaf = lines.next().unwrap();
-    assert!(leaf.starts_with('{'));
-    assert!(leaf.ends_with('}'));
-    assert_eq!(lines.next(), Some(r#"{"i":{"k":"n","c":{"leaf":0}}}"#));
+    let normalized = payload.replace(r#"{"s":{"ty":"u8"}}"#, "{}");
     assert_eq!(
-        lines.next(),
-        Some(r#"{"i":{"k":"n","c":{"value":0,"nested":1}}}"#)
+        normalized.as_str(),
+        include_str!("../../testdata/compact-schema/fixture.ndjson")
     );
-    assert_eq!(lines.next(), None);
-
-    payload.clear();
-    let SchemaPage::Ready { count } = next_schema_page(MetaSettings::SCHEMA, 0, &mut payload)
-    else {
-        panic!("missing meta schema page");
-    };
-    assert_eq!(count, 2);
-    let mut lines = payload.lines();
-    let leaf = lines.next().unwrap();
-    assert!(leaf.starts_with('{'));
-    assert!(leaf.ends_with('}'));
-    assert_eq!(
-        lines.next(),
-        Some(r#"{"i":{"k":"n","c":{"value":{"r":0,"m":{"role":"selector"}}}}}"#)
-    );
-    assert_eq!(lines.next(), None);
 }
 
 #[cfg(feature = "compat-settings-ingress")]

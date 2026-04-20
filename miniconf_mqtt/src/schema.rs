@@ -1,13 +1,13 @@
 use core::ptr;
 
 use heapless::{String, Vec};
-use miniconf::{Internal, Meta, NodeIter, Path, Schema};
+use miniconf::{ConstPath, Internal, Meta, NodeIter, Schema};
 use serde::{
     Serialize, Serializer,
     ser::{SerializeMap as _, SerializeSeq as _},
 };
 
-use crate::{MAX_PAYLOAD_LENGTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, SEPARATOR, json::json_text};
+use crate::{MAX_PAYLOAD_LENGTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, json::json_text};
 
 #[derive(Clone, Copy)]
 struct SchemaRef(usize);
@@ -345,7 +345,7 @@ pub(crate) enum Pending<const Y: usize> {
         hash: u32,
     },
     Settings {
-        iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>>, Y>,
+        iter: NodeIter<ConstPath<String<MAX_TOPIC_LENGTH>, '/'>, Y>,
     },
 }
 
@@ -369,7 +369,7 @@ impl<const Y: usize> Pending<Y> {
 
     pub(crate) fn settings(schema: &'static Schema) -> Self {
         Self::Settings {
-            iter: NodeIter::new(schema, [0; Y], 0, SEPARATOR),
+            iter: NodeIter::new(schema, [0; Y], 0),
         }
     }
 }

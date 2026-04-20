@@ -61,7 +61,8 @@ Schema operations:
 - `schema.parent(keys)` returns the direct parent node view
 - `schema.siblings(keys)` returns sibling node views
 - `schema.ty(keys)` returns the `schema` description for one node
-- `schema.meta(keys)` returns `schema.meta` for one node
+- `schema.inner(keys)` returns node metadata
+- `schema.outer(keys)` returns parent-child edge metadata
 - `schema.kind(keys)` returns `"leaf"` or the internal-node kind
 - `schema.walk(keys="")` iterates subtree node views
 - `schema.path(keys)` normalizes `path`, `indices`, or `packed` keys to one MM2 path
@@ -73,6 +74,9 @@ Important:
 - `cached()` is the no-side-effect read for already watched subtrees
 - successful `set()` returns `None`; the applied value is published on `settings/#`
 - explicit ACK/NACK replies on `response` are metadata-only
+- the long-lived client keeps `/alive` subscribed and invalidates cached schema/settings when
+  `epoch` or `schema_rev` changes
+- retained `settings/#` without `rev` is ignored everywhere as non-authoritative MM2 traffic
 - retained settings watching is long-lived and uses a burst-settle timeout heuristic
 - the CLI frontend lives in [miniconf/cli.py](miniconf/cli.py); the client module stays library-focused
 

@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
+use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
 
 /// Traversal, iteration of keys in a tree.
 ///
@@ -12,15 +12,14 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 ///
 /// There is a one-to-one relationship between nodes and keys.
 /// The keys used to identify nodes support [`Keys`]/[`IntoKeys`]. They can be
-/// obtained from other [`IntoKeys`] through [`FromConfig::transcode()`] or
-/// [`Schema::transcode()`].
+/// obtained from other [`IntoKeys`] through [`Schema::transcode()`].
 /// An iterator of keys for the nodes is available through [`Schema::nodes()`].
 ///
-/// * `usize` is modelled after ASN.1 Object Identifiers, see [`Indices`].
+/// * `usize` is modelled after ASN.1 Object Identifiers, see [`crate::Indices`].
 /// * `&str` keys are sequences of names, like path names. When concatenated, they are separated
-///   by some path hierarchy separator, e.g. `'/'`, see [`Path`], or by some more
-///   complex notation, see [`JsonPath`].
-/// * [`Packed`] is a bit-packed compact compressed notation of
+///   by some path hierarchy separator, e.g. `'/'`, see [`crate::Path`], or by some more
+///   complex notation, see [`crate::JsonPath`].
+/// * [`crate::Packed`] is a bit-packed compact compressed notation of
 ///   hierarchical compound indices.
 /// * See the `scpi` example for how to implement case-insensitive, relative, and abbreviated/partial
 ///   matches.
@@ -52,7 +51,7 @@ use crate::{ExactSize, FromConfig, IntoKeys, Keys, NodeIter, Schema, SerdeError,
 ///
 /// ```
 /// # #[cfg(feature = "derive")] {
-/// use miniconf::{FromConfig, Path, Tree, TreeSchema};
+/// use miniconf::{Path, Transcode, Tree, TreeSchema};
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(rename = "OTHER")]
@@ -169,9 +168,9 @@ pub trait TreeSchema {
     /// Return an exact size iterator of all leaf nodes
     ///
     /// This ensures sufficient state depth at compile time.
-    fn nodes<N: FromConfig, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+    fn nodes<N: crate::Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
         const { assert!(D >= Self::SCHEMA.shape().max_depth) }
-        Self::SCHEMA.nodes()
+        Self::SCHEMA.nodes::<N, D>()
     }
 }
 
@@ -182,7 +181,7 @@ pub trait TreeSchema {
 /// ```
 /// # #[cfg(feature = "derive")] {
 /// use core::any::Any;
-/// use miniconf::{Indices, IntoKeys, JsonPath, TreeAny, TreeSchema};
+/// use miniconf::{Indices, JsonPathIter, TreeAny, TreeSchema};
 /// #[derive(TreeSchema, TreeAny, Default)]
 /// struct S {
 ///     foo: u32,
@@ -191,15 +190,16 @@ pub trait TreeSchema {
 /// let mut s = S::default();
 ///
 /// for key in S::SCHEMA.nodes::<Indices<[_; 2]>, 2>() {
-///     let a = s.ref_any_by_key(key.unwrap().into_keys()).unwrap();
+///     let key = key.unwrap();
+///     let a = s.ref_any_by_key(key.as_ref()).unwrap();
 ///     assert!([0u32.type_id(), 0u16.type_id()].contains(&(&*a).type_id()));
 /// }
 ///
-/// let val: &mut u16 = s.mut_by_key(JsonPath(".bar[1]")).unwrap();
+/// let val: &mut u16 = s.mut_by_key(JsonPathIter::new(".bar[1]")).unwrap();
 /// *val = 3;
 /// assert_eq!(s.bar[1], 3);
 ///
-/// let val: &u16 = s.ref_by_key(JsonPath(".bar[1]")).unwrap();
+/// let val: &u16 = s.ref_by_key(JsonPathIter::new(".bar[1]")).unwrap();
 /// assert_eq!(*val, 3);
 /// # }
 /// ```
@@ -227,7 +227,7 @@ pub trait TreeAny: TreeSchema {
 
 /// Serialize a leaf node by its keys.
 ///
-/// See also [`json_core`] or [`postcard`] for convenient wrappers using this trait.
+/// See also [`crate::json_core`] or [`crate::postcard`] for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
@@ -268,7 +268,7 @@ pub trait TreeSerialize: TreeSchema {
 
 /// Deserialize a leaf node by its keys.
 ///
-/// See also [`json_core`] or [`postcard`] for convenient wrappers using this trait.
+/// See also [`crate::json_core`] or [`crate::postcard`] for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///

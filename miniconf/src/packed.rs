@@ -1,6 +1,6 @@
 use core::num::NonZero;
 
-use crate::{DescendError, FromConfig, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
 /// A bit-packed representation of multiple indices.
 ///
@@ -224,24 +224,15 @@ impl Transcode for Packed {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 let bits = Packed::bits_for(internal.len().get() - 1);
                 self.push_lsb(bits, index).ok_or(())?;
             }
             Ok(())
         })
-    }
-}
-
-impl FromConfig for Packed {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::default()
     }
 }
 

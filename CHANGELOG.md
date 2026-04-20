@@ -10,32 +10,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* `Path` takes thes separator as a member reducing monomorphization bloat.
+* `Path` now stores its separator at runtime, reducing monomorphization bloat on the dynamic path
+  representation.
 * `Schema::get()` now performs exact lookup and returns `Lookup`.
+* `Schema::transcode()` now takes `impl IntoKeys`, default-constructs the target, and uses the
+  `IntoKeys` boundary funnel before deeper `Keys`-based traversal.
+* `IntoKeys` is now a narrower outer-boundary normalization layer instead of a broad blanket over
+  arbitrary iterator/string wrapper types. Slash-separated `&str` remains the default shorthand;
+  explicit separators use `PathIter`/`ConstPathIter`.
 * `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
 * `miniconf_mqtt`: `MqttClient` is now async-first and built on async `minimq::Session`.
   `update()` was replaced by `poll().await`.
+* `miniconf_mqtt` MM2 manifests now publish `epoch`. Long-lived Python
+  clients keep `/alive` subscribed, invalidate cached schema/settings on `epoch` or `schema_rev`
+  changes, and treat retained `settings/#` without `rev` as non-authoritative.
 * Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a monomorphic `SCHEMA` constant.
+* `Meta` is now a stable always-on newtype with direct serialization support. The old `meta-str`
+  feature was removed.
 
 ### Added
 
 * `ConstPath` and `ConstPathIter` taking the separator as a const generic. That allows compile time specialization of ASCII separators.
-* `FromConfig` trait to enable `Transcode`/`Keys` construction from runtime configuration.
 * `Schema::resolve_into()` and `Lookup` for exact lookup with consumed-depth reporting.
-* `Schema::view()` and `Schema::get_view()` for serializable schema node views that mirror `Schema` and `Internal`.
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
-* `miniconf_mqtt` `introspection` feature exposing `/schema<path>` and `/state<path>` request/reply endpoints.
 * `#[tree(meta(...))]` for derive metadata syntax.
   Derived enums now always yield structured schema semantics `{"sem":{"oneof":true}}`.
-* Structured `sem.maybe_absent` on `Option<T>` schema views.
-* Structured `sem.oneof` on built-in `Result<T, E>` and `Bound<T>` schema views.
+* Structured `sem.maybe_absent` on `Option<T>` schema nodes and JSON Schema output.
+* Structured `sem.oneof` on built-in `Result<T, E>` and `Bound<T>` schema nodes and JSON Schema output.
 * `nullable` as an outer metadata hint, e.g. `#[tree(with = leaf, meta(nullable))]`, propagated into JSON Schema as `null`.
 * Generated JSON Schema now carries an explicit `tree-leaf` marker and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
 
 ### Removed
 
-* Short and Track
+* `FromConfig`, `Schema::transcode_with()`, and `Schema::nodes_with()`
+* `Schema::view()`, `Schema::get_view()`, and the `SchemaView` helper family
+* `meta-str`
 
 ## [0.20.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.0...miniconf-v0.20.1) - 2026-02-12
 

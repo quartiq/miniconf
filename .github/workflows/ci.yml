@@ -42,7 +42,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - run: cargo doc
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 
   compile:
     runs-on: ubuntu-latest
@@ -62,6 +62,9 @@ jobs:
       - run: cargo build
       - run: cargo build --release
       - run: cargo build --examples
+      - run: cargo run --example cli
+      - run: cargo run --example scpi
+      - run: cargo run --example trace --features schema
 
   test:
     runs-on: ubuntu-latest
@@ -97,6 +100,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-arm binutils-arm-none-eabi
+      - run: cargo build --bins
+        env:
+          RUSTFLAGS: -D warnings
+        working-directory: miniconf/tests/benchmark
       - run: ./run.sh
         env:
           RUSTFLAGS: -D warnings

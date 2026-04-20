@@ -31,14 +31,6 @@ pub trait Keys {
     ///
     /// This must be fused.
     fn finalize(&mut self) -> Result<(), KeyError>;
-
-    /// Chain another `Keys` to this one.
-    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self, U::IntoKeys>
-    where
-        Self: Sized,
-    {
-        Chain(self, other.into_keys())
-    }
 }
 
 impl<T: Keys + ?Sized> Keys for &mut T {
@@ -73,8 +65,23 @@ pub trait IntoKeys {
     /// The specific `Keys` implementor.
     type IntoKeys: Keys;
 
-    /// Convert `self` into a `Keys` implementor.
+    /// Convert `self` into a normalized [`Keys`] implementor.
+    ///
+    /// This is the outer boundary funnel. Accept wider ergonomic key inputs here, but keep the
+    /// actual `Keys` type space small so deep traversal APIs (`*_by_keys()`, schema descent, and
+    /// transcoding) do not monomorphize over every input wrapper/container flavor.
     fn into_keys(self) -> Self::IntoKeys;
+
+    /// Concatenate two boundary key inputs into one normalized key stream.
+    ///
+    /// This lives on [`IntoKeys`], not [`Keys`], because chaining is boundary composition rather
+    /// than a concern of deep traversal APIs.
+    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self::IntoKeys, U::IntoKeys>
+    where
+        Self: Sized,
+    {
+        Chain(self.into_keys(), other.into_keys())
+    }
 }
 
 /// Look up an `IntoKeys` in a `Schema` and transcode it.
@@ -87,51 +94,24 @@ pub trait Transcode {
     /// Perform a node lookup of a `K: IntoKeys` on a `Schema` and transcode it.
     ///
     /// This is the low-level, in-place transcoding API. Fresh output construction is provided by
-    /// [`FromConfig::transcode`] and [`FromConfig::transcode_with`]. Existing target content
-    /// handling is representation-specific: fixed-capacity/key views typically overwrite, while
-    /// append-oriented buffers and writers may append.
+    /// [`Transcode::transcode()`]. Existing target content handling is representation-specific:
+    /// fixed-capacity/key views typically overwrite, while append-oriented buffers and writers may
+    /// append.
     ///
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>>;
-}
 
-/// Construct a fresh transcoding target from compact configuration state.
-pub trait FromConfig: Sized {
-    /// The configuration required to construct `Self`.
-    type Config: Copy;
-
-    /// Default configuration for `Self`.
-    const DEFAULT_CONFIG: Self::Config;
-
-    /// Construct a fresh transcoding target from the provided configuration.
-    fn from_config(config: &Self::Config) -> Self;
-
-    /// Transcode keys into a fresh output constructed from `config`.
-    fn transcode_with(
-        schema: &Schema,
-        keys: impl IntoKeys,
-        config: Self::Config,
-    ) -> Result<Self, DescendError<<Self as Transcode>::Error>>
+    /// Transcode keys into a fresh default-constructed output.
+    fn transcode(schema: &Schema, keys: impl IntoKeys) -> Result<Self, DescendError<Self::Error>>
     where
-        Self: Transcode,
+        Self: Sized + Default,
     {
-        let mut target = Self::from_config(&config);
-        target.transcode_from(schema, keys)?;
+        let mut target = Self::default();
+        target.transcode_from(schema, keys.into_keys())?;
         Ok(target)
-    }
-
-    /// Transcode keys into a fresh output constructed from the default configuration.
-    fn transcode(
-        schema: &Schema,
-        keys: impl IntoKeys,
-    ) -> Result<Self, DescendError<<Self as Transcode>::Error>>
-    where
-        Self: Transcode,
-    {
-        Self::transcode_with(schema, keys, Self::DEFAULT_CONFIG)
     }
 }
 
@@ -140,7 +120,7 @@ impl<T: Transcode + ?Sized> Transcode for &mut T {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
         (**self).transcode_from(schema, keys)
     }
@@ -152,26 +132,22 @@ impl Transcode for () {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_, _| Ok::<_, Infallible>(()))
+        schema.descend(keys, |_, _| Ok::<_, Infallible>(()))
     }
 }
 
-impl FromConfig for () {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {}
-}
-
-/// [`Keys`]/[`IntoKeys`] for Iterators of [`Key`]
+/// Explicit normalized wrapper for iterator-shaped key inputs.
+///
+/// This exists so iterator inputs stay opt-in at the [`IntoKeys`] boundary instead of being
+/// accepted by a blanket impl.
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct KeysIter<T>(Fuse<T>);
 
 impl<T: Iterator> KeysIter<T> {
-    fn new(inner: T) -> Self {
+    pub(crate) fn new(inner: T) -> Self {
         Self(inner.fuse())
     }
 }
@@ -194,12 +170,35 @@ where
     }
 }
 
-impl<T> IntoKeys for T
-where
-    T: IntoIterator,
-    <T::IntoIter as Iterator>::Item: Key,
-{
-    type IntoKeys = KeysIter<T::IntoIter>;
+impl<'a> IntoKeys for &'a str {
+    type IntoKeys = crate::ConstPathIter<'a, '/'>;
+
+    /// Interpret `self` as a rooted slash-separated path.
+    ///
+    /// Use [`crate::PathIter`] or [`crate::ConstPathIter`] directly for non-`'/'` separators.
+    fn into_keys(self) -> Self::IntoKeys {
+        crate::ConstPathIter::root(self)
+    }
+}
+
+impl<T: Key> IntoKeys for &[T] {
+    type IntoKeys = Self;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        self
+    }
+}
+
+impl<'a, T: Key, const N: usize> IntoKeys for &'a [T; N] {
+    type IntoKeys = &'a [T];
+
+    fn into_keys(self) -> Self::IntoKeys {
+        &self[..]
+    }
+}
+
+impl<T: Key, const N: usize> IntoKeys for [T; N] {
+    type IntoKeys = KeysIter<core::array::IntoIter<T, N>>;
 
     fn into_keys(self) -> Self::IntoKeys {
         KeysIter::new(self.into_iter())

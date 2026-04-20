@@ -15,6 +15,13 @@ if TYPE_CHECKING:
     from .async_ import MiniconfClient
 
 
+def _user_properties(message: Message) -> dict[str, str]:
+    try:
+        return dict(message.properties.json()["UserProperty"])
+    except (AttributeError, KeyError):
+        return {}
+
+
 async def discover(
     client: Client,
     prefix: str,
@@ -63,8 +70,18 @@ async def _manifest(
     interface: MiniconfClient, *, timeout: float = 3.0
 ) -> dict[str, Any]:
     async with interface._watch(f"{interface.prefix}/alive") as queue:
-        message = await asyncio.wait_for(queue.get(), timeout)
-        return json.loads(message.payload)
+        end = asyncio.get_running_loop().time() + timeout
+        while True:
+            remaining = end - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError("Timed out waiting for live manifest")
+            message = await asyncio.wait_for(queue.get(), remaining)
+            if not message.payload:
+                continue
+            try:
+                return json.loads(message.payload)
+            except json.JSONDecodeError:
+                continue
 
 
 async def read(interface: MiniconfClient, path: str, *, timeout: float = 3.0):
@@ -128,6 +145,9 @@ async def _collect_retained_settings(
                 message = task.result()
                 topic = message.topic.value
                 if not topic.startswith(f"{interface.prefix}/settings"):
+                    continue
+                props = _user_properties(message)
+                if "rev" not in props:
                     continue
                 settings_path = topic.removeprefix(f"{interface.prefix}/settings")
                 if not subtree_match(settings_path, root):
@@ -270,5 +290,6 @@ async def force_prune(interface: MiniconfClient, *, timeout: float = 3.0) -> lis
         await interface.client.publish(topic, payload=b"", retain=True)
     interface._schema = None
     interface._schema_rev = None
+    interface._epoch = None
     interface._settings.clear()
     return [topic.removeprefix(f"{interface.prefix}/") for topic in topics]

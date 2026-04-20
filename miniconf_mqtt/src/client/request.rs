@@ -3,13 +3,13 @@ use core::convert::Infallible;
 use heapless::String;
 use itoa::Buffer;
 use log::{debug, warn};
-use miniconf::{DescendError, FromConfig, Path, SerdeError, Transcode, ValueError, json_core};
+use miniconf::{ConstPath, DescendError, SerdeError, ValueError, json_core};
 use minimq::{InboundPublish, ProtocolError, PubError, Publication, QoS};
 
 #[cfg(feature = "compat-settings-ingress")]
 use crate::client::SettingsIngressPhase;
 use crate::{
-    Error, MAX_TOPIC_LENGTH, MqttClient, SEPARATOR, State,
+    Error, MAX_TOPIC_LENGTH, MqttClient, State,
     message::{
         Action, DepthError, ReplyTarget, Resource, ResponseCode, format_message, simple_pub_error,
     },
@@ -59,9 +59,7 @@ where
         payload: &[u8],
         reply: Option<ReplyTarget>,
     ) -> Action<Y> {
-        let Some((resource, path)) = Resource::parse(topic, prefix)
-            .map(|(parsed, path)| (parsed, Path::new(path, SEPARATOR)))
-        else {
+        let Some((resource, path)) = Resource::parse(topic, prefix) else {
             return Action::None(State::Unchanged);
         };
 
@@ -187,7 +185,7 @@ where
                 }
 
                 #[cfg(feature = "compat-settings-ingress")]
-                match self.settings_ingress {
+                match self.protocol.settings_ingress {
                     SettingsIngressPhase::Recovering { .. } => State::Changed,
                     SettingsIngressPhase::Runtime => {
                         if self.publish_current(settings, state, depth).await.is_err() {
@@ -201,7 +199,7 @@ where
                 unreachable!()
             }
             #[cfg(feature = "compat-settings-ingress")]
-            Action::OverrideSet { state, depth } => match self.settings_ingress {
+            Action::OverrideSet { state, depth } => match self.protocol.settings_ingress {
                 SettingsIngressPhase::Recovering { .. } => State::Unchanged,
                 SettingsIngressPhase::Runtime => {
                     let _ = self.publish_current(settings, state, depth).await;
@@ -212,9 +210,9 @@ where
     }
 
     fn queue_settings_sync(&mut self) {
-        if matches!(self.pending, Pending::Idle) {
+        if matches!(self.protocol.pending, Pending::Idle) {
             debug!("Queued retained settings sync");
-            self.pending = Pending::settings(Settings::SCHEMA);
+            self.protocol.pending = Pending::settings(Settings::SCHEMA);
         }
     }
 
@@ -246,11 +244,11 @@ where
                 Error::Mqtt(err) => PubError::Session(err),
                 Error::Miniconf(_) => unreachable!(),
             })?;
-        self.rev = self.rev.wrapping_add(1);
+        self.protocol.manifest.settings_rev = self.protocol.manifest.settings_rev.wrapping_add(1);
         let mut rev = Buffer::new();
         let props = [minimq::Property::UserProperty(
             minimq::types::Utf8String("rev"),
-            minimq::types::Utf8String(rev.format(self.rev)),
+            minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
         )];
         let publication = Publication::new(&topic, |buf: &mut [u8]| {
             let full = &state[..depth];
@@ -263,11 +261,11 @@ where
     }
 
     pub(super) async fn clear_leaf(&mut self, topic: &str) -> Result<(), Error<C::Error>> {
-        self.rev = self.rev.wrapping_add(1);
+        self.protocol.manifest.settings_rev = self.protocol.manifest.settings_rev.wrapping_add(1);
         let mut rev = Buffer::new();
         let props = [minimq::Property::UserProperty(
             minimq::types::Utf8String("rev"),
-            minimq::types::Utf8String(rev.format(self.rev)),
+            minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
         )];
         let publication = Publication::new(topic, b"")
             .properties(&props)
@@ -280,8 +278,8 @@ where
     }
 
     fn settings_topic(&self, state: &[usize]) -> Result<String<MAX_TOPIC_LENGTH>, Error<C::Error>> {
-        let mut path = Path::<String<MAX_TOPIC_LENGTH>>::from_config(&SEPARATOR);
-        path.transcode_from(Settings::SCHEMA, state)
+        let path: ConstPath<String<MAX_TOPIC_LENGTH>, '/'> = Settings::SCHEMA
+            .transcode(state)
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix

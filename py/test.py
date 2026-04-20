@@ -18,6 +18,7 @@ from miniconf.render import render_schema_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
 ROOT = Path(__file__).resolve().parents[1]
+FIXTURE = ROOT / "testdata" / "compact-schema" / "fixture.ndjson"
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
@@ -40,6 +41,11 @@ def cli_stdout(*args: str) -> str:
             f"cli failed: {args}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
     return proc.stdout
+
+
+def fixture_schema() -> Schema:
+    defs = [json.loads(line) for line in FIXTURE.read_text().splitlines() if line]
+    return Schema.from_defs(defs, 1)
 
 
 class TopicWatcher:
@@ -148,6 +154,22 @@ async def close_client(client: Client, timeout: float = 1.0) -> None:
 
 
 async def main() -> None:
+    schema_fixture = fixture_schema()
+    assert schema_fixture.paths() == ["", "/value", "/nested", "/nested/leaf"]
+    assert schema_fixture.kind() == "named"
+    assert schema_fixture.kind("/nested") == "named"
+    assert schema_fixture.kind("/value") == "leaf"
+    assert schema_fixture.outer("/value") == {"role": "selector"}
+    assert schema_fixture.outer("/nested") is None
+    assert schema_fixture.compact("/nested") == {
+        "path": "/nested",
+        "rev": 1,
+        "defs": [
+            {},
+            {"i": {"k": "n", "c": {"leaf": 0}}},
+        ],
+    }
+
     compressed_sem = render_schema_tree(
         Schema.from_defs(
             [
@@ -195,7 +217,7 @@ async def main() -> None:
         dut = subprocess.Popen([str(EXAMPLE)], cwd=ROOT)
 
         manifest = json.loads(alive.wait_nonempty_payload(5.0, f"{TARGET}/alive"))
-        assert manifest["boot_id"] > 0, manifest
+        assert manifest["epoch"] > 0, manifest
         assert manifest["pages"] > 0, manifest
         assert manifest["schema_rev"], manifest
         schema_topics.wait_schema_pages(3.0, TARGET, manifest["pages"])
@@ -334,7 +356,22 @@ async def main() -> None:
             text=True,
         ).stdout.splitlines()
         assert "schema/99" in prune_out, prune_out
-        assert "/obsolete" in prune_out, prune_out
+        force_prune_out = subprocess.run(
+            [
+                ".venv/bin/python",
+                "-m",
+                "miniconf",
+                "-b",
+                "localhost",
+                "--force-prune",
+                TARGET,
+            ],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        assert "settings/obsolete" in force_prune_out, force_prune_out
 
     finally:
         if mc is not None:

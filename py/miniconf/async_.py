@@ -70,16 +70,23 @@ class _TrackState:
 
 
 class MiniconfClient:
-    """Long-lived MM2 Miniconf session with schema and settings caches."""
+    """Long-lived MM2 Miniconf session with schema and settings caches.
+
+    The client keeps `/alive` subscribed to invalidate cached schema/settings when the device
+    `epoch` or `schema_rev` changes. Retained `settings/#` publications without `rev` are treated
+    as non-authoritative and ignored.
+    """
 
     def __init__(self, client: Client, prefix: str):
         self.client = client
         self.prefix = prefix
+        self.alive_topic = f"{prefix}/alive"
         self.response_topic = f"{prefix}/response"
         self._inflight: dict[bytes, asyncio.Future[None]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
         self._subscriptions: dict[str, int] = {}
         self._schema: Schema | None = None
+        self._epoch: int | None = None
         self._schema_rev: int | None = None
         self._settings: dict[str, Any] = {}
         self._tracking: dict[str, _TrackState] = {}
@@ -100,7 +107,9 @@ class MiniconfClient:
 
     async def _listen(self):
         await self.client.subscribe(self.response_topic)
+        await self.client.subscribe(self.alive_topic)
         LOGGER.debug("Subscribed to %s", self.response_topic)
+        LOGGER.debug("Subscribed to %s", self.alive_topic)
         self.subscribed.set()
         try:
             async for message in self.client.messages:
@@ -113,6 +122,7 @@ class MiniconfClient:
             self.subscribed.clear()
             try:
                 await self.client.unsubscribe(self.response_topic)
+                await self.client.unsubscribe(self.alive_topic)
             except MqttError:
                 LOGGER.debug("MQTT unsubscribe error", exc_info=True)
 
@@ -120,6 +130,15 @@ class MiniconfClient:
         topic = message.topic.value
         properties = _properties(message)
         LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
+
+        for topic_filter, queues in tuple(self._watchers.items()):
+            if mqtt.topic_matches_sub(topic_filter, topic):
+                for queue in tuple(queues):
+                    queue.put_nowait(message)
+
+        if topic == self.alive_topic:
+            self._note_manifest_payload(message.payload)
+            return
 
         if topic == self.response_topic:
             cd = _response_cd(properties)
@@ -140,11 +159,6 @@ class MiniconfClient:
                             MiniconfException(code, message.payload.decode("utf-8"))
                         )
 
-        for topic_filter, queues in tuple(self._watchers.items()):
-            if mqtt.topic_matches_sub(topic_filter, topic):
-                for queue in tuple(queues):
-                    queue.put_nowait(message)
-
         if not topic.startswith(f"{self.prefix}/settings"):
             return
         if _response_rev(properties) is None:
@@ -158,6 +172,44 @@ class MiniconfClient:
         for root, state in self._tracking.items():
             if subtree_match(path, root):
                 state.burst.note(now, state.rel_timeout, state.abs_timeout)
+
+    def _note_manifest(self, manifest: dict[str, Any]):
+        try:
+            epoch = int(manifest["epoch"])
+            schema_rev = int(manifest["schema_rev"])
+        except (KeyError, TypeError, ValueError):
+            LOGGER.debug("Ignoring invalid alive manifest: %r", manifest)
+            return
+
+        if self._epoch != epoch or self._schema_rev != schema_rev:
+            self._settings.clear()
+            now = asyncio.get_running_loop().time()
+            for state in self._tracking.values():
+                state.burst = BurstState(now, now + state.abs_timeout)
+        if self._schema_rev != schema_rev:
+            self._schema = None
+        self._epoch = epoch
+        self._schema_rev = schema_rev
+
+    def _note_device_gone(self):
+        self._schema = None
+        self._schema_rev = None
+        self._epoch = None
+        self._settings.clear()
+        now = asyncio.get_running_loop().time()
+        for state in self._tracking.values():
+            state.burst = BurstState(now, now + state.abs_timeout)
+
+    def _note_manifest_payload(self, payload: bytes):
+        if not payload:
+            self._note_device_gone()
+            return
+        try:
+            manifest = json.loads(payload)
+        except json.JSONDecodeError:
+            LOGGER.debug("Ignoring invalid alive payload: %r", payload)
+            return
+        self._note_manifest(manifest)
 
     async def _subscribe(self, topic_filter: str):
         if not self._subscriptions.get(topic_filter):
@@ -230,6 +282,7 @@ class MiniconfClient:
         """Load and cache the retained paged schema."""
 
         manifest = await ops._manifest(self, timeout=timeout)
+        self._note_manifest(manifest)
         schema_rev = int(manifest["schema_rev"])
         if self._schema is not None and self._schema_rev == schema_rev:
             return self._schema

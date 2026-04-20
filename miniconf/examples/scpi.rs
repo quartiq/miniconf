@@ -1,8 +1,8 @@
 use core::str;
 
 use miniconf::{
-    ConstPath, ConstPathIter, IntoKeys, Keys, SerdeError, TreeDeserializeOwned, TreeSchema,
-    TreeSerialize, ValueError, json_core,
+    ConstPath, ConstPathIter, Internal, IntoKeys, KeyError, Keys, SerdeError, TreeDeserializeOwned,
+    TreeSchema, TreeSerialize, ValueError, json_core,
 };
 
 mod common;
@@ -62,7 +62,21 @@ struct ScpiPathIter<'a>(ConstPathIter<'a, ':'>);
 impl<'a> Iterator for ScpiPathIter<'a> {
     type Item = ScpiKey<&'a str>;
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(ScpiKey)
+        Iterator::next(&mut self.0).map(ScpiKey)
+    }
+}
+
+impl Keys for ScpiPathIter<'_> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let key = Iterator::next(self).ok_or(KeyError::TooShort)?;
+        miniconf::Key::find(&key, internal).ok_or(KeyError::NotFound)
+    }
+
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        match Iterator::next(self) {
+            Some(_) => Err(KeyError::TooLong),
+            None => Ok(()),
+        }
     }
 }
 
@@ -74,6 +88,14 @@ impl<'a> IntoIterator for ScpiPath<'a> {
     type Item = ScpiKey<&'a str>;
     fn into_iter(self) -> Self::IntoIter {
         ScpiPathIter(ConstPathIter::new(self.0))
+    }
+}
+
+impl<'a> IntoKeys for ScpiPath<'a> {
+    type IntoKeys = ScpiPathIter<'a>;
+
+    fn into_keys(self) -> Self::IntoKeys {
+        self.into_iter()
     }
 }
 
@@ -109,7 +131,7 @@ fn scpi<M: TreeSerialize + TreeDeserializeOwned>(target: &mut M, cmds: &str) -> 
         } else {
             (abs, ScpiPath(Some(path)))
         };
-        let path = abs.into_keys().chain(rel);
+        let path = abs.chain(rel);
         if let Some(value) = value {
             json_core::set_by_key(target, path, value.as_bytes())?;
             println!("OK");
@@ -136,7 +158,11 @@ fn main() -> anyhow::Result<()> {
     const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
     for path in Settings::SCHEMA.nodes::<ConstPath<String, ':'>, MAX_DEPTH>() {
         let path = path?;
-        match json_core::get_by_key(&settings, &path, &mut buf) {
+        match json_core::get_by_key(
+            &settings,
+            ConstPathIter::<'_, ':'>::root(path.as_ref()),
+            &mut buf,
+        ) {
             Ok(len) => println!(
                 "{} {}",
                 path.0.to_uppercase(),

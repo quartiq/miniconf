@@ -25,7 +25,7 @@ where
     pub(super) async fn publish_alive(&mut self) -> Result<(), Error<C::Error>> {
         #[derive(Serialize)]
         struct Alive {
-            boot_id: u32,
+            epoch: u32,
             schema_rev: u32,
             pages: usize,
         }
@@ -38,9 +38,9 @@ where
             .push_str("/alive")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         let body = json_text::<MAX_PAYLOAD_LENGTH, _>(&Alive {
-            boot_id: self.boot_id,
-            schema_rev: self.schema_rev,
-            pages: self.schema_pages,
+            epoch: self.protocol.manifest.epoch,
+            schema_rev: self.protocol.manifest.schema_rev,
+            pages: self.protocol.manifest.schema_pages,
         })
         .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         let publication = Publication::new(&topic, body.as_str())
@@ -54,22 +54,22 @@ where
 
     #[cfg(feature = "compat-settings-ingress")]
     pub(super) fn settings_recovery_wait_deadline(&self) -> Option<Instant> {
-        match self.settings_ingress {
+        match self.protocol.settings_ingress {
             SettingsIngressPhase::Recovering {
                 seen: true,
                 deadline: Some(deadline),
-            } if matches!(self.pending, Pending::Idle) => Some(deadline),
+            } if matches!(self.protocol.pending, Pending::Idle) => Some(deadline),
             _ => None,
         }
     }
 
     #[cfg(feature = "compat-settings-ingress")]
     pub(super) fn note_settings_ingress(&mut self) {
-        if let SettingsIngressPhase::Recovering { seen, .. } = self.settings_ingress {
+        if let SettingsIngressPhase::Recovering { seen, .. } = self.protocol.settings_ingress {
             if !seen {
                 debug!("Observed retained settings ingress during recovery");
             }
-            self.settings_ingress = SettingsIngressPhase::Recovering {
+            self.protocol.settings_ingress = SettingsIngressPhase::Recovering {
                 seen: true,
                 deadline: Some(Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE),
             };
@@ -84,16 +84,16 @@ where
         let SettingsIngressPhase::Recovering {
             seen: true,
             deadline: Some(deadline),
-        } = self.settings_ingress
+        } = self.protocol.settings_ingress
         else {
             return;
         };
-        if !idle || Instant::now() < deadline || !matches!(self.pending, Pending::Idle) {
+        if !idle || Instant::now() < deadline || !matches!(self.protocol.pending, Pending::Idle) {
             return;
         }
-        self.settings_ingress = SettingsIngressPhase::Runtime;
+        self.protocol.settings_ingress = SettingsIngressPhase::Runtime;
         debug!("Finished settings ingress recovery");
-        self.pending = Pending::settings(Settings::SCHEMA);
+        self.protocol.pending = Pending::settings(Settings::SCHEMA);
     }
 
     #[cfg(not(feature = "compat-settings-ingress"))]
@@ -103,7 +103,7 @@ where
         if !self.session.can_publish(QoS::AtLeastOnce) {
             return;
         }
-        match &mut self.pending {
+        match &mut self.protocol.pending {
             Pending::Idle => {}
             Pending::Schema { .. } => self.advance_schema_pending().await,
             Pending::Settings { .. } => self.advance_settings_pending(settings).await,
@@ -117,7 +117,7 @@ where
                 next,
                 page,
                 hash,
-            } = &mut self.pending
+            } = &mut self.protocol.pending
             else {
                 unreachable!()
             };
@@ -126,7 +126,7 @@ where
                 SchemaPage::Done => ((Some((*page, *hash))), None),
                 SchemaPage::Oversized { id } => {
                     warn!("Aborting schema sync after oversized schema entry for definition {id}");
-                    self.pending.clear();
+                    self.protocol.pending.clear();
                     return;
                 }
                 SchemaPage::Ready { count } => {
@@ -155,34 +155,34 @@ where
                 current_page,
                 simple_pub_error(err)
             );
-            self.pending.clear();
+            self.protocol.pending.clear();
         }
     }
 
     fn finish_schema_sync(&mut self, pages: usize, hash: u32) {
-        self.schema_pages = pages;
-        self.schema_rev = hash;
-        self.publish_alive_after_sync = true;
+        self.protocol.manifest.schema_pages = pages;
+        self.protocol.manifest.schema_rev = hash;
+        self.protocol.publish_alive_after_sync = true;
         info!(
             "Completed schema sync pages={} rev={}",
-            self.schema_pages, self.schema_rev
+            self.protocol.manifest.schema_pages, self.protocol.manifest.schema_rev
         );
         #[cfg(feature = "compat-settings-ingress")]
         if matches!(
-            self.settings_ingress,
+            self.protocol.settings_ingress,
             SettingsIngressPhase::Recovering { seen: true, .. }
         ) {
             debug!("Deferring retained settings sync until recovery completes");
-            self.pending.clear();
+            self.protocol.pending.clear();
             return;
         }
         debug!("Queued retained settings sync after schema sync");
-        self.pending = Pending::settings(Settings::SCHEMA);
+        self.protocol.pending = Pending::settings(Settings::SCHEMA);
     }
 
     async fn advance_settings_pending(&mut self, settings: &Settings) {
         let (path, state, depth) = {
-            let Pending::Settings { iter } = &mut self.pending else {
+            let Pending::Settings { iter } = &mut self.protocol.pending else {
                 unreachable!()
             };
             let Some(path) = iter.next() else {
@@ -193,13 +193,13 @@ where
                 Ok(path) => path.into_inner(),
                 Err(err) => {
                     warn!("Aborting retained settings sync after path iteration failure: {err}");
-                    self.publish_alive_after_sync = false;
-                    self.pending.clear();
+                    self.protocol.publish_alive_after_sync = false;
+                    self.protocol.pending.clear();
                     return;
                 }
             };
             let Some(full) = iter.state() else {
-                self.pending.clear();
+                self.protocol.pending.clear();
                 return;
             };
             let mut state = [0; Y];
@@ -219,8 +219,8 @@ where
             })) => {
                 if let Err(err) = self.clear_leaf(&topic).await {
                     warn!("Failed to clear retained setting path={path}: {err:?}");
-                    self.publish_alive_after_sync = false;
-                    self.pending.clear();
+                    self.protocol.publish_alive_after_sync = false;
+                    self.protocol.pending.clear();
                 }
             }
             Err(err) => {
@@ -228,25 +228,25 @@ where
                     "Failed to publish retained setting path={path}: {:?}",
                     simple_pub_error(err)
                 );
-                self.publish_alive_after_sync = false;
-                self.pending.clear();
+                self.protocol.publish_alive_after_sync = false;
+                self.protocol.pending.clear();
             }
         }
     }
 
     async fn finish_settings_sync(&mut self) {
-        if self.publish_alive_after_sync {
-            self.publish_alive_after_sync = false;
+        if self.protocol.publish_alive_after_sync {
+            self.protocol.publish_alive_after_sync = false;
             if let Err(err) = self.publish_alive().await {
                 warn!("Failed to publish alive manifest: {err:?}");
             } else {
                 info!(
                     "Completed retained settings sync pages={} rev={}",
-                    self.schema_pages, self.schema_rev
+                    self.protocol.manifest.schema_pages, self.protocol.manifest.schema_rev
                 );
             }
         }
-        self.pending.clear();
+        self.protocol.pending.clear();
     }
 
     fn schema_page_topic(&self, page: usize) -> String<MAX_TOPIC_LENGTH> {
