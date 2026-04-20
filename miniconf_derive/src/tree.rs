@@ -65,7 +65,6 @@ fn doc_to_meta(
 }
 
 fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
-    #[cfg(feature = "meta-str")]
     if !meta.is_empty() {
         let meta: TokenStream = meta
             .iter()
@@ -74,10 +73,8 @@ fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
                 quote!((#k, #v), )
             })
             .collect();
-        return quote!(::core::option::Option::Some(&[#meta]));
+        return quote!(::core::option::Option::Some(::miniconf::Meta::new(&[#meta])));
     }
-    #[cfg(not(feature = "meta-str"))]
-    let _ = meta;
     quote!(::core::option::Option::None)
 }
 

@@ -209,63 +209,53 @@ fn cell() {
     common::set_get(&mut r, "", b"9");
 }
 
+#[test]
+fn meta_option_is_niche_optimized() {
+    assert_eq!(
+        core::mem::size_of::<Option<miniconf::Meta>>(),
+        core::mem::size_of::<miniconf::Meta>()
+    );
+}
+
 #[cfg(feature = "sem")]
 #[test]
 fn builtin_oneof_sem() {
-    assert_eq!(
-        serde_json::to_value(Result::<u32, i32>::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"oneof": true},
-            "internal": {
-                "kind": "named",
-                "children": [{"name": "Ok"}, {"name": "Err"}],
-            }
-        })
-    );
+    let schema = Result::<u32, i32>::SCHEMA;
+    assert!(schema.sem().unwrap().oneof());
+    let miniconf::Internal::Named(children) = schema.internal.unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name, "Ok");
+    assert_eq!(children[1].name, "Err");
 
-    assert_eq!(
-        serde_json::to_value(core::ops::Bound::<u32>::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"oneof": true},
-            "internal": {
-                "kind": "named",
-                "children": [{"name": "Included"}, {"name": "Excluded"}],
-            }
-        })
-    );
+    let schema = core::ops::Bound::<u32>::SCHEMA;
+    assert!(schema.sem().unwrap().oneof());
+    let miniconf::Internal::Named(children) = schema.internal.unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name, "Included");
+    assert_eq!(children[1].name, "Excluded");
 }
 
 #[cfg(all(feature = "sem", feature = "std"))]
 #[test]
 fn string_like_leaf_ty() {
     assert_eq!(
-        serde_json::to_value(std::net::SocketAddr::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"ty": "str"},
-        })
+        std::net::SocketAddr::SCHEMA.sem().unwrap().ty(),
+        Some(miniconf::Ty::Str)
     );
     assert_eq!(
-        serde_json::to_value(std::path::PathBuf::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"ty": "str"},
-        })
+        std::path::PathBuf::SCHEMA.sem().unwrap().ty(),
+        Some(miniconf::Ty::Str)
     );
 }
 
 #[cfg(feature = "sem")]
 #[test]
 fn builtin_ty_sem() {
+    assert_eq!(u32::SCHEMA.sem().unwrap().ty(), Some(miniconf::Ty::U32));
     assert_eq!(
-        serde_json::to_value(u32::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"ty": "u32"},
-        })
-    );
-
-    assert_eq!(
-        serde_json::to_value(miniconf::str_leaf::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"ty": "str"},
-        })
+        miniconf::str_leaf::SCHEMA.sem().unwrap().ty(),
+        Some(miniconf::Ty::Str)
     );
 }

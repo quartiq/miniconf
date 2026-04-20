@@ -1,7 +1,7 @@
 use core::ptr;
 
 use heapless::{String, Vec};
-use miniconf::{Internal, Meta, MetaView, NodeIter, Path, Schema};
+use miniconf::{Internal, Meta, NodeIter, Path, Schema};
 use serde::{
     Serialize, Serializer,
     ser::{SerializeMap as _, SerializeSeq as _},
@@ -33,7 +33,7 @@ impl<const N: usize> Serialize for SchemaDef<'_, N> {
     {
         let mut map = serializer.serialize_map(Some(3))?;
         if let Some(meta) = self.schema.meta.as_ref() {
-            map.serialize_entry("m", &MetaView(meta))?;
+            map.serialize_entry("m", meta)?;
         }
         if let Some(sem) = self.schema.sem() {
             map.serialize_entry("s", sem)?;
@@ -164,7 +164,7 @@ impl<const N: usize> Serialize for ChildRef<'_, N> {
             Some(meta) => {
                 let mut map = serializer.serialize_map(Some(2))?;
                 map.serialize_entry("r", &reference)?;
-                map.serialize_entry("m", &MetaView(meta))?;
+                map.serialize_entry("m", meta)?;
                 map.end()
             }
         }

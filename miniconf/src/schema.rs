@@ -1,8 +1,5 @@
 use core::{convert::Infallible, num::NonZero};
-use serde::{
-    Serialize,
-    ser::{SerializeSeq, Serializer},
-};
+use serde::{Serialize, Serializer, ser::SerializeMap as _};
 
 use crate::{
     DescendError, ExactSize, FromConfig, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode,
@@ -172,184 +169,6 @@ pub enum Ty {
     Str,
 }
 
-/// Serializable view of metadata.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MetaView<'a>(pub &'a Meta);
-
-impl<'a> MetaView<'a> {
-    fn new(meta: Option<&'a Meta>) -> Option<Self> {
-        meta.map(Self)
-    }
-}
-
-impl Serialize for MetaView<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[cfg(feature = "meta-str")]
-        {
-            use serde::ser::SerializeMap;
-
-            let mut map = serializer.serialize_map(Some(self.0.len()))?;
-            for (key, value) in *self.0 {
-                map.serialize_entry(key, value)?;
-            }
-            map.end()
-        }
-        #[cfg(not(feature = "meta-str"))]
-        {
-            let _ = serializer;
-            match *self.0 {}
-        }
-    }
-}
-
-/// Return whether metadata contains the exact `key`/`value` pair.
-pub fn meta_contains(meta: &Meta, key: &str, value: &str) -> bool {
-    #[cfg(feature = "meta-str")]
-    {
-        meta.iter()
-            .any(|(have_key, have_value)| *have_key == key && *have_value == value)
-    }
-    #[cfg(not(feature = "meta-str"))]
-    {
-        let _ = (key, value);
-        match *meta {}
-    }
-}
-
-/// Serializable view of one named child.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct NamedView<'a> {
-    /// Child name.
-    pub name: &'a str,
-    /// Child metadata when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<MetaView<'a>>,
-}
-
-/// Serializable view of named children.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NamedViews<'a>(pub &'a [Named]);
-
-impl Serialize for NamedViews<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for child in self.0 {
-            seq.serialize_element(&NamedView {
-                name: child.name,
-                meta: MetaView::new(child.meta.as_ref()),
-            })?;
-        }
-        seq.end()
-    }
-}
-
-/// Serializable view of one numbered child.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct NumberedView<'a> {
-    /// Child metadata when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<MetaView<'a>>,
-}
-
-/// Serializable view of numbered children.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NumberedViews<'a>(pub &'a [Numbered]);
-
-impl Serialize for NumberedViews<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for child in self.0 {
-            seq.serialize_element(&NumberedView {
-                meta: MetaView::new(child.meta.as_ref()),
-            })?;
-        }
-        seq.end()
-    }
-}
-
-/// Serializable view of a homogeneous child.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
-pub struct HomogeneousView<'a> {
-    /// Child metadata when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<MetaView<'a>>,
-}
-
-/// Serializable view of an internal node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum InternalView<'a> {
-    /// Named children.
-    Named {
-        /// Immediate named children.
-        children: NamedViews<'a>,
-    },
-    /// Numbered heterogeneous children.
-    Numbered {
-        /// Immediate numbered children.
-        children: NumberedViews<'a>,
-    },
-    /// Homogeneous numbered children.
-    Homogeneous {
-        /// Representative child schema view.
-        child: HomogeneousView<'a>,
-        /// Number of immediate children.
-        len: usize,
-    },
-}
-
-impl<'a> From<&'a Internal> for InternalView<'a> {
-    fn from(internal: &'a Internal) -> Self {
-        match internal {
-            Internal::Named(children) => Self::Named {
-                children: NamedViews(children),
-            },
-            Internal::Numbered(children) => Self::Numbered {
-                children: NumberedViews(children),
-            },
-            Internal::Homogeneous(child) => Self::Homogeneous {
-                child: HomogeneousView {
-                    meta: MetaView::new(child.meta.as_ref()),
-                },
-                len: child.len.get(),
-            },
-        }
-    }
-}
-
-/// Serializable view of a schema node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub struct SchemaView<'a> {
-    /// Node metadata when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub meta: Option<MetaView<'a>>,
-    /// Structured semantics when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sem: Option<&'a Sem>,
-    /// Internal node view when present.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub internal: Option<InternalView<'a>>,
-}
-
-impl<'a> From<&'a Schema> for SchemaView<'a> {
-    fn from(schema: &'a Schema) -> Self {
-        Self {
-            meta: MetaView::new(schema.meta.as_ref()),
-            sem: schema.sem(),
-            internal: schema.internal.as_ref().map(InternalView::from),
-        }
-    }
-}
-
 /// A numbered schema item
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
@@ -482,17 +301,39 @@ impl Internal {
     }
 }
 
-/// The metadata type
-///
-/// A slice of key-value pairs
-#[cfg(feature = "meta-str")]
-pub type Meta = &'static [(&'static str, &'static str)];
-#[cfg(not(feature = "meta-str"))]
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize)]
-/// The metadata type
-///
-/// Uninhabited
-pub enum Meta {}
+/// Immutable schema metadata.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
+pub struct Meta {
+    /// Backing storage for metadata items.
+    pub items: &'static [(&'static str, &'static str)],
+}
+
+impl Meta {
+    /// Construct metadata from a static list of key/value pairs.
+    pub const fn new(items: &'static [(&'static str, &'static str)]) -> Self {
+        Self { items }
+    }
+
+    /// Return the first metadata value for `key`.
+    pub fn get(&self, key: &str) -> Option<&'static str> {
+        self.items
+            .iter()
+            .find_map(|(have_key, have_value)| (*have_key == key).then_some(*have_value))
+    }
+}
+
+impl Serialize for Meta {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.items.len()))?;
+        for (key, value) in self.items {
+            map.serialize_entry(key, value)?;
+        }
+        map.end()
+    }
+}
 
 /// Type of a node: leaf or internal
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Default)]
@@ -591,26 +432,6 @@ impl Schema {
         {
             None
         }
-    }
-
-    /// Serializable view of this node.
-    pub fn view(&'static self) -> SchemaView<'static> {
-        self.into()
-    }
-
-    /// Serializable view of the node identified by `keys`.
-    pub fn get_view(&'static self, keys: impl IntoKeys) -> Result<SchemaView<'static>, KeyError> {
-        let mut schema = self;
-        let mut keys = keys.into_keys();
-        while let Some(internal) = schema.internal.as_ref() {
-            match keys.next(internal) {
-                Ok(index) => schema = internal.get_schema(index),
-                Err(KeyError::TooShort) => break,
-                Err(err) => return Err(err),
-            }
-        }
-        keys.finalize()?;
-        Ok(schema.into())
     }
 
     /// Look up the next item from keys and return a child index.

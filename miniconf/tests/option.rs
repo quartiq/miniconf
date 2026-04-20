@@ -1,4 +1,3 @@
-#[cfg(any(feature = "meta-str", feature = "sem"))]
 use miniconf::TreeSchema;
 use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core, leaf};
 #[cfg(all(feature = "schema", feature = "sem"))]
@@ -188,7 +187,6 @@ fn array_option() {
     }
 }
 
-#[cfg(feature = "meta-str")]
 #[test]
 fn option_nullable_meta() {
     #[derive(Copy, Clone, Default, Tree)]
@@ -197,14 +195,13 @@ fn option_nullable_meta() {
         data: Option<u32>,
     }
 
+    let miniconf::Internal::Named(children) = NullableField::SCHEMA.internal.unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name, "data");
     assert_eq!(
-        serde_json::to_value(NullableField::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "internal": {
-                "kind": "named",
-                "children": [{"name": "data", "meta": {"nullable": "true"}}],
-            }
-        })
+        children[0].meta.as_ref().unwrap().get("nullable"),
+        Some("true")
     );
 
     #[derive(Copy, Clone, Default, Tree)]
@@ -212,33 +209,25 @@ fn option_nullable_meta() {
     struct NullableRoot(#[tree(with = leaf, meta(nullable))] Option<u32>);
 
     assert_eq!(
-        serde_json::to_value(NullableRoot::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "meta": {"nullable": "true"},
-        })
+        NullableRoot::SCHEMA.meta.as_ref().unwrap().get("nullable"),
+        Some("true")
     );
 }
 
 #[cfg(feature = "sem")]
 #[test]
 fn option_sem() {
-    assert_eq!(
-        serde_json::to_value(Option::<u32>::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"ty": "u32", "maybe_absent": true},
-        })
-    );
+    let schema = Option::<u32>::SCHEMA;
+    assert_eq!(schema.sem().unwrap().ty(), Some(miniconf::Ty::U32));
+    assert!(schema.sem().unwrap().maybe_absent());
 
-    assert_eq!(
-        serde_json::to_value(Option::<Inner>::SCHEMA.view()).unwrap(),
-        serde_json::json!({
-            "sem": {"maybe_absent": true},
-            "internal": {
-                "kind": "named",
-                "children": [{"name": "data"}],
-            }
-        })
-    );
+    let schema = Option::<Inner>::SCHEMA;
+    assert_eq!(schema.sem().unwrap().ty(), None);
+    assert!(schema.sem().unwrap().maybe_absent());
+    let miniconf::Internal::Named(children) = schema.internal.unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name, "data");
 }
 
 #[cfg(all(feature = "schema", feature = "sem"))]

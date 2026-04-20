@@ -105,17 +105,12 @@ fn enum_meta() {
         B(Inner),
     }
 
-    let node = serde_json::to_value(E::SCHEMA.view()).unwrap();
-    assert_eq!(
-        node,
-        serde_json::json!({
-            "sem": {"oneof": true},
-            "internal": {
-                "kind": "named",
-                "children": [{"name": "A"}, {"name": "B"}],
-            },
-        })
-    );
+    assert!(E::SCHEMA.sem().unwrap().oneof());
+    let miniconf::Internal::Named(children) = E::SCHEMA.internal.unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name, "A");
+    assert_eq!(children[1].name, "B");
 }
 
 #[cfg(all(feature = "schema", feature = "sem"))]

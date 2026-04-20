@@ -245,21 +245,6 @@ fn maybe_absent(node: &TraceNode) -> bool {
     node.data.0.sem().is_some_and(Sem::maybe_absent)
 }
 
-fn has_meta(meta: &Option<Meta>, key: &str, value: &str) -> bool {
-    #[cfg(feature = "meta-str")]
-    {
-        meta.as_ref().is_some_and(|meta| {
-            meta.iter()
-                .any(|(have_key, have_value)| *have_key == key && *have_value == value)
-        })
-    }
-    #[cfg(not(feature = "meta-str"))]
-    {
-        let _ = (meta, key, value);
-        false
-    }
-}
-
 fn value_allows_null(value: &Value) -> bool {
     if let Value::Object(object) = value {
         object.get("const") == Some(&Value::Null)
@@ -298,19 +283,11 @@ fn nullable_schema(mut schema: schemars::Schema) -> schemars::Schema {
 }
 
 fn definition_name(meta: &Option<Meta>) -> Option<String> {
-    #[cfg(feature = "meta-str")]
-    {
-        meta.as_ref().and_then(|meta| {
-            meta.iter().find_map(|(key, typename)| {
-                (*key == "typename").then_some(format!("tree-internal-{typename}"))
-            })
+    meta.as_ref().and_then(|meta| {
+        meta.items.iter().find_map(|(key, typename)| {
+            (*key == "typename").then_some(format!("tree-internal-{typename}"))
         })
-    }
-    #[cfg(not(feature = "meta-str"))]
-    {
-        let _ = meta;
-        None
-    }
+    })
 }
 
 fn node_json_schema(
@@ -336,7 +313,9 @@ fn node_json_schema(
                                 child_sample(sample, named.name),
                                 generator,
                             )?;
-                            if has_meta(&named.meta, "nullable", "true") {
+                            if named.meta.as_ref().and_then(|meta| meta.get("nullable"))
+                                == Some("true")
+                            {
                                 sch = nullable_schema(sch);
                             }
                             push_meta(&mut sch, "tree-outer-meta", &named.meta);
@@ -355,7 +334,9 @@ fn node_json_schema(
                                 child_sample(sample, named.name),
                                 generator,
                             )?;
-                            if has_meta(&named.meta, "nullable", "true") {
+                            if named.meta.as_ref().and_then(|meta| meta.get("nullable"))
+                                == Some("true")
+                            {
                                 sch = nullable_schema(sch);
                             }
                             push_meta(&mut sch, "tree-outer-meta", &named.meta);
@@ -380,7 +361,9 @@ fn node_json_schema(
                             sample.and_then(|sample| sample.get(index)),
                             generator,
                         )?;
-                        if has_meta(&numbered.meta, "nullable", "true") {
+                        if numbered.meta.as_ref().and_then(|meta| meta.get("nullable"))
+                            == Some("true")
+                        {
                             sch = nullable_schema(sch);
                         }
                         push_meta(&mut sch, "tree-outer-meta", &numbered.meta);
@@ -396,7 +379,12 @@ fn node_json_schema(
             Internal::Homogeneous(homogeneous) => {
                 let sample = array_sample(sample).and_then(|sample| sample.first());
                 let mut sch = node_json_schema(&node.children[0], sample, generator)?;
-                if has_meta(&homogeneous.meta, "nullable", "true") {
+                if homogeneous
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("nullable"))
+                    == Some("true")
+                {
                     sch = nullable_schema(sch);
                 }
                 push_meta(&mut sch, "tree-outer-meta", &homogeneous.meta);
@@ -428,7 +416,14 @@ fn node_json_schema(
         }
         let mut reference = schemars::Schema::new_ref(format!("#/$defs/{name}"));
         push_tree_leaf(&mut reference, node.data.0.internal.is_none());
-        if has_meta(&node.data.0.meta, "nullable", "true") {
+        if node
+            .data
+            .0
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("nullable"))
+            == Some("true")
+        {
             reference = nullable_schema(reference);
         }
         if maybe_absent {
@@ -436,7 +431,14 @@ fn node_json_schema(
         }
         return Some(reference);
     }
-    if has_meta(&node.data.0.meta, "nullable", "true") {
+    if node
+        .data
+        .0
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("nullable"))
+        == Some("true")
+    {
         sch = nullable_schema(sch);
     }
     if maybe_absent {
@@ -453,19 +455,17 @@ impl ReflectJsonSchema for TraceNode {
 
 fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
     if let Some(meta) = meta {
-        #[cfg(feature = "meta-str")]
         assert_eq!(
             sch.insert(
                 key.to_string(),
-                meta.iter()
+                meta.items
+                    .iter()
                     .map(|(k, v)| (k.to_string(), v.to_string().into()))
                     .collect::<Map<_, _>>()
                     .into(),
             ),
             None
         );
-        #[cfg(not(feature = "meta-str"))]
-        let _ = (sch, meta, key);
     }
 }
 

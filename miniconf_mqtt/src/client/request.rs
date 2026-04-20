@@ -7,9 +7,9 @@ use miniconf::{DescendError, FromConfig, Path, SerdeError, Transcode, ValueError
 use minimq::{InboundPublish, ProtocolError, PubError, Publication, QoS};
 
 #[cfg(feature = "compat-settings-ingress")]
+use crate::client::SettingsIngressPhase;
 use crate::{
     Error, MAX_TOPIC_LENGTH, MqttClient, SEPARATOR, State,
-    client::SettingsIngressPhase,
     message::{
         Action, DepthError, ReplyTarget, Resource, ResponseCode, format_message, simple_pub_error,
     },
