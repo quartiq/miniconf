@@ -31,3 +31,7 @@ path = "src/bin/manual.rs"
 [[bin]]
 name = "miniconf"
 path = "src/bin/miniconf.rs"
+
+[[bin]]
+name = "schema_size"
+path = "src/bin/schema_size.rs"

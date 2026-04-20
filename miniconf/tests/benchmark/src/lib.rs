@@ -3,14 +3,12 @@
 use core::hint::black_box;
 
 use cortex_m_semihosting::{debug, hprintln};
-
 pub mod codec;
 pub mod manual_engine;
 pub mod miniconf_engine;
 pub mod settings;
 
 use codec::Response;
-use settings::Settings;
 
 #[derive(Copy, Clone)]
 pub enum Command<'a> {
@@ -111,7 +109,7 @@ pub trait Engine {
     fn new() -> Self;
     fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error>;
     fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error>;
-    fn settings(&self) -> &Settings;
+    fn settings(&self) -> &settings::Settings;
 }
 
 fn run_parse_only(lines: &[&str], outer_iters: u32) {

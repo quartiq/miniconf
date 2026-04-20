@@ -10,10 +10,13 @@ bins=(
 )
 
 cargo build --release --bins
+schema_out="$(cargo run --quiet --release --bin schema_size 2>&1)"
+schema_bytes="$(printf '%s\n' "$schema_out" | sed -n 's/^RESULT schema_bytes=//p' | tail -n1)"
+schema_bytes="${schema_bytes:-0}"
 
 echo "## Binary size"
-echo "| variant | text | rodata | data | bss | flash | ram |"
-echo "|---|---:|---:|---:|---:|---:|---:|"
+echo "| variant | text | rodata | data | bss | flash | ram | schema |"
+echo "|---|---:|---:|---:|---:|---:|---:|---:|"
 
 for bin in "${bins[@]}"; do
   elf="$TARGET_DIR/$bin"
@@ -28,5 +31,9 @@ for bin in "${bins[@]}"; do
   bss="${bss:-0}"
   flash=$((text + rodata))
   ram=$((data + bss))
-  echo "| $bin | $text | $rodata | $data | $bss | $flash | $ram |"
+  schema=0
+  if [ "$bin" = "miniconf" ]; then
+    schema="$schema_bytes"
+  fi
+  echo "| $bin | $text | $rodata | $data | $bss | $flash | $ram | $schema |"
 done
