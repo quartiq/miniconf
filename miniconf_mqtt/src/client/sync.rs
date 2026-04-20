@@ -112,17 +112,16 @@ where
     }
 
     async fn advance_schema_pending(&mut self) {
-        let (root, defs, next, page, hash) = match self.protocol.pending {
+        let (defs, next, page, hash) = match &self.protocol.pending {
             Pending::Schema {
-                root,
                 defs,
                 next,
                 page,
                 hash,
-            } => (root, defs, next, page, hash),
+            } => (defs, *next, *page, *hash),
             _ => unreachable!(),
         };
-        if next == defs {
+        if next == defs.len() {
             self.finish_schema_sync(page, hash);
             return;
         }
@@ -130,7 +129,7 @@ where
         let topic = self.schema_page_topic(page);
         let advanced = Cell::new(None::<(usize, u32)>);
         let publication = Publication::new(&topic, |buf: &mut [u8]| {
-            let page = serialize_schema_page(root, next, buf)?;
+            let page = serialize_schema_page(defs, next, buf)?;
             let next_hash = yafnv::Fnv::fnv1a(hash, buf[..page.len].iter().copied());
             advanced.set(Some((page.count, next_hash)));
             Ok(page.len)
@@ -162,6 +161,7 @@ where
             next,
             page,
             hash: current_hash,
+            defs,
             ..
         } = &mut self.protocol.pending
         else {
@@ -170,7 +170,7 @@ where
         *next += count;
         *page += 1;
         *current_hash = hash;
-        let finished = *next == defs;
+        let finished = *next == defs.len();
         let pages = *page;
         let hash = *current_hash;
         if finished {
@@ -217,7 +217,7 @@ where
                     return;
                 }
             };
-            let Some(full) = iter.state() else {
+            let Some(full) = iter.indices() else {
                 self.protocol.pending.clear();
                 return;
             };

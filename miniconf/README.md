@@ -196,6 +196,13 @@ Lookup into the tree is done using a [`Keys`] implementation. Public entry point
 [`Path`], [`ConstPath`], and [`JsonPath`] are the output/transcode representations.
 [`JsonPathIter`] and the other iterator types are the input-key representations.
 
+`Schema` is a public enum with `Leaf` and `Internal` variants. Reflection-oriented code can either
+match on `Schema` directly or use helpers such as `schema.internal()`, `schema.sem()`, and
+`schema.node_meta()`.
+
+`NodeIter` yields leaves only. While iterating, `indices()` and `schema()` expose the current
+cursor state, while `root_schema()` names the iterated tree.
+
 ## Limitations
 
 * The derive macros only support enums with unit variants, newtype variants, and skipped variants. Enums with named fields or multi-field tuple variants need to stay leaves or use a manual implementation.

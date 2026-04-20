@@ -21,20 +21,84 @@ impl Serialize for SchemaRef {
     }
 }
 
-struct SchemaDef<'a, const N: usize> {
-    emitted: &'a Vec<&'static Schema, N>,
+#[derive(Clone)]
+pub(crate) struct SchemaDefs {
+    defs: Vec<&'static Schema, MAX_SCHEMA_DEFS>,
+}
+
+impl SchemaDefs {
+    pub(crate) fn new(root: &'static Schema) -> Result<Self, usize> {
+        let mut defs = Vec::new();
+        collect_defs(root, &mut defs)?;
+        Ok(Self { defs })
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.defs.len()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn root(&self) -> Option<&'static Schema> {
+        self.defs.last().copied()
+    }
+
+    fn id(&self, schema: &'static Schema) -> usize {
+        self.defs
+            .iter()
+            .position(|candidate| ptr::eq(*candidate, schema))
+            .unwrap()
+    }
+
+    fn get(&self, index: usize) -> &'static Schema {
+        self.defs[index]
+    }
+}
+
+fn contains_schema(defs: &Vec<&'static Schema, MAX_SCHEMA_DEFS>, schema: &'static Schema) -> bool {
+    defs.iter().any(|candidate| ptr::eq(*candidate, schema))
+}
+
+fn collect_defs(
+    schema: &'static Schema,
+    defs: &mut Vec<&'static Schema, MAX_SCHEMA_DEFS>,
+) -> Result<(), usize> {
+    if contains_schema(defs, schema) {
+        return Ok(());
+    }
+    if let Some(internal) = schema.internal() {
+        match internal {
+            Internal::Named(children) => {
+                for child in *children {
+                    collect_defs(child.schema(), defs)?;
+                }
+            }
+            Internal::Numbered(children) => {
+                for child in *children {
+                    collect_defs(child.schema(), defs)?;
+                }
+            }
+            Internal::Homogeneous(child) => collect_defs(child.schema(), defs)?,
+        }
+    }
+    if contains_schema(defs, schema) {
+        return Ok(());
+    }
+    defs.push(schema).map_err(|_| defs.len().saturating_add(1))
+}
+
+struct SchemaDef<'a> {
+    defs: &'a SchemaDefs,
     schema: &'static Schema,
 }
 
-impl<const N: usize> Serialize for SchemaDef<'_, N> {
+impl Serialize for SchemaDef<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(3))?;
         if !self.schema.node_meta().is_empty() {
-            let meta = self.schema.node_meta();
-            map.serialize_entry("m", meta)?;
+            map.serialize_entry("m", self.schema.node_meta())?;
         }
         if let Some(sem) = self.schema.sem()
             && !sem.is_empty()
@@ -45,7 +109,7 @@ impl<const N: usize> Serialize for SchemaDef<'_, N> {
             map.serialize_entry(
                 "i",
                 &SchemaChildren {
-                    emitted: self.emitted,
+                    defs: self.defs,
                     internal,
                 },
             )?;
@@ -54,12 +118,12 @@ impl<const N: usize> Serialize for SchemaDef<'_, N> {
     }
 }
 
-struct SchemaChildren<'a, const N: usize> {
-    emitted: &'a Vec<&'static Schema, N>,
+struct SchemaChildren<'a> {
+    defs: &'a SchemaDefs,
     internal: &'static Internal,
 }
 
-impl<const N: usize> Serialize for SchemaChildren<'_, N> {
+impl Serialize for SchemaChildren<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -71,7 +135,7 @@ impl<const N: usize> Serialize for SchemaChildren<'_, N> {
                 map.serialize_entry(
                     "c",
                     &NamedChildren {
-                        emitted: self.emitted,
+                        defs: self.defs,
                         children,
                     },
                 )?;
@@ -81,7 +145,7 @@ impl<const N: usize> Serialize for SchemaChildren<'_, N> {
                 map.serialize_entry(
                     "c",
                     &NumberedChildren {
-                        emitted: self.emitted,
+                        defs: self.defs,
                         children,
                     },
                 )?;
@@ -92,7 +156,7 @@ impl<const N: usize> Serialize for SchemaChildren<'_, N> {
                 map.serialize_entry(
                     "c",
                     &ChildRef {
-                        emitted: self.emitted,
+                        defs: self.defs,
                         schema: child.schema(),
                         meta: maybe_meta(child.edge_meta()),
                     },
@@ -103,12 +167,12 @@ impl<const N: usize> Serialize for SchemaChildren<'_, N> {
     }
 }
 
-struct NamedChildren<'a, const N: usize> {
-    emitted: &'a Vec<&'static Schema, N>,
+struct NamedChildren<'a> {
+    defs: &'a SchemaDefs,
     children: &'static [miniconf::Named],
 }
 
-impl<const N: usize> Serialize for NamedChildren<'_, N> {
+impl Serialize for NamedChildren<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -118,7 +182,7 @@ impl<const N: usize> Serialize for NamedChildren<'_, N> {
             map.serialize_entry(
                 child.name(),
                 &ChildRef {
-                    emitted: self.emitted,
+                    defs: self.defs,
                     schema: child.schema(),
                     meta: maybe_meta(child.edge_meta()),
                 },
@@ -128,12 +192,12 @@ impl<const N: usize> Serialize for NamedChildren<'_, N> {
     }
 }
 
-struct NumberedChildren<'a, const N: usize> {
-    emitted: &'a Vec<&'static Schema, N>,
+struct NumberedChildren<'a> {
+    defs: &'a SchemaDefs,
     children: &'static [miniconf::Numbered],
 }
 
-impl<const N: usize> Serialize for NumberedChildren<'_, N> {
+impl Serialize for NumberedChildren<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -141,7 +205,7 @@ impl<const N: usize> Serialize for NumberedChildren<'_, N> {
         let mut seq = serializer.serialize_seq(Some(self.children.len()))?;
         for child in self.children {
             seq.serialize_element(&ChildRef {
-                emitted: self.emitted,
+                defs: self.defs,
                 schema: child.schema(),
                 meta: maybe_meta(child.edge_meta()),
             })?;
@@ -150,8 +214,8 @@ impl<const N: usize> Serialize for NumberedChildren<'_, N> {
     }
 }
 
-struct ChildRef<'a, const N: usize> {
-    emitted: &'a Vec<&'static Schema, N>,
+struct ChildRef<'a> {
+    defs: &'a SchemaDefs,
     schema: &'static Schema,
     meta: Option<Meta>,
 }
@@ -160,12 +224,12 @@ fn maybe_meta(meta: &Meta) -> Option<Meta> {
     if meta.is_empty() { None } else { Some(*meta) }
 }
 
-impl<const N: usize> Serialize for ChildRef<'_, N> {
+impl Serialize for ChildRef<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let reference = SchemaRef(emitted_id(self.emitted, self.schema));
+        let reference = SchemaRef(self.defs.id(self.schema));
         match self.meta.as_ref() {
             None => reference.serialize(serializer),
             Some(meta) => {
@@ -176,13 +240,6 @@ impl<const N: usize> Serialize for ChildRef<'_, N> {
             }
         }
     }
-}
-
-fn emitted_id<const N: usize>(emitted: &Vec<&'static Schema, N>, schema: &'static Schema) -> usize {
-    emitted
-        .iter()
-        .position(|candidate| ptr::eq(*candidate, schema))
-        .unwrap()
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -196,175 +253,50 @@ pub(crate) enum SchemaPageError {
     Oversized { id: usize },
 }
 
-struct SchemaPageBuilder<'a, const N: usize> {
-    emitted: Vec<&'static Schema, N>,
-    skip: usize,
-    count: usize,
-    payload: &'a mut [u8],
-    len: usize,
-    oversized: Option<SchemaPageError>,
-    full: bool,
-}
-
-impl<'a, const N: usize> SchemaPageBuilder<'a, N> {
-    fn new(skip: usize, payload: &'a mut [u8]) -> Self {
-        Self {
-            emitted: Vec::new(),
-            skip,
-            count: 0,
-            payload,
-            len: 0,
-            oversized: None,
-            full: false,
-        }
-    }
-
-    fn contains(&self, schema: &'static Schema) -> bool {
-        self.emitted
-            .iter()
-            .any(|candidate| ptr::eq(*candidate, schema))
-    }
-
-    fn visit(&mut self, schema: &'static Schema) {
-        if self.full || self.oversized.is_some() || self.contains(schema) {
-            return;
-        }
-        if let Some(internal) = schema.internal() {
-            match internal {
-                Internal::Named(children) => {
-                    for child in *children {
-                        self.visit(child.schema());
-                    }
-                }
-                Internal::Numbered(children) => {
-                    for child in *children {
-                        self.visit(child.schema());
-                    }
-                }
-                Internal::Homogeneous(child) => self.visit(child.schema()),
-            }
-        }
-        if self.full || self.oversized.is_some() || self.contains(schema) {
-            return;
-        }
-        if self.skip > 0 {
-            self.emitted.push(schema).unwrap();
-            self.skip -= 1;
-            return;
-        }
-
-        let id = self.emitted.len();
-        let start = self.len;
-        if self.payload.len().saturating_sub(start) < 2 {
-            if start == 0 {
-                self.oversized = Some(SchemaPageError::Oversized { id });
-            } else {
-                self.full = true;
-            }
-            return;
-        }
-        let end = self.payload.len() - 1;
-        let buf = &mut self.payload[start..end];
-        let mut ser = serde_json_core::ser::Serializer::new(buf);
-        let Ok(()) = SchemaDef {
-            emitted: &self.emitted,
-            schema,
-        }
-        .serialize(&mut ser) else {
-            if start == 0 {
-                self.oversized = Some(SchemaPageError::Oversized { id });
-            } else {
-                self.full = true;
-            }
-            return;
-        };
-        self.len = start + ser.end();
-        self.emitted.push(schema).unwrap();
-        self.payload[self.len] = b'\n';
-        self.len += 1;
-        self.count += 1;
-    }
-}
-
-struct SchemaCounter<const N: usize> {
-    emitted: Vec<&'static Schema, N>,
-    overflowed: bool,
-}
-
-impl<const N: usize> SchemaCounter<N> {
-    fn new() -> Self {
-        Self {
-            emitted: Vec::new(),
-            overflowed: false,
-        }
-    }
-
-    fn contains(&self, schema: &'static Schema) -> bool {
-        self.emitted
-            .iter()
-            .any(|candidate| ptr::eq(*candidate, schema))
-    }
-
-    fn visit(&mut self, schema: &'static Schema) {
-        if self.overflowed || self.contains(schema) {
-            return;
-        }
-        if let Some(internal) = schema.internal() {
-            match internal {
-                Internal::Named(children) => {
-                    for child in *children {
-                        self.visit(child.schema());
-                    }
-                }
-                Internal::Numbered(children) => {
-                    for child in *children {
-                        self.visit(child.schema());
-                    }
-                }
-                Internal::Homogeneous(child) => self.visit(child.schema()),
-            }
-        }
-        if self.contains(schema) {
-            return;
-        }
-        if self.emitted.push(schema).is_err() {
-            self.overflowed = true;
-        }
-    }
-}
-
-pub(crate) fn distinct_schema_defs(root: &'static Schema) -> Result<usize, usize> {
-    let mut counter = SchemaCounter::<MAX_SCHEMA_DEFS>::new();
-    counter.visit(root);
-    if counter.overflowed {
-        Err(counter.emitted.len() + 1)
-    } else {
-        Ok(counter.emitted.len())
-    }
-}
-
 pub(crate) fn serialize_schema_page(
-    root: &'static Schema,
-    skip: usize,
+    defs: &SchemaDefs,
+    next: usize,
     payload: &mut [u8],
 ) -> Result<SchemaPage, SchemaPageError> {
-    let mut builder = SchemaPageBuilder::<MAX_SCHEMA_DEFS>::new(skip, payload);
-    builder.visit(root);
-    if let Some(err) = builder.oversized {
-        return Err(err);
+    let mut count = 0;
+    let mut len = 0;
+
+    while next + count < defs.len() {
+        let id = next + count;
+        let start = len;
+        if payload.len().saturating_sub(start) < 2 {
+            if start == 0 {
+                return Err(SchemaPageError::Oversized { id });
+            }
+            break;
+        }
+        let end = payload.len() - 1;
+        let buf = &mut payload[start..end];
+        let mut ser = serde_json_core::ser::Serializer::new(buf);
+        let Ok(()) = (SchemaDef {
+            defs,
+            schema: defs.get(id),
+        })
+        .serialize(&mut ser) else {
+            if start == 0 {
+                return Err(SchemaPageError::Oversized { id });
+            }
+            break;
+        };
+        len = start + ser.end();
+        payload[len] = b'\n';
+        len += 1;
+        count += 1;
     }
-    Ok(SchemaPage {
-        count: builder.count,
-        len: builder.len,
-    })
+
+    Ok(SchemaPage { count, len })
 }
 
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Pending {
     Idle,
     Schema {
-        root: &'static Schema,
-        defs: usize,
+        defs: SchemaDefs,
         next: usize,
         page: usize,
         hash: u32,
@@ -385,8 +317,7 @@ impl Pending {
 
     pub(crate) fn schema(schema: &'static Schema) -> Self {
         Self::Schema {
-            root: schema,
-            defs: distinct_schema_defs(schema).unwrap(),
+            defs: SchemaDefs::new(schema).unwrap(),
             next: 0,
             page: 0,
             hash: <u32 as yafnv::Fnv>::OFFSET_BASIS,

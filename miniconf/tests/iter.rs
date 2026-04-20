@@ -119,3 +119,27 @@ fn runtime_path_separator() {
         [":b:0", ":b:1", ":c:inner", ":d:0:inner", ":a"]
     );
 }
+
+#[test]
+fn current_state_api() {
+    let mut iter = NodeIter::<Path<String>, 3>::new(Settings::SCHEMA, [0; 3], 0);
+    assert_eq!(iter.indices(), None);
+    assert_eq!(iter.schema(), None);
+
+    assert_eq!(iter.next().unwrap().unwrap().into_inner(), "/b/0");
+    assert_eq!(iter.indices(), Some(&[0, 0][..]));
+    assert_eq!(iter.schema(), Some(bool::SCHEMA));
+    assert_eq!(iter.root_schema(), Settings::SCHEMA);
+}
+
+#[test]
+fn current_state_api_with_root() {
+    let mut iter = NodeIter::<Path<String>, 3>::with_root(Settings::SCHEMA, ["d"]).unwrap();
+    assert_eq!(iter.indices(), None);
+    assert_eq!(iter.schema(), None);
+
+    assert_eq!(iter.next().unwrap().unwrap().into_inner(), "/d/0/inner");
+    assert_eq!(iter.indices(), Some(&[2, 0, 0][..]));
+    assert_eq!(iter.schema(), Some(bool::SCHEMA));
+    assert_eq!(iter.root_schema(), Settings::SCHEMA);
+}

@@ -55,7 +55,7 @@ impl Shape {
             count: NonZero::<usize>::MIN,
             max_bits: 0,
         };
-        if let Some(internal) = schema.internal.as_ref() {
+        if let Some(internal) = schema.internal() {
             match internal {
                 Internal::Named(nameds) => {
                     let bits = Packed::bits_for(nameds.len() - 1);

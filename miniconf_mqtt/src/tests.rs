@@ -1,7 +1,7 @@
 use crate::{
     MAX_TOPIC_LENGTH, MqttClient, State,
     message::{Action, ReplyTarget, ResponseCode, format_slice},
-    schema::serialize_schema_page,
+    schema::{SchemaDefs, serialize_schema_page},
 };
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use miniconf::{Tree, TreeSchema};
@@ -213,7 +213,8 @@ fn oversized_response_topic_is_rejected_early() {
 #[test]
 fn schema_pages_match_golden_fixture() {
     let mut payload = [0u8; 1024];
-    let page = serialize_schema_page(TreeSettings::SCHEMA, 0, &mut payload).unwrap();
+    let defs = SchemaDefs::new(TreeSettings::SCHEMA).unwrap();
+    let page = serialize_schema_page(&defs, 0, &mut payload).unwrap();
     assert_eq!(page.count, 3);
     let normalized = core::str::from_utf8(&payload[..page.len])
         .unwrap()
@@ -222,6 +223,12 @@ fn schema_pages_match_golden_fixture() {
         normalized,
         include_str!("../../testdata/compact-schema/fixture.ndjson")
     );
+}
+
+#[test]
+fn schema_defs_keep_root_last() {
+    let defs = SchemaDefs::new(TreeSettings::SCHEMA).unwrap();
+    assert_eq!(defs.root(), Some(TreeSettings::SCHEMA));
 }
 
 #[cfg(feature = "compat-settings-ingress")]

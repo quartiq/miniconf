@@ -5,8 +5,8 @@ use core::ops::{Bound, Range, RangeFrom, RangeInclusive, RangeTo};
 use serde::{Deserializer, Serializer};
 
 use crate::{
-    Homogeneous, Internal, Keys, Meta, Named, Numbered, ONEOF_SEM, Schema, Sem, SerdeError,
-    TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    Homogeneous, Internal, InternalSchema, Keys, Meta, Named, NodeSchema, Numbered, ONEOF_SEM,
+    Schema, Sem, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -317,13 +317,12 @@ impl<T: TreeAny, const N: usize> TreeAny for [T; N] {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeSchema> TreeSchema for Option<T> {
-    const SCHEMA: &'static Schema = &Schema::new(
+    const SCHEMA: &'static Schema = &T::SCHEMA.rebuild(
         *T::SCHEMA.node_meta(),
         match T::SCHEMA.sem().copied() {
             Some(sem) => Sem::new(sem.ty(), sem.oneof(), true),
             None => Sem::new(None, false, true),
         },
-        T::SCHEMA.internal().copied(),
     );
 }
 
@@ -375,14 +374,13 @@ impl<T: TreeAny> TreeAny for Option<T> {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeSchema, E: TreeSchema> TreeSchema for Result<T, E> {
-    const SCHEMA: &'static Schema = &Schema::new(
-        Meta::EMPTY,
-        ONEOF_SEM,
-        Some(Internal::Named(&[
+    const SCHEMA: &'static Schema = &Schema::Internal(InternalSchema::new(
+        NodeSchema::new(Meta::EMPTY, ONEOF_SEM),
+        Internal::Named(&[
             Named::new("Ok", T::SCHEMA, Meta::EMPTY),
             Named::new("Err", E::SCHEMA, Meta::EMPTY),
-        ])),
-    );
+        ]),
+    ));
 }
 
 impl<T: TreeSerialize, E: TreeSerialize> TreeSerialize for Result<T, E> {
@@ -445,14 +443,13 @@ impl<T: TreeAny, E: TreeAny> TreeAny for Result<T, E> {
 /////////////////////////////////////////////////////////////////////////////////////////
 
 impl<T: TreeSchema> TreeSchema for Bound<T> {
-    const SCHEMA: &'static Schema = &Schema::new(
-        Meta::EMPTY,
-        ONEOF_SEM,
-        Some(Internal::Named(&[
+    const SCHEMA: &'static Schema = &Schema::Internal(InternalSchema::new(
+        NodeSchema::new(Meta::EMPTY, ONEOF_SEM),
+        Internal::Named(&[
             Named::new("Included", T::SCHEMA, Meta::EMPTY),
             Named::new("Excluded", T::SCHEMA, Meta::EMPTY),
-        ])),
-    );
+        ]),
+    ));
 }
 
 impl<T: TreeSerialize> TreeSerialize for Bound<T> {

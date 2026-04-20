@@ -321,14 +321,14 @@ impl Tree {
         } else {
             let schema = field.schema();
             let meta = meta_to_tokens(&field.meta);
-            quote! { &::miniconf::Schema::new(
-                #meta,
-                match (#schema).sem() {
+            quote! {{
+                let schema = #schema;
+                let sem = match schema.sem() {
                     ::core::option::Option::Some(sem) => *sem,
                     ::core::option::Option::None => ::miniconf::Sem::EMPTY,
-                },
-                (#schema).internal().copied(),
-            ) }
+                };
+                &schema.rebuild(#meta, sem)
+            }}
         }
     }
 
@@ -391,7 +391,12 @@ impl Tree {
             let internal = self.schema_internal();
             let meta = meta_to_tokens(&self.meta);
             let sem = sem_to_tokens(matches!(self.data, Data::Enum(_)));
-            quote! { &::miniconf::Schema::new(#meta, #sem, ::core::option::Option::Some(#internal)) }
+            quote! {
+                &::miniconf::Schema::Internal(::miniconf::InternalSchema::new(
+                    ::miniconf::NodeSchema::new(#meta, #sem),
+                    #internal,
+                ))
+            }
         };
         quote! {
             #[automatically_derived]

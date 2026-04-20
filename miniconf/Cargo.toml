@@ -32,7 +32,14 @@ heapless-09 = { package = "heapless", version = "0.9", optional = true, features
 ] }
 
 [features]
-default = ["derive"]
+default = [
+    "derive",
+    "sem",
+    "meta-edge",
+    "meta-node",
+    "json-core",
+    "heapless-09",
+]
 alloc = ["heapless-09?/alloc"]
 std = ["alloc"]
 sem = []

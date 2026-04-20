@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   arbitrary iterator/string wrapper types. Slash-separated `&str` is the default "path-like" shorthand;
   explicit separators use `PathIter`/`ConstPathIter`.
 * `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
+* `Schema` is now a public enum with explicit `Leaf` and `Internal` variants, backed by shared
+  `NodeSchema` payload and `InternalSchema` instead of the old nullable `Schema::new(...)` shape.
 * `miniconf_mqtt`: `MqttClient` is now async-first and built on async `minimq::Session`.
   `update()` was replaced by `poll().await`.
 * `miniconf_mqtt` now supports schema, manifest, separation of requested and actual settings
@@ -43,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * `ConstPath` and `ConstPathIter` taking the separator as a const generic. That allows compile time specialization of ASCII separators.
 * `Schema::resolve_into()` and `Lookup` for exact lookup with consumed-depth reporting.
+* `NodeIter::{indices,schema,root_schema}` for inspecting iterator position and the iterated tree
+  with consistent naming.
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
 * `Sem` offers semantic structured information about nodes in a `Schema`.

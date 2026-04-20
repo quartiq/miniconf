@@ -59,7 +59,10 @@ pub fn to_json_value<T: TreeSerialize>(
             Ok(NodeValue::Absent) => Ok(NodeValue::Absent),
             Ok(NodeValue::Access) => Ok(NodeValue::Access),
             Err(SerdeError::Value(ValueError::Key(KeyError::TooShort))) => {
-                Ok(NodeValue::Value(match schema.internal.as_ref().unwrap() {
+                let Some(internal) = schema.internal() else {
+                    unreachable!("TooShort implies an internal schema");
+                };
+                Ok(NodeValue::Value(match internal {
                     Internal::Homogeneous(h) => Value::Array(
                         (0..h.len.get())
                             .map(|i| {

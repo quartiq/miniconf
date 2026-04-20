@@ -20,7 +20,7 @@ use crate::message::Resource;
 use crate::{
     MAX_TOPIC_LENGTH,
     message::{Action, DepthError},
-    schema::{Pending, distinct_schema_defs},
+    schema::{Pending, SchemaDefs},
 };
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -154,7 +154,7 @@ where
         if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);
         }
-        if distinct_schema_defs(Settings::SCHEMA).is_err() {
+        if SchemaDefs::new(Settings::SCHEMA).is_err() {
             return Err(ProtocolError::BufferSize);
         }
 

@@ -77,7 +77,7 @@ where
                                 SerdeError::Value(ValueError::Access("Insufficient state"))
                             }
                         },
-                        depth: err.depth,
+                        depth: err.lookup.depth,
                     };
                     return Action::Reply {
                         state: State::Unchanged,

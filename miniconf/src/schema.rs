@@ -42,10 +42,8 @@ pub struct Lookup {
 pub struct ResolveError {
     /// The traversal error.
     pub error: DescendError<()>,
-    /// The number of keys consumed before the error.
-    pub depth: usize,
-    /// Whether the traversal had already reached a leaf when known.
-    pub leaf: Option<bool>,
+    /// The longest valid consumed prefix.
+    pub lookup: Lookup,
 }
 
 /// Structured machine-readable schema semantics.
@@ -475,17 +473,77 @@ impl Serialize for Meta {
     }
 }
 
-/// Type of a node: leaf or internal
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Default)]
-pub struct Schema {
-    /// The node metadata
-    pub(crate) meta: StoredNodeMeta,
+/// Shared static schema payload for one tree node.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct NodeSchema {
+    meta: StoredNodeMeta,
+    sem: StoredSem,
+}
 
-    /// Structured semantics
-    pub(crate) sem: StoredSem,
+impl NodeSchema {
+    /// Empty node metadata and semantics.
+    pub const EMPTY: Self = Self {
+        meta: store_node_meta(Meta::EMPTY),
+        sem: store_sem(Sem::EMPTY),
+    };
 
-    /// Internal schemata
-    pub(crate) internal: Option<Internal>,
+    /// Construct a node schema from node metadata and semantics.
+    pub const fn new(meta: Meta, sem: Sem) -> Self {
+        Self {
+            meta: store_node_meta(meta),
+            sem: store_sem(sem),
+        }
+    }
+
+    const fn sem(&self) -> Option<&Sem> {
+        sem_ref(&self.sem)
+    }
+
+    const fn node_meta(&self) -> &Meta {
+        node_meta_ref(&self.meta)
+    }
+}
+
+/// Static schema payload for an internal node.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub struct InternalSchema {
+    node: NodeSchema,
+    internal: Internal,
+}
+
+impl InternalSchema {
+    /// Construct an internal schema from node payload and child layout.
+    pub const fn new(node: NodeSchema, internal: Internal) -> Self {
+        Self { node, internal }
+    }
+
+    const fn sem(&self) -> Option<&Sem> {
+        self.node.sem()
+    }
+
+    const fn node_meta(&self) -> &Meta {
+        self.node.node_meta()
+    }
+
+    /// Child layout strategy.
+    pub const fn internal(&self) -> &Internal {
+        &self.internal
+    }
+}
+
+/// Static schema for one tree node.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+pub enum Schema {
+    /// Leaf node without children.
+    Leaf(NodeSchema),
+    /// Internal node with one child layout strategy.
+    Internal(InternalSchema),
+}
+
+impl Default for Schema {
+    fn default() -> Self {
+        Self::LEAF
+    }
 }
 
 impl Serialize for Schema {
@@ -508,53 +566,61 @@ impl Serialize for Schema {
 
 impl Schema {
     /// A leaf without metadata or sem.
-    pub const LEAF: Self = Self {
-        meta: store_node_meta(Meta::EMPTY),
-        sem: store_sem(Sem::EMPTY),
-        internal: None,
-    };
+    pub const LEAF: Self = Self::Leaf(NodeSchema::EMPTY);
 
-    /// Construct a schema node from node metadata, semantics, and child shape.
-    pub const fn new(meta: Meta, sem: Sem, internal: Option<Internal>) -> Self {
-        Self {
-            meta: store_node_meta(meta),
-            sem: store_sem(sem),
-            internal,
+    /// Construct a leaf schema from node metadata and semantics.
+    pub const fn leaf(meta: Meta, sem: Sem) -> Self {
+        Self::Leaf(NodeSchema::new(meta, sem))
+    }
+
+    /// Construct a schema with the same shape and new node metadata and semantics.
+    pub const fn rebuild(&self, meta: Meta, sem: Sem) -> Self {
+        let node = NodeSchema::new(meta, sem);
+        match self {
+            Self::Leaf(_) => Self::Leaf(node),
+            Self::Internal(schema) => Self::Internal(InternalSchema::new(node, schema.internal)),
         }
     }
 
     /// A leaf with a known semantic type.
     pub(crate) const fn leaf_ty(ty: Ty) -> Self {
-        Self::new(Meta::EMPTY, Sem::new(Some(ty), false, false), None)
+        Self::leaf(Meta::EMPTY, Sem::new(Some(ty), false, false))
     }
 
     /// Create a new internal node schema with numbered children and without node metadata
     pub const fn numbered(numbered: &'static [Numbered]) -> Self {
-        Self::new(Meta::EMPTY, Sem::EMPTY, Some(Internal::Numbered(numbered)))
+        Self::Internal(InternalSchema::new(
+            NodeSchema::EMPTY,
+            Internal::Numbered(numbered),
+        ))
     }
 
     /// Create a new internal node schema with named children and without node metadata
     pub const fn named(named: &'static [Named]) -> Self {
-        Self::new(Meta::EMPTY, Sem::EMPTY, Some(Internal::Named(named)))
+        Self::Internal(InternalSchema::new(
+            NodeSchema::EMPTY,
+            Internal::Named(named),
+        ))
     }
 
     /// Create a new internal node schema with homogenous children and without node metadata
     pub const fn homogeneous(homogeneous: Homogeneous) -> Self {
-        Self::new(
-            Meta::EMPTY,
-            Sem::EMPTY,
-            Some(Internal::Homogeneous(homogeneous)),
-        )
+        Self::Internal(InternalSchema::new(
+            NodeSchema::EMPTY,
+            Internal::Homogeneous(homogeneous),
+        ))
     }
 
     fn serialize_fields<S>(&self, state: &mut S) -> Result<(), S::Error>
     where
         S: serde::ser::SerializeStruct,
     {
+        let node_meta = self.node_meta();
+        let sem = self.sem();
         if !self.node_meta().is_empty() {
-            state.serialize_field("meta", self.node_meta())?;
+            state.serialize_field("meta", node_meta)?;
         }
-        if let Some(sem) = self.sem()
+        if let Some(sem) = sem
             && !sem.is_empty()
         {
             state.serialize_field("sem", sem)?;
@@ -567,14 +633,14 @@ impl Schema {
 
     /// Whether this node is a leaf
     pub const fn is_leaf(&self) -> bool {
-        self.internal.is_none()
+        matches!(self, Self::Leaf(_))
     }
 
     /// Number of child nodes
     pub const fn len(&self) -> usize {
-        match &self.internal {
-            None => 0,
-            Some(i) => i.len().get(),
+        match self {
+            Self::Leaf(_) => 0,
+            Self::Internal(schema) => schema.internal().len().get(),
         }
     }
 
@@ -585,12 +651,18 @@ impl Schema {
 
     /// Structured semantics when present.
     pub const fn sem(&self) -> Option<&Sem> {
-        sem_ref(&self.sem)
+        match self {
+            Self::Leaf(schema) => schema.sem(),
+            Self::Internal(schema) => schema.sem(),
+        }
     }
 
     /// Node metadata.
     pub const fn node_meta(&self) -> &Meta {
-        node_meta_ref(&self.meta)
+        match self {
+            Self::Leaf(node) => node.node_meta(),
+            Self::Internal(schema) => schema.node_meta(),
+        }
     }
 
     /// Node metadata value for `key` when present.
@@ -600,12 +672,15 @@ impl Schema {
 
     /// Internal schema when present.
     pub const fn internal(&self) -> Option<&Internal> {
-        self.internal.as_ref()
+        match self {
+            Self::Leaf(_) => None,
+            Self::Internal(schema) => Some(schema.internal()),
+        }
     }
 
     /// Resolve the next selector segment from a normalized key cursor.
     pub fn next(&self, mut keys: impl Keys) -> Result<usize, KeyError> {
-        keys.next(self.internal.as_ref().ok_or(KeyError::TooLong)?)
+        keys.next(self.internal().ok_or(KeyError::TooLong)?)
     }
 
     /// Traverse from the root to a leaf using a normalized key cursor.
@@ -653,7 +728,7 @@ impl Schema {
         mut func: impl FnMut(&'a Self, Option<(usize, &'a Internal)>) -> Result<T, E>,
     ) -> Result<T, DescendError<E>> {
         let mut schema = self;
-        while let Some(internal) = schema.internal.as_ref() {
+        while let Some(internal) = schema.internal() {
             let idx = keys.next(internal)?;
             func(schema, Some((idx, internal))).map_err(DescendError::Inner)?;
             schema = internal.get_schema(idx);
@@ -677,17 +752,6 @@ impl Schema {
         Ok((edge, node))
     }
 
-    pub(crate) fn get_indexed(&self, indices: &[usize]) -> &Self {
-        let mut schema = self;
-        let mut i = 0;
-        while i < indices.len() {
-            let internal = schema.internal.as_ref().unwrap();
-            schema = internal.get_schema(indices[i]);
-            i += 1;
-        }
-        schema
-    }
-
     fn walk(
         &'static self,
         mut keys: impl Keys,
@@ -696,7 +760,7 @@ impl Schema {
         let mut schema = self;
         let mut depth = 0;
 
-        while let Some(internal) = schema.internal.as_ref() {
+        while let Some(internal) = schema.internal() {
             let idx = match keys.next(internal) {
                 Ok(idx) => idx,
                 Err(KeyError::TooShort) => {
@@ -706,16 +770,14 @@ impl Schema {
                 Err(err) => {
                     return Err(ResolveError {
                         error: err.into(),
-                        depth,
-                        leaf: schema.is_leaf().then_some(true),
+                        lookup: Lookup { depth, schema },
                     });
                 }
             };
             if !on_index(depth, idx) {
                 return Err(ResolveError {
                     error: DescendError::Inner(()),
-                    depth,
-                    leaf: None,
+                    lookup: Lookup { depth, schema },
                 });
             }
             depth += 1;
@@ -726,8 +788,7 @@ impl Schema {
             Ok(()) => Ok(Lookup { depth, schema }),
             Err(KeyError::TooLong) => Err(ResolveError {
                 error: KeyError::TooLong.into(),
-                depth,
-                leaf: Some(true),
+                lookup: Lookup { depth, schema },
             }),
             Err(err) => unreachable!("unexpected finalize error: {err:?}"),
         }

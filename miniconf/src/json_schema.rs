@@ -293,7 +293,7 @@ fn node_json_schema(
     sample: Option<&Value>,
     generator: &mut SchemaGenerator,
 ) -> Option<schemars::Schema> {
-    let mut sch = if let Some(internal) = node.data.0.internal.as_ref() {
+    let mut sch = if let Some(internal) = node.data.0.internal() {
         match internal {
             Internal::Named(nameds) => {
                 let sample = object_sample(sample);
