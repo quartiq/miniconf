@@ -21,11 +21,11 @@ use serde::Serialize;
 pub use client::{Error, MqttClient, State};
 
 /// Maximum path-state depth supported by `miniconf_mqtt`.
-pub const MAX_DEPTH: usize = 16;
+pub const MAX_DEPTH: usize = 12;
 
 pub(crate) const MAX_TOPIC_LENGTH: usize = 128;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
-pub(crate) const MAX_SCHEMA_DEFS: usize = 128;
+pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
 
 #[cfg(feature = "compat-settings-ingress")]
 const SETTINGS_RECOVERY_QUIESCENCE: Duration = Duration::from_millis(100);

@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_mqtt` MM2 manifests now publish `epoch`/`schema_rev`. Long-lived Python
   clients keep `/alive` subscribed, invalidate cached schema/settings on `epoch` or `schema_rev`
   changes, and treat retained `settings/#` without `rev` as non-authoritative.
+* The Python package was restructured from `py/miniconf-mqtt` to `py/`, and now targets the MM2
+  retained schema/settings protocol with an async-first CLI and client library.
 * Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a monomorphic `SCHEMA` constant.
 * `Meta` is now a stable always-on newtype with direct serialization support, and schema metadata
   terminology is now consistently `node`/`edge` instead of `inner`/`outer`.
@@ -50,12 +52,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Structured `sem.oneof` on built-in `Result<T, E>` and `Bound<T>` schema nodes and JSON Schema output.
 * `nullable` as an edge metadata hint, e.g. `#[tree(with = leaf, meta(nullable))]`, propagated into JSON Schema as `null`.
 * Generated JSON Schema now carries an explicit `tree-leaf` marker and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
+* `miniconf/tests/benchmark` is now the embedded code-size and workload benchmark harness, with
+  shipped `baseline`, `manual`, and `miniconf` binaries plus schema-size measurement support.
+* The Python package now ships MM2 schema parsing/rendering helpers and one-shot retained-state
+  operations such as `read()`, `dump()`, `prune()`, and `force_prune()`.
 
 ### Removed
 
 * `FromConfig`, `Schema::transcode_with()`, and `Schema::nodes_with()`
 * `Schema::view()`, `Schema::get_view()`, and the `SchemaView` helper family
 * `meta-str`
+* The Python synchronous client surface (`miniconf.sync`) and the legacy request/response-only
+  package layout under `py/miniconf-mqtt`
 
 ## [0.20.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.0...miniconf-v0.20.1) - 2026-02-12
 
