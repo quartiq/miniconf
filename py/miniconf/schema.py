@@ -55,12 +55,12 @@ class SchemaNode:
     schema: dict[str, Any]
 
     @property
-    def inner(self) -> Any:
-        return self.schema.get("inner")
+    def node(self) -> Any:
+        return self.schema.get("node")
 
     @property
-    def outer(self) -> Any:
-        return self.schema.get("outer")
+    def edge(self) -> Any:
+        return self.schema.get("edge")
 
     @property
     def kind(self) -> str:
@@ -152,7 +152,7 @@ class Schema:
                             {
                                 "name": name,
                                 **(
-                                    {"outer": _ref_meta(child)}
+                                    {"edge": _ref_meta(child)}
                                     if _ref_meta(child) is not None
                                     else {}
                                 ),
@@ -165,7 +165,7 @@ class Schema:
                         "kind": "numbered",
                         "children": [
                             (
-                                {"outer": _ref_meta(child)}
+                                {"edge": _ref_meta(child)}
                                 if _ref_meta(child) is not None
                                 else {}
                             )
@@ -177,7 +177,7 @@ class Schema:
                     record["internal"] = {
                         "kind": "homogeneous",
                         "child": (
-                            {"outer": _ref_meta(child)}
+                            {"edge": _ref_meta(child)}
                             if _ref_meta(child) is not None
                             else {}
                         ),
@@ -186,12 +186,12 @@ class Schema:
                 case kind:
                     raise MiniconfException("Protocol", f"Unknown schema kind: {kind}")
         if "m" in schema:
-            record["inner"] = schema["m"]
+            record["node"] = schema["m"]
         if "s" in schema:
             record["sem"] = schema["s"]
         child = self._child_ref(path)
         if child is not None and _ref_meta(child) is not None:
-            record["outer"] = _ref_meta(child)
+            record["edge"] = _ref_meta(child)
         return record
 
     def _child_paths(self, path: str) -> list[str]:
@@ -308,11 +308,11 @@ class Schema:
     def ty(self, keys: Keys = "") -> dict[str, Any]:
         return self.record(keys)["schema"]
 
-    def inner(self, keys: Keys = "") -> Any:
-        return self.ty(keys).get("inner")
+    def node_meta(self, keys: Keys = "") -> Any:
+        return self.ty(keys).get("node")
 
-    def outer(self, keys: Keys = "") -> Any:
-        return self.ty(keys).get("outer")
+    def edge_meta(self, keys: Keys = "") -> Any:
+        return self.ty(keys).get("edge")
 
     def kind(self, keys: Keys = "") -> str:
         return self.node(keys).kind

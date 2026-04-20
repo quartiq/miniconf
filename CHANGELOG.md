@@ -10,23 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* `Path` now stores its separator at runtime, reducing monomorphization bloat on the dynamic path
+* `Path`/`PathIter` now store the separator at runtime, reducing monomorphization bloat on the dynamic path
   representation.
 * `Schema::get()` now performs exact lookup and returns `Lookup`.
 * `Schema::transcode()` now takes `impl IntoKeys`, default-constructs the target, and uses the
   `IntoKeys` boundary funnel before deeper `Keys`-based traversal.
-* `IntoKeys` is now a narrower outer-boundary normalization layer instead of a broad blanket over
-  arbitrary iterator/string wrapper types. Slash-separated `&str` remains the default shorthand;
+* `IntoKeys` is now a narrower boundary normalization instead of a broad blanket over
+  arbitrary iterator/string wrapper types. Slash-separated `&str` is the default "path-like" shorthand;
   explicit separators use `PathIter`/`ConstPathIter`.
 * `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
 * `miniconf_mqtt`: `MqttClient` is now async-first and built on async `minimq::Session`.
   `update()` was replaced by `poll().await`.
-* `miniconf_mqtt` MM2 manifests now publish `epoch`. Long-lived Python
+* `miniconf_mqtt` now supports schema, manifest, separation of requested and actual settings
+  fast live caching using persistence on the broker.
+  It is backwards compatible to "dumb" clients with the "compat-settings-ingress" feature.
+* `miniconf_mqtt` MM2 manifests now publish `epoch`/`schema_rev`. Long-lived Python
   clients keep `/alive` subscribed, invalidate cached schema/settings on `epoch` or `schema_rev`
   changes, and treat retained `settings/#` without `rev` as non-authoritative.
 * Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a monomorphic `SCHEMA` constant.
-* `Meta` is now a stable always-on newtype with direct serialization support. The old `meta-str`
-  feature was removed.
+* `Meta` is now a stable always-on newtype with direct serialization support, and schema metadata
+  terminology is now consistently `node`/`edge` instead of `inner`/`outer`.
+* The schema family now exposes stable `new(...)` constructors and accessors instead of requiring
+  public field construction.
+* Schema storage now keeps plain `Meta` values with `Meta::EMPTY` instead of `Option<Meta>`.
+  Node metadata and edge metadata are stored independently under the `meta-node` and `meta-edge`
+  features.
+* `Schema::get_meta()` now returns both edge and node metadata for one path.
 
 ### Added
 
@@ -34,11 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `Schema::resolve_into()` and `Lookup` for exact lookup with consumed-depth reporting.
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
+* `Sem` offers semantic structured information about nodes in a `Schema`.
 * `#[tree(meta(...))]` for derive metadata syntax.
   Derived enums now always yield structured schema semantics `{"sem":{"oneof":true}}`.
 * Structured `sem.maybe_absent` on `Option<T>` schema nodes and JSON Schema output.
 * Structured `sem.oneof` on built-in `Result<T, E>` and `Bound<T>` schema nodes and JSON Schema output.
-* `nullable` as an outer metadata hint, e.g. `#[tree(with = leaf, meta(nullable))]`, propagated into JSON Schema as `null`.
+* `nullable` as an edge metadata hint, e.g. `#[tree(with = leaf, meta(nullable))]`, propagated into JSON Schema as `null`.
 * Generated JSON Schema now carries an explicit `tree-leaf` marker and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
 
 ### Removed
@@ -64,8 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   This removes the need for `Leaf` newtype usage in many cases.
 * impl specific `Transcode::Error`
 * `mod passthrough/str_leaf/leaf/deny` for composition with `#[tree(with=...)]`
-* `meta-str` feature: Inner and outer metadata in `Schema`, including
-  on-demand docstring to `Meta` entry conversion.
+* optional string metadata on schema nodes and edges, including on-demand docstring to `Meta`
+  entry conversion.
 * `miniconf::json` using `serde_json`
 
 ### Changed

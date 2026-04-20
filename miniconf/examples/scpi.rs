@@ -27,7 +27,8 @@ impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
             Named(n) => {
                 let mut truncated = None;
                 let mut ambiguous = false;
-                for (i, miniconf::Named { name, .. }) in n.iter().enumerate() {
+                for (i, named) in n.iter().enumerate() {
+                    let name = named.name();
                     if name.len() < s.len()
                         || !name
                             .chars()
@@ -51,7 +52,7 @@ impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
                 if ambiguous { None } else { truncated }
             }
             Numbered(n) => s.parse().ok().filter(|i| *i < n.len()),
-            Homogeneous(h) => s.parse().ok().filter(|i| *i < h.len.get()),
+            Homogeneous(h) => s.parse().ok().filter(|i| *i < h.len().get()),
         }
     }
 }

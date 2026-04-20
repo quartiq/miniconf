@@ -167,7 +167,7 @@ application listening to messages under the topic `quartiq/application/12345` an
 setting to `true`.
 
 ```sh
-python -m miniconf -d quartiq/application/+ /foo=true
+miniconf -d quartiq/application/+ /foo=true
 ```
 
 ## Derive macros
@@ -203,11 +203,21 @@ Lookup into the tree is done using a [`Keys`] implementation. Public entry point
 
 ## Features
 
-* `json-core`: Enable helper functions for serializing from and
-  into json slices (using the `serde_json_core` crate).
-* `postcard`: Enable helper functions for serializing from and
-  into the postcard compact binary format (using the `postcard` crate).
 * `derive`: Enable the derive macros in `miniconf_derive`. Enabled by default.
+* `json-core`: Enable helper functions for serializing from and
+  into JSON slices using `serde_json_core`.
+* `json`: Enable `miniconf::json` helpers using `serde_json`.
+* `postcard`: Enable helper functions for serializing from and
+  into the postcard compact binary format using `postcard`.
+* `sem`: Retain structured schema semantics such as `oneof`, `maybe_absent`, and leaf `ty`
+  in `Schema`.
+* `meta-node`: Retain node metadata in `Schema`.
+* `meta-edge`: Retain edge metadata on child records in `Named`, `Numbered`, and `Homogeneous`.
+* `trace`: Enable serde-reflection based tracing helpers.
+* `schema`: Enable JSON Schema generation and related reflection tooling.
+* `heapless` / `heapless-09`: Enable leaf/transcode support for the respective `heapless`
+  versions.
+* `alloc` / `std`: Enable the corresponding allocation-backed support layers.
 
 ## Reflection
 

@@ -61,8 +61,8 @@ Schema operations:
 - `schema.parent(keys)` returns the direct parent node view
 - `schema.siblings(keys)` returns sibling node views
 - `schema.ty(keys)` returns the `schema` description for one node
-- `schema.inner(keys)` returns node metadata
-- `schema.outer(keys)` returns parent-child edge metadata
+- `schema.node_meta(keys)` returns node metadata
+- `schema.edge_meta(keys)` returns parent-child edge metadata
 - `schema.kind(keys)` returns `"leaf"` or the internal-node kind
 - `schema.walk(keys="")` iterates subtree node views
 - `schema.path(keys)` normalizes `path`, `indices`, or `packed` keys to one MM2 path

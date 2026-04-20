@@ -106,11 +106,11 @@ fn enum_meta() {
     }
 
     assert!(E::SCHEMA.sem().unwrap().oneof());
-    let miniconf::Internal::Named(children) = E::SCHEMA.internal.unwrap() else {
+    let miniconf::Internal::Named(children) = E::SCHEMA.internal().unwrap() else {
         panic!("expected named internal schema");
     };
-    assert_eq!(children[0].name, "A");
-    assert_eq!(children[1].name, "B");
+    assert_eq!(children[0].name(), "A");
+    assert_eq!(children[1].name(), "B");
 }
 
 #[cfg(all(feature = "schema", feature = "sem"))]

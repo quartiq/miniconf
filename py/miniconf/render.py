@@ -44,10 +44,10 @@ def _annotations(
     sem = node.schema.get("sem")
     if sem is not None:
         tags.append(_format_mapping("sem", sem))
-    if node.outer is not None:
-        tags.append(_format_mapping("outer", node.outer, quote_strings=True))
-    if node.inner is not None:
-        tags.append(_format_mapping("inner", node.inner, quote_strings=True))
+    if node.edge is not None:
+        tags.append(_format_mapping("edge", node.edge, quote_strings=True))
+    if node.node is not None:
+        tags.append(_format_mapping("node", node.node, quote_strings=True))
     return [f"[{tag}]" for tag in tags]
 
 

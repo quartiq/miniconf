@@ -46,15 +46,10 @@ fn io_kind(err: &std::io::Error) -> ErrorKind {
     }
 }
 
+#[derive(Default)]
 struct Stack(StdStack);
 
 struct Socket<'a>(<StdStack as TcpConnect>::Connection<'a>);
-
-impl Default for Stack {
-    fn default() -> Self {
-        Self(StdStack::default())
-    }
-}
 
 impl ErrorType for Socket<'_> {
     type Error = ErrorKind;

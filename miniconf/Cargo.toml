@@ -9,6 +9,7 @@ license.workspace = true
 categories.workspace = true
 keywords.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [lints]
 workspace = true
@@ -35,6 +36,8 @@ default = ["derive"]
 alloc = ["heapless-09?/alloc"]
 std = ["alloc"]
 sem = []
+meta-node = []
+meta-edge = []
 json-core = ["dep:serde-json-core"]
 json = ["dep:serde_json"]
 postcard = ["dep:postcard"]

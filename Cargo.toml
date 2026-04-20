@@ -18,3 +18,6 @@ categories = ["no-std", "config", "data-structures", "parsing"]
 rust_2018_compatibility = { level = "deny", priority = -1 }
 rust_2018_idioms = { level = "deny", priority = -1 }
 unsafe_code = "forbid"
+
+[patch.crates-io]
+minimq = { path = "../minimq" }

@@ -220,19 +220,19 @@ fn meta_option_is_niche_optimized() {
 fn builtin_oneof_sem() {
     let schema = Result::<u32, i32>::SCHEMA;
     assert!(schema.sem().unwrap().oneof());
-    let miniconf::Internal::Named(children) = schema.internal.unwrap() else {
+    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
         panic!("expected named internal schema");
     };
-    assert_eq!(children[0].name, "Ok");
-    assert_eq!(children[1].name, "Err");
+    assert_eq!(children[0].name(), "Ok");
+    assert_eq!(children[1].name(), "Err");
 
     let schema = core::ops::Bound::<u32>::SCHEMA;
     assert!(schema.sem().unwrap().oneof());
-    let miniconf::Internal::Named(children) = schema.internal.unwrap() else {
+    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
         panic!("expected named internal schema");
     };
-    assert_eq!(children[0].name, "Included");
-    assert_eq!(children[1].name, "Excluded");
+    assert_eq!(children[0].name(), "Included");
+    assert_eq!(children[1].name(), "Excluded");
 }
 
 #[cfg(all(feature = "sem", feature = "std"))]

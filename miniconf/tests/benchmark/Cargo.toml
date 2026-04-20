@@ -5,7 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-cortex-m-rt = "0.7"
+cortex-m-rt = { version = "0.7", features = ["paint-stack"] }
 cortex-m-semihosting = "0.5"
 panic-halt = "1.0"
 miniconf = { path = "../../../miniconf", default-features = false, features = ["derive"] }

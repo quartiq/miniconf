@@ -73,16 +73,16 @@ fn meta_to_tokens(meta: &BTreeMap<String, Override<String>>) -> TokenStream {
                 quote!((#k, #v), )
             })
             .collect();
-        return quote!(::core::option::Option::Some(::miniconf::Meta::new(&[#meta])));
+        return quote!(::miniconf::Meta::new(&[#meta]));
     }
-    quote!(::core::option::Option::None)
+    quote!(::miniconf::Meta::EMPTY)
 }
 
 fn sem_to_tokens(oneof: bool) -> TokenStream {
     if oneof {
         quote!(::miniconf::ONEOF_SEM)
     } else {
-        quote!(::miniconf::NO_SEM)
+        quote!(::miniconf::Sem::EMPTY)
     }
 }
 
@@ -321,11 +321,14 @@ impl Tree {
         } else {
             let schema = field.schema();
             let meta = meta_to_tokens(&field.meta);
-            quote! { &::miniconf::Schema {
-                meta: #meta,
-                sem: (#schema).sem,
-                internal: (#schema).internal,
-            } }
+            quote! { &::miniconf::Schema::new(
+                #meta,
+                match (#schema).sem() {
+                    ::core::option::Option::Some(sem) => *sem,
+                    ::core::option::Option::None => ::miniconf::Sem::EMPTY,
+                },
+                (#schema).internal().copied(),
+            ) }
         }
     }
 
@@ -344,10 +347,7 @@ impl Tree {
                     .map(|field| {
                         let schema = field.schema();
                         let meta = meta_to_tokens(&field.meta);
-                        quote_spanned! { field.span()=> ::miniconf::Numbered {
-                            schema: #schema,
-                            meta: #meta,
-                        }, }
+                        quote_spanned! { field.span()=> ::miniconf::Numbered::new(#schema, #meta), }
                     })
                     .collect();
                 quote! { ::miniconf::Internal::Numbered(&[#numbered]) }
@@ -359,11 +359,7 @@ impl Tree {
                         let name = field.name().unwrap();
                         let schema = field.schema();
                         let meta = meta_to_tokens(&field.meta);
-                        quote_spanned! { name.span()=> ::miniconf::Named {
-                            name: stringify!(#name),
-                            schema: #schema,
-                            meta: #meta,
-                        }, }
+                        quote_spanned! { name.span()=> ::miniconf::Named::new(stringify!(#name), #schema, #meta), }
                     })
                     .collect();
                 quote! { ::miniconf::Internal::Named(&[#named]) }
@@ -379,11 +375,7 @@ impl Tree {
                 let name = variant.name();
                 let schema = variant.field().schema();
                 let meta = meta_to_tokens(&variant.meta);
-                quote_spanned! { variant.field().span()=> ::miniconf::Named {
-                    name: stringify!(#name),
-                    schema: #schema,
-                    meta: #meta,
-                }, }
+                quote_spanned! { variant.field().span()=> ::miniconf::Named::new(stringify!(#name), #schema, #meta), }
             })
             .collect();
         quote! { ::miniconf::Internal::Named(&[#named]) }
@@ -399,11 +391,7 @@ impl Tree {
             let internal = self.schema_internal();
             let meta = meta_to_tokens(&self.meta);
             let sem = sem_to_tokens(matches!(self.data, Data::Enum(_)));
-            quote! { &::miniconf::Schema {
-                meta: #meta,
-                sem: #sem,
-                internal: ::core::option::Option::Some(#internal),
-            } }
+            quote! { &::miniconf::Schema::new(#meta, #sem, ::core::option::Option::Some(#internal)) }
         };
         quote! {
             #[automatically_derived]

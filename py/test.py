@@ -159,8 +159,8 @@ async def main() -> None:
     assert schema_fixture.kind() == "named"
     assert schema_fixture.kind("/nested") == "named"
     assert schema_fixture.kind("/value") == "leaf"
-    assert schema_fixture.outer("/value") == {"role": "selector"}
-    assert schema_fixture.outer("/nested") is None
+    assert schema_fixture.edge_meta("/value") == {"role": "selector"}
+    assert schema_fixture.edge_meta("/nested") is None
     assert schema_fixture.compact("/nested") == {
         "path": "/nested",
         "rev": 1,
@@ -194,7 +194,7 @@ async def main() -> None:
         )
     ).splitlines()
     assert quoted_meta == [
-        '└─ node [outer doc="Outer doc"] [inner typename="InnerType"]'
+        '└─ node [edge doc="Outer doc"] [node typename="InnerType"]'
     ], quoted_meta
 
     alive = TopicWatcher(f"{PREFIX}/+/alive")
@@ -245,8 +245,8 @@ async def main() -> None:
                 "b",
             }, struct_schema
             assert schema.ty("/struct_tree")["internal"]["kind"] == "named"
-            assert schema.inner("/struct_tree")["typename"] == "MyStruct"
-            assert schema.outer("/struct_tree/b")["doc"] == "Outer doc"
+            assert schema.node_meta("/struct_tree")["typename"] == "MyStruct"
+            assert schema.edge_meta("/struct_tree/b")["doc"] == "Outer doc"
             assert schema.node("/enum_tree/C") == SchemaNode(
                 "/enum_tree/C", schema.ty("/enum_tree/C")
             )

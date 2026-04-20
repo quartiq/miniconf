@@ -32,13 +32,16 @@ impl<const N: usize> Serialize for SchemaDef<'_, N> {
         S: Serializer,
     {
         let mut map = serializer.serialize_map(Some(3))?;
-        if let Some(meta) = self.schema.meta.as_ref() {
+        if !self.schema.node_meta().is_empty() {
+            let meta = self.schema.node_meta();
             map.serialize_entry("m", meta)?;
         }
-        if let Some(sem) = self.schema.sem() {
+        if let Some(sem) = self.schema.sem()
+            && !sem.is_empty()
+        {
             map.serialize_entry("s", sem)?;
         }
-        if let Some(internal) = self.schema.internal.as_ref() {
+        if let Some(internal) = self.schema.internal() {
             map.serialize_entry(
                 "i",
                 &SchemaChildren {
@@ -85,13 +88,13 @@ impl<const N: usize> Serialize for SchemaChildren<'_, N> {
             }
             Internal::Homogeneous(child) => {
                 map.serialize_entry("k", "h")?;
-                map.serialize_entry("l", &child.len.get())?;
+                map.serialize_entry("l", &child.len().get())?;
                 map.serialize_entry(
                     "c",
                     &ChildRef {
                         emitted: self.emitted,
-                        schema: child.schema,
-                        meta: child.meta,
+                        schema: child.schema(),
+                        meta: maybe_meta(child.edge_meta()),
                     },
                 )?;
             }
@@ -113,11 +116,11 @@ impl<const N: usize> Serialize for NamedChildren<'_, N> {
         let mut map = serializer.serialize_map(Some(self.children.len()))?;
         for child in self.children {
             map.serialize_entry(
-                child.name,
+                child.name(),
                 &ChildRef {
                     emitted: self.emitted,
-                    schema: child.schema,
-                    meta: child.meta,
+                    schema: child.schema(),
+                    meta: maybe_meta(child.edge_meta()),
                 },
             )?;
         }
@@ -139,8 +142,8 @@ impl<const N: usize> Serialize for NumberedChildren<'_, N> {
         for child in self.children {
             seq.serialize_element(&ChildRef {
                 emitted: self.emitted,
-                schema: child.schema,
-                meta: child.meta,
+                schema: child.schema(),
+                meta: maybe_meta(child.edge_meta()),
             })?;
         }
         seq.end()
@@ -151,6 +154,10 @@ struct ChildRef<'a, const N: usize> {
     emitted: &'a Vec<&'static Schema, N>,
     schema: &'static Schema,
     meta: Option<Meta>,
+}
+
+fn maybe_meta(meta: &Meta) -> Option<Meta> {
+    if meta.is_empty() { None } else { Some(*meta) }
 }
 
 impl<const N: usize> Serialize for ChildRef<'_, N> {
@@ -215,19 +222,19 @@ impl<const N: usize> SchemaPageBuilder<N> {
         if self.full || self.oversized.is_some() || self.contains(schema) {
             return;
         }
-        if let Some(internal) = schema.internal.as_ref() {
+        if let Some(internal) = schema.internal() {
             match internal {
                 Internal::Named(children) => {
                     for child in *children {
-                        self.visit(child.schema);
+                        self.visit(child.schema());
                     }
                 }
                 Internal::Numbered(children) => {
                     for child in *children {
-                        self.visit(child.schema);
+                        self.visit(child.schema());
                     }
                 }
-                Internal::Homogeneous(child) => self.visit(child.schema),
+                Internal::Homogeneous(child) => self.visit(child.schema()),
             }
         }
         if self.full || self.oversized.is_some() || self.contains(schema) {
@@ -282,19 +289,19 @@ impl<const N: usize> SchemaCounter<N> {
         if self.overflowed || self.contains(schema) {
             return;
         }
-        if let Some(internal) = schema.internal.as_ref() {
+        if let Some(internal) = schema.internal() {
             match internal {
                 Internal::Named(children) => {
                     for child in *children {
-                        self.visit(child.schema);
+                        self.visit(child.schema());
                     }
                 }
                 Internal::Numbered(children) => {
                     for child in *children {
-                        self.visit(child.schema);
+                        self.visit(child.schema());
                     }
                 }
-                Internal::Homogeneous(child) => self.visit(child.schema),
+                Internal::Homogeneous(child) => self.visit(child.schema()),
             }
         }
         if self.contains(schema) {

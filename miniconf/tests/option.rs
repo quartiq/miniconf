@@ -195,21 +195,18 @@ fn option_nullable_meta() {
         data: Option<u32>,
     }
 
-    let miniconf::Internal::Named(children) = NullableField::SCHEMA.internal.unwrap() else {
+    let miniconf::Internal::Named(children) = NullableField::SCHEMA.internal().unwrap() else {
         panic!("expected named internal schema");
     };
-    assert_eq!(children[0].name, "data");
-    assert_eq!(
-        children[0].meta.as_ref().unwrap().get("nullable"),
-        Some("true")
-    );
+    assert_eq!(children[0].name(), "data");
+    assert_eq!(children[0].edge_meta().get("nullable"), Some("true"));
 
     #[derive(Copy, Clone, Default, Tree)]
     #[tree(flatten)]
     struct NullableRoot(#[tree(with = leaf, meta(nullable))] Option<u32>);
 
     assert_eq!(
-        NullableRoot::SCHEMA.meta.as_ref().unwrap().get("nullable"),
+        NullableRoot::SCHEMA.node_meta().get("nullable"),
         Some("true")
     );
 }
@@ -224,10 +221,10 @@ fn option_sem() {
     let schema = Option::<Inner>::SCHEMA;
     assert_eq!(schema.sem().unwrap().ty(), None);
     assert!(schema.sem().unwrap().maybe_absent());
-    let miniconf::Internal::Named(children) = schema.internal.unwrap() else {
+    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
         panic!("expected named internal schema");
     };
-    assert_eq!(children[0].name, "data");
+    assert_eq!(children[0].name(), "data");
 }
 
 #[cfg(all(feature = "schema", feature = "sem"))]

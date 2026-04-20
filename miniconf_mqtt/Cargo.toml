@@ -9,6 +9,7 @@ license.workspace = true
 categories.workspace = true
 keywords.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [lints]
 workspace = true
@@ -21,7 +22,7 @@ compat-settings-ingress = []
 
 [dependencies]
 miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
-minimq = { path = "../../minimq" }
+minimq = "0.10"
 embassy-time = "0.5.1"
 embedded-io = "0.7"
 log = "0.4"
@@ -48,6 +49,12 @@ miniconf = { features = [
     "json-core",
     "derive",
     "heapless-09",
+    "sem",
+    "meta-node",
+    "meta-edge",
 ], path = "../miniconf" }
 serde = "1"
 heapless = { version = "0.9", features = ["serde"] }
+
+[package.metadata.docs.rs]
+all-features = true

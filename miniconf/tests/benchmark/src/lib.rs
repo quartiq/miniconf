@@ -1,7 +1,9 @@
 #![no_std]
 
 use core::hint::black_box;
+use core::ptr::read_volatile;
 
+use cortex_m_rt::STACK_PAINT_VALUE;
 use cortex_m_semihosting::{debug, hprintln};
 pub mod codec;
 pub mod manual_engine;
@@ -92,10 +94,10 @@ pub const MIXED: &[&str] = &[
     "/option_tree2/b=8",
     "/option_tree2/a",
     "/option_tree2/b",
-    "/array_option_tree/0/a",
-    "/array_option_tree/0/b",
-    "/array_option_tree/0/a=1",
-    "/array_option_tree/0/b=1",
+    "/array_option_tree/1/a",
+    "/array_option_tree/1/b",
+    "/array_option_tree/1/a=1",
+    "/array_option_tree/1/b=1",
     "/array_option_tree/1/a=4",
     "/array_option_tree/1/b=10",
     "/array_option_tree/1/a",
@@ -104,12 +106,30 @@ pub const MIXED: &[&str] = &[
     "/foo",
 ];
 
+// This harness is primarily for code size and representative path coverage.
+// Stack depth is iteration-invariant here, so keep the QEMU workload short.
+const OUTER_ITERS: u32 = 32;
+
 pub trait Engine {
     type Error;
     fn new() -> Self;
     fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error>;
     fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error>;
     fn settings(&self) -> &settings::Settings;
+}
+
+fn stack_peak_bytes() -> usize {
+    unsafe extern "C" {
+        static __sheap: u32;
+        static _stack_start: u32;
+    }
+
+    let mut cursor = (&raw const __sheap) as usize;
+    let top = (&raw const _stack_start) as usize;
+    while cursor < top && unsafe { read_volatile(cursor as *const u32) } == STACK_PAINT_VALUE {
+        cursor += core::mem::size_of::<u32>();
+    }
+    top - cursor
 }
 
 fn run_parse_only(lines: &[&str], outer_iters: u32) {
@@ -204,8 +224,8 @@ pub fn run_engine<E: Engine>() -> ! {
         }
     }
 
-    run_parse_only(MIXED, 2_000);
-    if let Err(err) = run_workload(&mut engine, MIXED, 2_000) {
+    run_parse_only(MIXED, OUTER_ITERS);
+    if let Err(err) = run_workload(&mut engine, MIXED, OUTER_ITERS) {
         let (kind, index) = validation_code(err);
         hprintln!(
             "RESULT validation=workload_failed kind={} index={}",
@@ -218,7 +238,7 @@ pub fn run_engine<E: Engine>() -> ! {
         }
     }
     let mut replay = E::new();
-    if let Err(err) = run_workload(&mut replay, MIXED, 2_000) {
+    if let Err(err) = run_workload(&mut replay, MIXED, OUTER_ITERS) {
         let (kind, index) = validation_code(err);
         hprintln!(
             "RESULT validation=replay_failed kind={} index={}",
@@ -234,6 +254,7 @@ pub fn run_engine<E: Engine>() -> ! {
 
     hprintln!("RESULT validation=ok");
     hprintln!("RESULT final_state_eq={}", state_eq as u8);
+    hprintln!("RESULT stack_peak={}", stack_peak_bytes());
 
     debug::exit(debug::EXIT_SUCCESS);
     loop {
@@ -242,7 +263,9 @@ pub fn run_engine<E: Engine>() -> ! {
 }
 
 pub fn run_baseline() -> ! {
-    run_parse_only(MIXED, 2_000);
+    run_parse_only(MIXED, OUTER_ITERS);
+    hprintln!("RESULT validation=ok");
+    hprintln!("RESULT stack_peak={}", stack_peak_bytes());
 
     debug::exit(debug::EXIT_SUCCESS);
     loop {

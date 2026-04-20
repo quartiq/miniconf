@@ -98,11 +98,13 @@ fn deny_access() {
         };
     }
     mod deny_ref {
+        use core::marker::PhantomData;
         use std::cell::RefCell;
 
         use miniconf::{Schema, TreeSchema};
 
         pub const fn schema<T>() -> &'static Schema {
+            let _ = PhantomData::<T>;
             <&RefCell<i32>>::SCHEMA
         }
         pub use miniconf::{

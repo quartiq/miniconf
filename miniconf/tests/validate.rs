@@ -51,6 +51,8 @@ struct Page {
 }
 
 mod page4 {
+    use core::marker::PhantomData;
+
     use super::Page;
 
     use miniconf::{
@@ -63,6 +65,7 @@ mod page4 {
     pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key};
 
     pub const fn schema<T>() -> &'static Schema {
+        let _ = PhantomData::<T>;
         <[i32; LENGTH] as TreeSchema>::SCHEMA
     }
 
