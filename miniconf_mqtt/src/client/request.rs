@@ -1,10 +1,11 @@
 use core::convert::Infallible;
+use core::fmt::{Debug, Write as _};
 
-use heapless::String;
+use heapless::{String, Vec};
 use itoa::Buffer;
 use log::{debug, warn};
 use miniconf::{ConstPath, DescendError, SerdeError, ValueError, json_core};
-use minimq::{InboundPublish, ProtocolError, PubError, Publication, QoS};
+use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS};
 
 #[cfg(feature = "compat-settings-ingress")]
 use crate::client::SettingsIngressPhase;
@@ -14,8 +15,42 @@ use crate::{
         Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, format_slice,
         simple_pub_error,
     },
-    schema::Pending,
 };
+
+fn error_props<'a, E: Debug>(
+    code: ResponseCode,
+    kind: &'static str,
+    class: &'static str,
+    err: &E,
+    depth: Option<usize>,
+    error: &'a mut String<96>,
+    depth_buf: &'a mut Buffer,
+) -> Vec<Property<'a>, 5> {
+    let mut props = Vec::new();
+    push_prop(&mut props, "code", code.into());
+    push_prop(&mut props, "kind", kind);
+    push_prop(&mut props, "class", class);
+    error.clear();
+    write!(error, "{err:?}").ok();
+    push_prop(&mut props, "error", error.as_str());
+    if let Some(depth) = depth {
+        push_prop(&mut props, "depth", depth_buf.format(depth));
+    }
+    props
+}
+
+fn push_prop<'a, const N: usize>(
+    props: &mut Vec<Property<'a>, N>,
+    key: &'static str,
+    value: &'a str,
+) {
+    props
+        .push(Property::UserProperty(
+            minimq::types::Utf8String(key),
+            minimq::types::Utf8String(value),
+        ))
+        .ok();
+}
 
 impl<'a, Settings, C> MqttClient<'a, Settings, C>
 where
@@ -115,7 +150,9 @@ where
                     state: State::Unchanged,
                     reply,
                     code: ResponseCode::Error,
-                    body: ReplyBody::Static("Path does not resolve to a leaf"),
+                    body: ReplyBody::LeafRequired {
+                        depth: lookup.depth,
+                    },
                 },
                 #[cfg(feature = "compat-settings-ingress")]
                 Resource::Settings => Action::None(State::Unchanged),
@@ -156,7 +193,7 @@ where
                 body,
             } => {
                 if let Some(reply) = &reply {
-                    self.reply_text(reply, code, &body).await;
+                    self.reply_body(reply, code, &body).await;
                 }
                 state
             }
@@ -169,12 +206,12 @@ where
                 if matches!(resource, Resource::Set) {
                     if let Err(err) = self.try_publish_leaf(settings, state, depth).await {
                         if let Some(reply) = &reply {
-                            self.reply_text(reply, ResponseCode::Error, simple_pub_error(err))
-                                .await;
+                            let err = simple_pub_error(err);
+                            self.reply_publish_error(reply, &err).await;
                         }
                         return State::Unchanged;
                     }
-                    self.queue_settings_sync();
+                    self.publish_all();
                     if let Some(reply) = &reply {
                         self.reply_text(reply, ResponseCode::Ok, "").await;
                     }
@@ -188,7 +225,7 @@ where
                         if self.publish_current(settings, state, depth).await.is_err() {
                             return State::Unchanged;
                         }
-                        self.queue_settings_sync();
+                        self.publish_all();
                         State::Changed
                     }
                 }
@@ -206,11 +243,54 @@ where
         }
     }
 
-    fn queue_settings_sync(&mut self) {
-        if matches!(self.protocol.pending, Pending::Idle) {
-            debug!("Queued retained settings sync");
-            self.protocol.pending = Pending::settings(Settings::SCHEMA);
-        }
+    async fn reply_body(&mut self, reply: &ReplyTarget, code: ResponseCode, body: &ReplyBody) {
+        let mut error = String::new();
+        let mut depth = Buffer::new();
+        let props = match body {
+            ReplyBody::Lookup(err) => error_props(
+                code,
+                "lookup",
+                "SerdeError",
+                &err.inner,
+                Some(err.depth),
+                &mut error,
+                &mut depth,
+            ),
+            ReplyBody::LeafRequired { depth: value } => error_props(
+                code,
+                "set",
+                "KeyError",
+                &miniconf::KeyError::TooShort,
+                Some(*value),
+                &mut error,
+                &mut depth,
+            ),
+            ReplyBody::Set(err) => error_props(
+                code,
+                "set",
+                "SerdeError",
+                &err.inner,
+                Some(err.depth),
+                &mut error,
+                &mut depth,
+            ),
+        };
+        self.reply_with(reply, &props, body).await;
+    }
+
+    async fn reply_publish_error(&mut self, reply: &ReplyTarget, err: &Error<C::Error>) {
+        let mut error = String::new();
+        let mut depth = Buffer::new();
+        let props = error_props(
+            ResponseCode::Error,
+            "publish",
+            "Error",
+            err,
+            None,
+            &mut error,
+            &mut depth,
+        );
+        self.reply_with(reply, &props, err).await;
     }
 
     async fn reply_text(
@@ -220,12 +300,21 @@ where
         text: impl core::fmt::Display,
     ) {
         let props = [code.into()];
+        self.reply_with(reply, &props, text).await;
+    }
+
+    async fn reply_with(
+        &mut self,
+        reply: &ReplyTarget,
+        props: &[minimq::Property<'_>],
+        text: impl core::fmt::Display,
+    ) {
         if let Err(err) = self
             .session
             .publish(
                 reply
                     .publication(|buf: &mut [u8]| format_slice(text, buf))
-                    .properties(&props)
+                    .properties(props)
                     .qos(QoS::AtLeastOnce),
             )
             .await
@@ -296,8 +385,7 @@ where
         Ok(topic)
     }
 
-    #[cfg(feature = "compat-settings-ingress")]
-    async fn publish_current(
+    pub(super) async fn publish_current(
         &mut self,
         settings: &Settings,
         state: [usize; crate::MAX_DEPTH],

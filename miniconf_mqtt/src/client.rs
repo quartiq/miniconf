@@ -7,7 +7,10 @@ use core::marker::PhantomData;
 use embassy_time::{Instant, with_deadline};
 use heapless::String;
 use log::{debug, info};
-use miniconf::{DescendError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize};
+use miniconf::{
+    DescendError, IntoKeys, KeyError, NodeIter, SerdeError, TreeDeserializeOwned, TreeSchema,
+    TreeSerialize,
+};
 use minimq::{
     ConfigBuilder, Event, InboundPublish, ProtocolError, PubError, Publication, QoS, Session,
     publication::ToPayload,
@@ -20,7 +23,7 @@ use crate::message::Resource;
 use crate::{
     MAX_TOPIC_LENGTH,
     message::{Action, DepthError},
-    schema::{Pending, SchemaDefs},
+    schema::{SchemaDefs, SchemaSync, SettingsSync},
 };
 
 #[derive(Debug, PartialEq, thiserror::Error)]
@@ -69,19 +72,32 @@ struct Manifest {
 }
 
 struct ProtocolState {
-    pending: Pending,
     manifest: Manifest,
-    publish_alive_after_sync: bool,
+    phase: Phase,
+    followup: Followup,
     #[cfg(feature = "compat-settings-ingress")]
     settings_ingress: SettingsIngressPhase,
+}
+
+#[derive(Default)]
+struct Followup {
+    publish_alive: bool,
+    publish_all: bool,
+}
+
+#[allow(clippy::large_enum_variant)]
+enum Phase {
+    Schema(SchemaSync),
+    Settings(SettingsSync),
+    Idle,
 }
 
 impl ProtocolState {
     fn new() -> Self {
         Self {
-            pending: Pending::new(),
             manifest: Manifest::default(),
-            publish_alive_after_sync: false,
+            phase: Phase::Idle,
+            followup: Followup::default(),
             #[cfg(feature = "compat-settings-ingress")]
             settings_ingress: SettingsIngressPhase::Runtime,
         }
@@ -101,8 +117,8 @@ impl ProtocolState {
         self.manifest.settings_rev = 0;
         self.manifest.schema_rev = 0;
         self.manifest.schema_pages = 0;
-        self.pending = Pending::schema(Settings::SCHEMA);
-        self.publish_alive_after_sync = false;
+        self.phase = Phase::Schema(SchemaSync::new(Settings::SCHEMA));
+        self.followup = Followup::default();
         info!("Activated MM2 session epoch={}", self.manifest.epoch);
         #[cfg(feature = "compat-settings-ingress")]
         {
@@ -179,6 +195,11 @@ where
     }
 
     /// Progress MQTT I/O, requests, and background mirror publication work.
+    ///
+    /// Background schema and retained-settings sync is incremental: each `poll()` handles one
+    /// session event first and then advances at most one retained publication step. Pending sync
+    /// work therefore does not spin in an internal loop or monopolize the networking stack, but
+    /// it can still consume publish capacity across successive polls until it completes.
     pub async fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<C::Error>> {
         let prefix = self.prefix;
         let (session_active, action, settings_ingress, idle) = match self.poll_session().await? {
@@ -205,6 +226,34 @@ where
         let changed = self.execute(settings, action).await;
         self.advance_pending(settings).await;
         Ok(changed)
+    }
+
+    /// Publish one retained leaf value by exact key.
+    ///
+    /// This is the efficient app-side hook for a known leaf change. If the key resolves to an
+    /// internal node, use [`publish_all`](Self::publish_all) after the structural change instead.
+    pub async fn publish_by_key(
+        &mut self,
+        settings: &Settings,
+        key: impl IntoKeys,
+    ) -> Result<(), Error<C::Error>> {
+        let mut state = [0; crate::MAX_DEPTH];
+        let lookup = Settings::SCHEMA
+            .resolve_into(key, &mut state)
+            .map_err(|err| err.error)?;
+        if !lookup.schema.is_leaf() {
+            return Err(Error::Miniconf(DescendError::Key(KeyError::TooShort)));
+        }
+        self.activate().await?;
+        self.publish_current(settings, state, lookup.depth).await
+    }
+
+    /// Queue a background retained full-tree republish.
+    ///
+    /// The queued sync is advanced by [`poll`](Self::poll).
+    pub fn publish_all(&mut self) {
+        self.protocol.followup.publish_all = true;
+        self.start_settings_sync();
     }
 
     #[cfg(feature = "compat-settings-ingress")]
@@ -310,5 +359,30 @@ where
     #[cfg(not(feature = "compat-settings-ingress"))]
     fn is_settings_ingress(_prefix: &str, _message: &InboundPublish<'_>) -> bool {
         false
+    }
+
+    #[cfg(feature = "compat-settings-ingress")]
+    fn can_start_settings_sync(&self) -> bool {
+        matches!(
+            self.protocol.settings_ingress,
+            SettingsIngressPhase::Runtime
+        )
+    }
+
+    #[cfg(not(feature = "compat-settings-ingress"))]
+    fn can_start_settings_sync(&self) -> bool {
+        true
+    }
+
+    fn start_settings_sync(&mut self) {
+        if !self.can_start_settings_sync()
+            || !matches!(self.protocol.phase, Phase::Idle)
+            || !self.protocol.followup.publish_all
+        {
+            return;
+        }
+        debug!("Queued retained settings sync");
+        self.protocol.phase = Phase::Settings(NodeIter::new(Settings::SCHEMA));
+        self.protocol.followup.publish_all = false;
     }
 }

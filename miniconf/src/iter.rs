@@ -162,7 +162,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         let mut i = 0;
         while i < depth {
             let Some(internal) = schema.internal() else {
-                break;
+                unreachable!("validated iterator path must stay internal until root depth");
             };
             schema = internal.get_schema(self.indices[i]);
             self.parents[i] = Some(internal);
@@ -190,8 +190,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         while depth > self.root_depth {
             let parent = depth - 1;
             let Some(internal) = self.parents[parent] else {
-                depth = parent;
-                continue;
+                unreachable!("iterator parent cache must be populated below the active depth");
             };
             let next = self.indices[parent] + 1;
             if next < internal.len().get() {

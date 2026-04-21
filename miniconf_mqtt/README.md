@@ -20,10 +20,13 @@ It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
 
 - call `poll()` regularly to drive MQTT I/O
 - handle your own application traffic through the shared session via `publish()`
+- call `publish_by_key()` for explicit app-driven retained leaf publication
+- call `publish_all()` to queue a background retained full-tree republish
 - let `poll()` incrementally publish `alive`, schema pages, and retained settings
 
 Background schema/settings publication is incremental by design so reconnect/bootstrap does not
-block normal `set/#` handling.
+block normal `set/#` handling: each `poll()` handles one MQTT session event first and then
+advances at most one retained-publication step.
 
 ## Manifest
 

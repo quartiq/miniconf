@@ -49,6 +49,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with consistent naming.
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
+* `miniconf_mqtt::MqttClient::{publish_by_key,publish_all}` for explicit app-driven retained
+  settings publication.
 * `Sem` offers semantic structured information about nodes in a `Schema`.
 * `#[tree(meta(...))]` for derive metadata syntax.
   Derived enums now always yield structured schema semantics `{"sem":{"oneof":true}}`.

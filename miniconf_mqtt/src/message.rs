@@ -7,7 +7,7 @@ use minimq::{ProtocolError, Publication};
 use serde_json_core::de;
 use strum::IntoStaticStr;
 
-use crate::{MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, client::Error};
+use crate::{Error, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH};
 
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Action {
@@ -32,17 +32,17 @@ pub(crate) enum Action {
 }
 
 pub(crate) enum ReplyBody {
-    Static(&'static str),
     Lookup(DepthError<Infallible>),
+    LeafRequired { depth: usize },
     Set(DepthError<de::Error>),
 }
 
 impl Display for ReplyBody {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Static(text) => f.write_str(text),
-            Self::Lookup(err) => err.fmt(f),
-            Self::Set(err) => err.fmt(f),
+            Self::Lookup(err) => Display::fmt(err, f),
+            Self::LeafRequired { .. } => f.write_str("Path does not resolve to a leaf"),
+            Self::Set(err) => Display::fmt(err, f),
         }
     }
 }

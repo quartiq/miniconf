@@ -248,16 +248,11 @@ pub(crate) struct SchemaPage {
     pub(crate) len: usize,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SchemaPageError {
-    Oversized { id: usize },
-}
-
 pub(crate) fn serialize_schema_page(
     defs: &SchemaDefs,
     next: usize,
     payload: &mut [u8],
-) -> Result<SchemaPage, SchemaPageError> {
+) -> Result<SchemaPage, usize> {
     let mut count = 0;
     let mut len = 0;
 
@@ -266,7 +261,7 @@ pub(crate) fn serialize_schema_page(
         let start = len;
         if payload.len().saturating_sub(start) < 2 {
             if start == 0 {
-                return Err(SchemaPageError::Oversized { id });
+                return Err(id);
             }
             break;
         }
@@ -279,7 +274,7 @@ pub(crate) fn serialize_schema_page(
         })
         .serialize(&mut ser) else {
             if start == 0 {
-                return Err(SchemaPageError::Oversized { id });
+                return Err(id);
             }
             break;
         };
@@ -292,41 +287,23 @@ pub(crate) fn serialize_schema_page(
     Ok(SchemaPage { count, len })
 }
 
-#[allow(clippy::large_enum_variant)]
-pub(crate) enum Pending {
-    Idle,
-    Schema {
-        defs: SchemaDefs,
-        next: usize,
-        page: usize,
-        hash: u32,
-    },
-    Settings {
-        iter: NodeIter<ConstPath<String<MAX_TOPIC_LENGTH>, '/'>, { crate::MAX_DEPTH }>,
-    },
+pub(crate) struct SchemaSync {
+    pub(crate) defs: SchemaDefs,
+    pub(crate) next: usize,
+    pub(crate) page: usize,
+    pub(crate) hash: u32,
 }
 
-impl Pending {
-    pub(crate) const fn new() -> Self {
-        Self::Idle
-    }
-
-    pub(crate) fn clear(&mut self) {
-        *self = Self::Idle;
-    }
-
-    pub(crate) fn schema(schema: &'static Schema) -> Self {
-        Self::Schema {
+impl SchemaSync {
+    pub(crate) fn new(schema: &'static Schema) -> Self {
+        Self {
             defs: SchemaDefs::new(schema).unwrap(),
             next: 0,
             page: 0,
             hash: <u32 as yafnv::Fnv>::OFFSET_BASIS,
         }
     }
-
-    pub(crate) fn settings(schema: &'static Schema) -> Self {
-        Self::Settings {
-            iter: NodeIter::new(schema),
-        }
-    }
 }
+
+pub(crate) type SettingsSync =
+    NodeIter<ConstPath<String<MAX_TOPIC_LENGTH>, '/'>, { crate::MAX_DEPTH }>;
