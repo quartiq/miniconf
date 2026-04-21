@@ -10,7 +10,8 @@ use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS
 #[cfg(feature = "compat-settings-ingress")]
 use crate::client::SettingsIngressPhase;
 use crate::{
-    Error, MAX_TOPIC_LENGTH, MqttClient, State,
+    Error, MAX_TOPIC_LENGTH, MqttClient,
+    client::Change,
     message::{
         Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, format_slice,
         simple_pub_error,
@@ -63,7 +64,7 @@ where
         message: &InboundPublish<'_>,
     ) -> Action {
         let Some((resource, _)) = Resource::parse(message.topic(), prefix) else {
-            return Action::None(State::Unchanged);
+            return Action::Unhandled;
         };
 
         let reply = match resource {
@@ -78,7 +79,7 @@ where
                         "Rejecting request with oversized reply target on {}: {err:?}",
                         message.topic()
                     );
-                    return Action::None(State::Unchanged);
+                    return Action::None(Change::Unchanged);
                 }
             },
             #[cfg(feature = "compat-settings-ingress")]
@@ -96,7 +97,7 @@ where
         reply: Option<ReplyTarget>,
     ) -> Action {
         let Some((resource, path)) = Resource::parse(topic, prefix) else {
-            return Action::None(State::Unchanged);
+            return Action::Unhandled;
         };
 
         let mut state = [0; crate::MAX_DEPTH];
@@ -115,13 +116,13 @@ where
                         depth: err.lookup.depth,
                     };
                     return Action::Reply {
-                        state: State::Unchanged,
+                        state: Change::Unchanged,
                         reply,
                         code: ResponseCode::Error,
                         body: ReplyBody::Lookup(err),
                     };
                 }
-                return Action::None(State::Unchanged);
+                return Action::None(Change::Unchanged);
             }
         };
 
@@ -130,14 +131,14 @@ where
                 debug!("Ignoring empty set payload topic={topic}");
             }
             return match resource {
-                Resource::Set => Action::None(State::Unchanged),
+                Resource::Set => Action::None(Change::Unchanged),
                 #[cfg(feature = "compat-settings-ingress")]
                 Resource::Settings if lookup.schema.is_leaf() => Action::OverrideSet {
                     state,
                     depth: lookup.depth,
                 },
                 #[cfg(feature = "compat-settings-ingress")]
-                Resource::Settings => Action::None(State::Unchanged),
+                Resource::Settings => Action::None(Change::Unchanged),
             };
         }
 
@@ -147,7 +148,7 @@ where
             }
             return match resource {
                 Resource::Set => Action::Reply {
-                    state: State::Unchanged,
+                    state: Change::Unchanged,
                     reply,
                     code: ResponseCode::Error,
                     body: ReplyBody::LeafRequired {
@@ -155,7 +156,7 @@ where
                     },
                 },
                 #[cfg(feature = "compat-settings-ingress")]
-                Resource::Settings => Action::None(State::Unchanged),
+                Resource::Settings => Action::None(Change::Unchanged),
             };
         }
 
@@ -169,7 +170,7 @@ where
             },
             Err(inner) => match resource {
                 Resource::Set => Action::Reply {
-                    state: State::Unchanged,
+                    state: Change::Unchanged,
                     reply,
                     code: ResponseCode::Error,
                     body: ReplyBody::Set(inner),
@@ -183,8 +184,9 @@ where
         }
     }
 
-    pub(super) async fn execute(&mut self, settings: &Settings, action: Action) -> State {
+    pub(super) async fn execute(&mut self, settings: &Settings, action: Action) -> Change {
         match action {
+            Action::Unhandled => Change::Unchanged,
             Action::None(state) => state,
             Action::Reply {
                 state,
@@ -209,24 +211,24 @@ where
                             let err = simple_pub_error(err);
                             self.reply_publish_error(reply, &err).await;
                         }
-                        return State::Unchanged;
+                        return Change::Unchanged;
                     }
                     self.publish_all();
                     if let Some(reply) = &reply {
                         self.reply_text(reply, ResponseCode::Ok, "").await;
                     }
-                    return State::Changed;
+                    return Change::Changed;
                 }
 
                 #[cfg(feature = "compat-settings-ingress")]
                 match self.protocol.settings_ingress {
-                    SettingsIngressPhase::Recovering { .. } => State::Changed,
+                    SettingsIngressPhase::Recovering { .. } => Change::Changed,
                     SettingsIngressPhase::Runtime => {
                         if self.publish_current(settings, state, depth).await.is_err() {
-                            return State::Unchanged;
+                            return Change::Unchanged;
                         }
                         self.publish_all();
-                        State::Changed
+                        Change::Changed
                     }
                 }
                 #[cfg(not(feature = "compat-settings-ingress"))]
@@ -234,10 +236,10 @@ where
             }
             #[cfg(feature = "compat-settings-ingress")]
             Action::OverrideSet { state, depth } => match self.protocol.settings_ingress {
-                SettingsIngressPhase::Recovering { .. } => State::Unchanged,
+                SettingsIngressPhase::Recovering { .. } => Change::Unchanged,
                 SettingsIngressPhase::Runtime => {
                     let _ = self.publish_current(settings, state, depth).await;
-                    State::Unchanged
+                    Change::Unchanged
                 }
             },
         }

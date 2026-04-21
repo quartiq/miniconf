@@ -1,5 +1,5 @@
 use crate::{
-    MAX_TOPIC_LENGTH, MqttClient, State,
+    MAX_TOPIC_LENGTH, MqttClient,
     message::{Action, ReplyTarget, ResponseCode, format_slice},
     schema::{SchemaDefs, serialize_schema_page},
 };
@@ -131,7 +131,7 @@ fn plan_empty_payload_is_ignored() {
             b"",
             Some(reply),
         ),
-        Action::None(State::Unchanged)
+        Action::None(crate::client::Change::Unchanged)
     ));
     assert_eq!(settings.value, 0);
 }
@@ -154,7 +154,7 @@ fn plan_internal_set_path_is_rejected() {
             code,
             body,
         } => {
-            assert_eq!(state, State::Unchanged);
+            assert_eq!(state, crate::client::Change::Unchanged);
             assert!(reply.is_some());
             assert_eq!(code, ResponseCode::Error);
             let mut text = [0u8; 128];
@@ -186,7 +186,7 @@ fn plan_missing_path_is_rejected() {
             code,
             body,
         } => {
-            assert_eq!(state, State::Unchanged);
+            assert_eq!(state, crate::client::Change::Unchanged);
             assert!(reply.is_some());
             assert_eq!(code, ResponseCode::Error);
             let mut text = [0u8; 128];

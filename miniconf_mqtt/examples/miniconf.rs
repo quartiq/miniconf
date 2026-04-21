@@ -2,7 +2,7 @@ use clap::Parser;
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use embedded_nal_async::TcpConnect;
 use miniconf_mqtt::{
-    MqttClient, State,
+    Event, MqttClient,
     minimq::{self, transport::TcpConnector},
 };
 use std::net::SocketAddr;
@@ -134,8 +134,8 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     let mut settings = common::Settings::new();
     println!("Serving common fixture on {prefix}");
     loop {
-        match client.poll(&mut settings).await {
-            Ok(State::Changed) => println!("Settings updated"),
+        match client.poll(&mut settings, |_| {}).await {
+            Ok(Event::Changed) => println!("Settings updated"),
             Ok(_) => {}
             Err(err) => eprintln!("poll error: {err}"),
         }

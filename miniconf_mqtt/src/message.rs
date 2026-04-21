@@ -11,9 +11,10 @@ use crate::{Error, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH};
 
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum Action {
-    None(crate::State),
+    Unhandled,
+    None(crate::client::Change),
     Reply {
-        state: crate::State,
+        state: crate::client::Change,
         reply: Option<ReplyTarget>,
         code: ResponseCode,
         body: ReplyBody,

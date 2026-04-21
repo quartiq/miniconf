@@ -12,7 +12,8 @@ use miniconf::{
     TreeSerialize,
 };
 use minimq::{
-    ConfigBuilder, Event, InboundPublish, ProtocolError, PubError, Publication, QoS, Session,
+    ConfigBuilder, Event as SessionEvent, InboundPublish, Property, ProtocolError, PubError,
+    Publication, QoS, Session,
     publication::ToPayload,
     transport::Connector,
     types::{SubscriptionOptions, TopicFilter},
@@ -54,13 +55,25 @@ enum SettingsIngressPhase {
 }
 
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-/// Whether a handled request changed device state.
-pub enum State {
-    /// The request was ignored or rejected before mutation.
+pub(crate) enum Change {
     #[default]
     Unchanged,
-    /// The request updated at least one leaf value.
     Changed,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+/// One app-visible outcome from one [`MqttClient::poll`] step.
+pub enum Event {
+    /// No app-visible event occurred.
+    Idle,
+    /// An MM2 request updated at least one setting leaf.
+    Changed,
+    /// The broker created a fresh MQTT session.
+    Connected,
+    /// The broker resumed the existing MQTT session.
+    Reconnected,
+    /// A non-MM2 inbound publish was delivered to the callback.
+    Other,
 }
 
 #[derive(Default)]
@@ -197,35 +210,111 @@ where
     /// Progress MQTT I/O, requests, and background mirror publication work.
     ///
     /// Background schema and retained-settings sync is incremental: each `poll()` handles one
-    /// session event first and then advances at most one retained publication step. Pending sync
-    /// work therefore does not spin in an internal loop or monopolize the networking stack, but
-    /// it can still consume publish capacity across successive polls until it completes.
-    pub async fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<C::Error>> {
+    /// session event first and then usually advances at most one retained publication step.
+    /// Pending sync work therefore does not spin in an internal loop or monopolize the networking
+    /// stack, but it can still consume publish capacity across successive polls until it
+    /// completes.
+    ///
+    /// Non-MM2 inbound publishes are delivered to `on_other`.
+    ///
+    /// Each `poll()` still handles one session event first and then advances at most one MM2
+    /// background step.
+    pub async fn poll(
+        &mut self,
+        settings: &mut Settings,
+        mut on_other: impl FnMut(&InboundPublish<'_>),
+    ) -> Result<Event, Error<C::Error>> {
+        #[allow(clippy::large_enum_variant)]
+        enum Step {
+            Connected,
+            Reconnected,
+            Idle,
+            Handled {
+                settings_ingress: bool,
+                action: Action,
+            },
+            Other,
+        }
+
         let prefix = self.prefix;
-        let (session_active, action, settings_ingress, idle) = match self.poll_session().await? {
-            Event::Connected => (Some(false), Action::None(State::Unchanged), false, false),
-            Event::Reconnected => (Some(true), Action::None(State::Unchanged), false, false),
-            Event::Idle => (None, Action::None(State::Unchanged), false, true),
-            Event::Inbound(message) => (
-                None,
-                Self::plan_request(prefix, settings, &message),
-                Self::is_settings_ingress(prefix, &message),
-                false,
-            ),
+        let step = match {
+            #[cfg(feature = "compat-settings-ingress")]
+            {
+                match self.settings_recovery_wait_deadline() {
+                    Some(deadline) => match with_deadline(deadline, self.session.poll()).await {
+                        Ok(event) => event.map_err(Error::from),
+                        Err(_) => Ok(SessionEvent::Idle),
+                    },
+                    None => self.session.poll().await.map_err(Error::from),
+                }
+            }
+            #[cfg(not(feature = "compat-settings-ingress"))]
+            {
+                self.session.poll().await.map_err(Error::from)
+            }
+        }? {
+            SessionEvent::Connected => Step::Connected,
+            SessionEvent::Reconnected => Step::Reconnected,
+            SessionEvent::Idle => Step::Idle,
+            SessionEvent::Inbound(message) => {
+                let settings_ingress = Self::is_settings_ingress(prefix, &message);
+                let action = Self::plan_request(prefix, settings, &message);
+                if matches!(action, Action::Unhandled) {
+                    on_other(&message);
+                    Step::Other
+                } else {
+                    Step::Handled {
+                        settings_ingress,
+                        action,
+                    }
+                }
+            }
         };
 
-        if settings_ingress {
-            self.note_settings_ingress();
+        match step {
+            Step::Other => {
+                self.activate().await?;
+                self.finish_settings_recovery(false);
+                self.advance_pending(settings).await;
+                Ok(Event::Other)
+            }
+            Step::Connected => {
+                self.on_session_active(false);
+                self.activate().await?;
+                self.finish_settings_recovery(false);
+                self.advance_pending(settings).await;
+                Ok(Event::Connected)
+            }
+            Step::Reconnected => {
+                self.on_session_active(true);
+                self.activate().await?;
+                self.finish_settings_recovery(false);
+                self.advance_pending(settings).await;
+                Ok(Event::Reconnected)
+            }
+            Step::Idle => {
+                self.activate().await?;
+                self.finish_settings_recovery(true);
+                self.advance_pending(settings).await;
+                Ok(Event::Idle)
+            }
+            Step::Handled {
+                settings_ingress,
+                action,
+            } => {
+                if settings_ingress {
+                    self.note_settings_ingress();
+                }
+                let outcome = match self.execute(settings, action).await {
+                    Change::Unchanged => Event::Idle,
+                    Change::Changed => Event::Changed,
+                };
+                self.activate().await?;
+                self.finish_settings_recovery(false);
+                self.advance_pending(settings).await;
+                Ok(outcome)
+            }
         }
-        if let Some(reconnected) = session_active {
-            self.on_session_active(reconnected);
-        }
-
-        self.activate().await?;
-        self.finish_settings_recovery(idle);
-        let changed = self.execute(settings, action).await;
-        self.advance_pending(settings).await;
-        Ok(changed)
     }
 
     /// Publish one retained leaf value by exact key.
@@ -256,20 +345,28 @@ where
         self.start_settings_sync();
     }
 
-    #[cfg(feature = "compat-settings-ingress")]
-    async fn poll_session(&mut self) -> Result<Event<'_>, Error<C::Error>> {
-        match self.settings_recovery_wait_deadline() {
-            Some(deadline) => match with_deadline(deadline, self.session.poll()).await {
-                Ok(event) => event.map_err(Into::into),
-                Err(_) => Ok(Event::Idle),
-            },
-            None => self.session.poll().await.map_err(Into::into),
-        }
+    /// Subscribe additional non-MM2 topics on the shared session.
+    ///
+    /// The caller owns these subscriptions. Re-subscribe after [`Event::Connected`].
+    pub async fn subscribe(
+        &mut self,
+        topics: &[TopicFilter<'_>],
+        properties: &[Property<'_>],
+    ) -> Result<(), Error<C::Error>> {
+        self.activate().await?;
+        self.session.subscribe(topics, properties).await?;
+        Ok(())
     }
 
-    #[cfg(not(feature = "compat-settings-ingress"))]
-    async fn poll_session(&mut self) -> Result<Event<'_>, Error<C::Error>> {
-        self.session.poll().await.map_err(Into::into)
+    /// Unsubscribe additional non-MM2 topics from the shared session.
+    pub async fn unsubscribe(
+        &mut self,
+        topics: &[&str],
+        properties: &[Property<'_>],
+    ) -> Result<(), Error<C::Error>> {
+        self.activate().await?;
+        self.session.unsubscribe(topics, properties).await?;
+        Ok(())
     }
 
     /// Whether the MQTT session can currently publish at the requested QoS.

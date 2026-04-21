@@ -18,7 +18,7 @@ use embassy_time::Duration;
 pub use minimq;
 use serde::Serialize;
 
-pub use client::{Error, MqttClient, State};
+pub use client::{Error, Event, MqttClient};
 
 /// Maximum path-state depth supported by `miniconf_mqtt`.
 pub const MAX_DEPTH: usize = 12;
