@@ -51,30 +51,45 @@ pub struct NodeIter<N, const D: usize> {
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
     root_schema: &'static Schema,
-    indices: [usize; D],
-    parents: [Option<&'static Internal>; D],
-    schema: &'static Schema,
     root_depth: usize,
+    parents: [Option<&'static Internal>; D],
+    indices: [usize; D],
+    schema: &'static Schema,
     depth: usize,
     target: PhantomData<N>,
 }
 
 impl<N, const D: usize> NodeIter<N, D> {
     /// Create a new iterator.
-    ///
-    /// # Panic
-    /// If the root depth exceeds the state length.
-    pub const fn new(schema: &'static Schema, state: [usize; D], root: usize) -> Self {
-        assert!(root <= D);
+    pub const fn new(root_schema: &'static Schema) -> Self {
         Self {
-            root_schema: schema,
-            indices: state,
+            root_schema,
+            root_depth: 0,
             parents: [None; D],
-            schema,
-            root_depth: root,
+            indices: [0; D],
+            schema: root_schema,
             depth: D + 1,
             target: PhantomData,
         }
+    }
+
+    fn rooted(
+        root_schema: &'static Schema,
+        indices: [usize; D],
+        root_depth: usize,
+        schema: &'static Schema,
+    ) -> Self {
+        let mut iter = Self {
+            root_schema,
+            root_depth,
+            parents: [None; D],
+            indices,
+            schema,
+            depth: D + 1,
+            target: PhantomData,
+        };
+        iter.fill_parents(root_depth);
+        iter
     }
 
     /// Limit and start iteration from the provided root key.
@@ -87,14 +102,11 @@ impl<N, const D: usize> NodeIter<N, D> {
         schema: &'static Schema,
         root: impl IntoKeys,
     ) -> Result<Self, DescendError<()>> {
-        let mut state = [0; D];
+        let mut indices = [0; D];
         let info = schema
-            .resolve_into(root, state.as_mut())
+            .resolve_into(root, indices.as_mut())
             .map_err(|err| err.error)?;
-        let mut iter = Self::new(schema, state, info.depth);
-        iter.fill_parents(info.depth);
-        iter.schema = iter.resolve_schema(info.depth);
-        Ok(iter)
+        Ok(Self::rooted(schema, indices, info.depth, info.schema))
     }
 
     /// Wrap the iterator in an exact size counting iterator that is
@@ -145,20 +157,7 @@ impl<N, const D: usize> NodeIter<N, D> {
         self.root_depth
     }
 
-    fn resolve_schema(&self, depth: usize) -> &'static Schema {
-        let mut schema = self.root_schema;
-        let mut i = 0;
-        while i < depth {
-            let Some(internal) = schema.internal() else {
-                break;
-            };
-            schema = internal.get_schema(self.indices[i]);
-            i += 1;
-        }
-        schema
-    }
-
-    fn fill_parents(&mut self, depth: usize) {
+    fn fill_parents(&mut self, depth: usize) -> &'static Schema {
         let mut schema = self.root_schema;
         let mut i = 0;
         while i < depth {
@@ -169,6 +168,7 @@ impl<N, const D: usize> NodeIter<N, D> {
             self.parents[i] = Some(internal);
             i += 1;
         }
+        schema
     }
 
     fn descend_leftmost(&mut self) {
@@ -223,7 +223,6 @@ impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
                 }
             } else {
                 self.depth = self.root_depth;
-                self.schema = self.resolve_schema(self.root_depth);
             }
 
             self.descend_leftmost();

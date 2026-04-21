@@ -326,7 +326,7 @@ impl Pending {
 
     pub(crate) fn settings(schema: &'static Schema) -> Self {
         Self::Settings {
-            iter: NodeIter::new(schema, [0; crate::MAX_DEPTH], 0),
+            iter: NodeIter::new(schema),
         }
     }
 }

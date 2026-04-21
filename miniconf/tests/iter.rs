@@ -59,14 +59,14 @@ fn array_iter() {
 #[test]
 fn depth_limited_iter() {
     assert_eq!(
-        NodeIter::<Path<String>, 1>::new(Settings::SCHEMA, [0; 1], 0)
+        NodeIter::<Path<String>, 1>::new(Settings::SCHEMA)
             .map(|p| p.unwrap().into_inner())
             .collect::<Vec<_>>(),
         ["/a"]
     );
 
     assert_eq!(
-        NodeIter::<Path<String>, 0>::new(Settings::SCHEMA, [], 0).next(),
+        NodeIter::<Path<String>, 0>::new(Settings::SCHEMA).next(),
         None
     );
 }
@@ -122,7 +122,7 @@ fn runtime_path_separator() {
 
 #[test]
 fn current_state_api() {
-    let mut iter = NodeIter::<Path<String>, 3>::new(Settings::SCHEMA, [0; 3], 0);
+    let mut iter = NodeIter::<Path<String>, 3>::new(Settings::SCHEMA);
     assert_eq!(iter.indices(), None);
     assert_eq!(iter.schema(), None);
 

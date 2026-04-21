@@ -4,8 +4,7 @@ use darling::{
     FromField, FromMeta,
     usage::{IdentSet, Purpose, UsesTypeParams},
     uses_lifetimes, uses_type_params,
-    util::Flag,
-    util::Override,
+    util::{Flag, Override, SpannedValue},
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
@@ -18,6 +17,8 @@ pub(crate) enum TreeTrait {
     Deserialize,
     Any,
 }
+
+pub(crate) type MetaMap = BTreeMap<syn::Ident, Override<SpannedValue<String>>>;
 
 #[derive(Debug, FromField, Clone)]
 #[darling(attributes(tree), forward_attrs(doc))]
@@ -33,7 +34,7 @@ pub(crate) struct TreeField {
     #[darling(default)]
     bounds: Bounds,
     #[darling(default)]
-    pub meta: BTreeMap<String, Override<String>>,
+    pub meta: MetaMap,
     pub attrs: Vec<syn::Attribute>,
 }
 

@@ -949,6 +949,6 @@ impl Schema {
     pub const fn nodes<N: Transcode + Default, const D: usize>(
         &'static self,
     ) -> ExactSize<NodeIter<N, D>> {
-        NodeIter::<N, D>::new(self, [0; D], 0).exact_size()
+        NodeIter::<N, D>::new(self).exact_size()
     }
 }
