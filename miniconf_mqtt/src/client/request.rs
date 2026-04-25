@@ -184,7 +184,7 @@ where
         }
     }
 
-    pub(super) async fn execute(&mut self, settings: &Settings, action: Action) -> Change {
+    pub(super) async fn execute(&mut self, settings: &mut Settings, action: Action) -> Change {
         match action {
             Action::Unhandled => Change::Unchanged,
             Action::None(state) => state,
@@ -216,16 +216,18 @@ where
                     if let Some(reply) = &reply {
                         self.reply_text(reply, ResponseCode::Ok, "").await;
                     }
+                    self.protocol.pending_settings_sync = true;
                     return Change::Changed;
                 }
 
                 #[cfg(feature = "compat-settings-ingress")]
                 match self.protocol.settings_ingress {
-                    SettingsIngressPhase::Recovering(_) => Change::Changed,
+                    SettingsIngressPhase::Recovering => Change::Changed,
                     SettingsIngressPhase::Runtime => {
                         if self.publish_current(settings, state, depth).await.is_err() {
                             return Change::Unchanged;
                         }
+                        self.protocol.pending_settings_sync = true;
                         Change::Changed
                     }
                 }
@@ -234,7 +236,7 @@ where
             }
             #[cfg(feature = "compat-settings-ingress")]
             Action::OverrideSet { state, depth } => match self.protocol.settings_ingress {
-                SettingsIngressPhase::Recovering(_) => Change::Unchanged,
+                SettingsIngressPhase::Recovering => Change::Unchanged,
                 SettingsIngressPhase::Runtime => {
                     let _ = self.publish_current(settings, state, depth).await;
                     Change::Unchanged

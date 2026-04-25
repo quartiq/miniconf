@@ -26,6 +26,8 @@ use crate::{
     schema::SchemaDefs,
 };
 
+fn ignore_other(_: &InboundPublish<'_>) {}
+
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// MM2 MQTT client error.
 pub enum Error<E> {
@@ -46,7 +48,7 @@ impl<E> From<DescendError<()>> for Error<E> {
 #[cfg(feature = "compat-settings-ingress")]
 #[derive(Copy, Clone)]
 enum SettingsIngressPhase {
-    Recovering(Instant),
+    Recovering,
     Runtime,
 }
 
@@ -82,16 +84,22 @@ struct Manifest {
 
 struct ProtocolState {
     manifest: Manifest,
+    pending_settings_sync: bool,
     #[cfg(feature = "compat-settings-ingress")]
     settings_ingress: SettingsIngressPhase,
+    #[cfg(feature = "compat-settings-ingress")]
+    settings_ingress_deadline: Option<Instant>,
 }
 
 impl ProtocolState {
     fn new() -> Self {
         Self {
             manifest: Manifest::default(),
+            pending_settings_sync: false,
             #[cfg(feature = "compat-settings-ingress")]
             settings_ingress: SettingsIngressPhase::Runtime,
+            #[cfg(feature = "compat-settings-ingress")]
+            settings_ingress_deadline: None,
         }
     }
 
@@ -101,6 +109,7 @@ impl ProtocolState {
             #[cfg(feature = "compat-settings-ingress")]
             {
                 self.settings_ingress = SettingsIngressPhase::Runtime;
+                self.settings_ingress_deadline = None;
             }
             return;
         }
@@ -109,12 +118,12 @@ impl ProtocolState {
         self.manifest.settings_rev = 0;
         self.manifest.schema_rev = 0;
         self.manifest.schema_pages = 0;
+        self.pending_settings_sync = false;
         info!("Activated MM2 session epoch={}", self.manifest.epoch);
         #[cfg(feature = "compat-settings-ingress")]
         {
-            self.settings_ingress = SettingsIngressPhase::Recovering(
-                Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE,
-            );
+            self.settings_ingress = SettingsIngressPhase::Recovering;
+            self.settings_ingress_deadline = None;
             debug!("Starting settings ingress recovery");
         }
     }
@@ -127,7 +136,9 @@ where
 {
     session: Session<'a, 'a, C>,
     prefix: &'a str,
-    subscribed: bool,
+    set_subscribed: bool,
+    #[cfg(feature = "compat-settings-ingress")]
+    compat_subscribed: bool,
     protocol: ProtocolState,
     _settings: PhantomData<Settings>,
 }
@@ -175,7 +186,9 @@ where
         Ok(Self {
             session: Session::new(config, connector),
             prefix,
-            subscribed: false,
+            set_subscribed: false,
+            #[cfg(feature = "compat-settings-ingress")]
+            compat_subscribed: false,
             protocol: ProtocolState::new(),
             _settings: PhantomData,
         })
@@ -201,10 +214,13 @@ where
                     on_other(&message);
                     return Ok(Event::Other);
                 }
-                Ok(match self.execute(settings, action).await {
+                let event = match self.execute(settings, action).await {
                     Change::Unchanged => Event::Idle,
                     Change::Changed => Event::Changed,
-                })
+                };
+                self.flush_pending_settings_sync(settings, &mut on_other)
+                    .await?;
+                Ok(event)
             }
         }
     }
@@ -220,7 +236,9 @@ where
             ConnectEvent::Reconnected => true,
         };
         self.on_session_active(reconnected);
-        self.finish_connect(settings, reconnected).await?;
+        let mut on_other = ignore_other;
+        self.finish_connect(settings, reconnected, &mut on_other)
+            .await?;
         Ok(if reconnected {
             Event::Reconnected
         } else {
@@ -251,11 +269,17 @@ where
     /// Publish the full retained MM2 schema/settings mirror.
     ///
     /// This is explicit and unbounded, like [`connect`](Self::connect).
-    pub async fn publish_all(&mut self, settings: &Settings) -> Result<(), Error<C::Error>> {
+    pub async fn publish_all(
+        &mut self,
+        settings: &mut Settings,
+        mut on_other: impl for<'msg> FnMut(&InboundPublish<'msg>),
+    ) -> Result<(), Error<C::Error>> {
         self.require_connected()?;
-        self.publish_schema().await?;
-        self.publish_settings(settings).await?;
-        self.publish_alive().await?;
+        self.publish_schema(settings, &mut on_other).await?;
+        self.publish_settings(settings, &mut on_other).await?;
+        self.publish_alive(settings, &mut on_other).await?;
+        self.flush_pending_settings_sync(settings, &mut on_other)
+            .await?;
         Ok(())
     }
 
@@ -303,36 +327,74 @@ where
         }
     }
 
-    async fn wait_publish_quiescent(&mut self) -> Result<(), Error<C::Error>> {
+    async fn wait_publish_quiescent<F>(
+        &mut self,
+        settings: &mut Settings,
+        on_other: &mut F,
+    ) -> Result<(), Error<C::Error>>
+    where
+        F: for<'msg> FnMut(&InboundPublish<'msg>),
+    {
         while !self.session.is_publish_quiescent() {
-            let _ = self.session.poll().await.map_err(Error::from)?;
+            match self.session.poll().await.map_err(Error::from)? {
+                SessionEvent::Idle => {}
+                SessionEvent::Inbound(message) => {
+                    let action = Self::plan_request(self.prefix, settings, &message);
+                    if matches!(action, Action::Unhandled) {
+                        on_other(&message);
+                    } else {
+                        let _ = self.execute(settings, action).await;
+                    }
+                }
+            }
         }
         Ok(())
     }
 
-    async fn finish_connect(
+    async fn flush_pending_settings_sync<F>(
+        &mut self,
+        settings: &mut Settings,
+        on_other: &mut F,
+    ) -> Result<(), Error<C::Error>>
+    where
+        F: for<'msg> FnMut(&InboundPublish<'msg>),
+    {
+        while self.protocol.pending_settings_sync {
+            self.protocol.pending_settings_sync = false;
+            self.publish_settings(settings, on_other).await?;
+        }
+        Ok(())
+    }
+
+    async fn finish_connect<F>(
         &mut self,
         settings: &mut Settings,
         reconnected: bool,
-    ) -> Result<(), Error<C::Error>> {
-        self.subscribe_requests().await?;
+        on_other: &mut F,
+    ) -> Result<(), Error<C::Error>>
+    where
+        F: for<'msg> FnMut(&InboundPublish<'msg>),
+    {
         #[cfg(feature = "compat-settings-ingress")]
         if !reconnected {
+            self.subscribe_compat_requests().await?;
             self.recover_settings_ingress(settings).await?;
         }
         if reconnected {
             debug!("Publishing alive manifest");
-            self.publish_alive().await?;
+            self.publish_alive_once().await?;
             return Ok(());
         }
-        self.publish_schema().await?;
-        self.publish_settings(settings).await?;
-        self.publish_alive().await?;
+        self.publish_schema(settings, on_other).await?;
+        self.publish_settings(settings, on_other).await?;
+        self.publish_alive(settings, on_other).await?;
+        self.flush_pending_settings_sync(settings, on_other).await?;
+        self.subscribe_set_requests().await?;
         Ok(())
     }
 
-    async fn subscribe_requests(&mut self) -> Result<(), Error<C::Error>> {
-        if self.subscribed {
+    async fn subscribe_set_requests(&mut self) -> Result<(), Error<C::Error>> {
+        if self.set_subscribed {
             return Ok(());
         }
         let topic: String<MAX_TOPIC_LENGTH> = self
@@ -343,28 +405,31 @@ where
         let mut set = topic.clone();
         set.push_str("/set/#")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        #[cfg(feature = "compat-settings-ingress")]
-        let mut compat = topic.clone();
-        #[cfg(feature = "compat-settings-ingress")]
+        let topics = [TopicFilter::new(&set).options(opts)];
+        self.session.subscribe(&topics, &[]).await?;
+        self.set_subscribed = true;
+        debug!("Subscribed set request topic");
+        Ok(())
+    }
+
+    #[cfg(feature = "compat-settings-ingress")]
+    async fn subscribe_compat_requests(&mut self) -> Result<(), Error<C::Error>> {
+        if self.compat_subscribed {
+            return Ok(());
+        }
+        let topic: String<MAX_TOPIC_LENGTH> = self
+            .prefix
+            .try_into()
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        let opts = SubscriptionOptions::default().ignore_local_messages();
+        let mut compat = topic;
         compat
             .push_str("/settings/#")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let topics = {
-            #[cfg(feature = "compat-settings-ingress")]
-            {
-                [
-                    TopicFilter::new(&set).options(opts),
-                    TopicFilter::new(&compat).options(opts),
-                ]
-            }
-            #[cfg(not(feature = "compat-settings-ingress"))]
-            {
-                [TopicFilter::new(&set).options(opts)]
-            }
-        };
+        let topics = [TopicFilter::new(&compat).options(opts)];
         self.session.subscribe(&topics, &[]).await?;
-        self.subscribed = true;
-        debug!("Subscribed request topics");
+        self.compat_subscribed = true;
+        debug!("Subscribed compat settings topic");
         Ok(())
     }
 
@@ -385,10 +450,19 @@ where
 
     fn on_session_active(&mut self, reconnected: bool) {
         if reconnected {
+            self.set_subscribed = true;
+            #[cfg(feature = "compat-settings-ingress")]
+            {
+                self.compat_subscribed = true;
+            }
             self.protocol.on_session_active(true);
             return;
         }
-        self.subscribed = false;
+        self.set_subscribed = false;
+        #[cfg(feature = "compat-settings-ingress")]
+        {
+            self.compat_subscribed = false;
+        }
         self.protocol.on_session_active(false);
     }
 
@@ -398,24 +472,35 @@ where
         settings: &mut Settings,
     ) -> Result<(), Error<C::Error>> {
         loop {
-            let SettingsIngressPhase::Recovering(deadline) = self.protocol.settings_ingress else {
+            let SettingsIngressPhase::Recovering = self.protocol.settings_ingress else {
                 return Ok(());
             };
-            if Instant::now() >= deadline {
+            if self
+                .protocol
+                .settings_ingress_deadline
+                .is_some_and(|deadline| Instant::now() >= deadline)
+            {
                 self.protocol.settings_ingress = SettingsIngressPhase::Runtime;
+                self.protocol.settings_ingress_deadline = None;
                 debug!("Finished settings ingress recovery");
                 return Ok(());
             }
             match self.session.poll().await.map_err(Error::from)? {
-                SessionEvent::Idle => Timer::after_millis(1).await,
+                SessionEvent::Idle => {
+                    if self.protocol.settings_ingress_deadline.is_none() {
+                        self.protocol.settings_ingress = SettingsIngressPhase::Runtime;
+                        debug!("Finished settings ingress recovery without retained settings");
+                        return Ok(());
+                    }
+                    Timer::after_millis(1).await
+                }
                 SessionEvent::Inbound(message) => {
                     if matches!(
                         Resource::parse(message.topic(), self.prefix),
                         Some((Resource::Settings, _))
                     ) {
-                        self.protocol.settings_ingress = SettingsIngressPhase::Recovering(
-                            Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE,
-                        );
+                        self.protocol.settings_ingress_deadline =
+                            Some(Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE);
                     }
                     let action = Self::plan_request(self.prefix, settings, &message);
                     if !matches!(action, Action::Unhandled) {

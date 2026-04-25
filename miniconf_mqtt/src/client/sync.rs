@@ -18,7 +18,7 @@ where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
     C: minimq::transport::Connector,
 {
-    pub(super) async fn publish_alive(&mut self) -> Result<(), Error<C::Error>> {
+    pub(super) async fn publish_alive_once(&mut self) -> Result<(), Error<C::Error>> {
         #[derive(Serialize)]
         struct Alive {
             epoch: u32,
@@ -47,11 +47,29 @@ where
         self.session
             .publish(publication)
             .await
-            .map_err(simple_pub_error)?;
-        self.wait_publish_quiescent().await
+            .map_err(simple_pub_error)
     }
 
-    pub(super) async fn publish_schema(&mut self) -> Result<(), Error<C::Error>> {
+    pub(super) async fn publish_alive<F>(
+        &mut self,
+        settings: &mut Settings,
+        on_other: &mut F,
+    ) -> Result<(), Error<C::Error>>
+    where
+        F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
+    {
+        self.publish_alive_once().await?;
+        self.wait_publish_quiescent(settings, on_other).await
+    }
+
+    pub(super) async fn publish_schema<F>(
+        &mut self,
+        settings: &mut Settings,
+        on_other: &mut F,
+    ) -> Result<(), Error<C::Error>>
+    where
+        F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
+    {
         let mut sync = SchemaSync::new(Settings::SCHEMA);
         while sync.next != sync.defs.len() {
             let topic = self.schema_page_topic(sync.page);
@@ -66,7 +84,7 @@ where
             .qos(QoS::AtLeastOnce)
             .retain();
             match self.session.publish(publication).await {
-                Ok(()) => self.wait_publish_quiescent().await?,
+                Ok(()) => self.wait_publish_quiescent(settings, on_other).await?,
                 Err(PubError::Payload((true, id))) => {
                     info!("Aborting schema sync after oversized schema entry for definition {id}");
                     return Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::Failed(
@@ -92,10 +110,14 @@ where
         Ok(())
     }
 
-    pub(super) async fn publish_settings(
+    pub(super) async fn publish_settings<F>(
         &mut self,
-        settings: &Settings,
-    ) -> Result<(), Error<C::Error>> {
+        settings: &mut Settings,
+        on_other: &mut F,
+    ) -> Result<(), Error<C::Error>>
+    where
+        F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
+    {
         let mut iter = SettingsSync::new(Settings::SCHEMA);
         while let Some(path) = iter.next() {
             let path = path
@@ -109,7 +131,7 @@ where
             let depth = full.len();
             let topic = self.settings_sync_topic(&path);
             match self.try_publish_leaf(settings, state, depth).await {
-                Ok(()) => self.wait_publish_quiescent().await?,
+                Ok(()) => self.wait_publish_quiescent(settings, on_other).await?,
                 Err(PubError::Payload((
                     _no_space,
                     DepthError {
@@ -121,7 +143,7 @@ where
                     },
                 ))) => {
                     self.clear_leaf(&topic).await?;
-                    self.wait_publish_quiescent().await?;
+                    self.wait_publish_quiescent(settings, on_other).await?;
                 }
                 Err(err) => return Err(simple_pub_error(err)),
             }
