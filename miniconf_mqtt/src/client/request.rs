@@ -213,7 +213,6 @@ where
                         }
                         return Change::Unchanged;
                     }
-                    self.publish_all();
                     if let Some(reply) = &reply {
                         self.reply_text(reply, ResponseCode::Ok, "").await;
                     }
@@ -222,12 +221,11 @@ where
 
                 #[cfg(feature = "compat-settings-ingress")]
                 match self.protocol.settings_ingress {
-                    SettingsIngressPhase::Recovering { .. } => Change::Changed,
+                    SettingsIngressPhase::Recovering(_) => Change::Changed,
                     SettingsIngressPhase::Runtime => {
                         if self.publish_current(settings, state, depth).await.is_err() {
                             return Change::Unchanged;
                         }
-                        self.publish_all();
                         Change::Changed
                     }
                 }
@@ -236,7 +234,7 @@ where
             }
             #[cfg(feature = "compat-settings-ingress")]
             Action::OverrideSet { state, depth } => match self.protocol.settings_ingress {
-                SettingsIngressPhase::Recovering { .. } => Change::Unchanged,
+                SettingsIngressPhase::Recovering(_) => Change::Unchanged,
                 SettingsIngressPhase::Runtime => {
                     let _ = self.publish_current(settings, state, depth).await;
                     Change::Unchanged

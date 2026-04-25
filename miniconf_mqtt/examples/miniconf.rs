@@ -1,12 +1,17 @@
 use clap::Parser;
-use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
-use embedded_nal_async::TcpConnect;
+use core::future::poll_fn;
+use core::pin::Pin;
+use core::task::Poll;
+use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 use miniconf_mqtt::{
     Event, MqttClient,
-    minimq::{self, transport::TcpConnector},
+    minimq::{self, transport::Connector},
 };
 use std::net::SocketAddr;
-use std_embedded_nal_async::Stack as StdStack;
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
 
 #[path = "../../miniconf/examples/common.rs"]
 mod common;
@@ -21,68 +26,81 @@ struct Args {
     client_id: Option<std::string::String>,
 }
 
-fn io_kind(err: &std::io::Error) -> ErrorKind {
-    use std::io::ErrorKind as K;
-    match err.kind() {
-        K::NotFound => ErrorKind::NotFound,
-        K::PermissionDenied => ErrorKind::PermissionDenied,
-        K::ConnectionRefused => ErrorKind::ConnectionRefused,
-        K::ConnectionReset => ErrorKind::ConnectionReset,
-        K::ConnectionAborted => ErrorKind::ConnectionAborted,
-        K::NotConnected => ErrorKind::NotConnected,
-        K::AddrInUse => ErrorKind::AddrInUse,
-        K::AddrNotAvailable => ErrorKind::AddrNotAvailable,
-        K::BrokenPipe => ErrorKind::BrokenPipe,
-        K::AlreadyExists => ErrorKind::AlreadyExists,
-        K::InvalidInput => ErrorKind::InvalidInput,
-        K::TimedOut => ErrorKind::TimedOut,
-        K::Interrupted => ErrorKind::Interrupted,
-        K::Unsupported => ErrorKind::Unsupported,
-        K::UnexpectedEof => ErrorKind::Other,
-        K::OutOfMemory => ErrorKind::OutOfMemory,
-        K::WriteZero => ErrorKind::WriteZero,
-        _ => ErrorKind::Other,
-    }
+struct TokioConnection(TcpStream);
+
+impl ErrorType for TokioConnection {
+    type Error = std::io::Error;
 }
 
-#[derive(Default)]
-struct Stack(StdStack);
-
-struct Socket<'a>(<StdStack as TcpConnect>::Connection<'a>);
-
-impl ErrorType for Socket<'_> {
-    type Error = ErrorKind;
-}
-
-impl Read for Socket<'_> {
+impl Read for TokioConnection {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        self.0.read(buf).await.map_err(|err| io_kind(&err))
+        if buf.is_empty() {
+            return Ok(0);
+        }
+        poll_fn(|cx| {
+            let mut read_buf = tokio::io::ReadBuf::new(buf);
+            match Pin::new(&mut self.0).poll_read(cx, &mut read_buf) {
+                Poll::Ready(Ok(())) => Poll::Ready(Ok(read_buf.filled().len())),
+                Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
+                Poll::Pending => Poll::Pending,
+            }
+        })
+        .await
     }
 }
 
-impl Write for Socket<'_> {
+impl Write for TokioConnection {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        self.0.write(buf).await.map_err(|err| io_kind(&err))
+        poll_fn(|cx| match Pin::new(&mut self.0).poll_write(cx, buf) {
+            Poll::Ready(Ok(0)) if !buf.is_empty() => {
+                Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()))
+            }
+            Poll::Ready(result) => Poll::Ready(result),
+            Poll::Pending => Poll::Pending,
+        })
+        .await
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
-        self.0.flush().await.map_err(|err| io_kind(&err))
+        poll_fn(|cx| Pin::new(&mut self.0).poll_flush(cx)).await
     }
 }
 
-impl TcpConnect for Stack {
-    type Error = ErrorKind;
-    type Connection<'a> = Socket<'a>;
+impl ReadReady for TokioConnection {
+    fn read_ready(&mut self) -> Result<bool, Self::Error> {
+        match self.0.try_io(tokio::io::Interest::READABLE, || Ok(())) {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+impl WriteReady for TokioConnection {
+    fn write_ready(&mut self) -> Result<bool, Self::Error> {
+        match self.0.try_io(tokio::io::Interest::WRITABLE, || Ok(())) {
+            Ok(()) => Ok(true),
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
+            Err(err) => Err(err),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct TokioConnector;
+
+impl Connector for TokioConnector {
+    type Error = std::io::Error;
+    type Connection<'a> = TokioConnection;
 
     async fn connect<'a>(
         &'a self,
-        remote: SocketAddr,
+        broker: &minimq::Broker<'_>,
     ) -> Result<Self::Connection<'a>, Self::Error> {
-        self.0
-            .connect(remote)
-            .await
-            .map(Socket)
-            .map_err(|err| io_kind(&err))
+        let minimq::Broker::SocketAddr(addr) = broker else {
+            return Err(std::io::ErrorKind::Unsupported.into());
+        };
+        TcpStream::connect(*addr).await.map(TokioConnection)
     }
 }
 
@@ -122,7 +140,7 @@ fn config<'a>(
 
 async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     let mut buffer = [0u8; 4096];
-    let connector = TcpConnector::new(Stack::default());
+    let connector = TokioConnector;
 
     let mut client = MqttClient::<_, _>::new(
         prefix,
@@ -133,11 +151,28 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
 
     let mut settings = common::Settings::new();
     println!("Serving common fixture on {prefix}");
+    match client.connect(&mut settings).await {
+        Ok(Event::Connected) => println!("Connected"),
+        Ok(Event::Reconnected) => println!("Reconnected"),
+        Ok(other) => panic!("unexpected connect result: {other:?}"),
+        Err(err) => {
+            eprintln!("connect error: {err}");
+            return;
+        }
+    }
     loop {
         match client.poll(&mut settings, |_| {}).await {
             Ok(Event::Changed) => println!("Settings updated"),
             Ok(_) => {}
-            Err(err) => eprintln!("poll error: {err}"),
+            Err(err) => {
+                eprintln!("poll error: {err}");
+                match client.connect(&mut settings).await {
+                    Ok(Event::Connected) => println!("Connected"),
+                    Ok(Event::Reconnected) => println!("Reconnected"),
+                    Ok(other) => panic!("unexpected connect result: {other:?}"),
+                    Err(err) => eprintln!("connect error: {err}"),
+                }
+            }
         }
     }
 }

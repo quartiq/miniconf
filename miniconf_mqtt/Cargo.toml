@@ -18,12 +18,12 @@ workspace = true
 
 [features]
 default = []
-compat-settings-ingress = []
+compat-settings-ingress = ["dep:embassy-time"]
 
 [dependencies]
 miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
 minimq = "0.10"
-embassy-time = "0.5.1"
+embassy-time = { version = "0.5.1", optional = true }
 embedded-io = "0.7"
 log = "0.4"
 heapless = "0.9.1"
@@ -41,7 +41,7 @@ name = "miniconf"
 clap = { version = "4.5", features = ["derive"] }
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
-tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
+tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros", "net", "io-util"] }
 embedded-io-async = "0.7"
 embedded-nal-async = "0.9"
 std-embedded-nal-async = "0.4"

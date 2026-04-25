@@ -52,11 +52,9 @@ async def discover(
                 return
             peer = message.topic.value.removesuffix(suffix)
             try:
-                payload = json.loads(message.payload)
+                discovered[peer] = json.loads(message.payload)
             except json.JSONDecodeError:
                 LOGGER.info("Ignoring %s not/invalid alive", peer)
-            else:
-                discovered[peer] = payload
             deadline = asyncio.get_running_loop().time() + quiet
 
     try:

@@ -18,21 +18,24 @@ It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
 
 `MqttClient` is a manually driven async service:
 
-- call `poll()` regularly to drive MQTT I/O
+- call `connect(settings)` to establish or resume the shared MQTT/MM2 session
+- call `poll()` regularly after `connect(settings)` to drive bounded MQTT/MM2 progress
 - pass a callback to `poll()` for non-MM2 inbound publishes
 - handle your own application traffic through the shared session via `publish()`,
   `subscribe()`, and `unsubscribe()`
 - call `publish_by_key()` for explicit app-driven retained leaf publication
-- call `publish_all()` to queue a background retained full-tree republish
-- let `poll()` incrementally publish `alive`, schema pages, and retained settings
+- call `publish_all(settings)` for an explicit full retained republish after structural or bulk changes
 - match on the returned `Event`
-  - `Connected`: fresh broker session, re-subscribe your non-MM2 topics here
-  - `Reconnected`: broker resumed the existing session
   - `Other`: one non-MM2 inbound publish was delivered to the callback
 
-Background schema/settings publication is incremental by design so reconnect/bootstrap does not
-block normal `set/#` handling: each `poll()` handles one MQTT session event first and then
-advances at most one retained-publication step.
+`connect(settings)` returns:
+
+- `Connected`: fresh broker session, MM2 request subscriptions were established and the retained
+  MM2 schema/settings mirror was republished
+- `Reconnected`: broker resumed the existing session and MM2 retained `alive` was republished
+
+`poll()` no longer hides connect/reconnect or background retained sync. Steady-state MM2 progress
+is one connected-session poll step plus immediate request handling.
 
 ## Manifest
 
