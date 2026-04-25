@@ -14,7 +14,7 @@ use serde::Serialize;
 use super::SettingsIngressPhase;
 use super::{Error, MqttClient, Phase};
 use crate::{
-    MAX_TOPIC_LENGTH, json_slice,
+    EncodeError, MAX_TOPIC_LENGTH,
     message::{DepthError, simple_pub_error},
     schema::serialize_schema_page,
 };
@@ -44,9 +44,12 @@ where
             schema_rev: self.protocol.manifest.schema_rev,
             pages: self.protocol.manifest.schema_pages,
         };
-        let publication = Publication::new(&topic, |buf: &mut [u8]| json_slice(&body, buf))
-            .qos(QoS::AtLeastOnce)
-            .retain();
+        let publication = Publication::new(&topic, |buf: &mut [u8]| {
+            serde_json_core::to_slice(&body, buf)
+                .map_err(|err| (matches!(err, serde_json_core::ser::Error::BufferFull), err))
+        })
+        .qos(QoS::AtLeastOnce)
+        .retain();
         self.session
             .publish(publication)
             .await
@@ -112,6 +115,9 @@ where
     }
 
     async fn advance_schema_pending(&mut self) {
+        if !self.session.is_publish_quiescent() {
+            return;
+        }
         let (defs, next, page, hash) = match &self.protocol.phase {
             Phase::Schema(sync) => (&sync.defs, sync.next, sync.page, sync.hash),
             _ => unreachable!(),
@@ -124,18 +130,19 @@ where
         let topic = self.schema_page_topic(page);
         let advanced = Cell::new(None::<(usize, u32)>);
         let publication = Publication::new(&topic, |buf: &mut [u8]| {
-            let page = serialize_schema_page(defs, next, buf)?;
+            let page = serialize_schema_page(defs, next, buf).map_err(|id| (true, id))?;
             let next_hash = yafnv::Fnv::fnv1a(hash, buf[..page.len].iter().copied());
             advanced.set(Some((page.count, next_hash)));
-            Ok::<usize, usize>(page.len)
+            Ok::<usize, EncodeError<usize>>(page.len)
         })
         .qos(QoS::AtLeastOnce)
         .retain();
         if let Err(err) = self.session.publish(publication).await {
             match err {
-                PubError::Payload(id) => {
+                PubError::Payload((true, id)) => {
                     warn!("Aborting schema sync after oversized schema entry for definition {id}");
                 }
+                PubError::Payload((false, _)) => unreachable!(),
                 err => {
                     let err = match err {
                         PubError::Session(err) => Error::Mqtt(err),
@@ -182,6 +189,9 @@ where
     }
 
     async fn advance_settings_pending(&mut self, settings: &Settings) {
+        if !self.session.is_publish_quiescent() {
+            return;
+        }
         let (path, state, depth) = {
             let Phase::Settings(iter) = &mut self.protocol.phase else {
                 unreachable!()
@@ -212,13 +222,16 @@ where
         let topic = self.settings_sync_topic(&path);
         match self.try_publish_leaf(settings, state, depth).await {
             Ok(()) => {}
-            Err(PubError::Payload(DepthError {
-                inner:
-                    miniconf::SerdeError::Value(
-                        miniconf::ValueError::Absent | miniconf::ValueError::Access(_),
-                    ),
-                ..
-            })) => {
+            Err(PubError::Payload((
+                _no_space,
+                DepthError {
+                    inner:
+                        miniconf::SerdeError::Value(
+                            miniconf::ValueError::Absent | miniconf::ValueError::Access(_),
+                        ),
+                    ..
+                },
+            ))) => {
                 if let Err(err) = self.clear_leaf(&topic).await {
                     warn!(
                         "Failed to clear retained setting path={}: {err:?}",

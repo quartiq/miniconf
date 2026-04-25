@@ -102,7 +102,7 @@ async fn mm2_set_stays_internal() {
 
     wait_session(&mut publisher).await;
     publisher
-        .publish(Publication::new(&format!("{prefix}/set/value"), b"9"))
+        .publish(Publication::bytes(&format!("{prefix}/set/value"), b"9"))
         .await
         .unwrap();
 
@@ -149,7 +149,7 @@ async fn other_topics_reach_callback() {
 
     wait_session(&mut publisher).await;
     publisher
-        .publish(Publication::new(&other_topic, b"hello"))
+        .publish(Publication::bytes(&other_topic, b"hello"))
         .await
         .unwrap();
 

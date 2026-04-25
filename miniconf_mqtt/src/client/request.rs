@@ -10,7 +10,7 @@ use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS
 #[cfg(feature = "compat-settings-ingress")]
 use crate::client::SettingsIngressPhase;
 use crate::{
-    Error, MAX_TOPIC_LENGTH, MqttClient,
+    EncodeError, Error, MAX_TOPIC_LENGTH, MqttClient,
     client::Change,
     message::{
         Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, format_slice,
@@ -315,7 +315,9 @@ where
             .session
             .publish(
                 reply
-                    .publication(|buf: &mut [u8]| format_slice(text, buf))
+                    .publication(|buf: &mut [u8]| {
+                        format_slice(text, buf).map_err(|err| (true, err))
+                    })
                     .properties(props)
                     .qos(QoS::AtLeastOnce),
             )
@@ -330,7 +332,7 @@ where
         settings: &Settings,
         state: [usize; crate::MAX_DEPTH],
         depth: usize,
-    ) -> Result<(), PubError<DepthError<serde_json_core::ser::Error>, C::Error>> {
+    ) -> Result<(), PubError<EncodeError<DepthError<serde_json_core::ser::Error>>, C::Error>> {
         let topic = self
             .settings_topic(&state[..depth])
             .map_err(|err| match err {
@@ -345,7 +347,15 @@ where
         )];
         let publication = Publication::new(&topic, |buf: &mut [u8]| {
             let full = &state[..depth];
-            Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf))
+            Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf)).map_err(
+                |err| {
+                    let no_space = matches!(
+                        err.inner,
+                        miniconf::SerdeError::Inner(serde_json_core::ser::Error::BufferFull)
+                    );
+                    (no_space, err)
+                },
+            )
         })
         .properties(&props)
         .qos(QoS::AtLeastOnce)
@@ -360,7 +370,7 @@ where
             minimq::types::Utf8String("rev"),
             minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
         )];
-        let publication = Publication::new(topic, b"")
+        let publication = Publication::bytes(topic, b"")
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
@@ -396,10 +406,13 @@ where
         let topic = self.settings_topic(&state[..depth])?;
         match self.try_publish_leaf(settings, state, depth).await {
             Ok(()) => Ok(()),
-            Err(PubError::Payload(DepthError {
-                inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                ..
-            })) => self.clear_leaf(&topic).await,
+            Err(PubError::Payload((
+                _no_space,
+                DepthError {
+                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
+                    ..
+                },
+            ))) => self.clear_leaf(&topic).await,
             Err(err) => Err(simple_pub_error(err)),
         }
     }
