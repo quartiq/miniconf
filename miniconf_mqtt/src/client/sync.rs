@@ -2,7 +2,7 @@ use core::cell::Cell;
 use core::fmt::Write as _;
 
 use heapless::String;
-use log::info;
+use log::{debug, info};
 use minimq::{ProtocolError, PubError, Publication, QoS};
 use serde::Serialize;
 
@@ -71,7 +71,13 @@ where
         F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
     {
         let mut sync = SchemaSync::new(Settings::SCHEMA);
+        info!("Starting schema sync defs={}", sync.defs.len());
         while sync.next != sync.defs.len() {
+            debug_assert!(self.session.is_publish_quiescent());
+            debug!(
+                "Publishing schema page={} next_def={}",
+                sync.page, sync.next
+            );
             let topic = self.schema_page_topic(sync.page);
             let advanced = Cell::new(None::<(usize, u32)>);
             let publication = Publication::new(&topic, |buf: &mut [u8]| {
@@ -84,7 +90,13 @@ where
             .qos(QoS::AtLeastOnce)
             .retain();
             match self.session.publish(publication).await {
-                Ok(()) => self.wait_publish_quiescent(settings, on_other).await?,
+                Ok(()) => {
+                    debug!(
+                        "Schema page={} published, waiting for quiescent session",
+                        sync.page
+                    );
+                    self.wait_publish_quiescent(settings, on_other).await?
+                }
                 Err(PubError::Payload((true, id))) => {
                     info!("Aborting schema sync after oversized schema entry for definition {id}");
                     return Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::Failed(
@@ -119,7 +131,9 @@ where
         F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
     {
         let mut iter = SettingsSync::new(Settings::SCHEMA);
+        info!("Starting retained settings sync");
         while let Some(path) = iter.next() {
+            debug_assert!(self.session.is_publish_quiescent());
             let path = path
                 .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?
                 .into_inner();
@@ -131,7 +145,10 @@ where
             let depth = full.len();
             let topic = self.settings_sync_topic(&path);
             match self.try_publish_leaf(settings, state, depth).await {
-                Ok(()) => self.wait_publish_quiescent(settings, on_other).await?,
+                Ok(()) => {
+                    debug!("Published retained setting {}", path);
+                    self.wait_publish_quiescent(settings, on_other).await?
+                }
                 Err(PubError::Payload((
                     _no_space,
                     DepthError {

@@ -1,7 +1,7 @@
 mod request;
 mod sync;
 
-use core::marker::PhantomData;
+use core::{marker::PhantomData, task::Poll};
 
 #[cfg(feature = "compat-settings-ingress")]
 use embassy_time::{Instant, Timer};
@@ -27,6 +27,20 @@ use crate::{
 };
 
 fn ignore_other(_: &InboundPublish<'_>) {}
+
+async fn yield_once() {
+    let mut yielded = false;
+    core::future::poll_fn(move |cx| {
+        if yielded {
+            Poll::Ready(())
+        } else {
+            yielded = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    })
+    .await
+}
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// MM2 MQTT client error.
@@ -337,7 +351,7 @@ where
     {
         while !self.session.is_publish_quiescent() {
             match self.session.poll().await.map_err(Error::from)? {
-                SessionEvent::Idle => {}
+                SessionEvent::Idle => yield_once().await,
                 SessionEvent::Inbound(message) => {
                     let action = Self::plan_request(self.prefix, settings, &message);
                     if matches!(action, Action::Unhandled) {
