@@ -59,12 +59,6 @@ pub(crate) enum Change {
     Changed,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum InboundEffect {
-    Unchanged,
-    Changed,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// One app-visible outcome from [`MqttClient::connect`] or [`MqttClient::poll`].
 pub enum Event {
@@ -139,9 +133,6 @@ impl ProtocolState {
 pub struct MqttClient<'a, Settings, IO> {
     session: Session<'a, IO>,
     prefix: &'a str,
-    set_subscribed: bool,
-    #[cfg(feature = "compat-settings-ingress")]
-    compat_subscribed: bool,
     protocol: ProtocolState,
     _settings: PhantomData<Settings>,
 }
@@ -185,9 +176,6 @@ where
         Ok(Self {
             session: Session::new(config),
             prefix,
-            set_subscribed: false,
-            #[cfg(feature = "compat-settings-ingress")]
-            compat_subscribed: false,
             protocol: ProtocolState::new(),
             _settings: PhantomData,
         })
@@ -211,16 +199,14 @@ where
             SessionEvent::Inbound(message) => {
                 match Self::plan_inbound(self.prefix, settings, &message, &mut on_other) {
                     None => Ok(Event::Other),
-                    Some(action) => {
-                        match Self::classify_change(self.execute(settings, action).await) {
-                            InboundEffect::Unchanged => Ok(Event::Idle),
-                            InboundEffect::Changed => {
-                                self.flush_pending_settings_sync(settings, &mut on_other)
-                                    .await?;
-                                Ok(Event::Changed)
-                            }
+                    Some(action) => match self.execute(settings, action).await {
+                        Change::Unchanged => Ok(Event::Idle),
+                        Change::Changed => {
+                            self.flush_pending_settings_sync(settings, &mut on_other)
+                                .await?;
+                            Ok(Event::Changed)
                         }
-                    }
+                    },
                 }
             }
         }
@@ -343,13 +329,6 @@ where
         Some(action)
     }
 
-    fn classify_change(change: Change) -> InboundEffect {
-        match change {
-            Change::Unchanged => InboundEffect::Unchanged,
-            Change::Changed => InboundEffect::Changed,
-        }
-    }
-
     async fn wait_publish_quiescent<F>(
         &mut self,
         settings: &mut Settings,
@@ -365,7 +344,7 @@ where
                     if let Some(action) =
                         Self::plan_inbound(self.prefix, settings, &message, on_other)
                     {
-                        let _ = Self::classify_change(self.execute(settings, action).await);
+                        let _ = self.execute(settings, action).await;
                     }
                 }
             }
@@ -399,7 +378,8 @@ where
     {
         #[cfg(feature = "compat-settings-ingress")]
         if !reconnected {
-            self.subscribe_compat_requests().await?;
+            self.subscribe_topic_suffix("/settings/#").await?;
+            debug!("Subscribed compat settings topic");
             self.recover_settings_ingress(settings).await?;
         }
         if reconnected {
@@ -411,7 +391,8 @@ where
         self.publish_settings(settings, on_other).await?;
         self.publish_alive(settings, on_other).await?;
         self.flush_pending_settings_sync(settings, on_other).await?;
-        self.subscribe_set_requests().await?;
+        self.subscribe_topic_suffix("/set/#").await?;
+        debug!("Subscribed set request topic");
         Ok(())
     }
 
@@ -426,27 +407,6 @@ where
         let topics = [TopicFilter::new(&topic)
             .options(SubscriptionOptions::default().ignore_local_messages())];
         self.session.subscribe(&topics, &[]).await?;
-        Ok(())
-    }
-
-    async fn subscribe_set_requests(&mut self) -> Result<(), Error<IO::Error>> {
-        if self.set_subscribed {
-            return Ok(());
-        }
-        self.subscribe_topic_suffix("/set/#").await?;
-        self.set_subscribed = true;
-        debug!("Subscribed set request topic");
-        Ok(())
-    }
-
-    #[cfg(feature = "compat-settings-ingress")]
-    async fn subscribe_compat_requests(&mut self) -> Result<(), Error<IO::Error>> {
-        if self.compat_subscribed {
-            return Ok(());
-        }
-        self.subscribe_topic_suffix("/settings/#").await?;
-        self.compat_subscribed = true;
-        debug!("Subscribed compat settings topic");
         Ok(())
     }
 
@@ -467,18 +427,8 @@ where
 
     fn on_session_active(&mut self, reconnected: bool) {
         if reconnected {
-            self.set_subscribed = true;
-            #[cfg(feature = "compat-settings-ingress")]
-            {
-                self.compat_subscribed = true;
-            }
             self.protocol.on_session_active(true);
             return;
-        }
-        self.set_subscribed = false;
-        #[cfg(feature = "compat-settings-ingress")]
-        {
-            self.compat_subscribed = false;
         }
         self.protocol.on_session_active(false);
     }
@@ -523,7 +473,7 @@ where
                     if let Some(action) =
                         Self::plan_inbound(self.prefix, settings, &message, &mut on_other)
                     {
-                        let _ = Self::classify_change(self.execute(settings, action).await);
+                        let _ = self.execute(settings, action).await;
                     }
                 }
             }
