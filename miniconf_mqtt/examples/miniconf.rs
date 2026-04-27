@@ -3,10 +3,7 @@ use core::future::poll_fn;
 use core::pin::Pin;
 use core::task::Poll;
 use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
-use miniconf_mqtt::{
-    Event, MqttClient,
-    minimq::{self, transport::Connector},
-};
+use miniconf_mqtt::{Event, MqttClient, minimq};
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -86,22 +83,8 @@ impl WriteReady for TokioConnection {
     }
 }
 
-#[derive(Copy, Clone)]
-struct TokioConnector;
-
-impl Connector for TokioConnector {
-    type Error = std::io::Error;
-    type Connection<'a> = TokioConnection;
-
-    async fn connect<'a>(
-        &'a self,
-        broker: &minimq::Broker<'_>,
-    ) -> Result<Self::Connection<'a>, Self::Error> {
-        let minimq::Broker::SocketAddr(addr) = broker else {
-            return Err(std::io::ErrorKind::Unsupported.into());
-        };
-        TcpStream::connect(*addr).await.map(TokioConnection)
-    }
+async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
+    TcpStream::connect(addr).await.map(TokioConnection)
 }
 
 #[tokio::main]
@@ -125,13 +108,8 @@ async fn main() {
     .await;
 }
 
-fn config<'a>(
-    broker: SocketAddr,
-    buffer: &'a mut [u8],
-    payload: usize,
-    client_id: &str,
-) -> minimq::ConfigBuilder<'a> {
-    minimq::ConfigBuilder::from_buffer(broker.into(), buffer, payload)
+fn config<'a>(buffer: &'a mut [u8], payload: usize, client_id: &str) -> minimq::ConfigBuilder<'a> {
+    minimq::ConfigBuilder::from_buffer(buffer, payload)
         .unwrap()
         .client_id(client_id)
         .unwrap()
@@ -140,18 +118,17 @@ fn config<'a>(
 
 async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     let mut buffer = [0u8; 4096];
-    let connector = TokioConnector;
-
-    let mut client = MqttClient::<_, _>::new(
-        prefix,
-        &connector,
-        config(broker, &mut buffer, 1024, client_id),
-    )
-    .unwrap();
+    let mut client = MqttClient::<_, _>::new(prefix, config(&mut buffer, 1024, client_id)).unwrap();
 
     let mut settings = common::Settings::new();
     println!("Serving common fixture on {prefix}");
-    match client.connect(&mut settings).await {
+    match client
+        .connect(
+            connect_addr(broker).await.expect("tcp connect failed"),
+            &mut settings,
+        )
+        .await
+    {
         Ok(Event::Connected) => println!("Connected"),
         Ok(Event::Reconnected) => println!("Reconnected"),
         Ok(other) => panic!("unexpected connect result: {other:?}"),
@@ -164,15 +141,23 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
         match client.poll(&mut settings, |_| {}).await {
             Ok(Event::Changed) => println!("Settings updated"),
             Ok(_) => {}
-            Err(err) => {
+            Err(err @ miniconf_mqtt::Error::Mqtt(minimq::Error::Disconnected)) => {
                 eprintln!("poll error: {err}");
-                match client.connect(&mut settings).await {
+                let io = match connect_addr(broker).await {
+                    Ok(io) => io,
+                    Err(err) => {
+                        eprintln!("tcp connect error: {err}");
+                        continue;
+                    }
+                };
+                match client.connect(io, &mut settings).await {
                     Ok(Event::Connected) => println!("Connected"),
                     Ok(Event::Reconnected) => println!("Reconnected"),
                     Ok(other) => panic!("unexpected connect result: {other:?}"),
                     Err(err) => eprintln!("connect error: {err}"),
                 }
             }
+            Err(err) => eprintln!("poll error: {err}"),
         }
     }
 }

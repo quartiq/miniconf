@@ -18,12 +18,12 @@ workspace = true
 
 [features]
 default = []
-compat-settings-ingress = ["dep:embassy-time"]
+compat-settings-ingress = []
 
 [dependencies]
 miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
 minimq = "0.10"
-embassy-time = { version = "0.5.1", optional = true }
+embassy-time = { version = "0.5.1" }
 embedded-io = "0.7"
 log = "0.4"
 heapless = "0.9.1"

@@ -9,7 +9,7 @@ Requires Python 3.11 or newer.
 From this repo:
 
 ```sh
-python -m pip install -e py
+python -m pip install -e py/
 ```
 
 Directly from Git:

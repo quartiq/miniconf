@@ -13,12 +13,12 @@ use crate::{
     schema::{SchemaSync, SettingsSync, serialize_schema_page},
 };
 
-impl<'a, Settings, C> MqttClient<'a, Settings, C>
+impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
-    C: minimq::transport::Connector,
+    IO: minimq::Io,
 {
-    pub(super) async fn publish_alive_once(&mut self) -> Result<(), Error<C::Error>> {
+    pub(super) async fn publish_alive_once(&mut self) -> Result<(), Error<IO::Error>> {
         #[derive(Serialize)]
         struct Alive {
             epoch: u32,
@@ -54,7 +54,7 @@ where
         &mut self,
         settings: &mut Settings,
         on_other: &mut F,
-    ) -> Result<(), Error<C::Error>>
+    ) -> Result<(), Error<IO::Error>>
     where
         F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
     {
@@ -66,14 +66,14 @@ where
         &mut self,
         settings: &mut Settings,
         on_other: &mut F,
-    ) -> Result<(), Error<C::Error>>
+    ) -> Result<(), Error<IO::Error>>
     where
         F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
     {
         let mut sync = SchemaSync::new(Settings::SCHEMA);
         info!("Starting schema sync defs={}", sync.defs.len());
         while sync.next != sync.defs.len() {
-            debug_assert!(self.session.is_publish_quiescent());
+            self.wait_publish_quiescent(settings, on_other).await?;
             debug!(
                 "Publishing schema page={} next_def={}",
                 sync.page, sync.next
@@ -126,14 +126,14 @@ where
         &mut self,
         settings: &mut Settings,
         on_other: &mut F,
-    ) -> Result<(), Error<C::Error>>
+    ) -> Result<(), Error<IO::Error>>
     where
         F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
     {
         let mut iter = SettingsSync::new(Settings::SCHEMA);
         info!("Starting retained settings sync");
         while let Some(path) = iter.next() {
-            debug_assert!(self.session.is_publish_quiescent());
+            self.wait_publish_quiescent(settings, on_other).await?;
             let path = path
                 .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?
                 .into_inner();

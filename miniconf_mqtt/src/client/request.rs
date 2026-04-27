@@ -53,10 +53,10 @@ fn push_prop<'a, const N: usize>(
         .ok();
 }
 
-impl<'a, Settings, C> MqttClient<'a, Settings, C>
+impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
-    C: minimq::transport::Connector,
+    IO: minimq::Io,
 {
     pub(crate) fn plan_request(
         prefix: &str,
@@ -216,7 +216,6 @@ where
                     if let Some(reply) = &reply {
                         self.reply_text(reply, ResponseCode::Ok, "").await;
                     }
-                    self.protocol.pending_settings_sync = true;
                     return Change::Changed;
                 }
 
@@ -280,7 +279,7 @@ where
         self.reply_with(reply, &props, body).await;
     }
 
-    async fn reply_publish_error(&mut self, reply: &ReplyTarget, err: &Error<C::Error>) {
+    async fn reply_publish_error(&mut self, reply: &ReplyTarget, err: &Error<IO::Error>) {
         let mut error = String::new();
         let mut depth = Buffer::new();
         let props = error_props(
@@ -332,7 +331,7 @@ where
         settings: &Settings,
         state: [usize; crate::MAX_DEPTH],
         depth: usize,
-    ) -> Result<(), PubError<EncodeError<DepthError<serde_json_core::ser::Error>>, C::Error>> {
+    ) -> Result<(), PubError<EncodeError<DepthError<serde_json_core::ser::Error>>, IO::Error>> {
         let topic = self
             .settings_topic(&state[..depth])
             .map_err(|err| match err {
@@ -363,7 +362,7 @@ where
         self.session.publish(publication).await
     }
 
-    pub(super) async fn clear_leaf(&mut self, topic: &str) -> Result<(), Error<C::Error>> {
+    pub(super) async fn clear_leaf(&mut self, topic: &str) -> Result<(), Error<IO::Error>> {
         self.protocol.manifest.settings_rev = self.protocol.manifest.settings_rev.wrapping_add(1);
         let mut rev = Buffer::new();
         let props = [minimq::Property::UserProperty(
@@ -380,7 +379,10 @@ where
             .map_err(simple_pub_error)
     }
 
-    fn settings_topic(&self, state: &[usize]) -> Result<String<MAX_TOPIC_LENGTH>, Error<C::Error>> {
+    fn settings_topic(
+        &self,
+        state: &[usize],
+    ) -> Result<String<MAX_TOPIC_LENGTH>, Error<IO::Error>> {
         let path: ConstPath<String<MAX_TOPIC_LENGTH>, '/'> = Settings::SCHEMA
             .transcode(state)
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
@@ -402,7 +404,7 @@ where
         settings: &Settings,
         state: [usize; crate::MAX_DEPTH],
         depth: usize,
-    ) -> Result<(), Error<C::Error>> {
+    ) -> Result<(), Error<IO::Error>> {
         let topic = self.settings_topic(&state[..depth])?;
         match self.try_publish_leaf(settings, state, depth).await {
             Ok(()) => Ok(()),

@@ -5,8 +5,7 @@ use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
 use miniconf::Tree;
 use miniconf_mqtt::{Event, MqttClient, minimq};
 use minimq::{
-    Broker, ConnectEvent, Publication, QoS, Session,
-    transport::Connector,
+    ConnectEvent, Publication, QoS, Session,
     types::{SubscriptionOptions, TopicFilter},
 };
 use std::{
@@ -47,14 +46,15 @@ fn unique(label: &str) -> String {
     format!("miniconf-mqtt-{label}-{nanos}")
 }
 
-fn config<'a>(broker: Broker<'a>, client_id: &str) -> minimq::ConfigBuilder<'a> {
+fn config(client_id: &str) -> minimq::ConfigBuilder<'static> {
     let buffer = Box::leak(Box::new([0; 2048]));
-    minimq::ConfigBuilder::from_buffer(broker, buffer, 1024)
+    minimq::ConfigBuilder::from_buffer(buffer, 1024)
         .unwrap()
         .client_id(client_id)
         .unwrap()
 }
 
+#[derive(Debug)]
 struct TokioConnection(TcpStream);
 
 impl ErrorType for TokioConnection {
@@ -115,26 +115,12 @@ impl WriteReady for TokioConnection {
     }
 }
 
-#[derive(Copy, Clone)]
-struct TokioConnector;
-
-impl Connector for TokioConnector {
-    type Error = std::io::Error;
-    type Connection<'a> = TokioConnection;
-
-    async fn connect<'a>(
-        &'a self,
-        broker: &Broker<'_>,
-    ) -> Result<Self::Connection<'a>, Self::Error> {
-        let Broker::SocketAddr(addr) = broker else {
-            return Err(std::io::ErrorKind::Unsupported.into());
-        };
-        TcpStream::connect(*addr).await.map(TokioConnection)
-    }
+async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
+    TcpStream::connect(addr).await.map(TokioConnection)
 }
 
 async fn wait_client(
-    client: &mut MqttClient<'_, Settings, TokioConnector>,
+    client: &mut MqttClient<'_, Settings, TokioConnection>,
     settings: &mut Settings,
     mut on_other: impl FnMut(&minimq::InboundPublish<'_>),
     want: impl Fn(Event) -> bool,
@@ -152,15 +138,16 @@ async fn wait_client(
 }
 
 async fn connect_client(
-    client: &mut MqttClient<'_, Settings, TokioConnector>,
+    client: &mut MqttClient<'_, Settings, TokioConnection>,
     settings: &mut Settings,
+    io: TokioConnection,
 ) -> Event {
-    client.connect(settings).await.unwrap()
+    client.connect(io, settings).await.unwrap()
 }
 
-async fn wait_session(session: &mut Session<'_, '_, TokioConnector>) {
+async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConnection) {
     assert!(matches!(
-        session.connect().await.unwrap(),
+        session.connect(io).await.unwrap(),
         ConnectEvent::Connected | ConnectEvent::Reconnected
     ));
 }
@@ -172,20 +159,22 @@ async fn mm2_set_stays_internal() {
         return;
     };
 
-    let connector = TokioConnector;
     let prefix = unique("prefix");
-    let mut publisher = Session::new(config(addr.into(), &unique("pub")), &connector);
-    let mut client =
-        MqttClient::<Settings, _>::new(&prefix, &connector, config(addr.into(), &unique("mm2")))
-            .unwrap();
+    let mut publisher = Session::new(config(&unique("pub")));
+    let mut client = MqttClient::<Settings, _>::new(&prefix, config(&unique("mm2"))).unwrap();
     let mut settings = Settings::default();
 
     assert!(matches!(
-        connect_client(&mut client, &mut settings).await,
+        connect_client(
+            &mut client,
+            &mut settings,
+            connect_addr(addr).await.unwrap()
+        )
+        .await,
         Event::Connected | Event::Reconnected
     ));
 
-    wait_session(&mut publisher).await;
+    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
     publisher
         .publish(Publication::bytes(&format!("{prefix}/set/value"), b"9"))
         .await
@@ -211,17 +200,19 @@ async fn other_topics_reach_callback() {
         return;
     };
 
-    let connector = TokioConnector;
     let prefix = unique("prefix");
     let other_topic = format!("{prefix}/rpc/in");
-    let mut publisher = Session::new(config(addr.into(), &unique("pub")), &connector);
-    let mut client =
-        MqttClient::<Settings, _>::new(&prefix, &connector, config(addr.into(), &unique("sub")))
-            .unwrap();
+    let mut publisher = Session::new(config(&unique("pub")));
+    let mut client = MqttClient::<Settings, _>::new(&prefix, config(&unique("sub"))).unwrap();
     let mut settings = Settings::default();
 
     assert!(matches!(
-        connect_client(&mut client, &mut settings).await,
+        connect_client(
+            &mut client,
+            &mut settings,
+            connect_addr(addr).await.unwrap()
+        )
+        .await,
         Event::Connected
     ));
     let topics = [TopicFilter::new(&other_topic)
@@ -229,7 +220,7 @@ async fn other_topics_reach_callback() {
     client.subscribe(&topics, &[]).await.unwrap();
     let _ = wait_client(&mut client, &mut settings, |_| {}, |_| true).await;
 
-    wait_session(&mut publisher).await;
+    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
     publisher
         .publish(Publication::bytes(&other_topic, b"hello"))
         .await

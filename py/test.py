@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from queue import Empty, Queue
@@ -22,12 +24,18 @@ FIXTURE = ROOT / "testdata" / "compact-schema" / "fixture.ndjson"
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
-EXAMPLE = ROOT / "target" / "debug" / "examples" / "miniconf"
+BROKER = os.environ.get("MINICONF_BROKER", "localhost")
+EXAMPLE = Path(
+    os.environ.get(
+        "MINICONF_EXAMPLE",
+        str(ROOT / "target" / "debug" / "examples" / "miniconf"),
+    )
+)
 
 
 def cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [".venv/bin/python", "-m", "miniconf", "-b", "localhost", *args],
+        [sys.executable, "-m", "miniconf", "-b", BROKER, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -58,7 +66,7 @@ class TopicWatcher:
         )
         self.client.on_message = self._on_message
         self.client.on_subscribe = self._on_subscribe
-        self.client.connect("localhost")
+        self.client.connect(BROKER)
         self.client.loop_start()
         self.client.subscribe(self.topic)
         end = time.monotonic() + 1.0
@@ -209,11 +217,6 @@ async def main() -> None:
         settings.drain()
         schema_topics.drain()
 
-        subprocess.run(
-            ["cargo", "build", "-p", "miniconf_mqtt", "--example", "miniconf"],
-            cwd=ROOT,
-            check=True,
-        )
         dut = subprocess.Popen([str(EXAMPLE)], cwd=ROOT)
 
         manifest = json.loads(alive.wait_nonempty_payload(5.0, f"{TARGET}/alive"))
@@ -225,7 +228,7 @@ async def main() -> None:
         settings.drain()
         schema_topics.drain()
 
-        client = Client("localhost", protocol=MQTTv5)
+        client = Client(BROKER, protocol=MQTTv5)
         await client.__aenter__()
         try:
             mc = MiniconfClient(client, TARGET)
@@ -341,7 +344,7 @@ async def main() -> None:
         time.sleep(0.2)
         prune_out = subprocess.run(
             [
-                ".venv/bin/python",
+                sys.executable,
                 "-m",
                 "miniconf",
                 "-b",
@@ -358,7 +361,7 @@ async def main() -> None:
         assert "schema/99" in prune_out, prune_out
         force_prune_out = subprocess.run(
             [
-                ".venv/bin/python",
+                sys.executable,
                 "-m",
                 "miniconf",
                 "-b",

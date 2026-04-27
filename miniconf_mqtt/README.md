@@ -18,8 +18,8 @@ It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
 
 `MqttClient` is a manually driven async service:
 
-- call `connect(settings)` to establish or resume the shared MQTT/MM2 session
-- call `poll()` regularly after `connect(settings)` to drive bounded MQTT/MM2 progress
+- call `connect(io, settings)` to establish or resume the shared MQTT/MM2 session
+- call `poll()` regularly after `connect(io, settings)` to drive bounded MQTT/MM2 progress
 - pass a callback to `poll()` for non-MM2 inbound publishes
 - handle your own application traffic through the shared session via `publish()`,
   `subscribe()`, and `unsubscribe()`
@@ -28,7 +28,7 @@ It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
 - match on the returned `Event`
   - `Other`: one non-MM2 inbound publish was delivered to the callback
 
-`connect(settings)` returns:
+`connect(io, settings)` returns:
 
 - `Connected`: fresh broker session, MM2 request subscriptions were established and the retained
   MM2 schema/settings mirror was republished

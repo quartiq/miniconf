@@ -5,7 +5,7 @@ use crate::{
 };
 use embedded_io_async::{ErrorKind, ErrorType, Read, ReadReady, Write, WriteReady};
 use miniconf::{Tree, TreeSchema};
-use minimq::{Broker, ProtocolError, transport::Connector};
+use minimq::ProtocolError;
 
 #[derive(Tree)]
 struct Tiny {
@@ -59,33 +59,14 @@ impl WriteReady for DummyConnection {
     }
 }
 
-struct DummyConnector;
-
-impl Connector for DummyConnector {
-    type Error = ErrorKind;
-    type Connection<'a> = DummyConnection;
-
-    async fn connect<'a>(
-        &'a self,
-        _broker: &Broker<'_>,
-    ) -> Result<Self::Connection<'a>, ErrorKind> {
-        Ok(DummyConnection)
-    }
-}
-
 #[test]
 fn constructor_rejects_long_prefix() {
     let mut buffer = [0u8; 1024];
-    let broker: Broker<'_> = "127.0.0.1:1883"
-        .parse::<core::net::SocketAddr>()
-        .unwrap()
-        .into();
     let prefix = "x".repeat(MAX_TOPIC_LENGTH);
 
-    let client = MqttClient::<Tiny, _>::new(
+    let client = MqttClient::<Tiny, DummyConnection>::new(
         &prefix,
-        &DummyConnector,
-        minimq::ConfigBuilder::from_buffer(broker, &mut buffer, 1024).unwrap(),
+        minimq::ConfigBuilder::from_buffer(&mut buffer, 1024).unwrap(),
     );
 
     assert!(matches!(client, Err(ProtocolError::BufferSize)));
@@ -96,7 +77,7 @@ fn plan_set_marks_changed_with_explicit_reply() {
     let mut settings = TreeSettings::default();
     let reply = ReplyTarget::new("test/id/response", None).unwrap();
 
-    match MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+    match MqttClient::<TreeSettings, DummyConnection>::plan_publish(
         "test/id",
         &mut settings,
         "test/id/set/value",
@@ -115,7 +96,7 @@ fn plan_set_marks_changed_with_explicit_reply() {
 #[test]
 fn plan_set_without_response_topic_is_fire_and_forget() {
     let mut settings = TreeSettings::default();
-    match MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+    match MqttClient::<TreeSettings, DummyConnection>::plan_publish(
         "test/id",
         &mut settings,
         "test/id/set/value",
@@ -136,7 +117,7 @@ fn plan_empty_payload_is_ignored() {
     let mut settings = TreeSettings::default();
     let reply = ReplyTarget::new("test/id/response", None).unwrap();
     assert!(matches!(
-        MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+        MqttClient::<TreeSettings, DummyConnection>::plan_publish(
             "test/id",
             &mut settings,
             "test/id/set/value",
@@ -153,7 +134,7 @@ fn plan_internal_set_path_is_rejected() {
     let mut settings = TreeSettings::default();
     let reply = ReplyTarget::new("test/id/response", None).unwrap();
 
-    match MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+    match MqttClient::<TreeSettings, DummyConnection>::plan_publish(
         "test/id",
         &mut settings,
         "test/id/set/nested",
@@ -185,7 +166,7 @@ fn plan_missing_path_is_rejected() {
     let mut settings = TreeSettings::default();
     let reply = ReplyTarget::new("test/id/response", None).unwrap();
 
-    match MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+    match MqttClient::<TreeSettings, DummyConnection>::plan_publish(
         "test/id",
         &mut settings,
         "test/id/set/missing",
@@ -247,7 +228,7 @@ fn schema_defs_keep_root_last() {
 #[test]
 fn compatibility_settings_ingress_is_accepted() {
     let mut settings = TreeSettings::default();
-    match MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+    match MqttClient::<TreeSettings, DummyConnection>::plan_publish(
         "test/id",
         &mut settings,
         "test/id/settings/value",
@@ -267,7 +248,7 @@ fn compatibility_settings_ingress_is_accepted() {
 #[test]
 fn compatibility_settings_invalid_value_triggers_override() {
     let mut settings = TreeSettings::default();
-    match MqttClient::<TreeSettings, DummyConnector>::plan_publish(
+    match MqttClient::<TreeSettings, DummyConnection>::plan_publish(
         "test/id",
         &mut settings,
         "test/id/settings/value",

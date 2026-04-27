@@ -1,10 +1,11 @@
 mod request;
 mod sync;
 
-use core::{marker::PhantomData, task::Poll};
+use core::marker::PhantomData;
 
 #[cfg(feature = "compat-settings-ingress")]
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
+use embassy_time::Timer;
 use heapless::String;
 use log::{debug, info};
 use miniconf::{
@@ -14,7 +15,6 @@ use minimq::{
     ConfigBuilder, ConnectEvent, Event as SessionEvent, InboundPublish, Property, ProtocolError,
     PubError, Publication, QoS, Session,
     publication::ToPayload,
-    transport::Connector,
     types::{SubscriptionOptions, TopicFilter},
 };
 
@@ -27,20 +27,6 @@ use crate::{
 };
 
 fn ignore_other(_: &InboundPublish<'_>) {}
-
-async fn yield_once() {
-    let mut yielded = false;
-    core::future::poll_fn(move |cx| {
-        if yielded {
-            Poll::Ready(())
-        } else {
-            yielded = true;
-            cx.waker().wake_by_ref();
-            Poll::Pending
-        }
-    })
-    .await
-}
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// MM2 MQTT client error.
@@ -144,11 +130,8 @@ impl ProtocolState {
 }
 
 /// MM2 MQTT session wrapper for one Miniconf tree.
-pub struct MqttClient<'a, Settings, C>
-where
-    C: Connector,
-{
-    session: Session<'a, 'a, C>,
+pub struct MqttClient<'a, Settings, IO> {
+    session: Session<'a, IO>,
     prefix: &'a str,
     set_subscribed: bool,
     #[cfg(feature = "compat-settings-ingress")]
@@ -157,10 +140,10 @@ where
     _settings: PhantomData<Settings>,
 }
 
-impl<'a, Settings, C> MqttClient<'a, Settings, C>
+impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    C: Connector,
+    IO: minimq::Io,
 {
     fn with_leaf<T, E>(
         full: &[usize],
@@ -174,11 +157,7 @@ where
     }
 
     /// Construct a new MM2 MQTT client for one Miniconf settings tree.
-    pub fn new(
-        prefix: &'a str,
-        connector: &'a C,
-        config: ConfigBuilder<'a>,
-    ) -> Result<Self, ProtocolError> {
+    pub fn new(prefix: &'a str, config: ConfigBuilder<'a>) -> Result<Self, ProtocolError> {
         const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
         if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);
@@ -198,7 +177,7 @@ where
         let config = config.autodowngrade_qos().will(will)?;
 
         Ok(Self {
-            session: Session::new(config, connector),
+            session: Session::new(config),
             prefix,
             set_subscribed: false,
             #[cfg(feature = "compat-settings-ingress")]
@@ -211,14 +190,15 @@ where
     /// Progress one MM2 step on an already-connected session.
     ///
     /// This does not own connect/reconnect or full retained schema/settings publication.
-    /// Call [`connect`](Self::connect) first. If the underlying MQTT session disconnects,
+    /// Call [`connect`](Self::connect) first. If the
+    /// underlying MQTT session disconnects,
     /// `poll()` returns `Error::Mqtt(minimq::Error::Disconnected)` and the caller decides when to
     /// reconnect.
     pub async fn poll(
         &mut self,
         settings: &mut Settings,
         mut on_other: impl FnMut(&InboundPublish<'_>),
-    ) -> Result<Event, Error<C::Error>> {
+    ) -> Result<Event, Error<IO::Error>> {
         self.require_connected()?;
         match self.session.poll().await.map_err(Error::from)? {
             SessionEvent::Idle => Ok(Event::Idle),
@@ -239,13 +219,17 @@ where
         }
     }
 
-    /// Establish or resume the MQTT/MM2 session.
+    /// Establish or resume the MQTT/MM2 session on a new transport.
     ///
     /// This performs the underlying MQTT handshake plus MM2 setup:
     /// request-topic subscriptions, optional compatibility ingress recovery, and the fresh-session
     /// retained manifest/schema/settings publication pass.
-    pub async fn connect(&mut self, settings: &mut Settings) -> Result<Event, Error<C::Error>> {
-        let reconnected = match self.session.connect().await.map_err(Error::from)? {
+    pub async fn connect(
+        &mut self,
+        io: IO,
+        settings: &mut Settings,
+    ) -> Result<Event, Error<IO::Error>> {
+        let reconnected = match self.session.connect(io).await.map_err(Error::from)? {
             ConnectEvent::Connected => false,
             ConnectEvent::Reconnected => true,
         };
@@ -268,7 +252,7 @@ where
         &mut self,
         settings: &Settings,
         key: impl IntoKeys,
-    ) -> Result<(), Error<C::Error>> {
+    ) -> Result<(), Error<IO::Error>> {
         let mut state = [0; crate::MAX_DEPTH];
         let lookup = Settings::SCHEMA
             .resolve_into(key, &mut state)
@@ -287,7 +271,7 @@ where
         &mut self,
         settings: &mut Settings,
         mut on_other: impl for<'msg> FnMut(&InboundPublish<'msg>),
-    ) -> Result<(), Error<C::Error>> {
+    ) -> Result<(), Error<IO::Error>> {
         self.require_connected()?;
         self.publish_schema(settings, &mut on_other).await?;
         self.publish_settings(settings, &mut on_other).await?;
@@ -305,7 +289,7 @@ where
         &mut self,
         topics: &[TopicFilter<'_>],
         properties: &[Property<'_>],
-    ) -> Result<(), Error<C::Error>> {
+    ) -> Result<(), Error<IO::Error>> {
         self.require_connected()?;
         self.session.subscribe(topics, properties).await?;
         Ok(())
@@ -316,7 +300,7 @@ where
         &mut self,
         topics: &[&str],
         properties: &[Property<'_>],
-    ) -> Result<(), Error<C::Error>> {
+    ) -> Result<(), Error<IO::Error>> {
         self.require_connected()?;
         self.session.unsubscribe(topics, properties).await?;
         Ok(())
@@ -333,7 +317,7 @@ where
         self.session.can_publish(qos)
     }
 
-    fn require_connected(&self) -> Result<(), Error<C::Error>> {
+    fn require_connected(&self) -> Result<(), Error<IO::Error>> {
         if self.session.is_connected() {
             Ok(())
         } else {
@@ -345,13 +329,13 @@ where
         &mut self,
         settings: &mut Settings,
         on_other: &mut F,
-    ) -> Result<(), Error<C::Error>>
+    ) -> Result<(), Error<IO::Error>>
     where
         F: for<'msg> FnMut(&InboundPublish<'msg>),
     {
         while !self.session.is_publish_quiescent() {
             match self.session.poll().await.map_err(Error::from)? {
-                SessionEvent::Idle => yield_once().await,
+                SessionEvent::Idle => Timer::after_millis(0).await,
                 SessionEvent::Inbound(message) => {
                     let action = Self::plan_request(self.prefix, settings, &message);
                     if matches!(action, Action::Unhandled) {
@@ -369,7 +353,7 @@ where
         &mut self,
         settings: &mut Settings,
         on_other: &mut F,
-    ) -> Result<(), Error<C::Error>>
+    ) -> Result<(), Error<IO::Error>>
     where
         F: for<'msg> FnMut(&InboundPublish<'msg>),
     {
@@ -385,7 +369,7 @@ where
         settings: &mut Settings,
         reconnected: bool,
         on_other: &mut F,
-    ) -> Result<(), Error<C::Error>>
+    ) -> Result<(), Error<IO::Error>>
     where
         F: for<'msg> FnMut(&InboundPublish<'msg>),
     {
@@ -407,7 +391,7 @@ where
         Ok(())
     }
 
-    async fn subscribe_set_requests(&mut self) -> Result<(), Error<C::Error>> {
+    async fn subscribe_set_requests(&mut self) -> Result<(), Error<IO::Error>> {
         if self.set_subscribed {
             return Ok(());
         }
@@ -427,7 +411,7 @@ where
     }
 
     #[cfg(feature = "compat-settings-ingress")]
-    async fn subscribe_compat_requests(&mut self) -> Result<(), Error<C::Error>> {
+    async fn subscribe_compat_requests(&mut self) -> Result<(), Error<IO::Error>> {
         if self.compat_subscribed {
             return Ok(());
         }
@@ -451,7 +435,7 @@ where
     pub async fn publish<P>(
         &mut self,
         publication: Publication<'_, P>,
-    ) -> Result<(), PubError<P::Error, C::Error>>
+    ) -> Result<(), PubError<P::Error, IO::Error>>
     where
         P: ToPayload,
     {
@@ -484,7 +468,7 @@ where
     async fn recover_settings_ingress(
         &mut self,
         settings: &mut Settings,
-    ) -> Result<(), Error<C::Error>> {
+    ) -> Result<(), Error<IO::Error>> {
         loop {
             let SettingsIngressPhase::Recovering = self.protocol.settings_ingress else {
                 return Ok(());
