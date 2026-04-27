@@ -1,4 +1,3 @@
-use core::cell::Cell;
 use core::fmt::Write as _;
 
 use heapless::String;
@@ -79,12 +78,12 @@ where
                 sync.page, sync.next
             );
             let topic = self.schema_page_topic(sync.page);
-            let advanced = Cell::new(None::<(usize, u32)>);
+            let mut advanced = None::<(usize, u32)>;
             let publication = Publication::new(&topic, |buf: &mut [u8]| {
                 let page =
                     serialize_schema_page(&sync.defs, sync.next, buf).map_err(|id| (true, id))?;
                 let next_hash = yafnv::Fnv::fnv1a(sync.hash, buf[..page.len].iter().copied());
-                advanced.set(Some((page.count, next_hash)));
+                advanced = Some((page.count, next_hash));
                 Ok::<usize, EncodeError<usize>>(page.len)
             })
             .qos(QoS::AtLeastOnce)
@@ -106,7 +105,7 @@ where
                 Err(PubError::Payload((false, _))) => unreachable!(),
                 Err(PubError::Session(err)) => return Err(Error::Mqtt(err)),
             }
-            let Some((count, hash)) = advanced.get() else {
+            let Some((count, hash)) = advanced else {
                 return Err(Error::Mqtt(ProtocolError::BufferSize.into()));
             };
             sync.next += count;
@@ -144,7 +143,7 @@ where
             state[..full.len()].copy_from_slice(full);
             let depth = full.len();
             let topic = self.settings_sync_topic(&path);
-            match self.try_publish_leaf(settings, state, depth).await {
+            match self.try_publish_leaf(settings, &state[..depth]).await {
                 Ok(()) => {
                     debug!("Published retained setting {}", path);
                     self.wait_publish_quiescent(settings, on_other).await?

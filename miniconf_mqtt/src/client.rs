@@ -45,13 +45,6 @@ impl<E> From<DescendError<()>> for Error<E> {
     }
 }
 
-#[cfg(feature = "compat-settings-ingress")]
-#[derive(Copy, Clone)]
-enum SettingsIngressPhase {
-    Recovering,
-    Runtime,
-}
-
 #[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub(crate) enum Change {
     #[default]
@@ -85,10 +78,6 @@ struct Manifest {
 struct ProtocolState {
     manifest: Manifest,
     pending_settings_sync: bool,
-    #[cfg(feature = "compat-settings-ingress")]
-    settings_ingress: SettingsIngressPhase,
-    #[cfg(feature = "compat-settings-ingress")]
-    settings_ingress_deadline: Option<Instant>,
 }
 
 impl ProtocolState {
@@ -96,21 +85,12 @@ impl ProtocolState {
         Self {
             manifest: Manifest::default(),
             pending_settings_sync: false,
-            #[cfg(feature = "compat-settings-ingress")]
-            settings_ingress: SettingsIngressPhase::Runtime,
-            #[cfg(feature = "compat-settings-ingress")]
-            settings_ingress_deadline: None,
         }
     }
 
     fn on_session_active(&mut self, reconnected: bool) {
         if reconnected {
             info!("Reconnected MM2 session");
-            #[cfg(feature = "compat-settings-ingress")]
-            {
-                self.settings_ingress = SettingsIngressPhase::Runtime;
-                self.settings_ingress_deadline = None;
-            }
             return;
         }
 
@@ -120,12 +100,6 @@ impl ProtocolState {
         self.manifest.schema_pages = 0;
         self.pending_settings_sync = false;
         info!("Activated MM2 session epoch={}", self.manifest.epoch);
-        #[cfg(feature = "compat-settings-ingress")]
-        {
-            self.settings_ingress = SettingsIngressPhase::Recovering;
-            self.settings_ingress_deadline = None;
-            debug!("Starting settings ingress recovery");
-        }
     }
 }
 
@@ -226,15 +200,27 @@ where
             ConnectEvent::Connected => false,
             ConnectEvent::Reconnected => true,
         };
-        self.on_session_active(reconnected);
+        self.protocol.on_session_active(reconnected);
         let mut on_other = ignore_other;
-        self.finish_connect(settings, reconnected, &mut on_other)
+        if reconnected {
+            debug!("Publishing alive manifest");
+            self.publish_alive_once().await?;
+            return Ok(Event::Reconnected);
+        }
+        #[cfg(feature = "compat-settings-ingress")]
+        {
+            self.subscribe_topic_suffix("/settings/#").await?;
+            debug!("Subscribed compat settings topic");
+            self.recover_settings_ingress(settings).await?;
+        }
+        self.publish_schema(settings, &mut on_other).await?;
+        self.publish_settings(settings, &mut on_other).await?;
+        self.publish_alive(settings, &mut on_other).await?;
+        self.flush_pending_settings_sync(settings, &mut on_other)
             .await?;
-        Ok(if reconnected {
-            Event::Reconnected
-        } else {
-            Event::Connected
-        })
+        self.subscribe_topic_suffix("/set/#").await?;
+        debug!("Subscribed set request topic");
+        Ok(Event::Connected)
     }
 
     /// Publish one retained leaf value by exact key.
@@ -254,7 +240,7 @@ where
             return Err(Error::Miniconf(DescendError::Key(KeyError::TooShort)));
         }
         self.require_connected()?;
-        self.publish_current(settings, state, lookup.depth).await
+        self.publish_current(settings, &state[..lookup.depth]).await
     }
 
     /// Publish the full retained MM2 schema/settings mirror.
@@ -302,6 +288,21 @@ where
     /// Whether the MQTT session can currently publish at the requested QoS.
     pub fn can_publish(&mut self, qos: QoS) -> bool {
         self.session.can_publish(qos)
+    }
+
+    /// Publish an arbitrary MQTT packet after MM2 activation.
+    pub async fn publish<P>(
+        &mut self,
+        publication: Publication<'_, P>,
+    ) -> Result<(), PubError<P::Error, IO::Error>>
+    where
+        P: ToPayload,
+    {
+        self.require_connected().map_err(|err| match err {
+            Error::Mqtt(err) => PubError::Session(err),
+            Error::Miniconf(_) => unreachable!(),
+        })?;
+        self.session.publish(publication).await
     }
 
     fn require_connected(&self) -> Result<(), Error<IO::Error>> {
@@ -367,35 +368,6 @@ where
         Ok(())
     }
 
-    async fn finish_connect<F>(
-        &mut self,
-        settings: &mut Settings,
-        reconnected: bool,
-        on_other: &mut F,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        F: for<'msg> FnMut(&InboundPublish<'msg>),
-    {
-        #[cfg(feature = "compat-settings-ingress")]
-        if !reconnected {
-            self.subscribe_topic_suffix("/settings/#").await?;
-            debug!("Subscribed compat settings topic");
-            self.recover_settings_ingress(settings).await?;
-        }
-        if reconnected {
-            debug!("Publishing alive manifest");
-            self.publish_alive_once().await?;
-            return Ok(());
-        }
-        self.publish_schema(settings, on_other).await?;
-        self.publish_settings(settings, on_other).await?;
-        self.publish_alive(settings, on_other).await?;
-        self.flush_pending_settings_sync(settings, on_other).await?;
-        self.subscribe_topic_suffix("/set/#").await?;
-        debug!("Subscribed set request topic");
-        Ok(())
-    }
-
     async fn subscribe_topic_suffix(&mut self, suffix: &str) -> Result<(), Error<IO::Error>> {
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
@@ -410,70 +382,31 @@ where
         Ok(())
     }
 
-    /// Publish an arbitrary MQTT packet after MM2 activation.
-    pub async fn publish<P>(
-        &mut self,
-        publication: Publication<'_, P>,
-    ) -> Result<(), PubError<P::Error, IO::Error>>
-    where
-        P: ToPayload,
-    {
-        self.require_connected().map_err(|err| match err {
-            Error::Mqtt(err) => PubError::Session(err),
-            Error::Miniconf(_) => unreachable!(),
-        })?;
-        self.session.publish(publication).await
-    }
-
-    fn on_session_active(&mut self, reconnected: bool) {
-        if reconnected {
-            self.protocol.on_session_active(true);
-            return;
-        }
-        self.protocol.on_session_active(false);
-    }
-
     #[cfg(feature = "compat-settings-ingress")]
     async fn recover_settings_ingress(
         &mut self,
         settings: &mut Settings,
     ) -> Result<(), Error<IO::Error>> {
+        let mut deadline = Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE;
+        debug!("Starting settings ingress recovery");
         loop {
-            let SettingsIngressPhase::Recovering = self.protocol.settings_ingress else {
-                return Ok(());
-            };
-            if self
-                .protocol
-                .settings_ingress_deadline
-                .is_some_and(|deadline| Instant::now() >= deadline)
-            {
-                self.protocol.settings_ingress = SettingsIngressPhase::Runtime;
-                self.protocol.settings_ingress_deadline = None;
+            if Instant::now() >= deadline {
                 debug!("Finished settings ingress recovery");
                 return Ok(());
             }
             match self.session.poll().await.map_err(Error::from)? {
-                SessionEvent::Idle => {
-                    if self.protocol.settings_ingress_deadline.is_none() {
-                        self.protocol.settings_ingress = SettingsIngressPhase::Runtime;
-                        debug!("Finished settings ingress recovery without retained settings");
-                        return Ok(());
-                    }
-                    Timer::after_millis(1).await
-                }
+                SessionEvent::Idle => Timer::after_millis(1).await,
                 SessionEvent::Inbound(message) => {
-                    if matches!(
-                        Resource::parse(message.topic(), self.prefix),
-                        Some((Resource::Settings, _))
-                    ) {
-                        self.protocol.settings_ingress_deadline =
-                            Some(Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE);
-                    }
-                    let mut on_other = ignore_other;
+                    let Some((Resource::Settings, _)) =
+                        Resource::parse(message.topic(), self.prefix)
+                    else {
+                        continue;
+                    };
+                    deadline = Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE;
                     if let Some(action) =
-                        Self::plan_inbound(self.prefix, settings, &message, &mut on_other)
+                        Self::plan_settings_recovery(self.prefix, settings, &message)
                     {
-                        let _ = self.execute(settings, action).await;
+                        let _ = self.execute_settings_recovery(action);
                     }
                 }
             }

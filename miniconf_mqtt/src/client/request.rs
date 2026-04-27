@@ -1,14 +1,6 @@
 use core::convert::Infallible;
 use core::fmt::{Debug, Write as _};
 
-use heapless::{String, Vec};
-use itoa::Buffer;
-use log::{debug, warn};
-use miniconf::{ConstPath, DescendError, SerdeError, ValueError, json_core};
-use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS};
-
-#[cfg(feature = "compat-settings-ingress")]
-use crate::client::SettingsIngressPhase;
 use crate::{
     EncodeError, Error, MAX_TOPIC_LENGTH, MqttClient,
     client::Change,
@@ -17,6 +9,11 @@ use crate::{
         simple_pub_error,
     },
 };
+use heapless::{String, Vec, VecView};
+use itoa::Buffer;
+use log::{debug, warn};
+use miniconf::{ConstPath, DescendError, SerdeError, ValueError, json_core};
+use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS};
 
 fn error_props<'a, E: Debug>(
     code: ResponseCode,
@@ -40,11 +37,7 @@ fn error_props<'a, E: Debug>(
     props
 }
 
-fn push_prop<'a, const N: usize>(
-    props: &mut Vec<Property<'a>, N>,
-    key: &'static str,
-    value: &'a str,
-) {
+fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'a str) {
     props
         .push(Property::UserProperty(
             minimq::types::Utf8String(key),
@@ -87,6 +80,24 @@ where
         };
 
         Self::plan_publish(prefix, settings, message.topic(), message.payload(), reply)
+    }
+
+    #[cfg(feature = "compat-settings-ingress")]
+    pub(crate) fn plan_settings_recovery(
+        prefix: &str,
+        settings: &mut Settings,
+        message: &InboundPublish<'_>,
+    ) -> Option<Action> {
+        let Some((Resource::Settings, _)) = Resource::parse(message.topic(), prefix) else {
+            return None;
+        };
+        Some(Self::plan_publish(
+            prefix,
+            settings,
+            message.topic(),
+            message.payload(),
+            None,
+        ))
     }
 
     pub(crate) fn plan_publish(
@@ -206,7 +217,7 @@ where
                 depth,
             } => {
                 if matches!(resource, Resource::Set) {
-                    if let Err(err) = self.try_publish_leaf(settings, state, depth).await {
+                    if let Err(err) = self.try_publish_leaf(settings, &state[..depth]).await {
                         if let Some(reply) = &reply {
                             let err = simple_pub_error(err);
                             self.reply_publish_error(reply, &err).await;
@@ -220,27 +231,39 @@ where
                 }
 
                 #[cfg(feature = "compat-settings-ingress")]
-                match self.protocol.settings_ingress {
-                    SettingsIngressPhase::Recovering => Change::Changed,
-                    SettingsIngressPhase::Runtime => {
-                        if self.publish_current(settings, state, depth).await.is_err() {
-                            return Change::Unchanged;
-                        }
-                        self.protocol.pending_settings_sync = true;
-                        Change::Changed
+                {
+                    if self
+                        .publish_current(settings, &state[..depth])
+                        .await
+                        .is_err()
+                    {
+                        return Change::Unchanged;
                     }
+                    self.protocol.pending_settings_sync = true;
+                    Change::Changed
                 }
                 #[cfg(not(feature = "compat-settings-ingress"))]
                 unreachable!()
             }
             #[cfg(feature = "compat-settings-ingress")]
-            Action::OverrideSet { state, depth } => match self.protocol.settings_ingress {
-                SettingsIngressPhase::Recovering => Change::Unchanged,
-                SettingsIngressPhase::Runtime => {
-                    let _ = self.publish_current(settings, state, depth).await;
-                    Change::Unchanged
-                }
+            Action::OverrideSet { state, depth } => {
+                let _ = self.publish_current(settings, &state[..depth]).await;
+                Change::Unchanged
+            }
+        }
+    }
+
+    #[cfg(feature = "compat-settings-ingress")]
+    pub(super) fn execute_settings_recovery(&mut self, action: Action) -> Change {
+        match action {
+            Action::Unhandled => Change::Unchanged,
+            Action::None(state) => state,
+            Action::Reply { state, .. } => state,
+            Action::PublishSet { resource, .. } => match resource {
+                Resource::Set => unreachable!("recovery only plans settings ingress"),
+                Resource::Settings => Change::Changed,
             },
+            Action::OverrideSet { .. } => Change::Unchanged,
         }
     }
 
@@ -329,15 +352,12 @@ where
     pub(super) async fn try_publish_leaf(
         &mut self,
         settings: &Settings,
-        state: [usize; crate::MAX_DEPTH],
-        depth: usize,
+        state: &[usize],
     ) -> Result<(), PubError<EncodeError<DepthError<serde_json_core::ser::Error>>, IO::Error>> {
-        let topic = self
-            .settings_topic(&state[..depth])
-            .map_err(|err| match err {
-                Error::Mqtt(err) => PubError::Session(err),
-                Error::Miniconf(_) => unreachable!(),
-            })?;
+        let topic = self.settings_topic(state).map_err(|err| match err {
+            Error::Mqtt(err) => PubError::Session(err),
+            Error::Miniconf(_) => unreachable!(),
+        })?;
         self.protocol.manifest.settings_rev = self.protocol.manifest.settings_rev.wrapping_add(1);
         let mut rev = Buffer::new();
         let props = [minimq::Property::UserProperty(
@@ -345,8 +365,7 @@ where
             minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
         )];
         let publication = Publication::new(&topic, |buf: &mut [u8]| {
-            let full = &state[..depth];
-            Self::with_leaf(full, |keys| json_core::get_by_keys(settings, keys, buf)).map_err(
+            Self::with_leaf(state, |keys| json_core::get_by_keys(settings, keys, buf)).map_err(
                 |err| {
                     let no_space = matches!(
                         err.inner,
@@ -402,11 +421,10 @@ where
     pub(super) async fn publish_current(
         &mut self,
         settings: &Settings,
-        state: [usize; crate::MAX_DEPTH],
-        depth: usize,
+        state: &[usize],
     ) -> Result<(), Error<IO::Error>> {
-        let topic = self.settings_topic(&state[..depth])?;
-        match self.try_publish_leaf(settings, state, depth).await {
+        let topic = self.settings_topic(state)?;
+        match self.try_publish_leaf(settings, state).await {
             Ok(()) => Ok(()),
             Err(PubError::Payload((
                 _no_space,
