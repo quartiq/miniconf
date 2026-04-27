@@ -67,6 +67,8 @@ async def discover(
 async def _manifest(
     interface: MiniconfClient, *, timeout: float = 3.0
 ) -> dict[str, Any]:
+    if interface._manifest is not None:
+        return interface._manifest
     async with interface._watch(f"{interface.prefix}/alive") as queue:
         end = asyncio.get_running_loop().time() + timeout
         while True:
@@ -76,10 +78,9 @@ async def _manifest(
             message = await asyncio.wait_for(queue.get(), remaining)
             if not message.payload:
                 continue
-            try:
-                return json.loads(message.payload)
-            except json.JSONDecodeError:
-                continue
+            interface._note_manifest_payload(message.payload)
+            if interface._manifest is not None:
+                return interface._manifest
 
 
 async def read(interface: MiniconfClient, path: str, *, timeout: float = 3.0):
@@ -287,7 +288,6 @@ async def force_prune(interface: MiniconfClient, *, timeout: float = 3.0) -> lis
     for topic in topics:
         await interface.client.publish(topic, payload=b"", retain=True)
     interface._schema = None
-    interface._schema_rev = None
-    interface._epoch = None
+    interface._manifest = None
     interface._settings.clear()
     return [topic.removeprefix(f"{interface.prefix}/") for topic in topics]

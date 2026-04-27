@@ -14,7 +14,7 @@ from queue import Empty, Queue
 
 import paho.mqtt.client as mqtt
 from aiomqtt import Client
-from miniconf.async_ import MiniconfClient
+from miniconf.async_ import MiniconfClient, RawMiniconfClient
 from miniconf.common import MQTTv5, MiniconfException
 from miniconf.render import render_schema_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
@@ -321,6 +321,21 @@ async def main() -> None:
         finally:
             await close_client(client)
             client = None
+        client = await Client(BROKER, protocol=MQTTv5).__aenter__()
+        raw = RawMiniconfClient(client, TARGET)
+        try:
+            assert await raw.get("/struct_tree/a") == 0
+            assert await raw.get("/foo") is False
+            await raw.set("/foo", True)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "true"
+            assert await raw.get("/foo") is True
+            settings.drain()
+            await raw.set("/foo", False, response=False)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "false"
+        finally:
+            await raw.close()
+            await close_client(client)
+            client = None
         schema_out = cli_stdout(TARGET, "?").splitlines()
         assert any("struct_tree" in line for line in schema_out), schema_out
         schema_raw = cli_stdout(TARGET, "??").splitlines()
@@ -332,10 +347,17 @@ async def main() -> None:
         assert any("─ a " in line for line in dump_out), dump_out
         dump_raw = cli_stdout(TARGET, "!!").splitlines()
         assert any(line.startswith("/struct_tree/a=") for line in dump_raw), dump_raw
+        raw_out = cli_stdout("--raw", TARGET, "/struct_tree/a").strip()
+        assert raw_out == "/struct_tree/a=0", raw_out
+        raw_discover_out = cli_stdout("--raw", "-d", f"{PREFIX}/+", "/foo").strip()
+        assert raw_discover_out == "/foo=false", raw_discover_out
         for command in ("/", "/?", "/!"):
             invalid = cli(TARGET, command)
             assert invalid.returncode != 0, invalid
             assert "NotFound:" in invalid.stdout, invalid.stdout
+        raw_invalid = cli("--raw", TARGET, "/?")
+        assert raw_invalid.returncode != 0, raw_invalid
+        assert "RawMode:" in raw_invalid.stdout, raw_invalid.stdout
 
         stale_schema_topic = f"{TARGET}/schema/99"
         stale_setting_topic = f"{TARGET}/settings/obsolete"

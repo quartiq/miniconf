@@ -23,6 +23,7 @@ from .common import (
     json_dumps,
     settings_topics,
     subtree_match,
+    validate_path,
 )
 from .schema import Schema
 
@@ -86,8 +87,7 @@ class MiniconfClient:
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
         self._subscriptions: dict[str, int] = {}
         self._schema: Schema | None = None
-        self._epoch: int | None = None
-        self._schema_rev: int | None = None
+        self._manifest: dict[str, Any] | None = None
         self._settings: dict[str, Any] = {}
         self._tracking: dict[str, _TrackState] = {}
         self.listener = asyncio.create_task(self._listen())
@@ -106,10 +106,8 @@ class MiniconfClient:
             await asyncio.wait(self._inflight.values())
 
     async def _listen(self):
-        await self.client.subscribe(self.response_topic)
-        await self.client.subscribe(self.alive_topic)
-        LOGGER.debug("Subscribed to %s", self.response_topic)
-        LOGGER.debug("Subscribed to %s", self.alive_topic)
+        await self._subscribe(self.response_topic)
+        await self._subscribe(self.alive_topic)
         self.subscribed.set()
         try:
             async for message in self.client.messages:
@@ -121,8 +119,8 @@ class MiniconfClient:
         finally:
             self.subscribed.clear()
             try:
-                await self.client.unsubscribe(self.response_topic)
-                await self.client.unsubscribe(self.alive_topic)
+                await self._unsubscribe(self.response_topic)
+                await self._unsubscribe(self.alive_topic)
             except MqttError:
                 LOGGER.debug("MQTT unsubscribe error", exc_info=True)
 
@@ -174,27 +172,30 @@ class MiniconfClient:
                 state.burst.note(now, state.rel_timeout, state.abs_timeout)
 
     def _note_manifest(self, manifest: dict[str, Any]):
-        try:
-            epoch = int(manifest["epoch"])
-            schema_rev = int(manifest["schema_rev"])
-        except (KeyError, TypeError, ValueError):
+        if not isinstance(manifest, dict):
             LOGGER.debug("Ignoring invalid alive manifest: %r", manifest)
             return
 
-        if self._epoch != epoch or self._schema_rev != schema_rev:
+        prev = self._manifest
+        self._manifest = manifest
+        if prev is None:
+            prev_epoch = prev_schema_rev = None
+        else:
+            prev_epoch = prev.get("epoch")
+            prev_schema_rev = prev.get("schema_rev")
+        epoch = manifest.get("epoch")
+        schema_rev = manifest.get("schema_rev")
+        if prev_epoch != epoch or prev_schema_rev != schema_rev:
             self._settings.clear()
             now = asyncio.get_running_loop().time()
             for state in self._tracking.values():
                 state.burst = BurstState(now, now + state.abs_timeout)
-        if self._schema_rev != schema_rev:
+        if prev_schema_rev != schema_rev:
             self._schema = None
-        self._epoch = epoch
-        self._schema_rev = schema_rev
 
     def _note_device_gone(self):
+        self._manifest = None
         self._schema = None
-        self._schema_rev = None
-        self._epoch = None
         self._settings.clear()
         now = asyncio.get_running_loop().time()
         for state in self._tracking.values():
@@ -229,12 +230,18 @@ class MiniconfClient:
     @asynccontextmanager
     async def _watch(self, topic_filter: str) -> AsyncIterator[asyncio.Queue[Message]]:
         queue: asyncio.Queue[Message] = asyncio.Queue()
-        await self._subscribe(topic_filter)
-        self._watchers[topic_filter].append(queue)
+        watchers = self._watchers[topic_filter]
+        watchers.append(queue)
+        try:
+            await self._subscribe(topic_filter)
+        except Exception:
+            watchers.remove(queue)
+            if not watchers:
+                del self._watchers[topic_filter]
+            raise
         try:
             yield queue
         finally:
-            watchers = self._watchers[topic_filter]
             watchers.remove(queue)
             if not watchers:
                 del self._watchers[topic_filter]
@@ -281,17 +288,16 @@ class MiniconfClient:
     async def schema(self, *, timeout: float = 3.0) -> Schema:
         """Load and cache the retained paged schema."""
 
-        manifest = await ops._manifest(self, timeout=timeout)
-        self._note_manifest(manifest)
-        schema_rev = int(manifest["schema_rev"])
-        if self._schema is not None and self._schema_rev == schema_rev:
+        if self._schema is not None:
             return self._schema
-
+        manifest = await ops._manifest(self, timeout=timeout)
+        schema_rev = int(manifest["schema_rev"])
         pages = int(manifest["pages"])
-        defs: dict[int, list[dict[str, Any]]] = {}
+
+        defs: list[list[dict[str, Any]] | None] = [None] * pages
         async with self._watch(f"{self.prefix}/schema/#") as queue:
             deadline = asyncio.get_running_loop().time() + timeout
-            while len(defs) < pages:
+            while any(page is None for page in defs):
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise TimeoutError("Timed out waiting for schema pages")
@@ -306,11 +312,9 @@ class MiniconfClient:
                 lines = message.payload.decode("utf-8").splitlines()
                 defs[page] = [json.loads(line) for line in lines if line]
 
-        assembled = [defs[index] for index in range(pages)]
         self._schema = Schema.from_defs(
-            [record for page in assembled for record in page], schema_rev
+            [record for page in defs for record in page or ()], schema_rev
         )
-        self._schema_rev = schema_rev
         return self._schema
 
     async def watch(
@@ -403,3 +407,176 @@ class MiniconfClient:
         finally:
             if started:
                 await self.unwatch(root)
+
+
+class RawMiniconfClient:
+    """Schema-less MM2 client for exact-path GET and SET operations."""
+
+    def __init__(self, client: Client, prefix: str):
+        self.client = client
+        self.prefix = prefix
+        self.response_topic = f"{prefix}/response"
+        self._inflight: dict[bytes, asyncio.Future[None]] = {}
+        self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
+        self._subscriptions: dict[str, int] = {}
+        self.listener = asyncio.create_task(self._listen())
+        self.subscribed = asyncio.Event()
+
+    async def close(self):
+        """Cancel the response listener and all in-flight requests."""
+        self.listener.cancel()
+        for fut in self._inflight.values():
+            fut.cancel()
+        try:
+            await self.listener
+        except asyncio.CancelledError:
+            pass
+        if self._inflight:
+            await asyncio.wait(self._inflight.values())
+
+    async def _listen(self):
+        await self.client.subscribe(self.response_topic)
+        LOGGER.debug("Subscribed to %s", self.response_topic)
+        self.subscribed.set()
+        try:
+            async for message in self.client.messages:
+                self._dispatch(message)
+        except asyncio.CancelledError:
+            pass
+        except MqttError:
+            LOGGER.debug("MQTT error", exc_info=True)
+        finally:
+            self.subscribed.clear()
+            try:
+                await self.client.unsubscribe(self.response_topic)
+            except MqttError:
+                LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+
+    def _dispatch(self, message: Message):
+        topic = message.topic.value
+        properties = _properties(message)
+        LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
+
+        for topic_filter, queues in tuple(self._watchers.items()):
+            if mqtt.topic_matches_sub(topic_filter, topic):
+                for queue in tuple(queues):
+                    queue.put_nowait(message)
+
+        if topic != self.response_topic:
+            return
+
+        cd = _response_cd(properties)
+        if cd is None:
+            LOGGER.debug("Discarding response without CorrelationData")
+            return
+        fut = self._inflight.pop(cd, None)
+        if fut is None:
+            LOGGER.debug("Discarding unexpected CorrelationData: %s", cd.hex())
+            return
+        if fut.done():
+            LOGGER.debug("Discarding late response: %s", cd.hex())
+            return
+        code = _response_code(properties)
+        if code == "Ok":
+            fut.set_result(None)
+            return
+        fut.set_exception(MiniconfException(code, message.payload.decode("utf-8")))
+
+    async def _subscribe(self, topic_filter: str):
+        if not self._subscriptions.get(topic_filter):
+            await self.client.subscribe(topic_filter)
+            LOGGER.debug("Subscribed to %s", topic_filter)
+        self._subscriptions[topic_filter] = self._subscriptions.get(topic_filter, 0) + 1
+
+    async def _unsubscribe(self, topic_filter: str):
+        remaining = self._subscriptions[topic_filter] - 1
+        if remaining:
+            self._subscriptions[topic_filter] = remaining
+            return
+        del self._subscriptions[topic_filter]
+        await self.client.unsubscribe(topic_filter)
+        LOGGER.debug("Unsubscribed from %s", topic_filter)
+
+    @asynccontextmanager
+    async def _watch(self, topic_filter: str) -> AsyncIterator[asyncio.Queue[Message]]:
+        queue: asyncio.Queue[Message] = asyncio.Queue()
+        watchers = self._watchers[topic_filter]
+        watchers.append(queue)
+        try:
+            await self._subscribe(topic_filter)
+        except Exception:
+            watchers.remove(queue)
+            if not watchers:
+                del self._watchers[topic_filter]
+            raise
+        try:
+            yield queue
+        finally:
+            watchers.remove(queue)
+            if not watchers:
+                del self._watchers[topic_filter]
+            await self._unsubscribe(topic_filter)
+
+    async def _publish_set(
+        self, path: str, payload: str, *, response: bool, timeout: float | None = None
+    ):
+        props = Properties(PacketTypes.PUBLISH)
+        fut = None
+        if response:
+            await self.subscribed.wait()
+            props.ResponseTopic = self.response_topic
+            cd = uuid.uuid4().bytes
+            props.CorrelationData = cd
+            fut = asyncio.get_running_loop().create_future()
+            assert cd not in self._inflight
+            self._inflight[cd] = fut
+
+        topic = f"{self.prefix}/set{path}"
+        LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
+        await self.client.publish(topic, payload=payload, properties=props)
+
+        if fut is not None:
+            try:
+                await asyncio.wait_for(fut, timeout)
+            finally:
+                self._inflight.pop(cd, None)
+
+    async def set(
+        self,
+        path: str,
+        value: Any,
+        *,
+        response: bool = True,
+        timeout: float | None = None,
+    ):
+        """Set one exact leaf path through `set/#` without schema lookup."""
+        await self._publish_set(
+            validate_path(path),
+            json_dumps(value),
+            response=response,
+            timeout=timeout,
+        )
+
+    async def get(self, path: str, *, timeout: float = 3.0):
+        """Read one exact retained authoritative leaf without schema tracking."""
+        path = validate_path(path)
+        topic = f"{self.prefix}/settings{path}"
+        async with self._watch(topic) as queue:
+            end = asyncio.get_running_loop().time() + timeout
+            while True:
+                remaining = end - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Timed out waiting for retained setting {path or '/'}"
+                    )
+                message = await asyncio.wait_for(queue.get(), remaining)
+                if _response_rev(_properties(message)) is None:
+                    continue
+                if not message.payload:
+                    raise MiniconfException("NotFound", path)
+                try:
+                    return json.loads(message.payload)
+                except json.JSONDecodeError as exc:
+                    raise MiniconfException(
+                        "Protocol", f"Invalid retained JSON for {path or '/'}"
+                    ) from exc

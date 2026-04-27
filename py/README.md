@@ -21,7 +21,7 @@ python -m pip install \
 
 ## Async client
 
-The preferred surface is async-first in [miniconf/async_.py](miniconf/async_.py).
+The preferred tracked surface is async-first in [miniconf/async_.py](miniconf/async_.py).
 
 ```python
 from aiomqtt import Client
@@ -49,6 +49,12 @@ Core operations:
 - `cached(path)` reads one cached retained value without changing subscriptions
 - `snapshot(path="")` returns cached retained authoritative values below one subtree
 - `set(path, value, response=True)` sends one explicit `set/#` request
+
+Raw exact-path operations:
+
+- `RawMiniconfClient(client, prefix)` skips schema loading and tracked retained-state caching
+- `get(path)` reads one exact retained authoritative leaf from `settings/<path>`
+- `set(path, value, response=True)` sends one exact `set/<path>` request without schema lookup
 
 Schema operations:
 
@@ -78,6 +84,8 @@ Important:
   `epoch` or `schema_rev` changes
 - retained `settings/#` without `rev` is ignored everywhere as non-authoritative MM2 traffic
 - retained settings watching is long-lived and uses a burst-settle timeout heuristic
+- the raw client does not keep `alive`, schema, or retained subtree watches; it only does exact
+  `GET`/`SET`
 - the CLI frontend lives in [miniconf/cli.py](miniconf/cli.py); the client module stays library-focused
 
 ## CLI
@@ -86,6 +94,7 @@ The installed `miniconf` command uses the async client.
 
 ```sh
 miniconf --broker mqtt app/id /path
+miniconf --broker mqtt --raw app/id /path
 miniconf --broker mqtt app/id /path=42
 miniconf --broker mqtt -n app/id /path=42
 miniconf --broker mqtt app/id /path?
@@ -104,6 +113,8 @@ CLI behavior:
 - `PATH!!` prints retained authoritative settings below `PATH` as `/path=value`
 - `-n/--fire-and-forget` disables the explicit reply and only sends the `set/#` request
 - `-d/--discover` resolves a unique device prefix through `alive`
+- `--raw` switches to exact-path `GET`/`SET` only: no schema, no tracked retained cache, no
+  `?`, `??`, `!`, or `!!`
 - `--prune PATH` clears stale retained schema pages and stale retained settings below `PATH`
 - `--force-prune` clears all retained MM2 topics below the resolved prefix
 

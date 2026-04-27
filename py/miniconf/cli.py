@@ -11,7 +11,7 @@ import sys
 
 from aiomqtt import Client
 
-from .async_ import MiniconfClient, discover, dump, force_prune, prune, read
+from .async_ import MiniconfClient, RawMiniconfClient, discover, dump, force_prune, prune, read
 from .common import LOGGER, MQTTv5, MiniconfException, json_dumps, validate_path
 from .render import render_schema_tree, render_value_tree
 
@@ -34,7 +34,13 @@ async def _main() -> None:
 
     async with Client(args.broker, protocol=MQTTv5) as client:
         prefix = await _resolve_prefix(client, args.prefix, args.discover)
-        interface = MiniconfClient(client, prefix)
+        if args.raw and (args.prune or args.force_prune):
+            raise MiniconfException(
+                "RawMode", "--prune and --force-prune require tracked mode"
+            )
+        interface = (
+            RawMiniconfClient(client, prefix) if args.raw else MiniconfClient(client, prefix)
+        )
         try:
             if args.force_prune:
                 for topic in await force_prune(interface, timeout=args.timeout):
@@ -46,7 +52,7 @@ async def _main() -> None:
                 for stale in stale:
                     print(stale)
             await _handle_commands(
-                interface, args.commands, args.fire_and_forget, args.timeout
+                interface, args.commands, args.fire_and_forget, args.timeout, raw=args.raw
             )
         finally:
             await interface.close()
@@ -57,13 +63,15 @@ def _cli() -> argparse.ArgumentParser:
         description="Miniconf MM2 command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples (with a target at prefix 'app/id' and id discovery):
-%(prog)s -d app/+ /path       # cached read from retained settings mirror
-%(prog)s -d app/+ /path=value # SET with explicit ACK/NACK
-%(prog)s -n -d app/+ /path=value # fire-and-forget SET
-%(prog)s -d app/+ /path?      # show human-readable schema below PATH
-%(prog)s -d app/+ /path??     # show machine-readable compact defs below PATH
-%(prog)s -d app/+ /path!      # show human-readable values below PATH
-%(prog)s -d app/+ /path!!     # dump raw /path=value values below PATH
+        %(prog)s -d app/+ /path       # tracked cached read from retained settings mirror
+        %(prog)s -d app/+ /path=value # SET with explicit ACK/NACK
+        %(prog)s -n -d app/+ /path=value # fire-and-forget SET
+        %(prog)s -d app/+ /path?      # show human-readable schema below PATH
+        %(prog)s -d app/+ /path??     # show machine-readable compact defs below PATH
+        %(prog)s -d app/+ /path!      # show human-readable values below PATH
+        %(prog)s -d app/+ /path!!     # dump raw /path=value values below PATH
+        %(prog)s --raw app/id /path   # exact retained GET without schema tracking
+        %(prog)s --raw -d app/+ /path=value # discover one prefix, then exact SET
 """,
     )
     parser.add_argument(
@@ -74,6 +82,11 @@ def _cli() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--discover", "-d", action="store_true", help="Detect device prefix"
+    )
+    parser.add_argument(
+        "--raw",
+        action="store_true",
+        help="Use exact-path GET/SET only, without schema or tracked retained-state caching",
     )
     parser.add_argument(
         "--fire-and-forget",
@@ -138,6 +151,8 @@ async def _handle_commands(
     commands: list[str],
     fire_and_forget: bool,
     timeout: float,
+    *,
+    raw: bool,
 ) -> None:
     current = ""
 
@@ -151,6 +166,10 @@ async def _handle_commands(
 
     for arg in commands:
         try:
+            if raw and arg.endswith(("??", "?", "!!", "!")):
+                raise MiniconfException(
+                    "RawMode", f"{arg} requires tracked mode"
+                )
             if arg.endswith("??"):
                 path = normalize(arg.removesuffix("??"))
                 schema = await interface.schema(timeout=timeout)
@@ -187,9 +206,12 @@ async def _handle_commands(
                 print(f"{path}={value}")
             else:
                 path = normalize(arg)
-                print(
-                    f"{path}={json_dumps(await read(interface, path, timeout=timeout))}"
+                value = (
+                    await interface.get(path, timeout=timeout)
+                    if raw
+                    else await read(interface, path, timeout=timeout)
                 )
+                print(f"{path}={json_dumps(value)}")
         except (MiniconfException, TimeoutError, json.JSONDecodeError) as err:
             print(f"{arg}: {err!r}")
             sys.exit(1)
