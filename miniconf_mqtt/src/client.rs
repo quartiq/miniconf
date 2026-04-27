@@ -59,6 +59,12 @@ pub(crate) enum Change {
     Changed,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum InboundEffect {
+    Unchanged,
+    Changed,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// One app-visible outcome from [`MqttClient::connect`] or [`MqttClient::poll`].
 pub enum Event {
@@ -203,18 +209,19 @@ where
         match self.session.poll().await.map_err(Error::from)? {
             SessionEvent::Idle => Ok(Event::Idle),
             SessionEvent::Inbound(message) => {
-                let action = Self::plan_request(self.prefix, settings, &message);
-                if matches!(action, Action::Unhandled) {
-                    on_other(&message);
-                    return Ok(Event::Other);
+                match Self::plan_inbound(self.prefix, settings, &message, &mut on_other) {
+                    None => Ok(Event::Other),
+                    Some(action) => {
+                        match Self::classify_change(self.execute(settings, action).await) {
+                            InboundEffect::Unchanged => Ok(Event::Idle),
+                            InboundEffect::Changed => {
+                                self.flush_pending_settings_sync(settings, &mut on_other)
+                                    .await?;
+                                Ok(Event::Changed)
+                            }
+                        }
+                    }
                 }
-                let event = match self.execute(settings, action).await {
-                    Change::Unchanged => Event::Idle,
-                    Change::Changed => Event::Changed,
-                };
-                self.flush_pending_settings_sync(settings, &mut on_other)
-                    .await?;
-                Ok(event)
             }
         }
     }
@@ -311,17 +318,35 @@ where
         self.session.can_publish(qos)
     }
 
-    /// Whether app-owned publishes can proceed without contending with MM2
-    /// protocol work.
-    pub fn can_publish_app(&mut self, qos: QoS) -> bool {
-        self.session.can_publish(qos)
-    }
-
     fn require_connected(&self) -> Result<(), Error<IO::Error>> {
         if self.session.is_connected() {
             Ok(())
         } else {
             Err(Error::Mqtt(minimq::Error::Disconnected))
+        }
+    }
+
+    fn plan_inbound<F>(
+        prefix: &str,
+        settings: &mut Settings,
+        message: &InboundPublish<'_>,
+        on_other: &mut F,
+    ) -> Option<Action>
+    where
+        F: for<'msg> FnMut(&InboundPublish<'msg>),
+    {
+        let action = Self::plan_request(prefix, settings, message);
+        if matches!(action, Action::Unhandled) {
+            on_other(message);
+            return None;
+        }
+        Some(action)
+    }
+
+    fn classify_change(change: Change) -> InboundEffect {
+        match change {
+            Change::Unchanged => InboundEffect::Unchanged,
+            Change::Changed => InboundEffect::Changed,
         }
     }
 
@@ -337,11 +362,10 @@ where
             match self.session.poll().await.map_err(Error::from)? {
                 SessionEvent::Idle => Timer::after_millis(0).await,
                 SessionEvent::Inbound(message) => {
-                    let action = Self::plan_request(self.prefix, settings, &message);
-                    if matches!(action, Action::Unhandled) {
-                        on_other(&message);
-                    } else {
-                        let _ = self.execute(settings, action).await;
+                    if let Some(action) =
+                        Self::plan_inbound(self.prefix, settings, &message, on_other)
+                    {
+                        let _ = Self::classify_change(self.execute(settings, action).await);
                     }
                 }
             }
@@ -391,20 +415,25 @@ where
         Ok(())
     }
 
+    async fn subscribe_topic_suffix(&mut self, suffix: &str) -> Result<(), Error<IO::Error>> {
+        let mut topic: String<MAX_TOPIC_LENGTH> = self
+            .prefix
+            .try_into()
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        topic
+            .push_str(suffix)
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        let topics = [TopicFilter::new(&topic)
+            .options(SubscriptionOptions::default().ignore_local_messages())];
+        self.session.subscribe(&topics, &[]).await?;
+        Ok(())
+    }
+
     async fn subscribe_set_requests(&mut self) -> Result<(), Error<IO::Error>> {
         if self.set_subscribed {
             return Ok(());
         }
-        let topic: String<MAX_TOPIC_LENGTH> = self
-            .prefix
-            .try_into()
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let opts = SubscriptionOptions::default().ignore_local_messages();
-        let mut set = topic.clone();
-        set.push_str("/set/#")
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let topics = [TopicFilter::new(&set).options(opts)];
-        self.session.subscribe(&topics, &[]).await?;
+        self.subscribe_topic_suffix("/set/#").await?;
         self.set_subscribed = true;
         debug!("Subscribed set request topic");
         Ok(())
@@ -415,17 +444,7 @@ where
         if self.compat_subscribed {
             return Ok(());
         }
-        let topic: String<MAX_TOPIC_LENGTH> = self
-            .prefix
-            .try_into()
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let opts = SubscriptionOptions::default().ignore_local_messages();
-        let mut compat = topic;
-        compat
-            .push_str("/settings/#")
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let topics = [TopicFilter::new(&compat).options(opts)];
-        self.session.subscribe(&topics, &[]).await?;
+        self.subscribe_topic_suffix("/settings/#").await?;
         self.compat_subscribed = true;
         debug!("Subscribed compat settings topic");
         Ok(())
@@ -500,9 +519,11 @@ where
                         self.protocol.settings_ingress_deadline =
                             Some(Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE);
                     }
-                    let action = Self::plan_request(self.prefix, settings, &message);
-                    if !matches!(action, Action::Unhandled) {
-                        let _ = self.execute(settings, action).await;
+                    let mut on_other = ignore_other;
+                    if let Some(action) =
+                        Self::plan_inbound(self.prefix, settings, &message, &mut on_other)
+                    {
+                        let _ = Self::classify_change(self.execute(settings, action).await);
                     }
                 }
             }
