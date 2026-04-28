@@ -3,13 +3,12 @@ use core::fmt::Write as _;
 use heapless::String;
 use log::{debug, info};
 use minimq::{ProtocolError, PubError, Publication, QoS};
-use serde::Serialize;
 
-use super::{Error, MqttClient};
+use super::{Error, MqttClient, PayloadError, PublishPayload};
 use crate::{
-    EncodeError, MAX_TOPIC_LENGTH,
+    MAX_TOPIC_LENGTH,
     message::{DepthError, simple_pub_error},
-    schema::{SchemaSync, SettingsSync, serialize_schema_page},
+    schema::{SchemaSync, SettingsSync},
 };
 
 impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
@@ -18,13 +17,6 @@ where
     IO: minimq::Io,
 {
     pub(super) async fn publish_alive_once(&mut self) -> Result<(), Error<IO::Error>> {
-        #[derive(Serialize)]
-        struct Alive {
-            epoch: u32,
-            schema_rev: u32,
-            pages: usize,
-        }
-
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
             .try_into()
@@ -32,15 +24,10 @@ where
         topic
             .push_str("/alive")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let body = Alive {
-            epoch: self.protocol.manifest.epoch,
-            schema_rev: self.protocol.manifest.schema_rev,
-            pages: self.protocol.manifest.schema_pages,
-        };
-        let publication = Publication::new(&topic, |buf: &mut [u8]| {
-            serde_json_core::to_slice(&body, buf)
-                .map_err(|err| (matches!(err, serde_json_core::ser::Error::BufferFull), err))
-        })
+        let publication = Publication::new(
+            &topic,
+            PublishPayload::<Settings>::Alive(&self.protocol.manifest),
+        )
         .qos(QoS::AtLeastOnce)
         .retain();
         self.session
@@ -79,13 +66,15 @@ where
             );
             let topic = self.schema_page_topic(sync.page);
             let mut advanced = None::<(usize, u32)>;
-            let publication = Publication::new(&topic, |buf: &mut [u8]| {
-                let page =
-                    serialize_schema_page(&sync.defs, sync.next, buf).map_err(|id| (true, id))?;
-                let next_hash = yafnv::Fnv::fnv1a(sync.hash, buf[..page.len].iter().copied());
-                advanced = Some((page.count, next_hash));
-                Ok::<usize, EncodeError<usize>>(page.len)
-            })
+            let publication: Publication<'_, PublishPayload<'_, '_, Settings>> = Publication::new(
+                &topic,
+                PublishPayload::SchemaPage {
+                    defs: &sync.defs,
+                    next: sync.next,
+                    hash: sync.hash,
+                    advanced: &mut advanced,
+                },
+            )
             .qos(QoS::AtLeastOnce)
             .retain();
             match self.session.publish(publication).await {
@@ -96,13 +85,13 @@ where
                     );
                     self.wait_publish_quiescent(settings, on_other).await?
                 }
-                Err(PubError::Payload((true, id))) => {
+                Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
                     info!("Aborting schema sync after oversized schema entry for definition {id}");
                     return Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::Failed(
                         minimq::ReasonCode::PacketTooLarge,
                     ))));
                 }
-                Err(PubError::Payload((false, _))) => unreachable!(),
+                Err(PubError::Payload(_)) => unreachable!(),
                 Err(PubError::Session(err)) => return Err(Error::Mqtt(err)),
             }
             let Some((count, hash)) = advanced else {
@@ -150,13 +139,13 @@ where
                 }
                 Err(PubError::Payload((
                     _no_space,
-                    DepthError {
+                    PayloadError::Leaf(DepthError {
                         inner:
                             miniconf::SerdeError::Value(
                                 miniconf::ValueError::Absent | miniconf::ValueError::Access(_),
                             ),
                         ..
-                    },
+                    }),
                 ))) => {
                     self.clear_leaf(&topic).await?;
                     self.wait_publish_quiescent(settings, on_other).await?;

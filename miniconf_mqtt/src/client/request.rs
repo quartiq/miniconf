@@ -1,12 +1,11 @@
 use core::convert::Infallible;
-use core::fmt::{Debug, Write as _};
+use core::fmt::Write as _;
 
 use crate::{
     EncodeError, Error, MAX_TOPIC_LENGTH, MqttClient,
-    client::Change,
+    client::{Change, PayloadError, PublishPayload},
     message::{
-        Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, format_slice,
-        simple_pub_error,
+        Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, simple_pub_error,
     },
 };
 use heapless::{String, Vec, VecView};
@@ -15,24 +14,20 @@ use log::{debug, warn};
 use miniconf::{ConstPath, DescendError, SerdeError, ValueError, json_core};
 use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS};
 
-fn error_props<'a, E: Debug>(
+fn error_props<'a>(
     code: ResponseCode,
     kind: &'static str,
     class: &'static str,
-    err: &E,
-    depth: Option<usize>,
-    error: &'a mut String<96>,
-    depth_buf: &'a mut Buffer,
+    error: &'a str,
+    depth: Option<&'a str>,
 ) -> Vec<Property<'a>, 5> {
     let mut props = Vec::new();
     push_prop(&mut props, "code", code.into());
     push_prop(&mut props, "kind", kind);
     push_prop(&mut props, "class", class);
-    error.clear();
-    write!(error, "{err:?}").ok();
-    push_prop(&mut props, "error", error.as_str());
+    push_prop(&mut props, "error", error);
     if let Some(depth) = depth {
-        push_prop(&mut props, "depth", depth_buf.format(depth));
+        push_prop(&mut props, "depth", depth);
     }
     props
 }
@@ -225,7 +220,7 @@ where
                         return Change::Unchanged;
                     }
                     if let Some(reply) = &reply {
-                        self.reply_text(reply, ResponseCode::Ok, "").await;
+                        self.reply_text(reply, ResponseCode::Ok, b"").await;
                     }
                     return Change::Changed;
                 }
@@ -268,78 +263,76 @@ where
     }
 
     async fn reply_body(&mut self, reply: &ReplyTarget, code: ResponseCode, body: &ReplyBody) {
-        let mut error = String::new();
+        let mut error: String<96> = String::new();
         let mut depth = Buffer::new();
         let props = match body {
-            ReplyBody::Lookup(err) => error_props(
-                code,
-                "lookup",
-                "SerdeError",
-                &err.inner,
-                Some(err.depth),
-                &mut error,
-                &mut depth,
-            ),
-            ReplyBody::LeafRequired { depth: value } => error_props(
-                code,
-                "set",
-                "KeyError",
-                &miniconf::KeyError::TooShort,
-                Some(*value),
-                &mut error,
-                &mut depth,
-            ),
-            ReplyBody::Set(err) => error_props(
-                code,
-                "set",
-                "SerdeError",
-                &err.inner,
-                Some(err.depth),
-                &mut error,
-                &mut depth,
-            ),
+            ReplyBody::Lookup(err) => {
+                write!(&mut error, "{:?}", err.inner).ok();
+                error_props(
+                    code,
+                    "lookup",
+                    "SerdeError",
+                    error.as_str(),
+                    Some(depth.format(err.depth)),
+                )
+            }
+            ReplyBody::LeafRequired { depth: value } => {
+                write!(&mut error, "{:?}", miniconf::KeyError::TooShort).ok();
+                error_props(
+                    code,
+                    "set",
+                    "KeyError",
+                    error.as_str(),
+                    Some(depth.format(*value)),
+                )
+            }
+            ReplyBody::Set(err) => {
+                write!(&mut error, "{:?}", err.inner).ok();
+                error_props(
+                    code,
+                    "set",
+                    "SerdeError",
+                    error.as_str(),
+                    Some(depth.format(err.depth)),
+                )
+            }
         };
-        self.reply_with(reply, &props, body).await;
+        let mut payload: String<96> = String::new();
+        write!(&mut payload, "{body}").ok();
+        self.reply_bytes(reply, &props, payload.as_bytes()).await;
     }
 
     async fn reply_publish_error(&mut self, reply: &ReplyTarget, err: &Error<IO::Error>) {
-        let mut error = String::new();
-        let mut depth = Buffer::new();
+        let mut error: String<96> = String::new();
+        write!(&mut error, "{err:?}").ok();
         let props = error_props(
             ResponseCode::Error,
             "publish",
             "Error",
-            err,
+            error.as_str(),
             None,
-            &mut error,
-            &mut depth,
         );
-        self.reply_with(reply, &props, err).await;
+        let mut payload: String<96> = String::new();
+        write!(&mut payload, "{err}").ok();
+        self.reply_bytes(reply, &props, payload.as_bytes()).await;
     }
 
-    async fn reply_text(
-        &mut self,
-        reply: &ReplyTarget,
-        code: ResponseCode,
-        text: impl core::fmt::Display,
-    ) {
+    async fn reply_text(&mut self, reply: &ReplyTarget, code: ResponseCode, text: &[u8]) {
         let props = [code.into()];
-        self.reply_with(reply, &props, text).await;
+        self.reply_bytes(reply, &props, text).await;
     }
 
-    async fn reply_with(
+    async fn reply_bytes(
         &mut self,
         reply: &ReplyTarget,
         props: &[minimq::Property<'_>],
-        text: impl core::fmt::Display,
+        payload: &[u8],
     ) {
         if let Err(err) = self
             .session
             .publish(
                 reply
-                    .publication(|buf: &mut [u8]| {
-                        format_slice(text, buf).map_err(|err| (true, err))
-                    })
+                    .publication(payload)
                     .properties(props)
                     .qos(QoS::AtLeastOnce),
             )
@@ -353,7 +346,7 @@ where
         &mut self,
         settings: &Settings,
         state: &[usize],
-    ) -> Result<(), PubError<EncodeError<DepthError<serde_json_core::ser::Error>>, IO::Error>> {
+    ) -> Result<(), PubError<EncodeError<PayloadError>, IO::Error>> {
         let topic = self.settings_topic(state).map_err(|err| match err {
             Error::Mqtt(err) => PubError::Session(err),
             Error::Miniconf(_) => unreachable!(),
@@ -364,20 +357,10 @@ where
             minimq::types::Utf8String("rev"),
             minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
         )];
-        let publication = Publication::new(&topic, |buf: &mut [u8]| {
-            Self::with_leaf(state, |keys| json_core::get_by_keys(settings, keys, buf)).map_err(
-                |err| {
-                    let no_space = matches!(
-                        err.inner,
-                        miniconf::SerdeError::Inner(serde_json_core::ser::Error::BufferFull)
-                    );
-                    (no_space, err)
-                },
-            )
-        })
-        .properties(&props)
-        .qos(QoS::AtLeastOnce)
-        .retain();
+        let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
+            .properties(&props)
+            .qos(QoS::AtLeastOnce)
+            .retain();
         self.session.publish(publication).await
     }
 
@@ -428,10 +411,10 @@ where
             Ok(()) => Ok(()),
             Err(PubError::Payload((
                 _no_space,
-                DepthError {
+                PayloadError::Leaf(DepthError {
                     inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
                     ..
-                },
+                }),
             ))) => self.clear_leaf(&topic).await,
             Err(err) => Err(simple_pub_error(err)),
         }

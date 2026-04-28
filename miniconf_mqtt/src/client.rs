@@ -10,6 +10,7 @@ use heapless::String;
 use log::{debug, info};
 use miniconf::{
     DescendError, IntoKeys, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    json_core,
 };
 use minimq::{
     ConfigBuilder, ConnectEvent, Event as SessionEvent, InboundPublish, Property, ProtocolError,
@@ -17,13 +18,14 @@ use minimq::{
     publication::ToPayload,
     types::{SubscriptionOptions, TopicFilter},
 };
+use serde::Serialize;
 
 #[cfg(feature = "compat-settings-ingress")]
 use crate::message::Resource;
 use crate::{
-    MAX_TOPIC_LENGTH,
+    EncodeError, MAX_TOPIC_LENGTH,
     message::{Action, DepthError},
-    schema::SchemaDefs,
+    schema::{SchemaDefs, serialize_schema_page},
 };
 
 fn ignore_other(_: &InboundPublish<'_>) {}
@@ -68,11 +70,99 @@ pub enum Event {
 }
 
 #[derive(Default)]
-struct Manifest {
+pub(super) struct Manifest {
     epoch: u32,
     schema_rev: u32,
     schema_pages: usize,
     settings_rev: u32,
+}
+
+#[derive(Debug)]
+pub(super) enum PayloadError {
+    Json(serde_json_core::ser::Error),
+    Schema(usize),
+    Leaf(DepthError<serde_json_core::ser::Error>),
+}
+
+#[derive(Serialize)]
+struct AlivePayload {
+    epoch: u32,
+    schema_rev: u32,
+    pages: usize,
+}
+
+pub(super) enum PublishPayload<'a, 'b, Settings> {
+    Alive(&'a Manifest),
+    SchemaPage {
+        defs: &'a SchemaDefs,
+        next: usize,
+        hash: u32,
+        advanced: &'b mut Option<(usize, u32)>,
+    },
+    Leaf {
+        settings: &'a Settings,
+        state: &'a [usize],
+    },
+}
+
+fn serialize_leaf<Settings: TreeSerialize>(
+    settings: &Settings,
+    state: &[usize],
+    buf: &mut [u8],
+) -> Result<usize, EncodeError<DepthError<serde_json_core::ser::Error>>> {
+    let full = state;
+    let mut keys = full;
+    json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
+        let err = DepthError {
+            inner,
+            depth: full.len() - keys.len(),
+        };
+        let no_space = matches!(
+            err.inner,
+            miniconf::SerdeError::Inner(serde_json_core::ser::Error::BufferFull)
+        );
+        (no_space, err)
+    })
+}
+
+impl<Settings> ToPayload for PublishPayload<'_, '_, Settings>
+where
+    Settings: TreeSerialize,
+{
+    type Error = EncodeError<PayloadError>;
+
+    fn serialize(self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        match self {
+            Self::Alive(manifest) => serde_json_core::to_slice(
+                &AlivePayload {
+                    epoch: manifest.epoch,
+                    schema_rev: manifest.schema_rev,
+                    pages: manifest.schema_pages,
+                },
+                buf,
+            )
+            .map_err(|err| {
+                (
+                    matches!(err, serde_json_core::ser::Error::BufferFull),
+                    PayloadError::Json(err),
+                )
+            }),
+            Self::SchemaPage {
+                defs,
+                next,
+                hash,
+                advanced,
+            } => {
+                let page = serialize_schema_page(defs, next, buf)
+                    .map_err(|id| (true, PayloadError::Schema(id)))?;
+                let next_hash = yafnv::Fnv::fnv1a(hash, buf[..page.len].iter().copied());
+                *advanced = Some((page.count, next_hash));
+                Ok(page.len)
+            }
+            Self::Leaf { settings, state } => serialize_leaf(settings, state, buf)
+                .map_err(|(no_space, err)| (no_space, PayloadError::Leaf(err))),
+        }
+    }
 }
 
 struct ProtocolState {

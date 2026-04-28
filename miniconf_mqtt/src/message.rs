@@ -1,5 +1,7 @@
 use core::convert::Infallible;
-use core::fmt::{Display, Write as _};
+use core::fmt::Display;
+#[cfg(test)]
+use core::fmt::Write as _;
 
 use heapless::{String, Vec};
 use miniconf::SerdeError;
@@ -124,6 +126,7 @@ impl<E> Display for DepthError<E> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn format_slice<T: Display>(value: T, buf: &mut [u8]) -> Result<usize, ()> {
     struct FmtBuf<'a> {
         buf: &'a mut [u8],
