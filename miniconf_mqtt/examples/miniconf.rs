@@ -2,7 +2,7 @@ use clap::Parser;
 use core::future::poll_fn;
 use core::pin::Pin;
 use core::task::Poll;
-use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
+use embedded_io_async::{ErrorType, Read, Write};
 use miniconf_mqtt::{Event, MqttClient, minimq};
 use std::net::SocketAddr;
 use tokio::{
@@ -63,26 +63,6 @@ impl Write for TokioConnection {
     }
 }
 
-impl ReadReady for TokioConnection {
-    fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        match self.0.try_io(tokio::io::Interest::READABLE, || Ok(())) {
-            Ok(()) => Ok(true),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-impl WriteReady for TokioConnection {
-    fn write_ready(&mut self) -> Result<bool, Self::Error> {
-        match self.0.try_io(tokio::io::Interest::WRITABLE, || Ok(())) {
-            Ok(()) => Ok(true),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
-            Err(err) => Err(err),
-        }
-    }
-}
-
 async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
     TcpStream::connect(addr).await.map(TokioConnection)
 }
@@ -123,41 +103,30 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     let mut settings = common::Settings::new();
     println!("Serving common fixture on {prefix}");
     match client
-        .connect(
-            connect_addr(broker).await.expect("tcp connect failed"),
-            &mut settings,
-        )
+        .connect(connect_addr(broker).await.unwrap(), &mut settings)
         .await
+        .unwrap()
     {
-        Ok(Event::Connected) => println!("Connected"),
-        Ok(Event::Reconnected) => println!("Reconnected"),
-        Ok(other) => panic!("unexpected connect result: {other:?}"),
-        Err(err) => {
-            eprintln!("connect error: {err}");
-            return;
-        }
+        Event::Connected => println!("Connected"),
+        Event::Reconnected => println!("Reconnected"),
+        other => panic!("unexpected connect result: {other:?}"),
     }
     loop {
         match client.poll(&mut settings, |_| {}).await {
             Ok(Event::Changed) => println!("Settings updated"),
             Ok(_) => {}
-            Err(err @ miniconf_mqtt::Error::Mqtt(minimq::Error::Disconnected)) => {
-                eprintln!("poll error: {err}");
-                let io = match connect_addr(broker).await {
-                    Ok(io) => io,
-                    Err(err) => {
-                        eprintln!("tcp connect error: {err}");
-                        continue;
-                    }
-                };
-                match client.connect(io, &mut settings).await {
-                    Ok(Event::Connected) => println!("Connected"),
-                    Ok(Event::Reconnected) => println!("Reconnected"),
-                    Ok(other) => panic!("unexpected connect result: {other:?}"),
-                    Err(err) => eprintln!("connect error: {err}"),
+            Err(miniconf_mqtt::Error::Mqtt(minimq::Error::Disconnected)) => {
+                match client
+                    .connect(connect_addr(broker).await.unwrap(), &mut settings)
+                    .await
+                    .unwrap()
+                {
+                    Event::Connected => println!("Connected"),
+                    Event::Reconnected => println!("Reconnected"),
+                    other => panic!("unexpected connect result: {other:?}"),
                 }
             }
-            Err(err) => eprintln!("poll error: {err}"),
+            Err(err) => panic!("{err}"),
         }
     }
 }

@@ -1,7 +1,7 @@
 use core::future::poll_fn;
 use core::pin::Pin;
 use core::task::Poll;
-use embedded_io_async::{ErrorType, Read, ReadReady, Write, WriteReady};
+use embedded_io_async::{ErrorType, Read, Write};
 use miniconf::Tree;
 use miniconf_mqtt::{Event, MqttClient, minimq};
 use minimq::{
@@ -15,6 +15,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     net::TcpStream,
+    time::{Duration, timeout},
 };
 
 const BROKER_ADDR_ENV: &str = "MINICONF_MQTT_REAL_BROKER_ADDR";
@@ -32,10 +33,7 @@ struct Settings {
 
 fn broker_addr() -> Option<SocketAddr> {
     let raw = std::env::var(BROKER_ADDR_ENV).ok()?;
-    Some(
-        raw.parse()
-            .unwrap_or_else(|_| panic!("invalid {BROKER_ADDR_ENV} value: {raw}")),
-    )
+    Some(raw.parse().unwrap())
 }
 
 fn unique(label: &str) -> String {
@@ -95,26 +93,6 @@ impl Write for TokioConnection {
     }
 }
 
-impl ReadReady for TokioConnection {
-    fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        match self.0.try_io(tokio::io::Interest::READABLE, || Ok(())) {
-            Ok(()) => Ok(true),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-impl WriteReady for TokioConnection {
-    fn write_ready(&mut self) -> Result<bool, Self::Error> {
-        match self.0.try_io(tokio::io::Interest::WRITABLE, || Ok(())) {
-            Ok(()) => Ok(true),
-            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => Ok(false),
-            Err(err) => Err(err),
-        }
-    }
-}
-
 async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
     TcpStream::connect(addr).await.map(TokioConnection)
 }
@@ -125,16 +103,20 @@ async fn wait_client(
     mut on_other: impl FnMut(&minimq::InboundPublish<'_>),
     want: impl Fn(Event) -> bool,
 ) -> Event {
-    for _ in 0..200 {
-        let event = client
-            .poll(settings, |message| on_other(message))
-            .await
-            .unwrap();
+    let end = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let remaining = end.saturating_duration_since(tokio::time::Instant::now());
+        let event = timeout(
+            remaining,
+            client.poll(settings, |message| on_other(message)),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         if want(event) {
             return event;
         }
     }
-    panic!("timed out waiting for client event");
 }
 
 async fn connect_client(
@@ -142,12 +124,18 @@ async fn connect_client(
     settings: &mut Settings,
     io: TokioConnection,
 ) -> Event {
-    client.connect(io, settings).await.unwrap()
+    timeout(Duration::from_secs(5), client.connect(io, settings))
+        .await
+        .unwrap()
+        .unwrap()
 }
 
 async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConnection) {
     assert!(matches!(
-        session.connect(io).await.unwrap(),
+        timeout(Duration::from_secs(5), session.connect(io))
+            .await
+            .unwrap()
+            .unwrap(),
         ConnectEvent::Connected | ConnectEvent::Reconnected
     ));
 }
@@ -218,7 +206,6 @@ async fn other_topics_reach_callback() {
     let topics = [TopicFilter::new(&other_topic)
         .options(SubscriptionOptions::default().maximum_qos(QoS::AtMostOnce))];
     client.subscribe(&topics, &[]).await.unwrap();
-    let _ = wait_client(&mut client, &mut settings, |_| {}, |_| true).await;
 
     wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
     publisher

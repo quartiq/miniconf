@@ -3,9 +3,7 @@ mod sync;
 
 use core::marker::PhantomData;
 
-#[cfg(feature = "compat-settings-ingress")]
-use embassy_time::Instant;
-use embassy_time::Timer;
+use embassy_time::{Duration, Instant, with_deadline};
 use heapless::String;
 use log::{debug, info};
 use miniconf::{
@@ -13,7 +11,7 @@ use miniconf::{
     json_core,
 };
 use minimq::{
-    ConfigBuilder, ConnectEvent, Event as SessionEvent, InboundPublish, Property, ProtocolError,
+    ConfigBuilder, ConnectEvent, InboundPublish, Property, ProtocolError,
     PubError, Publication, QoS, Session,
     publication::ToPayload,
     types::{SubscriptionOptions, TopicFilter},
@@ -29,6 +27,8 @@ use crate::{
 };
 
 fn ignore_other(_: &InboundPublish<'_>) {}
+
+const BACKGROUND_POLL_SLICE: Duration = Duration::from_millis(1);
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// MM2 MQTT client error.
@@ -57,8 +57,6 @@ pub(crate) enum Change {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 /// One app-visible outcome from [`MqttClient::connect`] or [`MqttClient::poll`].
 pub enum Event {
-    /// No app-visible event occurred.
-    Idle,
     /// An MM2 request updated at least one setting leaf.
     Changed,
     /// The broker created a fresh MQTT/MM2 session.
@@ -167,14 +165,16 @@ where
 
 struct ProtocolState {
     manifest: Manifest,
-    pending_settings_sync: bool,
+    settings_sync_requested: u32,
+    settings_sync_completed: u32,
 }
 
 impl ProtocolState {
     fn new() -> Self {
         Self {
             manifest: Manifest::default(),
-            pending_settings_sync: false,
+            settings_sync_requested: 0,
+            settings_sync_completed: 0,
         }
     }
 
@@ -188,8 +188,18 @@ impl ProtocolState {
         self.manifest.settings_rev = 0;
         self.manifest.schema_rev = 0;
         self.manifest.schema_pages = 0;
-        self.pending_settings_sync = false;
+        self.settings_sync_requested = 0;
+        self.settings_sync_completed = 0;
         info!("Activated MM2 session epoch={}", self.manifest.epoch);
+    }
+
+    #[cfg(feature = "compat-settings-ingress")]
+    fn request_settings_sync(&mut self) {
+        self.settings_sync_requested = self.settings_sync_requested.wrapping_add(1);
+    }
+
+    fn settings_sync_pending(&self) -> bool {
+        self.settings_sync_requested != self.settings_sync_completed
     }
 }
 
@@ -245,33 +255,36 @@ where
         })
     }
 
-    /// Progress one MM2 step on an already-connected session.
+    /// Wait for one app-visible MM2 outcome on an already-connected session.
     ///
-    /// This does not own connect/reconnect or full retained schema/settings publication.
-    /// Call [`connect`](Self::connect) first. If the
-    /// underlying MQTT session disconnects,
-    /// `poll()` returns `Error::Mqtt(minimq::Error::Disconnected)` and the caller decides when to
+    /// This does not own connect/reconnect or full retained schema/settings publication. Call
+    /// [`connect`](Self::connect) first. If the underlying MQTT session disconnects, `poll()`
+    /// returns `Error::Mqtt(minimq::Error::Disconnected)` and the caller decides when to
     /// reconnect.
+    ///
+    /// Guaranteed cancel-safe only if [`is_poll_cancel_safe`](Self::is_poll_cancel_safe) is true
+    /// when called. Otherwise cancellation can interrupt MM2 request handling or deferred MM2
+    /// follow-up work, though later calls will resume deferred full settings resync.
     pub async fn poll(
         &mut self,
         settings: &mut Settings,
         mut on_other: impl FnMut(&InboundPublish<'_>),
     ) -> Result<Event, Error<IO::Error>> {
         self.require_connected()?;
-        match self.session.poll().await.map_err(Error::from)? {
-            SessionEvent::Idle => Ok(Event::Idle),
-            SessionEvent::Inbound(message) => {
-                match Self::plan_inbound(self.prefix, settings, &message, &mut on_other) {
-                    None => Ok(Event::Other),
-                    Some(action) => match self.execute(settings, action).await {
-                        Change::Unchanged => Ok(Event::Idle),
-                        Change::Changed => {
-                            self.flush_pending_settings_sync(settings, &mut on_other)
-                                .await?;
-                            Ok(Event::Changed)
-                        }
-                    },
-                }
+        self.flush_pending_settings_sync(settings, &mut on_other)
+            .await?;
+        loop {
+            let message = self.session.poll().await.map_err(Error::from)?;
+            match Self::plan_inbound(self.prefix, settings, &message, &mut on_other) {
+                None => return Ok(Event::Other),
+                Some(action) => match self.execute(settings, action).await {
+                    Change::Unchanged => continue,
+                    Change::Changed => {
+                        self.flush_pending_settings_sync(settings, &mut on_other)
+                            .await?;
+                        return Ok(Event::Changed);
+                    }
+                },
             }
         }
     }
@@ -281,6 +294,11 @@ where
     /// This performs the underlying MQTT handshake plus MM2 setup:
     /// request-topic subscriptions, optional compatibility ingress recovery, and the fresh-session
     /// retained manifest/schema/settings publication pass.
+    ///
+    /// Cancel safety:
+    /// the underlying MQTT `connect()` handshake is cancel-safe in the sense documented by
+    /// `minimq`, but this higher-level MM2 activation sequence is not. Cancelling this method can
+    /// leave a connected session with partially completed MM2 bootstrap work.
     pub async fn connect(
         &mut self,
         io: IO,
@@ -317,6 +335,9 @@ where
     ///
     /// This is the efficient app-side hook for a known leaf change. If the key resolves to an
     /// internal node, use [`publish_all`](Self::publish_all) after the structural change instead.
+    ///
+    /// Not fully cancel-safe: cancellation can advance local MM2 revision tracking without
+    /// completing the retained publication.
     pub async fn publish_by_key(
         &mut self,
         settings: &Settings,
@@ -336,6 +357,8 @@ where
     /// Publish the full retained MM2 schema/settings mirror.
     ///
     /// This is explicit and unbounded, like [`connect`](Self::connect).
+    /// It is not fully cancel-safe because cancellation can leave the retained MM2 mirror only
+    /// partially republished.
     pub async fn publish_all(
         &mut self,
         settings: &mut Settings,
@@ -354,6 +377,8 @@ where
     ///
     /// The caller owns these subscriptions. Re-subscribe after [`connect`](Self::connect)
     /// returns [`Event::Connected`].
+    ///
+    /// Cancel-safe if the underlying transport I/O futures are cancel-safe.
     pub async fn subscribe(
         &mut self,
         topics: &[TopicFilter<'_>],
@@ -365,6 +390,8 @@ where
     }
 
     /// Unsubscribe additional non-MM2 topics from the shared session.
+    ///
+    /// Cancel-safe if the underlying transport I/O futures are cancel-safe.
     pub async fn unsubscribe(
         &mut self,
         topics: &[&str],
@@ -380,7 +407,28 @@ where
         self.session.can_publish(qos)
     }
 
+    /// Whether the underlying MQTT session has no in-flight retained publish/release work.
+    ///
+    /// This mirrors the underlying `minimq` transport/session quiescence only. It does not include
+    /// deferred MM2 follow-up work such as a full retained settings resync.
+    pub fn is_publish_quiescent(&self) -> bool {
+        self.session.is_publish_quiescent()
+    }
+
+    /// Whether calling [`poll`](Self::poll) is guaranteed cancel-safe at this instant.
+    ///
+    /// If this is `true`, `poll()` will only wait in the cancel-safe blocking
+    /// `minimq::Session::poll()` path until a new inbound publish arrives or the session is lost.
+    /// If this is `false`, `poll()` may first perform deferred MM2 follow-up work such as a full
+    /// retained settings resync.
+    pub fn is_poll_cancel_safe(&self) -> bool {
+        !self.protocol.settings_sync_pending()
+    }
+
     /// Publish an arbitrary MQTT packet after MM2 activation.
+    ///
+    /// Inherits `minimq` cancel safety: QoS 1/2 publications are cancel-safe if the underlying
+    /// transport I/O futures are cancel-safe; QoS 0 publications are not.
     pub async fn publish<P>(
         &mut self,
         publication: Publication<'_, P>,
@@ -420,7 +468,7 @@ where
         Some(action)
     }
 
-    async fn wait_publish_quiescent<F>(
+    async fn poll_quiescent<F>(
         &mut self,
         settings: &mut Settings,
         on_other: &mut F,
@@ -428,17 +476,16 @@ where
     where
         F: for<'msg> FnMut(&InboundPublish<'msg>),
     {
-        while !self.session.is_publish_quiescent() {
-            match self.session.poll().await.map_err(Error::from)? {
-                SessionEvent::Idle => Timer::after_millis(0).await,
-                SessionEvent::Inbound(message) => {
-                    if let Some(action) =
-                        Self::plan_inbound(self.prefix, settings, &message, on_other)
-                    {
-                        let _ = self.execute(settings, action).await;
-                    }
+        let deadline = Instant::now() + BACKGROUND_POLL_SLICE;
+        match with_deadline(deadline, self.session.poll()).await {
+            Ok(Ok(message)) => {
+                if let Some(action) = Self::plan_inbound(self.prefix, settings, &message, on_other)
+                {
+                    let _ = self.execute(settings, action).await;
                 }
             }
+            Ok(Err(err)) => return Err(Error::from(err)),
+            Err(_) => {}
         }
         Ok(())
     }
@@ -451,9 +498,10 @@ where
     where
         F: for<'msg> FnMut(&InboundPublish<'msg>),
     {
-        while self.protocol.pending_settings_sync {
-            self.protocol.pending_settings_sync = false;
+        while self.protocol.settings_sync_pending() {
+            let target = self.protocol.settings_sync_requested;
             self.publish_settings(settings, on_other).await?;
+            self.protocol.settings_sync_completed = target;
         }
         Ok(())
     }
@@ -480,13 +528,8 @@ where
         let mut deadline = Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE;
         debug!("Starting settings ingress recovery");
         loop {
-            if Instant::now() >= deadline {
-                debug!("Finished settings ingress recovery");
-                return Ok(());
-            }
-            match self.session.poll().await.map_err(Error::from)? {
-                SessionEvent::Idle => Timer::after_millis(1).await,
-                SessionEvent::Inbound(message) => {
+            match with_deadline(deadline, self.session.poll()).await {
+                Ok(Ok(message)) => {
                     let Some((Resource::Settings, _)) =
                         Resource::parse(message.topic(), self.prefix)
                     else {
@@ -498,6 +541,11 @@ where
                     {
                         let _ = self.execute_settings_recovery(action);
                     }
+                }
+                Ok(Err(err)) => return Err(Error::from(err)),
+                Err(_) => {
+                    debug!("Finished settings ingress recovery");
+                    return Ok(());
                 }
             }
         }

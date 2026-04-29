@@ -30,8 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clients keep `/alive` subscribed, invalidate cached schema/settings on `epoch` or `schema_rev`
   changes, and treat retained `settings/#` without `rev` as non-authoritative.
 * `miniconf_mqtt::MqttClient::poll()` now returns one session event
-  (`Idle`/`Changed`/`Connected`/`Reconnected`/`Other`) and the shared client now exposes
-  direct `subscribe()` / `unsubscribe()` passthroughs for non-MM2 topics.
+  (`Changed`/`Connected`/`Reconnected`/`Other`) and the shared client now exposes direct
+  `subscribe()` / `unsubscribe()` passthroughs for non-MM2 topics.
 * The Python package was restructured from `py/miniconf-mqtt` to `py/`, and now targets the MM2
   retained schema/settings protocol with an async-first CLI and client library.
 * Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a monomorphic `SCHEMA` constant.

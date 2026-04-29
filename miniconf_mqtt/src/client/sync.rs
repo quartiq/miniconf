@@ -45,7 +45,10 @@ where
         F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
     {
         self.publish_alive_once().await?;
-        self.wait_publish_quiescent(settings, on_other).await
+        while !self.is_publish_quiescent() {
+            self.poll_quiescent(settings, on_other).await?;
+        }
+        Ok(())
     }
 
     pub(super) async fn publish_schema<F>(
@@ -59,7 +62,9 @@ where
         let mut sync = SchemaSync::new(Settings::SCHEMA);
         info!("Starting schema sync defs={}", sync.defs.len());
         while sync.next != sync.defs.len() {
-            self.wait_publish_quiescent(settings, on_other).await?;
+            while !self.is_publish_quiescent() {
+                self.poll_quiescent(settings, on_other).await?;
+            }
             debug!(
                 "Publishing schema page={} next_def={}",
                 sync.page, sync.next
@@ -83,7 +88,9 @@ where
                         "Schema page={} published, waiting for quiescent session",
                         sync.page
                     );
-                    self.wait_publish_quiescent(settings, on_other).await?
+                    while !self.is_publish_quiescent() {
+                        self.poll_quiescent(settings, on_other).await?;
+                    }
                 }
                 Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
                     info!("Aborting schema sync after oversized schema entry for definition {id}");
@@ -121,7 +128,9 @@ where
         let mut iter = SettingsSync::new(Settings::SCHEMA);
         info!("Starting retained settings sync");
         while let Some(path) = iter.next() {
-            self.wait_publish_quiescent(settings, on_other).await?;
+            while !self.is_publish_quiescent() {
+                self.poll_quiescent(settings, on_other).await?;
+            }
             let path = path
                 .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?
                 .into_inner();
@@ -135,7 +144,9 @@ where
             match self.try_publish_leaf(settings, &state[..depth]).await {
                 Ok(()) => {
                     debug!("Published retained setting {}", path);
-                    self.wait_publish_quiescent(settings, on_other).await?
+                    while !self.is_publish_quiescent() {
+                        self.poll_quiescent(settings, on_other).await?;
+                    }
                 }
                 Err(PubError::Payload((
                     _no_space,
@@ -148,7 +159,9 @@ where
                     }),
                 ))) => {
                     self.clear_leaf(&topic).await?;
-                    self.wait_publish_quiescent(settings, on_other).await?;
+                    while !self.is_publish_quiescent() {
+                        self.poll_quiescent(settings, on_other).await?;
+                    }
                 }
                 Err(err) => return Err(simple_pub_error(err)),
             }

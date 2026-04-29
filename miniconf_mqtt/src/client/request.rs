@@ -234,7 +234,7 @@ where
                     {
                         return Change::Unchanged;
                     }
-                    self.protocol.pending_settings_sync = true;
+                    self.protocol.request_settings_sync();
                     Change::Changed
                 }
                 #[cfg(not(feature = "compat-settings-ingress"))]

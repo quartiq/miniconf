@@ -19,10 +19,12 @@ It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
 `MqttClient` is a manually driven async service:
 
 - call `connect(io, settings)` to establish or resume the shared MQTT/MM2 session
-- call `poll()` regularly after `connect(io, settings)` to drive bounded MQTT/MM2 progress
+- call `poll()` after `connect(io, settings)` to wait for one MM2 change or one non-MM2 inbound publish
 - pass a callback to `poll()` for non-MM2 inbound publishes
 - handle your own application traffic through the shared session via `publish()`,
   `subscribe()`, and `unsubscribe()`
+- use `is_publish_quiescent()` when you need to wait for MQTT ACK/replay quiescence
+- use `is_poll_cancel_safe()` before externally bounding `poll()` with a timeout/deadline
 - call `publish_by_key()` for explicit app-driven retained leaf publication
 - call `publish_all(settings)` for an explicit full retained republish after structural or bulk changes
 - match on the returned `Event`
@@ -34,8 +36,33 @@ It accepts optional `--broker`, `--prefix`, and `--client-id` arguments.
   MM2 schema/settings mirror was republished
 - `Reconnected`: broker resumed the existing session and MM2 retained `alive` was republished
 
-`poll()` no longer hides connect/reconnect or background retained sync. Steady-state MM2 progress
-is one connected-session poll step plus immediate request handling.
+`poll()` no longer hides connect/reconnect or background retained sync. In steady state it blocks
+until one app-visible outcome occurs on the connected session.
+
+For bounded or cooperative driving, wrap `poll()` in an external timeout/deadline only when
+`is_poll_cancel_safe()` is true. If you only need to wait for MQTT publish quiescence, use
+`is_publish_quiescent()` in your own loop and sleep/poll as appropriate for your executor.
+
+## Cancel safety
+
+- `poll()` is guaranteed cancel-safe when `is_poll_cancel_safe()` is true at the instant you call
+  it. In that state it has no deferred MM2 follow-up work to resume locally, so it only waits in
+  the cancel-safe blocking `minimq::Session::poll()` path until a new inbound publish arrives or
+  the session is lost.
+- If `is_poll_cancel_safe()` is false, `poll()` may first perform deferred MM2 follow-up work such
+  as a full retained settings resync. Cancellation in that state is resumable for the deferred
+  resync, but not generally for newly arrived inbound MM2 requests.
+- `connect(io, settings)` is not MM2-cancel-safe. Cancelling it can leave a connected session with
+  partially completed MM2 bootstrap work.
+- `publish_all(settings)` and `publish_by_key()` are not fully cancel-safe. Cancellation can leave
+  MM2 revision tracking or retained mirror publication only partially advanced.
+- `subscribe()` and `unsubscribe()` inherit `minimq` cancel safety.
+- `publish()` inherits `minimq` cancel safety: QoS 1/2 are cancel-safe, QoS 0 is not.
+
+Making `poll()` generally cancel-safe would require a different API boundary: either split
+"wait for inbound publish" from "execute MM2 request" into separate calls, or make MM2 request
+execution itself resumable. The current API keeps request execution inline, so only the quiescent
+waiting state is guaranteed cancel-safe.
 
 ## Manifest
 

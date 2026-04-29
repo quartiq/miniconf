@@ -3,7 +3,7 @@ use crate::{
     message::{Action, ReplyTarget, ResponseCode, format_slice},
     schema::{SchemaDefs, serialize_schema_page},
 };
-use embedded_io_async::{ErrorKind, ErrorType, Read, ReadReady, Write, WriteReady};
+use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use miniconf::{Tree, TreeSchema};
 use minimq::ProtocolError;
 
@@ -44,18 +44,6 @@ impl Write for DummyConnection {
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
-    }
-}
-
-impl ReadReady for DummyConnection {
-    fn read_ready(&mut self) -> Result<bool, Self::Error> {
-        Ok(false)
-    }
-}
-
-impl WriteReady for DummyConnection {
-    fn write_ready(&mut self) -> Result<bool, Self::Error> {
-        Ok(true)
     }
 }
 
