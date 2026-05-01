@@ -6,7 +6,7 @@ use minimq::{
 
 use crate::{
     Error, MAX_TOPIC_LENGTH,
-    client::{ChangedKey, Miniconf, PayloadError, PublishPayload, Publisher},
+    client::{ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher},
     schema::SchemaSync,
 };
 
@@ -14,19 +14,21 @@ use crate::{
 pub(crate) enum ActivationPhase {
     Schema(SchemaPublisher),
     Settings(Publisher),
-    SubscribeSet,
-    Alive,
+    SubscribeSet(Option<minimq::Op>),
+    Alive(Option<minimq::Op>),
     Done,
 }
 
 pub(crate) struct SchemaPublisher {
     sync: SchemaSync,
+    op: Option<minimq::Op>,
 }
 
 impl SchemaPublisher {
     pub(crate) fn new<Settings: miniconf::TreeSchema>() -> Self {
         Self {
             sync: SchemaSync::new(Settings::SCHEMA),
+            op: None,
         }
     }
 }
@@ -62,41 +64,48 @@ impl ActivationPhase {
                             root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
                             iter: None,
                             pending: None,
+                            op: None,
                         });
                         continue;
                     }
-                    let _ = session.drive().await?;
                     return Ok(false);
                 }
                 Self::Settings(publisher) => {
                     if publisher.step(mm2, session, settings).await? {
-                        *self = Self::SubscribeSet;
+                        *self = Self::SubscribeSet(None);
                         continue;
                     }
-                    let _ = session.drive().await?;
                     return Ok(false);
                 }
-                Self::SubscribeSet => match subscribe_set(mm2, session).await {
-                    Ok(()) => {
-                        *self = Self::Alive;
+                Self::SubscribeSet(op) => match super::poll_op(session, op)? {
+                    PendingOp::Pending => return Ok(false),
+                    PendingOp::Complete => {
+                        *self = Self::Alive(None);
                         continue;
                     }
-                    Err(err) if is_retryable_activation_error(&err) => {
-                        let _ = session.drive().await?;
-                        return Ok(false);
-                    }
-                    Err(err) => return Err(err),
+                    PendingOp::Idle => match subscribe_set(mm2, session).await {
+                        Ok(next) => {
+                            *op = Some(next);
+                            return Ok(false);
+                        }
+                        Err(err) if is_retryable_activation_error(&err) => return Ok(false),
+                        Err(err) => return Err(err),
+                    },
                 },
-                Self::Alive => match mm2.publish_alive_once(session).await {
-                    Ok(()) => {
+                Self::Alive(op) => match super::poll_op(session, op)? {
+                    PendingOp::Pending => return Ok(false),
+                    PendingOp::Complete => {
                         *self = Self::Done;
                         return Ok(true);
                     }
-                    Err(err) if is_retryable_activation_error(&err) => {
-                        let _ = session.drive().await?;
-                        return Ok(false);
-                    }
-                    Err(err) => return Err(err),
+                    PendingOp::Idle => match mm2.publish_alive_once(session).await {
+                        Ok(next) => {
+                            *op = next;
+                            return Ok(false);
+                        }
+                        Err(err) if is_retryable_activation_error(&err) => return Ok(false),
+                        Err(err) => return Err(err),
+                    },
                 },
                 Self::Done => return Ok(true),
             }
@@ -114,6 +123,11 @@ impl SchemaPublisher {
         Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
         IO: minimq::Io,
     {
+        match super::poll_op(session, &mut self.op)? {
+            PendingOp::Pending => return Ok(false),
+            PendingOp::Complete | PendingOp::Idle => {}
+        }
+
         if self.sync.next == self.sync.defs.len() {
             info!(
                 "Completed schema sync pages={} rev={}",
@@ -140,13 +154,14 @@ impl SchemaPublisher {
         .qos(QoS::AtLeastOnce)
         .retain();
         match session.publish(publication).await {
-            Ok(()) => {
+            Ok(op) => {
                 let Some((count, hash)) = advanced else {
                     return Err(Error::Mqtt(ProtocolError::BufferSize.into()));
                 };
                 self.sync.next += count;
                 self.sync.page += 1;
                 self.sync.hash = hash;
+                self.op = op;
                 Ok(false)
             }
             Err(PubError::Session(minimq::Error::NotReady))
@@ -159,7 +174,7 @@ impl SchemaPublisher {
                     minimq::ReasonCode::PacketTooLarge,
                 ))))
             }
-            Err(PubError::Payload(_)) => unreachable!(),
+            Err(PubError::Payload(_)) => Err(Error::Mqtt(ProtocolError::BufferSize.into())),
             Err(PubError::Session(err)) => Err(Error::Mqtt(err)),
         }
     }
@@ -189,8 +204,8 @@ where
             let iter = publisher.iter.as_mut().unwrap();
             let Some(path) = iter.next() else {
                 info!(
-                    "Completed retained settings sync pages={} rev={}",
-                    mm2.manifest.schema_pages, mm2.manifest.schema_rev
+                    "Completed retained settings sync rev={}",
+                    mm2.manifest.settings_rev
                 );
                 return Ok(true);
             };
@@ -206,17 +221,28 @@ where
         }
     };
 
+    match super::poll_op(session, &mut publisher.op)? {
+        PendingOp::Pending => return Ok(false),
+        PendingOp::Complete => {
+            debug!(
+                "Published retained setting {}",
+                mm2.settings_topic(state.as_ref())
+                    .map_err(|err| Error::Mqtt(err.into()))?
+            );
+            publisher.op = None;
+            publisher.pending = None;
+            return Ok(false);
+        }
+        PendingOp::Idle => {}
+    }
+
     if !session.can_publish(QoS::AtLeastOnce) {
         return Ok(false);
     }
 
     match mm2.publish_current(session, settings, state.as_ref()).await {
-        Ok(()) => {
-            debug!(
-                "Published retained setting {}",
-                mm2.settings_topic::<IO>(state.as_ref())?
-            );
-            publisher.pending = None;
+        Ok(op) => {
+            publisher.op = op;
             Ok(false)
         }
         Err(Error::Mqtt(minimq::Error::NotReady))
@@ -230,7 +256,7 @@ where
 async fn subscribe_set<'a, Settings, IO>(
     mm2: &Miniconf<'a, Settings>,
     session: &mut Session<'a, IO>,
-) -> Result<(), Error<IO::Error>>
+) -> Result<minimq::Op, Error<IO::Error>>
 where
     IO: minimq::Io,
 {
@@ -244,6 +270,5 @@ where
     let topics = [
         TopicFilter::new(&topic).options(SubscriptionOptions::default().ignore_local_messages())
     ];
-    session.subscribe(&topics, &[]).await?;
-    Ok(())
+    session.subscribe(&topics, &[]).await.map_err(Into::into)
 }

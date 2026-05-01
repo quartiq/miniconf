@@ -18,6 +18,9 @@ use tokio::{
     time::{Duration, timeout},
 };
 
+#[path = "../../miniconf/examples/common.rs"]
+mod common;
+
 const BROKER_ADDR_ENV: &str = "BROKER";
 
 fn init_log() {
@@ -51,6 +54,14 @@ fn unique(label: &str) -> String {
 fn config(client_id: &str) -> minimq::ConfigBuilder<'static> {
     let buffer = Box::leak(Box::new([0; 2048]));
     minimq::ConfigBuilder::from_buffer(buffer, 1024)
+        .unwrap()
+        .client_id(client_id)
+        .unwrap()
+}
+
+fn compact_config(client_id: &str) -> minimq::ConfigBuilder<'static> {
+    let buffer = Box::leak(Box::new([0; 640]));
+    minimq::ConfigBuilder::from_buffer(buffer, 128)
         .unwrap()
         .client_id(client_id)
         .unwrap()
@@ -228,4 +239,61 @@ async fn other_topics_are_unhandled() {
         }
         Event::Changed(_) => panic!("unexpected MM2 handling"),
     }
+}
+
+#[tokio::test]
+async fn activation_with_large_schema_waits_on_session_progress() {
+    init_log();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("activation");
+    let (mut mm2, mut session) = Miniconf::<common::Settings>::new::<TokioConnection>(
+        &prefix,
+        compact_config(&unique("mm2")),
+    )
+    .unwrap();
+    let settings = common::Settings::new();
+
+    assert!(matches!(
+        timeout(
+            Duration::from_secs(5),
+            session.connect(connect_addr(addr).await.unwrap())
+        )
+        .await
+        .unwrap()
+        .unwrap(),
+        ConnectEvent::Connected
+    ));
+
+    let mut activation = mm2.begin_activation();
+    let mut retries = 0usize;
+    let mut saw_non_quiescent = false;
+    let mut saw_internal_progress = false;
+    timeout(Duration::from_secs(5), async {
+        while !activation
+            .step(&mut mm2, &mut session, &settings)
+            .await
+            .unwrap()
+        {
+            retries += 1;
+            saw_non_quiescent |= !session.is_publish_quiescent();
+            saw_internal_progress |= session.poll().await.unwrap().is_none();
+        }
+    })
+    .await
+    .unwrap();
+
+    assert!(retries > 1, "activation never needed a retry");
+    assert!(
+        saw_non_quiescent,
+        "activation never observed in-flight retained publishes"
+    );
+    assert!(
+        saw_internal_progress,
+        "activation never waited on internal-only session progress"
+    );
+    assert!(session.is_publish_quiescent());
 }

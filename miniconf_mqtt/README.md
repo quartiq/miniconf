@@ -22,8 +22,8 @@ For simple services, `miniconf_mqtt` provides two complete unbounded helpers on 
 - `mm2.activate(&mut session, &settings)`
 - `mm2.poll_with(&mut session, &mut settings, on_unhandled)`
 
-They are the easiest way to serve MM2 when you do not need boundedness, cancellation safety, or
-exact control over unrelated inbound traffic during MM2 follow-up work.
+They are the easiest way to serve MM2 when you do not need stepwise control, cancellation safety,
+or exact control over unrelated inbound traffic during MM2 follow-up work.
 
 For precise control, `miniconf_mqtt` also exposes three explicit MM2 workflows:
 
@@ -73,7 +73,7 @@ enum Handle<'a> {
 That makes the steady-state path compose naturally:
 
 ```rust
-match miniconf.handle(&mut settings, session.poll().await?) {
+match miniconf.handle(&mut settings, session.recv().await?) {
     Handle::Unhandled(message) => { /* app traffic */ }
     Handle::Ignored => {}
     Handle::Rejected { response } => { /* drive optional response */ }
@@ -96,7 +96,9 @@ Stepwise APIs:
 
 Practical boundary:
 
-- use `Session::poll()` / `Session::drive()` for waiting and MQTT session progress
+- use `Session::drive()` for immediate local progress without blocking
+- use `Session::poll()` to wait for any later session progress
+- use `Session::recv()` when you specifically want the next inbound publish
 - `Activation::step()` may consume and discard inbound publishes while bootstrapping
 - `Publisher::step()` and `Response::step()` must not consume unrelated inbound publishes
 - after any `step()` returns `false`, wait for later session progress before retrying

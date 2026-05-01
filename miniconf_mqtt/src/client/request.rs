@@ -8,7 +8,7 @@ use minimq::{InboundPublish, Property, QoS, Session};
 
 use crate::{
     Error,
-    client::{ChangedKey, Handle, Miniconf, ReplyTarget, Response},
+    client::{ChangedKey, Handle, Miniconf, PendingOp, ReplyTarget, Response},
     message::{DepthError, ResponseBody, ResponseCode, set_path, simple_pub_error},
 };
 
@@ -16,18 +16,22 @@ pub(crate) enum ResponsePhase {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
+        op: Option<minimq::Op>,
     },
     ErrorReply {
         target: ReplyTarget,
         message: ReplyMessage,
+        op: Option<minimq::Op>,
     },
     ReplyOk {
         target: ReplyTarget,
+        op: Option<minimq::Op>,
     },
     ReplyPublishError {
         target: ReplyTarget,
         error: String<96>,
         payload: String<96>,
+        op: Option<minimq::Op>,
     },
     Done,
 }
@@ -88,6 +92,7 @@ where
                     phase: ResponsePhase::ErrorReply {
                         target,
                         message: encode_body(&body),
+                        op: None,
                     },
                 }),
             };
@@ -109,6 +114,7 @@ where
                 phase: ResponsePhase::ErrorReply {
                     target,
                     message: encode_body(&body),
+                    op: None,
                 },
             }),
         };
@@ -126,6 +132,7 @@ where
                     phase: ResponsePhase::Publish {
                         state: changed,
                         reply,
+                        op: None,
                     },
                 },
             }
@@ -137,6 +144,7 @@ where
                     phase: ResponsePhase::ErrorReply {
                         target,
                         message: encode_body(&body),
+                        op: None,
                     },
                 }),
             }
@@ -157,15 +165,26 @@ impl ResponsePhase {
     {
         loop {
             match self {
-                Self::Publish { state, reply } => {
-                    match mm2.publish_current(session, settings, state.as_ref()).await {
-                        Ok(()) => {
+                Self::Publish { state, reply, op } => {
+                    match super::poll_op(session, op)? {
+                        PendingOp::Pending => return Ok(false),
+                        PendingOp::Complete => {
                             if let Some(target) = reply.take() {
-                                *self = Self::ReplyOk { target };
+                                *self = Self::ReplyOk { target, op: None };
                                 continue;
                             }
                             *self = Self::Done;
                             return Ok(true);
+                        }
+                        PendingOp::Idle => {}
+                    }
+                    match mm2.publish_current(session, settings, state.as_ref()).await {
+                        Ok(next) => {
+                            *op = next;
+                            if op.is_none() {
+                                continue;
+                            }
+                            return Ok(false);
                         }
                         Err(Error::Mqtt(minimq::Error::NotReady))
                         | Err(Error::Mqtt(minimq::Error::Protocol(
@@ -180,6 +199,7 @@ impl ResponsePhase {
                                     target,
                                     error,
                                     payload,
+                                    op: None,
                                 };
                                 continue;
                             }
@@ -187,11 +207,27 @@ impl ResponsePhase {
                         }
                     }
                 }
-                Self::ErrorReply { target, message } => {
-                    match reply_message(session, target, message).await {
-                        Ok(()) => {
+                Self::ErrorReply {
+                    target,
+                    message,
+                    op,
+                } => {
+                    match super::poll_op(session, op)? {
+                        PendingOp::Pending => return Ok(false),
+                        PendingOp::Complete => {
                             *self = Self::Done;
                             return Ok(true);
+                        }
+                        PendingOp::Idle => {}
+                    }
+                    match reply_message(session, target, message).await {
+                        Ok(next) => {
+                            *op = next;
+                            if op.is_none() {
+                                *self = Self::Done;
+                                return Ok(true);
+                            }
+                            return Ok(false);
                         }
                         Err(Error::Mqtt(minimq::Error::NotReady))
                         | Err(Error::Mqtt(minimq::Error::Protocol(
@@ -200,11 +236,23 @@ impl ResponsePhase {
                         Err(err) => return Err(err),
                     }
                 }
-                Self::ReplyOk { target } => {
-                    match reply_text(session, target, ResponseCode::Ok, b"").await {
-                        Ok(()) => {
+                Self::ReplyOk { target, op } => {
+                    match super::poll_op(session, op)? {
+                        PendingOp::Pending => return Ok(false),
+                        PendingOp::Complete => {
                             *self = Self::Done;
                             return Ok(true);
+                        }
+                        PendingOp::Idle => {}
+                    }
+                    match reply_text(session, target, ResponseCode::Ok, b"").await {
+                        Ok(next) => {
+                            *op = next;
+                            if op.is_none() {
+                                *self = Self::Done;
+                                return Ok(true);
+                            }
+                            return Ok(false);
                         }
                         Err(Error::Mqtt(minimq::Error::NotReady))
                         | Err(Error::Mqtt(minimq::Error::Protocol(
@@ -217,17 +265,32 @@ impl ResponsePhase {
                     target,
                     error,
                     payload,
-                } => match reply_publish_error(session, target, error, payload.as_bytes()).await {
-                    Ok(()) => {
-                        *self = Self::Done;
-                        return Ok(true);
+                    op,
+                } => {
+                    match super::poll_op(session, op)? {
+                        PendingOp::Pending => return Ok(false),
+                        PendingOp::Complete => {
+                            *self = Self::Done;
+                            return Ok(true);
+                        }
+                        PendingOp::Idle => {}
                     }
-                    Err(Error::Mqtt(minimq::Error::NotReady))
-                    | Err(Error::Mqtt(minimq::Error::Protocol(
-                        minimq::ProtocolError::InflightMetadataExhausted,
-                    ))) => return Ok(false),
-                    Err(err) => return Err(err),
-                },
+                    match reply_publish_error(session, target, error, payload.as_bytes()).await {
+                        Ok(next) => {
+                            *op = next;
+                            if op.is_none() {
+                                *self = Self::Done;
+                                return Ok(true);
+                            }
+                            return Ok(false);
+                        }
+                        Err(Error::Mqtt(minimq::Error::NotReady))
+                        | Err(Error::Mqtt(minimq::Error::Protocol(
+                            minimq::ProtocolError::InflightMetadataExhausted,
+                        ))) => return Ok(false),
+                        Err(err) => return Err(err),
+                    }
+                }
                 Self::Done => return Ok(true),
             }
         }
@@ -303,7 +366,7 @@ async fn reply_message<IO>(
     session: &mut Session<'_, IO>,
     target: &ReplyTarget,
     message: &ReplyMessage,
-) -> Result<(), Error<IO::Error>>
+) -> Result<Option<minimq::Op>, Error<IO::Error>>
 where
     IO: minimq::Io,
 {
@@ -328,7 +391,7 @@ async fn reply_publish_error<IO>(
     target: &ReplyTarget,
     error: &str,
     payload: &[u8],
-) -> Result<(), Error<IO::Error>>
+) -> Result<Option<minimq::Op>, Error<IO::Error>>
 where
     IO: minimq::Io,
 {
@@ -341,7 +404,7 @@ async fn reply_text<IO>(
     target: &ReplyTarget,
     code: ResponseCode,
     text: &[u8],
-) -> Result<(), Error<IO::Error>>
+) -> Result<Option<minimq::Op>, Error<IO::Error>>
 where
     IO: minimq::Io,
 {
@@ -354,7 +417,7 @@ async fn reply_bytes<IO>(
     target: &ReplyTarget,
     props: &[Property<'_>],
     payload: &[u8],
-) -> Result<(), Error<IO::Error>>
+) -> Result<Option<minimq::Op>, Error<IO::Error>>
 where
     IO: minimq::Io,
 {

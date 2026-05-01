@@ -1,7 +1,7 @@
 mod request;
 mod sync;
 
-use core::{future::poll_fn, marker::PhantomData, task::Poll};
+use core::marker::PhantomData;
 
 use heapless::String;
 use miniconf::{
@@ -9,8 +9,8 @@ use miniconf::{
     json_core,
 };
 use minimq::{
-    ConfigBuilder, InboundPublish, OwnedResponseTarget, ProtocolError, PubError, Publication, QoS,
-    Session, publication::ToPayload,
+    ConfigBuilder, InboundPublish, Op, OwnedResponseTarget, ProtocolError, PubError, Publication,
+    QoS, Session, publication::ToPayload,
 };
 use serde::Serialize;
 
@@ -53,6 +53,33 @@ pub(crate) enum PayloadError {
     Json(serde_json_core::ser::Error),
     Schema(usize),
     Leaf(DepthError<serde_json_core::ser::Error>),
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub(crate) enum PendingOp {
+    Idle,
+    Pending,
+    Complete,
+}
+
+fn poll_op<IO>(
+    session: &Session<'_, IO>,
+    op: &mut Option<Op>,
+) -> Result<PendingOp, Error<IO::Error>>
+where
+    IO: minimq::Io,
+{
+    let Some(current) = *op else {
+        return Ok(PendingOp::Idle);
+    };
+    match session.status(&current) {
+        minimq::OpStatus::Pending => Ok(PendingOp::Pending),
+        minimq::OpStatus::Complete => {
+            *op = None;
+            Ok(PendingOp::Complete)
+        }
+        minimq::OpStatus::Invalidated => Err(Error::Mqtt(minimq::Error::Disconnected)),
+    }
 }
 
 #[derive(Serialize)]
@@ -188,6 +215,7 @@ pub struct Publisher {
     root: ChangedKey,
     iter: Option<crate::schema::SettingsSync>,
     pending: Option<ChangedKey>,
+    op: Option<Op>,
 }
 
 /// Effectful aftermath of one handled `/set` request.
@@ -200,20 +228,6 @@ impl<'a, Settings> Miniconf<'a, Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
-    async fn yield_once() {
-        let mut yielded = false;
-        poll_fn(|cx| {
-            if yielded {
-                Poll::Ready(())
-            } else {
-                yielded = true;
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-        })
-        .await
-    }
-
     async fn complete_response<IO>(
         &mut self,
         session: &mut Session<'a, IO>,
@@ -224,9 +238,7 @@ where
         IO: minimq::Io,
     {
         while !response.step(self, session, settings).await? {
-            if session.drive().await?.is_none() {
-                Self::yield_once().await;
-            }
+            let _ = session.poll().await?;
         }
         Ok(())
     }
@@ -241,9 +253,7 @@ where
         IO: minimq::Io,
     {
         while !publisher.step(self, session, settings).await? {
-            if session.drive().await?.is_none() {
-                Self::yield_once().await;
-            }
+            let _ = session.poll().await?;
         }
         Ok(())
     }
@@ -318,7 +328,7 @@ where
     {
         let mut activation = self.begin_activation();
         while !activation.step(self, session, settings).await? {
-            Self::yield_once().await;
+            let _ = session.poll().await?;
         }
         Ok(())
     }
@@ -333,7 +343,7 @@ where
     where
         IO: minimq::Io,
     {
-        self.publish_alive_once(session).await
+        self.publish_alive_once(session).await.map(|_| ())
     }
 
     /// Parse and apply one inbound publish synchronously.
@@ -361,9 +371,8 @@ where
     /// - it is unbounded
     /// - it may discard unrelated inbound publishes that arrive while completing MM2 follow-up
     ///   work
-    /// - use `Session::poll()`, `Miniconf::handle()`, and `Response::step()` directly when that
-    ///   is
-    ///   not acceptable
+    /// - use `Session::recv()`, `Miniconf::handle()`, and `Response::step()` directly when that
+    ///   is not acceptable
     pub async fn poll_with<IO, T>(
         &mut self,
         session: &mut Session<'a, IO>,
@@ -375,6 +384,9 @@ where
     {
         loop {
             let inbound = session.poll().await?;
+            let Some(inbound) = inbound else {
+                continue;
+            };
             match self.handle(settings, inbound) {
                 Handle::Unhandled(message) => return Ok(Event::Unhandled(on_unhandled(message))),
                 Handle::Ignored => {}
@@ -397,6 +409,7 @@ where
             root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
             iter: None,
             pending: None,
+            op: None,
         }
     }
 
@@ -408,13 +421,14 @@ where
             root: ChangedKey::new(state, lookup.depth),
             iter: None,
             pending: None,
+            op: None,
         })
     }
 
     pub(crate) async fn publish_alive_once<IO>(
         &mut self,
         session: &mut Session<'a, IO>,
-    ) -> Result<(), Error<IO::Error>>
+    ) -> Result<Option<Op>, Error<IO::Error>>
     where
         IO: minimq::Io,
     {
@@ -443,26 +457,23 @@ where
         topic
     }
 
-    pub(crate) fn settings_topic<IO>(
+    pub(crate) fn settings_topic(
         &self,
         state: &[usize],
-    ) -> Result<String<MAX_TOPIC_LENGTH>, Error<IO::Error>>
-    where
-        IO: minimq::Io,
-    {
+    ) -> Result<String<MAX_TOPIC_LENGTH>, ProtocolError> {
         let path: miniconf::ConstPath<String<MAX_TOPIC_LENGTH>, '/'> = Settings::SCHEMA
             .transcode(state)
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+            .map_err(|_| ProtocolError::BufferSize)?;
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
             .try_into()
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+            .map_err(|_| ProtocolError::BufferSize)?;
         topic
             .push_str("/settings")
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+            .map_err(|_| ProtocolError::BufferSize)?;
         topic
             .push_str(path.as_ref())
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+            .map_err(|_| ProtocolError::BufferSize)?;
         Ok(topic)
     }
 
@@ -471,13 +482,15 @@ where
         session: &mut Session<'a, IO>,
         settings: &Settings,
         state: &[usize],
-    ) -> Result<(), Error<IO::Error>>
+    ) -> Result<Option<Op>, Error<IO::Error>>
     where
         IO: minimq::Io,
     {
-        let topic = self.settings_topic::<IO>(state)?;
+        let topic = self
+            .settings_topic(state)
+            .map_err(|err| Error::Mqtt(err.into()))?;
         match self.try_publish_leaf(session, settings, state).await {
-            Ok(()) => Ok(()),
+            Ok(op) => Ok(op),
             Err(PubError::Payload((
                 _no_space,
                 PayloadError::Leaf(DepthError {
@@ -497,14 +510,11 @@ where
         session: &mut Session<'a, IO>,
         settings: &Settings,
         state: &[usize],
-    ) -> Result<(), PubError<EncodeError<PayloadError>, IO::Error>>
+    ) -> Result<Option<Op>, PubError<EncodeError<PayloadError>, IO::Error>>
     where
         IO: minimq::Io,
     {
-        let topic = self.settings_topic::<IO>(state).map_err(|err| match err {
-            Error::Mqtt(err) => PubError::Session(err),
-            Error::Tree(_) => unreachable!(),
-        })?;
+        let topic = self.settings_topic(state).map_err(PubError::from)?;
         let next_rev = self.manifest.settings_rev.wrapping_add(1);
         let mut rev = itoa::Buffer::new();
         let props = [minimq::Property::UserProperty(
@@ -515,16 +525,16 @@ where
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
-        session.publish(publication).await?;
+        let op = session.publish(publication).await?;
         self.manifest.settings_rev = next_rev;
-        Ok(())
+        Ok(op)
     }
 
     pub(crate) async fn clear_leaf<IO>(
         &mut self,
         session: &mut Session<'a, IO>,
         topic: &str,
-    ) -> Result<(), Error<IO::Error>>
+    ) -> Result<Option<Op>, Error<IO::Error>>
     where
         IO: minimq::Io,
     {
@@ -538,12 +548,12 @@ where
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
-        session
+        let op = session
             .publish(publication)
             .await
             .map_err(crate::message::simple_pub_error)?;
         self.manifest.settings_rev = next_rev;
-        Ok(())
+        Ok(op)
     }
 }
 
@@ -561,8 +571,7 @@ impl Activation {
     /// `Ok(false)` means no more immediate bootstrap progress is possible. Wait for later session
     /// progress, then call `step()` again.
     ///
-    /// This method may drive one bounded MQTT progress step internally and may discard surfaced
-    /// inbound publishes.
+    /// This method may discard surfaced inbound publishes while bootstrapping.
     pub async fn step<'a, Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<'a, Settings>,
