@@ -161,6 +161,23 @@ async def close_client(client: Client, timeout: float = 1.0) -> None:
         client._client.disconnect()  # type: ignore[attr-defined]
 
 
+async def wait_cached(tracked, path: str, expected, timeout: float = 3.0):
+    end = asyncio.get_running_loop().time() + timeout
+    while True:
+        try:
+            value = tracked.cached(path)
+        except MiniconfException:
+            value = object()
+        if value == expected:
+            return
+        remaining = end - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"Timed out waiting for cached {path or '/'}={expected!r}"
+            )
+        await asyncio.sleep(min(0.01, remaining))
+
+
 async def main() -> None:
     schema_fixture = fixture_schema()
     assert schema_fixture.paths() == ["", "/value", "/nested", "/nested/leaf"]
@@ -234,7 +251,6 @@ async def main() -> None:
             mc = MiniconfClient(client, TARGET)
 
             schema = await mc.schema()
-            await mc.watch("/struct_tree")
             struct_tree = schema.node("/struct_tree")
             array_tree2 = schema.node("/array_tree2")
             struct_schema = schema.compact("/struct_tree")
@@ -287,37 +303,37 @@ async def main() -> None:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for '/'")
-            assert await mc.cached("/struct_tree/a") == 0
+            assert await mc.get("/struct_tree/a") == 0
             try:
-                await mc.cached("/foo")
+                await mc.get("/struct_tree")
             except MiniconfException as err:
-                assert err.code == "Untracked", err
+                assert err.code == "LeafRequired", err
             else:
-                raise AssertionError("expected untracked error for /foo")
-            try:
-                await mc.watch("/")
-            except MiniconfException as err:
-                assert err.code == "NotFound", err
-            else:
-                raise AssertionError("expected lookup error for watch('/')")
+                raise AssertionError("expected leaf-required error for /struct_tree")
 
-            dump = await mc.snapshot("/struct_tree")
-            assert dump["/struct_tree/a"] == 0
-            assert dump["/struct_tree/b"] == 0
+            async with mc.track("/struct_tree") as tracked:
+                assert tracked.cached("a") == 0
+                dump = tracked.snapshot()
+                assert dump["/struct_tree/a"] == 0
+                assert dump["/struct_tree/b"] == 0
+                try:
+                    async with mc.track("/foo"):
+                        raise AssertionError("expected tracked-subtree conflict")
+                except MiniconfException as err:
+                    assert err.code == "Tracked", err
 
-            await mc.watch("/foo")
             await mc.set("/foo", True)
-            assert await mc.cached("/foo") is True
+            async with mc.track("/foo") as tracked:
+                assert tracked.cached() is True
             settings.drain()
             await mc.set("/foo", False, response=False)
             assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "false"
-
-            await mc.watch("/array_tree2")
-            assert await mc.cached("/array_tree2/0/a") == 0
-            await mc.set("/array_tree2/0/a", 3)
-            assert await mc.cached("/array_tree2/0/a") == 3
-            tree_dump = await mc.snapshot("/array_tree2")
-            assert tree_dump["/array_tree2/0/a"] == 3, tree_dump
+            async with mc.track("/array_tree2") as tracked:
+                assert tracked.cached("0/a") == 0
+                await mc.set("/array_tree2/0/a", 3)
+                await wait_cached(tracked, "0/a", 3)
+                tree_dump = tracked.snapshot()
+                assert tree_dump["/array_tree2/0/a"] == 3, tree_dump
         finally:
             await close_client(client)
             client = None
@@ -355,6 +371,9 @@ async def main() -> None:
             invalid = cli(TARGET, command)
             assert invalid.returncode != 0, invalid
             assert "NotFound:" in invalid.stdout, invalid.stdout
+        branch_invalid = cli(TARGET, "/struct_tree")
+        assert branch_invalid.returncode != 0, branch_invalid
+        assert "LeafRequired:" in branch_invalid.stdout, branch_invalid.stdout
         raw_invalid = cli("--raw", TARGET, "/?")
         assert raw_invalid.returncode != 0, raw_invalid
         assert "RawMode:" in raw_invalid.stdout, raw_invalid.stdout

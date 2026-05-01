@@ -27,12 +27,6 @@ from .common import (
 )
 from .schema import Schema
 
-discover = ops.discover
-dump = ops.dump
-force_prune = ops.force_prune
-prune = ops.prune
-read = ops.read
-
 
 def _properties(message: Message) -> dict[str, Any]:
     try:
@@ -64,10 +58,115 @@ def _response_rev(properties: dict[str, Any]) -> int | None:
 
 @dataclass
 class _TrackState:
-    refs: int
     rel_timeout: float
     abs_timeout: float
     burst: BurstState
+
+
+async def _read_retained_json(
+    watch,
+    topic_filter: str,
+    path: str,
+    *,
+    timeout: float,
+):
+    async with watch(topic_filter) as queue:
+        end = asyncio.get_running_loop().time() + timeout
+        while True:
+            remaining = end - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"Timed out waiting for retained setting {path or '/'}"
+                )
+            message = await asyncio.wait_for(queue.get(), remaining)
+            if _response_rev(_properties(message)) is None:
+                continue
+            if not message.payload:
+                raise MiniconfException("NotFound", path)
+            try:
+                return json.loads(message.payload)
+            except json.JSONDecodeError as exc:
+                raise MiniconfException(
+                    "Protocol", f"Invalid retained JSON for {path or '/'}"
+                ) from exc
+
+
+class TrackedSubtree:
+    """Scoped retained-settings subtree tracker."""
+
+    def __init__(
+        self,
+        client: MiniconfClient,
+        path: str,
+        *,
+        timeout: float,
+        rel_timeout: float,
+        abs_timeout: float,
+    ):
+        self._client = client
+        self._path = path
+        self._timeout = timeout
+        self._rel_timeout = rel_timeout
+        self._abs_timeout = abs_timeout
+        self._root: str | None = None
+
+    @property
+    def root(self) -> str:
+        if self._root is None:
+            raise MiniconfException("Closed", "Tracked subtree is closed")
+        return self._root
+
+    async def __aenter__(self) -> TrackedSubtree:
+        self._root = await self._client._open_track(
+            self._path,
+            timeout=self._timeout,
+            rel_timeout=self._rel_timeout,
+            abs_timeout=self._abs_timeout,
+        )
+        return self
+
+    async def __aexit__(self, *_exc_info) -> None:
+        await self.close()
+
+    async def close(self) -> None:
+        if self._root is None:
+            return
+        await self._client._close_track(self._root)
+        self._root = None
+
+    def _resolve(self, path: str, *, leaf: bool) -> str:
+        root = self.root
+        if not path:
+            full = root
+        elif path[0] == "/":
+            full = validate_path(path)
+        else:
+            full = validate_path(f"{root}/{path}" if root else f"/{path}")
+        full = self._client._schema.path(full)
+        if not subtree_match(full, root):
+            raise MiniconfException("Untracked", full)
+        if leaf and self._client._schema.kind(full) != "leaf":
+            raise MiniconfException("LeafRequired", full)
+        return full
+
+    def cached(self, path: str = ""):
+        """Read one cached tracked leaf."""
+
+        path = self._resolve(path, leaf=True)
+        try:
+            return self._client._settings[path]
+        except KeyError as exc:
+            raise MiniconfException("NotFound", path) from exc
+
+    def snapshot(self, path: str = "") -> dict[str, Any]:
+        """Return cached retained values below one tracked subtree."""
+
+        root = self._resolve(path, leaf=False)
+        return {
+            cache_path: value
+            for cache_path, value in self._client._settings.items()
+            if subtree_match(cache_path, root)
+        }
 
 
 class MiniconfClient:
@@ -75,7 +174,8 @@ class MiniconfClient:
 
     The client keeps `/alive` subscribed to invalidate cached schema/settings when the device
     `epoch` or `schema_rev` changes. Retained `settings/#` publications without `rev` are treated
-    as non-authoritative and ignored.
+    as non-authoritative and ignored. One explicit tracked settings subtree may be active at a
+    time through `track()`.
     """
 
     def __init__(self, client: Client, prefix: str):
@@ -89,12 +189,15 @@ class MiniconfClient:
         self._schema: Schema | None = None
         self._manifest: dict[str, Any] | None = None
         self._settings: dict[str, Any] = {}
-        self._tracking: dict[str, _TrackState] = {}
+        self._tracked_root: str | None = None
+        self._track_state: _TrackState | None = None
         self.listener = asyncio.create_task(self._listen())
         self.subscribed = asyncio.Event()
 
     async def close(self):
         """Cancel the response listener and all in-flight requests."""
+        if self._tracked_root is not None:
+            await self._close_track(self._tracked_root)
         self.listener.cancel()
         for fut in self._inflight.values():
             fut.cancel()
@@ -157,19 +260,24 @@ class MiniconfClient:
                             MiniconfException(code, message.payload.decode("utf-8"))
                         )
 
-        if not topic.startswith(f"{self.prefix}/settings"):
+        if self._tracked_root is None or not topic.startswith(
+            f"{self.prefix}/settings"
+        ):
             return
         if _response_rev(properties) is None:
             return
         path = topic.removeprefix(f"{self.prefix}/settings")
+        if not subtree_match(path, self._tracked_root):
+            return
         if not message.payload:
             self._settings.pop(path, None)
         else:
             self._settings[path] = json.loads(message.payload)
         now = asyncio.get_running_loop().time()
-        for root, state in self._tracking.items():
-            if subtree_match(path, root):
-                state.burst.note(now, state.rel_timeout, state.abs_timeout)
+        assert self._track_state is not None
+        self._track_state.burst.note(
+            now, self._track_state.rel_timeout, self._track_state.abs_timeout
+        )
 
     def _note_manifest(self, manifest: dict[str, Any]):
         if not isinstance(manifest, dict):
@@ -187,9 +295,11 @@ class MiniconfClient:
         schema_rev = manifest.get("schema_rev")
         if prev_epoch != epoch or prev_schema_rev != schema_rev:
             self._settings.clear()
-            now = asyncio.get_running_loop().time()
-            for state in self._tracking.values():
-                state.burst = BurstState(now, now + state.abs_timeout)
+            if self._track_state is not None:
+                now = asyncio.get_running_loop().time()
+                self._track_state.burst = BurstState(
+                    now, now + self._track_state.abs_timeout
+                )
         if prev_schema_rev != schema_rev:
             self._schema = None
 
@@ -197,9 +307,11 @@ class MiniconfClient:
         self._manifest = None
         self._schema = None
         self._settings.clear()
-        now = asyncio.get_running_loop().time()
-        for state in self._tracking.values():
-            state.burst = BurstState(now, now + state.abs_timeout)
+        if self._track_state is not None:
+            now = asyncio.get_running_loop().time()
+            self._track_state.burst = BurstState(
+                now, now + self._track_state.abs_timeout
+            )
 
     def _note_manifest_payload(self, payload: bytes):
         if not payload:
@@ -280,9 +392,31 @@ class MiniconfClient:
         timeout: float | None = None,
     ):
         """Set one leaf through `set/#`."""
-        path = (await self.schema(timeout=timeout or 3.0)).path(path)
+        schema = await self.schema(timeout=timeout or 3.0)
+        path = schema.path(path)
+        if schema.kind(path) != "leaf":
+            raise MiniconfException("LeafRequired", path)
         await self._publish_set(
             path, json_dumps(value), response=response, timeout=timeout
+        )
+
+    async def get(self, path: str, *, timeout: float = 3.0):
+        """Read one exact leaf."""
+
+        schema = await self.schema(timeout=timeout)
+        path = schema.path(path)
+        if schema.kind(path) != "leaf":
+            raise MiniconfException("LeafRequired", path)
+        if self._tracked_root is not None and subtree_match(path, self._tracked_root):
+            try:
+                return self._settings[path]
+            except KeyError as exc:
+                raise MiniconfException("NotFound", path) from exc
+        return await _read_retained_json(
+            self._watch,
+            f"{self.prefix}/settings{path}",
+            path,
+            timeout=timeout,
         )
 
     async def schema(self, *, timeout: float = 3.0) -> Schema:
@@ -317,49 +451,71 @@ class MiniconfClient:
         )
         return self._schema
 
-    async def watch(
+    def track(
         self,
         path: str = "",
         *,
         timeout: float = 3.0,
         rel_timeout: float = 4.0,
         abs_timeout: float = 0.05,
-    ):
-        """Subscribe to retained authoritative settings below `path` and wait for quiescence."""
+    ) -> TrackedSubtree:
+        """Return a scoped tracker for one retained settings subtree."""
+
+        return TrackedSubtree(
+            self,
+            path,
+            timeout=timeout,
+            rel_timeout=rel_timeout,
+            abs_timeout=abs_timeout,
+        )
+
+    async def _open_track(
+        self,
+        path: str,
+        *,
+        timeout: float,
+        rel_timeout: float,
+        abs_timeout: float,
+    ) -> str:
         # 50 ms keeps the common local-broker case fast when retained packets are already queued.
         # The relative term stretches the quiet window when packets arrive more slowly or with
         # larger gaps, so one burst does not terminate early on slower links.
-
+        if self._tracked_root is not None:
+            raise MiniconfException("Tracked", self._tracked_root)
         root = (await self.schema(timeout=timeout)).path(path)
-        state = self._tracking.get(root)
-        if state is None:
-            now = asyncio.get_running_loop().time()
-            state = _TrackState(
-                refs=0,
-                rel_timeout=rel_timeout,
-                abs_timeout=abs_timeout,
-                burst=BurstState(now, now + abs_timeout),
-            )
-            self._tracking[root] = state
+        now = asyncio.get_running_loop().time()
+        self._tracked_root = root
+        self._track_state = _TrackState(
+            rel_timeout=rel_timeout,
+            abs_timeout=abs_timeout,
+            burst=BurstState(now, now + abs_timeout),
+        )
+        self._settings.clear()
+        try:
             for topic_filter in settings_topics(self.prefix, root):
                 await self._subscribe(topic_filter)
-        state.refs += 1
-        await self._await_tracking(root, timeout)
+            await self._await_tracking(timeout)
+        except Exception:
+            for topic_filter in settings_topics(self.prefix, root):
+                await self._unsubscribe(topic_filter)
+            self._tracked_root = None
+            self._track_state = None
+            self._settings.clear()
+            raise
+        return root
 
-    async def unwatch(self, path: str = ""):
-        """Undo one `watch()` reference."""
-
-        root = (await self.schema()).path(path)
-        state = self._tracking[root]
-        state.refs -= 1
-        if state.refs:
-            return
-        del self._tracking[root]
+    async def _close_track(self, root: str):
+        if self._tracked_root != root:
+            raise MiniconfException("Tracked", root)
         for topic_filter in settings_topics(self.prefix, root):
             await self._unsubscribe(topic_filter)
+        self._tracked_root = None
+        self._track_state = None
+        self._settings.clear()
 
-    async def _await_tracking(self, path: str, timeout: float):
-        state = self._tracking[path]
+    async def _await_tracking(self, timeout: float):
+        state = self._track_state
+        assert state is not None
         end = asyncio.get_running_loop().time() + timeout
         while True:
             now = asyncio.get_running_loop().time()
@@ -367,46 +523,9 @@ class MiniconfClient:
                 return
             if now >= end:
                 raise TimeoutError(
-                    f"Timed out waiting for retained settings under {path or '/'}"
+                    f"Timed out waiting for retained settings under {self._tracked_root or '/'}"
                 )
             await asyncio.sleep(min(0.01, state.burst.deadline - now, end - now))
-
-    def _covering(self, path: str) -> str | None:
-        return min(
-            (root for root in self._tracking if subtree_match(path, root)),
-            key=len,
-            default=None,
-        )
-
-    async def cached(self, path: str, *, timeout: float = 3.0):
-        """Read one cached retained value without changing subscriptions."""
-
-        covering = self._covering(path)
-        if covering is None:
-            raise MiniconfException("Untracked", path)
-        await self._await_tracking(covering, timeout)
-        try:
-            return self._settings[path]
-        except KeyError as exc:
-            raise MiniconfException("NotFound", path) from exc
-
-    async def snapshot(self, path: str = "", *, timeout: float = 3.0) -> dict[str, Any]:
-        """Return cached retained authoritative values below one subtree."""
-
-        root = (await self.schema(timeout=timeout)).path(path)
-        started = False
-        if root not in self._tracking:
-            await self.watch(root, timeout=timeout)
-            started = True
-        try:
-            return {
-                cache_path: value
-                for cache_path, value in self._settings.items()
-                if subtree_match(cache_path, root)
-            }
-        finally:
-            if started:
-                await self.unwatch(root)
 
 
 class RawMiniconfClient:
@@ -560,23 +679,9 @@ class RawMiniconfClient:
     async def get(self, path: str, *, timeout: float = 3.0):
         """Read one exact retained authoritative leaf without schema tracking."""
         path = validate_path(path)
-        topic = f"{self.prefix}/settings{path}"
-        async with self._watch(topic) as queue:
-            end = asyncio.get_running_loop().time() + timeout
-            while True:
-                remaining = end - asyncio.get_running_loop().time()
-                if remaining <= 0:
-                    raise TimeoutError(
-                        f"Timed out waiting for retained setting {path or '/'}"
-                    )
-                message = await asyncio.wait_for(queue.get(), remaining)
-                if _response_rev(_properties(message)) is None:
-                    continue
-                if not message.payload:
-                    raise MiniconfException("NotFound", path)
-                try:
-                    return json.loads(message.payload)
-                except json.JSONDecodeError as exc:
-                    raise MiniconfException(
-                        "Protocol", f"Invalid retained JSON for {path or '/'}"
-                    ) from exc
+        return await _read_retained_json(
+            self._watch,
+            f"{self.prefix}/settings{path}",
+            path,
+            timeout=timeout,
+        )

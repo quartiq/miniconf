@@ -11,8 +11,9 @@ import sys
 
 from aiomqtt import Client
 
-from .async_ import MiniconfClient, RawMiniconfClient, discover, dump, force_prune, prune, read
+from .async_ import MiniconfClient, RawMiniconfClient
 from .common import LOGGER, MQTTv5, MiniconfException, json_dumps, validate_path
+from .ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
 
@@ -39,7 +40,9 @@ async def _main() -> None:
                 "RawMode", "--prune and --force-prune require tracked mode"
             )
         interface = (
-            RawMiniconfClient(client, prefix) if args.raw else MiniconfClient(client, prefix)
+            RawMiniconfClient(client, prefix)
+            if args.raw
+            else MiniconfClient(client, prefix)
         )
         try:
             if args.force_prune:
@@ -52,7 +55,11 @@ async def _main() -> None:
                 for stale in stale:
                     print(stale)
             await _handle_commands(
-                interface, args.commands, args.fire_and_forget, args.timeout, raw=args.raw
+                interface,
+                args.commands,
+                args.fire_and_forget,
+                args.timeout,
+                raw=args.raw,
             )
         finally:
             await interface.close()
@@ -63,7 +70,7 @@ def _cli() -> argparse.ArgumentParser:
         description="Miniconf MM2 command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples (with a target at prefix 'app/id' and id discovery):
-        %(prog)s -d app/+ /path       # tracked cached read from retained settings mirror
+        %(prog)s -d app/+ /path       # exact leaf read
         %(prog)s -d app/+ /path=value # SET with explicit ACK/NACK
         %(prog)s -n -d app/+ /path=value # fire-and-forget SET
         %(prog)s -d app/+ /path?      # show human-readable schema below PATH
@@ -99,7 +106,7 @@ def _cli() -> argparse.ArgumentParser:
         "-t",
         default=3.0,
         type=float,
-        help="Timeout in seconds for explicit replies or cached reads",
+        help="Timeout in seconds for explicit replies, exact reads, or subtree snapshots",
     )
     parser.add_argument(
         "--prune",
@@ -122,9 +129,9 @@ def _cli() -> argparse.ArgumentParser:
         "commands",
         metavar="CMD",
         nargs="*",
-        help="Path to cached-read ('PATH') or path and JSON encoded value to set "
+        help="Path to exact leaf read ('PATH') or path and JSON encoded value to set "
         "('PATH=VALUE') or path to show schema ('PATH?' or 'PATH??') or path "
-        "to dump retained settings ('PATH!' or 'PATH!!'). "
+        "to show or dump retained subtree values ('PATH!' or 'PATH!!'). "
         "Use sufficient shell quoting/escaping. "
         "Absolute PATHs are empty or start with a '/'. "
         "All other PATHs are relative to the last absolute PATH.",
@@ -147,7 +154,7 @@ async def _resolve_prefix(client: Client, prefix: str, discover_enabled: bool) -
 
 
 async def _handle_commands(
-    interface: MiniconfClient,
+    interface,
     commands: list[str],
     fire_and_forget: bool,
     timeout: float,
@@ -167,9 +174,7 @@ async def _handle_commands(
     for arg in commands:
         try:
             if raw and arg.endswith(("??", "?", "!!", "!")):
-                raise MiniconfException(
-                    "RawMode", f"{arg} requires tracked mode"
-                )
+                raise MiniconfException("RawMode", f"{arg} requires tracked mode")
             if arg.endswith("??"):
                 path = normalize(arg.removesuffix("??"))
                 schema = await interface.schema(timeout=timeout)
@@ -180,20 +185,14 @@ async def _handle_commands(
                 print(render_schema_tree(await interface.schema(timeout=timeout), path))
             elif arg.endswith("!!"):
                 path = normalize(arg.removesuffix("!!"))
-                for dump_path, value in sorted(
-                    (await dump(interface, path, timeout=timeout)).items()
-                ):
-                    print(f"{dump_path}={json_dumps(value)}")
+                async with interface.track(path, timeout=timeout) as tracked:
+                    for dump_path, value in sorted(tracked.snapshot().items()):
+                        print(f"{dump_path}={json_dumps(value)}")
             elif arg.endswith("!"):
                 path = normalize(arg.removesuffix("!"))
                 schema = await interface.schema(timeout=timeout)
-                print(
-                    render_value_tree(
-                        schema,
-                        await interface.snapshot(path, timeout=timeout),
-                        path,
-                    )
-                )
+                async with interface.track(path, timeout=timeout) as tracked:
+                    print(render_value_tree(schema, tracked.snapshot(), tracked.root))
             elif "=" in arg:
                 path, value = arg.split("=", 1)
                 path = normalize(path)
@@ -206,11 +205,7 @@ async def _handle_commands(
                 print(f"{path}={value}")
             else:
                 path = normalize(arg)
-                value = (
-                    await interface.get(path, timeout=timeout)
-                    if raw
-                    else await read(interface, path, timeout=timeout)
-                )
+                value = await interface.get(path, timeout=timeout)
                 print(f"{path}={json_dumps(value)}")
         except (MiniconfException, TimeoutError, json.JSONDecodeError) as err:
             print(f"{arg}: {err!r}")

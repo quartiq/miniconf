@@ -33,10 +33,10 @@ async with Client("mqtt", protocol=MQTTv5) as mqtt:
     mc = MiniconfClient(mqtt, "app/id")
     try:
         schema = await mc.schema()
-        await mc.watch("/path")
-        value = await mc.cached(schema.path(Packed(0b1_1_100)))
+        value = await mc.get(schema.path(Packed(0b1_1_100)))
         await mc.set("/path", 42)
-        tree = await mc.snapshot("/subtree")
+        async with mc.track("/subtree") as tracked:
+            tree = tracked.snapshot()
     finally:
         await mc.close()
 ```
@@ -44,10 +44,10 @@ async with Client("mqtt", protocol=MQTTv5) as mqtt:
 Core operations:
 
 - `schema()` loads and caches the retained schema object
-- `watch(path="/")` subscribes to retained authoritative settings below one subtree
-- `unwatch(path="/")` undoes one watch reference
-- `cached(path)` reads one cached retained value without changing subscriptions
-- `snapshot(path="")` returns cached retained authoritative values below one subtree
+- `get(path)` reads one exact leaf; tracked coverage is reused when available
+- `track(path="/")` returns an async context manager for one tracked retained subtree
+- `TrackedSubtree.cached(path="")` reads one cached tracked leaf
+- `TrackedSubtree.snapshot(path="")` returns cached retained authoritative values below one tracked subtree
 - `set(path, value, response=True)` sends one explicit `set/#` request
 
 Raw exact-path operations:
@@ -77,13 +77,15 @@ Schema operations:
 
 Important:
 
-- `cached()` is the no-side-effect read for already watched subtrees
+- `get()` is the exact leaf read API
+- `track()` is explicit and scoped; cached subtree state exists only inside that scope
+- one `MiniconfClient` tracks at most one retained settings subtree at a time
 - successful `set()` returns `None`; the applied value is published on `settings/#`
 - explicit ACK/NACK replies on `response` are metadata-only
 - the long-lived client keeps `/alive` subscribed and invalidates cached schema/settings when
   `epoch` or `schema_rev` changes
 - retained `settings/#` without `rev` is ignored everywhere as non-authoritative MM2 traffic
-- retained settings watching is long-lived and uses a burst-settle timeout heuristic
+- tracked subtree entry waits for retained-burst quiescence with a timeout heuristic
 - the raw client does not keep `alive`, schema, or retained subtree watches; it only does exact
   `GET`/`SET`
 - the CLI frontend lives in [miniconf/cli.py](miniconf/cli.py); the client module stays library-focused
@@ -105,7 +107,7 @@ miniconf --broker mqtt app/id /path!!
 
 CLI behavior:
 
-- `PATH` reads one cached retained value from `settings/<path>`
+- `PATH` reads one exact leaf from `settings/<path>`
 - `PATH=VALUE` writes one `set/<path>` value with explicit ACK/NACK by default
 - `PATH?` prints a human-readable schema tree below `PATH`
 - `PATH??` prints compact schema defs below `PATH` as NDJSON

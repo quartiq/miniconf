@@ -84,19 +84,9 @@ async def _manifest(
 
 
 async def read(interface: MiniconfClient, path: str, *, timeout: float = 3.0):
-    """One-shot cached read with a temporary subtree watch."""
+    """One-shot exact read."""
 
-    path = (await interface.schema(timeout=timeout)).path(path)
-    covering = interface._covering(path)
-    started = False
-    if covering is None:
-        await interface.watch(path, timeout=timeout)
-        started = True
-    try:
-        return await interface.cached(path, timeout=timeout)
-    finally:
-        if started:
-            await interface.unwatch(path)
+    return await interface.get(path, timeout=timeout)
 
 
 async def _collect_retained_settings(
