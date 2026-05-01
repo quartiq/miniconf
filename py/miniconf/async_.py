@@ -138,10 +138,8 @@ class TrackedSubtree:
         root = self.root
         if not path:
             full = root
-        elif path[0] == "/":
-            full = validate_path(path)
         else:
-            full = validate_path(f"{root}/{path}" if root else f"/{path}")
+            full = validate_path(path)
         full = self._client._schema.path(full)
         if not subtree_match(full, root):
             raise MiniconfException("Untracked", full)

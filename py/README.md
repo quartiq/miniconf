@@ -113,6 +113,8 @@ CLI behavior:
 - `PATH??` prints compact schema defs below `PATH` as NDJSON
 - `PATH!` prints a human-readable value tree below `PATH`
 - `PATH!!` prints retained authoritative settings below `PATH` as `/path=value`
+- paths are either empty or start with `/`
+- CLI paths that do not start with `/` are interpreted relative to the last absolute path
 - `-n/--fire-and-forget` disables the explicit reply and only sends the `set/#` request
 - `-d/--discover` resolves a unique device prefix through `alive`
 - `--raw` switches to exact-path `GET`/`SET` only: no schema, no tracked retained cache, no

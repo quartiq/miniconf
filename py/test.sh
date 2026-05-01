@@ -12,7 +12,7 @@ docker build --build-arg MINICONF_PY_EXTRAS=test -t "$IMAGE" "$ROOT/py"
 docker run --rm --network host \
     -v "$ROOT:/work" \
     -w /work \
-    -e MINICONF_BROKER=localhost \
+    -e BROKER="${BROKER:-localhost}" \
     -e MINICONF_EXAMPLE="$EXAMPLE" \
     "$IMAGE" \
     python py/test.py

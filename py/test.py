@@ -24,7 +24,7 @@ FIXTURE = ROOT / "testdata" / "compact-schema" / "fixture.ndjson"
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
-BROKER = os.environ.get("MINICONF_BROKER", "localhost")
+BROKER = os.environ.get("BROKER", "localhost")
 EXAMPLE = Path(
     os.environ.get(
         "MINICONF_EXAMPLE",
@@ -312,7 +312,7 @@ async def main() -> None:
                 raise AssertionError("expected leaf-required error for /struct_tree")
 
             async with mc.track("/struct_tree") as tracked:
-                assert tracked.cached("a") == 0
+                assert tracked.cached("/struct_tree/a") == 0
                 dump = tracked.snapshot()
                 assert dump["/struct_tree/a"] == 0
                 assert dump["/struct_tree/b"] == 0
@@ -329,9 +329,9 @@ async def main() -> None:
             await mc.set("/foo", False, response=False)
             assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "false"
             async with mc.track("/array_tree2") as tracked:
-                assert tracked.cached("0/a") == 0
+                assert tracked.cached("/array_tree2/0/a") == 0
                 await mc.set("/array_tree2/0/a", 3)
-                await wait_cached(tracked, "0/a", 3)
+                await wait_cached(tracked, "/array_tree2/0/a", 3)
                 tree_dump = tracked.snapshot()
                 assert tree_dump["/array_tree2/0/a"] == 3, tree_dump
         finally:
@@ -361,8 +361,14 @@ async def main() -> None:
         dump_out = cli_stdout(TARGET, "!").splitlines()
         assert any("struct_tree" in line for line in dump_out), dump_out
         assert any("─ a " in line for line in dump_out), dump_out
+        leaf_dump_rel = cli_stdout(TARGET, "foo!").strip()
+        assert leaf_dump_rel == "foo = false", leaf_dump_rel
+        leaf_dump = cli_stdout(TARGET, "/foo!").strip()
+        assert leaf_dump == "foo = false", leaf_dump
         dump_raw = cli_stdout(TARGET, "!!").splitlines()
         assert any(line.startswith("/struct_tree/a=") for line in dump_raw), dump_raw
+        leaf_dump_raw_rel = cli_stdout(TARGET, "foo!!").strip()
+        assert leaf_dump_raw_rel == "/foo=false", leaf_dump_raw_rel
         raw_out = cli_stdout("--raw", TARGET, "/struct_tree/a").strip()
         assert raw_out == "/struct_tree/a=0", raw_out
         raw_discover_out = cli_stdout("--raw", "-d", f"{PREFIX}/+", "/foo").strip()
