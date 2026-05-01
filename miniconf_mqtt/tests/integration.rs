@@ -3,7 +3,7 @@ use core::pin::Pin;
 use core::task::Poll;
 use embedded_io_async::{ErrorType, Read, Write};
 use miniconf::Tree;
-use miniconf_mqtt::{Event, MqttClient, minimq};
+use miniconf_mqtt::{Event, Miniconf, minimq};
 use minimq::{
     ConnectEvent, Publication, QoS, Session,
     types::{SubscriptionOptions, TopicFilter},
@@ -18,7 +18,11 @@ use tokio::{
     time::{Duration, timeout},
 };
 
-const BROKER_ADDR_ENV: &str = "MINICONF_MQTT_REAL_BROKER_ADDR";
+const BROKER_ADDR_ENV: &str = "BROKER";
+
+fn init_log() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}
 
 #[derive(Tree, Default)]
 struct Nested {
@@ -97,37 +101,27 @@ async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
     TcpStream::connect(addr).await.map(TokioConnection)
 }
 
-async fn wait_client(
-    client: &mut MqttClient<'_, Settings, TokioConnection>,
-    settings: &mut Settings,
-    mut on_other: impl FnMut(&minimq::InboundPublish<'_>),
-    want: impl Fn(Event) -> bool,
-) -> Event {
-    let end = tokio::time::Instant::now() + Duration::from_secs(5);
-    loop {
-        let remaining = end.saturating_duration_since(tokio::time::Instant::now());
-        let event = timeout(
-            remaining,
-            client.poll(settings, |message| on_other(message)),
-        )
+async fn connect_mm2<'a>(
+    mm2: &mut Miniconf<'a, Settings>,
+    session: &mut Session<'a, TokioConnection>,
+    settings: &Settings,
+    io: TokioConnection,
+) {
+    match timeout(Duration::from_secs(5), session.connect(io))
         .await
         .unwrap()
-        .unwrap();
-        if want(event) {
-            return event;
+        .unwrap()
+    {
+        ConnectEvent::Connected => {
+            timeout(Duration::from_secs(5), mm2.activate(session, settings))
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        ConnectEvent::Reconnected => {
+            mm2.publish_alive(session).await.unwrap();
         }
     }
-}
-
-async fn connect_client(
-    client: &mut MqttClient<'_, Settings, TokioConnection>,
-    settings: &mut Settings,
-    io: TokioConnection,
-) -> Event {
-    timeout(Duration::from_secs(5), client.connect(io, settings))
-        .await
-        .unwrap()
-        .unwrap()
 }
 
 async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConnection) {
@@ -142,6 +136,7 @@ async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConne
 
 #[tokio::test]
 async fn mm2_set_stays_internal() {
+    init_log();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;
@@ -149,18 +144,17 @@ async fn mm2_set_stays_internal() {
 
     let prefix = unique("prefix");
     let mut publisher = Session::new(config(&unique("pub")));
-    let mut client = MqttClient::<Settings, _>::new(&prefix, config(&unique("mm2"))).unwrap();
+    let (mut mm2, mut session) =
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
     let mut settings = Settings::default();
 
-    assert!(matches!(
-        connect_client(
-            &mut client,
-            &mut settings,
-            connect_addr(addr).await.unwrap()
-        )
-        .await,
-        Event::Connected | Event::Reconnected
-    ));
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
 
     wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
     publisher
@@ -168,21 +162,23 @@ async fn mm2_set_stays_internal() {
         .await
         .unwrap();
 
-    let mut callback_called = false;
-    let event = wait_client(
-        &mut client,
-        &mut settings,
-        |_| callback_called = true,
-        |event| matches!(event, Event::Changed),
+    match timeout(
+        Duration::from_secs(5),
+        mm2.poll_with(&mut session, &mut settings, |_| ()),
     )
-    .await;
-    assert_eq!(event, Event::Changed);
+    .await
+    .unwrap()
+    .unwrap()
+    {
+        Event::Unhandled(_) => panic!("unexpected app traffic"),
+        Event::Changed(_) => {}
+    }
     assert_eq!(settings.value, 9);
-    assert!(!callback_called);
 }
 
 #[tokio::test]
-async fn other_topics_reach_callback() {
+async fn other_topics_are_unhandled() {
+    init_log();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;
@@ -191,36 +187,45 @@ async fn other_topics_reach_callback() {
     let prefix = unique("prefix");
     let other_topic = format!("{prefix}/rpc/in");
     let mut publisher = Session::new(config(&unique("pub")));
-    let mut client = MqttClient::<Settings, _>::new(&prefix, config(&unique("sub"))).unwrap();
-    let mut settings = Settings::default();
-
-    assert!(matches!(
-        connect_client(
-            &mut client,
-            &mut settings,
-            connect_addr(addr).await.unwrap()
-        )
-        .await,
-        Event::Connected
-    ));
-    let topics = [TopicFilter::new(&other_topic)
-        .options(SubscriptionOptions::default().maximum_qos(QoS::AtMostOnce))];
-    client.subscribe(&topics, &[]).await.unwrap();
+    let (mut mm2, mut session) =
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("sub"))).unwrap();
+    let settings = Settings::default();
 
     wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
     publisher
-        .publish(Publication::bytes(&other_topic, b"hello"))
+        .publish(
+            Publication::bytes(&other_topic, b"hello")
+                .retain()
+                .qos(QoS::AtLeastOnce),
+        )
         .await
         .unwrap();
 
-    let mut seen = None;
-    let event = wait_client(
-        &mut client,
-        &mut settings,
-        |message| seen = Some((message.topic().to_owned(), message.payload().to_vec())),
-        |event| matches!(event, Event::Other),
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
     )
     .await;
-    assert_eq!(event, Event::Other);
-    assert_eq!(seen, Some((other_topic, b"hello".to_vec())));
+
+    let topics = [TopicFilter::new(&other_topic)
+        .options(SubscriptionOptions::default().maximum_qos(QoS::AtMostOnce))];
+    session.subscribe(&topics, &[]).await.unwrap();
+    match timeout(
+        Duration::from_secs(5),
+        mm2.poll_with(&mut session, &mut Settings::default(), |message| {
+            (message.topic().to_owned(), message.payload().to_vec())
+        }),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    {
+        Event::Unhandled((topic, payload)) => {
+            assert_eq!(topic, other_topic);
+            assert_eq!(payload, b"hello");
+        }
+        Event::Changed(_) => panic!("unexpected MM2 handling"),
+    }
 }

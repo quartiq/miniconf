@@ -1,18 +1,276 @@
 use core::convert::Infallible;
 use core::fmt::Write as _;
 
-use crate::{
-    EncodeError, Error, MAX_TOPIC_LENGTH, MqttClient,
-    client::{Change, PayloadError, PublishPayload},
-    message::{
-        Action, DepthError, ReplyBody, ReplyTarget, Resource, ResponseCode, simple_pub_error,
-    },
-};
 use heapless::{String, Vec, VecView};
-use itoa::Buffer;
 use log::{debug, warn};
-use miniconf::{ConstPath, DescendError, SerdeError, ValueError, json_core};
-use minimq::{InboundPublish, Property, ProtocolError, PubError, Publication, QoS};
+use miniconf::{DescendError, Indices, SerdeError, ValueError, json_core};
+use minimq::{InboundPublish, Property, QoS, Session};
+
+use crate::{
+    Error,
+    client::{ChangedKey, Handle, Miniconf, ReplyTarget, Response},
+    message::{DepthError, ResponseBody, ResponseCode, set_path, simple_pub_error},
+};
+
+pub(crate) enum ResponsePhase {
+    Publish {
+        state: ChangedKey,
+        reply: Option<ReplyTarget>,
+    },
+    ErrorReply {
+        target: ReplyTarget,
+        message: ReplyMessage,
+    },
+    ReplyOk {
+        target: ReplyTarget,
+    },
+    ReplyPublishError {
+        target: ReplyTarget,
+        error: String<96>,
+        payload: String<96>,
+    },
+    Done,
+}
+
+pub(crate) struct ReplyMessage {
+    code: ResponseCode,
+    kind: &'static str,
+    class: &'static str,
+    error: String<96>,
+    depth: Option<usize>,
+    payload: String<96>,
+}
+
+pub(crate) fn handle<'msg, Settings>(
+    prefix: &str,
+    settings: &mut Settings,
+    inbound: InboundPublish<'msg>,
+) -> Handle<'msg>
+where
+    Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+{
+    let Some(path) = set_path(inbound.topic(), prefix) else {
+        return Handle::Unhandled(inbound);
+    };
+
+    let reply = match inbound
+        .reply_owned::<{ crate::MAX_TOPIC_LENGTH }, { crate::RESPONSE_CORRELATION_LENGTH }>()
+    {
+        Ok(reply) => reply,
+        Err(err) => {
+            warn!(
+                "Rejecting request with oversized reply target on {}: {err:?}",
+                inbound.topic()
+            );
+            return Handle::Ignored;
+        }
+    };
+
+    let mut state = [0; crate::MAX_DEPTH];
+    let lookup = match Settings::SCHEMA.resolve_into(path, &mut state) {
+        Ok(lookup) => lookup,
+        Err(err) => {
+            debug!(
+                "Rejecting set request topic={} err={err:?}",
+                inbound.topic()
+            );
+            let body = ResponseBody::Lookup(DepthError::<Infallible> {
+                inner: match err.error {
+                    DescendError::Key(err) => SerdeError::Value(ValueError::Key(err)),
+                    DescendError::Inner(()) => {
+                        SerdeError::Value(ValueError::Access("Insufficient state"))
+                    }
+                },
+                depth: err.lookup.depth,
+            });
+            return Handle::Rejected {
+                response: reply.map(|target| Response {
+                    phase: ResponsePhase::ErrorReply {
+                        target,
+                        message: encode_body(&body),
+                    },
+                }),
+            };
+        }
+    };
+
+    if inbound.payload().is_empty() {
+        debug!("Ignoring empty set payload topic={}", inbound.topic());
+        return Handle::Ignored;
+    }
+
+    if !lookup.schema.is_leaf() {
+        debug!("Rejecting non-leaf set request topic={}", inbound.topic());
+        let body = ResponseBody::LeafRequired {
+            depth: lookup.depth,
+        };
+        return Handle::Rejected {
+            response: reply.map(|target| Response {
+                phase: ResponsePhase::ErrorReply {
+                    target,
+                    message: encode_body(&body),
+                },
+            }),
+        };
+    }
+
+    let full = &state[..lookup.depth];
+    match Miniconf::<Settings>::with_leaf(full, |keys| {
+        json_core::set_by_keys(settings, keys, inbound.payload())
+    }) {
+        Ok(_) => {
+            let changed = Indices::new(state, lookup.depth);
+            Handle::Accepted {
+                changed,
+                response: Response {
+                    phase: ResponsePhase::Publish {
+                        state: changed,
+                        reply,
+                    },
+                },
+            }
+        }
+        Err(err) => {
+            let body = ResponseBody::Set(err);
+            Handle::Rejected {
+                response: reply.map(|target| Response {
+                    phase: ResponsePhase::ErrorReply {
+                        target,
+                        message: encode_body(&body),
+                    },
+                }),
+            }
+        }
+    }
+}
+
+impl ResponsePhase {
+    pub(crate) async fn step<'a, Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        loop {
+            match self {
+                Self::Publish { state, reply } => {
+                    match mm2.publish_current(session, settings, state.as_ref()).await {
+                        Ok(()) => {
+                            if let Some(target) = reply.take() {
+                                *self = Self::ReplyOk { target };
+                                continue;
+                            }
+                            *self = Self::Done;
+                            return Ok(true);
+                        }
+                        Err(Error::Mqtt(minimq::Error::NotReady))
+                        | Err(Error::Mqtt(minimq::Error::Protocol(
+                            minimq::ProtocolError::InflightMetadataExhausted,
+                        ))) => {
+                            return Ok(false);
+                        }
+                        Err(err) => {
+                            if let Some(target) = reply.take() {
+                                let (error, payload) = publish_error_text(&err);
+                                *self = Self::ReplyPublishError {
+                                    target,
+                                    error,
+                                    payload,
+                                };
+                                continue;
+                            }
+                            return Err(err);
+                        }
+                    }
+                }
+                Self::ErrorReply { target, message } => {
+                    match reply_message(session, target, message).await {
+                        Ok(()) => {
+                            *self = Self::Done;
+                            return Ok(true);
+                        }
+                        Err(Error::Mqtt(minimq::Error::NotReady))
+                        | Err(Error::Mqtt(minimq::Error::Protocol(
+                            minimq::ProtocolError::InflightMetadataExhausted,
+                        ))) => return Ok(false),
+                        Err(err) => return Err(err),
+                    }
+                }
+                Self::ReplyOk { target } => {
+                    match reply_text(session, target, ResponseCode::Ok, b"").await {
+                        Ok(()) => {
+                            *self = Self::Done;
+                            return Ok(true);
+                        }
+                        Err(Error::Mqtt(minimq::Error::NotReady))
+                        | Err(Error::Mqtt(minimq::Error::Protocol(
+                            minimq::ProtocolError::InflightMetadataExhausted,
+                        ))) => return Ok(false),
+                        Err(err) => return Err(err),
+                    }
+                }
+                Self::ReplyPublishError {
+                    target,
+                    error,
+                    payload,
+                } => match reply_publish_error(session, target, error, payload.as_bytes()).await {
+                    Ok(()) => {
+                        *self = Self::Done;
+                        return Ok(true);
+                    }
+                    Err(Error::Mqtt(minimq::Error::NotReady))
+                    | Err(Error::Mqtt(minimq::Error::Protocol(
+                        minimq::ProtocolError::InflightMetadataExhausted,
+                    ))) => return Ok(false),
+                    Err(err) => return Err(err),
+                },
+                Self::Done => return Ok(true),
+            }
+        }
+    }
+}
+
+fn encode_body(body: &ResponseBody) -> ReplyMessage {
+    let mut error = String::new();
+    let mut payload = String::new();
+    let (kind, class, depth) = match body {
+        ResponseBody::Lookup(err) => {
+            write!(&mut error, "{:?}", err.inner).ok();
+            write!(&mut payload, "{err}").ok();
+            ("lookup", "SerdeError", Some(err.depth))
+        }
+        ResponseBody::LeafRequired { depth } => {
+            write!(&mut error, "{:?}", miniconf::KeyError::TooShort).ok();
+            payload.push_str("Path does not resolve to a leaf").ok();
+            ("set", "KeyError", Some(*depth))
+        }
+        ResponseBody::Set(err) => {
+            write!(&mut error, "{:?}", err.inner).ok();
+            write!(&mut payload, "{err}").ok();
+            ("set", "SerdeError", Some(err.depth))
+        }
+    };
+    ReplyMessage {
+        code: ResponseCode::Error,
+        kind,
+        class,
+        error,
+        depth,
+        payload,
+    }
+}
+
+fn publish_error_text<E: core::fmt::Debug>(err: &Error<E>) -> (String<96>, String<96>) {
+    let mut error = String::new();
+    write!(&mut error, "{err:?}").ok();
+    let mut payload = String::new();
+    write!(&mut payload, "{err}").ok();
+    (error, payload)
+}
 
 fn error_props<'a>(
     code: ResponseCode,
@@ -41,382 +299,72 @@ fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'
         .ok();
 }
 
-impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
+async fn reply_message<IO>(
+    session: &mut Session<'_, IO>,
+    target: &ReplyTarget,
+    message: &ReplyMessage,
+) -> Result<(), Error<IO::Error>>
 where
-    Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
     IO: minimq::Io,
 {
-    pub(crate) fn plan_request(
-        prefix: &str,
-        settings: &mut Settings,
-        message: &InboundPublish<'_>,
-    ) -> Action {
-        let Some((resource, _)) = Resource::parse(message.topic(), prefix) else {
-            return Action::Unhandled;
-        };
+    let mut depth_text = String::<16>::new();
+    let depth = message.depth.and_then(|value| {
+        use core::fmt::Write as _;
+        write!(&mut depth_text, "{value}").ok()?;
+        Some(depth_text.as_str())
+    });
+    let props = error_props(
+        message.code,
+        message.kind,
+        message.class,
+        message.error.as_str(),
+        depth,
+    );
+    reply_bytes(session, target, &props, message.payload.as_bytes()).await
+}
 
-        let reply = match resource {
-            Resource::Set => match message
-                .response_topic()
-                .map(|topic| ReplyTarget::new(topic, message.correlation_data()))
-                .transpose()
-            {
-                Ok(reply) => reply,
-                Err(err) => {
-                    warn!(
-                        "Rejecting request with oversized reply target on {}: {err:?}",
-                        message.topic()
-                    );
-                    return Action::None(Change::Unchanged);
-                }
-            },
-            #[cfg(feature = "compat-settings-ingress")]
-            Resource::Settings => None,
-        };
+async fn reply_publish_error<IO>(
+    session: &mut Session<'_, IO>,
+    target: &ReplyTarget,
+    error: &str,
+    payload: &[u8],
+) -> Result<(), Error<IO::Error>>
+where
+    IO: minimq::Io,
+{
+    let props = error_props(ResponseCode::Error, "publish", "Error", error, None);
+    reply_bytes(session, target, &props, payload).await
+}
 
-        Self::plan_publish(prefix, settings, message.topic(), message.payload(), reply)
-    }
+async fn reply_text<IO>(
+    session: &mut Session<'_, IO>,
+    target: &ReplyTarget,
+    code: ResponseCode,
+    text: &[u8],
+) -> Result<(), Error<IO::Error>>
+where
+    IO: minimq::Io,
+{
+    let props = [code.into()];
+    reply_bytes(session, target, &props, text).await
+}
 
-    #[cfg(feature = "compat-settings-ingress")]
-    pub(crate) fn plan_settings_recovery(
-        prefix: &str,
-        settings: &mut Settings,
-        message: &InboundPublish<'_>,
-    ) -> Option<Action> {
-        let Some((Resource::Settings, _)) = Resource::parse(message.topic(), prefix) else {
-            return None;
-        };
-        Some(Self::plan_publish(
-            prefix,
-            settings,
-            message.topic(),
-            message.payload(),
-            None,
-        ))
-    }
-
-    pub(crate) fn plan_publish(
-        prefix: &str,
-        settings: &mut Settings,
-        topic: &str,
-        payload: &[u8],
-        reply: Option<ReplyTarget>,
-    ) -> Action {
-        let Some((resource, path)) = Resource::parse(topic, prefix) else {
-            return Action::Unhandled;
-        };
-
-        let mut state = [0; crate::MAX_DEPTH];
-        let lookup = match Settings::SCHEMA.resolve_into(path, &mut state) {
-            Ok(lookup) => lookup,
-            Err(err) => {
-                if matches!(resource, Resource::Set) {
-                    debug!("Rejecting set request topic={} err={err:?}", topic);
-                    let err = DepthError::<Infallible> {
-                        inner: match err.error {
-                            DescendError::Key(err) => SerdeError::Value(ValueError::Key(err)),
-                            DescendError::Inner(()) => {
-                                SerdeError::Value(ValueError::Access("Insufficient state"))
-                            }
-                        },
-                        depth: err.lookup.depth,
-                    };
-                    return Action::Reply {
-                        state: Change::Unchanged,
-                        reply,
-                        code: ResponseCode::Error,
-                        body: ReplyBody::Lookup(err),
-                    };
-                }
-                return Action::None(Change::Unchanged);
-            }
-        };
-
-        if payload.is_empty() {
-            if matches!(resource, Resource::Set) {
-                debug!("Ignoring empty set payload topic={topic}");
-            }
-            return match resource {
-                Resource::Set => Action::None(Change::Unchanged),
-                #[cfg(feature = "compat-settings-ingress")]
-                Resource::Settings if lookup.schema.is_leaf() => Action::OverrideSet {
-                    state,
-                    depth: lookup.depth,
-                },
-                #[cfg(feature = "compat-settings-ingress")]
-                Resource::Settings => Action::None(Change::Unchanged),
-            };
-        }
-
-        if !lookup.schema.is_leaf() {
-            if matches!(resource, Resource::Set) {
-                debug!("Rejecting non-leaf set request topic={topic}");
-            }
-            return match resource {
-                Resource::Set => Action::Reply {
-                    state: Change::Unchanged,
-                    reply,
-                    code: ResponseCode::Error,
-                    body: ReplyBody::LeafRequired {
-                        depth: lookup.depth,
-                    },
-                },
-                #[cfg(feature = "compat-settings-ingress")]
-                Resource::Settings => Action::None(Change::Unchanged),
-            };
-        }
-
-        let full = &state[..lookup.depth];
-        match Self::with_leaf(full, |keys| json_core::set_by_keys(settings, keys, payload)) {
-            Ok(_) => Action::PublishSet {
-                resource,
-                reply,
-                state,
-                depth: lookup.depth,
-            },
-            Err(inner) => match resource {
-                Resource::Set => Action::Reply {
-                    state: Change::Unchanged,
-                    reply,
-                    code: ResponseCode::Error,
-                    body: ReplyBody::Set(inner),
-                },
-                #[cfg(feature = "compat-settings-ingress")]
-                Resource::Settings => Action::OverrideSet {
-                    state,
-                    depth: lookup.depth,
-                },
-            },
-        }
-    }
-
-    pub(super) async fn execute(&mut self, settings: &mut Settings, action: Action) -> Change {
-        match action {
-            Action::Unhandled => Change::Unchanged,
-            Action::None(state) => state,
-            Action::Reply {
-                state,
-                reply,
-                code,
-                body,
-            } => {
-                if let Some(reply) = &reply {
-                    self.reply_body(reply, code, &body).await;
-                }
-                state
-            }
-            Action::PublishSet {
-                resource,
-                reply,
-                state,
-                depth,
-            } => {
-                if matches!(resource, Resource::Set) {
-                    if let Err(err) = self.try_publish_leaf(settings, &state[..depth]).await {
-                        if let Some(reply) = &reply {
-                            let err = simple_pub_error(err);
-                            self.reply_publish_error(reply, &err).await;
-                        }
-                        return Change::Unchanged;
-                    }
-                    if let Some(reply) = &reply {
-                        self.reply_text(reply, ResponseCode::Ok, b"").await;
-                    }
-                    return Change::Changed;
-                }
-
-                #[cfg(feature = "compat-settings-ingress")]
-                {
-                    if self
-                        .publish_current(settings, &state[..depth])
-                        .await
-                        .is_err()
-                    {
-                        return Change::Unchanged;
-                    }
-                    self.protocol.request_settings_sync();
-                    Change::Changed
-                }
-                #[cfg(not(feature = "compat-settings-ingress"))]
-                unreachable!()
-            }
-            #[cfg(feature = "compat-settings-ingress")]
-            Action::OverrideSet { state, depth } => {
-                let _ = self.publish_current(settings, &state[..depth]).await;
-                Change::Unchanged
-            }
-        }
-    }
-
-    #[cfg(feature = "compat-settings-ingress")]
-    pub(super) fn execute_settings_recovery(&mut self, action: Action) -> Change {
-        match action {
-            Action::Unhandled => Change::Unchanged,
-            Action::None(state) => state,
-            Action::Reply { state, .. } => state,
-            Action::PublishSet { resource, .. } => match resource {
-                Resource::Set => unreachable!("recovery only plans settings ingress"),
-                Resource::Settings => Change::Changed,
-            },
-            Action::OverrideSet { .. } => Change::Unchanged,
-        }
-    }
-
-    async fn reply_body(&mut self, reply: &ReplyTarget, code: ResponseCode, body: &ReplyBody) {
-        let mut error: String<96> = String::new();
-        let mut depth = Buffer::new();
-        let props = match body {
-            ReplyBody::Lookup(err) => {
-                write!(&mut error, "{:?}", err.inner).ok();
-                error_props(
-                    code,
-                    "lookup",
-                    "SerdeError",
-                    error.as_str(),
-                    Some(depth.format(err.depth)),
-                )
-            }
-            ReplyBody::LeafRequired { depth: value } => {
-                write!(&mut error, "{:?}", miniconf::KeyError::TooShort).ok();
-                error_props(
-                    code,
-                    "set",
-                    "KeyError",
-                    error.as_str(),
-                    Some(depth.format(*value)),
-                )
-            }
-            ReplyBody::Set(err) => {
-                write!(&mut error, "{:?}", err.inner).ok();
-                error_props(
-                    code,
-                    "set",
-                    "SerdeError",
-                    error.as_str(),
-                    Some(depth.format(err.depth)),
-                )
-            }
-        };
-        let mut payload: String<96> = String::new();
-        write!(&mut payload, "{body}").ok();
-        self.reply_bytes(reply, &props, payload.as_bytes()).await;
-    }
-
-    async fn reply_publish_error(&mut self, reply: &ReplyTarget, err: &Error<IO::Error>) {
-        let mut error: String<96> = String::new();
-        write!(&mut error, "{err:?}").ok();
-        let props = error_props(
-            ResponseCode::Error,
-            "publish",
-            "Error",
-            error.as_str(),
-            None,
-        );
-        let mut payload: String<96> = String::new();
-        write!(&mut payload, "{err}").ok();
-        self.reply_bytes(reply, &props, payload.as_bytes()).await;
-    }
-
-    async fn reply_text(&mut self, reply: &ReplyTarget, code: ResponseCode, text: &[u8]) {
-        let props = [code.into()];
-        self.reply_bytes(reply, &props, text).await;
-    }
-
-    async fn reply_bytes(
-        &mut self,
-        reply: &ReplyTarget,
-        props: &[minimq::Property<'_>],
-        payload: &[u8],
-    ) {
-        if let Err(err) = self
-            .session
-            .publish(
-                reply
-                    .publication(payload)
-                    .properties(props)
-                    .qos(QoS::AtLeastOnce),
-            )
-            .await
-        {
-            warn!("Failed to publish reply: {:?}", simple_pub_error(err));
-        }
-    }
-
-    pub(super) async fn try_publish_leaf(
-        &mut self,
-        settings: &Settings,
-        state: &[usize],
-    ) -> Result<(), PubError<EncodeError<PayloadError>, IO::Error>> {
-        let topic = self.settings_topic(state).map_err(|err| match err {
-            Error::Mqtt(err) => PubError::Session(err),
-            Error::Miniconf(_) => unreachable!(),
-        })?;
-        self.protocol.manifest.settings_rev = self.protocol.manifest.settings_rev.wrapping_add(1);
-        let mut rev = Buffer::new();
-        let props = [minimq::Property::UserProperty(
-            minimq::types::Utf8String("rev"),
-            minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
-        )];
-        let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
-            .properties(&props)
-            .qos(QoS::AtLeastOnce)
-            .retain();
-        self.session.publish(publication).await
-    }
-
-    pub(super) async fn clear_leaf(&mut self, topic: &str) -> Result<(), Error<IO::Error>> {
-        self.protocol.manifest.settings_rev = self.protocol.manifest.settings_rev.wrapping_add(1);
-        let mut rev = Buffer::new();
-        let props = [minimq::Property::UserProperty(
-            minimq::types::Utf8String("rev"),
-            minimq::types::Utf8String(rev.format(self.protocol.manifest.settings_rev)),
-        )];
-        let publication = Publication::bytes(topic, b"")
-            .properties(&props)
-            .qos(QoS::AtLeastOnce)
-            .retain();
-        self.session
-            .publish(publication)
-            .await
-            .map_err(simple_pub_error)
-    }
-
-    fn settings_topic(
-        &self,
-        state: &[usize],
-    ) -> Result<String<MAX_TOPIC_LENGTH>, Error<IO::Error>> {
-        let path: ConstPath<String<MAX_TOPIC_LENGTH>, '/'> = Settings::SCHEMA
-            .transcode(state)
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let mut topic: String<MAX_TOPIC_LENGTH> = self
-            .prefix
-            .try_into()
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        topic
-            .push_str("/settings")
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        topic
-            .push_str(path.as_ref())
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        Ok(topic)
-    }
-
-    pub(super) async fn publish_current(
-        &mut self,
-        settings: &Settings,
-        state: &[usize],
-    ) -> Result<(), Error<IO::Error>> {
-        let topic = self.settings_topic(state)?;
-        match self.try_publish_leaf(settings, state).await {
-            Ok(()) => Ok(()),
-            Err(PubError::Payload((
-                _no_space,
-                PayloadError::Leaf(DepthError {
-                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                    ..
-                }),
-            ))) => self.clear_leaf(&topic).await,
-            Err(err) => Err(simple_pub_error(err)),
-        }
-    }
+async fn reply_bytes<IO>(
+    session: &mut Session<'_, IO>,
+    target: &ReplyTarget,
+    props: &[Property<'_>],
+    payload: &[u8],
+) -> Result<(), Error<IO::Error>>
+where
+    IO: minimq::Io,
+{
+    session
+        .publish(
+            target
+                .publication(payload)
+                .properties(props)
+                .qos(QoS::AtLeastOnce),
+        )
+        .await
+        .map_err(simple_pub_error)
 }

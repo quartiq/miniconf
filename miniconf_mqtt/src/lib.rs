@@ -13,11 +13,9 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "compat-settings-ingress")]
-use embassy_time::Duration;
 pub use minimq;
 
-pub use client::{Error, Event, MqttClient};
+pub use client::{Activation, ChangedKey, Error, Event, Handle, Miniconf, Publisher, Response};
 
 /// Maximum path-state depth supported by `miniconf_mqtt`.
 pub const MAX_DEPTH: usize = 12;
@@ -28,6 +26,3 @@ pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
 
 /// Payload serialization failed because the provided scratch buffer was too small.
 pub(crate) type EncodeError<E> = (bool, E);
-
-#[cfg(feature = "compat-settings-ingress")]
-const SETTINGS_RECOVERY_QUIESCENCE: Duration = Duration::from_millis(100);

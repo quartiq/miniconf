@@ -1,41 +1,34 @@
 mod request;
 mod sync;
 
-use core::marker::PhantomData;
+use core::{future::poll_fn, marker::PhantomData, task::Poll};
 
-use embassy_time::{Duration, Instant, with_deadline};
 use heapless::String;
-use log::{debug, info};
 use miniconf::{
-    DescendError, IntoKeys, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    DescendError, Indices, IntoKeys, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     json_core,
 };
 use minimq::{
-    ConfigBuilder, ConnectEvent, InboundPublish, Property, ProtocolError,
-    PubError, Publication, QoS, Session,
-    publication::ToPayload,
-    types::{SubscriptionOptions, TopicFilter},
+    ConfigBuilder, InboundPublish, OwnedResponseTarget, ProtocolError, PubError, Publication, QoS,
+    Session, publication::ToPayload,
 };
 use serde::Serialize;
 
-#[cfg(feature = "compat-settings-ingress")]
-use crate::message::Resource;
 use crate::{
-    EncodeError, MAX_TOPIC_LENGTH,
-    message::{Action, DepthError},
+    EncodeError, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH,
+    message::DepthError,
     schema::{SchemaDefs, serialize_schema_page},
 };
 
-fn ignore_other(_: &InboundPublish<'_>) {}
-
-const BACKGROUND_POLL_SLICE: Duration = Duration::from_millis(1);
+/// Exact leaf indices produced by MM2 request handling.
+pub type ChangedKey = Indices<[usize; crate::MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
-/// MM2 MQTT client error.
+/// MM2 protocol error.
 pub enum Error<E> {
-    /// Static path resolution failed before touching the value.
-    #[error("miniconf path resolution failed: {0}")]
-    Miniconf(DescendError<()>),
+    /// Tree traversal or path resolution failed before any MQTT I/O.
+    #[error("tree path resolution failed: {0}")]
+    Tree(DescendError<()>),
     /// MQTT session or publication failure.
     #[error(transparent)]
     Mqtt(#[from] minimq::Error<E>),
@@ -43,40 +36,20 @@ pub enum Error<E> {
 
 impl<E> From<DescendError<()>> for Error<E> {
     fn from(value: DescendError<()>) -> Self {
-        Self::Miniconf(value)
+        Self::Tree(value)
     }
 }
 
-#[derive(Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub(crate) enum Change {
-    #[default]
-    Unchanged,
-    Changed,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-/// One app-visible outcome from [`MqttClient::connect`] or [`MqttClient::poll`].
-pub enum Event {
-    /// An MM2 request updated at least one setting leaf.
-    Changed,
-    /// The broker created a fresh MQTT/MM2 session.
-    Connected,
-    /// The broker resumed the existing MQTT/MM2 session.
-    Reconnected,
-    /// A non-MM2 inbound publish was delivered to the callback.
-    Other,
-}
-
 #[derive(Default)]
-pub(super) struct Manifest {
-    epoch: u32,
-    schema_rev: u32,
-    schema_pages: usize,
-    settings_rev: u32,
+pub(crate) struct Manifest {
+    pub(crate) epoch: u32,
+    pub(crate) schema_rev: u32,
+    pub(crate) schema_pages: usize,
+    pub(crate) settings_rev: u32,
 }
 
 #[derive(Debug)]
-pub(super) enum PayloadError {
+pub(crate) enum PayloadError {
     Json(serde_json_core::ser::Error),
     Schema(usize),
     Leaf(DepthError<serde_json_core::ser::Error>),
@@ -89,7 +62,7 @@ struct AlivePayload {
     pages: usize,
 }
 
-pub(super) enum PublishPayload<'a, 'b, Settings> {
+pub(crate) enum PublishPayload<'a, 'b, Settings> {
     Alive(&'a Manifest),
     SchemaPage {
         defs: &'a SchemaDefs,
@@ -108,12 +81,11 @@ fn serialize_leaf<Settings: TreeSerialize>(
     state: &[usize],
     buf: &mut [u8],
 ) -> Result<usize, EncodeError<DepthError<serde_json_core::ser::Error>>> {
-    let full = state;
-    let mut keys = full;
+    let mut keys = state;
     json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
         let err = DepthError {
             inner,
-            depth: full.len() - keys.len(),
+            depth: state.len() - keys.len(),
         };
         let no_space = matches!(
             err.inner,
@@ -163,59 +135,119 @@ where
     }
 }
 
-struct ProtocolState {
-    manifest: Manifest,
-    settings_sync_requested: u32,
-    settings_sync_completed: u32,
+#[allow(clippy::large_enum_variant)]
+/// Result of handling one inbound publish.
+#[must_use = "match on the result and drive any returned response to completion"]
+pub enum Handle<'a> {
+    /// The message is not MM2 traffic and remains owned by the caller.
+    Unhandled(InboundPublish<'a>),
+    /// MM2 handled the message and intentionally ignored it.
+    Ignored,
+    /// MM2 rejected the request.
+    Rejected {
+        /// Optional reply work for the rejected request.
+        response: Option<Response>,
+    },
+    /// MM2 accepted the request and already changed local settings.
+    Accepted {
+        /// The exact leaf changed locally by the successful `/set`.
+        changed: ChangedKey,
+        /// Required follow-up work for the accepted request.
+        ///
+        /// This always exists because the authoritative retained `settings/...` update still has
+        /// to be published, even without a reply topic.
+        response: Response,
+    },
 }
 
-impl ProtocolState {
-    fn new() -> Self {
-        Self {
-            manifest: Manifest::default(),
-            settings_sync_requested: 0,
-            settings_sync_completed: 0,
-        }
-    }
-
-    fn on_session_active(&mut self, reconnected: bool) {
-        if reconnected {
-            info!("Reconnected MM2 session");
-            return;
-        }
-
-        self.manifest.epoch = self.manifest.epoch.wrapping_add(1);
-        self.manifest.settings_rev = 0;
-        self.manifest.schema_rev = 0;
-        self.manifest.schema_pages = 0;
-        self.settings_sync_requested = 0;
-        self.settings_sync_completed = 0;
-        info!("Activated MM2 session epoch={}", self.manifest.epoch);
-    }
-
-    #[cfg(feature = "compat-settings-ingress")]
-    fn request_settings_sync(&mut self) {
-        self.settings_sync_requested = self.settings_sync_requested.wrapping_add(1);
-    }
-
-    fn settings_sync_pending(&self) -> bool {
-        self.settings_sync_requested != self.settings_sync_completed
-    }
+/// Result of `Miniconf::poll_with()`.
+#[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
+pub enum Event<T> {
+    /// One non-MM2 inbound publish was returned through the callback.
+    Unhandled(T),
+    /// One `/set` changed this exact leaf and MM2 follow-up work completed.
+    Changed(ChangedKey),
 }
 
-/// MM2 MQTT session wrapper for one Miniconf tree.
-pub struct MqttClient<'a, Settings, IO> {
-    session: Session<'a, IO>,
-    prefix: &'a str,
-    protocol: ProtocolState,
+/// MM2 protocol state for one prefix and one settings tree.
+pub struct Miniconf<'a, Settings> {
+    pub(crate) prefix: &'a str,
+    pub(crate) manifest: Manifest,
     _settings: PhantomData<Settings>,
 }
 
-impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
+/// Fresh-session MM2 bootstrap workflow.
+#[must_use = "drive activation to completion before relying on MM2 startup state"]
+pub struct Activation {
+    phase: sync::ActivationPhase,
+}
+
+/// Explicit retained publication workflow for a leaf, subtree, or root.
+#[must_use = "drive the publisher to completion to update the retained subtree"]
+pub struct Publisher {
+    root: ChangedKey,
+    iter: Option<crate::schema::SettingsSync>,
+    pending: Option<ChangedKey>,
+}
+
+/// Effectful aftermath of one handled `/set` request.
+#[must_use = "drive the response to completion to publish retained state and any requested reply"]
+pub struct Response {
+    phase: request::ResponsePhase,
+}
+
+impl<'a, Settings> Miniconf<'a, Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    IO: minimq::Io,
 {
+    async fn yield_once() {
+        let mut yielded = false;
+        poll_fn(|cx| {
+            if yielded {
+                Poll::Ready(())
+            } else {
+                yielded = true;
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    async fn complete_response<IO>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+        mut response: Response,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        while !response.step(self, session, settings).await? {
+            if session.drive().await?.is_none() {
+                Self::yield_once().await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn complete_publisher<IO>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+        mut publisher: Publisher,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        while !publisher.step(self, session, settings).await? {
+            if session.drive().await?.is_none() {
+                Self::yield_once().await;
+            }
+        }
+        Ok(())
+    }
+
     fn with_leaf<T, E>(
         full: &[usize],
         func: impl FnOnce(&mut &[usize]) -> Result<T, SerdeError<E>>,
@@ -227,8 +259,11 @@ where
         })
     }
 
-    /// Construct a new MM2 MQTT client for one Miniconf settings tree.
-    pub fn new(prefix: &'a str, config: ConfigBuilder<'a>) -> Result<Self, ProtocolError> {
+    /// Construct MM2 state and a configured caller-owned MQTT session.
+    pub fn new<IO: minimq::Io>(
+        prefix: &'a str,
+        config: ConfigBuilder<'a>,
+    ) -> Result<(Self, Session<'a, IO>), ProtocolError> {
         const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
         if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);
@@ -246,308 +281,380 @@ where
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
+        let session = Session::new(config);
 
-        Ok(Self {
-            session: Session::new(config),
-            prefix,
-            protocol: ProtocolState::new(),
-            _settings: PhantomData,
+        Ok((
+            Self {
+                prefix,
+                manifest: Manifest::default(),
+                _settings: PhantomData,
+            },
+            session,
+        ))
+    }
+
+    /// Begin fresh-session MM2 bootstrap.
+    ///
+    /// Call this after `Session::connect()` returns `ConnectEvent::Connected`.
+    pub fn begin_activation(&mut self) -> Activation {
+        self.manifest.epoch = self.manifest.epoch.wrapping_add(1);
+        self.manifest.settings_rev = 0;
+        self.manifest.schema_rev = 0;
+        self.manifest.schema_pages = 0;
+        Activation::new::<Settings>()
+    }
+
+    /// Run fresh-session MM2 bootstrap to completion.
+    ///
+    /// This is the simple unbounded activation path. It may discard inbound publishes while
+    /// bootstrapping and is not the bounded/cancel-safe API.
+    pub async fn activate<IO>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        let mut activation = self.begin_activation();
+        while !activation.step(self, session, settings).await? {
+            Self::yield_once().await;
+        }
+        Ok(())
+    }
+
+    /// Publish retained `alive` after a resumed MQTT session.
+    ///
+    /// Call this after `Session::connect()` returns `ConnectEvent::Reconnected`.
+    pub async fn publish_alive<IO>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        self.publish_alive_once(session).await
+    }
+
+    /// Parse and apply one inbound publish synchronously.
+    ///
+    /// Non-MM2 traffic is returned as `Handle::Unhandled`.
+    ///
+    /// Successful `/set` requests mutate `settings` immediately and return `Handle::Accepted`.
+    /// Rejected requests return `Handle::Rejected`.
+    pub fn handle<'msg>(
+        &mut self,
+        settings: &mut Settings,
+        inbound: InboundPublish<'msg>,
+    ) -> Handle<'msg> {
+        request::handle::<Settings>(self.prefix, settings, inbound)
+    }
+
+    /// Wait until one `/set` completes or one non-MM2 inbound publish is returned.
+    ///
+    /// This is the simple unbounded steady-state helper.
+    ///
+    /// `on_unhandled` runs synchronously for the first non-MM2 inbound publish and its return
+    /// value is returned as `Event::Unhandled`.
+    ///
+    /// This helper favors simplicity over exact control:
+    /// - it is unbounded
+    /// - it may discard unrelated inbound publishes that arrive while completing MM2 follow-up
+    ///   work
+    /// - use `Session::poll()`, `Miniconf::handle()`, and `Response::step()` directly when that
+    ///   is
+    ///   not acceptable
+    pub async fn poll_with<IO, T>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+        settings: &mut Settings,
+        mut on_unhandled: impl FnMut(InboundPublish<'_>) -> T,
+    ) -> Result<Event<T>, Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        loop {
+            let inbound = session.poll().await?;
+            match self.handle(settings, inbound) {
+                Handle::Unhandled(message) => return Ok(Event::Unhandled(on_unhandled(message))),
+                Handle::Ignored => {}
+                Handle::Rejected { response } => {
+                    if let Some(response) = response {
+                        self.complete_response(session, settings, response).await?;
+                    }
+                }
+                Handle::Accepted { changed, response } => {
+                    self.complete_response(session, settings, response).await?;
+                    return Ok(Event::Changed(changed));
+                }
+            }
+        }
+    }
+
+    /// Begin explicit retained publication for the whole tree root.
+    pub fn publish_root(&self) -> Publisher {
+        Publisher {
+            root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
+            iter: None,
+            pending: None,
+        }
+    }
+
+    /// Begin explicit retained publication for one leaf or subtree.
+    pub fn publish_by_key(&self, key: impl IntoKeys) -> Result<Publisher, miniconf::ResolveError> {
+        let mut state = [0; crate::MAX_DEPTH];
+        let lookup = Settings::SCHEMA.resolve_into(key, &mut state)?;
+        Ok(Publisher {
+            root: ChangedKey::new(state, lookup.depth),
+            iter: None,
+            pending: None,
         })
     }
 
-    /// Wait for one app-visible MM2 outcome on an already-connected session.
-    ///
-    /// This does not own connect/reconnect or full retained schema/settings publication. Call
-    /// [`connect`](Self::connect) first. If the underlying MQTT session disconnects, `poll()`
-    /// returns `Error::Mqtt(minimq::Error::Disconnected)` and the caller decides when to
-    /// reconnect.
-    ///
-    /// Guaranteed cancel-safe only if [`is_poll_cancel_safe`](Self::is_poll_cancel_safe) is true
-    /// when called. Otherwise cancellation can interrupt MM2 request handling or deferred MM2
-    /// follow-up work, though later calls will resume deferred full settings resync.
-    pub async fn poll(
+    pub(crate) async fn publish_alive_once<IO>(
         &mut self,
-        settings: &mut Settings,
-        mut on_other: impl FnMut(&InboundPublish<'_>),
-    ) -> Result<Event, Error<IO::Error>> {
-        self.require_connected()?;
-        self.flush_pending_settings_sync(settings, &mut on_other)
-            .await?;
-        loop {
-            let message = self.session.poll().await.map_err(Error::from)?;
-            match Self::plan_inbound(self.prefix, settings, &message, &mut on_other) {
-                None => return Ok(Event::Other),
-                Some(action) => match self.execute(settings, action).await {
-                    Change::Unchanged => continue,
-                    Change::Changed => {
-                        self.flush_pending_settings_sync(settings, &mut on_other)
-                            .await?;
-                        return Ok(Event::Changed);
-                    }
-                },
-            }
-        }
-    }
-
-    /// Establish or resume the MQTT/MM2 session on a new transport.
-    ///
-    /// This performs the underlying MQTT handshake plus MM2 setup:
-    /// request-topic subscriptions, optional compatibility ingress recovery, and the fresh-session
-    /// retained manifest/schema/settings publication pass.
-    ///
-    /// Cancel safety:
-    /// the underlying MQTT `connect()` handshake is cancel-safe in the sense documented by
-    /// `minimq`, but this higher-level MM2 activation sequence is not. Cancelling this method can
-    /// leave a connected session with partially completed MM2 bootstrap work.
-    pub async fn connect(
-        &mut self,
-        io: IO,
-        settings: &mut Settings,
-    ) -> Result<Event, Error<IO::Error>> {
-        let reconnected = match self.session.connect(io).await.map_err(Error::from)? {
-            ConnectEvent::Connected => false,
-            ConnectEvent::Reconnected => true,
-        };
-        self.protocol.on_session_active(reconnected);
-        let mut on_other = ignore_other;
-        if reconnected {
-            debug!("Publishing alive manifest");
-            self.publish_alive_once().await?;
-            return Ok(Event::Reconnected);
-        }
-        #[cfg(feature = "compat-settings-ingress")]
-        {
-            self.subscribe_topic_suffix("/settings/#").await?;
-            debug!("Subscribed compat settings topic");
-            self.recover_settings_ingress(settings).await?;
-        }
-        self.publish_schema(settings, &mut on_other).await?;
-        self.publish_settings(settings, &mut on_other).await?;
-        self.publish_alive(settings, &mut on_other).await?;
-        self.flush_pending_settings_sync(settings, &mut on_other)
-            .await?;
-        self.subscribe_topic_suffix("/set/#").await?;
-        debug!("Subscribed set request topic");
-        Ok(Event::Connected)
-    }
-
-    /// Publish one retained leaf value by exact key.
-    ///
-    /// This is the efficient app-side hook for a known leaf change. If the key resolves to an
-    /// internal node, use [`publish_all`](Self::publish_all) after the structural change instead.
-    ///
-    /// Not fully cancel-safe: cancellation can advance local MM2 revision tracking without
-    /// completing the retained publication.
-    pub async fn publish_by_key(
-        &mut self,
-        settings: &Settings,
-        key: impl IntoKeys,
-    ) -> Result<(), Error<IO::Error>> {
-        let mut state = [0; crate::MAX_DEPTH];
-        let lookup = Settings::SCHEMA
-            .resolve_into(key, &mut state)
-            .map_err(|err| err.error)?;
-        if !lookup.schema.is_leaf() {
-            return Err(Error::Miniconf(DescendError::Key(KeyError::TooShort)));
-        }
-        self.require_connected()?;
-        self.publish_current(settings, &state[..lookup.depth]).await
-    }
-
-    /// Publish the full retained MM2 schema/settings mirror.
-    ///
-    /// This is explicit and unbounded, like [`connect`](Self::connect).
-    /// It is not fully cancel-safe because cancellation can leave the retained MM2 mirror only
-    /// partially republished.
-    pub async fn publish_all(
-        &mut self,
-        settings: &mut Settings,
-        mut on_other: impl for<'msg> FnMut(&InboundPublish<'msg>),
-    ) -> Result<(), Error<IO::Error>> {
-        self.require_connected()?;
-        self.publish_schema(settings, &mut on_other).await?;
-        self.publish_settings(settings, &mut on_other).await?;
-        self.publish_alive(settings, &mut on_other).await?;
-        self.flush_pending_settings_sync(settings, &mut on_other)
-            .await?;
-        Ok(())
-    }
-
-    /// Subscribe additional non-MM2 topics on the shared session.
-    ///
-    /// The caller owns these subscriptions. Re-subscribe after [`connect`](Self::connect)
-    /// returns [`Event::Connected`].
-    ///
-    /// Cancel-safe if the underlying transport I/O futures are cancel-safe.
-    pub async fn subscribe(
-        &mut self,
-        topics: &[TopicFilter<'_>],
-        properties: &[Property<'_>],
-    ) -> Result<(), Error<IO::Error>> {
-        self.require_connected()?;
-        self.session.subscribe(topics, properties).await?;
-        Ok(())
-    }
-
-    /// Unsubscribe additional non-MM2 topics from the shared session.
-    ///
-    /// Cancel-safe if the underlying transport I/O futures are cancel-safe.
-    pub async fn unsubscribe(
-        &mut self,
-        topics: &[&str],
-        properties: &[Property<'_>],
-    ) -> Result<(), Error<IO::Error>> {
-        self.require_connected()?;
-        self.session.unsubscribe(topics, properties).await?;
-        Ok(())
-    }
-
-    /// Whether the MQTT session can currently publish at the requested QoS.
-    pub fn can_publish(&mut self, qos: QoS) -> bool {
-        self.session.can_publish(qos)
-    }
-
-    /// Whether the underlying MQTT session has no in-flight retained publish/release work.
-    ///
-    /// This mirrors the underlying `minimq` transport/session quiescence only. It does not include
-    /// deferred MM2 follow-up work such as a full retained settings resync.
-    pub fn is_publish_quiescent(&self) -> bool {
-        self.session.is_publish_quiescent()
-    }
-
-    /// Whether calling [`poll`](Self::poll) is guaranteed cancel-safe at this instant.
-    ///
-    /// If this is `true`, `poll()` will only wait in the cancel-safe blocking
-    /// `minimq::Session::poll()` path until a new inbound publish arrives or the session is lost.
-    /// If this is `false`, `poll()` may first perform deferred MM2 follow-up work such as a full
-    /// retained settings resync.
-    pub fn is_poll_cancel_safe(&self) -> bool {
-        !self.protocol.settings_sync_pending()
-    }
-
-    /// Publish an arbitrary MQTT packet after MM2 activation.
-    ///
-    /// Inherits `minimq` cancel safety: QoS 1/2 publications are cancel-safe if the underlying
-    /// transport I/O futures are cancel-safe; QoS 0 publications are not.
-    pub async fn publish<P>(
-        &mut self,
-        publication: Publication<'_, P>,
-    ) -> Result<(), PubError<P::Error, IO::Error>>
-    where
-        P: ToPayload,
-    {
-        self.require_connected().map_err(|err| match err {
-            Error::Mqtt(err) => PubError::Session(err),
-            Error::Miniconf(_) => unreachable!(),
-        })?;
-        self.session.publish(publication).await
-    }
-
-    fn require_connected(&self) -> Result<(), Error<IO::Error>> {
-        if self.session.is_connected() {
-            Ok(())
-        } else {
-            Err(Error::Mqtt(minimq::Error::Disconnected))
-        }
-    }
-
-    fn plan_inbound<F>(
-        prefix: &str,
-        settings: &mut Settings,
-        message: &InboundPublish<'_>,
-        on_other: &mut F,
-    ) -> Option<Action>
-    where
-        F: for<'msg> FnMut(&InboundPublish<'msg>),
-    {
-        let action = Self::plan_request(prefix, settings, message);
-        if matches!(action, Action::Unhandled) {
-            on_other(message);
-            return None;
-        }
-        Some(action)
-    }
-
-    async fn poll_quiescent<F>(
-        &mut self,
-        settings: &mut Settings,
-        on_other: &mut F,
+        session: &mut Session<'a, IO>,
     ) -> Result<(), Error<IO::Error>>
     where
-        F: for<'msg> FnMut(&InboundPublish<'msg>),
+        IO: minimq::Io,
     {
-        let deadline = Instant::now() + BACKGROUND_POLL_SLICE;
-        match with_deadline(deadline, self.session.poll()).await {
-            Ok(Ok(message)) => {
-                if let Some(action) = Self::plan_inbound(self.prefix, settings, &message, on_other)
-                {
-                    let _ = self.execute(settings, action).await;
-                }
-            }
-            Ok(Err(err)) => return Err(Error::from(err)),
-            Err(_) => {}
-        }
-        Ok(())
-    }
-
-    async fn flush_pending_settings_sync<F>(
-        &mut self,
-        settings: &mut Settings,
-        on_other: &mut F,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        F: for<'msg> FnMut(&InboundPublish<'msg>),
-    {
-        while self.protocol.settings_sync_pending() {
-            let target = self.protocol.settings_sync_requested;
-            self.publish_settings(settings, on_other).await?;
-            self.protocol.settings_sync_completed = target;
-        }
-        Ok(())
-    }
-
-    async fn subscribe_topic_suffix(&mut self, suffix: &str) -> Result<(), Error<IO::Error>> {
         let mut topic: String<MAX_TOPIC_LENGTH> = self
             .prefix
             .try_into()
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
         topic
-            .push_str(suffix)
+            .push_str("/alive")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let topics = [TopicFilter::new(&topic)
-            .options(SubscriptionOptions::default().ignore_local_messages())];
-        self.session.subscribe(&topics, &[]).await?;
+        let publication =
+            Publication::new(&topic, PublishPayload::<Settings>::Alive(&self.manifest))
+                .qos(QoS::AtLeastOnce)
+                .retain();
+        session
+            .publish(publication)
+            .await
+            .map_err(crate::message::simple_pub_error)
+    }
+
+    pub(crate) fn schema_page_topic(&self, page: usize) -> String<MAX_TOPIC_LENGTH> {
+        let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
+        topic.push_str("/schema/").ok();
+        use core::fmt::Write as _;
+        write!(&mut topic, "{page}").ok();
+        topic
+    }
+
+    pub(crate) fn settings_topic<IO>(
+        &self,
+        state: &[usize],
+    ) -> Result<String<MAX_TOPIC_LENGTH>, Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        let path: miniconf::ConstPath<String<MAX_TOPIC_LENGTH>, '/'> = Settings::SCHEMA
+            .transcode(state)
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        let mut topic: String<MAX_TOPIC_LENGTH> = self
+            .prefix
+            .try_into()
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        topic
+            .push_str("/settings")
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        topic
+            .push_str(path.as_ref())
+            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        Ok(topic)
+    }
+
+    pub(crate) async fn publish_current<IO>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+        state: &[usize],
+    ) -> Result<(), Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        let topic = self.settings_topic::<IO>(state)?;
+        match self.try_publish_leaf(session, settings, state).await {
+            Ok(()) => Ok(()),
+            Err(PubError::Payload((
+                _no_space,
+                PayloadError::Leaf(DepthError {
+                    inner:
+                        miniconf::SerdeError::Value(
+                            miniconf::ValueError::Absent | miniconf::ValueError::Access(_),
+                        ),
+                    ..
+                }),
+            ))) => self.clear_leaf(session, &topic).await,
+            Err(err) => Err(crate::message::simple_pub_error(err)),
+        }
+    }
+
+    pub(crate) async fn try_publish_leaf<IO>(
+        &mut self,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+        state: &[usize],
+    ) -> Result<(), PubError<EncodeError<PayloadError>, IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        let topic = self.settings_topic::<IO>(state).map_err(|err| match err {
+            Error::Mqtt(err) => PubError::Session(err),
+            Error::Tree(_) => unreachable!(),
+        })?;
+        let next_rev = self.manifest.settings_rev.wrapping_add(1);
+        let mut rev = itoa::Buffer::new();
+        let props = [minimq::Property::UserProperty(
+            minimq::types::Utf8String("rev"),
+            minimq::types::Utf8String(rev.format(next_rev)),
+        )];
+        let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
+            .properties(&props)
+            .qos(QoS::AtLeastOnce)
+            .retain();
+        session.publish(publication).await?;
+        self.manifest.settings_rev = next_rev;
         Ok(())
     }
 
-    #[cfg(feature = "compat-settings-ingress")]
-    async fn recover_settings_ingress(
+    pub(crate) async fn clear_leaf<IO>(
         &mut self,
-        settings: &mut Settings,
-    ) -> Result<(), Error<IO::Error>> {
-        let mut deadline = Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE;
-        debug!("Starting settings ingress recovery");
-        loop {
-            match with_deadline(deadline, self.session.poll()).await {
-                Ok(Ok(message)) => {
-                    let Some((Resource::Settings, _)) =
-                        Resource::parse(message.topic(), self.prefix)
-                    else {
-                        continue;
-                    };
-                    deadline = Instant::now() + crate::SETTINGS_RECOVERY_QUIESCENCE;
-                    if let Some(action) =
-                        Self::plan_settings_recovery(self.prefix, settings, &message)
-                    {
-                        let _ = self.execute_settings_recovery(action);
-                    }
-                }
-                Ok(Err(err)) => return Err(Error::from(err)),
-                Err(_) => {
-                    debug!("Finished settings ingress recovery");
-                    return Ok(());
-                }
-            }
-        }
+        session: &mut Session<'a, IO>,
+        topic: &str,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        IO: minimq::Io,
+    {
+        let next_rev = self.manifest.settings_rev.wrapping_add(1);
+        let mut rev = itoa::Buffer::new();
+        let props = [minimq::Property::UserProperty(
+            minimq::types::Utf8String("rev"),
+            minimq::types::Utf8String(rev.format(next_rev)),
+        )];
+        let publication = Publication::bytes(topic, b"")
+            .properties(&props)
+            .qos(QoS::AtLeastOnce)
+            .retain();
+        session
+            .publish(publication)
+            .await
+            .map_err(crate::message::simple_pub_error)?;
+        self.manifest.settings_rev = next_rev;
+        Ok(())
     }
 }
+
+impl Activation {
+    fn new<Settings: TreeSchema>() -> Self {
+        Self {
+            phase: sync::ActivationPhase::Schema(sync::SchemaPublisher::new::<Settings>()),
+        }
+    }
+
+    /// Advance fresh-session MM2 bootstrap.
+    ///
+    /// `Ok(true)` means bootstrap is complete.
+    ///
+    /// `Ok(false)` means no more immediate bootstrap progress is possible. Wait for later session
+    /// progress, then call `step()` again.
+    ///
+    /// This method may drive one bounded MQTT progress step internally and may discard surfaced
+    /// inbound publishes.
+    pub async fn step<'a, Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        self.phase.step(mm2, session, settings).await
+    }
+}
+
+impl Publisher {
+    /// Advance retained subtree publication.
+    ///
+    /// `Ok(true)` means publication is complete.
+    ///
+    /// `Ok(false)` means no more immediate publication progress is possible. Wait for later
+    /// session progress, then call `step()` again.
+    ///
+    /// This method never consumes unrelated inbound publishes.
+    pub async fn step<'a, Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        sync::step_publisher(self, mm2, session, settings).await
+    }
+
+    /// Run retained subtree publication to completion.
+    ///
+    /// This is the simple unbounded publication path. It may discard inbound publishes that
+    /// arrive while waiting for later session progress.
+    pub async fn complete<'a, Settings, IO>(
+        self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        mm2.complete_publisher(session, settings, self).await
+    }
+}
+
+impl Response {
+    /// Advance one handled-request aftermath.
+    ///
+    /// `Ok(true)` means the aftermath is complete.
+    ///
+    /// `Ok(false)` means no more immediate progress is possible. Wait for later session progress,
+    /// then call `step()` again.
+    ///
+    /// This method never consumes unrelated inbound publishes.
+    pub async fn step<'a, Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        self.phase.step(mm2, session, settings).await
+    }
+
+    /// Run one handled-request aftermath to completion.
+    ///
+    /// This is the simple unbounded response path. It may discard inbound publishes that arrive
+    /// while waiting for later session progress.
+    pub async fn complete<'a, Settings, IO>(
+        self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        mm2.complete_response(session, settings, self).await
+    }
+}
+
+pub(crate) type ReplyTarget = OwnedResponseTarget<MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH>;

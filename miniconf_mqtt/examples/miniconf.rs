@@ -3,7 +3,7 @@ use core::future::poll_fn;
 use core::pin::Pin;
 use core::task::Poll;
 use embedded_io_async::{ErrorType, Read, Write};
-use miniconf_mqtt::{Event, MqttClient, minimq};
+use miniconf_mqtt::{Error, Event, Miniconf, minimq};
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -72,7 +72,6 @@ async fn main() {
     env_logger::init();
 
     let args = Args::parse();
-
     let broker = SocketAddr::new(
         args.broker.parse().expect("invalid broker address"),
         minimq::MQTT_INSECURE_DEFAULT_PORT,
@@ -98,35 +97,36 @@ fn config<'a>(buffer: &'a mut [u8], payload: usize, client_id: &str) -> minimq::
 
 async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     let mut buffer = [0u8; 4096];
-    let mut client = MqttClient::<_, _>::new(prefix, config(&mut buffer, 1024, client_id)).unwrap();
-
+    let (mut mm2, mut session) = Miniconf::<common::Settings>::new::<TokioConnection>(
+        prefix,
+        config(&mut buffer, 1024, client_id),
+    )
+    .unwrap();
     let mut settings = common::Settings::new();
     println!("Serving common fixture on {prefix}");
-    match client
-        .connect(connect_addr(broker).await.unwrap(), &mut settings)
-        .await
-        .unwrap()
-    {
-        Event::Connected => println!("Connected"),
-        Event::Reconnected => println!("Reconnected"),
-        other => panic!("unexpected connect result: {other:?}"),
-    }
+
     loop {
-        match client.poll(&mut settings, |_| {}).await {
-            Ok(Event::Changed) => println!("Settings updated"),
-            Ok(_) => {}
-            Err(miniconf_mqtt::Error::Mqtt(minimq::Error::Disconnected)) => {
-                match client
-                    .connect(connect_addr(broker).await.unwrap(), &mut settings)
-                    .await
-                    .unwrap()
-                {
-                    Event::Connected => println!("Connected"),
-                    Event::Reconnected => println!("Reconnected"),
-                    other => panic!("unexpected connect result: {other:?}"),
-                }
+        let io = connect_addr(broker).await.unwrap();
+        match session.connect(io).await.unwrap() {
+            minimq::ConnectEvent::Connected => {
+                mm2.activate(&mut session, &settings).await.unwrap();
+                println!("Connected");
             }
-            Err(err) => panic!("{err}"),
+            minimq::ConnectEvent::Reconnected => {
+                mm2.publish_alive(&mut session).await.unwrap();
+                println!("Reconnected");
+            }
+        }
+
+        loop {
+            match mm2.poll_with(&mut session, &mut settings, |_| ()).await {
+                Ok(Event::Unhandled(())) => {}
+                Ok(Event::Changed(_)) => {
+                    println!("Settings updated");
+                }
+                Err(Error::Mqtt(minimq::Error::Disconnected)) => break,
+                Err(err) => panic!("{err}"),
+            }
         }
     }
 }

@@ -1,189 +1,249 @@
-use core::fmt::Write as _;
-
-use heapless::String;
 use log::{debug, info};
-use minimq::{ProtocolError, PubError, Publication, QoS};
-
-use super::{Error, MqttClient, PayloadError, PublishPayload};
-use crate::{
-    MAX_TOPIC_LENGTH,
-    message::{DepthError, simple_pub_error},
-    schema::{SchemaSync, SettingsSync},
+use minimq::{
+    ProtocolError, PubError, Publication, QoS, Session,
+    types::{SubscriptionOptions, TopicFilter},
 };
 
-impl<'a, Settings, IO> MqttClient<'a, Settings, IO>
+use crate::{
+    Error, MAX_TOPIC_LENGTH,
+    client::{ChangedKey, Miniconf, PayloadError, PublishPayload, Publisher},
+    schema::SchemaSync,
+};
+
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum ActivationPhase {
+    Schema(SchemaPublisher),
+    Settings(Publisher),
+    SubscribeSet,
+    Alive,
+    Done,
+}
+
+pub(crate) struct SchemaPublisher {
+    sync: SchemaSync,
+}
+
+impl SchemaPublisher {
+    pub(crate) fn new<Settings: miniconf::TreeSchema>() -> Self {
+        Self {
+            sync: SchemaSync::new(Settings::SCHEMA),
+        }
+    }
+}
+
+fn is_retryable_activation_error<E>(err: &Error<E>) -> bool {
+    matches!(
+        err,
+        Error::Mqtt(minimq::Error::NotReady)
+            | Error::Mqtt(minimq::Error::Protocol(
+                ProtocolError::InflightMetadataExhausted
+            ))
+    )
+}
+
+impl ActivationPhase {
+    pub(crate) async fn step<'a, Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        loop {
+            match self {
+                Self::Schema(schema) => {
+                    if schema.step(mm2, session).await? {
+                        mm2.manifest.schema_pages = schema.sync.page;
+                        mm2.manifest.schema_rev = schema.sync.hash;
+                        *self = Self::Settings(Publisher {
+                            root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
+                            iter: None,
+                            pending: None,
+                        });
+                        continue;
+                    }
+                    let _ = session.drive().await?;
+                    return Ok(false);
+                }
+                Self::Settings(publisher) => {
+                    if publisher.step(mm2, session, settings).await? {
+                        *self = Self::SubscribeSet;
+                        continue;
+                    }
+                    let _ = session.drive().await?;
+                    return Ok(false);
+                }
+                Self::SubscribeSet => match subscribe_set(mm2, session).await {
+                    Ok(()) => {
+                        *self = Self::Alive;
+                        continue;
+                    }
+                    Err(err) if is_retryable_activation_error(&err) => {
+                        let _ = session.drive().await?;
+                        return Ok(false);
+                    }
+                    Err(err) => return Err(err),
+                },
+                Self::Alive => match mm2.publish_alive_once(session).await {
+                    Ok(()) => {
+                        *self = Self::Done;
+                        return Ok(true);
+                    }
+                    Err(err) if is_retryable_activation_error(&err) => {
+                        let _ = session.drive().await?;
+                        return Ok(false);
+                    }
+                    Err(err) => return Err(err),
+                },
+                Self::Done => return Ok(true),
+            }
+        }
+    }
+}
+
+impl SchemaPublisher {
+    async fn step<'a, Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<'a, Settings>,
+        session: &mut Session<'a, IO>,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+        IO: minimq::Io,
+    {
+        if self.sync.next == self.sync.defs.len() {
+            info!(
+                "Completed schema sync pages={} rev={}",
+                self.sync.page, self.sync.hash
+            );
+            return Ok(true);
+        }
+
+        debug!(
+            "Publishing schema page={} next_def={}",
+            self.sync.page, self.sync.next
+        );
+        let topic = mm2.schema_page_topic(self.sync.page);
+        let mut advanced = None::<(usize, u32)>;
+        let publication: Publication<'_, PublishPayload<'_, '_, Settings>> = Publication::new(
+            &topic,
+            PublishPayload::SchemaPage {
+                defs: &self.sync.defs,
+                next: self.sync.next,
+                hash: self.sync.hash,
+                advanced: &mut advanced,
+            },
+        )
+        .qos(QoS::AtLeastOnce)
+        .retain();
+        match session.publish(publication).await {
+            Ok(()) => {
+                let Some((count, hash)) = advanced else {
+                    return Err(Error::Mqtt(ProtocolError::BufferSize.into()));
+                };
+                self.sync.next += count;
+                self.sync.page += 1;
+                self.sync.hash = hash;
+                Ok(false)
+            }
+            Err(PubError::Session(minimq::Error::NotReady))
+            | Err(PubError::Session(minimq::Error::Protocol(
+                ProtocolError::InflightMetadataExhausted,
+            ))) => Ok(false),
+            Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
+                info!("Aborting schema sync after oversized schema entry for definition {id}");
+                Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::Failed(
+                    minimq::ReasonCode::PacketTooLarge,
+                ))))
+            }
+            Err(PubError::Payload(_)) => unreachable!(),
+            Err(PubError::Session(err)) => Err(Error::Mqtt(err)),
+        }
+    }
+}
+
+pub(crate) async fn step_publisher<'a, Settings, IO>(
+    publisher: &mut Publisher,
+    mm2: &mut Miniconf<'a, Settings>,
+    session: &mut Session<'a, IO>,
+    settings: &Settings,
+) -> Result<bool, Error<IO::Error>>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
     IO: minimq::Io,
 {
-    pub(super) async fn publish_alive_once(&mut self) -> Result<(), Error<IO::Error>> {
-        let mut topic: String<MAX_TOPIC_LENGTH> = self
-            .prefix
-            .try_into()
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        topic
-            .push_str("/alive")
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
-        let publication = Publication::new(
-            &topic,
-            PublishPayload::<Settings>::Alive(&self.protocol.manifest),
-        )
-        .qos(QoS::AtLeastOnce)
-        .retain();
-        self.session
-            .publish(publication)
-            .await
-            .map_err(simple_pub_error)
-    }
-
-    pub(super) async fn publish_alive<F>(
-        &mut self,
-        settings: &mut Settings,
-        on_other: &mut F,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
-    {
-        self.publish_alive_once().await?;
-        while !self.is_publish_quiescent() {
-            self.poll_quiescent(settings, on_other).await?;
-        }
-        Ok(())
-    }
-
-    pub(super) async fn publish_schema<F>(
-        &mut self,
-        settings: &mut Settings,
-        on_other: &mut F,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
-    {
-        let mut sync = SchemaSync::new(Settings::SCHEMA);
-        info!("Starting schema sync defs={}", sync.defs.len());
-        while sync.next != sync.defs.len() {
-            while !self.is_publish_quiescent() {
-                self.poll_quiescent(settings, on_other).await?;
-            }
-            debug!(
-                "Publishing schema page={} next_def={}",
-                sync.page, sync.next
-            );
-            let topic = self.schema_page_topic(sync.page);
-            let mut advanced = None::<(usize, u32)>;
-            let publication: Publication<'_, PublishPayload<'_, '_, Settings>> = Publication::new(
-                &topic,
-                PublishPayload::SchemaPage {
-                    defs: &sync.defs,
-                    next: sync.next,
-                    hash: sync.hash,
-                    advanced: &mut advanced,
-                },
-            )
-            .qos(QoS::AtLeastOnce)
-            .retain();
-            match self.session.publish(publication).await {
-                Ok(()) => {
-                    debug!(
-                        "Schema page={} published, waiting for quiescent session",
-                        sync.page
-                    );
-                    while !self.is_publish_quiescent() {
-                        self.poll_quiescent(settings, on_other).await?;
-                    }
-                }
-                Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
-                    info!("Aborting schema sync after oversized schema entry for definition {id}");
-                    return Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::Failed(
-                        minimq::ReasonCode::PacketTooLarge,
-                    ))));
-                }
-                Err(PubError::Payload(_)) => unreachable!(),
-                Err(PubError::Session(err)) => return Err(Error::Mqtt(err)),
-            }
-            let Some((count, hash)) = advanced else {
-                return Err(Error::Mqtt(ProtocolError::BufferSize.into()));
-            };
-            sync.next += count;
-            sync.page += 1;
-            sync.hash = hash;
-        }
-        self.protocol.manifest.schema_pages = sync.page;
-        self.protocol.manifest.schema_rev = sync.hash;
-        info!(
-            "Completed schema sync pages={} rev={}",
-            self.protocol.manifest.schema_pages, self.protocol.manifest.schema_rev
-        );
-        Ok(())
-    }
-
-    pub(super) async fn publish_settings<F>(
-        &mut self,
-        settings: &mut Settings,
-        on_other: &mut F,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        F: for<'msg> FnMut(&minimq::InboundPublish<'msg>),
-    {
-        let mut iter = SettingsSync::new(Settings::SCHEMA);
+    if publisher.iter.is_none() {
+        publisher.iter = Some(crate::schema::SettingsSync::with_root(
+            Settings::SCHEMA,
+            publisher.root.as_ref(),
+        )?);
         info!("Starting retained settings sync");
-        while let Some(path) = iter.next() {
-            while !self.is_publish_quiescent() {
-                self.poll_quiescent(settings, on_other).await?;
-            }
-            let path = path
-                .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?
-                .into_inner();
+    }
+
+    let state = match publisher.pending {
+        Some(state) => state,
+        None => {
+            let iter = publisher.iter.as_mut().unwrap();
+            let Some(path) = iter.next() else {
+                info!(
+                    "Completed retained settings sync pages={} rev={}",
+                    mm2.manifest.schema_pages, mm2.manifest.schema_rev
+                );
+                return Ok(true);
+            };
+            path.map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
             let full = iter
                 .indices()
                 .ok_or_else(|| Error::Mqtt(ProtocolError::BufferSize.into()))?;
             let mut state = [0; crate::MAX_DEPTH];
             state[..full.len()].copy_from_slice(full);
-            let depth = full.len();
-            let topic = self.settings_sync_topic(&path);
-            match self.try_publish_leaf(settings, &state[..depth]).await {
-                Ok(()) => {
-                    debug!("Published retained setting {}", path);
-                    while !self.is_publish_quiescent() {
-                        self.poll_quiescent(settings, on_other).await?;
-                    }
-                }
-                Err(PubError::Payload((
-                    _no_space,
-                    PayloadError::Leaf(DepthError {
-                        inner:
-                            miniconf::SerdeError::Value(
-                                miniconf::ValueError::Absent | miniconf::ValueError::Access(_),
-                            ),
-                        ..
-                    }),
-                ))) => {
-                    self.clear_leaf(&topic).await?;
-                    while !self.is_publish_quiescent() {
-                        self.poll_quiescent(settings, on_other).await?;
-                    }
-                }
-                Err(err) => return Err(simple_pub_error(err)),
-            }
+            let state = ChangedKey::new(state, full.len());
+            publisher.pending = Some(state);
+            state
         }
-        info!(
-            "Completed retained settings sync pages={} rev={}",
-            self.protocol.manifest.schema_pages, self.protocol.manifest.schema_rev
-        );
-        Ok(())
+    };
+
+    if !session.can_publish(QoS::AtLeastOnce) {
+        return Ok(false);
     }
 
-    fn schema_page_topic(&self, page: usize) -> String<MAX_TOPIC_LENGTH> {
-        let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
-        topic.push_str("/schema/").ok();
-        write!(&mut topic, "{page}").ok();
-        topic
+    match mm2.publish_current(session, settings, state.as_ref()).await {
+        Ok(()) => {
+            debug!(
+                "Published retained setting {}",
+                mm2.settings_topic::<IO>(state.as_ref())?
+            );
+            publisher.pending = None;
+            Ok(false)
+        }
+        Err(Error::Mqtt(minimq::Error::NotReady))
+        | Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::InflightMetadataExhausted))) => {
+            Ok(false)
+        }
+        Err(err) => Err(err),
     }
+}
 
-    fn settings_sync_topic(&self, path: &str) -> String<MAX_TOPIC_LENGTH> {
-        let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
-        topic.push_str("/settings").ok();
-        topic.push_str(path).ok();
-        topic
-    }
+async fn subscribe_set<'a, Settings, IO>(
+    mm2: &Miniconf<'a, Settings>,
+    session: &mut Session<'a, IO>,
+) -> Result<(), Error<IO::Error>>
+where
+    IO: minimq::Io,
+{
+    let mut topic: heapless::String<MAX_TOPIC_LENGTH> = mm2
+        .prefix
+        .try_into()
+        .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+    topic
+        .push_str("/set/#")
+        .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+    let topics = [
+        TopicFilter::new(&topic).options(SubscriptionOptions::default().ignore_local_messages())
+    ];
+    session.subscribe(&topics, &[]).await?;
+    Ok(())
 }
