@@ -20,7 +20,7 @@ pub use client::{Activation, ChangedKey, Error, Event, Handle, Miniconf, Publish
 /// Maximum path-state depth supported by `miniconf_mqtt`.
 pub const MAX_DEPTH: usize = 12;
 
-pub(crate) const MAX_TOPIC_LENGTH: usize = 128;
+pub(crate) const MAX_TOPIC_LENGTH: usize = minimq::TOPIC_CAPACITY;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
 

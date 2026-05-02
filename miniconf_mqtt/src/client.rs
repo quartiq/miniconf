@@ -3,14 +3,13 @@ mod sync;
 
 use core::marker::PhantomData;
 
-use heapless::String;
 use miniconf::{
     DescendError, Indices, IntoKeys, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     json_core,
 };
 use minimq::{
     ConfigBuilder, InboundPublish, Op, OwnedResponseTarget, ProtocolError, PubError, Publication,
-    QoS, Session, publication::ToPayload,
+    QoS, Session, TopicString, publication::ToPayload,
 };
 use serde::Serialize;
 
@@ -197,8 +196,8 @@ pub enum Event<T> {
 }
 
 /// MM2 protocol state for one prefix and one settings tree.
-pub struct Miniconf<'a, Settings> {
-    pub(crate) prefix: &'a str,
+pub struct Miniconf<Settings> {
+    pub(crate) prefix: TopicString,
     pub(crate) manifest: Manifest,
     _settings: PhantomData<Settings>,
 }
@@ -224,13 +223,13 @@ pub struct Response {
     phase: request::ResponsePhase,
 }
 
-impl<'a, Settings> Miniconf<'a, Settings>
+impl<Settings> Miniconf<Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
     async fn complete_response<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
         mut response: Response,
     ) -> Result<(), Error<IO::Error>>
@@ -245,7 +244,7 @@ where
 
     async fn complete_publisher<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
         mut publisher: Publisher,
     ) -> Result<(), Error<IO::Error>>
@@ -270,10 +269,10 @@ where
     }
 
     /// Construct MM2 state and a configured caller-owned MQTT session.
-    pub fn new<IO: minimq::Io>(
-        prefix: &'a str,
-        config: ConfigBuilder<'a>,
-    ) -> Result<(Self, Session<'a, IO>), ProtocolError> {
+    pub fn new<'buf, IO: minimq::Io>(
+        prefix: &str,
+        config: ConfigBuilder<'buf>,
+    ) -> Result<(Self, Session<'buf, IO>), ProtocolError> {
         const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
         if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ProtocolError::BufferSize);
@@ -282,12 +281,12 @@ where
             return Err(ProtocolError::BufferSize);
         }
 
-        let mut will_topic: String<MAX_TOPIC_LENGTH> =
-            prefix.try_into().map_err(|_| ProtocolError::BufferSize)?;
+        let prefix: TopicString = prefix.try_into().map_err(|_| ProtocolError::BufferSize)?;
+        let mut will_topic = prefix.clone();
         will_topic
             .push_str("/alive")
             .map_err(|_| ProtocolError::BufferSize)?;
-        let will = minimq::Will::owned(&will_topic, b"", &[])?
+        let will = minimq::Will::new(will_topic, b"", &[])?
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -320,7 +319,7 @@ where
     /// bootstrapping and is not the bounded/cancel-safe API.
     pub async fn activate<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
@@ -338,7 +337,7 @@ where
     /// Call this after `Session::connect()` returns `ConnectEvent::Reconnected`.
     pub async fn publish_alive<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
     ) -> Result<(), Error<IO::Error>>
     where
         IO: minimq::Io,
@@ -357,7 +356,7 @@ where
         settings: &mut Settings,
         inbound: InboundPublish<'msg>,
     ) -> Handle<'msg> {
-        request::handle::<Settings>(self.prefix, settings, inbound)
+        request::handle::<Settings>(self.prefix.as_str(), settings, inbound)
     }
 
     /// Wait until one `/set` completes or one non-MM2 inbound publish is returned.
@@ -375,7 +374,7 @@ where
     ///   is not acceptable
     pub async fn poll_with<IO, T>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         settings: &mut Settings,
         mut on_unhandled: impl FnMut(InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
@@ -427,15 +426,12 @@ where
 
     pub(crate) async fn publish_alive_once<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
     ) -> Result<Option<Op>, Error<IO::Error>>
     where
         IO: minimq::Io,
     {
-        let mut topic: String<MAX_TOPIC_LENGTH> = self
-            .prefix
-            .try_into()
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        let mut topic = self.prefix.clone();
         topic
             .push_str("/alive")
             .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
@@ -449,25 +445,19 @@ where
             .map_err(crate::message::simple_pub_error)
     }
 
-    pub(crate) fn schema_page_topic(&self, page: usize) -> String<MAX_TOPIC_LENGTH> {
-        let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
+    pub(crate) fn schema_page_topic(&self, page: usize) -> TopicString {
+        let mut topic = self.prefix.clone();
         topic.push_str("/schema/").ok();
         use core::fmt::Write as _;
         write!(&mut topic, "{page}").ok();
         topic
     }
 
-    pub(crate) fn settings_topic(
-        &self,
-        state: &[usize],
-    ) -> Result<String<MAX_TOPIC_LENGTH>, ProtocolError> {
-        let path: miniconf::ConstPath<String<MAX_TOPIC_LENGTH>, '/'> = Settings::SCHEMA
+    pub(crate) fn settings_topic(&self, state: &[usize]) -> Result<TopicString, ProtocolError> {
+        let path: miniconf::ConstPath<TopicString, '/'> = Settings::SCHEMA
             .transcode(state)
             .map_err(|_| ProtocolError::BufferSize)?;
-        let mut topic: String<MAX_TOPIC_LENGTH> = self
-            .prefix
-            .try_into()
-            .map_err(|_| ProtocolError::BufferSize)?;
+        let mut topic = self.prefix.clone();
         topic
             .push_str("/settings")
             .map_err(|_| ProtocolError::BufferSize)?;
@@ -479,7 +469,7 @@ where
 
     pub(crate) async fn publish_current<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
         state: &[usize],
     ) -> Result<Option<Op>, Error<IO::Error>>
@@ -507,7 +497,7 @@ where
 
     pub(crate) async fn try_publish_leaf<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
         state: &[usize],
     ) -> Result<Option<Op>, PubError<EncodeError<PayloadError>, IO::Error>>
@@ -532,7 +522,7 @@ where
 
     pub(crate) async fn clear_leaf<IO>(
         &mut self,
-        session: &mut Session<'a, IO>,
+        session: &mut Session<'_, IO>,
         topic: &str,
     ) -> Result<Option<Op>, Error<IO::Error>>
     where
@@ -572,10 +562,10 @@ impl Activation {
     /// progress, then call `step()` again.
     ///
     /// This method may discard surfaced inbound publishes while bootstrapping.
-    pub async fn step<'a, Settings, IO>(
+    pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -595,10 +585,10 @@ impl Publisher {
     /// session progress, then call `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
-    pub async fn step<'a, Settings, IO>(
+    pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -612,10 +602,10 @@ impl Publisher {
     ///
     /// This is the simple unbounded publication path. It may discard inbound publishes that
     /// arrive while waiting for later session progress.
-    pub async fn complete<'a, Settings, IO>(
+    pub async fn complete<Settings, IO>(
         self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
@@ -635,10 +625,10 @@ impl Response {
     /// then call `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
-    pub async fn step<'a, Settings, IO>(
+    pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -652,10 +642,10 @@ impl Response {
     ///
     /// This is the simple unbounded response path. It may discard inbound publishes that arrive
     /// while waiting for later session progress.
-    pub async fn complete<'a, Settings, IO>(
+    pub async fn complete<Settings, IO>(
         self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
@@ -665,5 +655,4 @@ impl Response {
         mm2.complete_response(session, settings, self).await
     }
 }
-
 pub(crate) type ReplyTarget = OwnedResponseTarget<MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH>;

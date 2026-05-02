@@ -5,7 +5,7 @@ use minimq::{
 };
 
 use crate::{
-    Error, MAX_TOPIC_LENGTH,
+    Error,
     client::{ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher},
     schema::SchemaSync,
 };
@@ -44,10 +44,10 @@ fn is_retryable_activation_error<E>(err: &Error<E>) -> bool {
 }
 
 impl ActivationPhase {
-    pub(crate) async fn step<'a, Settings, IO>(
+    pub(crate) async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -114,10 +114,10 @@ impl ActivationPhase {
 }
 
 impl SchemaPublisher {
-    async fn step<'a, Settings, IO>(
+    async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
@@ -180,10 +180,10 @@ impl SchemaPublisher {
     }
 }
 
-pub(crate) async fn step_publisher<'a, Settings, IO>(
+pub(crate) async fn step_publisher<Settings, IO>(
     publisher: &mut Publisher,
-    mm2: &mut Miniconf<'a, Settings>,
-    session: &mut Session<'a, IO>,
+    mm2: &mut Miniconf<Settings>,
+    session: &mut Session<'_, IO>,
     settings: &Settings,
 ) -> Result<bool, Error<IO::Error>>
 where
@@ -253,17 +253,14 @@ where
     }
 }
 
-async fn subscribe_set<'a, Settings, IO>(
-    mm2: &Miniconf<'a, Settings>,
-    session: &mut Session<'a, IO>,
+async fn subscribe_set<Settings, IO>(
+    mm2: &Miniconf<Settings>,
+    session: &mut Session<'_, IO>,
 ) -> Result<minimq::Op, Error<IO::Error>>
 where
     IO: minimq::Io,
 {
-    let mut topic: heapless::String<MAX_TOPIC_LENGTH> = mm2
-        .prefix
-        .try_into()
-        .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+    let mut topic = mm2.prefix.clone();
     topic
         .push_str("/set/#")
         .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;

@@ -113,7 +113,7 @@ async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
 }
 
 async fn connect_mm2<'a>(
-    mm2: &mut Miniconf<'a, Settings>,
+    mm2: &mut Miniconf<Settings>,
     session: &mut Session<'a, TokioConnection>,
     settings: &Settings,
     io: TokioConnection,

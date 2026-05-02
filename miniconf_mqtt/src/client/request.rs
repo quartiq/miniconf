@@ -153,10 +153,10 @@ where
 }
 
 impl ResponsePhase {
-    pub(crate) async fn step<'a, Settings, IO>(
+    pub(crate) async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<'a, Settings>,
-        session: &mut Session<'a, IO>,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where

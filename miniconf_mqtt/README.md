@@ -25,7 +25,7 @@ For simple services, `miniconf_mqtt` provides two complete unbounded helpers on 
 They are the easiest way to serve MM2 when you do not need stepwise control, cancellation safety,
 or exact control over unrelated inbound traffic during MM2 follow-up work.
 
-For precise control, `miniconf_mqtt` also exposes three explicit MM2 workflows:
+For precise control, `miniconf_mqtt` exposes three explicit MM2 workflows:
 
 - `Activation`: fresh-session bootstrap
 - `Publisher`: explicit retained republish for a leaf, subtree, or root
