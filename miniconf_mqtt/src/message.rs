@@ -2,6 +2,7 @@ use core::convert::Infallible;
 use core::fmt::Display;
 
 use miniconf::SerdeError;
+use minimq::{Property, ProtocolError, PubError, types::Utf8String};
 use strum::IntoStaticStr;
 
 use crate::Error;
@@ -16,12 +17,9 @@ pub(crate) enum ResponseCode {
     Error,
 }
 
-impl From<ResponseCode> for minimq::Property<'static> {
+impl From<ResponseCode> for Property<'static> {
     fn from(value: ResponseCode) -> Self {
-        minimq::Property::UserProperty(
-            minimq::types::Utf8String("code"),
-            minimq::types::Utf8String(value.into()),
-        )
+        Property::UserProperty(Utf8String("code"), Utf8String(value.into()))
     }
 }
 
@@ -53,9 +51,9 @@ impl<E: Display> Display for ResponseBody<E> {
     }
 }
 
-pub(crate) fn simple_pub_error<P, E>(err: minimq::PubError<P, E>) -> Error<E> {
+pub(crate) fn simple_pub_error<P, E>(err: PubError<P, E>) -> Error<E> {
     match err {
-        minimq::PubError::Session(err) => Error::Mqtt(err),
-        minimq::PubError::Payload(_) => Error::Mqtt(minimq::ProtocolError::BufferSize.into()),
+        PubError::Session(err) => Error::Mqtt(err),
+        PubError::Payload(_) => Error::Mqtt(ProtocolError::BufferSize.into()),
     }
 }

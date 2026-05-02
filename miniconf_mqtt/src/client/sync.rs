@@ -1,6 +1,6 @@
 use log::{debug, info};
 use minimq::{
-    ProtocolError, PubError, Publication, QoS, Session,
+    Error as MqttError, Io, Op, ProtocolError, PubError, Publication, QoS, ReasonCode, Session,
     types::{SubscriptionOptions, TopicFilter},
 };
 
@@ -14,14 +14,14 @@ use crate::{
 pub(crate) enum ActivationPhase {
     Schema(SchemaPublisher),
     Settings(Publisher),
-    SubscribeSet(Option<minimq::Op>),
-    Alive(Option<minimq::Op>),
+    SubscribeSet(Option<Op>),
+    Alive(Option<Op>),
     Done,
 }
 
 pub(crate) struct SchemaPublisher {
     sync: SchemaSync,
-    op: Option<minimq::Op>,
+    op: Option<Op>,
 }
 
 impl SchemaPublisher {
@@ -36,8 +36,8 @@ impl SchemaPublisher {
 fn is_retryable_activation_error<E>(err: &Error<E>) -> bool {
     matches!(
         err,
-        Error::Mqtt(minimq::Error::NotReady)
-            | Error::Mqtt(minimq::Error::Protocol(
+        Error::Mqtt(MqttError::NotReady)
+            | Error::Mqtt(MqttError::Protocol(
                 ProtocolError::InflightMetadataExhausted
             ))
     )
@@ -52,7 +52,7 @@ impl ActivationPhase {
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         loop {
             match self {
@@ -121,7 +121,7 @@ impl SchemaPublisher {
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         match super::poll_op(session, &mut self.op)? {
             PendingOp::Pending => return Ok(false),
@@ -164,14 +164,14 @@ impl SchemaPublisher {
                 self.op = op;
                 Ok(false)
             }
-            Err(PubError::Session(minimq::Error::NotReady))
-            | Err(PubError::Session(minimq::Error::Protocol(
+            Err(PubError::Session(MqttError::NotReady))
+            | Err(PubError::Session(MqttError::Protocol(
                 ProtocolError::InflightMetadataExhausted,
             ))) => Ok(false),
             Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
                 info!("Aborting schema sync after oversized schema entry for definition {id}");
-                Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::Failed(
-                    minimq::ReasonCode::PacketTooLarge,
+                Err(Error::Mqtt(MqttError::Protocol(ProtocolError::Failed(
+                    ReasonCode::PacketTooLarge,
                 ))))
             }
             Err(PubError::Payload(_)) => Err(Error::Mqtt(ProtocolError::BufferSize.into())),
@@ -188,7 +188,7 @@ pub(crate) async fn step_publisher<Settings, IO>(
 ) -> Result<bool, Error<IO::Error>>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
-    IO: minimq::Io,
+    IO: Io,
 {
     if publisher.iter.is_none() {
         publisher.iter = Some(crate::schema::SettingsSync::with_root(
@@ -245,8 +245,8 @@ where
             publisher.op = op;
             Ok(false)
         }
-        Err(Error::Mqtt(minimq::Error::NotReady))
-        | Err(Error::Mqtt(minimq::Error::Protocol(ProtocolError::InflightMetadataExhausted))) => {
+        Err(Error::Mqtt(MqttError::NotReady))
+        | Err(Error::Mqtt(MqttError::Protocol(ProtocolError::InflightMetadataExhausted))) => {
             Ok(false)
         }
         Err(err) => Err(err),
@@ -256,9 +256,9 @@ where
 async fn subscribe_set<Settings, IO>(
     mm2: &Miniconf<Settings>,
     session: &mut Session<'_, IO>,
-) -> Result<minimq::Op, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
-    IO: minimq::Io,
+    IO: Io,
 {
     let mut topic = mm2.prefix.clone();
     topic

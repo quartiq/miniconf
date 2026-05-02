@@ -25,11 +25,13 @@ For simple services, `miniconf_mqtt` provides two complete unbounded helpers on 
 They are the easiest way to serve MM2 when you do not need stepwise control, cancellation safety,
 or exact control over unrelated inbound traffic during MM2 follow-up work.
 
-For precise control, `miniconf_mqtt` exposes three explicit MM2 workflows:
+For precise control, `miniconf_mqtt` exposes four explicit MM2 workflows:
 
 - `Activation`: fresh-session bootstrap
 - `Publisher`: explicit retained republish for a leaf, subtree, or root
 - `Response`: effectful aftermath of one handled `/set`
+- `ResponseQueue`: bounded queue of `Response` work so later `/set`s can be accepted while earlier
+  aftermath is still pending
 
 Typical flow:
 
@@ -101,9 +103,38 @@ Practical boundary:
 - use `Session::recv()` when you specifically want the next inbound publish
 - `Activation::step()` may consume and discard inbound publishes while bootstrapping
 - `Publisher::step()` and `Response::step()` must not consume unrelated inbound publishes
+- `ResponseQueue::step()` must not consume unrelated inbound publishes
 - after any `step()` returns `false`, wait for later session progress before retrying
-- after `Publisher::step()` or `Response::step()` returns `false`, the caller must route any
-  surfaced inbound publishes before retrying
+- after `Publisher::step()`, `Response::step()`, or `ResponseQueue::step()` returns `false`, the
+  caller must route any surfaced inbound publishes before retrying
+
+`ResponseQueue`:
+
+- `handle(...)` applies one inbound publish and queues any required MM2 response work
+- accepted `/set`s still change local settings immediately
+- rejected `/set`s queue only the optional error reply
+- `step()` drives queued response work without consuming unrelated inbound publishes
+- `Handle::queue_into(...)` exposes the same queueing adapter directly on the low-level `Handle`
+- if the queue cannot accept that follow-up work, `handle(...)` returns the original `Handle`
+  unchanged so the caller can apply a different policy without losing it
+
+Bounded queued serving:
+
+```rust
+let mut queue = ResponseQueue::<4>::new();
+
+loop {
+    if !queue.step(&mut miniconf, &mut session, &settings).await? {
+        if let Some(inbound) = session.poll().await? {
+            match queue.handle(&mut miniconf, &mut settings, inbound) {
+                Ok(Ingress::Unhandled(message)) => { /* app traffic */ }
+                Ok(Ingress::Ignored) | Ok(Ingress::Rejected) | Ok(Ingress::Accepted(_)) => {}
+                Err(handle) => { /* queue full; original Handle returned unchanged */ }
+            }
+        }
+    }
+}
+```
 
 `Response`:
 

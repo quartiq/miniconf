@@ -4,7 +4,7 @@ use crate::{
 };
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use miniconf::{Tree, TreeSchema};
-use minimq::ProtocolError;
+use minimq::{ConfigBuilder, ProtocolError};
 
 #[derive(Tree)]
 struct Tiny {
@@ -52,7 +52,7 @@ fn constructor_rejects_long_prefix() {
     let mut buffer = [0u8; 1024];
     let client = Miniconf::<Tiny>::new::<DummyConnection>(
         &prefix,
-        minimq::ConfigBuilder::from_buffer(&mut buffer, 1024).unwrap(),
+        ConfigBuilder::from_buffer(&mut buffer, 1024).unwrap(),
     );
     assert!(matches!(client, Err(ProtocolError::BufferSize)));
 }

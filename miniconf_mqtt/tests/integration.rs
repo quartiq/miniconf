@@ -3,9 +3,9 @@ use core::pin::Pin;
 use core::task::Poll;
 use embedded_io_async::{ErrorType, Read, Write};
 use miniconf::Tree;
-use miniconf_mqtt::{Event, Miniconf, minimq};
+use miniconf_mqtt::{Event, Handle, Ingress, Miniconf, QueueResult, ResponseQueue};
 use minimq::{
-    ConnectEvent, Publication, QoS, Session,
+    ConfigBuilder, ConnectEvent, Publication, QoS, Session,
     types::{SubscriptionOptions, TopicFilter},
 };
 use std::{
@@ -51,17 +51,17 @@ fn unique(label: &str) -> String {
     format!("miniconf-mqtt-{label}-{nanos}")
 }
 
-fn config(client_id: &str) -> minimq::ConfigBuilder<'static> {
+fn config(client_id: &str) -> ConfigBuilder<'static> {
     let buffer = Box::leak(Box::new([0; 2048]));
-    minimq::ConfigBuilder::from_buffer(buffer, 1024)
+    ConfigBuilder::from_buffer(buffer, 1024)
         .unwrap()
         .client_id(client_id)
         .unwrap()
 }
 
-fn compact_config(client_id: &str) -> minimq::ConfigBuilder<'static> {
+fn compact_config(client_id: &str) -> ConfigBuilder<'static> {
     let buffer = Box::leak(Box::new([0; 640]));
-    minimq::ConfigBuilder::from_buffer(buffer, 128)
+    ConfigBuilder::from_buffer(buffer, 128)
         .unwrap()
         .client_id(client_id)
         .unwrap()
@@ -296,4 +296,131 @@ async fn activation_with_large_schema_waits_on_session_progress() {
         "activation never waited on internal-only session progress"
     );
     assert!(session.is_publish_quiescent());
+}
+
+#[tokio::test]
+async fn response_queue_accepts_later_sets_while_earlier_response_is_pending() {
+    init_log();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("queue");
+    let mut publisher = Session::new(config(&unique("pub")));
+    let (mut mm2, mut session) =
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
+    let mut settings = Settings::default();
+    let mut queue = ResponseQueue::<4>::new();
+
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
+
+    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
+    publisher
+        .publish(Publication::bytes(&format!("{prefix}/set/value"), b"9"))
+        .await
+        .unwrap();
+    publisher
+        .publish(Publication::bytes(
+            &format!("{prefix}/set/nested/leaf"),
+            b"7",
+        ))
+        .await
+        .unwrap();
+
+    let mut accepted = 0usize;
+    let mut saw_backlog = false;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if queue.step(&mut mm2, &mut session, &settings).await.unwrap() && accepted == 2 {
+                break;
+            }
+            let Some(inbound) = session.poll().await.unwrap() else {
+                continue;
+            };
+            match queue.handle(&mut mm2, &mut settings, inbound) {
+                QueueResult::Ingress(Ingress::Unhandled(_)) => panic!("unexpected app traffic"),
+                QueueResult::Ingress(Ingress::Ignored | Ingress::Rejected) => {}
+                QueueResult::Ingress(Ingress::Accepted(_)) => {
+                    accepted += 1;
+                    saw_backlog |= queue.len() > 1;
+                }
+                QueueResult::Full(_) => panic!("unexpected queue overflow"),
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(accepted, 2);
+    assert!(queue.is_empty());
+    assert!(saw_backlog);
+    assert_eq!(settings.value, 9);
+    assert_eq!(settings.nested.leaf, 7);
+}
+
+#[tokio::test]
+async fn response_queue_overflow_returns_original_handle() {
+    init_log();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("queue-overflow");
+    let mut publisher = Session::new(config(&unique("pub")));
+    let (mut mm2, mut session) =
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
+    let mut settings = Settings::default();
+    let mut queue = ResponseQueue::<1>::new();
+
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
+
+    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
+    publisher
+        .publish(Publication::bytes(&format!("{prefix}/set/value"), b"9"))
+        .await
+        .unwrap();
+    publisher
+        .publish(Publication::bytes(
+            &format!("{prefix}/set/nested/leaf"),
+            b"7",
+        ))
+        .await
+        .unwrap();
+
+    let overflow_accepted = timeout(Duration::from_secs(5), async {
+        loop {
+            let Some(inbound) = session.poll().await.unwrap() else {
+                continue;
+            };
+            match queue.handle(&mut mm2, &mut settings, inbound) {
+                QueueResult::Ingress(_) => {}
+                QueueResult::Full(Handle::Accepted { .. }) => break true,
+                QueueResult::Full(Handle::Unhandled(_)) => panic!("unexpected unhandled traffic"),
+                QueueResult::Full(Handle::Ignored) => panic!("unexpected ignored request"),
+                QueueResult::Full(Handle::Rejected { .. }) => {
+                    panic!("unexpected rejected request")
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+
+    assert!(overflow_accepted);
+    assert_eq!(settings.value, 9);
+    assert_eq!(settings.nested.leaf, 7);
 }

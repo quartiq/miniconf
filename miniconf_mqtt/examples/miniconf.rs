@@ -3,7 +3,8 @@ use core::future::poll_fn;
 use core::pin::Pin;
 use core::task::Poll;
 use embedded_io_async::{ErrorType, Read, Write};
-use miniconf_mqtt::{Error, Event, Miniconf, minimq};
+use miniconf_mqtt::{Error, Event, Miniconf};
+use minimq::{ConfigBuilder, ConnectEvent, Error as MqttError, MQTT_INSECURE_DEFAULT_PORT};
 use std::net::SocketAddr;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -74,7 +75,7 @@ async fn main() {
     let args = Args::parse();
     let broker = SocketAddr::new(
         args.broker.parse().expect("invalid broker address"),
-        minimq::MQTT_INSECURE_DEFAULT_PORT,
+        MQTT_INSECURE_DEFAULT_PORT,
     );
 
     run(
@@ -87,8 +88,8 @@ async fn main() {
     .await;
 }
 
-fn config<'a>(buffer: &'a mut [u8], payload: usize, client_id: &str) -> minimq::ConfigBuilder<'a> {
-    minimq::ConfigBuilder::from_buffer(buffer, payload)
+fn config<'a>(buffer: &'a mut [u8], payload: usize, client_id: &str) -> ConfigBuilder<'a> {
+    ConfigBuilder::from_buffer(buffer, payload)
         .unwrap()
         .client_id(client_id)
         .unwrap()
@@ -108,11 +109,11 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
     loop {
         let io = connect_addr(broker).await.unwrap();
         match session.connect(io).await.unwrap() {
-            minimq::ConnectEvent::Connected => {
+            ConnectEvent::Connected => {
                 mm2.activate(&mut session, &settings).await.unwrap();
                 println!("Connected");
             }
-            minimq::ConnectEvent::Reconnected => {
+            ConnectEvent::Reconnected => {
                 mm2.publish_alive(&mut session).await.unwrap();
                 println!("Reconnected");
             }
@@ -124,7 +125,7 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
                 Ok(Event::Changed(_)) => {
                     println!("Settings updated");
                 }
-                Err(Error::Mqtt(minimq::Error::Disconnected)) => break,
+                Err(Error::Mqtt(MqttError::Disconnected)) => break,
                 Err(err) => panic!("{err}"),
             }
         }

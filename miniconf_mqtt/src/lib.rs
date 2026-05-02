@@ -15,7 +15,10 @@ mod tests;
 
 pub use minimq;
 
-pub use client::{Activation, ChangedKey, Error, Event, Handle, Miniconf, Publisher, Response};
+pub use client::{
+    Activation, ChangedKey, Error, Event, Handle, Ingress, Miniconf, Publisher, QueueResult,
+    Response, ResponseQueue,
+};
 
 /// Maximum path-state depth supported by `miniconf_mqtt`.
 pub const MAX_DEPTH: usize = 12;

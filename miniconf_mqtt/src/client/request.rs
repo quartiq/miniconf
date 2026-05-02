@@ -4,7 +4,10 @@ use core::fmt::Write as _;
 use heapless::{String, Vec, VecView};
 use log::{debug, warn};
 use miniconf::{DescendError, Indices, SerdeError, ValueError, json_core};
-use minimq::{InboundPublish, Property, QoS, Session};
+use minimq::{
+    Error as MqttError, InboundPublish, Io, Op, Property, ProtocolError, QoS, Session,
+    types::Utf8String,
+};
 
 use crate::{
     Error,
@@ -16,22 +19,22 @@ pub(crate) enum ResponsePhase {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
-        op: Option<minimq::Op>,
+        op: Option<Op>,
     },
     ErrorReply {
         target: ReplyTarget,
         message: ReplyMessage,
-        op: Option<minimq::Op>,
+        op: Option<Op>,
     },
     ReplyOk {
         target: ReplyTarget,
-        op: Option<minimq::Op>,
+        op: Option<Op>,
     },
     ReplyPublishError {
         target: ReplyTarget,
         error: String<96>,
         payload: String<96>,
-        op: Option<minimq::Op>,
+        op: Option<Op>,
     },
     Done,
 }
@@ -161,7 +164,7 @@ impl ResponsePhase {
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         loop {
             match self {
@@ -186,9 +189,9 @@ impl ResponsePhase {
                             }
                             return Ok(false);
                         }
-                        Err(Error::Mqtt(minimq::Error::NotReady))
-                        | Err(Error::Mqtt(minimq::Error::Protocol(
-                            minimq::ProtocolError::InflightMetadataExhausted,
+                        Err(Error::Mqtt(MqttError::NotReady))
+                        | Err(Error::Mqtt(MqttError::Protocol(
+                            ProtocolError::InflightMetadataExhausted,
                         ))) => {
                             return Ok(false);
                         }
@@ -229,9 +232,9 @@ impl ResponsePhase {
                             }
                             return Ok(false);
                         }
-                        Err(Error::Mqtt(minimq::Error::NotReady))
-                        | Err(Error::Mqtt(minimq::Error::Protocol(
-                            minimq::ProtocolError::InflightMetadataExhausted,
+                        Err(Error::Mqtt(MqttError::NotReady))
+                        | Err(Error::Mqtt(MqttError::Protocol(
+                            ProtocolError::InflightMetadataExhausted,
                         ))) => return Ok(false),
                         Err(err) => return Err(err),
                     }
@@ -254,9 +257,9 @@ impl ResponsePhase {
                             }
                             return Ok(false);
                         }
-                        Err(Error::Mqtt(minimq::Error::NotReady))
-                        | Err(Error::Mqtt(minimq::Error::Protocol(
-                            minimq::ProtocolError::InflightMetadataExhausted,
+                        Err(Error::Mqtt(MqttError::NotReady))
+                        | Err(Error::Mqtt(MqttError::Protocol(
+                            ProtocolError::InflightMetadataExhausted,
                         ))) => return Ok(false),
                         Err(err) => return Err(err),
                     }
@@ -284,9 +287,9 @@ impl ResponsePhase {
                             }
                             return Ok(false);
                         }
-                        Err(Error::Mqtt(minimq::Error::NotReady))
-                        | Err(Error::Mqtt(minimq::Error::Protocol(
-                            minimq::ProtocolError::InflightMetadataExhausted,
+                        Err(Error::Mqtt(MqttError::NotReady))
+                        | Err(Error::Mqtt(MqttError::Protocol(
+                            ProtocolError::InflightMetadataExhausted,
                         ))) => return Ok(false),
                         Err(err) => return Err(err),
                     }
@@ -355,10 +358,7 @@ fn error_props<'a>(
 
 fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'a str) {
     props
-        .push(Property::UserProperty(
-            minimq::types::Utf8String(key),
-            minimq::types::Utf8String(value),
-        ))
+        .push(Property::UserProperty(Utf8String(key), Utf8String(value)))
         .ok();
 }
 
@@ -366,9 +366,9 @@ async fn reply_message<IO>(
     session: &mut Session<'_, IO>,
     target: &ReplyTarget,
     message: &ReplyMessage,
-) -> Result<Option<minimq::Op>, Error<IO::Error>>
+) -> Result<Option<Op>, Error<IO::Error>>
 where
-    IO: minimq::Io,
+    IO: Io,
 {
     let mut depth_text = String::<16>::new();
     let depth = message.depth.and_then(|value| {
@@ -391,9 +391,9 @@ async fn reply_publish_error<IO>(
     target: &ReplyTarget,
     error: &str,
     payload: &[u8],
-) -> Result<Option<minimq::Op>, Error<IO::Error>>
+) -> Result<Option<Op>, Error<IO::Error>>
 where
-    IO: minimq::Io,
+    IO: Io,
 {
     let props = error_props(ResponseCode::Error, "publish", "Error", error, None);
     reply_bytes(session, target, &props, payload).await
@@ -404,9 +404,9 @@ async fn reply_text<IO>(
     target: &ReplyTarget,
     code: ResponseCode,
     text: &[u8],
-) -> Result<Option<minimq::Op>, Error<IO::Error>>
+) -> Result<Option<Op>, Error<IO::Error>>
 where
-    IO: minimq::Io,
+    IO: Io,
 {
     let props = [code.into()];
     reply_bytes(session, target, &props, text).await
@@ -417,9 +417,9 @@ async fn reply_bytes<IO>(
     target: &ReplyTarget,
     props: &[Property<'_>],
     payload: &[u8],
-) -> Result<Option<minimq::Op>, Error<IO::Error>>
+) -> Result<Option<Op>, Error<IO::Error>>
 where
-    IO: minimq::Io,
+    IO: Io,
 {
     session
         .publish(

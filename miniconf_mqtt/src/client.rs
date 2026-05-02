@@ -3,13 +3,15 @@ mod sync;
 
 use core::marker::PhantomData;
 
+use heapless::Deque;
 use miniconf::{
     DescendError, Indices, IntoKeys, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     json_core,
 };
 use minimq::{
-    ConfigBuilder, InboundPublish, Op, OwnedResponseTarget, ProtocolError, PubError, Publication,
-    QoS, Session, TopicString, publication::ToPayload,
+    ConfigBuilder, Error as MqttError, InboundPublish, Io, Op, OpStatus, OwnedResponseTarget,
+    Property, ProtocolError, PubError, Publication, QoS, Session, TopicString, Will,
+    publication::ToPayload, types::Utf8String,
 };
 use serde::Serialize;
 
@@ -30,7 +32,7 @@ pub enum Error<E> {
     Tree(DescendError<()>),
     /// MQTT session or publication failure.
     #[error(transparent)]
-    Mqtt(#[from] minimq::Error<E>),
+    Mqtt(#[from] MqttError<E>),
 }
 
 impl<E> From<DescendError<()>> for Error<E> {
@@ -66,18 +68,18 @@ fn poll_op<IO>(
     op: &mut Option<Op>,
 ) -> Result<PendingOp, Error<IO::Error>>
 where
-    IO: minimq::Io,
+    IO: Io,
 {
     let Some(current) = *op else {
         return Ok(PendingOp::Idle);
     };
     match session.status(&current) {
-        minimq::OpStatus::Pending => Ok(PendingOp::Pending),
-        minimq::OpStatus::Complete => {
+        OpStatus::Pending => Ok(PendingOp::Pending),
+        OpStatus::Complete => {
             *op = None;
             Ok(PendingOp::Complete)
         }
-        minimq::OpStatus::Invalidated => Err(Error::Mqtt(minimq::Error::Disconnected)),
+        OpStatus::Invalidated => Err(Error::Mqtt(MqttError::Disconnected)),
     }
 }
 
@@ -195,6 +197,30 @@ pub enum Event<T> {
     Changed(ChangedKey),
 }
 
+/// Immediate outcome of routing one inbound publish.
+#[must_use = "match on the event to handle unhandled traffic or changed local settings"]
+pub enum Ingress<T> {
+    /// The message is not MM2 traffic and remains owned by the caller.
+    Unhandled(T),
+    /// MM2 handled the message and intentionally ignored it.
+    Ignored,
+    /// MM2 rejected the request and any required reply work was queued.
+    Rejected,
+    /// MM2 accepted the request, changed local settings, and queued required follow-up work.
+    Accepted(ChangedKey),
+}
+
+/// Outcome of attempting to queue MM2 request aftermath work.
+#[allow(clippy::large_enum_variant)]
+#[must_use = "match on the outcome to handle ingress or recover the original Handle"]
+pub enum QueueResult<'a> {
+    /// Any required MM2 follow-up work was queued successfully.
+    Ingress(Ingress<InboundPublish<'a>>),
+    /// The queue could not accept the follow-up work, so the original `Handle` is returned
+    /// unchanged.
+    Full(Handle<'a>),
+}
+
 /// MM2 protocol state for one prefix and one settings tree.
 pub struct Miniconf<Settings> {
     pub(crate) prefix: TopicString,
@@ -223,6 +249,42 @@ pub struct Response {
     phase: request::ResponsePhase,
 }
 
+/// Bounded queue of MM2 request aftermath work.
+///
+/// Use this when you want to keep accepting new `/set` requests while earlier `Response`s are
+/// still being driven to completion.
+pub struct ResponseQueue<const N: usize = 4> {
+    responses: Deque<Response, N>,
+}
+
+impl<'a> Handle<'a> {
+    /// Queue any required MM2 response work and return the immediate ingress outcome.
+    ///
+    /// If the queue cannot accept the follow-up work, the original `Handle` is returned
+    /// unchanged.
+    pub fn queue_into<const N: usize>(self, queue: &mut ResponseQueue<N>) -> QueueResult<'a> {
+        match self {
+            Self::Unhandled(inbound) => QueueResult::Ingress(Ingress::Unhandled(inbound)),
+            Self::Ignored => QueueResult::Ingress(Ingress::Ignored),
+            Self::Rejected { response } => {
+                if let Some(response) = response {
+                    return match queue.responses.push_back(response) {
+                        Ok(()) => QueueResult::Ingress(Ingress::Rejected),
+                        Err(response) => QueueResult::Full(Self::Rejected {
+                            response: Some(response),
+                        }),
+                    };
+                }
+                QueueResult::Ingress(Ingress::Rejected)
+            }
+            Self::Accepted { changed, response } => match queue.responses.push_back(response) {
+                Ok(()) => QueueResult::Ingress(Ingress::Accepted(changed)),
+                Err(response) => QueueResult::Full(Self::Accepted { changed, response }),
+            },
+        }
+    }
+}
+
 impl<Settings> Miniconf<Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
@@ -234,7 +296,7 @@ where
         mut response: Response,
     ) -> Result<(), Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         while !response.step(self, session, settings).await? {
             let _ = session.poll().await?;
@@ -249,7 +311,7 @@ where
         mut publisher: Publisher,
     ) -> Result<(), Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         while !publisher.step(self, session, settings).await? {
             let _ = session.poll().await?;
@@ -269,7 +331,7 @@ where
     }
 
     /// Construct MM2 state and a configured caller-owned MQTT session.
-    pub fn new<'buf, IO: minimq::Io>(
+    pub fn new<'buf, IO: Io>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
     ) -> Result<(Self, Session<'buf, IO>), ProtocolError> {
@@ -286,7 +348,7 @@ where
         will_topic
             .push_str("/alive")
             .map_err(|_| ProtocolError::BufferSize)?;
-        let will = minimq::Will::new(will_topic, b"", &[])?
+        let will = Will::new(will_topic, b"", &[])?
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -323,7 +385,7 @@ where
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         let mut activation = self.begin_activation();
         while !activation.step(self, session, settings).await? {
@@ -340,7 +402,7 @@ where
         session: &mut Session<'_, IO>,
     ) -> Result<(), Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         self.publish_alive_once(session).await.map(|_| ())
     }
@@ -379,7 +441,7 @@ where
         mut on_unhandled: impl FnMut(InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         loop {
             let inbound = session.poll().await?;
@@ -429,7 +491,7 @@ where
         session: &mut Session<'_, IO>,
     ) -> Result<Option<Op>, Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         let mut topic = self.prefix.clone();
         topic
@@ -474,7 +536,7 @@ where
         state: &[usize],
     ) -> Result<Option<Op>, Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         let topic = self
             .settings_topic(state)
@@ -502,14 +564,14 @@ where
         state: &[usize],
     ) -> Result<Option<Op>, PubError<EncodeError<PayloadError>, IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         let topic = self.settings_topic(state).map_err(PubError::from)?;
         let next_rev = self.manifest.settings_rev.wrapping_add(1);
         let mut rev = itoa::Buffer::new();
-        let props = [minimq::Property::UserProperty(
-            minimq::types::Utf8String("rev"),
-            minimq::types::Utf8String(rev.format(next_rev)),
+        let props = [Property::UserProperty(
+            Utf8String("rev"),
+            Utf8String(rev.format(next_rev)),
         )];
         let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
             .properties(&props)
@@ -526,13 +588,13 @@ where
         topic: &str,
     ) -> Result<Option<Op>, Error<IO::Error>>
     where
-        IO: minimq::Io,
+        IO: Io,
     {
         let next_rev = self.manifest.settings_rev.wrapping_add(1);
         let mut rev = itoa::Buffer::new();
-        let props = [minimq::Property::UserProperty(
-            minimq::types::Utf8String("rev"),
-            minimq::types::Utf8String(rev.format(next_rev)),
+        let props = [Property::UserProperty(
+            Utf8String("rev"),
+            Utf8String(rev.format(next_rev)),
         )];
         let publication = Publication::bytes(topic, b"")
             .properties(&props)
@@ -544,6 +606,80 @@ where
             .map_err(crate::message::simple_pub_error)?;
         self.manifest.settings_rev = next_rev;
         Ok(op)
+    }
+}
+
+impl<const N: usize> Default for ResponseQueue<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> ResponseQueue<N> {
+    /// Construct an empty bounded MM2 response queue.
+    pub const fn new() -> Self {
+        Self {
+            responses: Deque::new(),
+        }
+    }
+
+    /// Return whether no queued MM2 response work remains.
+    pub fn is_empty(&self) -> bool {
+        self.responses.is_empty()
+    }
+
+    /// Return the number of queued MM2 response workflows.
+    pub fn len(&self) -> usize {
+        self.responses.len()
+    }
+
+    /// Parse and queue one inbound publish.
+    ///
+    /// Successful `/set` requests mutate `settings` immediately. Any required MM2 follow-up work
+    /// is queued and must later be driven with [`step`](Self::step).
+    ///
+    /// If the queue cannot accept that follow-up work, the original `Handle` is returned
+    /// unchanged.
+    pub fn handle<'msg, Settings>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        settings: &mut Settings,
+        inbound: InboundPublish<'msg>,
+    ) -> QueueResult<'msg>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    {
+        mm2.handle(settings, inbound).queue_into(self)
+    }
+
+    /// Advance queued MM2 aftermath work.
+    ///
+    /// `Ok(true)` means the queue is empty after this step.
+    ///
+    /// `Ok(false)` means queued work remains and later session progress is needed before calling
+    /// `step()` again.
+    ///
+    /// This method never consumes unrelated inbound publishes.
+    pub async fn step<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        let Some(mut response) = self.responses.pop_front() else {
+            return Ok(true);
+        };
+
+        if response.step(mm2, session, settings).await? {
+            Ok(self.responses.is_empty())
+        } else {
+            let _ = self.responses.push_front(response);
+            Ok(false)
+        }
     }
 }
 
@@ -570,7 +706,7 @@ impl Activation {
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         self.phase.step(mm2, session, settings).await
     }
@@ -593,7 +729,7 @@ impl Publisher {
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         sync::step_publisher(self, mm2, session, settings).await
     }
@@ -610,7 +746,7 @@ impl Publisher {
     ) -> Result<(), Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         mm2.complete_publisher(session, settings, self).await
     }
@@ -633,7 +769,7 @@ impl Response {
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         self.phase.step(mm2, session, settings).await
     }
@@ -650,7 +786,7 @@ impl Response {
     ) -> Result<(), Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: minimq::Io,
+        IO: Io,
     {
         mm2.complete_response(session, settings, self).await
     }
