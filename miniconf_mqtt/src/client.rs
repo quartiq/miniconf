@@ -106,19 +106,19 @@ pub(crate) enum PublishPayload<'a, 'b, Settings> {
 
 fn serialize_leaf<Settings: TreeSerialize>(
     settings: &Settings,
-    state: &[usize],
+    mut keys: &[usize],
     buf: &mut [u8],
 ) -> Result<usize, EncodeError<DepthError<serde_json_core::ser::Error>>> {
-    let mut keys = state;
+    let len = keys.len();
     json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
-        let err = DepthError {
-            inner,
-            depth: state.len() - keys.len(),
-        };
         let no_space = matches!(
-            err.inner,
+            inner,
             miniconf::SerdeError::Inner(serde_json_core::ser::Error::BufferFull)
         );
+        let err = DepthError {
+            inner,
+            depth: len - keys.len(),
+        };
         (no_space, err)
     })
 }
