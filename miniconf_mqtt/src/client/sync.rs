@@ -1,6 +1,6 @@
 use log::{debug, info};
 use minimq::{
-    Error as MqttError, Io, Op, ProtocolError, PubError, Publication, QoS, ReasonCode, Session,
+    Error as MqttError, Io, Op, PubError, Publication, QoS, ResourceError, Session,
     types::{SubscriptionOptions, TopicFilter},
 };
 
@@ -37,9 +37,7 @@ fn is_retryable_activation_error<E>(err: &Error<E>) -> bool {
     matches!(
         err,
         Error::Mqtt(MqttError::NotReady)
-            | Error::Mqtt(MqttError::Protocol(
-                ProtocolError::InflightMetadataExhausted
-            ))
+            | Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))
     )
 }
 
@@ -156,7 +154,7 @@ impl SchemaPublisher {
         match session.publish(publication).await {
             Ok(op) => {
                 let Some((count, hash)) = advanced else {
-                    return Err(Error::Mqtt(ProtocolError::BufferSize.into()));
+                    return Err(Error::Mqtt(ResourceError::BufferTooSmall.into()));
                 };
                 self.sync.next += count;
                 self.sync.page += 1;
@@ -165,16 +163,14 @@ impl SchemaPublisher {
                 Ok(false)
             }
             Err(PubError::Session(MqttError::NotReady))
-            | Err(PubError::Session(MqttError::Protocol(
-                ProtocolError::InflightMetadataExhausted,
-            ))) => Ok(false),
+            | Err(PubError::Session(MqttError::Resource(ResourceError::InflightExhausted))) => {
+                Ok(false)
+            }
             Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
                 info!("Aborting schema sync after oversized schema entry for definition {id}");
-                Err(Error::Mqtt(MqttError::Protocol(ProtocolError::Failed(
-                    ReasonCode::PacketTooLarge,
-                ))))
+                Err(Error::Mqtt(ResourceError::PacketTooLarge.into()))
             }
-            Err(PubError::Payload(_)) => Err(Error::Mqtt(ProtocolError::BufferSize.into())),
+            Err(PubError::Payload(_)) => Err(Error::Mqtt(ResourceError::BufferTooSmall.into())),
             Err(PubError::Session(err)) => Err(Error::Mqtt(err)),
         }
     }
@@ -209,10 +205,10 @@ where
                 );
                 return Ok(true);
             };
-            path.map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+            path.map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
             let full = iter
                 .indices()
-                .ok_or_else(|| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+                .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
             let mut state = [0; crate::MAX_DEPTH];
             state[..full.len()].copy_from_slice(full);
             let state = ChangedKey::new(state, full.len());
@@ -227,7 +223,8 @@ where
             debug!(
                 "Published retained setting {}",
                 mm2.settings_topic(state.as_ref())
-                    .map_err(|err| Error::Mqtt(err.into()))?
+                    .map_err(MqttError::from)
+                    .map_err(Error::from)?
             );
             publisher.op = None;
             publisher.pending = None;
@@ -246,9 +243,7 @@ where
             Ok(false)
         }
         Err(Error::Mqtt(MqttError::NotReady))
-        | Err(Error::Mqtt(MqttError::Protocol(ProtocolError::InflightMetadataExhausted))) => {
-            Ok(false)
-        }
+        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) => Ok(false),
         Err(err) => Err(err),
     }
 }
@@ -263,7 +258,7 @@ where
     let mut topic = mm2.prefix.clone();
     topic
         .push_str("/set/#")
-        .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+        .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
     let topics = [
         TopicFilter::new(&topic).options(SubscriptionOptions::default().ignore_local_messages())
     ];

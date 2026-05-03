@@ -127,9 +127,11 @@ loop {
     if !queue.step(&mut miniconf, &mut session, &settings).await? {
         if let Some(inbound) = session.poll().await? {
             match queue.handle(&mut miniconf, &mut settings, inbound) {
-                Ok(Ingress::Unhandled(message)) => { /* app traffic */ }
-                Ok(Ingress::Ignored) | Ok(Ingress::Rejected) | Ok(Ingress::Accepted(_)) => {}
-                Err(handle) => { /* queue full; original Handle returned unchanged */ }
+                QueueResult::Ingress(Ingress::Unhandled(message)) => { /* app traffic */ }
+                QueueResult::Ingress(Ingress::Ignored)
+                | QueueResult::Ingress(Ingress::Rejected)
+                | QueueResult::Ingress(Ingress::Accepted(_)) => {}
+                QueueResult::Full(handle) => { /* queue full; original Handle returned unchanged */ }
             }
         }
     }

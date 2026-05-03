@@ -4,7 +4,7 @@ use crate::{
 };
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use miniconf::{Tree, TreeSchema};
-use minimq::{ConfigBuilder, ProtocolError};
+use minimq::{ConfigBuilder, ConfigError};
 
 #[derive(Tree)]
 struct Tiny {
@@ -54,7 +54,7 @@ fn constructor_rejects_long_prefix() {
         &prefix,
         ConfigBuilder::from_buffer(&mut buffer, 1024).unwrap(),
     );
-    assert!(matches!(client, Err(ProtocolError::BufferSize)));
+    assert!(matches!(client, Err(ConfigError::InvalidConfig)));
 }
 
 #[test]

@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::fmt::Display;
 
 use miniconf::SerdeError;
-use minimq::{Property, ProtocolError, PubError, types::Utf8String};
+use minimq::{Property, PubError, ResourceError, types::Utf8String};
 use strum::IntoStaticStr;
 
 use crate::Error;
@@ -54,6 +54,6 @@ impl<E: Display> Display for ResponseBody<E> {
 pub(crate) fn simple_pub_error<P, E>(err: PubError<P, E>) -> Error<E> {
     match err {
         PubError::Session(err) => Error::Mqtt(err),
-        PubError::Payload(_) => Error::Mqtt(ProtocolError::BufferSize.into()),
+        PubError::Payload(_) => Error::Mqtt(ResourceError::BufferTooSmall.into()),
     }
 }

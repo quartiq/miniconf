@@ -5,7 +5,7 @@ use heapless::{String, Vec, VecView};
 use log::{debug, warn};
 use miniconf::{DescendError, Indices, SerdeError, ValueError, json_core};
 use minimq::{
-    Error as MqttError, InboundPublish, Io, Op, Property, ProtocolError, QoS, Session,
+    Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session,
     types::Utf8String,
 };
 
@@ -190,9 +190,8 @@ impl ResponsePhase {
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Protocol(
-                            ProtocolError::InflightMetadataExhausted,
-                        ))) => {
+                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
+                        {
                             return Ok(false);
                         }
                         Err(err) => {
@@ -233,9 +232,10 @@ impl ResponsePhase {
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Protocol(
-                            ProtocolError::InflightMetadataExhausted,
-                        ))) => return Ok(false),
+                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
+                        {
+                            return Ok(false);
+                        }
                         Err(err) => return Err(err),
                     }
                 }
@@ -258,9 +258,10 @@ impl ResponsePhase {
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Protocol(
-                            ProtocolError::InflightMetadataExhausted,
-                        ))) => return Ok(false),
+                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
+                        {
+                            return Ok(false);
+                        }
                         Err(err) => return Err(err),
                     }
                 }
@@ -288,9 +289,10 @@ impl ResponsePhase {
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Protocol(
-                            ProtocolError::InflightMetadataExhausted,
-                        ))) => return Ok(false),
+                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
+                        {
+                            return Ok(false);
+                        }
                         Err(err) => return Err(err),
                     }
                 }

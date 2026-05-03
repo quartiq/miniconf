@@ -9,9 +9,9 @@ use miniconf::{
     json_core,
 };
 use minimq::{
-    ConfigBuilder, Error as MqttError, InboundPublish, Io, Op, OpStatus, OwnedResponseTarget,
-    Property, ProtocolError, PubError, Publication, QoS, Session, TopicString, Will,
-    publication::ToPayload, types::Utf8String,
+    ConfigBuilder, ConfigError, Error as MqttError, InboundPublish, Io, Op, OpStatus,
+    OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, TopicString,
+    Will, publication::ToPayload, types::Utf8String,
 };
 use serde::Serialize;
 
@@ -25,7 +25,7 @@ use crate::{
 pub type ChangedKey = Indices<[usize; crate::MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
-/// MM2 protocol error.
+/// MM2 setup, tree, or MQTT session error.
 pub enum Error<E> {
     /// Tree traversal or path resolution failed before any MQTT I/O.
     #[error("tree path resolution failed: {0}")]
@@ -334,20 +334,20 @@ where
     pub fn new<'buf, IO: Io>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
-    ) -> Result<(Self, Session<'buf, IO>), ProtocolError> {
+    ) -> Result<(Self, Session<'buf, IO>), ConfigError> {
         const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
         if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
-            return Err(ProtocolError::BufferSize);
+            return Err(ConfigError::InvalidConfig);
         }
         if SchemaDefs::new(Settings::SCHEMA).is_err() {
-            return Err(ProtocolError::BufferSize);
+            return Err(ConfigError::InvalidConfig);
         }
 
-        let prefix: TopicString = prefix.try_into().map_err(|_| ProtocolError::BufferSize)?;
+        let prefix: TopicString = prefix.try_into().map_err(|_| ConfigError::InvalidConfig)?;
         let mut will_topic = prefix.clone();
         will_topic
             .push_str("/alive")
-            .map_err(|_| ProtocolError::BufferSize)?;
+            .map_err(|_| ConfigError::InvalidConfig)?;
         let will = Will::new(will_topic, b"", &[])?
             .retained()
             .qos(QoS::AtLeastOnce);
@@ -496,7 +496,7 @@ where
         let mut topic = self.prefix.clone();
         topic
             .push_str("/alive")
-            .map_err(|_| Error::Mqtt(ProtocolError::BufferSize.into()))?;
+            .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
         let publication =
             Publication::new(&topic, PublishPayload::<Settings>::Alive(&self.manifest))
                 .qos(QoS::AtLeastOnce)
@@ -515,17 +515,17 @@ where
         topic
     }
 
-    pub(crate) fn settings_topic(&self, state: &[usize]) -> Result<TopicString, ProtocolError> {
+    pub(crate) fn settings_topic(&self, state: &[usize]) -> Result<TopicString, ResourceError> {
         let path: miniconf::ConstPath<TopicString, '/'> = Settings::SCHEMA
             .transcode(state)
-            .map_err(|_| ProtocolError::BufferSize)?;
+            .map_err(|_| ResourceError::BufferTooSmall)?;
         let mut topic = self.prefix.clone();
         topic
             .push_str("/settings")
-            .map_err(|_| ProtocolError::BufferSize)?;
+            .map_err(|_| ResourceError::BufferTooSmall)?;
         topic
             .push_str(path.as_ref())
-            .map_err(|_| ProtocolError::BufferSize)?;
+            .map_err(|_| ResourceError::BufferTooSmall)?;
         Ok(topic)
     }
 
@@ -540,7 +540,8 @@ where
     {
         let topic = self
             .settings_topic(state)
-            .map_err(|err| Error::Mqtt(err.into()))?;
+            .map_err(MqttError::from)
+            .map_err(Error::from)?;
         match self.try_publish_leaf(session, settings, state).await {
             Ok(op) => Ok(op),
             Err(PubError::Payload((
@@ -566,7 +567,10 @@ where
     where
         IO: Io,
     {
-        let topic = self.settings_topic(state).map_err(PubError::from)?;
+        let topic = self
+            .settings_topic(state)
+            .map_err(MqttError::from)
+            .map_err(PubError::from)?;
         let next_rev = self.manifest.settings_rev.wrapping_add(1);
         let mut rev = itoa::Buffer::new();
         let props = [Property::UserProperty(
