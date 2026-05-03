@@ -17,6 +17,21 @@ from .ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
 
+def _normalize_command_path(path: str, base: str) -> tuple[str, str]:
+    """Normalize one CLI path.
+
+    Absolute paths update the base. Relative paths are resolved against the last absolute path
+    without changing it. The empty path stays the tree root.
+    """
+
+    if not path:
+        return "", base
+    if path[0] == "/":
+        path = validate_path(path)
+        return path, path
+    return validate_path(f"{base}/{path}"), base
+
+
 def main() -> None:
     asyncio.run(_main())
 
@@ -161,14 +176,11 @@ async def _handle_commands(
     *,
     raw: bool,
 ) -> None:
-    current = ""
+    base = ""
 
     def normalize(path: str) -> str:
-        nonlocal current
-        if path and path[0] != "/":
-            path = f"{current}/{path}"
-        path = validate_path(path)
-        current = path[: path.rfind("/")]
+        nonlocal base
+        path, base = _normalize_command_path(path, base)
         return path
 
     for arg in commands:

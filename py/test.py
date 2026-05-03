@@ -15,8 +15,9 @@ from queue import Empty, Queue
 import paho.mqtt.client as mqtt
 from aiomqtt import Client
 from miniconf.async_ import MiniconfClient, RawMiniconfClient
+from miniconf.cli import _normalize_command_path
 from miniconf.common import MQTTv5, MiniconfException
-from miniconf.render import render_schema_tree
+from miniconf.render import render_schema_tree, render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -179,6 +180,20 @@ async def wait_cached(tracked, path: str, expected, timeout: float = 3.0):
 
 
 async def main() -> None:
+    assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
+    assert _normalize_command_path("/channel/0/demodulate", "") == (
+        "/channel/0/demodulate",
+        "/channel/0/demodulate",
+    )
+    assert _normalize_command_path("frequency", "/channel/0/demodulate") == (
+        "/channel/0/demodulate/frequency",
+        "/channel/0/demodulate",
+    )
+    assert _normalize_command_path("attenuation", "/channel/0/demodulate") == (
+        "/channel/0/demodulate/attenuation",
+        "/channel/0/demodulate",
+    )
+
     schema_fixture = fixture_schema()
     assert schema_fixture.paths() == ["", "/value", "/nested", "/nested/leaf"]
     assert schema_fixture.kind() == "named"
@@ -316,6 +331,11 @@ async def main() -> None:
                 dump = tracked.snapshot()
                 assert dump["/struct_tree/a"] == 0
                 assert dump["/struct_tree/b"] == 0
+                assert render_value_tree(schema, dump, tracked.root).splitlines() == [
+                    "struct_tree",
+                    "├─ a = 0",
+                    "└─ b = 0",
+                ]
                 try:
                     async with mc.track("/foo"):
                         raise AssertionError("expected tracked-subtree conflict")

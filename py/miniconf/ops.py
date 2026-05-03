@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from aiomqtt import Client, Message
 
-from .common import LOGGER, BurstState, settings_topics, subtree_match
+from .common import LOGGER, BurstState, quiet_window, settings_topics, subtree_match
 
 if TYPE_CHECKING:
     from .async_ import MiniconfClient
@@ -36,7 +36,12 @@ async def discover(
 
     start = asyncio.get_running_loop().time()
     await client.subscribe(topic)
-    quiet = rel_timeout * (asyncio.get_running_loop().time() - start) + timeout
+    quiet = quiet_window(
+        start,
+        asyncio.get_running_loop().time(),
+        rel_timeout,
+        timeout,
+    )
 
     async def listen():
         deadline = asyncio.get_running_loop().time() + quiet
@@ -94,12 +99,11 @@ async def _collect_retained_settings(
     path: str,
     *,
     timeout: float,
-    rel_timeout: float = 4.0,
-    abs_timeout: float = 0.05,
+    rel_timeout: float = 3.0,
+    abs_timeout: float = 0.1,
 ) -> dict[str, Any]:
     root = (await interface.schema(timeout=timeout)).path(path)
-    now = asyncio.get_running_loop().time()
-    burst = BurstState(now, now + abs_timeout)
+    start = asyncio.get_running_loop().time()
     retained: dict[str, Any] = {}
     seen_any = False
     async with AsyncExitStack() as stack:
@@ -107,6 +111,8 @@ async def _collect_retained_settings(
             await stack.enter_async_context(interface._watch(topic_filter))
             for topic_filter in settings_topics(interface.prefix, root)
         ]
+        now = asyncio.get_running_loop().time()
+        burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
@@ -158,14 +164,15 @@ async def _collect_retained_topics(
     topic_filter: str,
     *,
     timeout: float,
-    rel_timeout: float = 4.0,
-    abs_timeout: float = 0.05,
+    rel_timeout: float = 3.0,
+    abs_timeout: float = 0.1,
 ) -> list[str]:
-    now = asyncio.get_running_loop().time()
-    burst = BurstState(now, now + abs_timeout)
+    start = asyncio.get_running_loop().time()
     seen: set[str] = set()
     seen_any = False
     async with interface._watch(topic_filter) as queue:
+        now = asyncio.get_running_loop().time()
+        burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()

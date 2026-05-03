@@ -23,6 +23,7 @@ from .common import (
     json_dumps,
     settings_topics,
     subtree_match,
+    quiet_window,
     validate_path,
 )
 from .schema import Schema
@@ -295,8 +296,11 @@ class MiniconfClient:
             self._settings.clear()
             if self._track_state is not None:
                 now = asyncio.get_running_loop().time()
-                self._track_state.burst = BurstState(
-                    now, now + self._track_state.abs_timeout
+                self._track_state.burst = BurstState.from_roundtrip(
+                    now,
+                    now,
+                    self._track_state.rel_timeout,
+                    self._track_state.abs_timeout,
                 )
         if prev_schema_rev != schema_rev:
             self._schema = None
@@ -307,8 +311,11 @@ class MiniconfClient:
         self._settings.clear()
         if self._track_state is not None:
             now = asyncio.get_running_loop().time()
-            self._track_state.burst = BurstState(
-                now, now + self._track_state.abs_timeout
+            self._track_state.burst = BurstState.from_roundtrip(
+                now,
+                now,
+                self._track_state.rel_timeout,
+                self._track_state.abs_timeout,
             )
 
     def _note_manifest_payload(self, payload: bytes):
@@ -454,8 +461,8 @@ class MiniconfClient:
         path: str = "",
         *,
         timeout: float = 3.0,
-        rel_timeout: float = 4.0,
-        abs_timeout: float = 0.05,
+        rel_timeout: float = 3.0,
+        abs_timeout: float = 0.1,
     ) -> TrackedSubtree:
         """Return a scoped tracker for one retained settings subtree."""
 
@@ -475,23 +482,30 @@ class MiniconfClient:
         rel_timeout: float,
         abs_timeout: float,
     ) -> str:
-        # 50 ms keeps the common local-broker case fast when retained packets are already queued.
-        # The relative term stretches the quiet window when packets arrive more slowly or with
-        # larger gaps, so one burst does not terminate early on slower links.
+        # Use the measured settings-subscribe turnaround as the prototype for how quickly retained
+        # settings should appear on this link. The settle window is then `max(abs_timeout,
+        # rel_timeout * turnaround)` and stretches further while a retained burst is in flight.
         if self._tracked_root is not None:
             raise MiniconfException("Tracked", self._tracked_root)
         root = (await self.schema(timeout=timeout)).path(path)
-        now = asyncio.get_running_loop().time()
+        start = asyncio.get_running_loop().time()
         self._tracked_root = root
         self._track_state = _TrackState(
             rel_timeout=rel_timeout,
             abs_timeout=abs_timeout,
-            burst=BurstState(now, now + abs_timeout),
+            burst=BurstState.from_roundtrip(start, start, rel_timeout, abs_timeout),
         )
         self._settings.clear()
         try:
             for topic_filter in settings_topics(self.prefix, root):
                 await self._subscribe(topic_filter)
+            now = asyncio.get_running_loop().time()
+            quiet = quiet_window(start, now, rel_timeout, abs_timeout)
+            assert self._track_state is not None
+            self._track_state.burst.deadline = max(
+                self._track_state.burst.deadline,
+                now + quiet,
+            )
             await self._await_tracking(timeout)
         except Exception:
             for topic_filter in settings_topics(self.prefix, root):

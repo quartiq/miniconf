@@ -39,6 +39,14 @@ def settings_topics(prefix: str, path: str) -> tuple[str, ...]:
     return (f"{prefix}/settings{root}/#",)
 
 
+def quiet_window(
+    start: float, now: float, rel_timeout: float, abs_timeout: float
+) -> float:
+    """One quiet-window estimate from a measured subscribe turnaround or burst gap."""
+
+    return max(abs_timeout, rel_timeout * (now - start))
+
+
 @dataclass
 class BurstState:
     """Simple retained-burst settle heuristic."""
@@ -48,12 +56,18 @@ class BurstState:
     count: int = 0
     last: float | None = None
 
+    @classmethod
+    def from_roundtrip(
+        cls, start: float, now: float, rel_timeout: float, abs_timeout: float
+    ) -> "BurstState":
+        return cls(start, now + quiet_window(start, now, rel_timeout, abs_timeout))
+
     def note(self, now: float, rel_timeout: float, abs_timeout: float):
         self.count += 1
         # The fixed floor keeps local retained bursts fast when messages are already buffered.
         # The relative term stretches the quiet window when retained packets arrive more slowly.
         if self.last is None:
-            gap = abs_timeout
+            gap = quiet_window(self.start, now, rel_timeout, abs_timeout)
         else:
             gap = max(abs_timeout, rel_timeout * ((now - self.start) / self.count))
         self.last = now
