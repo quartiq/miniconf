@@ -25,7 +25,7 @@ miniconf = { version = "0.20.1", features = ["json-core"], default-features = fa
 minimq = "0.10"
 embassy-time = { version = "0.5.1" }
 embedded-io = "0.7"
-log = "0.4"
+defmt = "1.0.1"
 heapless = "0.9.1"
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.6.0" }
@@ -39,6 +39,7 @@ name = "miniconf"
 
 [dev-dependencies]
 clap = { version = "4.5", features = ["derive"] }
+defmt2log = { path = "../../defmt2log" }
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros", "net", "io-util"] }

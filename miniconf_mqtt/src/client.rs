@@ -323,9 +323,23 @@ where
                 self.manifest.settings_rev = 0;
                 self.manifest.schema_rev = 0;
                 self.manifest.schema_pages = 0;
+                crate::info!(
+                    "Starting fresh MM2 startup prefix={=str} epoch={=u32}",
+                    self.prefix.as_str(),
+                    self.manifest.epoch
+                );
                 Startup::fresh::<Settings>()
             }
-            ConnectEvent::Reconnected => Startup::resumed(),
+            ConnectEvent::Reconnected => {
+                crate::info!(
+                    "Starting resumed MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32} settings_rev={=u32}",
+                    self.prefix.as_str(),
+                    self.manifest.epoch,
+                    self.manifest.schema_rev,
+                    self.manifest.settings_rev
+                );
+                Startup::resumed()
+            }
         }
     }
 
@@ -434,6 +448,13 @@ where
         topic
             .push_str("/alive")
             .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
+        crate::debug!(
+            "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize}",
+            topic.as_str(),
+            self.manifest.epoch,
+            self.manifest.schema_rev,
+            self.manifest.schema_pages
+        );
         let publication =
             Publication::new(&topic, PublishPayload::<Settings>::Alive(&self.manifest))
                 .qos(QoS::AtLeastOnce)
@@ -479,6 +500,11 @@ where
             .settings_topic(state)
             .map_err(MqttError::from)
             .map_err(Error::from)?;
+        crate::debug!(
+            "Publishing authoritative setting topic={=str} next_rev={=u32}",
+            topic.as_str(),
+            self.manifest.settings_rev.wrapping_add(1)
+        );
         match self.try_publish_leaf(session, settings, state).await {
             Ok(op) => Ok(op),
             Err(PubError::Payload((
@@ -490,7 +516,14 @@ where
                         ),
                     ..
                 }),
-            ))) => self.clear_leaf(session, &topic).await,
+            ))) => {
+                crate::debug!(
+                    "Clearing authoritative setting topic={=str} next_rev={=u32}",
+                    topic.as_str(),
+                    self.manifest.settings_rev.wrapping_add(1)
+                );
+                self.clear_leaf(session, &topic).await
+            }
             Err(err) => Err(crate::message::simple_pub_error(err)),
         }
     }
@@ -666,11 +699,26 @@ impl<const N: usize> Service<N> {
         let Some(mut aftermath) = self.aftermaths.pop_front() else {
             return Ok(true);
         };
+        crate::debug!(
+            "Driving MM2 aftermath queued_before={=usize} capacity={=usize}",
+            self.aftermaths.len() + 1,
+            N
+        );
 
         if aftermath.step(mm2, session, settings).await? {
+            crate::debug!(
+                "Completed MM2 aftermath queued_remaining={=usize} capacity={=usize}",
+                self.aftermaths.len(),
+                N
+            );
             Ok(self.aftermaths.is_empty())
         } else {
             let _ = self.aftermaths.push_front(aftermath);
+            crate::debug!(
+                "MM2 aftermath pending queued_remaining={=usize} capacity={=usize}",
+                self.aftermaths.len(),
+                N
+            );
             Ok(false)
         }
     }
@@ -691,6 +739,13 @@ impl<const N: usize> Service<N> {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     {
         if self.is_full() && request::is_request(mm2.prefix.as_str(), inbound.topic()) {
+            crate::debug!(
+                "Rejecting MM2 request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
+                inbound.topic(),
+                self.aftermaths.len(),
+                N,
+                inbound.payload().len()
+            );
             return ServiceEvent::Busy;
         }
 
@@ -701,12 +756,23 @@ impl<const N: usize> Service<N> {
                 if let Some(aftermath) = aftermath {
                     debug_assert!(!self.is_full());
                     let _ = self.aftermaths.push_back(aftermath);
+                    crate::debug!(
+                        "Queued MM2 error aftermath queued={=usize} capacity={=usize}",
+                        self.aftermaths.len(),
+                        N
+                    );
                 }
                 ServiceEvent::Idle
             }
             Route::Accepted { changed, aftermath } => {
                 debug_assert!(!self.is_full());
                 let _ = self.aftermaths.push_back(aftermath);
+                crate::debug!(
+                    "Queued MM2 publish aftermath changed_depth={=usize} queued={=usize} capacity={=usize}",
+                    changed.as_ref().len(),
+                    self.aftermaths.len(),
+                    N
+                );
                 ServiceEvent::Changed(changed)
             }
         }

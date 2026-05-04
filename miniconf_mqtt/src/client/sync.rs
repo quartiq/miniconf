@@ -1,4 +1,3 @@
-use log::{debug, info};
 use minimq::{
     Error as MqttError, Io, Op, PubError, Publication, QoS, ResourceError, Session,
     types::{SubscriptionOptions, TopicFilter},
@@ -58,6 +57,11 @@ impl StartupPhase {
                     if schema.step(mm2, session).await? {
                         mm2.manifest.schema_pages = schema.sync.page;
                         mm2.manifest.schema_rev = schema.sync.hash;
+                        crate::debug!(
+                            "Schema startup phase complete pages={=usize} rev={=u32}",
+                            mm2.manifest.schema_pages,
+                            mm2.manifest.schema_rev
+                        );
                         *self = Self::Settings(Publisher {
                             root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
                             iter: None,
@@ -70,6 +74,10 @@ impl StartupPhase {
                 }
                 Self::Settings(publisher) => {
                     if publisher.step(mm2, session, settings).await? {
+                        crate::debug!(
+                            "Settings startup phase complete rev={=u32}",
+                            mm2.manifest.settings_rev
+                        );
                         *self = Self::SubscribeSet(None);
                         continue;
                     }
@@ -78,6 +86,7 @@ impl StartupPhase {
                 Self::SubscribeSet(op) => match super::poll_op(session, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
+                        crate::debug!("Subscribed MM2 request ingress");
                         *self = Self::Alive(None);
                         continue;
                     }
@@ -93,6 +102,12 @@ impl StartupPhase {
                 Self::Alive(op) => match super::poll_op(session, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
+                        crate::info!(
+                            "Completed MM2 startup epoch={=u32} schema_rev={=u32} settings_rev={=u32}",
+                            mm2.manifest.epoch,
+                            mm2.manifest.schema_rev,
+                            mm2.manifest.settings_rev
+                        );
                         *self = Self::Done;
                         return Ok(true);
                     }
@@ -127,16 +142,19 @@ impl SchemaPublisher {
         }
 
         if self.sync.next == self.sync.defs.len() {
-            info!(
-                "Completed schema sync pages={} rev={}",
-                self.sync.page, self.sync.hash
+            crate::info!(
+                "Completed schema sync pages={=usize} rev={=u32}",
+                self.sync.page,
+                self.sync.hash
             );
             return Ok(true);
         }
 
-        debug!(
-            "Publishing schema page={} next_def={}",
-            self.sync.page, self.sync.next
+        crate::debug!(
+            "Publishing schema page={=usize} next_def={=usize} defs_total={=usize}",
+            self.sync.page,
+            self.sync.next,
+            self.sync.defs.len()
         );
         let topic = mm2.schema_page_topic(self.sync.page);
         let mut advanced = None::<(usize, u32)>;
@@ -167,7 +185,10 @@ impl SchemaPublisher {
                 Ok(false)
             }
             Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
-                info!("Aborting schema sync after oversized schema entry for definition {id}");
+                crate::info!(
+                    "Aborting schema sync after oversized schema entry definition={=usize}",
+                    id
+                );
                 Err(Error::Mqtt(ResourceError::PacketTooLarge.into()))
             }
             Err(PubError::Payload(_)) => Err(Error::Mqtt(ResourceError::BufferTooSmall.into())),
@@ -191,7 +212,10 @@ where
             Settings::SCHEMA,
             publisher.root.as_ref(),
         )?);
-        info!("Starting retained settings sync");
+        crate::info!(
+            "Starting retained settings sync root_depth={=usize}",
+            publisher.root.as_ref().len()
+        );
     }
 
     let state = match publisher.pending {
@@ -199,8 +223,8 @@ where
         None => {
             let iter = publisher.iter.as_mut().unwrap();
             let Some(path) = iter.next() else {
-                info!(
-                    "Completed retained settings sync rev={}",
+                crate::info!(
+                    "Completed retained settings sync rev={=u32}",
                     mm2.manifest.settings_rev
                 );
                 return Ok(true);
@@ -213,6 +237,11 @@ where
             state[..full.len()].copy_from_slice(full);
             let state = ChangedKey::new(state, full.len());
             publisher.pending = Some(state);
+            crate::debug!(
+                "Preparing retained setting publication depth={=usize} rev_next={=u32}",
+                state.as_ref().len(),
+                mm2.manifest.settings_rev.wrapping_add(1)
+            );
             state
         }
     };
@@ -220,11 +249,10 @@ where
     match super::poll_op(session, &mut publisher.op)? {
         PendingOp::Pending => return Ok(false),
         PendingOp::Complete => {
-            debug!(
-                "Published retained setting {}",
-                mm2.settings_topic(state.as_ref())
-                    .map_err(MqttError::from)
-                    .map_err(Error::from)?
+            crate::debug!(
+                "Published retained setting depth={=usize} rev={=u32}",
+                state.as_ref().len(),
+                mm2.manifest.settings_rev
             );
             publisher.op = None;
             publisher.pending = None;
@@ -259,6 +287,10 @@ where
     topic
         .push_str("/set/#")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
+    crate::debug!(
+        "Subscribing MM2 request ingress topic={=str}",
+        topic.as_str()
+    );
     let topics = [
         TopicFilter::new(&topic).options(SubscriptionOptions::default().ignore_local_messages())
     ];

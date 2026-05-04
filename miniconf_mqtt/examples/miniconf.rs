@@ -71,6 +71,7 @@ async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
 #[tokio::main]
 async fn main() {
     env_logger::init();
+    defmt2log::init_from_current_exe().unwrap();
 
     let args = Args::parse();
     let broker = SocketAddr::new(

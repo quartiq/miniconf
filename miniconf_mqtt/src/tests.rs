@@ -1,3 +1,5 @@
+extern crate std;
+
 use crate::{
     MAX_TOPIC_LENGTH, Miniconf,
     schema::{SchemaDefs, serialize_schema_page},
@@ -5,6 +7,7 @@ use crate::{
 use embedded_io_async::{ErrorKind, ErrorType, Read, Write};
 use miniconf::{Tree, TreeSchema};
 use minimq::{ConfigBuilder, ConfigError};
+use std::sync::OnceLock;
 
 #[derive(Tree)]
 struct Tiny {
@@ -46,8 +49,18 @@ impl Write for DummyConnection {
     }
 }
 
+fn init_host_logging() {
+    static HOST_LOGGING: OnceLock<()> = OnceLock::new();
+
+    HOST_LOGGING.get_or_init(|| {
+        let _ = env_logger::builder().is_test(true).try_init();
+        defmt2log::init_from_current_exe().expect("initialize defmt host logger");
+    });
+}
+
 #[test]
 fn constructor_rejects_long_prefix() {
+    init_host_logging();
     let prefix = "x".repeat(MAX_TOPIC_LENGTH);
     let mut buffer = [0u8; 1024];
     let client = Miniconf::<Tiny>::new::<DummyConnection>(
@@ -59,6 +72,7 @@ fn constructor_rejects_long_prefix() {
 
 #[test]
 fn schema_pages_match_golden_fixture() {
+    init_host_logging();
     let mut payload = [0u8; 1024];
     let defs = SchemaDefs::new(TreeSettings::SCHEMA).unwrap();
     let page = serialize_schema_page(&defs, 0, &mut payload).unwrap();
@@ -74,6 +88,7 @@ fn schema_pages_match_golden_fixture() {
 
 #[test]
 fn schema_defs_keep_root_last() {
+    init_host_logging();
     let defs = SchemaDefs::new(TreeSettings::SCHEMA).unwrap();
     assert_eq!(defs.root(), Some(TreeSettings::SCHEMA));
 }

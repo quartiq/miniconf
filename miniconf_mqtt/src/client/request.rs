@@ -2,7 +2,6 @@ use core::convert::Infallible;
 use core::fmt::Write as _;
 
 use heapless::{String, Vec, VecView};
-use log::{debug, warn};
 use miniconf::{DescendError, Indices, SerdeError, ValueError, json_core};
 use minimq::{
     Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session,
@@ -69,9 +68,10 @@ where
     {
         Ok(reply) => reply,
         Err(err) => {
-            warn!(
-                "Rejecting request with oversized reply target on {}: {err:?}",
-                inbound.topic()
+            crate::warn!(
+                "Rejecting request with oversized reply target topic={=str} err={}",
+                inbound.topic(),
+                err
             );
             return Route::Ignored;
         }
@@ -81,9 +81,11 @@ where
     let lookup = match Settings::SCHEMA.resolve_into(path, &mut state) {
         Ok(lookup) => lookup,
         Err(err) => {
-            debug!(
-                "Rejecting set request topic={} err={err:?}",
-                inbound.topic()
+            crate::debug!(
+                "Rejecting set request topic={=str} depth={=usize} err={=?}",
+                inbound.topic(),
+                err.lookup.depth,
+                err.error
             );
             let body = ResponseBody::Lookup(DepthError::<Infallible> {
                 inner: match err.error {
@@ -107,12 +109,15 @@ where
     };
 
     if inbound.payload().is_empty() {
-        debug!("Ignoring empty set payload topic={}", inbound.topic());
+        crate::debug!("Ignoring empty set payload topic={=str}", inbound.topic());
         return Route::Ignored;
     }
 
     if !lookup.schema.is_leaf() {
-        debug!("Rejecting non-leaf set request topic={}", inbound.topic());
+        crate::debug!(
+            "Rejecting non-leaf set request topic={=str}",
+            inbound.topic()
+        );
         let body = ResponseBody::LeafRequired {
             depth: lookup.depth,
         };
@@ -132,6 +137,13 @@ where
         json_core::set_by_keys(settings, keys, inbound.payload())
     }) {
         Ok(_) => {
+            crate::debug!(
+                "Accepted set request topic={=str} depth={=usize} payload_len={=usize} reply={=bool}",
+                inbound.topic(),
+                lookup.depth,
+                inbound.payload().len(),
+                reply.is_some()
+            );
             let changed = Indices::new(state, lookup.depth);
             Route::Accepted {
                 changed,
@@ -145,6 +157,13 @@ where
             }
         }
         Err(err) => {
+            crate::debug!(
+                "Rejecting set request topic={=str} depth={=usize} payload_len={=usize} err={=?}",
+                inbound.topic(),
+                err.depth,
+                inbound.payload().len(),
+                err.inner
+            );
             let body = ResponseBody::Set(err);
             Route::Rejected {
                 aftermath: reply.map(|target| Aftermath {
@@ -177,9 +196,17 @@ impl AftermathPhase {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             if let Some(target) = reply.take() {
+                                crate::debug!(
+                                    "Published authoritative setting; sending MM2 success reply reply_topic={=str}",
+                                    target.topic()
+                                );
                                 *self = Self::ReplyOk { target, op: None };
                                 continue;
                             }
+                            crate::debug!(
+                                "Published authoritative setting without reply topic depth={=usize}",
+                                state.as_ref().len()
+                            );
                             *self = Self::Done;
                             return Ok(true);
                         }
@@ -200,6 +227,10 @@ impl AftermathPhase {
                         }
                         Err(err) => {
                             if let Some(target) = reply.take() {
+                                crate::warn!(
+                                    "Authoritative setting publish failed; replying with MM2 error reply_topic={=str}",
+                                    target.topic()
+                                );
                                 let (error, payload) = publish_error_text(&err);
                                 *self = Self::ReplyPublishError {
                                     target,
@@ -221,6 +252,12 @@ impl AftermathPhase {
                     match super::poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
+                            crate::debug!(
+                                "Completed MM2 error reply reply_topic={=str} kind={=str} depth={=?}",
+                                target.topic(),
+                                message.kind,
+                                message.depth
+                            );
                             *self = Self::Done;
                             return Ok(true);
                         }
@@ -247,6 +284,10 @@ impl AftermathPhase {
                     match super::poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
+                            crate::debug!(
+                                "Completed MM2 success reply reply_topic={=str}",
+                                target.topic()
+                            );
                             *self = Self::Done;
                             return Ok(true);
                         }
@@ -278,6 +319,10 @@ impl AftermathPhase {
                     match super::poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
+                            crate::debug!(
+                                "Completed MM2 publish-error reply reply_topic={=str}",
+                                target.topic()
+                            );
                             *self = Self::Done;
                             return Ok(true);
                         }

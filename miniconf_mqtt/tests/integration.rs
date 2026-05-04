@@ -8,6 +8,7 @@ use minimq::{
     ConfigBuilder, ConnectEvent, Publication, QoS, Session,
     types::{SubscriptionOptions, TopicFilter},
 };
+use std::sync::OnceLock;
 use std::{
     net::SocketAddr,
     time::{SystemTime, UNIX_EPOCH},
@@ -23,8 +24,13 @@ mod common;
 
 const BROKER_ADDR_ENV: &str = "BROKER";
 
-fn init_log() {
-    let _ = env_logger::builder().is_test(true).try_init();
+fn init_host_logging() {
+    static HOST_LOGGING: OnceLock<()> = OnceLock::new();
+
+    HOST_LOGGING.get_or_init(|| {
+        let _ = env_logger::builder().is_test(true).try_init();
+        defmt2log::init_from_current_exe().expect("initialize defmt host logger");
+    });
 }
 
 #[derive(Tree, Default)]
@@ -143,7 +149,7 @@ async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConne
 
 #[tokio::test]
 async fn mm2_set_stays_internal() {
-    init_log();
+    init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;
@@ -185,7 +191,7 @@ async fn mm2_set_stays_internal() {
 
 #[tokio::test]
 async fn other_topics_are_unhandled() {
-    init_log();
+    init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;
@@ -239,7 +245,7 @@ async fn other_topics_are_unhandled() {
 
 #[tokio::test]
 async fn startup_with_large_schema_waits_on_session_progress() {
-    init_log();
+    init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;
@@ -296,7 +302,7 @@ async fn startup_with_large_schema_waits_on_session_progress() {
 
 #[tokio::test]
 async fn service_accepts_later_sets_while_earlier_response_is_pending() {
-    init_log();
+    init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;
@@ -367,7 +373,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 
 #[tokio::test]
 async fn service_rejects_overflow_without_mutating() {
-    init_log();
+    init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
         return;

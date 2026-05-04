@@ -17,6 +17,8 @@ pub use minimq;
 
 pub use client::{ChangedKey, Error, Event, Miniconf, Publisher, Service, ServiceEvent, Startup};
 
+pub(crate) use defmt::{debug, info, warn};
+
 /// Maximum path-state depth supported by `miniconf_mqtt`.
 pub const MAX_DEPTH: usize = 12;
 
