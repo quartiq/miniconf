@@ -39,7 +39,7 @@ name = "miniconf"
 
 [dev-dependencies]
 clap = { version = "4.5", features = ["derive"] }
-defmt2log = { path = "../../defmt2log" }
+defmt2log = "0.1.0"
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
 tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros", "net", "io-util"] }
