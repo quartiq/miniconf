@@ -158,11 +158,15 @@ where
         }
         Err(err) => {
             crate::debug!(
-                "Rejecting set request topic={=str} depth={=usize} payload_len={=usize} err={=?}",
+                "Rejecting set request topic={=str} depth={=usize} payload_len={=usize} class={=str}",
                 inbound.topic(),
                 err.depth,
                 inbound.payload().len(),
-                err.inner
+                match &err.inner {
+                    miniconf::SerdeError::Value(_) => "Value",
+                    miniconf::SerdeError::Inner(_) => "Deserialize",
+                    miniconf::SerdeError::Finalization(_) => "Finalization",
+                }
             );
             let body = ResponseBody::Set(err);
             Route::Rejected {
