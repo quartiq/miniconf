@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_mqtt` MM2 manifests now publish `epoch`/`schema_rev`. Long-lived Python
   clients keep `/alive` subscribed, invalidate cached schema/settings on `epoch` or `schema_rev`
   changes, and treat retained `settings/#` without `rev` as non-authoritative.
+* `miniconf_mqtt` now exposes `startup(...)`/`begin_startup(...)`, `serve(...)`, and bounded
+  `Service` instead of the older `activate()`/`publish_alive()` and low-level
+  `Handle`/`ResponseQueue` workflow stack.
 * `miniconf_mqtt::MqttClient::poll()` now returns one session event
   (`Changed`/`Connected`/`Reconnected`/`Other`) and the shared client now exposes direct
   `subscribe()` / `unsubscribe()` passthroughs for non-MM2 topics.

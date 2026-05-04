@@ -11,11 +11,11 @@ use minimq::{
 
 use crate::{
     Error,
-    client::{ChangedKey, Handle, Miniconf, PendingOp, ReplyTarget, Response},
+    client::{Aftermath, ChangedKey, Miniconf, PendingOp, ReplyTarget, Route},
     message::{DepthError, ResponseBody, ResponseCode, set_path, simple_pub_error},
 };
 
-pub(crate) enum ResponsePhase {
+pub(crate) enum AftermathPhase {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
@@ -48,16 +48,20 @@ pub(crate) struct ReplyMessage {
     payload: String<96>,
 }
 
-pub(crate) fn handle<'msg, Settings>(
+pub(crate) fn is_request(prefix: &str, topic: &str) -> bool {
+    set_path(topic, prefix).is_some()
+}
+
+pub(crate) fn route<'msg, Settings>(
     prefix: &str,
     settings: &mut Settings,
     inbound: InboundPublish<'msg>,
-) -> Handle<'msg>
+) -> Route<'msg>
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
 {
     let Some(path) = set_path(inbound.topic(), prefix) else {
-        return Handle::Unhandled(inbound);
+        return Route::Unhandled(inbound);
     };
 
     let reply = match inbound
@@ -69,7 +73,7 @@ where
                 "Rejecting request with oversized reply target on {}: {err:?}",
                 inbound.topic()
             );
-            return Handle::Ignored;
+            return Route::Ignored;
         }
     };
 
@@ -90,9 +94,9 @@ where
                 },
                 depth: err.lookup.depth,
             });
-            return Handle::Rejected {
-                response: reply.map(|target| Response {
-                    phase: ResponsePhase::ErrorReply {
+            return Route::Rejected {
+                aftermath: reply.map(|target| Aftermath {
+                    phase: AftermathPhase::ErrorReply {
                         target,
                         message: encode_body(&body),
                         op: None,
@@ -104,7 +108,7 @@ where
 
     if inbound.payload().is_empty() {
         debug!("Ignoring empty set payload topic={}", inbound.topic());
-        return Handle::Ignored;
+        return Route::Ignored;
     }
 
     if !lookup.schema.is_leaf() {
@@ -112,9 +116,9 @@ where
         let body = ResponseBody::LeafRequired {
             depth: lookup.depth,
         };
-        return Handle::Rejected {
-            response: reply.map(|target| Response {
-                phase: ResponsePhase::ErrorReply {
+        return Route::Rejected {
+            aftermath: reply.map(|target| Aftermath {
+                phase: AftermathPhase::ErrorReply {
                     target,
                     message: encode_body(&body),
                     op: None,
@@ -129,10 +133,10 @@ where
     }) {
         Ok(_) => {
             let changed = Indices::new(state, lookup.depth);
-            Handle::Accepted {
+            Route::Accepted {
                 changed,
-                response: Response {
-                    phase: ResponsePhase::Publish {
+                aftermath: Aftermath {
+                    phase: AftermathPhase::Publish {
                         state: changed,
                         reply,
                         op: None,
@@ -142,9 +146,9 @@ where
         }
         Err(err) => {
             let body = ResponseBody::Set(err);
-            Handle::Rejected {
-                response: reply.map(|target| Response {
-                    phase: ResponsePhase::ErrorReply {
+            Route::Rejected {
+                aftermath: reply.map(|target| Aftermath {
+                    phase: AftermathPhase::ErrorReply {
                         target,
                         message: encode_body(&body),
                         op: None,
@@ -155,7 +159,7 @@ where
     }
 }
 
-impl ResponsePhase {
+impl AftermathPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,

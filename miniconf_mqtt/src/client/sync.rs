@@ -11,7 +11,7 @@ use crate::{
 };
 
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum ActivationPhase {
+pub(crate) enum StartupPhase {
     Schema(SchemaPublisher),
     Settings(Publisher),
     SubscribeSet(Option<Op>),
@@ -33,7 +33,7 @@ impl SchemaPublisher {
     }
 }
 
-fn is_retryable_activation_error<E>(err: &Error<E>) -> bool {
+fn is_retryable_startup_error<E>(err: &Error<E>) -> bool {
     matches!(
         err,
         Error::Mqtt(MqttError::NotReady)
@@ -41,7 +41,7 @@ fn is_retryable_activation_error<E>(err: &Error<E>) -> bool {
     )
 }
 
-impl ActivationPhase {
+impl StartupPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
@@ -86,7 +86,7 @@ impl ActivationPhase {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(err) if is_retryable_activation_error(&err) => return Ok(false),
+                        Err(err) if is_retryable_startup_error(&err) => return Ok(false),
                         Err(err) => return Err(err),
                     },
                 },
@@ -101,7 +101,7 @@ impl ActivationPhase {
                             *op = next;
                             return Ok(false);
                         }
-                        Err(err) if is_retryable_activation_error(&err) => return Ok(false),
+                        Err(err) if is_retryable_startup_error(&err) => return Ok(false),
                         Err(err) => return Err(err),
                     },
                 },

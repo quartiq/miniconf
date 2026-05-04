@@ -108,19 +108,15 @@ async fn run(prefix: &str, broker: SocketAddr, client_id: &str) {
 
     loop {
         let io = connect_addr(broker).await.unwrap();
-        match session.connect(io).await.unwrap() {
-            ConnectEvent::Connected => {
-                mm2.activate(&mut session, &settings).await.unwrap();
-                println!("Connected");
-            }
-            ConnectEvent::Reconnected => {
-                mm2.publish_alive(&mut session).await.unwrap();
-                println!("Reconnected");
-            }
+        let event = session.connect(io).await.unwrap();
+        mm2.startup(&mut session, &settings, event).await.unwrap();
+        match event {
+            ConnectEvent::Connected => println!("Connected"),
+            ConnectEvent::Reconnected => println!("Reconnected"),
         }
 
         loop {
-            match mm2.poll_with(&mut session, &mut settings, |_| ()).await {
+            match mm2.serve(&mut session, &mut settings, |_| ()).await {
                 Ok(Event::Unhandled(())) => {}
                 Ok(Event::Changed(_)) => {
                     println!("Settings updated");

@@ -9,7 +9,7 @@ use miniconf::{
     json_core,
 };
 use minimq::{
-    ConfigBuilder, ConfigError, Error as MqttError, InboundPublish, Io, Op, OpStatus,
+    ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op, OpStatus,
     OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, TopicString,
     Will, publication::ToPayload, types::Utf8String,
 };
@@ -163,32 +163,7 @@ where
     }
 }
 
-#[allow(clippy::large_enum_variant)]
-/// Result of handling one inbound publish.
-#[must_use = "match on the result and drive any returned response to completion"]
-pub enum Handle<'a> {
-    /// The message is not MM2 traffic and remains owned by the caller.
-    Unhandled(InboundPublish<'a>),
-    /// MM2 handled the message and intentionally ignored it.
-    Ignored,
-    /// MM2 rejected the request.
-    Rejected {
-        /// Optional reply work for the rejected request.
-        response: Option<Response>,
-    },
-    /// MM2 accepted the request and already changed local settings.
-    Accepted {
-        /// The exact leaf changed locally by the successful `/set`.
-        changed: ChangedKey,
-        /// Required follow-up work for the accepted request.
-        ///
-        /// This always exists because the authoritative retained `settings/...` update still has
-        /// to be published, even without a reply topic.
-        response: Response,
-    },
-}
-
-/// Result of `Miniconf::poll_with()`.
+/// Result of `Miniconf::serve()`.
 #[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
 pub enum Event<T> {
     /// One non-MM2 inbound publish was returned through the callback.
@@ -197,28 +172,29 @@ pub enum Event<T> {
     Changed(ChangedKey),
 }
 
-/// Immediate outcome of routing one inbound publish.
+/// Immediate outcome of cooperative MM2 service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
-pub enum Ingress<T> {
+pub enum ServiceEvent<'a> {
+    /// No immediate MM2 work or inbound publish was available.
+    Idle,
+    /// One MM2 request was rejected because bounded service capacity was exhausted.
+    Busy,
     /// The message is not MM2 traffic and remains owned by the caller.
-    Unhandled(T),
-    /// MM2 handled the message and intentionally ignored it.
-    Ignored,
-    /// MM2 rejected the request and any required reply work was queued.
-    Rejected,
-    /// MM2 accepted the request, changed local settings, and queued required follow-up work.
-    Accepted(ChangedKey),
+    Unhandled(InboundPublish<'a>),
+    /// One `/set` changed this exact leaf and follow-up work was queued.
+    Changed(ChangedKey),
 }
 
-/// Outcome of attempting to queue MM2 request aftermath work.
-#[allow(clippy::large_enum_variant)]
-#[must_use = "match on the outcome to handle ingress or recover the original Handle"]
-pub enum QueueResult<'a> {
-    /// Any required MM2 follow-up work was queued successfully.
-    Ingress(Ingress<InboundPublish<'a>>),
-    /// The queue could not accept the follow-up work, so the original `Handle` is returned
-    /// unchanged.
-    Full(Handle<'a>),
+enum Route<'a> {
+    Unhandled(InboundPublish<'a>),
+    Ignored,
+    Rejected {
+        aftermath: Option<Aftermath>,
+    },
+    Accepted {
+        changed: ChangedKey,
+        aftermath: Aftermath,
+    },
 }
 
 /// MM2 protocol state for one prefix and one settings tree.
@@ -228,10 +204,10 @@ pub struct Miniconf<Settings> {
     _settings: PhantomData<Settings>,
 }
 
-/// Fresh-session MM2 bootstrap workflow.
-#[must_use = "drive activation to completion before relying on MM2 startup state"]
-pub struct Activation {
-    phase: sync::ActivationPhase,
+/// Fresh-session or resumed-session MM2 startup workflow.
+#[must_use = "drive startup to completion before relying on MM2 startup state"]
+pub struct Startup {
+    phase: sync::StartupPhase,
 }
 
 /// Explicit retained publication workflow for a leaf, subtree, or root.
@@ -243,62 +219,32 @@ pub struct Publisher {
     op: Option<Op>,
 }
 
-/// Effectful aftermath of one handled `/set` request.
-#[must_use = "drive the response to completion to publish retained state and any requested reply"]
-pub struct Response {
-    phase: request::ResponsePhase,
+pub(crate) struct Aftermath {
+    phase: request::AftermathPhase,
 }
 
-/// Bounded queue of MM2 request aftermath work.
+/// Bounded cooperative MM2 service.
 ///
-/// Use this when you want to keep accepting new `/set` requests while earlier `Response`s are
-/// still being driven to completion.
-pub struct ResponseQueue<const N: usize = 4> {
-    responses: Deque<Response, N>,
-}
-
-impl<'a> Handle<'a> {
-    /// Queue any required MM2 response work and return the immediate ingress outcome.
-    ///
-    /// If the queue cannot accept the follow-up work, the original `Handle` is returned
-    /// unchanged.
-    pub fn queue_into<const N: usize>(self, queue: &mut ResponseQueue<N>) -> QueueResult<'a> {
-        match self {
-            Self::Unhandled(inbound) => QueueResult::Ingress(Ingress::Unhandled(inbound)),
-            Self::Ignored => QueueResult::Ingress(Ingress::Ignored),
-            Self::Rejected { response } => {
-                if let Some(response) = response {
-                    return match queue.responses.push_back(response) {
-                        Ok(()) => QueueResult::Ingress(Ingress::Rejected),
-                        Err(response) => QueueResult::Full(Self::Rejected {
-                            response: Some(response),
-                        }),
-                    };
-                }
-                QueueResult::Ingress(Ingress::Rejected)
-            }
-            Self::Accepted { changed, response } => match queue.responses.push_back(response) {
-                Ok(()) => QueueResult::Ingress(Ingress::Accepted(changed)),
-                Err(response) => QueueResult::Full(Self::Accepted { changed, response }),
-            },
-        }
-    }
+/// Use this when you want to interleave MM2 request handling with unrelated work while keeping the
+/// number of queued MM2 follow-up publications bounded.
+pub struct Service<const N: usize = 4> {
+    aftermaths: Deque<Aftermath, N>,
 }
 
 impl<Settings> Miniconf<Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
-    async fn complete_response<IO>(
+    async fn complete_aftermath<IO>(
         &mut self,
         session: &mut Session<'_, IO>,
         settings: &Settings,
-        mut response: Response,
+        mut aftermath: Aftermath,
     ) -> Result<(), Error<IO::Error>>
     where
         IO: Io,
     {
-        while !response.step(self, session, settings).await? {
+        while !aftermath.step(self, session, settings).await? {
             let _ = session.poll().await?;
         }
         Ok(())
@@ -364,61 +310,51 @@ where
         ))
     }
 
-    /// Begin fresh-session MM2 bootstrap.
-    ///
-    /// Call this after `Session::connect()` returns `ConnectEvent::Connected`.
-    pub fn begin_activation(&mut self) -> Activation {
-        self.manifest.epoch = self.manifest.epoch.wrapping_add(1);
-        self.manifest.settings_rev = 0;
-        self.manifest.schema_rev = 0;
-        self.manifest.schema_pages = 0;
-        Activation::new::<Settings>()
+    /// Construct an empty bounded cooperative service.
+    pub fn service<const N: usize>(&self) -> Service<N> {
+        Service::new()
     }
 
-    /// Run fresh-session MM2 bootstrap to completion.
+    /// Begin MM2 startup after one MQTT connect event.
+    pub fn begin_startup(&mut self, event: ConnectEvent) -> Startup {
+        match event {
+            ConnectEvent::Connected => {
+                self.manifest.epoch = self.manifest.epoch.wrapping_add(1);
+                self.manifest.settings_rev = 0;
+                self.manifest.schema_rev = 0;
+                self.manifest.schema_pages = 0;
+                Startup::fresh::<Settings>()
+            }
+            ConnectEvent::Reconnected => Startup::resumed(),
+        }
+    }
+
+    /// Run MM2 startup to completion after one MQTT connect event.
     ///
-    /// This is the simple unbounded activation path. It may discard inbound publishes while
-    /// bootstrapping and is not the bounded/cancel-safe API.
-    pub async fn activate<IO>(
+    /// This is the simple unbounded startup path. Fresh startup may discard inbound publishes
+    /// while bootstrapping and is not the bounded/cancel-safe API.
+    pub async fn startup<IO>(
         &mut self,
         session: &mut Session<'_, IO>,
         settings: &Settings,
+        event: ConnectEvent,
     ) -> Result<(), Error<IO::Error>>
     where
         IO: Io,
     {
-        let mut activation = self.begin_activation();
-        while !activation.step(self, session, settings).await? {
+        let mut startup = self.begin_startup(event);
+        while !startup.step(self, session, settings).await? {
             let _ = session.poll().await?;
         }
         Ok(())
     }
 
-    /// Publish retained `alive` after a resumed MQTT session.
-    ///
-    /// Call this after `Session::connect()` returns `ConnectEvent::Reconnected`.
-    pub async fn publish_alive<IO>(
-        &mut self,
-        session: &mut Session<'_, IO>,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        IO: Io,
-    {
-        self.publish_alive_once(session).await.map(|_| ())
-    }
-
-    /// Parse and apply one inbound publish synchronously.
-    ///
-    /// Non-MM2 traffic is returned as `Handle::Unhandled`.
-    ///
-    /// Successful `/set` requests mutate `settings` immediately and return `Handle::Accepted`.
-    /// Rejected requests return `Handle::Rejected`.
-    pub fn handle<'msg>(
+    fn route<'msg>(
         &mut self,
         settings: &mut Settings,
         inbound: InboundPublish<'msg>,
-    ) -> Handle<'msg> {
-        request::handle::<Settings>(self.prefix.as_str(), settings, inbound)
+    ) -> Route<'msg> {
+        request::route::<Settings>(self.prefix.as_str(), settings, inbound)
     }
 
     /// Wait until one `/set` completes or one non-MM2 inbound publish is returned.
@@ -432,9 +368,8 @@ where
     /// - it is unbounded
     /// - it may discard unrelated inbound publishes that arrive while completing MM2 follow-up
     ///   work
-    /// - use `Session::recv()`, `Miniconf::handle()`, and `Response::step()` directly when that
-    ///   is not acceptable
-    pub async fn poll_with<IO, T>(
+    /// - use [`Service`] when you need bounded stepwise control
+    pub async fn serve<IO, T>(
         &mut self,
         session: &mut Session<'_, IO>,
         settings: &mut Settings,
@@ -448,16 +383,18 @@ where
             let Some(inbound) = inbound else {
                 continue;
             };
-            match self.handle(settings, inbound) {
-                Handle::Unhandled(message) => return Ok(Event::Unhandled(on_unhandled(message))),
-                Handle::Ignored => {}
-                Handle::Rejected { response } => {
-                    if let Some(response) = response {
-                        self.complete_response(session, settings, response).await?;
+            match self.route(settings, inbound) {
+                Route::Unhandled(message) => return Ok(Event::Unhandled(on_unhandled(message))),
+                Route::Ignored => {}
+                Route::Rejected { aftermath } => {
+                    if let Some(aftermath) = aftermath {
+                        self.complete_aftermath(session, settings, aftermath)
+                            .await?;
                     }
                 }
-                Handle::Accepted { changed, response } => {
-                    self.complete_response(session, settings, response).await?;
+                Route::Accepted { changed, aftermath } => {
+                    self.complete_aftermath(session, settings, aftermath)
+                        .await?;
                     return Ok(Event::Changed(changed));
                 }
             }
@@ -613,95 +550,27 @@ where
     }
 }
 
-impl<const N: usize> Default for ResponseQueue<N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<const N: usize> ResponseQueue<N> {
-    /// Construct an empty bounded MM2 response queue.
-    pub const fn new() -> Self {
+impl Startup {
+    fn fresh<Settings: TreeSchema>() -> Self {
         Self {
-            responses: Deque::new(),
+            phase: sync::StartupPhase::Schema(sync::SchemaPublisher::new::<Settings>()),
         }
     }
 
-    /// Return whether no queued MM2 response work remains.
-    pub fn is_empty(&self) -> bool {
-        self.responses.is_empty()
-    }
-
-    /// Return the number of queued MM2 response workflows.
-    pub fn len(&self) -> usize {
-        self.responses.len()
-    }
-
-    /// Parse and queue one inbound publish.
-    ///
-    /// Successful `/set` requests mutate `settings` immediately. Any required MM2 follow-up work
-    /// is queued and must later be driven with [`step`](Self::step).
-    ///
-    /// If the queue cannot accept that follow-up work, the original `Handle` is returned
-    /// unchanged.
-    pub fn handle<'msg, Settings>(
-        &mut self,
-        mm2: &mut Miniconf<Settings>,
-        settings: &mut Settings,
-        inbound: InboundPublish<'msg>,
-    ) -> QueueResult<'msg>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    {
-        mm2.handle(settings, inbound).queue_into(self)
-    }
-
-    /// Advance queued MM2 aftermath work.
-    ///
-    /// `Ok(true)` means the queue is empty after this step.
-    ///
-    /// `Ok(false)` means queued work remains and later session progress is needed before calling
-    /// `step()` again.
-    ///
-    /// This method never consumes unrelated inbound publishes.
-    pub async fn step<Settings, IO>(
-        &mut self,
-        mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-    ) -> Result<bool, Error<IO::Error>>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: Io,
-    {
-        let Some(mut response) = self.responses.pop_front() else {
-            return Ok(true);
-        };
-
-        if response.step(mm2, session, settings).await? {
-            Ok(self.responses.is_empty())
-        } else {
-            let _ = self.responses.push_front(response);
-            Ok(false)
-        }
-    }
-}
-
-impl Activation {
-    fn new<Settings: TreeSchema>() -> Self {
+    fn resumed() -> Self {
         Self {
-            phase: sync::ActivationPhase::Schema(sync::SchemaPublisher::new::<Settings>()),
+            phase: sync::StartupPhase::Alive(None),
         }
     }
 
-    /// Advance fresh-session MM2 bootstrap.
+    /// Advance MM2 startup.
     ///
-    /// `Ok(true)` means bootstrap is complete.
+    /// `Ok(true)` means startup is complete.
     ///
-    /// `Ok(false)` means no more immediate bootstrap progress is possible. Wait for later session
+    /// `Ok(false)` means no more immediate startup progress is possible. Wait for later session
     /// progress, then call `step()` again.
     ///
-    /// This method may discard surfaced inbound publishes while bootstrapping.
+    /// Fresh-session startup may discard surfaced inbound publishes while bootstrapping.
     pub async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
@@ -756,16 +625,117 @@ impl Publisher {
     }
 }
 
-impl Response {
-    /// Advance one handled-request aftermath.
+impl<const N: usize> Default for Service<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<const N: usize> Service<N> {
+    /// Construct an empty bounded MM2 service.
+    pub const fn new() -> Self {
+        Self {
+            aftermaths: Deque::new(),
+        }
+    }
+
+    /// Return whether no queued MM2 follow-up work remains.
+    pub fn is_empty(&self) -> bool {
+        self.aftermaths.is_empty()
+    }
+
+    /// Return the number of queued MM2 follow-up workflows.
+    pub fn len(&self) -> usize {
+        self.aftermaths.len()
+    }
+
+    fn is_full(&self) -> bool {
+        self.aftermaths.len() == N
+    }
+
+    async fn step_aftermath<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        let Some(mut aftermath) = self.aftermaths.pop_front() else {
+            return Ok(true);
+        };
+
+        if aftermath.step(mm2, session, settings).await? {
+            Ok(self.aftermaths.is_empty())
+        } else {
+            let _ = self.aftermaths.push_front(aftermath);
+            Ok(false)
+        }
+    }
+
+    /// Route one inbound publish through the bounded MM2 service.
     ///
-    /// `Ok(true)` means the aftermath is complete.
+    /// Non-MM2 traffic is returned unchanged as `ServiceEvent::Unhandled`.
     ///
-    /// `Ok(false)` means no more immediate progress is possible. Wait for later session progress,
-    /// then call `step()` again.
+    /// If the bounded service is full, MM2 `/set` requests are rejected without mutating local
+    /// settings.
+    pub fn handle<'msg, Settings>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        settings: &mut Settings,
+        inbound: InboundPublish<'msg>,
+    ) -> ServiceEvent<'msg>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    {
+        if self.is_full() && request::is_request(mm2.prefix.as_str(), inbound.topic()) {
+            return ServiceEvent::Busy;
+        }
+
+        match mm2.route(settings, inbound) {
+            Route::Unhandled(inbound) => ServiceEvent::Unhandled(inbound),
+            Route::Ignored => ServiceEvent::Idle,
+            Route::Rejected { aftermath } => {
+                if let Some(aftermath) = aftermath {
+                    debug_assert!(!self.is_full());
+                    let _ = self.aftermaths.push_back(aftermath);
+                }
+                ServiceEvent::Idle
+            }
+            Route::Accepted { changed, aftermath } => {
+                debug_assert!(!self.is_full());
+                let _ = self.aftermaths.push_back(aftermath);
+                ServiceEvent::Changed(changed)
+            }
+        }
+    }
+
+    /// Advance one queued MM2 follow-up workflow.
+    ///
+    /// `Ok(true)` means no queued MM2 follow-up work remains after this step.
+    ///
+    /// `Ok(false)` means queued work remains and later session progress is needed before calling
+    /// `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
     pub async fn step<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &mut Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        self.step_aftermath(mm2, session, settings).await
+    }
+}
+
+impl Aftermath {
+    async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
@@ -777,22 +747,6 @@ impl Response {
     {
         self.phase.step(mm2, session, settings).await
     }
-
-    /// Run one handled-request aftermath to completion.
-    ///
-    /// This is the simple unbounded response path. It may discard inbound publishes that arrive
-    /// while waiting for later session progress.
-    pub async fn complete<Settings, IO>(
-        self,
-        mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: Io,
-    {
-        mm2.complete_response(session, settings, self).await
-    }
 }
+
 pub(crate) type ReplyTarget = OwnedResponseTarget<MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH>;

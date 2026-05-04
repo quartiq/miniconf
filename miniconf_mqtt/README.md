@@ -19,28 +19,25 @@ See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).
 
 For simple services, `miniconf_mqtt` provides two complete unbounded helpers on top:
 
-- `mm2.activate(&mut session, &settings)`
-- `mm2.poll_with(&mut session, &mut settings, on_unhandled)`
+- `mm2.startup(&mut session, &settings, connect_event)`
+- `mm2.serve(&mut session, &mut settings, on_unhandled)`
 
-They are the easiest way to serve MM2 when you do not need stepwise control, cancellation safety,
-or exact control over unrelated inbound traffic during MM2 follow-up work.
+They are the easiest way to serve MM2 when you do not need stepwise control, bounded queued
+follow-up, or exact control over unrelated inbound traffic during MM2 work.
 
-For precise control, `miniconf_mqtt` exposes four explicit MM2 workflows:
+For precise control, `miniconf_mqtt` exposes three explicit building blocks:
 
-- `Activation`: fresh-session bootstrap
+- `Startup`: fresh-session or resumed-session bring-up
+- `Service`: bounded cooperative MM2 request service with non-MM2 passthrough
 - `Publisher`: explicit retained republish for a leaf, subtree, or root
-- `Response`: effectful aftermath of one handled `/set`
-- `ResponseQueue`: bounded queue of `Response` work so later `/set`s can be accepted while earlier
-  aftermath is still pending
 
 Typical flow:
 
 1. construct MM2 state and session with `Miniconf::new(prefix, config)`
-2. call `session.connect(io)`
-3. on `ConnectEvent::Connected`, call `mm2.activate(&mut session, &settings)`
-4. on `ConnectEvent::Reconnected`, call `mm2.publish_alive(&mut session)`
-5. in steady state, call `mm2.poll_with(&mut session, &mut settings, on_unhandled)`
-8. use `mm2.publish_root()` or `mm2.publish_by_key(key)` for explicit app-side retained republish
+2. call `let event = session.connect(io).await?`
+3. call `mm2.startup(&mut session, &settings, event)`
+4. in steady state, call `mm2.serve(&mut session, &mut settings, on_unhandled)`
+5. use `mm2.publish_root()` or `mm2.publish_by_key(key)` for explicit app-side retained republish
 
 `publish_root()` replaces the old full-tree `publish_all()` flow.
 
@@ -48,101 +45,66 @@ Typical flow:
 
 Simple helpers:
 
-- `mm2.activate(...)` runs fresh-session bootstrap to completion.
-- `mm2.poll_with(...)` waits until one `/set` has been applied and fully republished, or until
+- `mm2.startup(...)` runs the MM2 work required by one `ConnectEvent` to completion.
+- `mm2.serve(...)` waits until one `/set` has been applied and fully republished, or until
   one non-MM2 inbound publish has been handled by the callback and returned.
 - both helpers are unbounded
-- `activate()` may discard inbound publishes while bootstrapping
-- `poll_with()` may discard inbound publishes that arrive while completing MM2 response work
+- fresh-session startup may discard inbound publishes while bootstrapping
+- `serve()` may discard inbound publishes that arrive while completing MM2 follow-up work
 - use the explicit stepwise APIs below when that is not acceptable
-
-`Miniconf::handle()` is synchronous and consumes the inbound publish:
-
-```rust
-enum Handle<'a> {
-    Unhandled(minimq::InboundPublish<'a>),
-    Ignored,
-    Rejected {
-        response: Option<Response>,
-    },
-    Accepted {
-        changed: miniconf::Indices<[usize; MAX_DEPTH]>,
-        response: Response,
-    },
-}
-```
-
-That makes the steady-state path compose naturally:
-
-```rust
-match miniconf.handle(&mut settings, session.recv().await?) {
-    Handle::Unhandled(message) => { /* app traffic */ }
-    Handle::Ignored => {}
-    Handle::Rejected { response } => { /* drive optional response */ }
-    Handle::Accepted { changed, response } => { /* drive required response */ }
-}
-```
-
-- `Unhandled` means the message is not MM2 traffic and remains owned by the caller.
-- `Ignored` means MM2 recognized the message and intentionally did nothing.
-- `Rejected` means MM2 rejected the request. `response` is the optional error reply work.
-- `Accepted` means MM2 already changed local settings. `response` is required follow-up work for
-  the authoritative retained `settings/...` update and any requested reply.
 
 Stepwise APIs:
 
-`Activation`, `Publisher`, and `Response` are explicit MM2 workflows:
+- `Startup::step() -> Ok(true)` means startup is complete
+- `Startup::step() -> Ok(false)` means it cannot make more immediate startup progress
+- `Publisher::step() -> Ok(true)` means retained republish is complete
+- `Service::step() -> Ok(true)` means no queued MM2 follow-up work remains
 
-- `step() -> Ok(true)` means the workflow is complete
-- `step() -> Ok(false)` means it cannot make more immediate MM2 progress
+`Service` is the cooperative steady-state boundary:
+
+- `ServiceEvent::Unhandled(inbound)` returns non-MM2 traffic to the caller unchanged
+- `ServiceEvent::Changed(changed)` means one `/set` changed local settings and queued authoritative
+  MM2 follow-up work
+- `ServiceEvent::Busy` means bounded service capacity was exhausted, so the MM2 request was
+  rejected without mutating settings
+- `ServiceEvent::Idle` means MM2 recognized the message and intentionally did nothing
 
 Practical boundary:
 
-- use `Session::drive()` for immediate local progress without blocking
 - use `Session::poll()` to wait for any later session progress
 - use `Session::recv()` when you specifically want the next inbound publish
-- `Activation::step()` may consume and discard inbound publishes while bootstrapping
-- `Publisher::step()` and `Response::step()` must not consume unrelated inbound publishes
-- `ResponseQueue::step()` must not consume unrelated inbound publishes
+- `Startup::step()` may consume and discard inbound publishes while bootstrapping
+- `Publisher::step()` must not consume unrelated inbound publishes
+- `Service::step()` must not consume unrelated inbound publishes
 - after any `step()` returns `false`, wait for later session progress before retrying
-- after `Publisher::step()`, `Response::step()`, or `ResponseQueue::step()` returns `false`, the
-  caller must route any surfaced inbound publishes before retrying
+- after `Publisher::step()` returns `false`, the caller must route any surfaced inbound publishes
+  before retrying
 
-`ResponseQueue`:
-
-- `handle(...)` applies one inbound publish and queues any required MM2 response work
-- accepted `/set`s still change local settings immediately
-- rejected `/set`s queue only the optional error reply
-- `step()` drives queued response work without consuming unrelated inbound publishes
-- `Handle::queue_into(...)` exposes the same queueing adapter directly on the low-level `Handle`
-- if the queue cannot accept that follow-up work, `handle(...)` returns the original `Handle`
-  unchanged so the caller can apply a different policy without losing it
-
-Bounded queued serving:
+Bounded cooperative serving:
 
 ```rust
-let mut queue = ResponseQueue::<4>::new();
+let mut service = mm2.service::<4>();
 
 loop {
-    if !queue.step(&mut miniconf, &mut session, &settings).await? {
+    if !service.step(&mut miniconf, &mut session, &mut settings).await? {
         if let Some(inbound) = session.poll().await? {
-            match queue.handle(&mut miniconf, &mut settings, inbound) {
-                QueueResult::Ingress(Ingress::Unhandled(message)) => { /* app traffic */ }
-                QueueResult::Ingress(Ingress::Ignored)
-                | QueueResult::Ingress(Ingress::Rejected)
-                | QueueResult::Ingress(Ingress::Accepted(_)) => {}
-                QueueResult::Full(handle) => { /* queue full; original Handle returned unchanged */ }
-            }
+        match service
+            .handle(&mut miniconf, &mut settings, inbound)
+        {
+            ServiceEvent::Unhandled(message) => { /* app traffic */ }
+            ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
         }
     }
 }
+}
 ```
 
-`Response`:
+`Service` aftermath rules:
 
 - successful `/set`: publish or clear the authoritative retained leaf, then optionally reply on
   the MQTT response topic
 - failed `/set`: send only the optional error reply
+- busy bounded service: reject without mutating local settings
 - without `compat-settings-ingress`, failed `/set` never republishes `settings/...`
 
 `Publisher`:
@@ -241,7 +203,7 @@ flag. It does not shape the core MM2 API described here.
   publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.
-- `Activation::step() -> Ok(true)` means no more immediate bootstrap work remains. It does not
-  wait for broker ACKs or `SUBACK`.
+- `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait
+  for broker ACKs or `SUBACK`.
 - `Publisher` prunes only leaves in the currently traversed schema subtree. It does not discover
   arbitrary retained topics left behind by older schema shapes.

@@ -3,7 +3,7 @@ use core::pin::Pin;
 use core::task::Poll;
 use embedded_io_async::{ErrorType, Read, Write};
 use miniconf::Tree;
-use miniconf_mqtt::{Event, Handle, Ingress, Miniconf, QueueResult, ResponseQueue};
+use miniconf_mqtt::{Event, Miniconf, Service, ServiceEvent};
 use minimq::{
     ConfigBuilder, ConnectEvent, Publication, QoS, Session,
     types::{SubscriptionOptions, TopicFilter},
@@ -118,21 +118,17 @@ async fn connect_mm2<'a>(
     settings: &Settings,
     io: TokioConnection,
 ) {
-    match timeout(Duration::from_secs(5), session.connect(io))
+    let event = timeout(Duration::from_secs(5), session.connect(io))
         .await
         .unwrap()
-        .unwrap()
-    {
-        ConnectEvent::Connected => {
-            timeout(Duration::from_secs(5), mm2.activate(session, settings))
-                .await
-                .unwrap()
-                .unwrap();
-        }
-        ConnectEvent::Reconnected => {
-            mm2.publish_alive(session).await.unwrap();
-        }
-    }
+        .unwrap();
+    timeout(
+        Duration::from_secs(5),
+        mm2.startup(session, settings, event),
+    )
+    .await
+    .unwrap()
+    .unwrap();
 }
 
 async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConnection) {
@@ -175,7 +171,7 @@ async fn mm2_set_stays_internal() {
 
     match timeout(
         Duration::from_secs(5),
-        mm2.poll_with(&mut session, &mut settings, |_| ()),
+        mm2.serve(&mut session, &mut settings, |_| ()),
     )
     .await
     .unwrap()
@@ -225,7 +221,7 @@ async fn other_topics_are_unhandled() {
     session.subscribe(&topics, &[]).await.unwrap();
     match timeout(
         Duration::from_secs(5),
-        mm2.poll_with(&mut session, &mut Settings::default(), |message| {
+        mm2.serve(&mut session, &mut Settings::default(), |message| {
             (message.topic().to_owned(), message.payload().to_vec())
         }),
     )
@@ -242,7 +238,7 @@ async fn other_topics_are_unhandled() {
 }
 
 #[tokio::test]
-async fn activation_with_large_schema_waits_on_session_progress() {
+async fn startup_with_large_schema_waits_on_session_progress() {
     init_log();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -268,12 +264,12 @@ async fn activation_with_large_schema_waits_on_session_progress() {
         ConnectEvent::Connected
     ));
 
-    let mut activation = mm2.begin_activation();
+    let mut startup = mm2.begin_startup(ConnectEvent::Connected);
     let mut retries = 0usize;
     let mut saw_non_quiescent = false;
     let mut saw_internal_progress = false;
     timeout(Duration::from_secs(5), async {
-        while !activation
+        while !startup
             .step(&mut mm2, &mut session, &settings)
             .await
             .unwrap()
@@ -286,20 +282,20 @@ async fn activation_with_large_schema_waits_on_session_progress() {
     .await
     .unwrap();
 
-    assert!(retries > 1, "activation never needed a retry");
+    assert!(retries > 1, "startup never needed a retry");
     assert!(
         saw_non_quiescent,
-        "activation never observed in-flight retained publishes"
+        "startup never observed in-flight retained publishes"
     );
     assert!(
         saw_internal_progress,
-        "activation never waited on internal-only session progress"
+        "startup never waited on internal-only session progress"
     );
     assert!(session.is_publish_quiescent());
 }
 
 #[tokio::test]
-async fn response_queue_accepts_later_sets_while_earlier_response_is_pending() {
+async fn service_accepts_later_sets_while_earlier_response_is_pending() {
     init_log();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -311,7 +307,7 @@ async fn response_queue_accepts_later_sets_while_earlier_response_is_pending() {
     let (mut mm2, mut session) =
         Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
     let mut settings = Settings::default();
-    let mut queue = ResponseQueue::<4>::new();
+    let mut service = Service::<4>::new();
 
     connect_mm2(
         &mut mm2,
@@ -337,36 +333,40 @@ async fn response_queue_accepts_later_sets_while_earlier_response_is_pending() {
     let mut accepted = 0usize;
     let mut saw_backlog = false;
     timeout(Duration::from_secs(5), async {
-        loop {
-            if queue.step(&mut mm2, &mut session, &settings).await.unwrap() && accepted == 2 {
-                break;
-            }
+        while accepted < 2 {
             let Some(inbound) = session.poll().await.unwrap() else {
                 continue;
             };
-            match queue.handle(&mut mm2, &mut settings, inbound) {
-                QueueResult::Ingress(Ingress::Unhandled(_)) => panic!("unexpected app traffic"),
-                QueueResult::Ingress(Ingress::Ignored | Ingress::Rejected) => {}
-                QueueResult::Ingress(Ingress::Accepted(_)) => {
+            match service.handle(&mut mm2, &mut settings, inbound) {
+                ServiceEvent::Unhandled(_) => panic!("unexpected app traffic"),
+                ServiceEvent::Idle | ServiceEvent::Busy => {}
+                ServiceEvent::Changed(_) => {
                     accepted += 1;
-                    saw_backlog |= queue.len() > 1;
+                    saw_backlog |= service.len() > 1;
                 }
-                QueueResult::Full(_) => panic!("unexpected queue overflow"),
             }
+        }
+
+        while !service.is_empty() {
+            let _ = service
+                .step(&mut mm2, &mut session, &mut settings)
+                .await
+                .unwrap();
+            let _ = session.poll().await.unwrap();
         }
     })
     .await
     .unwrap();
 
     assert_eq!(accepted, 2);
-    assert!(queue.is_empty());
+    assert!(service.is_empty());
     assert!(saw_backlog);
     assert_eq!(settings.value, 9);
     assert_eq!(settings.nested.leaf, 7);
 }
 
 #[tokio::test]
-async fn response_queue_overflow_returns_original_handle() {
+async fn service_rejects_overflow_without_mutating() {
     init_log();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -378,7 +378,7 @@ async fn response_queue_overflow_returns_original_handle() {
     let (mut mm2, mut session) =
         Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
     let mut settings = Settings::default();
-    let mut queue = ResponseQueue::<1>::new();
+    let mut service = Service::<1>::new();
 
     connect_mm2(
         &mut mm2,
@@ -401,26 +401,34 @@ async fn response_queue_overflow_returns_original_handle() {
         .await
         .unwrap();
 
-    let overflow_accepted = timeout(Duration::from_secs(5), async {
-        loop {
-            let Some(inbound) = session.poll().await.unwrap() else {
-                continue;
-            };
-            match queue.handle(&mut mm2, &mut settings, inbound) {
-                QueueResult::Ingress(_) => {}
-                QueueResult::Full(Handle::Accepted { .. }) => break true,
-                QueueResult::Full(Handle::Unhandled(_)) => panic!("unexpected unhandled traffic"),
-                QueueResult::Full(Handle::Ignored) => panic!("unexpected ignored request"),
-                QueueResult::Full(Handle::Rejected { .. }) => {
-                    panic!("unexpected rejected request")
-                }
-            }
+    let first = loop {
+        let inbound = timeout(Duration::from_secs(5), session.poll())
+            .await
+            .unwrap()
+            .unwrap();
+        if let Some(inbound) = inbound {
+            break inbound;
         }
-    })
-    .await
-    .unwrap();
+    };
+    assert!(matches!(
+        service.handle(&mut mm2, &mut settings, first),
+        ServiceEvent::Changed(_)
+    ));
 
-    assert!(overflow_accepted);
+    let second = loop {
+        let inbound = timeout(Duration::from_secs(5), session.poll())
+            .await
+            .unwrap()
+            .unwrap();
+        if let Some(inbound) = inbound {
+            break inbound;
+        }
+    };
+    assert!(matches!(
+        service.handle(&mut mm2, &mut settings, second),
+        ServiceEvent::Busy
+    ));
+
     assert_eq!(settings.value, 9);
-    assert_eq!(settings.nested.leaf, 7);
+    assert_eq!(settings.nested.leaf, 0);
 }
