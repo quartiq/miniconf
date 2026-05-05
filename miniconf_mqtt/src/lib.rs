@@ -70,6 +70,8 @@ pub(crate) const MAX_TOPIC_LENGTH: usize = minimq::TOPIC_CAPACITY;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const RESPONSE_TEXT_LENGTH: usize = 96;
 pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
+pub(crate) const UTF8_PAYLOAD_PROPERTIES: &[minimq::Property<'static>] =
+    &[minimq::Property::PayloadFormatIndicator(1)];
 
 /// Payload serialization failed because the provided scratch buffer was too small.
 pub(crate) type EncodeError<E> = (bool, E);

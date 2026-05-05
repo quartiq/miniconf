@@ -2,8 +2,8 @@ use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf::Tree;
 use miniconf_mqtt::{Event, Miniconf, Service, ServiceEvent};
 use minimq::{
-    ConfigBuilder, ConnectEvent, Publication, QoS, Session,
-    types::{SubscriptionOptions, TopicFilter},
+    ConfigBuilder, ConnectEvent, InboundPublish, Property, Publication, QoS, Session,
+    types::{SubscriptionOptions, TopicFilter, Utf8String},
 };
 use std::sync::OnceLock;
 use std::{
@@ -93,6 +93,126 @@ async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConne
             .unwrap(),
         ConnectEvent::Connected | ConnectEvent::Reconnected
     ));
+}
+
+fn has_utf8_payload_indicator(inbound: &InboundPublish<'_>) -> bool {
+    inbound
+        .properties()
+        .iter()
+        .any(|prop| matches!(prop, Ok(Property::PayloadFormatIndicator(1))))
+}
+
+fn user_property<'a>(inbound: &'a InboundPublish<'a>, name: &str) -> Option<&'a str> {
+    inbound.properties().iter().find_map(|prop| match prop {
+        Ok(Property::UserProperty(key, value)) if key.0 == name => Some(value.0),
+        _ => None,
+    })
+}
+
+#[tokio::test]
+async fn mm2_publications_advertise_utf8_payloads() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("utf8-payload");
+    let mut observer = Session::new(config());
+    wait_session(&mut observer, connect_addr(addr).await.unwrap()).await;
+    let prefix_filter = format!("{prefix}/#");
+    let topics = [TopicFilter::new(&prefix_filter)
+        .options(SubscriptionOptions::default().maximum_qos(QoS::AtLeastOnce))];
+    observer.subscribe(&topics, &[]).await.unwrap();
+
+    let (mut mm2, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
+    let mut settings = Settings::default();
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
+
+    let mut saw_alive = false;
+    let mut saw_schema = false;
+    let mut saw_value = false;
+    let mut saw_nested = false;
+    let alive_topic = format!("{prefix}/alive");
+    let schema_prefix = format!("{prefix}/schema/");
+    let value_topic = format!("{prefix}/settings/value");
+    let nested_topic = format!("{prefix}/settings/nested/leaf");
+    timeout(Duration::from_secs(5), async {
+        while !(saw_alive && saw_schema && saw_value && saw_nested) {
+            let Some(inbound) = observer.poll().await.unwrap() else {
+                continue;
+            };
+            assert!(
+                has_utf8_payload_indicator(&inbound),
+                "missing UTF-8 payload indicator on {}",
+                inbound.topic()
+            );
+            saw_alive |= inbound.topic() == alive_topic;
+            saw_schema |= inbound.topic().starts_with(&schema_prefix);
+            saw_value |= inbound.topic() == value_topic;
+            saw_nested |= inbound.topic() == nested_topic;
+        }
+    })
+    .await
+    .unwrap();
+
+    let reply_topic = format!("{prefix}/reply");
+    let response_props = [Property::ResponseTopic(Utf8String(&reply_topic))];
+    let mut requester = Session::new(config());
+    wait_session(&mut requester, connect_addr(addr).await.unwrap()).await;
+    let topics = [TopicFilter::new(&reply_topic)
+        .options(SubscriptionOptions::default().maximum_qos(QoS::AtLeastOnce))];
+    requester.subscribe(&topics, &[]).await.unwrap();
+    requester
+        .publish(
+            Publication::bytes(&format!("{prefix}/set/value"), b"9").properties(&response_props),
+        )
+        .await
+        .unwrap();
+
+    match timeout(
+        Duration::from_secs(5),
+        mm2.serve(&mut session, &mut settings, |_| ()),
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    {
+        Event::Unhandled(_) => panic!("unexpected app traffic"),
+        Event::Changed(_) => {}
+    }
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Some(inbound) = requester.poll().await.unwrap() {
+                assert_eq!(inbound.topic(), reply_topic);
+                assert!(has_utf8_payload_indicator(&inbound));
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let Some(inbound) = observer.poll().await.unwrap() else {
+                continue;
+            };
+            if inbound.topic() == value_topic {
+                assert_eq!(user_property(&inbound, "rev"), Some("3"));
+                assert!(has_utf8_payload_indicator(&inbound));
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(settings.value, 9);
 }
 
 #[tokio::test]

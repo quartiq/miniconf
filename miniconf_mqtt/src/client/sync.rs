@@ -167,6 +167,7 @@ impl SchemaPublisher {
                 advanced: &mut advanced,
             },
         )
+        .properties(crate::UTF8_PAYLOAD_PROPERTIES)
         .qos(QoS::AtLeastOnce)
         .retain();
         match session.publish(publication).await {

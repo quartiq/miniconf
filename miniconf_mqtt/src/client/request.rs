@@ -404,8 +404,9 @@ fn error_props<'a>(
     class: &'static str,
     error: &'a str,
     depth: Option<&'a str>,
-) -> Vec<Property<'a>, 5> {
+) -> Vec<Property<'a>, 6> {
     let mut props = Vec::new();
+    props.push(Property::PayloadFormatIndicator(1)).ok();
     push_prop(&mut props, "code", code.as_str());
     push_prop(&mut props, "kind", kind);
     push_prop(&mut props, "class", class);
@@ -467,7 +468,7 @@ async fn reply_text<IO>(
 where
     IO: Io,
 {
-    let props = [code.into()];
+    let props = [Property::PayloadFormatIndicator(1), code.into()];
     reply_bytes(session, target, &props, text).await
 }
 

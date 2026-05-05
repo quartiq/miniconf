@@ -294,7 +294,7 @@ where
         will_topic
             .push_str("/alive")
             .map_err(|_| ConfigError::InvalidConfig)?;
-        let will = Will::new(will_topic, b"", &[])?
+        let will = Will::new(will_topic, b"", crate::UTF8_PAYLOAD_PROPERTIES)?
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -457,6 +457,7 @@ where
         );
         let publication =
             Publication::new(&topic, PublishPayload::<Settings>::Alive(&self.manifest))
+                .properties(crate::UTF8_PAYLOAD_PROPERTIES)
                 .qos(QoS::AtLeastOnce)
                 .retain();
         session
@@ -543,10 +544,10 @@ where
             .map_err(PubError::from)?;
         let next_rev = self.manifest.settings_rev.wrapping_add(1);
         let mut rev = itoa::Buffer::new();
-        let props = [Property::UserProperty(
-            Utf8String("rev"),
-            Utf8String(rev.format(next_rev)),
-        )];
+        let props = [
+            Property::PayloadFormatIndicator(1),
+            Property::UserProperty(Utf8String("rev"), Utf8String(rev.format(next_rev))),
+        ];
         let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
             .properties(&props)
             .qos(QoS::AtLeastOnce)
@@ -566,10 +567,10 @@ where
     {
         let next_rev = self.manifest.settings_rev.wrapping_add(1);
         let mut rev = itoa::Buffer::new();
-        let props = [Property::UserProperty(
-            Utf8String("rev"),
-            Utf8String(rev.format(next_rev)),
-        )];
+        let props = [
+            Property::PayloadFormatIndicator(1),
+            Property::UserProperty(Utf8String("rev"), Utf8String(rev.format(next_rev))),
+        ];
         let publication = Publication::bytes(topic, b"")
             .properties(&props)
             .qos(QoS::AtLeastOnce)
