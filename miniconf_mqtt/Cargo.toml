@@ -22,7 +22,7 @@ compat-settings-ingress = []
 
 [dependencies]
 miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
-minimq = "0.10"
+minimq = "0.11"
 embassy-time = { version = "0.5.1" }
 embedded-io = "0.7"
 defmt = "1.0.1"
