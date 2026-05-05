@@ -86,16 +86,14 @@ Bounded cooperative serving:
 let mut service = mm2.service::<4>();
 
 loop {
-    if !service.step(&mut miniconf, &mut session, &mut settings).await? {
-        if let Some(inbound) = session.poll().await? {
-        match service
-            .handle(&mut miniconf, &mut settings, inbound)
-        {
+    let _empty = service.step(&mut mm2, &mut session, &settings).await?;
+
+    if let Some(inbound) = session.poll().await? {
+        match service.handle(&mut mm2, &mut settings, inbound) {
             ServiceEvent::Unhandled(message) => { /* app traffic */ }
             ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
         }
     }
-}
 }
 ```
 

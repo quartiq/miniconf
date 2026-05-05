@@ -2,6 +2,9 @@
 
 This package contains derive macros for [`miniconf`](https://crates.io/crates/miniconf).
 
+Most users import these macros through `miniconf` and derive `Tree` there. Attribute syntax and
+derive behavior are documented in this crate's rustdoc.
+
 ## Limitations
 
 - The derives cover a restricted tree model. Enums with named fields or multi-field tuple variants are not supported as internal tree nodes.

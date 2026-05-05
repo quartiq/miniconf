@@ -54,15 +54,11 @@ impl SchemaDefs {
     }
 }
 
-fn contains_schema(defs: &Vec<&'static Schema, MAX_SCHEMA_DEFS>, schema: &'static Schema) -> bool {
-    defs.iter().any(|candidate| ptr::eq(*candidate, schema))
-}
-
 fn collect_defs(
     schema: &'static Schema,
     defs: &mut Vec<&'static Schema, MAX_SCHEMA_DEFS>,
 ) -> Result<(), usize> {
-    if contains_schema(defs, schema) {
+    if defs.iter().any(|candidate| ptr::eq(*candidate, schema)) {
         return Ok(());
     }
     if let Some(internal) = schema.internal() {
@@ -80,7 +76,7 @@ fn collect_defs(
             Internal::Homogeneous(child) => collect_defs(child.schema(), defs)?,
         }
     }
-    if contains_schema(defs, schema) {
+    if defs.iter().any(|candidate| ptr::eq(*candidate, schema)) {
         return Ok(());
     }
     defs.push(schema).map_err(|_| defs.len().saturating_add(1))

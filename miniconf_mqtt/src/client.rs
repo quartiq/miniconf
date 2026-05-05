@@ -696,30 +696,32 @@ impl<const N: usize> Service<N> {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        let Some(mut aftermath) = self.aftermaths.pop_front() else {
-            return Ok(true);
-        };
-        crate::debug!(
-            "Driving MM2 aftermath queued_before={=usize} capacity={=usize}",
-            self.aftermaths.len() + 1,
-            N
-        );
+        loop {
+            let Some(mut aftermath) = self.aftermaths.pop_front() else {
+                return Ok(true);
+            };
+            crate::debug!(
+                "Driving MM2 aftermath queued_before={=usize} capacity={=usize}",
+                self.aftermaths.len() + 1,
+                N
+            );
 
-        if aftermath.step(mm2, session, settings).await? {
-            crate::debug!(
-                "Completed MM2 aftermath queued_remaining={=usize} capacity={=usize}",
-                self.aftermaths.len(),
-                N
-            );
-            Ok(self.aftermaths.is_empty())
-        } else {
-            let _ = self.aftermaths.push_front(aftermath);
-            crate::debug!(
-                "MM2 aftermath pending queued_remaining={=usize} capacity={=usize}",
-                self.aftermaths.len(),
-                N
-            );
-            Ok(false)
+            if aftermath.step(mm2, session, settings).await? {
+                crate::debug!(
+                    "Completed MM2 aftermath queued_remaining={=usize} capacity={=usize}",
+                    self.aftermaths.len(),
+                    N
+                );
+                continue;
+            } else {
+                let _ = self.aftermaths.push_front(aftermath);
+                crate::debug!(
+                    "MM2 aftermath pending queued_remaining={=usize} capacity={=usize}",
+                    self.aftermaths.len(),
+                    N
+                );
+                return Ok(false);
+            }
         }
     }
 

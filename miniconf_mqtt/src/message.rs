@@ -3,7 +3,6 @@ use core::fmt::Display;
 
 use miniconf::SerdeError;
 use minimq::{Property, PubError, ResourceError, types::Utf8String};
-use strum::IntoStaticStr;
 
 use crate::Error;
 
@@ -11,15 +10,24 @@ pub(crate) fn set_path<'a>(topic: &'a str, prefix: &str) -> Option<&'a str> {
     topic.strip_prefix(prefix)?.strip_prefix("/set")
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, IntoStaticStr)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum ResponseCode {
     Ok,
     Error,
 }
 
+impl ResponseCode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "Ok",
+            Self::Error => "Error",
+        }
+    }
+}
+
 impl From<ResponseCode> for Property<'static> {
     fn from(value: ResponseCode) -> Self {
-        Property::UserProperty(Utf8String("code"), Utf8String(value.into()))
+        Property::UserProperty(Utf8String("code"), Utf8String(value.as_str()))
     }
 }
 

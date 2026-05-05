@@ -31,8 +31,8 @@ pub(crate) enum AftermathPhase {
     },
     ReplyPublishError {
         target: ReplyTarget,
-        error: String<96>,
-        payload: String<96>,
+        error: String<{ crate::RESPONSE_TEXT_LENGTH }>,
+        payload: String<{ crate::RESPONSE_TEXT_LENGTH }>,
         op: Option<Op>,
     },
     Done,
@@ -42,9 +42,9 @@ pub(crate) struct ReplyMessage {
     code: ResponseCode,
     kind: &'static str,
     class: &'static str,
-    error: String<96>,
+    error: String<{ crate::RESPONSE_TEXT_LENGTH }>,
     depth: Option<usize>,
-    payload: String<96>,
+    payload: String<{ crate::RESPONSE_TEXT_LENGTH }>,
 }
 
 pub(crate) fn is_request(prefix: &str, topic: &str) -> bool {
@@ -385,7 +385,12 @@ fn encode_body(body: &ResponseBody) -> ReplyMessage {
     }
 }
 
-fn publish_error_text<E: core::fmt::Debug>(err: &Error<E>) -> (String<96>, String<96>) {
+fn publish_error_text<E: core::fmt::Debug>(
+    err: &Error<E>,
+) -> (
+    String<{ crate::RESPONSE_TEXT_LENGTH }>,
+    String<{ crate::RESPONSE_TEXT_LENGTH }>,
+) {
     let mut error = String::new();
     write!(&mut error, "{err:?}").ok();
     let mut payload = String::new();
@@ -401,7 +406,7 @@ fn error_props<'a>(
     depth: Option<&'a str>,
 ) -> Vec<Property<'a>, 5> {
     let mut props = Vec::new();
-    push_prop(&mut props, "code", code.into());
+    push_prop(&mut props, "code", code.as_str());
     push_prop(&mut props, "kind", kind);
     push_prop(&mut props, "class", class);
     push_prop(&mut props, "error", error);
@@ -427,7 +432,6 @@ where
 {
     let mut depth_text = String::<16>::new();
     let depth = message.depth.and_then(|value| {
-        use core::fmt::Write as _;
         write!(&mut depth_text, "{value}").ok()?;
         Some(depth_text.as_str())
     });

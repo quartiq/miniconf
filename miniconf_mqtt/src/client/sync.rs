@@ -207,72 +207,75 @@ where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
     IO: Io,
 {
-    if publisher.iter.is_none() {
-        publisher.iter = Some(crate::schema::SettingsSync::with_root(
-            Settings::SCHEMA,
-            publisher.root.as_ref(),
-        )?);
-        crate::info!(
-            "Starting retained settings sync root_depth={=usize}",
-            publisher.root.as_ref().len()
-        );
-    }
+    loop {
+        if publisher.iter.is_none() {
+            publisher.iter = Some(crate::schema::SettingsSync::with_root(
+                Settings::SCHEMA,
+                publisher.root.as_ref(),
+            )?);
+            crate::info!(
+                "Starting retained settings sync root_depth={=usize}",
+                publisher.root.as_ref().len()
+            );
+        }
 
-    let state = match publisher.pending {
-        Some(state) => state,
-        None => {
-            let iter = publisher.iter.as_mut().unwrap();
-            let Some(path) = iter.next() else {
-                crate::info!(
-                    "Completed retained settings sync rev={=u32}",
+        let state = match publisher.pending {
+            Some(state) => state,
+            None => {
+                let iter = publisher.iter.as_mut().unwrap();
+                let Some(path) = iter.next() else {
+                    crate::info!(
+                        "Completed retained settings sync rev={=u32}",
+                        mm2.manifest.settings_rev
+                    );
+                    return Ok(true);
+                };
+                path.map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
+                let full = iter
+                    .indices()
+                    .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
+                let mut state = [0; crate::MAX_DEPTH];
+                state[..full.len()].copy_from_slice(full);
+                let state = ChangedKey::new(state, full.len());
+                publisher.pending = Some(state);
+                crate::debug!(
+                    "Preparing retained setting publication depth={=usize} rev_next={=u32}",
+                    state.as_ref().len(),
+                    mm2.manifest.settings_rev.wrapping_add(1)
+                );
+                state
+            }
+        };
+
+        match super::poll_op(session, &mut publisher.op)? {
+            PendingOp::Pending => return Ok(false),
+            PendingOp::Complete => {
+                crate::debug!(
+                    "Published retained setting depth={=usize} rev={=u32}",
+                    state.as_ref().len(),
                     mm2.manifest.settings_rev
                 );
-                return Ok(true);
-            };
-            path.map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-            let full = iter
-                .indices()
-                .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-            let mut state = [0; crate::MAX_DEPTH];
-            state[..full.len()].copy_from_slice(full);
-            let state = ChangedKey::new(state, full.len());
-            publisher.pending = Some(state);
-            crate::debug!(
-                "Preparing retained setting publication depth={=usize} rev_next={=u32}",
-                state.as_ref().len(),
-                mm2.manifest.settings_rev.wrapping_add(1)
-            );
-            state
+                publisher.pending = None;
+                continue;
+            }
+            PendingOp::Idle => {}
         }
-    };
 
-    match super::poll_op(session, &mut publisher.op)? {
-        PendingOp::Pending => return Ok(false),
-        PendingOp::Complete => {
-            crate::debug!(
-                "Published retained setting depth={=usize} rev={=u32}",
-                state.as_ref().len(),
-                mm2.manifest.settings_rev
-            );
-            publisher.op = None;
-            publisher.pending = None;
+        if !session.can_publish(QoS::AtLeastOnce) {
             return Ok(false);
         }
-        PendingOp::Idle => {}
-    }
 
-    if !session.can_publish(QoS::AtLeastOnce) {
-        return Ok(false);
-    }
-
-    match mm2.publish_current(session, settings, state.as_ref()).await {
-        Ok(op) => {
-            publisher.op = op;
-            Ok(false)
+        match mm2.publish_current(session, settings, state.as_ref()).await {
+            Ok(op) => {
+                publisher.op = op;
+                return Ok(false);
+            }
+            Err(Error::Mqtt(MqttError::NotReady))
+            | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) => {
+                return Ok(false);
+            }
+            Err(err) => return Err(err),
         }
-        Err(Error::Mqtt(MqttError::NotReady))
-        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) => Ok(false),
-        Err(err) => Err(err),
     }
 }
 

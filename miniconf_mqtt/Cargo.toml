@@ -21,15 +21,16 @@ default = []
 compat-settings-ingress = []
 
 [dependencies]
-miniconf = { version = "0.20.1", features = ["json-core"], default-features = false, path = "../miniconf" }
+miniconf = { version = "0.20.1", features = [
+    "json-core",
+], default-features = false, path = "../miniconf" }
 minimq = "0.11"
-embassy-time = { version = "0.5.1" }
+embassy-time = "0.5.1"
 embedded-io = "0.7"
 defmt = "1.0.1"
 heapless = "0.9.1"
 serde = { version = "1", default-features = false, features = ["derive"] }
 serde-json-core = { version = "0.6.0" }
-strum = { version = "0.28", features = ["derive"], default-features = false }
 thiserror = { version = "2", default-features = false }
 yafnv = { version = "3", default-features = false }
 itoa = "1.0.4"
@@ -38,14 +39,16 @@ itoa = "1.0.4"
 name = "miniconf"
 
 [dev-dependencies]
-clap = { version = "4.5", features = ["derive"] }
 defmt2log = "0.1.0"
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
-tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros", "net", "io-util"] }
-embedded-io-async = "0.7"
-embedded-nal-async = "0.9"
-std-embedded-nal-async = "0.4"
+tokio = { version = "1.9", features = [
+    "rt-multi-thread",
+    "time",
+    "macros",
+    "net",
+] }
+embedded-io-adapters = { version = "0.7.0", features = ["tokio-1"] }
 miniconf = { features = [
     "json-core",
     "derive",
@@ -54,7 +57,6 @@ miniconf = { features = [
     "meta-node",
     "meta-edge",
 ], path = "../miniconf" }
-serde = "1"
 heapless = { version = "0.9", features = ["serde"] }
 
 [package.metadata.docs.rs]

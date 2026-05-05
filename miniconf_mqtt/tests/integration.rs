@@ -1,7 +1,4 @@
-use core::future::poll_fn;
-use core::pin::Pin;
-use core::task::Poll;
-use embedded_io_async::{ErrorType, Read, Write};
+use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf::Tree;
 use miniconf_mqtt::{Event, Miniconf, Service, ServiceEvent};
 use minimq::{
@@ -14,7 +11,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
-    io::{AsyncRead, AsyncWrite},
     net::TcpStream,
     time::{Duration, timeout},
 };
@@ -45,8 +41,7 @@ struct Settings {
 }
 
 fn broker_addr() -> Option<SocketAddr> {
-    let raw = std::env::var(BROKER_ADDR_ENV).ok()?;
-    Some(raw.parse().unwrap())
+    Some(std::env::var(BROKER_ADDR_ENV).ok()?.parse().unwrap())
 }
 
 fn unique(label: &str) -> String {
@@ -57,65 +52,18 @@ fn unique(label: &str) -> String {
     format!("miniconf-mqtt-{label}-{nanos}")
 }
 
-fn config(client_id: &str) -> ConfigBuilder<'static> {
-    let buffer = Box::leak(Box::new([0; 2048]));
-    ConfigBuilder::from_buffer(buffer, 1024)
-        .unwrap()
-        .client_id(client_id)
-        .unwrap()
+fn config() -> ConfigBuilder<'static> {
+    ConfigBuilder::from_buffer(Box::leak(Box::new([0; 2048])), 1024).unwrap()
 }
 
-fn compact_config(client_id: &str) -> ConfigBuilder<'static> {
-    let buffer = Box::leak(Box::new([0; 640]));
-    ConfigBuilder::from_buffer(buffer, 128)
-        .unwrap()
-        .client_id(client_id)
-        .unwrap()
+fn compact_config() -> ConfigBuilder<'static> {
+    ConfigBuilder::from_buffer(Box::leak(Box::new([0; 640])), 128).unwrap()
 }
 
-#[derive(Debug)]
-struct TokioConnection(TcpStream);
-
-impl ErrorType for TokioConnection {
-    type Error = std::io::Error;
-}
-
-impl Read for TokioConnection {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        if buf.is_empty() {
-            return Ok(0);
-        }
-        poll_fn(|cx| {
-            let mut read_buf = tokio::io::ReadBuf::new(buf);
-            match Pin::new(&mut self.0).poll_read(cx, &mut read_buf) {
-                Poll::Ready(Ok(())) => Poll::Ready(Ok(read_buf.filled().len())),
-                Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                Poll::Pending => Poll::Pending,
-            }
-        })
-        .await
-    }
-}
-
-impl Write for TokioConnection {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        poll_fn(|cx| match Pin::new(&mut self.0).poll_write(cx, buf) {
-            Poll::Ready(Ok(0)) if !buf.is_empty() => {
-                Poll::Ready(Err(std::io::ErrorKind::WriteZero.into()))
-            }
-            Poll::Ready(result) => Poll::Ready(result),
-            Poll::Pending => Poll::Pending,
-        })
-        .await
-    }
-
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        poll_fn(|cx| Pin::new(&mut self.0).poll_flush(cx)).await
-    }
-}
+type TokioConnection = FromTokio<TcpStream>;
 
 async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
-    TcpStream::connect(addr).await.map(TokioConnection)
+    Ok(FromTokio::new(TcpStream::connect(addr).await?))
 }
 
 async fn connect_mm2<'a>(
@@ -156,11 +104,10 @@ async fn mm2_set_stays_internal() {
     };
 
     let prefix = unique("prefix");
-    let mut publisher = Session::new(config(&unique("pub")));
-    let (mut mm2, mut session) =
-        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
+    let mut publisher = Session::new(config());
+    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
+    let (mut mm2, mut session) = Miniconf::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
-
     connect_mm2(
         &mut mm2,
         &mut session,
@@ -169,7 +116,6 @@ async fn mm2_set_stays_internal() {
     )
     .await;
 
-    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
     publisher
         .publish(Publication::bytes(&format!("{prefix}/set/value"), b"9"))
         .await
@@ -199,12 +145,19 @@ async fn other_topics_are_unhandled() {
 
     let prefix = unique("prefix");
     let other_topic = format!("{prefix}/rpc/in");
-    let mut publisher = Session::new(config(&unique("pub")));
-    let (mut mm2, mut session) =
-        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("sub"))).unwrap();
+    let mut publisher = Session::new(config());
+    let (mut mm2, mut session) = Miniconf::new(&prefix, config()).unwrap();
     let settings = Settings::default();
 
     wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
+
     publisher
         .publish(
             Publication::bytes(&other_topic, b"hello")
@@ -213,14 +166,6 @@ async fn other_topics_are_unhandled() {
         )
         .await
         .unwrap();
-
-    connect_mm2(
-        &mut mm2,
-        &mut session,
-        &settings,
-        connect_addr(addr).await.unwrap(),
-    )
-    .await;
 
     let topics = [TopicFilter::new(&other_topic)
         .options(SubscriptionOptions::default().maximum_qos(QoS::AtMostOnce))];
@@ -252,11 +197,8 @@ async fn startup_with_large_schema_waits_on_session_progress() {
     };
 
     let prefix = unique("activation");
-    let (mut mm2, mut session) = Miniconf::<common::Settings>::new::<TokioConnection>(
-        &prefix,
-        compact_config(&unique("mm2")),
-    )
-    .unwrap();
+    let (mut mm2, mut session) =
+        Miniconf::<common::Settings>::new::<TokioConnection>(&prefix, compact_config()).unwrap();
     let settings = common::Settings::new();
 
     assert!(matches!(
@@ -309,9 +251,9 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
     };
 
     let prefix = unique("queue");
-    let mut publisher = Session::new(config(&unique("pub")));
+    let mut publisher = Session::new(config());
     let (mut mm2, mut session) =
-        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config()).unwrap();
     let mut settings = Settings::default();
     let mut service = Service::<4>::new();
 
@@ -354,10 +296,13 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
         }
 
         while !service.is_empty() {
-            let _ = service
+            if service
                 .step(&mut mm2, &mut session, &mut settings)
                 .await
-                .unwrap();
+                .unwrap()
+            {
+                break;
+            }
             let _ = session.poll().await.unwrap();
         }
     })
@@ -380,9 +325,9 @@ async fn service_rejects_overflow_without_mutating() {
     };
 
     let prefix = unique("queue-overflow");
-    let mut publisher = Session::new(config(&unique("pub")));
+    let mut publisher = Session::new(config());
     let (mut mm2, mut session) =
-        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config(&unique("mm2"))).unwrap();
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config()).unwrap();
     let mut settings = Settings::default();
     let mut service = Service::<1>::new();
 
