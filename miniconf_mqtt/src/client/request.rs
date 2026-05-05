@@ -360,18 +360,18 @@ fn encode_body(body: &ResponseBody) -> ReplyMessage {
     let mut payload = String::new();
     let (kind, class, depth) = match body {
         ResponseBody::Lookup(err) => {
-            write!(&mut error, "{:?}", err.inner).ok();
-            write!(&mut payload, "{err}").ok();
+            write!(error.as_mut_view(), "{:?}", err.inner).ok();
+            write!(payload.as_mut_view(), "{err}").ok();
             ("lookup", "SerdeError", Some(err.depth))
         }
         ResponseBody::LeafRequired { depth } => {
-            write!(&mut error, "{:?}", miniconf::KeyError::TooShort).ok();
+            write!(error.as_mut_view(), "{:?}", miniconf::KeyError::TooShort).ok();
             payload.push_str("Path does not resolve to a leaf").ok();
             ("set", "KeyError", Some(*depth))
         }
         ResponseBody::Set(err) => {
-            write!(&mut error, "{:?}", err.inner).ok();
-            write!(&mut payload, "{err}").ok();
+            write!(error.as_mut_view(), "{:?}", err.inner).ok();
+            write!(payload.as_mut_view(), "{err}").ok();
             ("set", "SerdeError", Some(err.depth))
         }
     };
@@ -392,9 +392,9 @@ fn publish_error_text<E: core::fmt::Debug>(
     String<{ crate::RESPONSE_TEXT_LENGTH }>,
 ) {
     let mut error = String::new();
-    write!(&mut error, "{err:?}").ok();
+    write!(error.as_mut_view(), "{err:?}").ok();
     let mut payload = String::new();
-    write!(&mut payload, "{err}").ok();
+    write!(payload.as_mut_view(), "{err}").ok();
     (error, payload)
 }
 
@@ -433,7 +433,7 @@ where
 {
     let mut depth_text = String::<16>::new();
     let depth = message.depth.and_then(|value| {
-        write!(&mut depth_text, "{value}").ok()?;
+        write!(depth_text.as_mut_view(), "{value}").ok()?;
         Some(depth_text.as_str())
     });
     let props = error_props(

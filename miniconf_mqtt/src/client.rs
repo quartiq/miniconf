@@ -470,7 +470,7 @@ where
         let mut topic = self.prefix.clone();
         topic.push_str("/schema/").ok();
         use core::fmt::Write as _;
-        write!(&mut topic, "{page}").ok();
+        write!(topic.as_mut_view(), "{page}").ok();
         topic
     }
 
