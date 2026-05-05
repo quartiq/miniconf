@@ -193,6 +193,13 @@ async def main() -> None:
         "/channel/0/demodulate/attenuation",
         "/channel/0/demodulate",
     )
+    assert _normalize_command_path(
+        "/channel/0/demodulate/frequency", "", subtree=False
+    ) == ("/channel/0/demodulate/frequency", "/channel/0/demodulate")
+    assert _normalize_command_path("phase", "/channel/0/demodulate") == (
+        "/channel/0/demodulate/phase",
+        "/channel/0/demodulate",
+    )
 
     schema_fixture = fixture_schema()
     assert schema_fixture.paths() == ["", "/value", "/nested", "/nested/leaf"]

@@ -17,18 +17,30 @@ from .ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
 
-def _normalize_command_path(path: str, base: str) -> tuple[str, str]:
+def _parent_path(path: str) -> str:
+    """Return the containing path for one absolute Miniconf path."""
+
+    if not path:
+        return ""
+    parent = path.rsplit("/", 1)[0]
+    return parent if parent else ""
+
+
+def _normalize_command_path(
+    path: str, base: str, *, subtree: bool = True
+) -> tuple[str, str]:
     """Normalize one CLI path.
 
-    Absolute paths update the base. Relative paths are resolved against the last absolute path
-    without changing it. The empty path stays the tree root.
+    Relative paths are resolved against the current base without changing it. Absolute paths update
+    the base: subtree commands anchor at the path itself, exact leaf commands anchor at the parent.
+    The empty path stays the tree root.
     """
 
     if not path:
         return "", base
     if path[0] == "/":
         path = validate_path(path)
-        return path, path
+        return path, path if subtree else _parent_path(path)
     return validate_path(f"{base}/{path}"), base
 
 
@@ -149,7 +161,9 @@ def _cli() -> argparse.ArgumentParser:
         "to show or dump retained subtree values ('PATH!' or 'PATH!!'). "
         "Use sufficient shell quoting/escaping. "
         "Absolute PATHs are empty or start with a '/'. "
-        "All other PATHs are relative to the last absolute PATH.",
+        "All other PATHs are relative to the current base. "
+        "Absolute subtree commands set the base to PATH; absolute leaf reads and SETs "
+        "set it to PATH's parent.",
     )
     return parser
 
@@ -207,7 +221,7 @@ async def _handle_commands(
                     print(render_value_tree(schema, tracked.snapshot(), tracked.root))
             elif "=" in arg:
                 path, value = arg.split("=", 1)
-                path = normalize(path)
+                path, base = _normalize_command_path(path, base, subtree=False)
                 await interface.set(
                     path,
                     json.loads(value),
@@ -216,7 +230,7 @@ async def _handle_commands(
                 )
                 print(f"{path}={value}")
             else:
-                path = normalize(arg)
+                path, base = _normalize_command_path(arg, base, subtree=False)
                 value = await interface.get(path, timeout=timeout)
                 print(f"{path}={json_dumps(value)}")
         except (MiniconfException, TimeoutError, json.JSONDecodeError) as err:

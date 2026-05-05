@@ -368,7 +368,7 @@ where
         settings: &mut Settings,
         inbound: InboundPublish<'msg>,
     ) -> Route<'msg> {
-        request::route::<Settings>(self.prefix.as_str(), settings, inbound)
+        request::route(self.prefix.as_str(), settings, inbound)
     }
 
     /// Wait until one `/set` completes or one non-MM2 inbound publish is returned.

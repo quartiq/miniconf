@@ -64,6 +64,151 @@ class _TrackState:
     burst: BurstState
 
 
+class _BaseClient:
+    def __init__(self, client: Client, prefix: str):
+        self.client = client
+        self.prefix = prefix
+        self.response_topic = f"{prefix}/response"
+        self._inflight: dict[bytes, asyncio.Future[None]] = {}
+        self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
+        self._subscriptions: dict[str, int] = {}
+        self.listener = asyncio.create_task(self._listen())
+        self.subscribed = asyncio.Event()
+
+    def _listen_topics(self) -> tuple[str, ...]:
+        return (self.response_topic,)
+
+    async def close(self):
+        """Cancel the response listener and all in-flight requests."""
+        self.listener.cancel()
+        for fut in self._inflight.values():
+            fut.cancel()
+        try:
+            await self.listener
+        except asyncio.CancelledError:
+            pass
+        if self._inflight:
+            await asyncio.wait(self._inflight.values())
+
+    async def _listen(self):
+        topics: list[str] = []
+        try:
+            for topic in self._listen_topics():
+                await self._subscribe(topic)
+                topics.append(topic)
+            self.subscribed.set()
+            async for message in self.client.messages:
+                self._dispatch(message)
+        except asyncio.CancelledError:
+            pass
+        except MqttError:
+            LOGGER.debug("MQTT error", exc_info=True)
+        finally:
+            self.subscribed.clear()
+            for topic in reversed(topics):
+                try:
+                    await self._unsubscribe(topic)
+                except MqttError:
+                    LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+
+    def _dispatch(self, message: Message):
+        topic = message.topic.value
+        properties = _properties(message)
+        LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
+
+        for topic_filter, queues in tuple(self._watchers.items()):
+            if mqtt.topic_matches_sub(topic_filter, topic):
+                for queue in tuple(queues):
+                    queue.put_nowait(message)
+
+        if topic == self.response_topic:
+            self._handle_response(properties, message.payload)
+            return
+        self._handle_message(message, topic, properties)
+
+    def _handle_response(self, properties: dict[str, Any], payload: bytes):
+        cd = _response_cd(properties)
+        if cd is None:
+            LOGGER.debug("Discarding response without CorrelationData")
+            return
+        fut = self._inflight.pop(cd, None)
+        if fut is None:
+            LOGGER.debug("Discarding unexpected CorrelationData: %s", cd.hex())
+            return
+        if fut.done():
+            LOGGER.debug("Discarding late response: %s", cd.hex())
+            return
+        code = _response_code(properties)
+        if code == "Ok":
+            fut.set_result(None)
+            return
+        fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
+
+    def _handle_message(
+        self, _message: Message, _topic: str, _properties: dict[str, Any]
+    ) -> None:
+        pass
+
+    async def _subscribe(self, topic_filter: str):
+        if not self._subscriptions.get(topic_filter):
+            await self.client.subscribe(topic_filter)
+            LOGGER.debug("Subscribed to %s", topic_filter)
+        self._subscriptions[topic_filter] = self._subscriptions.get(topic_filter, 0) + 1
+
+    async def _unsubscribe(self, topic_filter: str):
+        remaining = self._subscriptions[topic_filter] - 1
+        if remaining:
+            self._subscriptions[topic_filter] = remaining
+            return
+        del self._subscriptions[topic_filter]
+        await self.client.unsubscribe(topic_filter)
+        LOGGER.debug("Unsubscribed from %s", topic_filter)
+
+    @asynccontextmanager
+    async def _watch(self, topic_filter: str) -> AsyncIterator[asyncio.Queue[Message]]:
+        queue: asyncio.Queue[Message] = asyncio.Queue()
+        watchers = self._watchers[topic_filter]
+        watchers.append(queue)
+        try:
+            await self._subscribe(topic_filter)
+        except Exception:
+            watchers.remove(queue)
+            if not watchers:
+                del self._watchers[topic_filter]
+            raise
+        try:
+            yield queue
+        finally:
+            watchers.remove(queue)
+            if not watchers:
+                del self._watchers[topic_filter]
+            await self._unsubscribe(topic_filter)
+
+    async def _publish_set(
+        self, path: str, payload: str, *, response: bool, timeout: float | None = None
+    ):
+        props = Properties(PacketTypes.PUBLISH)
+        fut = None
+        if response:
+            await self.subscribed.wait()
+            props.ResponseTopic = self.response_topic
+            cd = uuid.uuid4().bytes
+            props.CorrelationData = cd
+            fut = asyncio.get_running_loop().create_future()
+            assert cd not in self._inflight
+            self._inflight[cd] = fut
+
+        topic = f"{self.prefix}/set{path}"
+        LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
+        await self.client.publish(topic, payload=payload, properties=props)
+
+        if fut is not None:
+            try:
+                await asyncio.wait_for(fut, timeout)
+            finally:
+                self._inflight.pop(cd, None)
+
+
 async def _read_retained_json(
     watch,
     topic_filter: str,
@@ -168,7 +313,7 @@ class TrackedSubtree:
         }
 
 
-class MiniconfClient:
+class MiniconfClient(_BaseClient):
     """Long-lived MM2 Miniconf session with schema and settings caches.
 
     The client keeps `/alive` subscribed to invalidate cached schema/settings when the device
@@ -178,86 +323,26 @@ class MiniconfClient:
     """
 
     def __init__(self, client: Client, prefix: str):
-        self.client = client
-        self.prefix = prefix
         self.alive_topic = f"{prefix}/alive"
-        self.response_topic = f"{prefix}/response"
-        self._inflight: dict[bytes, asyncio.Future[None]] = {}
-        self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
-        self._subscriptions: dict[str, int] = {}
         self._schema: Schema | None = None
         self._manifest: dict[str, Any] | None = None
         self._settings: dict[str, Any] = {}
         self._tracked_root: str | None = None
         self._track_state: _TrackState | None = None
-        self.listener = asyncio.create_task(self._listen())
-        self.subscribed = asyncio.Event()
+        super().__init__(client, prefix)
+
+    def _listen_topics(self) -> tuple[str, ...]:
+        return self.response_topic, self.alive_topic
 
     async def close(self):
-        """Cancel the response listener and all in-flight requests."""
         if self._tracked_root is not None:
             await self._close_track(self._tracked_root)
-        self.listener.cancel()
-        for fut in self._inflight.values():
-            fut.cancel()
-        try:
-            await self.listener
-        except asyncio.CancelledError:
-            pass
-        if self._inflight:
-            await asyncio.wait(self._inflight.values())
+        await super().close()
 
-    async def _listen(self):
-        await self._subscribe(self.response_topic)
-        await self._subscribe(self.alive_topic)
-        self.subscribed.set()
-        try:
-            async for message in self.client.messages:
-                self._dispatch(message)
-        except asyncio.CancelledError:
-            pass
-        except MqttError:
-            LOGGER.debug("MQTT error", exc_info=True)
-        finally:
-            self.subscribed.clear()
-            try:
-                await self._unsubscribe(self.response_topic)
-                await self._unsubscribe(self.alive_topic)
-            except MqttError:
-                LOGGER.debug("MQTT unsubscribe error", exc_info=True)
-
-    def _dispatch(self, message: Message):
-        topic = message.topic.value
-        properties = _properties(message)
-        LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
-
-        for topic_filter, queues in tuple(self._watchers.items()):
-            if mqtt.topic_matches_sub(topic_filter, topic):
-                for queue in tuple(queues):
-                    queue.put_nowait(message)
-
+    def _handle_message(self, message: Message, topic: str, properties: dict[str, Any]):
         if topic == self.alive_topic:
             self._note_manifest_payload(message.payload)
             return
-
-        if topic == self.response_topic:
-            cd = _response_cd(properties)
-            if cd is None:
-                LOGGER.debug("Discarding response without CorrelationData")
-            else:
-                fut = self._inflight.pop(cd, None)
-                if fut is None:
-                    LOGGER.debug("Discarding unexpected CorrelationData: %s", cd.hex())
-                elif fut.done():
-                    LOGGER.debug("Discarding late response: %s", cd.hex())
-                else:
-                    code = _response_code(properties)
-                    if code == "Ok":
-                        fut.set_result(None)
-                    else:
-                        fut.set_exception(
-                            MiniconfException(code, message.payload.decode("utf-8"))
-                        )
 
         if self._tracked_root is None or not topic.startswith(
             f"{self.prefix}/settings"
@@ -328,65 +413,6 @@ class MiniconfClient:
             LOGGER.debug("Ignoring invalid alive payload: %r", payload)
             return
         self._note_manifest(manifest)
-
-    async def _subscribe(self, topic_filter: str):
-        if not self._subscriptions.get(topic_filter):
-            await self.client.subscribe(topic_filter)
-            LOGGER.debug("Subscribed to %s", topic_filter)
-        self._subscriptions[topic_filter] = self._subscriptions.get(topic_filter, 0) + 1
-
-    async def _unsubscribe(self, topic_filter: str):
-        remaining = self._subscriptions[topic_filter] - 1
-        if remaining:
-            self._subscriptions[topic_filter] = remaining
-            return
-        del self._subscriptions[topic_filter]
-        await self.client.unsubscribe(topic_filter)
-        LOGGER.debug("Unsubscribed from %s", topic_filter)
-
-    @asynccontextmanager
-    async def _watch(self, topic_filter: str) -> AsyncIterator[asyncio.Queue[Message]]:
-        queue: asyncio.Queue[Message] = asyncio.Queue()
-        watchers = self._watchers[topic_filter]
-        watchers.append(queue)
-        try:
-            await self._subscribe(topic_filter)
-        except Exception:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            raise
-        try:
-            yield queue
-        finally:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            await self._unsubscribe(topic_filter)
-
-    async def _publish_set(
-        self, path: str, payload: str, *, response: bool, timeout: float | None = None
-    ):
-        props = Properties(PacketTypes.PUBLISH)
-        fut = None
-        if response:
-            await self.subscribed.wait()
-            props.ResponseTopic = self.response_topic
-            cd = uuid.uuid4().bytes
-            props.CorrelationData = cd
-            fut = asyncio.get_running_loop().create_future()
-            assert cd not in self._inflight
-            self._inflight[cd] = fut
-
-        topic = f"{self.prefix}/set{path}"
-        LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
-        await self.client.publish(topic, payload=payload, properties=props)
-
-        if fut is not None:
-            try:
-                await asyncio.wait_for(fut, timeout)
-            finally:
-                self._inflight.pop(cd, None)
 
     async def set(
         self,
@@ -540,137 +566,11 @@ class MiniconfClient:
             await asyncio.sleep(min(0.01, state.burst.deadline - now, end - now))
 
 
-class RawMiniconfClient:
+class RawMiniconfClient(_BaseClient):
     """Schema-less MM2 client for exact-path GET and SET operations."""
 
     def __init__(self, client: Client, prefix: str):
-        self.client = client
-        self.prefix = prefix
-        self.response_topic = f"{prefix}/response"
-        self._inflight: dict[bytes, asyncio.Future[None]] = {}
-        self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
-        self._subscriptions: dict[str, int] = {}
-        self.listener = asyncio.create_task(self._listen())
-        self.subscribed = asyncio.Event()
-
-    async def close(self):
-        """Cancel the response listener and all in-flight requests."""
-        self.listener.cancel()
-        for fut in self._inflight.values():
-            fut.cancel()
-        try:
-            await self.listener
-        except asyncio.CancelledError:
-            pass
-        if self._inflight:
-            await asyncio.wait(self._inflight.values())
-
-    async def _listen(self):
-        await self.client.subscribe(self.response_topic)
-        LOGGER.debug("Subscribed to %s", self.response_topic)
-        self.subscribed.set()
-        try:
-            async for message in self.client.messages:
-                self._dispatch(message)
-        except asyncio.CancelledError:
-            pass
-        except MqttError:
-            LOGGER.debug("MQTT error", exc_info=True)
-        finally:
-            self.subscribed.clear()
-            try:
-                await self.client.unsubscribe(self.response_topic)
-            except MqttError:
-                LOGGER.debug("MQTT unsubscribe error", exc_info=True)
-
-    def _dispatch(self, message: Message):
-        topic = message.topic.value
-        properties = _properties(message)
-        LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
-
-        for topic_filter, queues in tuple(self._watchers.items()):
-            if mqtt.topic_matches_sub(topic_filter, topic):
-                for queue in tuple(queues):
-                    queue.put_nowait(message)
-
-        if topic != self.response_topic:
-            return
-
-        cd = _response_cd(properties)
-        if cd is None:
-            LOGGER.debug("Discarding response without CorrelationData")
-            return
-        fut = self._inflight.pop(cd, None)
-        if fut is None:
-            LOGGER.debug("Discarding unexpected CorrelationData: %s", cd.hex())
-            return
-        if fut.done():
-            LOGGER.debug("Discarding late response: %s", cd.hex())
-            return
-        code = _response_code(properties)
-        if code == "Ok":
-            fut.set_result(None)
-            return
-        fut.set_exception(MiniconfException(code, message.payload.decode("utf-8")))
-
-    async def _subscribe(self, topic_filter: str):
-        if not self._subscriptions.get(topic_filter):
-            await self.client.subscribe(topic_filter)
-            LOGGER.debug("Subscribed to %s", topic_filter)
-        self._subscriptions[topic_filter] = self._subscriptions.get(topic_filter, 0) + 1
-
-    async def _unsubscribe(self, topic_filter: str):
-        remaining = self._subscriptions[topic_filter] - 1
-        if remaining:
-            self._subscriptions[topic_filter] = remaining
-            return
-        del self._subscriptions[topic_filter]
-        await self.client.unsubscribe(topic_filter)
-        LOGGER.debug("Unsubscribed from %s", topic_filter)
-
-    @asynccontextmanager
-    async def _watch(self, topic_filter: str) -> AsyncIterator[asyncio.Queue[Message]]:
-        queue: asyncio.Queue[Message] = asyncio.Queue()
-        watchers = self._watchers[topic_filter]
-        watchers.append(queue)
-        try:
-            await self._subscribe(topic_filter)
-        except Exception:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            raise
-        try:
-            yield queue
-        finally:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            await self._unsubscribe(topic_filter)
-
-    async def _publish_set(
-        self, path: str, payload: str, *, response: bool, timeout: float | None = None
-    ):
-        props = Properties(PacketTypes.PUBLISH)
-        fut = None
-        if response:
-            await self.subscribed.wait()
-            props.ResponseTopic = self.response_topic
-            cd = uuid.uuid4().bytes
-            props.CorrelationData = cd
-            fut = asyncio.get_running_loop().create_future()
-            assert cd not in self._inflight
-            self._inflight[cd] = fut
-
-        topic = f"{self.prefix}/set{path}"
-        LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
-        await self.client.publish(topic, payload=payload, properties=props)
-
-        if fut is not None:
-            try:
-                await asyncio.wait_for(fut, timeout)
-            finally:
-                self._inflight.pop(cd, None)
+        super().__init__(client, prefix)
 
     async def set(
         self,

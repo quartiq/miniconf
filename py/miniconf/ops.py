@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import AsyncExitStack
 from typing import TYPE_CHECKING, Any
 
 from aiomqtt import Client, Message
@@ -106,11 +105,8 @@ async def _collect_retained_settings(
     start = asyncio.get_running_loop().time()
     retained: dict[str, Any] = {}
     seen_any = False
-    async with AsyncExitStack() as stack:
-        queues = [
-            await stack.enter_async_context(interface._watch(topic_filter))
-            for topic_filter in settings_topics(interface.prefix, root)
-        ]
+    (topic_filter,) = settings_topics(interface.prefix, root)
+    async with interface._watch(topic_filter) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
@@ -120,43 +116,32 @@ async def _collect_retained_settings(
                 return retained
             if now >= end:
                 return retained
-            tasks = [asyncio.create_task(queue.get()) for queue in queues]
-            done: set[asyncio.Task[Message]]
-            pending: set[asyncio.Task[Message]]
             try:
-                done, pending = await asyncio.wait(
-                    tasks,
-                    timeout=(min(burst.deadline, end) - now)
-                    if seen_any
-                    else (end - now),
-                    return_when=asyncio.FIRST_COMPLETED,
+                message = await asyncio.wait_for(
+                    queue.get(),
+                    (min(burst.deadline, end) - now) if seen_any else (end - now),
                 )
-            finally:
-                for task in pending:
-                    task.cancel()
-            if not done:
+            except TimeoutError:
                 continue
-            for task in done:
-                message = task.result()
-                topic = message.topic.value
-                if not topic.startswith(f"{interface.prefix}/settings"):
-                    continue
-                props = _user_properties(message)
-                if "rev" not in props:
-                    continue
-                settings_path = topic.removeprefix(f"{interface.prefix}/settings")
-                if not subtree_match(settings_path, root):
-                    continue
-                if not message.payload:
-                    retained.pop(settings_path, None)
-                else:
-                    retained[settings_path] = json.loads(message.payload)
-                seen_any = True
-                burst.note(
-                    asyncio.get_running_loop().time(),
-                    rel_timeout,
-                    abs_timeout,
-                )
+            topic = message.topic.value
+            if not topic.startswith(f"{interface.prefix}/settings"):
+                continue
+            props = _user_properties(message)
+            if "rev" not in props:
+                continue
+            settings_path = topic.removeprefix(f"{interface.prefix}/settings")
+            if not subtree_match(settings_path, root):
+                continue
+            if not message.payload:
+                retained.pop(settings_path, None)
+            else:
+                retained[settings_path] = json.loads(message.payload)
+            seen_any = True
+            burst.note(
+                asyncio.get_running_loop().time(),
+                rel_timeout,
+                abs_timeout,
+            )
 
 
 async def _collect_retained_topics(
