@@ -405,8 +405,8 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
             let Some(inbound) = session.poll().await.unwrap() else {
                 continue;
             };
-            match service.handle(&mut mm2, &mut settings, inbound) {
-                ServiceEvent::Unhandled(_) => panic!("unexpected app traffic"),
+            match service.handle(&mut mm2, &mut settings, &inbound) {
+                ServiceEvent::Unhandled => panic!("unexpected app traffic"),
                 ServiceEvent::Idle | ServiceEvent::Busy => {}
                 ServiceEvent::Changed(_) => {
                     accepted += 1;
@@ -482,7 +482,7 @@ async fn service_rejects_overflow_without_mutating() {
         }
     };
     assert!(matches!(
-        service.handle(&mut mm2, &mut settings, first),
+        service.handle(&mut mm2, &mut settings, &first),
         ServiceEvent::Changed(_)
     ));
 
@@ -496,7 +496,7 @@ async fn service_rejects_overflow_without_mutating() {
         }
     };
     assert!(matches!(
-        service.handle(&mut mm2, &mut settings, second),
+        service.handle(&mut mm2, &mut settings, &second),
         ServiceEvent::Busy
     ));
 

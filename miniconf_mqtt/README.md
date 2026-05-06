@@ -62,7 +62,8 @@ Stepwise APIs:
 
 `Service` is the cooperative steady-state boundary:
 
-- `ServiceEvent::Unhandled(inbound)` returns non-MM2 traffic to the caller unchanged
+- `ServiceEvent::Unhandled` means the caller still owns the non-MM2 publish and
+  may route it elsewhere
 - `ServiceEvent::Changed(changed)` means one `/set` changed local settings and queued authoritative
   MM2 follow-up work
 - `ServiceEvent::Busy` means bounded service capacity was exhausted, so the MM2 request was
@@ -89,8 +90,8 @@ loop {
     let _empty = service.step(&mut mm2, &mut session, &settings).await?;
 
     if let Some(inbound) = session.poll().await? {
-        match service.handle(&mut mm2, &mut settings, inbound) {
-            ServiceEvent::Unhandled(message) => { /* app traffic */ }
+        match service.handle(&mut mm2, &mut settings, &inbound) {
+            ServiceEvent::Unhandled => { /* app traffic */ }
             ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
         }
     }

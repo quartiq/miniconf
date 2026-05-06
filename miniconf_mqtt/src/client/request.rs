@@ -51,16 +51,16 @@ pub(crate) fn is_request(prefix: &str, topic: &str) -> bool {
     set_path(topic, prefix).is_some()
 }
 
-pub(crate) fn route<'msg, Settings>(
+pub(crate) fn route<Settings>(
     prefix: &str,
     settings: &mut Settings,
-    inbound: InboundPublish<'msg>,
-) -> Route<'msg>
+    inbound: &InboundPublish<'_>,
+) -> Route
 where
     Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
 {
     let Some(path) = set_path(inbound.topic(), prefix) else {
-        return Route::Unhandled(inbound);
+        return Route::Unhandled;
     };
 
     let reply = match inbound

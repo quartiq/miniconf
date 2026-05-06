@@ -174,19 +174,19 @@ pub enum Event<T> {
 
 /// Immediate outcome of cooperative MM2 service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
-pub enum ServiceEvent<'a> {
+pub enum ServiceEvent {
     /// No immediate MM2 work or inbound publish was available.
     Idle,
     /// One MM2 request was rejected because bounded service capacity was exhausted.
     Busy,
-    /// The message is not MM2 traffic and remains owned by the caller.
-    Unhandled(InboundPublish<'a>),
+    /// The message is not MM2 traffic.
+    Unhandled,
     /// One `/set` changed this exact leaf and follow-up work was queued.
     Changed(ChangedKey),
 }
 
-enum Route<'a> {
-    Unhandled(InboundPublish<'a>),
+enum Route {
+    Unhandled,
     Ignored,
     Rejected {
         aftermath: Option<Aftermath>,
@@ -363,11 +363,7 @@ where
         Ok(())
     }
 
-    fn route<'msg>(
-        &mut self,
-        settings: &mut Settings,
-        inbound: InboundPublish<'msg>,
-    ) -> Route<'msg> {
+    fn route(&mut self, settings: &mut Settings, inbound: &InboundPublish<'_>) -> Route {
         request::route(self.prefix.as_str(), settings, inbound)
     }
 
@@ -387,7 +383,7 @@ where
         &mut self,
         session: &mut Session<'_, IO>,
         settings: &mut Settings,
-        mut on_unhandled: impl FnMut(InboundPublish<'_>) -> T,
+        mut on_unhandled: impl FnMut(&InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
     where
         IO: Io,
@@ -397,8 +393,10 @@ where
             let Some(inbound) = inbound else {
                 continue;
             };
-            match self.route(settings, inbound) {
-                Route::Unhandled(message) => return Ok(Event::Unhandled(on_unhandled(message))),
+            match self.route(settings, &inbound) {
+                Route::Unhandled => {
+                    return Ok(Event::Unhandled(on_unhandled(&inbound)));
+                }
                 Route::Ignored => {}
                 Route::Rejected { aftermath } => {
                     if let Some(aftermath) = aftermath {
@@ -728,16 +726,17 @@ impl<const N: usize> Service<N> {
 
     /// Route one inbound publish through the bounded MM2 service.
     ///
-    /// Non-MM2 traffic is returned unchanged as `ServiceEvent::Unhandled`.
+    /// Non-MM2 traffic is reported as `ServiceEvent::Unhandled`, while the
+    /// caller keeps ownership of the inbound publish.
     ///
     /// If the bounded service is full, MM2 `/set` requests are rejected without mutating local
     /// settings.
-    pub fn handle<'msg, Settings>(
+    pub fn handle<Settings>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
         settings: &mut Settings,
-        inbound: InboundPublish<'msg>,
-    ) -> ServiceEvent<'msg>
+        inbound: &InboundPublish<'_>,
+    ) -> ServiceEvent
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     {
@@ -753,7 +752,7 @@ impl<const N: usize> Service<N> {
         }
 
         match mm2.route(settings, inbound) {
-            Route::Unhandled(inbound) => ServiceEvent::Unhandled(inbound),
+            Route::Unhandled => ServiceEvent::Unhandled,
             Route::Ignored => ServiceEvent::Idle,
             Route::Rejected { aftermath } => {
                 if let Some(aftermath) = aftermath {
