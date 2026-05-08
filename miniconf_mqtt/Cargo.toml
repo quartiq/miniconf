@@ -39,7 +39,7 @@ itoa = "1.0.4"
 name = "miniconf"
 
 [dev-dependencies]
-defmt2log = "0.1.0"
+defmt2log = "0.2.0"
 embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
 tokio = { version = "1.9", features = [

@@ -19,7 +19,7 @@ use miniconf::{json_core, Tree};
 #[derive(Default, Tree)]
 struct Settings {
     enabled: bool,
-    gain: u16,
+    gain: [u16; 2],
 }
 
 let mut settings = Settings::default();
@@ -27,17 +27,17 @@ let mut settings = Settings::default();
 json_core::set(&mut settings, "/enabled", b"true").unwrap();
 assert!(settings.enabled);
 
-json_core::set(&mut settings, "/gain", b"42").unwrap();
+json_core::set(&mut settings, "/gain/1", b"42").unwrap();
 let mut buf = [0; 8];
-let len = json_core::get(&settings, "/gain", &mut buf).unwrap();
+let len = json_core::get(&settings, "/gain/1", &mut buf).unwrap();
 assert_eq!(&buf[..len], b"42");
 ```
 
 The standard user-facing layers are:
 
 - [`TreeSchema`]: static schema, path lookup, path iteration, and metadata.
-- [`TreeSerialize`]: serialize one selected leaf or subtree.
-- [`TreeDeserialize`]: deserialize one selected leaf or subtree.
+- [`TreeSerialize`]: serialize one selected leaf.
+- [`TreeDeserialize`]: deserialize one selected leaf.
 - [`TreeAny`]: access leaf values through `core::any::Any`.
 - [`json_core`]: compact `serde_json_core` helpers for slash-separated paths.
 
@@ -68,11 +68,11 @@ Blanket implementations are provided for all
 `miniconf` is also protocol-agnostic. Any means that can receive or emit serialized key-value data
 can be used to access nodes by path.
 
-The `MqttClient` in the `miniconf_mqtt` crate implements async settings management over the [MQTT
+The `Miniconf` in the `miniconf_mqtt` crate implements async settings management over the [MQTT
 protocol](https://mqtt.org) with JSON payloads on top of async `minimq`. A Python reference
 library is provided that interfaces with it. This example discovers the unique prefix of an
-application listening to messages under the topic `quartiq/application/12345` and sets its `/foo`
-setting to `true`.
+application listening to messages under the topic `quartiq/application/12345` and sets its `/enabled`
+leaf to `true`.
 
 ```sh
 miniconf -d quartiq/application/+ /enabled=true
@@ -114,7 +114,7 @@ cursor state, while `root_schema()` names the iterated tree.
 ## Limitations
 
 * The derive macros only support enums with unit variants, newtype variants, and skipped variants. Enums with named fields or multi-field tuple variants need to stay leaves or use a manual implementation.
-* Flattening is only supported in non-ambiguous cases.
+* Flattening is only supported in structurally non-ambiguous cases (single child).
 * Runtime absence is part of the model. `Option` branches and inactive enum variants can make otherwise valid paths return `Absent`.
 * `&str` key input is always slash-separated. Other path syntaxes use explicit iterators such as [`PathIter`] or [`JsonPathIter`].
 * Schema semantics and metadata are optional reflection data. Consumers should not assume they are retained unless the corresponding features are enabled.

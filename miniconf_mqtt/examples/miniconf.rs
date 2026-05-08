@@ -11,7 +11,7 @@ const PREFIX: &str = "test/common";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn core::error::Error>> {
     env_logger::init();
-    defmt2log::init_from_current_exe()?;
+    defmt2log::init_from_current_exe();
 
     let mut buffer = vec![0; 4096];
     let (mut mm2, mut session) =

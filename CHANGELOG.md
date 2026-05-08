@@ -10,52 +10,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* `Path`/`PathIter` now store the separator at runtime, reducing monomorphization bloat on the dynamic path
-  representation.
+* `Path` and `PathIter` now store the separator at runtime, reducing monomorphization bloat for
+  dynamic path handling.
+* `IntoKeys` is now the narrow boundary normalization layer. Slash-separated `&str` remains the
+  default shorthand, while explicit separators use `PathIter` or `ConstPathIter`.
 * `Schema::get()` now performs exact lookup and returns `Lookup`.
-* `Schema::transcode()` now takes `impl IntoKeys`, default-constructs the target, and uses the
-  `IntoKeys` boundary funnel before deeper `Keys`-based traversal.
-* `IntoKeys` is now a narrower boundary normalization instead of a broad blanket over
-  arbitrary iterator/string wrapper types. Slash-separated `&str` is the default "path-like" shorthand;
-  explicit separators use `PathIter`/`ConstPathIter`.
-* `NodeIter` is now leaves-only. Depth-limited iteration skips leaves deeper than the limit.
-* `Schema` is now a public enum with explicit `Leaf` and `Internal` variants, backed by shared
-  `NodeSchema` payload and `InternalSchema` instead of the old nullable `Schema::new(...)` shape.
-* `miniconf_mqtt`: `MqttClient` is now async-first and built on async `minimq::Session`.
-  `update()` was replaced by `poll().await`.
-* `miniconf_mqtt` now supports schema, manifest, separation of requested and actual settings
-  fast live caching using persistence on the broker.
-  It is backwards compatible to "dumb" clients with the "compat-settings-ingress" feature.
-* `miniconf_mqtt` MM2 manifests now publish `epoch`/`schema_rev`. Long-lived Python
-  clients keep `/alive` subscribed, invalidate cached schema/settings on `epoch` or `schema_rev`
-  changes, and treat retained `settings/#` without `rev` as non-authoritative.
-* `miniconf_mqtt` now exposes `startup(...)`/`begin_startup(...)`, `serve(...)`, and bounded
-  `Service` instead of the older `activate()`/`publish_alive()` and low-level
-  `Handle`/`ResponseQueue` workflow stack.
-* `miniconf_mqtt::MqttClient::poll()` now returns one session event
-  (`Changed`/`Connected`/`Reconnected`/`Other`) and the shared client now exposes direct
-  `subscribe()` / `unsubscribe()` passthroughs for non-MM2 topics.
-* The Python package was restructured from `py/miniconf-mqtt` to `py/`, and now targets the MM2
-  retained schema/settings protocol with an async-first CLI and client library.
-* Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a monomorphic `SCHEMA` constant.
+* `Schema::transcode()` now takes `impl IntoKeys`, default-constructs the target, and funnels
+  boundary inputs through `IntoKeys` before deeper `Keys` traversal.
+* `NodeIter` now yields leaves only. Depth-limited iteration skips leaves deeper than the limit.
+* `Schema` is now a public enum with explicit `Leaf` and `Internal` variants backed by shared
+  `NodeSchema` and `InternalSchema`, replacing the older nullable `Schema::new(...)` shape.
+* Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a
+  monomorphic `SCHEMA` constant.
 * `Meta` is now a stable always-on newtype with direct serialization support, and schema metadata
-  terminology is now consistently `node`/`edge` instead of `inner`/`outer`.
+  terminology is now consistently `node` and `edge` instead of `inner` and `outer`.
+* Schema storage now keeps plain `Meta` values with `Meta::EMPTY` instead of `Option<Meta>`.
+  Node and edge metadata are stored independently under the `meta-node` and `meta-edge` features.
+* `Schema::get_meta()` now returns both edge and node metadata for one path.
+* `miniconf_mqtt::Miniconf` is now async-first and built on async `minimq::Session`;
+  `update()` was replaced by `poll().await`.
+* `miniconf_mqtt::Miniconf::poll()` now returns one session event
+  (`Changed`/`Connected`/`Reconnected`/`Other`), and the shared client now exposes direct
+  `subscribe()` / `unsubscribe()` passthroughs for non-MM2 topics.
+* `miniconf_mqtt` MM2 now publishes retained manifest and paged schema data alongside
+  authoritative retained settings, with fast broker-backed live caching.
+  Compatibility with request/response-only clients is retained behind the
+  `compat-settings-ingress` feature.
+* MM2 manifests now publish `epoch` and `schema_rev`. Long-lived Python clients keep `/alive`
+  subscribed, invalidate cached schema and settings when either changes, and treat retained
+  `settings/#` messages without `rev` as non-authoritative.
+* The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the MM2
+  retained schema/settings protocol with an async-first CLI and client library.
 * The schema family now exposes stable `new(...)` constructors and accessors instead of requiring
   public field construction.
-* Schema storage now keeps plain `Meta` values with `Meta::EMPTY` instead of `Option<Meta>`.
-  Node metadata and edge metadata are stored independently under the `meta-node` and `meta-edge`
-  features.
-* `Schema::get_meta()` now returns both edge and node metadata for one path.
 
 ### Added
 
-* `ConstPath` and `ConstPathIter` taking the separator as a const generic. That allows compile time specialization of ASCII separators.
+* `ConstPath` and `ConstPathIter` take the separator as a const generic, allowing compile-time
+  specialization of ASCII separators.
 * `Schema::resolve_into()` and `Lookup` for exact lookup with consumed-depth reporting.
 * `NodeIter::{indices,schema,root_schema}` for inspecting iterator position and the iterated tree
   with consistent naming.
 * `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live key cursors.
 * `Keys` for borrowed slices `&[T]` where `T: Key`.
-* `miniconf_mqtt::MqttClient::{publish_by_key,publish_all}` for explicit app-driven retained
+* `miniconf_mqtt::Miniconf::{publish_root,publish_by_key}` for explicit app-driven retained
   settings publication.
 * `Sem` offers semantic structured information about nodes in a `Schema`.
 * `#[tree(meta(...))]` for derive metadata syntax.
@@ -65,14 +63,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `nullable` as an edge metadata hint, e.g. `#[tree(with = leaf, meta(nullable))]`, propagated into JSON Schema as `null`.
 * Generated JSON Schema now carries an explicit `tree-leaf` marker and matches the emitted JSON tree for omitted named absences and `oneOf` nodes.
 * `miniconf/tests/benchmark` is now the embedded code-size and workload benchmark harness, with
-  shipped `baseline`, `manual`, and `miniconf` binaries plus schema-size measurement support.
+  `baseline`, `manual`, and `miniconf` binaries plus schema-size measurement support.
 * The Python package now ships MM2 schema parsing/rendering helpers and one-shot retained-state
   operations such as `read()`, `dump()`, `prune()`, and `force_prune()`.
 
 ### Removed
 
-* `FromConfig`, `Schema::transcode_with()`, and `Schema::nodes_with()`
-* `Schema::view()`, `Schema::get_view()`, and the `SchemaView` helper family
 * `meta-str`
 * The Python synchronous client surface (`miniconf.sync`) and the legacy request/response-only
   package layout under `py/miniconf-mqtt`

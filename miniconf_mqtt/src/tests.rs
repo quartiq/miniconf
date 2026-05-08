@@ -31,8 +31,8 @@ fn init_host_logging() {
     static HOST_LOGGING: OnceLock<()> = OnceLock::new();
 
     HOST_LOGGING.get_or_init(|| {
-        let _ = env_logger::builder().is_test(true).try_init();
-        defmt2log::init_from_current_exe().expect("initialize defmt host logger");
+        env_logger::builder().is_test(true).try_init().unwrap();
+        defmt2log::init_from_current_exe();
     });
 }
 
