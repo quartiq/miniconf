@@ -148,13 +148,13 @@ retained `settings/...` leaf topic with an empty retained payload and a fresh `r
 The retained `alive` payload is JSON:
 
 ```json
-{"epoch":1,"schema_rev":12345678,"pages":7,"settings_rev":42}
+{"epoch":1,"schema_rev":12345678,"pages":7,"baseline_rev":42}
 ```
 
 - `epoch` identifies the current authoritative publication epoch
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
-- `settings_rev` is the last retained settings revision published before this `alive`
+- `baseline_rev` is the last retained settings revision published before this `alive`
 
 `epoch` changes whenever a running device starts a fresh retained MM2 publication cycle. Clients
 should reload tracked retained settings when `epoch` changes, but may reuse a parsed schema if
@@ -196,10 +196,23 @@ The revision is FNV-1a over the exact retained schema page payload bytes in page
 
 Authoritative retained `settings/<path>` publications carry MQTT v5 user property `rev=<u32>`.
 
-- `rev` is monotonic within one `epoch`
-- clients should scope `rev` to the current `alive` epoch
-- `settings_rev` in `alive` is the completed mirror revision for that epoch
+- `rev` marks a publication as part of the authoritative mirror; no-`rev` settings publications
+  are compatibility ingress requests
+- `rev` is a global sequence within one `epoch`, not a per-leaf version
+- `baseline_rev` in `alive` is a startup commit watermark, not a maximum valid revision
+- late clients must accept retained settings with `rev > baseline_rev`; those are ordinary updates
+  published after the startup mirror completed
+- clients should use `rev` only for ordering observations inside one epoch, not for completeness
 - long-lived clients should ignore `settings/<path>` without `rev`
+
+Client snapshot rule:
+
+1. Treat non-empty retained `alive` as the commit marker for `epoch`, `schema_rev`, `pages`, and
+   `baseline_rev`.
+2. Load schema pages `0..pages-1` for `schema_rev`.
+3. Collect retained settings until quiescent.
+4. Accept valid schema leaves with exactly one decimal `rev`, regardless of whether `rev` is below,
+   equal to, or above `baseline_rev`.
 
 `set/<path>` accepts one JSON value for one leaf.
 
@@ -231,7 +244,7 @@ Success replies carry only `code=Ok`.
 - MM2 is small and opinionated. One MQTT prefix is assumed to have one authoritative device
   publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
-  for `epoch`, `schema_rev`, and completed `settings_rev`.
+  for `epoch`, `schema_rev`, and startup `baseline_rev`.
 - `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait
   for broker ACKs or `SUBACK`.
 - `LoadRetained` is a quiescence heuristic, not a retained storage transaction. Applying retained

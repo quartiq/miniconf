@@ -350,10 +350,9 @@ class TrackedSubtree:
 class Miniconf(_BaseClient):
     """Long-lived MM2 Miniconf session with schema and settings caches.
 
-    The client keeps `/alive` subscribed to invalidate cached schema/settings when the device
-    `epoch` or `schema_rev` changes. Retained `settings/#` publications without `rev` are treated
-    as non-authoritative and ignored. One explicit tracked settings subtree may be active at a
-    time through `track()`.
+    The client keeps `/alive` subscribed to notice new device epochs and schema revisions. Retained
+    `settings/#` publications without `rev` are treated as non-authoritative and ignored. One
+    explicit tracked settings subtree may be active at a time through `track()`.
     """
 
     def __init__(self, client: Client, prefix: str):
