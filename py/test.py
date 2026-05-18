@@ -267,6 +267,7 @@ async def main() -> None:
         assert manifest["epoch"] > 0, manifest
         assert manifest["pages"] > 0, manifest
         assert manifest["schema_rev"], manifest
+        assert manifest["settings_rev"] > 0, manifest
         schema_topics.wait_schema_pages(3.0, TARGET, manifest["pages"])
         alive.drain()
         settings.drain()

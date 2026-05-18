@@ -62,6 +62,10 @@ def _response_rev(properties: dict[str, Any]) -> int | None:
 @dataclass
 class _TrackState:
     burst: BurstState
+    timeout: float
+    rel_timeout: float
+    abs_timeout: float
+    reload: asyncio.Task[None] | None = None
 
 
 class _BaseClient:
@@ -325,6 +329,7 @@ class TrackedSubtree:
         """Read one cached tracked leaf."""
 
         path = self._resolve(path, leaf=True)
+        self._client._check_tracking_reload()
         try:
             return self._client._settings[path]
         except KeyError as exc:
@@ -334,6 +339,7 @@ class TrackedSubtree:
         """Return cached retained values below one tracked subtree."""
 
         root = self._resolve(path, leaf=False)
+        self._client._check_tracking_reload()
         return {
             cache_path: value
             for cache_path, value in self._client._settings.items()
@@ -409,9 +415,7 @@ class Miniconf(_BaseClient):
         epoch = manifest.get("epoch")
         schema_rev = manifest.get("schema_rev")
         if prev_epoch != epoch or prev_schema_rev != schema_rev:
-            self._settings.clear()
-            if self._track_state is not None:
-                self._track_state.burst.reset(asyncio.get_running_loop().time())
+            self._start_tracking_reload()
         if prev_schema_rev != schema_rev:
             self._schema = None
 
@@ -419,8 +423,7 @@ class Miniconf(_BaseClient):
         self._manifest = None
         self._schema = None
         self._settings.clear()
-        if self._track_state is not None:
-            self._track_state.burst.reset(asyncio.get_running_loop().time())
+        self._cancel_tracking_reload()
 
     def _note_manifest_payload(self, payload: bytes):
         if not payload:
@@ -519,6 +522,9 @@ class Miniconf(_BaseClient):
         self._tracked_root = root
         self._track_state = _TrackState(
             burst=BurstState.from_roundtrip(start, start, rel_timeout, abs_timeout),
+            timeout=timeout,
+            rel_timeout=rel_timeout,
+            abs_timeout=abs_timeout,
         )
         self._settings.clear()
         try:
@@ -540,11 +546,61 @@ class Miniconf(_BaseClient):
     async def _close_track(self, root: str):
         if self._tracked_root != root:
             raise MiniconfException("Tracked", root)
+        self._cancel_tracking_reload()
         for topic_filter in settings_topics(self.prefix, root):
             await self._unsubscribe(topic_filter)
         self._tracked_root = None
         self._track_state = None
         self._settings.clear()
+
+    def _start_tracking_reload(self) -> None:
+        state = self._track_state
+        if self._tracked_root is None or state is None:
+            self._settings.clear()
+            return
+        if state.reload is not None and not state.reload.done():
+            return
+        self._settings.clear()
+        state.reload = asyncio.create_task(self._reload_tracking())
+
+    def _cancel_tracking_reload(self) -> None:
+        state = self._track_state
+        if state is None or state.reload is None:
+            return
+        state.reload.cancel()
+        state.reload = None
+
+    def _check_tracking_reload(self) -> None:
+        state = self._track_state
+        if state is None or state.reload is None:
+            return
+        if state.reload.done():
+            try:
+                state.reload.result()
+            finally:
+                state.reload = None
+            return
+        raise MiniconfException("Reloading", self._tracked_root or "/")
+
+    async def _reload_tracking(self) -> None:
+        state = self._track_state
+        root = self._tracked_root
+        if state is None or root is None:
+            return
+        if self._schema is None:
+            root = (await self.schema(timeout=state.timeout)).path(root)
+            self._tracked_root = root
+        start = asyncio.get_running_loop().time()
+        for topic_filter in settings_topics(self.prefix, root):
+            await self.client.subscribe(topic_filter, options=retained_options())
+        state.burst.reset(asyncio.get_running_loop().time())
+        state.burst.set_roundtrip(
+            start,
+            asyncio.get_running_loop().time(),
+            rel_timeout=state.rel_timeout,
+            abs_timeout=state.abs_timeout,
+        )
+        await self._await_tracking(state.timeout)
 
     async def _await_tracking(self, timeout: float):
         state = self._track_state

@@ -90,6 +90,7 @@ struct AlivePayload {
     epoch: u32,
     schema_rev: u32,
     pages: usize,
+    settings_rev: u32,
 }
 
 pub(crate) enum PublishPayload<'a, 'b, Settings> {
@@ -138,6 +139,7 @@ where
                     epoch: manifest.epoch,
                     schema_rev: manifest.schema_rev,
                     pages: manifest.schema_pages,
+                    settings_rev: manifest.settings_rev,
                 },
                 buf,
             )
@@ -265,11 +267,12 @@ where
         .push_str("/alive")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
     crate::debug!(
-        "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize}",
+        "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize} settings_rev={=u32}",
         topic.as_str(),
         manifest.epoch,
         manifest.schema_rev,
-        manifest.schema_pages
+        manifest.schema_pages,
+        manifest.settings_rev
     );
     let publication = Publication::new(&topic, PublishPayload::<Settings>::Alive(manifest))
         .properties(crate::RETAINED_TEXT_PROPERTIES)
