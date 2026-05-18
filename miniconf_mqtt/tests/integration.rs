@@ -290,17 +290,23 @@ async fn other_topics_are_unhandled() {
     let topics = [TopicFilter::new(&other_topic)
         .options(SubscriptionOptions::default().maximum_qos(QoS::AtMostOnce))];
     session.subscribe(&topics, &[]).await.unwrap();
+    let marker = String::from("fn-once");
     match timeout(
         Duration::from_secs(5),
         mm2.serve(&mut session, &mut Settings::default(), |message| {
-            (message.topic().to_owned(), message.payload().to_vec())
+            (
+                marker,
+                message.topic().to_owned(),
+                message.payload().to_vec(),
+            )
         }),
     )
     .await
     .unwrap()
     .unwrap()
     {
-        Event::Unhandled((topic, payload)) => {
+        Event::Unhandled((marker, topic, payload)) => {
+            assert_eq!(marker, "fn-once");
             assert_eq!(topic, other_topic);
             assert_eq!(payload, b"hello");
         }

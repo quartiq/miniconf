@@ -24,6 +24,8 @@ For simple services, `miniconf_mqtt` provides two complete unbounded helpers on 
 
 They are the easiest way to serve MM2 when you do not need stepwise control, bounded queued
 follow-up, or exact control over unrelated inbound traffic during MM2 work.
+`on_unhandled` is synchronous and called at most once. For async application handling, copy or
+extract the needed data there and await after `serve()` returns `Event::Unhandled`.
 
 For precise control, `miniconf_mqtt` exposes three explicit building blocks:
 
@@ -84,7 +86,7 @@ Practical boundary:
 Bounded cooperative serving:
 
 ```rust
-let mut service = mm2.service::<4>();
+let mut service = Service::<4>::new();
 
 loop {
     let _empty = service.step(&mut mm2, &mut session, &settings).await?;

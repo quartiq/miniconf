@@ -44,6 +44,9 @@
 //! }
 //! ```
 //!
+//! The `serve` callback is synchronous and runs at most once. Return copied or otherwise owned
+//! application data through [`Event::Unhandled`] when unhandled traffic needs async follow-up work.
+//!
 //! Use [`Startup`], [`Service`], and [`Publisher`] directly when an application must bound queued
 //! MM2 follow-up work or preserve unrelated inbound publishes.
 //!

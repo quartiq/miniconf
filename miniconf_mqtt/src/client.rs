@@ -250,21 +250,6 @@ where
         Ok(())
     }
 
-    async fn complete_publisher<IO>(
-        &mut self,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-        mut publisher: Publisher,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        IO: Io,
-    {
-        while !publisher.step(self, session, settings).await? {
-            let _ = session.poll().await?;
-        }
-        Ok(())
-    }
-
     fn with_leaf<T, E>(
         full: &[usize],
         func: impl FnOnce(&mut &[usize]) -> Result<T, SerdeError<E>>,
@@ -308,11 +293,6 @@ where
             },
             session,
         ))
-    }
-
-    /// Construct an empty bounded cooperative service.
-    pub fn service<const N: usize>(&self) -> Service<N> {
-        Service::new()
     }
 
     /// Begin MM2 startup after one MQTT connect event.
@@ -374,6 +354,9 @@ where
     /// `on_unhandled` runs synchronously for the first non-MM2 inbound publish and its return
     /// value is returned as `Event::Unhandled`.
     ///
+    /// For async application work, copy or extract the needed data in `on_unhandled`, return it
+    /// through `Event::Unhandled`, and await after `serve()` returns.
+    ///
     /// This helper favors simplicity over exact control:
     /// - it is unbounded
     /// - it may discard unrelated inbound publishes that arrive while completing MM2 follow-up
@@ -383,7 +366,7 @@ where
         &mut self,
         session: &mut Session<'_, IO>,
         settings: &mut Settings,
-        mut on_unhandled: impl FnMut(&InboundPublish<'_>) -> T,
+        on_unhandled: impl FnOnce(&InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
     where
         IO: Io,
@@ -638,23 +621,6 @@ impl Publisher {
     {
         sync::step_publisher(self, mm2, session, settings).await
     }
-
-    /// Run retained subtree publication to completion.
-    ///
-    /// This is the simple unbounded publication path. It may discard inbound publishes that
-    /// arrive while waiting for later session progress.
-    pub async fn complete<Settings, IO>(
-        self,
-        mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: Io,
-    {
-        mm2.complete_publisher(session, settings, self).await
-    }
 }
 
 impl<const N: usize> Default for Service<N> {
@@ -792,7 +758,7 @@ impl<const N: usize> Service<N> {
         &mut self,
         mm2: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
-        settings: &mut Settings,
+        settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
