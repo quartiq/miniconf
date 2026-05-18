@@ -10,6 +10,10 @@ pub(crate) fn set_path<'a>(topic: &'a str, prefix: &str) -> Option<&'a str> {
     topic.strip_prefix(prefix)?.strip_prefix("/set")
 }
 
+pub(crate) fn settings_path<'a>(topic: &'a str, prefix: &str) -> Option<&'a str> {
+    topic.strip_prefix(prefix)?.strip_prefix("/settings")
+}
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum ResponseCode {
     Ok,

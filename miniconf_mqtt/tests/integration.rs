@@ -1,9 +1,9 @@
 use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf::Tree;
-use miniconf_mqtt::{Event, Miniconf, Service, ServiceEvent};
+use miniconf_mqtt::{Event, LoadRetained, Miniconf, Service, ServiceEvent};
 use minimq::{
-    ConfigBuilder, ConnectEvent, InboundPublish, Property, Publication, QoS, Session,
-    types::{SubscriptionOptions, TopicFilter, Utf8String},
+    ConfigBuilder, ConnectEvent, InboundPublish, Op, OpStatus, Property, Publication, QoS, Session,
+    types::{RetainHandling, SubscriptionOptions, TopicFilter, Utf8String},
 };
 use std::sync::OnceLock;
 use std::{
@@ -93,6 +93,22 @@ async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConne
             .unwrap(),
         ConnectEvent::Connected | ConnectEvent::Reconnected
     ));
+}
+
+async fn wait_op(session: &mut Session<'_, TokioConnection>, op: Op) {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            match session.status(&op) {
+                OpStatus::Complete => break,
+                OpStatus::Invalidated => panic!("operation invalidated"),
+                OpStatus::Pending => {
+                    let _ = session.poll().await.unwrap();
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
 }
 
 fn has_utf8_payload_indicator(inbound: &InboundPublish<'_>) -> bool {
@@ -256,6 +272,180 @@ async fn mm2_set_stays_internal() {
 }
 
 #[tokio::test]
+async fn retained_load_applies_only_rev_leaf_values() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("retained-load");
+    let mut seeder = Session::new(config());
+    wait_session(&mut seeder, connect_addr(addr).await.unwrap()).await;
+    let rev = [Property::UserProperty(Utf8String("rev"), Utf8String("1"))];
+    let op = seeder
+        .publish(
+            Publication::bytes(&format!("{prefix}/settings/value"), b"9")
+                .properties(&rev)
+                .qos(QoS::AtLeastOnce)
+                .retain(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    wait_op(&mut seeder, op).await;
+    let op = seeder
+        .publish(
+            Publication::bytes(&format!("{prefix}/settings/nested/leaf"), b"7")
+                .qos(QoS::AtLeastOnce)
+                .retain(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    wait_op(&mut seeder, op).await;
+    let op = seeder
+        .publish(
+            Publication::bytes(&format!("{prefix}/settings/obsolete"), b"1")
+                .properties(&rev)
+                .qos(QoS::AtLeastOnce)
+                .retain(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    wait_op(&mut seeder, op).await;
+
+    let (mut mm2, mut session) =
+        Miniconf::<Settings>::new::<TokioConnection>(&prefix, config()).unwrap();
+    let mut settings = Settings::default();
+    wait_session(&mut session, connect_addr(addr).await.unwrap()).await;
+    let mut load = LoadRetained::new();
+    timeout(
+        Duration::from_secs(5),
+        load.run(&mut mm2, &mut session, &mut settings),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    assert_eq!(settings.value, 9);
+    assert_eq!(settings.nested.leaf, 0);
+
+    let mut startup = miniconf_mqtt::Startup::connected(&mut mm2);
+    timeout(
+        Duration::from_secs(5),
+        startup.run(&mut mm2, &mut session, &settings),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+}
+
+#[tokio::test]
+async fn service_accepts_no_rev_settings_compat_ingress() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("settings-compat");
+    let mut publisher = Session::new(config());
+    wait_session(&mut publisher, connect_addr(addr).await.unwrap()).await;
+    let (mut mm2, mut session) = Miniconf::new(&prefix, config()).unwrap();
+    let mut settings = Settings::default();
+    connect_mm2(
+        &mut mm2,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
+
+    let compat_filter = format!("{prefix}/settings/#");
+    let topics = [TopicFilter::new(&compat_filter).options(
+        SubscriptionOptions::default()
+            .retain_behavior(RetainHandling::Never)
+            .ignore_local_messages(),
+    )];
+    let op = session.subscribe(&topics, &[]).await.unwrap();
+    wait_op(&mut session, op).await;
+
+    publisher
+        .publish(Publication::bytes(
+            &format!("{prefix}/settings/value"),
+            b"11",
+        ))
+        .await
+        .unwrap();
+
+    let mut service = Service::<4>::new();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let Some(inbound) = session.poll().await.unwrap() else {
+                continue;
+            };
+            if inbound.topic() != format!("{prefix}/settings/value") {
+                continue;
+            }
+            assert!(matches!(
+                service.handle(&mut mm2, &mut settings, &inbound),
+                ServiceEvent::Changed(_)
+            ));
+            while !service
+                .step(&mut mm2, &mut session, &settings)
+                .await
+                .unwrap()
+            {
+                let _ = session.poll().await.unwrap();
+            }
+            break;
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(settings.value, 11);
+
+    publisher
+        .publish(Publication::bytes(
+            &format!("{prefix}/settings/value"),
+            b"bad",
+        ))
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let Some(inbound) = session.poll().await.unwrap() else {
+                continue;
+            };
+            if inbound.topic() != format!("{prefix}/settings/value")
+                || user_property(&inbound, "rev").is_some()
+            {
+                continue;
+            }
+            assert!(matches!(
+                service.handle(&mut mm2, &mut settings, &inbound),
+                ServiceEvent::Idle
+            ));
+            while !service
+                .step(&mut mm2, &mut session, &settings)
+                .await
+                .unwrap()
+            {
+                let _ = session.poll().await.unwrap();
+            }
+            break;
+        }
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(settings.value, 11);
+}
+
+#[tokio::test]
 async fn other_topics_are_unhandled() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
@@ -338,7 +528,7 @@ async fn startup_with_large_schema_waits_on_session_progress() {
         ConnectEvent::Connected
     ));
 
-    let mut startup = mm2.begin_startup(ConnectEvent::Connected);
+    let mut startup = miniconf_mqtt::Startup::new(&mut mm2, ConnectEvent::Connected);
     let mut retries = 0usize;
     let mut saw_non_quiescent = false;
     let mut saw_internal_progress = false;

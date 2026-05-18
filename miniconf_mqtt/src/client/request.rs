@@ -2,19 +2,25 @@ use core::convert::Infallible;
 use core::fmt::Write as _;
 
 use heapless::{String, Vec, VecView};
-use miniconf::{DescendError, Indices, SerdeError, ValueError, json_core};
+use miniconf::{
+    DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    ValueError, json_core,
+};
 use minimq::{
     Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session,
     types::Utf8String,
 };
+use serde_json_core::de::Error as JsonDeError;
 
 use crate::{
     Error,
     client::{ChangedKey, Miniconf, PendingOp, ReplyTarget, Route},
-    message::{DepthError, ResponseBody, ResponseCode, set_path, simple_pub_error},
+    message::{DepthError, ResponseBody, ResponseCode, set_path, settings_path, simple_pub_error},
 };
 
-pub(crate) enum Aftermath {
+type ResponseText = String<{ crate::RESPONSE_TEXT_LENGTH }>;
+
+pub(crate) enum FollowUp {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
@@ -31,24 +37,47 @@ pub(crate) enum Aftermath {
     },
     ReplyPublishError {
         target: ReplyTarget,
-        error: String<{ crate::RESPONSE_TEXT_LENGTH }>,
-        payload: String<{ crate::RESPONSE_TEXT_LENGTH }>,
+        error: ResponseText,
+        payload: ResponseText,
         op: Option<Op>,
     },
     Done,
+}
+
+impl FollowUp {
+    fn publish(state: ChangedKey, reply: Option<ReplyTarget>) -> Self {
+        Self::Publish {
+            state,
+            reply,
+            op: None,
+        }
+    }
 }
 
 pub(crate) struct ReplyMessage {
     code: ResponseCode,
     kind: &'static str,
     class: &'static str,
-    error: String<{ crate::RESPONSE_TEXT_LENGTH }>,
+    error: ResponseText,
     depth: Option<usize>,
-    payload: String<{ crate::RESPONSE_TEXT_LENGTH }>,
+    payload: ResponseText,
 }
 
-pub(crate) fn is_request(prefix: &str, topic: &str) -> bool {
-    set_path(topic, prefix).is_some()
+pub(crate) fn needs_capacity<Settings>(prefix: &str, inbound: &InboundPublish<'_>) -> bool
+where
+    Settings: TreeSchema,
+{
+    if set_path(inbound.topic(), prefix).is_some() {
+        return true;
+    }
+    let Some(path) = settings_path(inbound.topic(), prefix) else {
+        return false;
+    };
+    if has_rev(inbound) {
+        return false;
+    }
+    let mut state = [0; crate::MAX_DEPTH];
+    resolve_leaf::<Settings>(path, &mut state).is_some()
 }
 
 fn with_leaf<T, E>(
@@ -68,8 +97,12 @@ pub(crate) fn route<Settings>(
     inbound: &InboundPublish<'_>,
 ) -> Route
 where
-    Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
+    if let Some(path) = settings_path(inbound.topic(), prefix) {
+        return route_settings(settings, inbound, path);
+    }
+
     let Some(path) = set_path(inbound.topic(), prefix) else {
         return Route::Unhandled;
     };
@@ -108,7 +141,7 @@ where
                 depth: err.lookup.depth,
             });
             return Route::Rejected {
-                aftermath: reply.map(|target| Aftermath::ErrorReply {
+                follow_up: reply.map(|target| FollowUp::ErrorReply {
                     target,
                     message: encode_body(&body),
                     op: None,
@@ -131,7 +164,7 @@ where
             depth: lookup.depth,
         };
         return Route::Rejected {
-            aftermath: reply.map(|target| Aftermath::ErrorReply {
+            follow_up: reply.map(|target| FollowUp::ErrorReply {
                 target,
                 message: encode_body(&body),
                 op: None,
@@ -154,11 +187,7 @@ where
             let changed = Indices::new(state, lookup.depth);
             Route::Accepted {
                 changed,
-                aftermath: Aftermath::Publish {
-                    state: changed,
-                    reply,
-                    op: None,
-                },
+                follow_up: FollowUp::publish(changed, reply),
             }
         }
         Err(err) => {
@@ -168,14 +197,14 @@ where
                 err.depth,
                 inbound.payload().len(),
                 match &err.inner {
-                    miniconf::SerdeError::Value(_) => "Value",
-                    miniconf::SerdeError::Inner(_) => "Deserialize",
-                    miniconf::SerdeError::Finalization(_) => "Finalization",
+                    SerdeError::Value(_) => "Value",
+                    SerdeError::Inner(_) => "Deserialize",
+                    SerdeError::Finalization(_) => "Finalization",
                 }
             );
             let body = ResponseBody::Set(err);
             Route::Rejected {
-                aftermath: reply.map(|target| Aftermath::ErrorReply {
+                follow_up: reply.map(|target| FollowUp::ErrorReply {
                     target,
                     message: encode_body(&body),
                     op: None,
@@ -185,7 +214,106 @@ where
     }
 }
 
-impl Aftermath {
+pub(crate) fn has_rev(inbound: &InboundPublish<'_>) -> bool {
+    inbound
+        .properties()
+        .iter()
+        .any(|property| matches!(property, Ok(Property::UserProperty(key, _)) if key.0 == "rev"))
+}
+
+pub(crate) fn resolve_leaf<Settings>(
+    path: &str,
+    state: &mut [usize; crate::MAX_DEPTH],
+) -> Option<usize>
+where
+    Settings: TreeSchema,
+{
+    let lookup = Settings::SCHEMA.resolve_into(path, state).ok()?;
+    lookup.schema.is_leaf().then_some(lookup.depth)
+}
+
+pub(crate) fn set_leaf<Settings>(
+    settings: &mut Settings,
+    full: &[usize],
+    payload: &[u8],
+) -> Result<(), DepthError<JsonDeError>>
+where
+    Settings: TreeDeserializeOwned,
+{
+    with_leaf(full, |keys| json_core::set_by_keys(settings, keys, payload)).map(|_| ())
+}
+
+fn route_settings<Settings>(
+    settings: &mut Settings,
+    inbound: &InboundPublish<'_>,
+    path: &str,
+) -> Route
+where
+    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+{
+    // No-rev settings publications are a narrow compatibility ingress for tools that edit the
+    // retained mirror by hand. Rev-bearing publications are the authoritative mirror itself.
+    if has_rev(inbound) {
+        crate::debug!(
+            "Ignoring authoritative settings mirror publication topic={=str}",
+            inbound.topic()
+        );
+        return Route::Ignored;
+    }
+
+    let mut state = [0; crate::MAX_DEPTH];
+    let Some(depth) = resolve_leaf::<Settings>(path, &mut state) else {
+        crate::debug!(
+            "Ignoring compatibility settings ingress with invalid path topic={=str}",
+            inbound.topic()
+        );
+        return Route::Ignored;
+    };
+
+    let changed = Indices::new(state, depth);
+    if inbound.payload().is_empty() {
+        crate::debug!(
+            "Overwriting empty compatibility settings ingress topic={=str}",
+            inbound.topic()
+        );
+        return Route::Rejected {
+            follow_up: Some(FollowUp::publish(changed, None)),
+        };
+    }
+
+    match set_leaf(settings, changed.as_ref(), inbound.payload()) {
+        Ok(()) => {
+            crate::debug!(
+                "Accepted compatibility settings ingress topic={=str} depth={=usize} payload_len={=usize}",
+                inbound.topic(),
+                depth,
+                inbound.payload().len()
+            );
+            Route::Accepted {
+                changed,
+                follow_up: FollowUp::publish(changed, None),
+            }
+        }
+        Err(err) => {
+            crate::debug!(
+                "Overwriting failed compatibility settings ingress topic={=str} depth={=usize} payload_len={=usize} class={=str}",
+                inbound.topic(),
+                err.depth,
+                inbound.payload().len(),
+                match &err.inner {
+                    SerdeError::Value(_) => "Value",
+                    SerdeError::Inner(_) => "Deserialize",
+                    SerdeError::Finalization(_) => "Finalization",
+                }
+            );
+            Route::Rejected {
+                follow_up: Some(FollowUp::publish(changed, None)),
+            }
+        }
+    }
+}
+
+impl FollowUp {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
@@ -193,7 +321,7 @@ impl Aftermath {
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
         loop {
@@ -368,7 +496,7 @@ fn encode_body(body: &ResponseBody) -> ReplyMessage {
             ("lookup", "SerdeError", Some(err.depth))
         }
         ResponseBody::LeafRequired { depth } => {
-            write!(error.as_mut_view(), "{:?}", miniconf::KeyError::TooShort).ok();
+            write!(error.as_mut_view(), "{:?}", KeyError::TooShort).ok();
             payload.push_str("Path does not resolve to a leaf").ok();
             ("set", "KeyError", Some(*depth))
         }
@@ -388,12 +516,7 @@ fn encode_body(body: &ResponseBody) -> ReplyMessage {
     }
 }
 
-fn publish_error_text<E: core::fmt::Debug>(
-    err: &Error<E>,
-) -> (
-    String<{ crate::RESPONSE_TEXT_LENGTH }>,
-    String<{ crate::RESPONSE_TEXT_LENGTH }>,
-) {
+fn publish_error_text<E: core::fmt::Debug>(err: &Error<E>) -> (ResponseText, ResponseText) {
     let mut error = String::new();
     write!(error.as_mut_view(), "{err:?}").ok();
     let mut payload = String::new();

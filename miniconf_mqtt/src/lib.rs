@@ -47,8 +47,9 @@
 //! The `serve` callback is synchronous and runs at most once. Return copied or otherwise owned
 //! application data through [`Event::Unhandled`] when unhandled traffic needs async follow-up work.
 //!
-//! Use [`Startup`], [`Service`], and [`Publisher`] directly when an application must bound queued
-//! MM2 follow-up work or preserve unrelated inbound publishes.
+//! Use [`LoadRetained`], [`Startup`], [`Service`], and [`Publisher`] directly when an application
+//! must recover retained settings, bound queued MM2 follow-up work, or preserve unrelated inbound
+//! publishes.
 //!
 //! Limitations:
 //! - one MQTT prefix is expected to have one authoritative device publisher
@@ -62,7 +63,9 @@ mod tests;
 
 pub use minimq;
 
-pub use client::{ChangedKey, Error, Event, Miniconf, Publisher, Service, ServiceEvent, Startup};
+pub use client::{
+    ChangedKey, Error, Event, LoadRetained, Miniconf, Publisher, Service, ServiceEvent, Startup,
+};
 
 pub(crate) use defmt::{debug, info, warn};
 

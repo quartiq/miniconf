@@ -5,8 +5,8 @@ use core::marker::PhantomData;
 
 use heapless::Deque;
 use miniconf::{
-    DescendError, Indices, IntoKeys, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize,
-    json_core,
+    ConstPath, DescendError, Indices, IntoKeys, ResolveError, Schema, SerdeError,
+    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 use minimq::{
     ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op, OpStatus,
@@ -14,13 +14,14 @@ use minimq::{
     Will, publication::ToPayload, types::Utf8String,
 };
 use serde::Serialize;
+use serde_json_core::ser::Error as JsonSerError;
 
 use crate::{
     EncodeError, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH,
-    message::DepthError,
-    schema::{SchemaDefs, serialize_schema_page},
+    message::{DepthError, simple_pub_error},
+    schema::{SchemaDefs, SchemaSync, SettingsSync, serialize_schema_page},
 };
-use request::Aftermath;
+use request::FollowUp;
 
 /// Exact leaf indices produced by MM2 request handling.
 pub type ChangedKey = Indices<[usize; crate::MAX_DEPTH]>;
@@ -52,9 +53,9 @@ pub(crate) struct Manifest {
 
 #[derive(Debug)]
 pub(crate) enum PayloadError {
-    Json(serde_json_core::ser::Error),
+    Json(JsonSerError),
     Schema(usize),
-    Leaf(DepthError<serde_json_core::ser::Error>),
+    Leaf(DepthError<JsonSerError>),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -112,13 +113,10 @@ fn serialize_leaf<Settings: TreeSerialize>(
     settings: &Settings,
     mut keys: &[usize],
     buf: &mut [u8],
-) -> Result<usize, EncodeError<DepthError<serde_json_core::ser::Error>>> {
+) -> Result<usize, EncodeError<DepthError<JsonSerError>>> {
     let len = keys.len();
     json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
-        let no_space = matches!(
-            inner,
-            miniconf::SerdeError::Inner(serde_json_core::ser::Error::BufferFull)
-        );
+        let no_space = matches!(inner, SerdeError::Inner(JsonSerError::BufferFull));
         let err = DepthError {
             inner,
             depth: len - keys.len(),
@@ -145,7 +143,7 @@ where
             )
             .map_err(|err| {
                 (
-                    matches!(err, serde_json_core::ser::Error::BufferFull),
+                    matches!(err, JsonSerError::BufferFull),
                     PayloadError::Json(err),
                 )
             }),
@@ -195,11 +193,11 @@ enum Route {
     Unhandled,
     Ignored,
     Rejected {
-        aftermath: Option<Aftermath>,
+        follow_up: Option<FollowUp>,
     },
     Accepted {
         changed: ChangedKey,
-        aftermath: Aftermath,
+        follow_up: FollowUp,
     },
 }
 
@@ -210,10 +208,23 @@ pub struct Miniconf<Settings> {
     _settings: PhantomData<Settings>,
 }
 
-/// Fresh-session or resumed-session MM2 startup workflow.
+/// MM2 startup workflow for one MQTT connection event.
 #[must_use = "drive startup to completion before relying on MM2 startup state"]
 pub struct Startup {
     phase: sync::StartupPhase,
+}
+
+/// Cold-boot retained-settings load workflow.
+///
+/// Run this after the device process boots and connects, before its first connected [`Startup`],
+/// when retained `settings/#` should seed the live settings tree.
+///
+/// Do not run this on network reconnects of a still-running device. Local settings are already the
+/// authority in that case, even when the broker reports `ConnectEvent::Connected` because the MQTT
+/// session was not resumed.
+#[must_use = "drive retained loading to completion before starting MM2 publication"]
+pub struct LoadRetained {
+    phase: sync::LoadRetainedPhase,
 }
 
 /// Explicit retained publication workflow for a leaf, subtree, or root.
@@ -221,7 +232,7 @@ pub struct Startup {
 pub struct Publisher {
     schema: &'static Schema,
     root: ChangedKey,
-    iter: Option<crate::schema::SettingsSync>,
+    iter: Option<SettingsSync>,
     pending: Option<ChangedKey>,
     op: Option<Op>,
 }
@@ -231,7 +242,7 @@ pub struct Publisher {
 /// Use this when you want to interleave MM2 request handling with unrelated work while keeping the
 /// number of queued MM2 follow-up publications bounded.
 pub struct Service<const N: usize = 4> {
-    aftermaths: Deque<Aftermath, N>,
+    follow_ups: Deque<FollowUp, N>,
 }
 
 pub(crate) fn schema_page_topic(prefix: &TopicString, page: usize) -> TopicString {
@@ -266,10 +277,7 @@ where
         .properties(crate::UTF8_PAYLOAD_PROPERTIES)
         .qos(QoS::AtLeastOnce)
         .retain();
-    session
-        .publish(publication)
-        .await
-        .map_err(crate::message::simple_pub_error)
+    session.publish(publication).await.map_err(simple_pub_error)
 }
 
 impl<Settings> Miniconf<Settings>
@@ -311,35 +319,11 @@ where
         ))
     }
 
-    /// Begin MM2 startup after one MQTT connect event.
-    pub fn begin_startup(&mut self, event: ConnectEvent) -> Startup {
-        match event {
-            ConnectEvent::Connected => {
-                self.manifest.epoch = self.manifest.epoch.wrapping_add(1);
-                self.manifest.settings_rev = 0;
-                self.manifest.schema_rev = 0;
-                self.manifest.schema_pages = 0;
-                crate::info!(
-                    "Starting fresh MM2 startup prefix={=str} epoch={=u32}",
-                    self.prefix.as_str(),
-                    self.manifest.epoch
-                );
-                Startup::fresh::<Settings>()
-            }
-            ConnectEvent::Reconnected => {
-                crate::info!(
-                    "Starting resumed MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32} settings_rev={=u32}",
-                    self.prefix.as_str(),
-                    self.manifest.epoch,
-                    self.manifest.schema_rev,
-                    self.manifest.settings_rev
-                );
-                Startup::resumed()
-            }
-        }
-    }
-
     /// Run MM2 startup to completion after one MQTT connect event.
+    ///
+    /// `ConnectEvent::Connected` republishes schema/settings, subscribes `set/#`, and publishes
+    /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` because the MQTT session kept
+    /// subscriptions and queued QoS state.
     ///
     /// This is the simple unbounded startup path. Fresh startup may discard inbound publishes
     /// while bootstrapping and is not the bounded/cancel-safe API.
@@ -352,11 +336,8 @@ where
     where
         IO: Io,
     {
-        let mut startup = self.begin_startup(event);
-        while !startup.step(self, session, settings).await? {
-            let _ = session.poll().await?;
-        }
-        Ok(())
+        let mut startup = Startup::new(self, event);
+        startup.run(self, session, settings).await
     }
 
     fn route(&mut self, settings: &mut Settings, inbound: &InboundPublish<'_>) -> Route {
@@ -392,7 +373,7 @@ where
         IO: Io,
     {
         // Reuse the bounded service path with capacity one. `serve()` drains every queued
-        // aftermath before polling another request, so `Busy` is not reachable in normal use.
+        // follow-up before polling another request, so `Busy` is not reachable in normal use.
         let mut service = Service::<1>::new();
         loop {
             let inbound = session.poll().await?;
@@ -419,7 +400,7 @@ where
     }
 
     pub(crate) fn settings_topic(&self, state: &[usize]) -> Result<TopicString, ResourceError> {
-        let path: miniconf::ConstPath<TopicString, '/'> = Settings::SCHEMA
+        let path: ConstPath<TopicString, '/'> = Settings::SCHEMA
             .transcode(state)
             .map_err(|_| ResourceError::BufferTooSmall)?;
         let mut topic = self.prefix.clone();
@@ -455,10 +436,7 @@ where
             Err(PubError::Payload((
                 _no_space,
                 PayloadError::Leaf(DepthError {
-                    inner:
-                        miniconf::SerdeError::Value(
-                            miniconf::ValueError::Absent | miniconf::ValueError::Access(_),
-                        ),
+                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
                     ..
                 }),
             ))) => {
@@ -469,7 +447,7 @@ where
                 );
                 self.clear_leaf(session, &topic).await
             }
-            Err(err) => Err(crate::message::simple_pub_error(err)),
+            Err(err) => Err(simple_pub_error(err)),
         }
     }
 
@@ -522,23 +500,81 @@ where
         let op = session
             .publish(publication)
             .await
-            .map_err(crate::message::simple_pub_error)?;
+            .map_err(simple_pub_error)?;
         self.manifest.settings_rev = next_rev;
         Ok(op)
     }
 }
 
 impl Startup {
-    fn fresh<Settings: TreeSchema>() -> Self {
-        Self {
-            phase: sync::StartupPhase::Schema(sync::SchemaPublisher::new(Settings::SCHEMA)),
+    /// Begin MM2 startup after one MQTT connect event.
+    pub fn new<Settings>(mm2: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
+    where
+        Settings: TreeSchema,
+    {
+        match event {
+            ConnectEvent::Connected => Self::connected(mm2),
+            ConnectEvent::Reconnected => {
+                crate::info!(
+                    "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32} settings_rev={=u32}",
+                    mm2.prefix.as_str(),
+                    mm2.manifest.epoch,
+                    mm2.manifest.schema_rev,
+                    mm2.manifest.settings_rev
+                );
+                Self::reconnected()
+            }
         }
     }
 
-    fn resumed() -> Self {
+    /// Begin the MM2 startup path for `ConnectEvent::Connected`.
+    ///
+    /// Use this after cold-boot [`LoadRetained`] so the retained mirror is republished
+    /// authoritatively from the recovered local settings.
+    pub fn connected<Settings>(mm2: &mut Miniconf<Settings>) -> Self
+    where
+        Settings: TreeSchema,
+    {
+        mm2.manifest.epoch = mm2.manifest.epoch.wrapping_add(1);
+        mm2.manifest.settings_rev = 0;
+        mm2.manifest.schema_rev = 0;
+        mm2.manifest.schema_pages = 0;
+        crate::info!(
+            "Starting connected MM2 startup prefix={=str} epoch={=u32}",
+            mm2.prefix.as_str(),
+            mm2.manifest.epoch
+        );
+        Self {
+            phase: sync::StartupPhase::Schema {
+                sync: SchemaSync::new(Settings::SCHEMA),
+                op: None,
+            },
+        }
+    }
+
+    fn reconnected() -> Self {
         Self {
             phase: sync::StartupPhase::Alive(None),
         }
+    }
+
+    /// Run MM2 startup to completion.
+    ///
+    /// This helper may consume and discard surfaced inbound publishes while bootstrapping.
+    pub async fn run<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        while !self.step(mm2, session, settings).await? {
+            let _ = session.poll().await?;
+        }
+        Ok(())
     }
 
     /// Advance MM2 startup.
@@ -548,12 +584,65 @@ impl Startup {
     /// `Ok(false)` means no more immediate startup progress is possible. Wait for later session
     /// progress, then call `step()` again.
     ///
-    /// Fresh-session startup may discard surfaced inbound publishes while bootstrapping.
+    /// Connected-session startup may discard surfaced inbound publishes while bootstrapping.
     pub async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        self.phase.step(mm2, session, settings).await
+    }
+}
+
+impl Default for LoadRetained {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LoadRetained {
+    /// Begin loading retained `settings/#` into local settings.
+    pub fn new() -> Self {
+        Self {
+            phase: sync::LoadRetainedPhase::new(),
+        }
+    }
+
+    /// Run retained settings load to completion.
+    ///
+    /// This helper owns the temporary `settings/#` subscription while it runs. Use it only before
+    /// the first MM2 startup of a device process. Afterwards run [`Startup::connected`] to publish
+    /// the recovered settings authoritatively.
+    pub async fn run<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &mut Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        while !self.step(mm2, session, settings).await? {}
+        Ok(())
+    }
+
+    /// Advance retained settings loading.
+    ///
+    /// `Ok(true)` means retained loading is complete and the temporary subscription has been
+    /// removed.
+    ///
+    /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
+    pub async fn step<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
@@ -576,10 +665,7 @@ impl Publisher {
     }
 
     /// Begin explicit retained publication for one leaf or subtree.
-    pub fn by_key(
-        schema: &'static Schema,
-        key: impl IntoKeys,
-    ) -> Result<Self, miniconf::ResolveError> {
+    pub fn by_key(schema: &'static Schema, key: impl IntoKeys) -> Result<Self, ResolveError> {
         let mut state = [0; crate::MAX_DEPTH];
         let lookup = schema.resolve_into(key, &mut state)?;
         Ok(Self {
@@ -589,6 +675,27 @@ impl Publisher {
             pending: None,
             op: None,
         })
+    }
+
+    /// Run retained subtree publication to completion.
+    ///
+    /// This is the simple unbounded helper. It may discard unrelated inbound publishes while
+    /// waiting for MQTT session progress. Use [`Publisher::step`] when those publishes must be
+    /// routed elsewhere.
+    pub async fn run<Settings, IO>(
+        &mut self,
+        mm2: &mut Miniconf<Settings>,
+        session: &mut Session<'_, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        IO: Io,
+    {
+        while !self.step(mm2, session, settings).await? {
+            let _ = session.poll().await?;
+        }
+        Ok(())
     }
 
     /// Advance retained subtree publication.
@@ -623,22 +730,22 @@ impl<const N: usize> Service<N> {
     /// Construct an empty bounded MM2 service.
     pub const fn new() -> Self {
         Self {
-            aftermaths: Deque::new(),
+            follow_ups: Deque::new(),
         }
     }
 
     /// Return whether no queued MM2 follow-up work remains.
     pub fn is_empty(&self) -> bool {
-        self.aftermaths.is_empty()
+        self.follow_ups.is_empty()
     }
 
     /// Return the number of queued MM2 follow-up workflows.
     pub fn len(&self) -> usize {
-        self.aftermaths.len()
+        self.follow_ups.len()
     }
 
     fn is_full(&self) -> bool {
-        self.aftermaths.len() == N
+        self.follow_ups.len() == N
     }
 
     /// Route one inbound publish through the bounded MM2 service.
@@ -657,11 +764,11 @@ impl<const N: usize> Service<N> {
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     {
-        if self.is_full() && request::is_request(mm2.prefix.as_str(), inbound.topic()) {
+        if self.is_full() && request::needs_capacity::<Settings>(mm2.prefix.as_str(), inbound) {
             crate::debug!(
                 "Rejecting MM2 request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
                 inbound.topic(),
-                self.aftermaths.len(),
+                self.follow_ups.len(),
                 N,
                 inbound.payload().len()
             );
@@ -671,25 +778,25 @@ impl<const N: usize> Service<N> {
         match mm2.route(settings, inbound) {
             Route::Unhandled => ServiceEvent::Unhandled,
             Route::Ignored => ServiceEvent::Idle,
-            Route::Rejected { aftermath } => {
-                if let Some(aftermath) = aftermath {
+            Route::Rejected { follow_up } => {
+                if let Some(follow_up) = follow_up {
                     debug_assert!(!self.is_full());
-                    let _ = self.aftermaths.push_back(aftermath);
+                    let _ = self.follow_ups.push_back(follow_up);
                     crate::debug!(
-                        "Queued MM2 error aftermath queued={=usize} capacity={=usize}",
-                        self.aftermaths.len(),
+                        "Queued MM2 error follow-up queued={=usize} capacity={=usize}",
+                        self.follow_ups.len(),
                         N
                     );
                 }
                 ServiceEvent::Idle
             }
-            Route::Accepted { changed, aftermath } => {
+            Route::Accepted { changed, follow_up } => {
                 debug_assert!(!self.is_full());
-                let _ = self.aftermaths.push_back(aftermath);
+                let _ = self.follow_ups.push_back(follow_up);
                 crate::debug!(
-                    "Queued MM2 publish aftermath changed_depth={=usize} queued={=usize} capacity={=usize}",
+                    "Queued MM2 publish follow-up changed_depth={=usize} queued={=usize} capacity={=usize}",
                     changed.as_ref().len(),
-                    self.aftermaths.len(),
+                    self.follow_ups.len(),
                     N
                 );
                 ServiceEvent::Changed(changed)
@@ -716,27 +823,27 @@ impl<const N: usize> Service<N> {
         IO: Io,
     {
         loop {
-            let Some(mut aftermath) = self.aftermaths.pop_front() else {
+            let Some(mut follow_up) = self.follow_ups.pop_front() else {
                 return Ok(true);
             };
             crate::debug!(
-                "Driving MM2 aftermath queued_before={=usize} capacity={=usize}",
-                self.aftermaths.len() + 1,
+                "Driving MM2 follow-up queued_before={=usize} capacity={=usize}",
+                self.follow_ups.len() + 1,
                 N
             );
 
-            if aftermath.step(mm2, session, settings).await? {
+            if follow_up.step(mm2, session, settings).await? {
                 crate::debug!(
-                    "Completed MM2 aftermath queued_remaining={=usize} capacity={=usize}",
-                    self.aftermaths.len(),
+                    "Completed MM2 follow-up queued_remaining={=usize} capacity={=usize}",
+                    self.follow_ups.len(),
                     N
                 );
                 continue;
             }
-            let _ = self.aftermaths.push_front(aftermath);
+            let _ = self.follow_ups.push_front(follow_up);
             crate::debug!(
-                "MM2 aftermath pending queued_remaining={=usize} capacity={=usize}",
-                self.aftermaths.len(),
+                "MM2 follow-up pending queued_remaining={=usize} capacity={=usize}",
+                self.follow_ups.len(),
                 N
             );
             return Ok(false);

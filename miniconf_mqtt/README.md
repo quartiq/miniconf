@@ -27,9 +27,10 @@ follow-up, or exact control over unrelated inbound traffic during MM2 work.
 `on_unhandled` is synchronous and called at most once. For async application handling, copy or
 extract the needed data there and await after `serve()` returns `Event::Unhandled`.
 
-For precise control, `miniconf_mqtt` exposes three explicit building blocks:
+For precise control, `miniconf_mqtt` exposes four explicit building blocks:
 
-- `Startup`: fresh-session or resumed-session bring-up
+- `LoadRetained`: optional retained `settings/#` recovery before connected-session startup
+- `Startup`: MM2 bring-up for one `minimq::ConnectEvent`
 - `Service`: bounded cooperative MM2 request service with non-MM2 passthrough
 - `Publisher`: explicit retained republish for a leaf, subtree, or root
 
@@ -44,6 +45,28 @@ Typical flow:
 
 `Publisher::root(Settings::SCHEMA)` replaces the old full-tree `publish_all()` flow.
 
+Retained settings recovery is a cold-boot step:
+
+```rust
+let mut load = miniconf_mqtt::LoadRetained::new();
+load.run(&mut mm2, &mut session, &mut settings).await?;
+
+let mut startup = miniconf_mqtt::Startup::connected(&mut mm2);
+startup.run(&mut mm2, &mut session, &settings).await?;
+```
+
+`LoadRetained` applies only retained `settings/<leaf>` publications with `rev`, waits for
+`100 ms + 3 * settings-subscribe-RTT` of quiet after the last accepted retained publish, then
+unsubscribes. Stale topics, missing `rev`, empty payloads, and invalid JSON are ignored. Arbitrary
+retained pruning remains a client/tooling operation.
+
+Use it only before the first MM2 startup of a device process. On a device reconnect or network
+glitch, keep the live settings in RAM authoritative and call `mm2.startup(..., connect_event)`:
+
+- `ConnectEvent::Connected`: the broker did not resume the MQTT session, so MM2 republishes schema,
+  settings, `set/#`, and `alive`
+- `ConnectEvent::Reconnected`: the broker resumed the MQTT session, so MM2 republishes only `alive`
+
 ## Core contract
 
 Simple helpers:
@@ -52,7 +75,8 @@ Simple helpers:
 - `mm2.serve(...)` waits until one `/set` has been applied and fully republished, or until
   one non-MM2 inbound publish has been handled by the callback and returned.
 - both helpers are unbounded
-- fresh-session startup may discard inbound publishes while bootstrapping
+- `Startup::run(...)` may discard inbound publishes while bootstrapping
+- `Publisher::run(...)` may discard inbound publishes while waiting for session progress
 - `serve()` may discard inbound publishes that arrive while completing MM2 follow-up work
 - use the explicit stepwise APIs below when that is not acceptable
 
@@ -60,6 +84,7 @@ Stepwise APIs:
 
 - `Startup::step() -> Ok(true)` means startup is complete
 - `Startup::step() -> Ok(false)` means it cannot make more immediate startup progress
+- `LoadRetained::step() -> Ok(true)` means retained recovery is complete
 - `Publisher::step() -> Ok(true)` means retained republish is complete
 - `Service::step() -> Ok(true)` means no queued MM2 follow-up work remains
 
@@ -101,13 +126,13 @@ loop {
 }
 ```
 
-`Service` aftermath rules:
+`Service` follow-up rules:
 
 - successful `/set`: publish or clear the authoritative retained leaf, then optionally reply on
   the MQTT response topic
 - failed `/set`: send only the optional error reply
 - busy bounded service: reject without mutating local settings
-- without `compat-settings-ingress`, failed `/set` never republishes `settings/...`
+- failed `/settings` compatibility ingress: overwrite with the authoritative current retained leaf
 
 `Publisher`:
 
@@ -182,6 +207,11 @@ Authoritative retained `settings/<path>` publications carry MQTT v5 user propert
 - explicit replies are metadata-only; the authoritative applied value is always the retained
   `settings/<path>` publication
 
+For compatibility with simple MQTT tools, an application may subscribe to `settings/#` itself
+using `RetainHandling::Never` and route those publishes through `Service`. Only no-`rev` leaf
+publishes are treated as requests; `rev` publications are the authoritative mirror and are ignored
+as ingress.
+
 ## Response metadata
 
 Error replies currently carry MQTT v5 user properties:
@@ -194,11 +224,6 @@ Error replies currently carry MQTT v5 user properties:
 
 Success replies carry only `code=Ok`.
 
-## Compatibility mode
-
-Optional feature `compat-settings-ingress` is currently only retained as a compatibility feature
-flag. It does not shape the core MM2 API described here.
-
 ## Limitations
 
 - MM2 is small and opinionated. One MQTT prefix is assumed to have one authoritative device
@@ -207,5 +232,7 @@ flag. It does not shape the core MM2 API described here.
   for `epoch` and `schema_rev`.
 - `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait
   for broker ACKs or `SUBACK`.
+- `LoadRetained` is a quiescence heuristic, not a retained storage transaction. Applying retained
+  pubs can still trigger normal setter side effects.
 - `Publisher` prunes only leaves in the currently traversed schema subtree. It does not discover
   arbitrary retained topics left behind by older schema shapes.

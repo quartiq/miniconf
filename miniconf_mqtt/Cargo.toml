@@ -18,7 +18,6 @@ workspace = true
 
 [features]
 default = []
-compat-settings-ingress = []
 
 [dependencies]
 miniconf = { version = "0.20.1", features = [
