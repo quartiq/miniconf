@@ -11,9 +11,9 @@ import sys
 
 from aiomqtt import Client
 
-from .async_ import MiniconfClient, RawMiniconfClient
+from .client import MiniconfClient, RawMiniconfClient
 from .common import LOGGER, MQTTv5, MiniconfException, json_dumps, validate_path
-from .ops import discover, force_prune, prune
+from ._ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
 
@@ -71,7 +71,7 @@ async def _main() -> None:
             if args.raw
             else MiniconfClient(client, prefix)
         )
-        try:
+        async with interface:
             if args.force_prune:
                 for topic in await force_prune(interface, timeout=args.timeout):
                     print(topic)
@@ -88,8 +88,6 @@ async def _main() -> None:
                 args.timeout,
                 raw=args.raw,
             )
-        finally:
-            await interface.close()
 
 
 def _cli() -> argparse.ArgumentParser:

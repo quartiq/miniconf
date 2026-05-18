@@ -14,7 +14,7 @@ from queue import Empty, Queue
 
 import paho.mqtt.client as mqtt
 from aiomqtt import Client
-from miniconf.async_ import MiniconfClient, RawMiniconfClient
+from miniconf.client import MiniconfClient, RawMiniconfClient
 from miniconf.cli import _normalize_command_path
 from miniconf.common import MQTTv5, MiniconfException
 from miniconf.render import render_schema_tree, render_value_tree
@@ -202,12 +202,17 @@ async def main() -> None:
     )
 
     schema_fixture = fixture_schema()
-    assert schema_fixture.paths() == ["", "/value", "/nested", "/nested/leaf"]
-    assert schema_fixture.kind() == "named"
-    assert schema_fixture.kind("/nested") == "named"
-    assert schema_fixture.kind("/value") == "leaf"
-    assert schema_fixture.edge_meta("/value") == {"role": "selector"}
-    assert schema_fixture.edge_meta("/nested") is None
+    assert [node.path for node in schema_fixture.walk()] == [
+        "",
+        "/value",
+        "/nested",
+        "/nested/leaf",
+    ]
+    assert schema_fixture.node().kind == "named"
+    assert schema_fixture.node("/nested").kind == "named"
+    assert schema_fixture.node("/value").kind == "leaf"
+    assert schema_fixture.node("/value").edge == {"role": "selector"}
+    assert schema_fixture.node("/nested").edge is None
     assert schema_fixture.compact("/nested") == {
         "path": "/nested",
         "rev": 1,
@@ -285,31 +290,33 @@ async def main() -> None:
                 "a",
                 "b",
             }, struct_schema
-            assert schema.ty("/struct_tree")["internal"]["kind"] == "named"
-            assert schema.node_meta("/struct_tree")["typename"] == "MyStruct"
-            assert schema.edge_meta("/struct_tree/b")["doc"] == "Outer doc"
+            assert schema.node("/struct_tree").schema["internal"]["kind"] == "named"
+            assert schema.node("/struct_tree").node["typename"] == "MyStruct"
+            assert schema.node("/struct_tree/b").edge["doc"] == "Outer doc"
             assert schema.node("/enum_tree/C") == SchemaNode(
-                "/enum_tree/C", schema.ty("/enum_tree/C")
+                "/enum_tree/C", schema.node("/enum_tree/C").schema
             )
-            assert schema.contains("/enum_tree/C/0/a")
-            assert not schema.contains("/missing")
-            assert schema.paths("/struct_tree") == [
+            assert schema.path("/enum_tree/C/0/a") == "/enum_tree/C/0/a"
+            try:
+                schema.path("/missing")
+            except MiniconfException as err:
+                assert err.code == "NotFound", err
+            else:
+                raise AssertionError("expected lookup error for /missing")
+            assert [node.path for node in schema.walk("/struct_tree")] == [
                 "/struct_tree",
                 "/struct_tree/a",
                 "/struct_tree/b",
             ]
             assert SchemaNode(
-                "/enum_tree/C", schema.ty("/enum_tree/C")
+                "/enum_tree/C", schema.node("/enum_tree/C").schema
             ) in schema.children("/enum_tree")
-            assert schema.parent("/enum_tree/C/0/a") == SchemaNode(
-                "/enum_tree/C/0", schema.ty("/enum_tree/C/0")
-            )
-            assert schema.siblings("/struct_tree/a") == [
-                SchemaNode("/struct_tree/a", schema.ty("/struct_tree/a")),
-                SchemaNode("/struct_tree/b", schema.ty("/struct_tree/b")),
+            assert schema.children("/struct_tree") == [
+                SchemaNode("/struct_tree/a", schema.node("/struct_tree/a").schema),
+                SchemaNode("/struct_tree/b", schema.node("/struct_tree/b").schema),
             ]
-            assert schema.kind("/enum_tree/C/0/a") == "leaf"
-            assert schema.kind("/struct_tree") == "named"
+            assert schema.node("/enum_tree/C/0/a").kind == "leaf"
+            assert schema.node("/struct_tree").kind == "named"
             assert schema.path(schema.indices("/array_tree2/1")) == "/array_tree2/1"
             assert (
                 schema.path(Indices(schema.indices("/struct_tree/a")))

@@ -1,4 +1,4 @@
-"""One-shot discovery, read, dump, and prune operations."""
+"""CLI/support operations for discovery and retained-topic pruning."""
 
 from __future__ import annotations
 
@@ -8,10 +8,17 @@ from typing import TYPE_CHECKING, Any
 
 from aiomqtt import Client, Message
 
-from .common import LOGGER, BurstState, quiet_window, settings_topics, subtree_match
+from .common import (
+    LOGGER,
+    BurstState,
+    MiniconfException,
+    quiet_window,
+    settings_topics,
+    subtree_match,
+)
 
 if TYPE_CHECKING:
-    from .async_ import MiniconfClient
+    from .client import MiniconfClient
 
 
 def _user_properties(message: Message) -> dict[str, str]:
@@ -87,12 +94,6 @@ async def _manifest(
                 return interface._manifest
 
 
-async def read(interface: MiniconfClient, path: str, *, timeout: float = 3.0):
-    """One-shot exact read."""
-
-    return await interface.get(path, timeout=timeout)
-
-
 async def _collect_retained_settings(
     interface: MiniconfClient,
     path: str,
@@ -104,7 +105,6 @@ async def _collect_retained_settings(
     root = (await interface.schema(timeout=timeout)).path(path)
     start = asyncio.get_running_loop().time()
     retained: dict[str, Any] = {}
-    seen_any = False
     (topic_filter,) = settings_topics(interface.prefix, root)
     async with interface._watch(topic_filter) as queue:
         now = asyncio.get_running_loop().time()
@@ -112,14 +112,14 @@ async def _collect_retained_settings(
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
-            if seen_any and now >= burst.deadline:
+            if now >= burst.deadline:
                 return retained
             if now >= end:
                 return retained
             try:
                 message = await asyncio.wait_for(
                     queue.get(),
-                    (min(burst.deadline, end) - now) if seen_any else (end - now),
+                    min(burst.deadline, end) - now,
                 )
             except TimeoutError:
                 continue
@@ -136,12 +136,7 @@ async def _collect_retained_settings(
                 retained.pop(settings_path, None)
             else:
                 retained[settings_path] = json.loads(message.payload)
-            seen_any = True
-            burst.note(
-                asyncio.get_running_loop().time(),
-                rel_timeout,
-                abs_timeout,
-            )
+            burst.reset(asyncio.get_running_loop().time())
 
 
 async def _collect_retained_topics(
@@ -154,62 +149,55 @@ async def _collect_retained_topics(
 ) -> list[str]:
     start = asyncio.get_running_loop().time()
     seen: set[str] = set()
-    seen_any = False
     async with interface._watch(topic_filter) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
-            if seen_any and now >= burst.deadline:
+            if now >= burst.deadline:
                 return sorted(seen)
             if now >= end:
                 return sorted(seen)
             try:
                 message = await asyncio.wait_for(
                     queue.get(),
-                    (min(burst.deadline, end) - now) if seen_any else (end - now),
+                    min(burst.deadline, end) - now,
                 )
             except TimeoutError:
                 continue
             if message.payload:
                 seen.add(message.topic.value)
-            seen_any = True
-            burst.note(
-                asyncio.get_running_loop().time(),
-                rel_timeout,
-                abs_timeout,
-            )
-
-
-async def dump(
-    interface: MiniconfClient, path: str = "", *, timeout: float = 3.0
-) -> dict[str, Any]:
-    """One-shot retained subtree dump without using the tracked cache."""
-
-    return await _collect_retained_settings(interface, path, timeout=timeout)
+            burst.reset(asyncio.get_running_loop().time())
 
 
 async def _prune_schema(
-    interface: MiniconfClient, *, timeout: float = 3.0
+    interface: MiniconfClient,
+    *,
+    timeout: float = 3.0,
+    rel_timeout: float = 3.0,
+    abs_timeout: float = 0.1,
 ) -> list[int]:
     """Clear retained schema pages above the current manifest page count."""
 
     manifest = await _manifest(interface, timeout=timeout)
     pages = int(manifest["pages"])
-    quiet = 0.1
     seen: set[int] = set()
+    start = asyncio.get_running_loop().time()
     async with interface._watch(f"{interface.prefix}/schema/#") as queue:
-        end = asyncio.get_running_loop().time() + timeout
-        deadline = min(end, asyncio.get_running_loop().time() + quiet)
+        now = asyncio.get_running_loop().time()
+        burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
+        end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
-            if now >= deadline:
+            if now >= burst.deadline:
                 break
             if now >= end:
                 raise TimeoutError("Timed out waiting for schema pages")
             try:
-                message = await asyncio.wait_for(queue.get(), min(deadline, end) - now)
+                message = await asyncio.wait_for(
+                    queue.get(), min(burst.deadline, end) - now
+                )
             except TimeoutError:
                 break
             suffix = message.topic.value.removeprefix(f"{interface.prefix}/schema/")
@@ -217,7 +205,7 @@ async def _prune_schema(
                 seen.add(int(suffix))
             except ValueError:
                 continue
-            deadline = min(end, asyncio.get_running_loop().time() + quiet)
+            burst.reset(asyncio.get_running_loop().time())
 
     stale = sorted(page for page in seen if page >= pages)
     for page in stale:
@@ -237,9 +225,13 @@ async def _prune_settings(
     schema = await interface.schema(timeout=timeout)
     path = schema.path(path)
     retained = await _collect_retained_settings(interface, path, timeout=timeout)
-    stale = sorted(
-        cache_path for cache_path in retained if not schema.contains(cache_path)
-    )
+    stale = []
+    for cache_path in retained:
+        try:
+            schema.path(cache_path)
+        except MiniconfException:
+            stale.append(cache_path)
+    stale.sort()
     for cache_path in stale:
         await interface.client.publish(
             f"{interface.prefix}/settings{cache_path}",

@@ -8,12 +8,6 @@ from typing import Any, Iterator
 from .common import MiniconfException, validate_path
 
 
-def _parent_path(path: str) -> str:
-    if not path:
-        return ""
-    return path[: path.rfind("/")]
-
-
 def _segment(path: str) -> str:
     return path.rsplit("/", 1)[-1]
 
@@ -274,48 +268,12 @@ class Schema:
 
         return visit(self.path(keys))
 
-    def record(self, keys: Keys = "") -> dict[str, Any]:
-        path = self.path(keys)
-        return {"path": path, "schema": self._schema_view(path)}
-
     def node(self, keys: Keys = "") -> SchemaNode:
         path = self.path(keys)
         return SchemaNode(path, self._schema_view(path))
 
-    def contains(self, keys: Keys) -> bool:
-        try:
-            self.path(keys)
-            return True
-        except MiniconfException:
-            return False
-
-    def paths(self, keys: Keys = "") -> list[str]:
-        return [node.path for node in self.walk(keys)]
-
     def children(self, keys: Keys = "") -> list[SchemaNode]:
         return [self.node(child) for child in self._child_paths(self.path(keys))]
-
-    def parent(self, keys: Keys = "") -> SchemaNode | None:
-        path = self.path(keys)
-        if not path:
-            return None
-        return self.node(_parent_path(path))
-
-    def siblings(self, keys: Keys = "") -> list[SchemaNode]:
-        parent = self.parent(keys)
-        return self.children("" if parent is None else parent.path)
-
-    def ty(self, keys: Keys = "") -> dict[str, Any]:
-        return self.record(keys)["schema"]
-
-    def node_meta(self, keys: Keys = "") -> Any:
-        return self.ty(keys).get("node")
-
-    def edge_meta(self, keys: Keys = "") -> Any:
-        return self.ty(keys).get("edge")
-
-    def kind(self, keys: Keys = "") -> str:
-        return self.node(keys).kind
 
     def path(self, keys: Keys = "") -> str:
         match keys:

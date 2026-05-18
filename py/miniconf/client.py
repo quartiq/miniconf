@@ -15,7 +15,7 @@ import paho.mqtt.client as mqtt
 from aiomqtt import Client, Message, MqttError
 from paho.mqtt.properties import PacketTypes, Properties
 
-from . import ops
+from . import _ops
 from .common import (
     LOGGER,
     BurstState,
@@ -23,7 +23,6 @@ from .common import (
     json_dumps,
     settings_topics,
     subtree_match,
-    quiet_window,
     validate_path,
 )
 from .schema import Schema
@@ -59,8 +58,6 @@ def _response_rev(properties: dict[str, Any]) -> int | None:
 
 @dataclass
 class _TrackState:
-    rel_timeout: float
-    abs_timeout: float
     burst: BurstState
 
 
@@ -77,6 +74,12 @@ class _BaseClient:
 
     def _listen_topics(self) -> tuple[str, ...]:
         return (self.response_topic,)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc_info) -> None:
+        await self.close()
 
     async def close(self):
         """Cancel the response listener and all in-flight requests."""
@@ -289,7 +292,7 @@ class TrackedSubtree:
         full = self._client._schema.path(full)
         if not subtree_match(full, root):
             raise MiniconfException("Untracked", full)
-        if leaf and self._client._schema.kind(full) != "leaf":
+        if leaf and self._client._schema.node(full).kind != "leaf":
             raise MiniconfException("LeafRequired", full)
         return full
 
@@ -359,9 +362,7 @@ class MiniconfClient(_BaseClient):
             self._settings[path] = json.loads(message.payload)
         now = asyncio.get_running_loop().time()
         assert self._track_state is not None
-        self._track_state.burst.note(
-            now, self._track_state.rel_timeout, self._track_state.abs_timeout
-        )
+        self._track_state.burst.reset(now)
 
     def _note_manifest(self, manifest: dict[str, Any]):
         if not isinstance(manifest, dict):
@@ -380,13 +381,7 @@ class MiniconfClient(_BaseClient):
         if prev_epoch != epoch or prev_schema_rev != schema_rev:
             self._settings.clear()
             if self._track_state is not None:
-                now = asyncio.get_running_loop().time()
-                self._track_state.burst = BurstState.from_roundtrip(
-                    now,
-                    now,
-                    self._track_state.rel_timeout,
-                    self._track_state.abs_timeout,
-                )
+                self._track_state.burst.reset(asyncio.get_running_loop().time())
         if prev_schema_rev != schema_rev:
             self._schema = None
 
@@ -395,13 +390,7 @@ class MiniconfClient(_BaseClient):
         self._schema = None
         self._settings.clear()
         if self._track_state is not None:
-            now = asyncio.get_running_loop().time()
-            self._track_state.burst = BurstState.from_roundtrip(
-                now,
-                now,
-                self._track_state.rel_timeout,
-                self._track_state.abs_timeout,
-            )
+            self._track_state.burst.reset(asyncio.get_running_loop().time())
 
     def _note_manifest_payload(self, payload: bytes):
         if not payload:
@@ -425,7 +414,7 @@ class MiniconfClient(_BaseClient):
         """Set one leaf through `set/#`."""
         schema = await self.schema(timeout=timeout or 3.0)
         path = schema.path(path)
-        if schema.kind(path) != "leaf":
+        if schema.node(path).kind != "leaf":
             raise MiniconfException("LeafRequired", path)
         await self._publish_set(
             path, json_dumps(value), response=response, timeout=timeout
@@ -436,7 +425,7 @@ class MiniconfClient(_BaseClient):
 
         schema = await self.schema(timeout=timeout)
         path = schema.path(path)
-        if schema.kind(path) != "leaf":
+        if schema.node(path).kind != "leaf":
             raise MiniconfException("LeafRequired", path)
         if self._tracked_root is not None and subtree_match(path, self._tracked_root):
             try:
@@ -455,7 +444,7 @@ class MiniconfClient(_BaseClient):
 
         if self._schema is not None:
             return self._schema
-        manifest = await ops._manifest(self, timeout=timeout)
+        manifest = await _ops._manifest(self, timeout=timeout)
         schema_rev = int(manifest["schema_rev"])
         pages = int(manifest["pages"])
 
@@ -508,17 +497,14 @@ class MiniconfClient(_BaseClient):
         rel_timeout: float,
         abs_timeout: float,
     ) -> str:
-        # Use the measured settings-subscribe turnaround as the prototype for how quickly retained
-        # settings should appear on this link. The settle window is then `max(abs_timeout,
-        # rel_timeout * turnaround)` and stretches further while a retained burst is in flight.
+        # Match the embedded retained-load phase: measure the subscribe round trip once, then wait
+        # for quiescence until the last retained publication plus abs_timeout + rel_timeout * rtt.
         if self._tracked_root is not None:
             raise MiniconfException("Tracked", self._tracked_root)
         root = (await self.schema(timeout=timeout)).path(path)
         start = asyncio.get_running_loop().time()
         self._tracked_root = root
         self._track_state = _TrackState(
-            rel_timeout=rel_timeout,
-            abs_timeout=abs_timeout,
             burst=BurstState.from_roundtrip(start, start, rel_timeout, abs_timeout),
         )
         self._settings.clear()
@@ -526,12 +512,8 @@ class MiniconfClient(_BaseClient):
             for topic_filter in settings_topics(self.prefix, root):
                 await self._subscribe(topic_filter)
             now = asyncio.get_running_loop().time()
-            quiet = quiet_window(start, now, rel_timeout, abs_timeout)
             assert self._track_state is not None
-            self._track_state.burst.deadline = max(
-                self._track_state.burst.deadline,
-                now + quiet,
-            )
+            self._track_state.burst.set_roundtrip(start, now, rel_timeout, abs_timeout)
             await self._await_tracking(timeout)
         except Exception:
             for topic_filter in settings_topics(self.prefix, root):
