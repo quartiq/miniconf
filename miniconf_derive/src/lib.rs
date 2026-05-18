@@ -2,35 +2,81 @@
 
 //! Derive macros for `miniconf` trees.
 //!
-//! Most users derive `Tree` from the main `miniconf` crate. That shorthand implements
-//! `TreeSchema`, `TreeSerialize`, `TreeDeserialize`, and `TreeAny` for one item.
+//! Most users import these macros through `miniconf` and write `#[derive(Tree)]`.
+//! `Tree` is shorthand for `TreeSchema`, `TreeSerialize`, `TreeDeserialize`, and
+//! `TreeAny` on the same item.
 //!
-//! # Tree shape
+//! # Tree Shape
 //!
-//! Struct fields, tuple fields, enum variants, arrays, tuples, and `Option<T>` can become
-//! internal nodes when their types also implement the relevant `Tree*` traits. Leaf fields use
-//! Serde and `Any` directly.
+//! Fields and variants are internal nodes when their types implement the relevant
+//! `Tree*` traits. Serde leaves are accessed directly. Use
+//! `#[tree(with = miniconf::leaf)]` to force a `Tree`-capable type to stay one
+//! leaf value.
 //!
-//! Use `#[tree(with = miniconf::leaf)]` to force a `Tree`-capable type to stay a leaf.
+//! ```ignore
+//! use miniconf::{leaf, Tree};
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize)]
+//! struct Calibration {
+//!     offset: i32,
+//!     scale: u16,
+//! }
+//!
+//! #[derive(Tree)]
+//! struct Settings {
+//!     #[tree(rename = "cal", with = leaf)]
+//!     calibration: Calibration,
+//! }
+//! ```
 //!
 //! # Attributes
 //!
-//! The derive recognizes `#[tree(...)]` on containers, fields, and variants:
+//! `#[tree(...)]` is accepted on containers, fields, and variants:
 //!
-//! - `rename = name`: expose a different path segment.
-//! - `skip`: remove a field or variant from the tree.
-//! - `flatten`: splice one child tree into the parent where lookup is unambiguous.
-//! - `with = module`: use a custom implementation module for this field.
-//! - `meta(key = "value")`: attach reflection metadata.
-//! - `meta(key)`: inherit supported metadata (`doc`, `typename`, or `nullable`) from Rust syntax.
+//! - `rename = "name"` exposes a different path segment.
+//! - `skip` removes the field or variant from the tree.
+//! - `flatten` splices one child tree into the parent when lookup is unambiguous.
+//! - `with = module` delegates schema, serialization, deserialization, and `Any`
+//!   access to functions in `module`.
+//! - `meta(key = "value")` attaches reflection metadata.
+//! - `meta(key)` inherits supported metadata from Rust syntax: `doc`,
+//!   `typename`, or `nullable`.
 //!
-//! Container-level `meta(doc)` copies Rust doc comments into node metadata. `meta(typename)`
-//! records the Rust type name. Field and variant metadata is edge metadata unless the item is
-//! flattened into the parent.
+//! Container `meta(doc)` stores Rust doc comments as node metadata.
+//! `meta(typename)` stores the Rust type name. Field and variant metadata is
+//! edge metadata unless the item is flattened into the parent.
 //!
-//! Limitations:
-//! - internal tree enums are limited to unit and newtype variants
-//! - flattening is only supported where lookup stays unambiguous
+//! ```ignore
+//! use miniconf::Tree;
+//!
+//! /// Node documentation copied by `meta(doc)`.
+//! #[derive(Tree)]
+//! #[tree(meta(doc, typename))]
+//! struct Settings {
+//!     #[tree(rename = "en")]
+//!     enabled: bool,
+//!     #[tree(skip)]
+//!     cache_only: u32,
+//! }
+//! ```
+//!
+//! # Custom Access
+//!
+//! `with = module` is the escape hatch for validation, read-only leaves, relaxed
+//! bounds, or nonstandard access. The module exports the operations the derive
+//! calls, such as `schema::<T>()`, `serialize_by_key`, `deserialize_by_key`,
+//! `probe_by_key`, `ref_any_by_key`, and `mut_any_by_key`.
+//!
+//! Prefer this for real access policy. Keep ordinary Serde leaves on the default
+//! path or use `with = miniconf::leaf`.
+//!
+//! # Limits
+//!
+//! - Internal tree enums support unit, newtype, and skipped variants only.
+//! - Enums with named fields or multi-field tuple variants should stay leaves or
+//!   use a manual/custom implementation.
+//! - Flattening is supported only when generated lookup stays unambiguous.
 
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
@@ -41,8 +87,6 @@ mod tree;
 use tree::Tree;
 
 /// Derive the `TreeSchema` trait for a struct or enum.
-///
-/// This also derives `KeyLookup` if necessary.
 #[proc_macro_derive(TreeSchema, attributes(tree))]
 pub fn derive_tree_schema(input: TokenStream) -> TokenStream {
     match Tree::from_derive_input(&parse_macro_input!(input as DeriveInput)) {

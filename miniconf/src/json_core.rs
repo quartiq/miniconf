@@ -3,8 +3,8 @@
 //! Access items with `'/'` as path separator and JSON (from `serde-json-core`)
 //! as serialization/deserialization payload format.
 //!
-//! Paths used here are reciprocal to `TreeSchema::lookup::<ConstPath<_, '/'>, _>(...)`/
-//! `TreeSchema::SCHEMA.nodes::<ConstPath<_, '/'>>()`.
+//! Paths used here are reciprocal with `Schema::get()` and
+//! `Schema::nodes::<ConstPath<_, '/'>>()`.
 //!
 //! ```
 //! use miniconf::{json_core, Tree};
