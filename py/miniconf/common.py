@@ -8,6 +8,7 @@ import paho.mqtt
 from paho.mqtt.subscribeoptions import SubscribeOptions
 
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
+MM2_PROTO = 1
 
 LOGGER = logging.getLogger("miniconf")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.

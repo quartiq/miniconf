@@ -19,6 +19,7 @@ from paho.mqtt.subscribeoptions import SubscribeOptions
 from . import _ops
 from .common import (
     LOGGER,
+    MM2_PROTO,
     BurstState,
     MiniconfException,
     is_authoritative,
@@ -308,6 +309,27 @@ class TrackedSubtree:
         await self._client._close_track(self._root)
         self._root = None
 
+    @property
+    def is_ready(self) -> bool:
+        """Whether the tracked cache is currently usable."""
+
+        if self._root is None:
+            return False
+        task = self._client._tracking_reload()
+        if task is None:
+            return True
+        if task.done():
+            self._client._finish_tracking_reload(task)
+            return True
+        return False
+
+    async def await_ready(self, timeout: float | None = None) -> None:
+        """Wait until any tracked-cache reload triggered by `/alive` is complete."""
+
+        if self._root is None:
+            raise MiniconfException("Closed", "Tracked subtree is closed")
+        await self._client._await_tracking_reload(timeout)
+
     def _resolve(self, path: str, *, leaf: bool) -> str:
         root = self.root
         if not path:
@@ -398,6 +420,9 @@ class Miniconf(_BaseClient):
     def _note_manifest(self, manifest: dict[str, Any]):
         if not isinstance(manifest, dict):
             LOGGER.debug("Ignoring invalid alive manifest: %r", manifest)
+            return
+        if manifest.get("proto") != MM2_PROTO:
+            LOGGER.debug("Ignoring unsupported alive manifest: %r", manifest)
             return
 
         prev = self._manifest
@@ -566,16 +591,34 @@ class Miniconf(_BaseClient):
         state.reload = None
 
     def _check_tracking_reload(self) -> None:
-        state = self._track_state
-        if state is None or state.reload is None:
+        task = self._tracking_reload()
+        if task is None:
             return
-        if state.reload.done():
-            try:
-                state.reload.result()
-            finally:
-                state.reload = None
+        if task.done():
+            self._finish_tracking_reload(task)
             return
         raise MiniconfException("Reloading", self._tracked_root or "/")
+
+    def _tracking_reload(self) -> asyncio.Task[None] | None:
+        state = self._track_state
+        if state is None or state.reload is None:
+            return None
+        return state.reload
+
+    def _finish_tracking_reload(self, task: asyncio.Task[None]) -> None:
+        try:
+            task.result()
+        finally:
+            state = self._track_state
+            if state is not None and state.reload is task:
+                state.reload = None
+
+    async def _await_tracking_reload(self, timeout: float | None) -> None:
+        task = self._tracking_reload()
+        if task is None:
+            return
+        await asyncio.wait_for(asyncio.shield(task), timeout)
+        self._finish_tracking_reload(task)
 
     async def _reload_tracking(self) -> None:
         state = self._track_state
@@ -587,6 +630,9 @@ class Miniconf(_BaseClient):
             self._tracked_root = root
         start = asyncio.get_running_loop().time()
         for topic_filter in settings_topics(self.prefix, root):
+            # Force a retained replay for the already-open tracked subscription without changing
+            # the local refcount: a new alive generation means the cache must be rebuilt from the
+            # authoritative retained mirror.
             await self.client.subscribe(topic_filter, options=retained_options())
         state.burst.reset(asyncio.get_running_loop().time())
         state.burst.set_roundtrip(

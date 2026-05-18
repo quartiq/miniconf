@@ -170,6 +170,15 @@ async fn mm2_publications_advertise_utf8_payloads() {
                 inbound.topic()
             );
             saw_alive |= inbound.topic() == alive_topic;
+            if inbound.topic() == alive_topic {
+                assert!(
+                    core::str::from_utf8(inbound.payload())
+                        .unwrap()
+                        .contains(r#""proto":1"#),
+                    "missing MM2 proto in alive payload: {}",
+                    core::str::from_utf8(inbound.payload()).unwrap()
+                );
+            }
             saw_schema |= inbound.topic().starts_with(&schema_prefix);
             saw_value |= inbound.topic() == value_topic;
             saw_nested |= inbound.topic() == nested_topic;

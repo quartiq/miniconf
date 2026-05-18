@@ -148,9 +148,10 @@ retained `settings/...` leaf topic with an empty retained payload and `auth=""`.
 The retained `alive` payload is JSON:
 
 ```json
-{"epoch":1,"schema_rev":12345678,"pages":7}
+{"proto":1,"epoch":1,"schema_rev":12345678,"pages":7}
 ```
 
+- `proto` is the MM2 protocol version; clients should reject unsupported values
 - `epoch` identifies the current retained publication generation
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
@@ -205,7 +206,8 @@ Authoritative retained `settings/<path>` publications carry MQTT v5 user propert
 
 Client snapshot rule:
 
-1. Treat non-empty retained `alive` as the commit marker for `epoch`, `schema_rev`, and `pages`.
+1. Treat non-empty retained `alive` with `proto=1` as the commit marker for `epoch`,
+   `schema_rev`, and `pages`.
 2. Load schema pages `0..pages-1` for `schema_rev`.
 3. Collect retained settings until quiescent.
 4. Accept valid schema leaves with exactly one empty `auth` property.

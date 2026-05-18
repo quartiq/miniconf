@@ -86,6 +86,7 @@ where
 
 #[derive(Serialize)]
 struct AlivePayload {
+    proto: u8,
     epoch: u32,
     schema_rev: u32,
     pages: usize,
@@ -134,6 +135,7 @@ where
         match self {
             Self::Alive(manifest) => serde_json_core::to_slice(
                 &AlivePayload {
+                    proto: crate::MM2_PROTO,
                     epoch: manifest.epoch,
                     schema_rev: manifest.schema_rev,
                     pages: manifest.schema_pages,

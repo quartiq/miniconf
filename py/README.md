@@ -21,6 +21,7 @@ async with Client("mqtt", protocol=MQTTv5) as mqtt:
         await mc.set("/path", 42)
 
         async with mc.track("/subtree") as tracked:
+            await tracked.await_ready()
             value = tracked.cached("/subtree/leaf")
             cached = tracked.snapshot()
 ```
@@ -29,8 +30,8 @@ Core API:
 
 - `schema()` loads and caches the retained MM2 schema.
 - `set(path, value, response=True)` publishes one `set/#` request.
-- `track(path="")` scopes a retained subtree cache; use `cached()` for one leaf or
-  `snapshot()` for values below the tracked root.
+- `track(path="")` scopes a retained subtree cache; `await_ready()` waits through any
+  reboot/reload, then `cached()` reads one leaf and `snapshot()` reads a subtree.
 - `RawMiniconf` provides exact-path `get()` and `set()` without schema loading.
 
 Schema helpers:
@@ -44,8 +45,8 @@ Schema helpers:
 
 Notes:
 
-- The client keeps `/alive` subscribed and reloads tracked settings when `epoch`
-  changes; it reloads schema when `schema_rev` changes.
+- The client accepts MM2 `proto=1`, keeps `/alive` subscribed, and reloads tracked
+  settings when `epoch` changes; it reloads schema when `schema_rev` changes.
 - Schema-aware reads are explicit: open `track()` for the subtree you want, then read its cache.
 - Retained `/settings` messages without `auth=""` are ignored as non-authoritative MM2 traffic.
 - Retained burst quiescence uses the same rule as the Rust client:

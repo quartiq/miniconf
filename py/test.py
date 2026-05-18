@@ -165,6 +165,8 @@ async def close_client(client: Client, timeout: float = 1.0) -> None:
 async def wait_cached(tracked, path: str, expected, timeout: float = 3.0):
     end = asyncio.get_running_loop().time() + timeout
     while True:
+        with contextlib.suppress(TimeoutError):
+            await tracked.await_ready(max(0.0, end - asyncio.get_running_loop().time()))
         try:
             value = tracked.cached(path)
         except MiniconfException:
@@ -264,6 +266,7 @@ async def main() -> None:
         dut = subprocess.Popen([str(EXAMPLE)], cwd=ROOT)
 
         manifest = json.loads(alive.wait_nonempty_payload(5.0, f"{TARGET}/alive"))
+        assert manifest["proto"] == 1, manifest
         assert manifest["epoch"] > 0, manifest
         assert manifest["pages"] > 0, manifest
         assert manifest["schema_rev"], manifest

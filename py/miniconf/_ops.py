@@ -10,6 +10,7 @@ from aiomqtt import Client, Message
 
 from .common import (
     LOGGER,
+    MM2_PROTO,
     BurstState,
     MiniconfException,
     is_authoritative,
@@ -68,9 +69,14 @@ async def discover(
                 continue
             peer = message.topic.value.removesuffix(suffix)
             try:
-                discovered[peer] = json.loads(message.payload)
+                manifest = json.loads(message.payload)
             except json.JSONDecodeError:
                 LOGGER.info("Ignoring %s not/invalid alive", peer)
+                continue
+            if not isinstance(manifest, dict) or manifest.get("proto") != MM2_PROTO:
+                LOGGER.info("Ignoring %s unsupported MM2 alive", peer)
+                continue
+            discovered[peer] = manifest
             deadline = asyncio.get_running_loop().time() + quiet
 
     try:
