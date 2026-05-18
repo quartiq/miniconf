@@ -47,11 +47,8 @@ def user_property_values(properties: dict, name: str) -> list[str]:
     return [value for key, value in properties.get("UserProperty", ()) if key == name]
 
 
-def rev_property(properties: dict) -> int | None:
-    values = user_property_values(properties, "rev")
-    if len(values) != 1 or not values[0].isdecimal():
-        return None
-    return int(values[0])
+def is_authoritative(properties: dict) -> bool:
+    return user_property_values(properties, "auth") == [""]
 
 
 def json_dumps(value):

@@ -55,9 +55,9 @@ let mut startup = miniconf_mqtt::Startup::connected(&mut mm2);
 startup.run(&mut mm2, &mut session, &settings).await?;
 ```
 
-`LoadRetained` applies only retained `settings/<leaf>` publications with `rev`, waits for
+`LoadRetained` applies only retained `settings/<leaf>` publications with `auth=""`, waits for
 `100 ms + 3 * settings-subscribe-RTT` of quiet after the last accepted retained publish, then
-unsubscribes. Stale topics, missing `rev`, empty payloads, and invalid JSON are ignored. Arbitrary
+unsubscribes. Stale topics, missing `auth`, empty payloads, and invalid JSON are ignored. Arbitrary
 retained pruning remains a client/tooling operation.
 
 Use it only before the first MM2 startup of a device process. On a device reconnect or network
@@ -141,24 +141,26 @@ loop {
 - inner key via `Publisher::by_key(Settings::SCHEMA, ...)`: recursively publish or clear descendant leaves
 
 If a descendant leaf currently serializes as `Absent` or `Access`, `Publisher` clears that exact
-retained `settings/...` leaf topic with an empty retained payload and a fresh `rev`.
+retained `settings/...` leaf topic with an empty retained payload and `auth=""`.
 
 ## Manifest
 
 The retained `alive` payload is JSON:
 
 ```json
-{"epoch":1,"schema_rev":12345678,"pages":7,"baseline_rev":42}
+{"epoch":1,"schema_rev":12345678,"pages":7}
 ```
 
-- `epoch` identifies the current authoritative publication epoch
+- `epoch` identifies the current retained publication generation
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
-- `baseline_rev` is the last retained settings revision published before this `alive`
 
-`epoch` changes whenever a running device starts a fresh retained MM2 publication cycle. Clients
-should reload tracked retained settings when `epoch` changes, but may reuse a parsed schema if
-`schema_rev` is unchanged.
+`epoch` changes whenever a running device starts a fresh retained MM2 publication cycle. It lets
+long-lived clients notice a reboot or full republish even when the schema is unchanged, and reload
+tracked retained settings after the new `alive` commit marker. Without `epoch`, a client that
+already has cached settings could miss a same-schema restart that restored different values from
+firmware defaults or retained storage. Clients may reuse a parsed schema if `schema_rev` is
+unchanged.
 
 The retained will clears `alive` on disconnect so discovery stays live-device oriented even if
 stale retained schema/settings still exist on the broker.
@@ -194,25 +196,19 @@ The revision is FNV-1a over the exact retained schema page payload bytes in page
 
 ## Settings mirror and `set/#`
 
-Authoritative retained `settings/<path>` publications carry MQTT v5 user property `rev=<u32>`.
+Authoritative retained `settings/<path>` publications carry MQTT v5 user property `auth=""`.
 
-- `rev` marks a publication as part of the authoritative mirror; no-`rev` settings publications
+- `auth` marks a publication as part of the authoritative mirror; no-`auth` settings publications
   are compatibility ingress requests
-- `rev` is a global sequence within one `epoch`, not a per-leaf version
-- `baseline_rev` in `alive` is a startup commit watermark, not a maximum valid revision
-- late clients must accept retained settings with `rev > baseline_rev`; those are ordinary updates
-  published after the startup mirror completed
-- clients should use `rev` only for ordering observations inside one epoch, not for completeness
-- long-lived clients should ignore `settings/<path>` without `rev`
+- `auth` must appear exactly once with an empty value
+- long-lived clients should ignore `settings/<path>` without valid `auth`
 
 Client snapshot rule:
 
-1. Treat non-empty retained `alive` as the commit marker for `epoch`, `schema_rev`, `pages`, and
-   `baseline_rev`.
+1. Treat non-empty retained `alive` as the commit marker for `epoch`, `schema_rev`, and `pages`.
 2. Load schema pages `0..pages-1` for `schema_rev`.
 3. Collect retained settings until quiescent.
-4. Accept valid schema leaves with exactly one decimal `rev`, regardless of whether `rev` is below,
-   equal to, or above `baseline_rev`.
+4. Accept valid schema leaves with exactly one empty `auth` property.
 
 `set/<path>` accepts one JSON value for one leaf.
 
@@ -223,8 +219,8 @@ Client snapshot rule:
   `settings/<path>` publication
 
 For compatibility with simple MQTT tools, an application may subscribe to `settings/#` itself
-using `RetainHandling::Never` and route those publishes through `Service`. Only no-`rev` leaf
-publishes are treated as requests; `rev` publications are the authoritative mirror and are ignored
+using `RetainHandling::Never` and route those publishes through `Service`. Only no-`auth` leaf
+publishes are treated as requests; `auth` publications are the authoritative mirror and are ignored
 as ingress.
 
 ## Response metadata
@@ -244,7 +240,7 @@ Success replies carry only `code=Ok`.
 - MM2 is small and opinionated. One MQTT prefix is assumed to have one authoritative device
   publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
-  for `epoch`, `schema_rev`, and startup `baseline_rev`.
+  for `epoch` and `schema_rev`.
 - `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait
   for broker ACKs or `SUBACK`.
 - `LoadRetained` is a quiescence heuristic, not a retained storage transaction. Applying retained

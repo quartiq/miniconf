@@ -220,7 +220,7 @@ async fn mm2_publications_advertise_utf8_payloads() {
                 continue;
             };
             if inbound.topic() == value_topic {
-                assert_eq!(user_property(&inbound, "rev"), Some("3"));
+                assert_eq!(user_property(&inbound, "auth"), Some(""));
                 assert!(has_utf8_payload_indicator(&inbound));
                 break;
             }
@@ -272,7 +272,7 @@ async fn mm2_set_stays_internal() {
 }
 
 #[tokio::test]
-async fn retained_load_applies_only_rev_leaf_values() {
+async fn retained_load_applies_only_auth_leaf_values() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -282,11 +282,11 @@ async fn retained_load_applies_only_rev_leaf_values() {
     let prefix = unique("retained-load");
     let mut seeder = Session::new(config());
     wait_session(&mut seeder, connect_addr(addr).await.unwrap()).await;
-    let rev = [Property::UserProperty(Utf8String("rev"), Utf8String("1"))];
+    let auth = [Property::UserProperty(Utf8String("auth"), Utf8String(""))];
     let op = seeder
         .publish(
             Publication::bytes(&format!("{prefix}/settings/value"), b"9")
-                .properties(&rev)
+                .properties(&auth)
                 .qos(QoS::AtLeastOnce)
                 .retain(),
         )
@@ -307,7 +307,7 @@ async fn retained_load_applies_only_rev_leaf_values() {
     let op = seeder
         .publish(
             Publication::bytes(&format!("{prefix}/settings/obsolete"), b"1")
-                .properties(&rev)
+                .properties(&auth)
                 .qos(QoS::AtLeastOnce)
                 .retain(),
         )
@@ -343,7 +343,7 @@ async fn retained_load_applies_only_rev_leaf_values() {
 }
 
 #[tokio::test]
-async fn service_accepts_no_rev_settings_compat_ingress() {
+async fn service_accepts_no_auth_settings_compat_ingress() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -421,7 +421,7 @@ async fn service_accepts_no_rev_settings_compat_ingress() {
                 continue;
             };
             if inbound.topic() != format!("{prefix}/settings/value")
-                || user_property(&inbound, "rev").is_some()
+                || user_property(&inbound, "auth").is_some()
             {
                 continue;
             }

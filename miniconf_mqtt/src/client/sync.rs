@@ -6,7 +6,7 @@ use minimq::{
     types::{RetainHandling, SubscriptionOptions, TopicFilter},
 };
 
-use super::request::{Rev, resolve_leaf, rev, set_leaf};
+use super::request::{Auth, auth, resolve_leaf, set_leaf};
 use crate::{
     Error,
     client::{
@@ -163,7 +163,7 @@ fn apply_retained<Settings>(
 where
     Settings: TreeSchema + TreeDeserializeOwned,
 {
-    // Startup recovery only trusts previous authoritative mirror publications. No-rev settings are
+    // Startup recovery only trusts previous authoritative mirror publications. No-auth settings are
     // reserved for the runtime compatibility path and stale topics are left for smarter clients to
     // prune because the device cannot enumerate broker-retained state outside this subscription.
     if inbound.retain() != Retain::Retained || inbound.payload().is_empty() {
@@ -174,18 +174,18 @@ where
         return false;
     };
 
-    match rev(inbound) {
-        Rev::Valid => {}
-        Rev::Absent => {
+    match auth(inbound) {
+        Auth::Valid => {}
+        Auth::Absent => {
             crate::debug!(
-                "Ignoring retained setting without rev topic={=str}",
+                "Ignoring retained setting without auth topic={=str}",
                 inbound.topic()
             );
             return false;
         }
-        Rev::Invalid => {
+        Auth::Invalid => {
             crate::debug!(
-                "Ignoring retained setting with invalid rev topic={=str}",
+                "Ignoring retained setting with invalid auth topic={=str}",
                 inbound.topic()
             );
             return false;
@@ -265,10 +265,7 @@ impl StartupPhase {
                 }
                 Self::Settings(publisher) => {
                     if publisher.step(mm2, session, settings).await? {
-                        crate::debug!(
-                            "Settings startup phase complete rev={=u32}",
-                            mm2.manifest.settings_rev
-                        );
+                        crate::debug!("Settings startup phase complete");
                         *self = Self::SubscribeSet(None);
                         continue;
                     }
@@ -294,10 +291,9 @@ impl StartupPhase {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
                         crate::info!(
-                            "Completed MM2 startup epoch={=u32} schema_rev={=u32} settings_rev={=u32}",
+                            "Completed MM2 startup epoch={=u32} schema_rev={=u32}",
                             mm2.manifest.epoch,
-                            mm2.manifest.schema_rev,
-                            mm2.manifest.settings_rev
+                            mm2.manifest.schema_rev
                         );
                         *self = Self::Done;
                         return Ok(true);
@@ -419,10 +415,7 @@ where
             None => {
                 let iter = publisher.iter.as_mut().unwrap();
                 let Some(path) = iter.next() else {
-                    crate::info!(
-                        "Completed retained settings sync rev={=u32}",
-                        mm2.manifest.settings_rev
-                    );
+                    crate::info!("Completed retained settings sync");
                     return Ok(true);
                 };
                 path.map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
@@ -434,9 +427,8 @@ where
                 let state = ChangedKey::new(state, full.len());
                 publisher.pending = Some(state);
                 crate::debug!(
-                    "Preparing retained setting publication depth={=usize} rev_next={=u32}",
-                    state.as_ref().len(),
-                    mm2.manifest.settings_rev.wrapping_add(1)
+                    "Preparing retained setting publication depth={=usize}",
+                    state.as_ref().len()
                 );
                 state
             }
@@ -446,9 +438,8 @@ where
             PendingOp::Pending => return Ok(false),
             PendingOp::Complete => {
                 crate::debug!(
-                    "Published retained setting depth={=usize} rev={=u32}",
-                    state.as_ref().len(),
-                    mm2.manifest.settings_rev
+                    "Published retained setting depth={=usize}",
+                    state.as_ref().len()
                 );
                 publisher.pending = None;
                 continue;

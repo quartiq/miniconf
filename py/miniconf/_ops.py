@@ -12,10 +12,10 @@ from .common import (
     LOGGER,
     BurstState,
     MiniconfException,
+    is_authoritative,
     is_retained,
     quiet_window,
     retained_options,
-    rev_property,
     settings_topics,
     subtree_match,
 )
@@ -135,7 +135,7 @@ async def _collect_retained_settings(
             topic = message.topic.value
             if not topic.startswith(f"{interface.prefix}/settings"):
                 continue
-            if rev_property(_properties(message)) is None:
+            if not is_authoritative(_properties(message)):
                 continue
             settings_path = topic.removeprefix(f"{interface.prefix}/settings")
             if not subtree_match(settings_path, root):

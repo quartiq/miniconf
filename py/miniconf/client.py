@@ -21,11 +21,11 @@ from .common import (
     LOGGER,
     BurstState,
     MiniconfException,
+    is_authoritative,
     is_retained,
     json_dumps,
     message_expiry,
     retained_options,
-    rev_property,
     settings_topics,
     subscription_key,
     subtree_match,
@@ -53,10 +53,6 @@ def _response_cd(properties: dict[str, Any]) -> bytes | None:
         return bytes.fromhex(properties["CorrelationData"])
     except KeyError:
         return None
-
-
-def _response_rev(properties: dict[str, Any]) -> int | None:
-    return rev_property(properties)
 
 
 @dataclass
@@ -257,7 +253,7 @@ async def _read_retained_json(
             message = await asyncio.wait_for(queue.get(), remaining)
             if not is_retained(message):
                 continue
-            if _response_rev(_properties(message)) is None:
+            if not is_authoritative(_properties(message)):
                 continue
             if not message.payload:
                 raise MiniconfException("NotFound", path)
@@ -351,7 +347,7 @@ class Miniconf(_BaseClient):
     """Long-lived MM2 Miniconf session with schema and settings caches.
 
     The client keeps `/alive` subscribed to notice new device epochs and schema revisions. Retained
-    `settings/#` publications without `rev` are treated as non-authoritative and ignored. One
+    `settings/#` publications without `auth` are treated as non-authoritative and ignored. One
     explicit tracked settings subtree may be active at a time through `track()`.
     """
 
@@ -386,7 +382,7 @@ class Miniconf(_BaseClient):
             f"{self.prefix}/settings"
         ):
             return
-        if _response_rev(properties) is None or not is_retained(message):
+        if not is_authoritative(properties) or not is_retained(message):
             return
         path = topic.removeprefix(f"{self.prefix}/settings")
         if not subtree_match(path, self._tracked_root):

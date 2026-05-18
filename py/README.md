@@ -47,7 +47,7 @@ Notes:
 - The client keeps `/alive` subscribed and reloads tracked settings when `epoch`
   changes; it reloads schema when `schema_rev` changes.
 - Schema-aware reads are explicit: open `track()` for the subtree you want, then read its cache.
-- Retained `/settings` messages without `rev` are ignored as non-authoritative MM2 traffic.
+- Retained `/settings` messages without `auth=""` are ignored as non-authoritative MM2 traffic.
 - Retained burst quiescence uses the same rule as the Rust client:
   `100 ms + 3 * measured_subscribe_rtt`, reset on each accepted retained publication.
 

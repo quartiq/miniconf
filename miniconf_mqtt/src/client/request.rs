@@ -63,7 +63,7 @@ pub(crate) struct ReplyMessage {
     payload: ResponseText,
 }
 
-pub(crate) enum Rev {
+pub(crate) enum Auth {
     Absent,
     Valid,
     Invalid,
@@ -79,7 +79,7 @@ where
     let Some(path) = settings_path(inbound.topic(), prefix) else {
         return false;
     };
-    if !matches!(rev(inbound), Rev::Absent) {
+    if !matches!(auth(inbound), Auth::Absent) {
         return false;
     }
     let mut state = [0; crate::MAX_DEPTH];
@@ -220,21 +220,21 @@ where
     }
 }
 
-pub(crate) fn rev(inbound: &InboundPublish<'_>) -> Rev {
+pub(crate) fn auth(inbound: &InboundPublish<'_>) -> Auth {
     let mut seen = false;
     for property in inbound.properties().iter() {
         let Ok(Property::UserProperty(key, value)) = property else {
             continue;
         };
-        if key.0 != "rev" {
+        if key.0 != "auth" {
             continue;
         }
-        if seen || value.0.parse::<u32>().is_err() {
-            return Rev::Invalid;
+        if seen || !value.0.is_empty() {
+            return Auth::Invalid;
         }
         seen = true;
     }
-    if seen { Rev::Valid } else { Rev::Absent }
+    if seen { Auth::Valid } else { Auth::Absent }
 }
 
 pub(crate) fn resolve_leaf<Settings>(
@@ -267,9 +267,9 @@ fn route_settings<Settings>(
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
-    // No-rev settings publications are a narrow compatibility ingress for tools that edit the
-    // retained mirror by hand. Rev-bearing publications are the authoritative mirror itself.
-    if !matches!(rev(inbound), Rev::Absent) {
+    // No-auth settings publications are a narrow compatibility ingress for tools that edit the
+    // retained mirror by hand. Auth-marked publications are the authoritative mirror itself.
+    if !matches!(auth(inbound), Auth::Absent) {
         crate::debug!(
             "Ignoring authoritative settings mirror publication topic={=str}",
             inbound.topic()

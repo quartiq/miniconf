@@ -48,7 +48,6 @@ pub(crate) struct Manifest {
     pub(crate) epoch: u32,
     pub(crate) schema_rev: u32,
     pub(crate) schema_pages: usize,
-    pub(crate) settings_rev: u32,
 }
 
 #[derive(Debug)]
@@ -90,7 +89,6 @@ struct AlivePayload {
     epoch: u32,
     schema_rev: u32,
     pages: usize,
-    baseline_rev: u32,
 }
 
 pub(crate) enum PublishPayload<'a, 'b, Settings> {
@@ -139,7 +137,6 @@ where
                     epoch: manifest.epoch,
                     schema_rev: manifest.schema_rev,
                     pages: manifest.schema_pages,
-                    baseline_rev: manifest.settings_rev,
                 },
                 buf,
             )
@@ -267,12 +264,11 @@ where
         .push_str("/alive")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
     crate::debug!(
-        "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize} baseline_rev={=u32}",
+        "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize}",
         topic.as_str(),
         manifest.epoch,
         manifest.schema_rev,
-        manifest.schema_pages,
-        manifest.settings_rev
+        manifest.schema_pages
     );
     let publication = Publication::new(&topic, PublishPayload::<Settings>::Alive(manifest))
         .properties(crate::RETAINED_TEXT_PROPERTIES)
@@ -428,26 +424,20 @@ where
             .map_err(MqttError::from)
             .map_err(Error::from)?;
         crate::debug!(
-            "Publishing authoritative setting topic={=str} next_rev={=u32}",
-            topic.as_str(),
-            self.manifest.settings_rev.wrapping_add(1)
+            "Publishing authoritative setting topic={=str}",
+            topic.as_str()
         );
 
-        let next_rev = self.manifest.settings_rev.wrapping_add(1);
-        let mut rev = itoa::Buffer::new();
         let props = [
             Property::PayloadFormatIndicator(1),
-            Property::UserProperty(Utf8String("rev"), Utf8String(rev.format(next_rev))),
+            Property::UserProperty(Utf8String("auth"), Utf8String("")),
         ];
         let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
         match session.publish(publication).await {
-            Ok(op) => {
-                self.manifest.settings_rev = next_rev;
-                Ok(op)
-            }
+            Ok(op) => Ok(op),
             Err(PubError::Payload((
                 _no_space,
                 PayloadError::Leaf(DepthError {
@@ -456,9 +446,8 @@ where
                 }),
             ))) => {
                 crate::debug!(
-                    "Clearing authoritative setting topic={=str} next_rev={=u32}",
-                    topic.as_str(),
-                    self.manifest.settings_rev.wrapping_add(1)
+                    "Clearing authoritative setting topic={=str}",
+                    topic.as_str()
                 );
                 let publication = Publication::bytes(&topic, b"")
                     .properties(&props)
@@ -468,7 +457,6 @@ where
                     .publish(publication)
                     .await
                     .map_err(simple_pub_error)?;
-                self.manifest.settings_rev = next_rev;
                 Ok(op)
             }
             Err(err) => Err(simple_pub_error(err)),
@@ -486,11 +474,10 @@ impl Startup {
             ConnectEvent::Connected => Self::connected(mm2),
             ConnectEvent::Reconnected => {
                 crate::info!(
-                    "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32} settings_rev={=u32}",
+                    "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32}",
                     mm2.prefix.as_str(),
                     mm2.manifest.epoch,
-                    mm2.manifest.schema_rev,
-                    mm2.manifest.settings_rev
+                    mm2.manifest.schema_rev
                 );
                 Self::reconnected()
             }
@@ -506,7 +493,6 @@ impl Startup {
         Settings: TreeSchema,
     {
         mm2.manifest.epoch = mm2.manifest.epoch.wrapping_add(1);
-        mm2.manifest.settings_rev = 0;
         mm2.manifest.schema_rev = 0;
         mm2.manifest.schema_pages = 0;
         crate::info!(
