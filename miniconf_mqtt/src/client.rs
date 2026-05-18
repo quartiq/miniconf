@@ -276,21 +276,6 @@ impl<Settings> Miniconf<Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
-    async fn complete_aftermath<IO>(
-        &mut self,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-        mut aftermath: Aftermath,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        IO: Io,
-    {
-        while !aftermath.step(self, session, settings).await? {
-            let _ = session.poll().await?;
-        }
-        Ok(())
-    }
-
     /// Construct MM2 state and a configured caller-owned MQTT session.
     pub fn new<'buf, IO: Io>(
         prefix: &str,
@@ -406,25 +391,27 @@ where
     where
         IO: Io,
     {
+        // Reuse the bounded service path with capacity one. `serve()` drains every queued
+        // aftermath before polling another request, so `Busy` is not reachable in normal use.
+        let mut service = Service::<1>::new();
         loop {
             let inbound = session.poll().await?;
             let Some(inbound) = inbound else {
                 continue;
             };
-            match self.route(settings, &inbound) {
-                Route::Unhandled => {
+            match service.handle(self, settings, &inbound) {
+                ServiceEvent::Unhandled => {
                     return Ok(Event::Unhandled(on_unhandled(&inbound)));
                 }
-                Route::Ignored => {}
-                Route::Rejected { aftermath } => {
-                    if let Some(aftermath) = aftermath {
-                        self.complete_aftermath(session, settings, aftermath)
-                            .await?;
+                ServiceEvent::Idle | ServiceEvent::Busy => {
+                    while !service.step(self, session, settings).await? {
+                        let _ = session.poll().await?;
                     }
                 }
-                Route::Accepted { changed, aftermath } => {
-                    self.complete_aftermath(session, settings, aftermath)
-                        .await?;
+                ServiceEvent::Changed(changed) => {
+                    while !service.step(self, session, settings).await? {
+                        let _ = session.poll().await?;
+                    }
                     return Ok(Event::Changed(changed));
                 }
             }
