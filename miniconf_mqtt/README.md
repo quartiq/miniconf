@@ -39,9 +39,10 @@ Typical flow:
 2. call `let event = session.connect(io).await?`
 3. call `mm2.startup(&mut session, &settings, event)`
 4. in steady state, call `mm2.serve(&mut session, &mut settings, on_unhandled)`
-5. use `mm2.publish_root()` or `mm2.publish_by_key(key)` for explicit app-side retained republish
+5. use `Publisher::root(Settings::SCHEMA)` or `Publisher::by_key(Settings::SCHEMA, key)` for explicit app-side retained
+   republish
 
-`publish_root()` replaces the old full-tree `publish_all()` flow.
+`Publisher::root(Settings::SCHEMA)` replaces the old full-tree `publish_all()` flow.
 
 ## Core contract
 
@@ -110,9 +111,9 @@ loop {
 
 `Publisher`:
 
-- `publish_root()`: full retained settings mirror
-- leaf key via `publish_by_key(...)`: publish or clear exactly that leaf
-- inner key via `publish_by_key(...)`: recursively publish or clear descendant leaves
+- `Publisher::root(Settings::SCHEMA)`: full retained settings mirror
+- leaf key via `Publisher::by_key(Settings::SCHEMA, ...)`: publish or clear exactly that leaf
+- inner key via `Publisher::by_key(Settings::SCHEMA, ...)`: recursively publish or clear descendant leaves
 
 If a descendant leaf currently serializes as `Absent` or `Access`, `Publisher` clears that exact
 retained `settings/...` leaf topic with an empty retained payload and a fresh `rev`.

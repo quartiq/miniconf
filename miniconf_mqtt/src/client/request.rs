@@ -10,11 +10,11 @@ use minimq::{
 
 use crate::{
     Error,
-    client::{Aftermath, ChangedKey, Miniconf, PendingOp, ReplyTarget, Route},
+    client::{ChangedKey, Miniconf, PendingOp, ReplyTarget, Route},
     message::{DepthError, ResponseBody, ResponseCode, set_path, simple_pub_error},
 };
 
-pub(crate) enum AftermathPhase {
+pub(crate) enum Aftermath {
     Publish {
         state: ChangedKey,
         reply: Option<ReplyTarget>,
@@ -49,6 +49,17 @@ pub(crate) struct ReplyMessage {
 
 pub(crate) fn is_request(prefix: &str, topic: &str) -> bool {
     set_path(topic, prefix).is_some()
+}
+
+fn with_leaf<T, E>(
+    full: &[usize],
+    func: impl FnOnce(&mut &[usize]) -> Result<T, SerdeError<E>>,
+) -> Result<T, DepthError<E>> {
+    let mut keys = full;
+    func(&mut keys).map_err(|inner| DepthError {
+        inner,
+        depth: full.len() - keys.len(),
+    })
 }
 
 pub(crate) fn route<Settings>(
@@ -97,12 +108,10 @@ where
                 depth: err.lookup.depth,
             });
             return Route::Rejected {
-                aftermath: reply.map(|target| Aftermath {
-                    phase: AftermathPhase::ErrorReply {
-                        target,
-                        message: encode_body(&body),
-                        op: None,
-                    },
+                aftermath: reply.map(|target| Aftermath::ErrorReply {
+                    target,
+                    message: encode_body(&body),
+                    op: None,
                 }),
             };
         }
@@ -122,18 +131,16 @@ where
             depth: lookup.depth,
         };
         return Route::Rejected {
-            aftermath: reply.map(|target| Aftermath {
-                phase: AftermathPhase::ErrorReply {
-                    target,
-                    message: encode_body(&body),
-                    op: None,
-                },
+            aftermath: reply.map(|target| Aftermath::ErrorReply {
+                target,
+                message: encode_body(&body),
+                op: None,
             }),
         };
     }
 
     let full = &state[..lookup.depth];
-    match Miniconf::<Settings>::with_leaf(full, |keys| {
+    match with_leaf(full, |keys| {
         json_core::set_by_keys(settings, keys, inbound.payload())
     }) {
         Ok(_) => {
@@ -147,12 +154,10 @@ where
             let changed = Indices::new(state, lookup.depth);
             Route::Accepted {
                 changed,
-                aftermath: Aftermath {
-                    phase: AftermathPhase::Publish {
-                        state: changed,
-                        reply,
-                        op: None,
-                    },
+                aftermath: Aftermath::Publish {
+                    state: changed,
+                    reply,
+                    op: None,
                 },
             }
         }
@@ -170,19 +175,17 @@ where
             );
             let body = ResponseBody::Set(err);
             Route::Rejected {
-                aftermath: reply.map(|target| Aftermath {
-                    phase: AftermathPhase::ErrorReply {
-                        target,
-                        message: encode_body(&body),
-                        op: None,
-                    },
+                aftermath: reply.map(|target| Aftermath::ErrorReply {
+                    target,
+                    message: encode_body(&body),
+                    op: None,
                 }),
             }
         }
     }
 }
 
-impl AftermathPhase {
+impl Aftermath {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,

@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 
 use heapless::Deque;
 use miniconf::{
-    DescendError, Indices, IntoKeys, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    DescendError, Indices, IntoKeys, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     json_core,
 };
 use minimq::{
@@ -20,6 +20,7 @@ use crate::{
     message::DepthError,
     schema::{SchemaDefs, serialize_schema_page},
 };
+use request::Aftermath;
 
 /// Exact leaf indices produced by MM2 request handling.
 pub type ChangedKey = Indices<[usize; crate::MAX_DEPTH]>;
@@ -91,6 +92,9 @@ struct AlivePayload {
 }
 
 pub(crate) enum PublishPayload<'a, 'b, Settings> {
+    // Keep MM2 publications behind one concrete payload type per Settings tree.
+    // `Session::publish<P>()` is generic over `P: ToPayload`; splitting these variants into
+    // separate payload structs creates separate publish monomorphizations for alive/schema/leaf.
     Alive(&'a Manifest),
     SchemaPage {
         defs: &'a SchemaDefs,
@@ -163,6 +167,8 @@ where
     }
 }
 
+type MqttPubError<E> = PubError<EncodeError<PayloadError>, E>;
+
 /// Result of `Miniconf::serve()`.
 #[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
 pub enum Event<T> {
@@ -213,14 +219,11 @@ pub struct Startup {
 /// Explicit retained publication workflow for a leaf, subtree, or root.
 #[must_use = "drive the publisher to completion to update the retained subtree"]
 pub struct Publisher {
+    schema: &'static Schema,
     root: ChangedKey,
     iter: Option<crate::schema::SettingsSync>,
     pending: Option<ChangedKey>,
     op: Option<Op>,
-}
-
-pub(crate) struct Aftermath {
-    phase: request::AftermathPhase,
 }
 
 /// Bounded cooperative MM2 service.
@@ -229,6 +232,44 @@ pub(crate) struct Aftermath {
 /// number of queued MM2 follow-up publications bounded.
 pub struct Service<const N: usize = 4> {
     aftermaths: Deque<Aftermath, N>,
+}
+
+pub(crate) fn schema_page_topic(prefix: &TopicString, page: usize) -> TopicString {
+    let mut topic = prefix.clone();
+    topic.push_str("/schema/").ok();
+    use core::fmt::Write as _;
+    write!(topic.as_mut_view(), "{page}").ok();
+    topic
+}
+
+pub(crate) async fn publish_alive_once<Settings, IO>(
+    prefix: &TopicString,
+    manifest: &Manifest,
+    session: &mut Session<'_, IO>,
+) -> Result<Option<Op>, Error<IO::Error>>
+where
+    Settings: TreeSerialize,
+    IO: Io,
+{
+    let mut topic = prefix.clone();
+    topic
+        .push_str("/alive")
+        .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
+    crate::debug!(
+        "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize}",
+        topic.as_str(),
+        manifest.epoch,
+        manifest.schema_rev,
+        manifest.schema_pages
+    );
+    let publication = Publication::new(&topic, PublishPayload::<Settings>::Alive(manifest))
+        .properties(crate::UTF8_PAYLOAD_PROPERTIES)
+        .qos(QoS::AtLeastOnce)
+        .retain();
+    session
+        .publish(publication)
+        .await
+        .map_err(crate::message::simple_pub_error)
 }
 
 impl<Settings> Miniconf<Settings>
@@ -250,27 +291,17 @@ where
         Ok(())
     }
 
-    fn with_leaf<T, E>(
-        full: &[usize],
-        func: impl FnOnce(&mut &[usize]) -> Result<T, SerdeError<E>>,
-    ) -> Result<T, DepthError<E>> {
-        let mut keys = full;
-        func(&mut keys).map_err(|inner| DepthError {
-            inner,
-            depth: full.len() - keys.len(),
-        })
-    }
-
     /// Construct MM2 state and a configured caller-owned MQTT session.
     pub fn new<'buf, IO: Io>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
     ) -> Result<(Self, Session<'buf, IO>), ConfigError> {
+        let schema = Settings::SCHEMA;
         const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
-        if prefix.len() + "/settings".len() + Settings::SCHEMA.max_length("/") > MAX_TOPIC_LENGTH {
+        if prefix.len() + "/settings".len() + schema.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ConfigError::InvalidConfig);
         }
-        if SchemaDefs::new(Settings::SCHEMA).is_err() {
+        if SchemaDefs::new(schema).is_err() {
             return Err(ConfigError::InvalidConfig);
         }
 
@@ -354,6 +385,10 @@ where
     /// `on_unhandled` runs synchronously for the first non-MM2 inbound publish and its return
     /// value is returned as `Event::Unhandled`.
     ///
+    /// This callback is the ownership boundary for the borrowed MQTT receive buffer. Returning
+    /// `InboundPublish<'_>` directly from this unbounded helper would make the same async loop both
+    /// return a borrow from `session` and reborrow `session` to complete MM2 follow-up work.
+    ///
     /// For async application work, copy or extract the needed data in `on_unhandled`, return it
     /// through `Event::Unhandled`, and await after `serve()` returns.
     ///
@@ -394,65 +429,6 @@ where
                 }
             }
         }
-    }
-
-    /// Begin explicit retained publication for the whole tree root.
-    pub fn publish_root(&self) -> Publisher {
-        Publisher {
-            root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
-            iter: None,
-            pending: None,
-            op: None,
-        }
-    }
-
-    /// Begin explicit retained publication for one leaf or subtree.
-    pub fn publish_by_key(&self, key: impl IntoKeys) -> Result<Publisher, miniconf::ResolveError> {
-        let mut state = [0; crate::MAX_DEPTH];
-        let lookup = Settings::SCHEMA.resolve_into(key, &mut state)?;
-        Ok(Publisher {
-            root: ChangedKey::new(state, lookup.depth),
-            iter: None,
-            pending: None,
-            op: None,
-        })
-    }
-
-    pub(crate) async fn publish_alive_once<IO>(
-        &mut self,
-        session: &mut Session<'_, IO>,
-    ) -> Result<Option<Op>, Error<IO::Error>>
-    where
-        IO: Io,
-    {
-        let mut topic = self.prefix.clone();
-        topic
-            .push_str("/alive")
-            .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-        crate::debug!(
-            "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize}",
-            topic.as_str(),
-            self.manifest.epoch,
-            self.manifest.schema_rev,
-            self.manifest.schema_pages
-        );
-        let publication =
-            Publication::new(&topic, PublishPayload::<Settings>::Alive(&self.manifest))
-                .properties(crate::UTF8_PAYLOAD_PROPERTIES)
-                .qos(QoS::AtLeastOnce)
-                .retain();
-        session
-            .publish(publication)
-            .await
-            .map_err(crate::message::simple_pub_error)
-    }
-
-    pub(crate) fn schema_page_topic(&self, page: usize) -> TopicString {
-        let mut topic = self.prefix.clone();
-        topic.push_str("/schema/").ok();
-        use core::fmt::Write as _;
-        write!(topic.as_mut_view(), "{page}").ok();
-        topic
     }
 
     pub(crate) fn settings_topic(&self, state: &[usize]) -> Result<TopicString, ResourceError> {
@@ -515,7 +491,7 @@ where
         session: &mut Session<'_, IO>,
         settings: &Settings,
         state: &[usize],
-    ) -> Result<Option<Op>, PubError<EncodeError<PayloadError>, IO::Error>>
+    ) -> Result<Option<Op>, MqttPubError<IO::Error>>
     where
         IO: Io,
     {
@@ -568,7 +544,7 @@ where
 impl Startup {
     fn fresh<Settings: TreeSchema>() -> Self {
         Self {
-            phase: sync::StartupPhase::Schema(sync::SchemaPublisher::new::<Settings>()),
+            phase: sync::StartupPhase::Schema(sync::SchemaPublisher::new(Settings::SCHEMA)),
         }
     }
 
@@ -601,6 +577,33 @@ impl Startup {
 }
 
 impl Publisher {
+    /// Begin explicit retained publication for the whole tree root.
+    pub fn root(schema: &'static Schema) -> Self {
+        Self {
+            schema,
+            root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
+            iter: None,
+            pending: None,
+            op: None,
+        }
+    }
+
+    /// Begin explicit retained publication for one leaf or subtree.
+    pub fn by_key(
+        schema: &'static Schema,
+        key: impl IntoKeys,
+    ) -> Result<Self, miniconf::ResolveError> {
+        let mut state = [0; crate::MAX_DEPTH];
+        let lookup = schema.resolve_into(key, &mut state)?;
+        Ok(Self {
+            schema,
+            root: ChangedKey::new(state, lookup.depth),
+            iter: None,
+            pending: None,
+            op: None,
+        })
+    }
+
     /// Advance retained subtree publication.
     ///
     /// `Ok(true)` means publication is complete.
@@ -649,45 +652,6 @@ impl<const N: usize> Service<N> {
 
     fn is_full(&self) -> bool {
         self.aftermaths.len() == N
-    }
-
-    async fn step_aftermath<Settings, IO>(
-        &mut self,
-        mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-    ) -> Result<bool, Error<IO::Error>>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: Io,
-    {
-        loop {
-            let Some(mut aftermath) = self.aftermaths.pop_front() else {
-                return Ok(true);
-            };
-            crate::debug!(
-                "Driving MM2 aftermath queued_before={=usize} capacity={=usize}",
-                self.aftermaths.len() + 1,
-                N
-            );
-
-            if aftermath.step(mm2, session, settings).await? {
-                crate::debug!(
-                    "Completed MM2 aftermath queued_remaining={=usize} capacity={=usize}",
-                    self.aftermaths.len(),
-                    N
-                );
-                continue;
-            } else {
-                let _ = self.aftermaths.push_front(aftermath);
-                crate::debug!(
-                    "MM2 aftermath pending queued_remaining={=usize} capacity={=usize}",
-                    self.aftermaths.len(),
-                    N
-                );
-                return Ok(false);
-            }
-        }
     }
 
     /// Route one inbound publish through the bounded MM2 service.
@@ -764,22 +728,32 @@ impl<const N: usize> Service<N> {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.step_aftermath(mm2, session, settings).await
-    }
-}
+        loop {
+            let Some(mut aftermath) = self.aftermaths.pop_front() else {
+                return Ok(true);
+            };
+            crate::debug!(
+                "Driving MM2 aftermath queued_before={=usize} capacity={=usize}",
+                self.aftermaths.len() + 1,
+                N
+            );
 
-impl Aftermath {
-    async fn step<Settings, IO>(
-        &mut self,
-        mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-    ) -> Result<bool, Error<IO::Error>>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-        IO: Io,
-    {
-        self.phase.step(mm2, session, settings).await
+            if aftermath.step(mm2, session, settings).await? {
+                crate::debug!(
+                    "Completed MM2 aftermath queued_remaining={=usize} capacity={=usize}",
+                    self.aftermaths.len(),
+                    N
+                );
+                continue;
+            }
+            let _ = self.aftermaths.push_front(aftermath);
+            crate::debug!(
+                "MM2 aftermath pending queued_remaining={=usize} capacity={=usize}",
+                self.aftermaths.len(),
+                N
+            );
+            return Ok(false);
+        }
     }
 }
 

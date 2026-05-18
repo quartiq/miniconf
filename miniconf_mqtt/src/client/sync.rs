@@ -1,11 +1,14 @@
 use minimq::{
-    Error as MqttError, Io, Op, PubError, Publication, QoS, ResourceError, Session,
+    Error as MqttError, Io, Op, PubError, Publication, QoS, ResourceError, Session, TopicString,
     types::{SubscriptionOptions, TopicFilter},
 };
 
 use crate::{
     Error,
-    client::{ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher},
+    client::{
+        ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher,
+        publish_alive_once, schema_page_topic,
+    },
     schema::SchemaSync,
 };
 
@@ -24,9 +27,9 @@ pub(crate) struct SchemaPublisher {
 }
 
 impl SchemaPublisher {
-    pub(crate) fn new<Settings: miniconf::TreeSchema>() -> Self {
+    pub(crate) fn new(schema: &'static miniconf::Schema) -> Self {
         Self {
-            sync: SchemaSync::new(Settings::SCHEMA),
+            sync: SchemaSync::new(schema),
             op: None,
         }
     }
@@ -54,7 +57,7 @@ impl StartupPhase {
         loop {
             match self {
                 Self::Schema(schema) => {
-                    if schema.step(mm2, session).await? {
+                    if schema.step::<Settings, _>(&mm2.prefix, session).await? {
                         mm2.manifest.schema_pages = schema.sync.page;
                         mm2.manifest.schema_rev = schema.sync.hash;
                         crate::debug!(
@@ -62,12 +65,7 @@ impl StartupPhase {
                             mm2.manifest.schema_pages,
                             mm2.manifest.schema_rev
                         );
-                        *self = Self::Settings(Publisher {
-                            root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
-                            iter: None,
-                            pending: None,
-                            op: None,
-                        });
+                        *self = Self::Settings(Publisher::root(Settings::SCHEMA));
                         continue;
                     }
                     return Ok(false);
@@ -90,7 +88,7 @@ impl StartupPhase {
                         *self = Self::Alive(None);
                         continue;
                     }
-                    PendingOp::Idle => match subscribe_set(mm2, session).await {
+                    PendingOp::Idle => match subscribe_set(&mm2.prefix, session).await {
                         Ok(next) => {
                             *op = Some(next);
                             return Ok(false);
@@ -111,14 +109,18 @@ impl StartupPhase {
                         *self = Self::Done;
                         return Ok(true);
                     }
-                    PendingOp::Idle => match mm2.publish_alive_once(session).await {
-                        Ok(next) => {
-                            *op = next;
-                            return Ok(false);
+                    PendingOp::Idle => {
+                        match publish_alive_once::<Settings, _>(&mm2.prefix, &mm2.manifest, session)
+                            .await
+                        {
+                            Ok(next) => {
+                                *op = next;
+                                return Ok(false);
+                            }
+                            Err(err) if is_retryable_startup_error(&err) => return Ok(false),
+                            Err(err) => return Err(err),
                         }
-                        Err(err) if is_retryable_startup_error(&err) => return Ok(false),
-                        Err(err) => return Err(err),
-                    },
+                    }
                 },
                 Self::Done => return Ok(true),
             }
@@ -129,11 +131,11 @@ impl StartupPhase {
 impl SchemaPublisher {
     async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        prefix: &TopicString,
         session: &mut Session<'_, IO>,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: miniconf::TreeSchema + miniconf::TreeSerialize + miniconf::TreeDeserializeOwned,
+        Settings: miniconf::TreeSerialize,
         IO: Io,
     {
         match super::poll_op(session, &mut self.op)? {
@@ -156,7 +158,7 @@ impl SchemaPublisher {
             self.sync.next,
             self.sync.defs.len()
         );
-        let topic = mm2.schema_page_topic(self.sync.page);
+        let topic = schema_page_topic(prefix, self.sync.page);
         let mut advanced = None::<(usize, u32)>;
         let publication: Publication<'_, PublishPayload<'_, '_, Settings>> = Publication::new(
             &topic,
@@ -211,7 +213,7 @@ where
     loop {
         if publisher.iter.is_none() {
             publisher.iter = Some(crate::schema::SettingsSync::with_root(
-                Settings::SCHEMA,
+                publisher.schema,
                 publisher.root.as_ref(),
             )?);
             crate::info!(
@@ -280,14 +282,14 @@ where
     }
 }
 
-async fn subscribe_set<Settings, IO>(
-    mm2: &Miniconf<Settings>,
+async fn subscribe_set<IO>(
+    prefix: &TopicString,
     session: &mut Session<'_, IO>,
 ) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
-    let mut topic = mm2.prefix.clone();
+    let mut topic = prefix.clone();
     topic
         .push_str("/set/#")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
