@@ -165,8 +165,6 @@ where
     }
 }
 
-type MqttPubError<E> = PubError<EncodeError<PayloadError>, E>;
-
 /// Result of `Miniconf::serve()`.
 #[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
 pub enum Event<T> {
@@ -431,8 +429,22 @@ where
             topic.as_str(),
             self.manifest.settings_rev.wrapping_add(1)
         );
-        match self.try_publish_leaf(session, settings, state).await {
-            Ok(op) => Ok(op),
+
+        let next_rev = self.manifest.settings_rev.wrapping_add(1);
+        let mut rev = itoa::Buffer::new();
+        let props = [
+            Property::PayloadFormatIndicator(1),
+            Property::UserProperty(Utf8String("rev"), Utf8String(rev.format(next_rev))),
+        ];
+        let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
+            .properties(&props)
+            .qos(QoS::AtLeastOnce)
+            .retain();
+        match session.publish(publication).await {
+            Ok(op) => {
+                self.manifest.settings_rev = next_rev;
+                Ok(op)
+            }
             Err(PubError::Payload((
                 _no_space,
                 PayloadError::Leaf(DepthError {
@@ -445,64 +457,19 @@ where
                     topic.as_str(),
                     self.manifest.settings_rev.wrapping_add(1)
                 );
-                self.clear_leaf(session, &topic).await
+                let publication = Publication::bytes(&topic, b"")
+                    .properties(&props)
+                    .qos(QoS::AtLeastOnce)
+                    .retain();
+                let op = session
+                    .publish(publication)
+                    .await
+                    .map_err(simple_pub_error)?;
+                self.manifest.settings_rev = next_rev;
+                Ok(op)
             }
             Err(err) => Err(simple_pub_error(err)),
         }
-    }
-
-    pub(crate) async fn try_publish_leaf<IO>(
-        &mut self,
-        session: &mut Session<'_, IO>,
-        settings: &Settings,
-        state: &[usize],
-    ) -> Result<Option<Op>, MqttPubError<IO::Error>>
-    where
-        IO: Io,
-    {
-        let topic = self
-            .settings_topic(state)
-            .map_err(MqttError::from)
-            .map_err(PubError::from)?;
-        let next_rev = self.manifest.settings_rev.wrapping_add(1);
-        let mut rev = itoa::Buffer::new();
-        let props = [
-            Property::PayloadFormatIndicator(1),
-            Property::UserProperty(Utf8String("rev"), Utf8String(rev.format(next_rev))),
-        ];
-        let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
-            .properties(&props)
-            .qos(QoS::AtLeastOnce)
-            .retain();
-        let op = session.publish(publication).await?;
-        self.manifest.settings_rev = next_rev;
-        Ok(op)
-    }
-
-    pub(crate) async fn clear_leaf<IO>(
-        &mut self,
-        session: &mut Session<'_, IO>,
-        topic: &str,
-    ) -> Result<Option<Op>, Error<IO::Error>>
-    where
-        IO: Io,
-    {
-        let next_rev = self.manifest.settings_rev.wrapping_add(1);
-        let mut rev = itoa::Buffer::new();
-        let props = [
-            Property::PayloadFormatIndicator(1),
-            Property::UserProperty(Utf8String("rev"), Utf8String(rev.format(next_rev))),
-        ];
-        let publication = Publication::bytes(topic, b"")
-            .properties(&props)
-            .qos(QoS::AtLeastOnce)
-            .retain();
-        let op = session
-            .publish(publication)
-            .await
-            .map_err(simple_pub_error)?;
-        self.manifest.settings_rev = next_rev;
-        Ok(op)
     }
 }
 
