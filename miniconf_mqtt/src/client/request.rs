@@ -548,12 +548,7 @@ fn error_props<'a>(
     depth: Option<&'a str>,
 ) -> Vec<Property<'a>, 7> {
     let mut props = Vec::new();
-    props.push(Property::PayloadFormatIndicator(1)).ok();
-    props
-        .push(Property::MessageExpiryInterval(
-            crate::TRANSIENT_EXPIRY_SECS,
-        ))
-        .ok();
+    push_transient_text_props(&mut props);
     push_prop(&mut props, "code", code.as_str());
     push_prop(&mut props, "kind", kind);
     push_prop(&mut props, "class", class);
@@ -568,6 +563,12 @@ fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'
     props
         .push(Property::UserProperty(Utf8String(key), Utf8String(value)))
         .ok();
+}
+
+fn push_transient_text_props(props: &mut VecView<Property<'_>>) {
+    for prop in crate::TRANSIENT_TEXT_PROPERTIES {
+        props.push(prop.clone()).ok();
+    }
 }
 
 async fn reply_message<IO>(
@@ -615,11 +616,9 @@ async fn reply_text<IO>(
 where
     IO: Io,
 {
-    let props = [
-        Property::PayloadFormatIndicator(1),
-        Property::MessageExpiryInterval(crate::TRANSIENT_EXPIRY_SECS),
-        code.into(),
-    ];
+    let mut props = Vec::<_, 3>::new();
+    push_transient_text_props(&mut props);
+    props.push(code.into()).ok();
     reply_bytes(session, target, &props, text).await
 }
 

@@ -272,7 +272,7 @@ where
         manifest.schema_pages
     );
     let publication = Publication::new(&topic, PublishPayload::<Settings>::Alive(manifest))
-        .properties(crate::UTF8_PAYLOAD_PROPERTIES)
+        .properties(crate::RETAINED_TEXT_PROPERTIES)
         .qos(QoS::AtLeastOnce)
         .retain();
     session.publish(publication).await.map_err(simple_pub_error)
@@ -301,7 +301,7 @@ where
         will_topic
             .push_str("/alive")
             .map_err(|_| ConfigError::InvalidConfig)?;
-        let will = Will::new(will_topic, b"", crate::UTF8_PAYLOAD_PROPERTIES)?
+        let will = Will::new(will_topic, b"", crate::RETAINED_TEXT_PROPERTIES)?
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
