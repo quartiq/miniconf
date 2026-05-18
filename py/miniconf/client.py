@@ -62,7 +62,7 @@ class _TrackState:
     timeout: float
     rel_timeout: float
     abs_timeout: float
-    reload: asyncio.Task[None] | None = None
+    reload_task: asyncio.Task[None] | None = None
 
 
 class _BaseClient:
@@ -73,8 +73,8 @@ class _BaseClient:
         self._inflight: dict[bytes, asyncio.Future[None]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
         self._subscriptions: dict[str, tuple[int, tuple[int, bool, bool, int]]] = {}
-        self.listener = asyncio.create_task(self._listen())
-        self.subscribed = asyncio.Event()
+        self._listener = asyncio.create_task(self._listen())
+        self._subscribed = asyncio.Event()
 
     def _listen_topics(self) -> tuple[str, ...]:
         return (self.response_topic,)
@@ -88,13 +88,13 @@ class _BaseClient:
     async def __aexit__(self, *_exc_info) -> None:
         await self.close()
 
-    async def close(self):
+    async def close(self) -> None:
         """Cancel the response listener and all in-flight requests."""
-        self.listener.cancel()
+        self._listener.cancel()
         for fut in self._inflight.values():
             fut.cancel()
         try:
-            await self.listener
+            await self._listener
         except asyncio.CancelledError:
             pass
         if self._inflight:
@@ -106,7 +106,7 @@ class _BaseClient:
             for topic in self._listen_topics():
                 await self._subscribe(topic, self._listen_options(topic))
                 topics.append(topic)
-            self.subscribed.set()
+            self._subscribed.set()
             async for message in self.client.messages:
                 self._dispatch(message)
         except asyncio.CancelledError:
@@ -114,7 +114,7 @@ class _BaseClient:
         except MqttError:
             LOGGER.debug("MQTT error", exc_info=True)
         finally:
-            self.subscribed.clear()
+            self._subscribed.clear()
             for topic in reversed(topics):
                 try:
                     await self._unsubscribe(topic)
@@ -217,7 +217,7 @@ class _BaseClient:
         props.MessageExpiryInterval = message_expiry(timeout)
         fut = None
         if response:
-            await self.subscribed.wait()
+            await self._subscribed.wait()
             props.ResponseTopic = self.response_topic
             cd = uuid.uuid4().bytes
             props.CorrelationData = cd
@@ -310,7 +310,7 @@ class TrackedSubtree:
         self._root = None
 
     @property
-    def is_ready(self) -> bool:
+    def ready(self) -> bool:
         """Whether the tracked cache is currently usable."""
 
         if self._root is None:
@@ -318,17 +318,16 @@ class TrackedSubtree:
         task = self._client._tracking_reload()
         if task is None:
             return True
-        if task.done():
-            self._client._finish_tracking_reload(task)
-            return True
-        return False
+        if not task.done() or task.cancelled():
+            return False
+        return task.exception() is None
 
-    async def await_ready(self, timeout: float | None = None) -> None:
+    async def wait_ready(self, timeout: float | None = None) -> None:
         """Wait until any tracked-cache reload triggered by `/alive` is complete."""
 
         if self._root is None:
             raise MiniconfException("Closed", "Tracked subtree is closed")
-        await self._client._await_tracking_reload(timeout)
+        await self._client._wait_tracking_reload(timeout)
 
     def _resolve(self, path: str, *, leaf: bool) -> str:
         root = self.root
@@ -390,7 +389,7 @@ class Miniconf(_BaseClient):
             return retained_options()
         return None
 
-    async def close(self):
+    async def close(self) -> None:
         if self._tracked_root is not None:
             await self._close_track(self._tracked_root)
         await super().close()
@@ -553,7 +552,7 @@ class Miniconf(_BaseClient):
             now = asyncio.get_running_loop().time()
             assert self._track_state is not None
             self._track_state.burst.set_roundtrip(start, now, rel_timeout, abs_timeout)
-            await self._await_tracking(timeout)
+            await self._wait_tracking(timeout)
         except Exception:
             for topic_filter in settings_topics(self.prefix, root):
                 await self._unsubscribe(topic_filter)
@@ -578,17 +577,17 @@ class Miniconf(_BaseClient):
         if self._tracked_root is None or state is None:
             self._settings.clear()
             return
-        if state.reload is not None and not state.reload.done():
+        if state.reload_task is not None and not state.reload_task.done():
             return
         self._settings.clear()
-        state.reload = asyncio.create_task(self._reload_tracking())
+        state.reload_task = asyncio.create_task(self._reload_tracking())
 
     def _cancel_tracking_reload(self) -> None:
         state = self._track_state
-        if state is None or state.reload is None:
+        if state is None or state.reload_task is None:
             return
-        state.reload.cancel()
-        state.reload = None
+        state.reload_task.cancel()
+        state.reload_task = None
 
     def _check_tracking_reload(self) -> None:
         task = self._tracking_reload()
@@ -601,19 +600,19 @@ class Miniconf(_BaseClient):
 
     def _tracking_reload(self) -> asyncio.Task[None] | None:
         state = self._track_state
-        if state is None or state.reload is None:
+        if state is None or state.reload_task is None:
             return None
-        return state.reload
+        return state.reload_task
 
     def _finish_tracking_reload(self, task: asyncio.Task[None]) -> None:
         try:
             task.result()
         finally:
             state = self._track_state
-            if state is not None and state.reload is task:
-                state.reload = None
+            if state is not None and state.reload_task is task:
+                state.reload_task = None
 
-    async def _await_tracking_reload(self, timeout: float | None) -> None:
+    async def _wait_tracking_reload(self, timeout: float | None) -> None:
         task = self._tracking_reload()
         if task is None:
             return
@@ -641,9 +640,9 @@ class Miniconf(_BaseClient):
             rel_timeout=state.rel_timeout,
             abs_timeout=state.abs_timeout,
         )
-        await self._await_tracking(state.timeout)
+        await self._wait_tracking(state.timeout)
 
-    async def _await_tracking(self, timeout: float):
+    async def _wait_tracking(self, timeout: float):
         state = self._track_state
         assert state is not None
         end = asyncio.get_running_loop().time() + timeout

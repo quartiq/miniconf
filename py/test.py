@@ -166,7 +166,7 @@ async def wait_cached(tracked, path: str, expected, timeout: float = 3.0):
     end = asyncio.get_running_loop().time() + timeout
     while True:
         with contextlib.suppress(TimeoutError):
-            await tracked.await_ready(max(0.0, end - asyncio.get_running_loop().time()))
+            await tracked.wait_ready(max(0.0, end - asyncio.get_running_loop().time()))
         try:
             value = tracked.cached(path)
         except MiniconfException:
