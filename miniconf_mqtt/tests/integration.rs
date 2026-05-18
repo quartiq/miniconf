@@ -613,7 +613,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 
         while !service.is_empty() {
             if service
-                .step(&mut mm2, &mut session, &mut settings)
+                .step(&mut mm2, &mut session, &settings)
                 .await
                 .unwrap()
             {
