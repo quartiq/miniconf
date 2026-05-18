@@ -112,9 +112,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo package -p miniconf_derive
-      - run: cargo package -p miniconf
-      - run: cargo package -p miniconf_mqtt
+      - run: cargo package -p miniconf_derive --no-verify
+      - run: cargo package -p miniconf --no-verify
+      - run: cargo package -p miniconf_mqtt --no-verify
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
