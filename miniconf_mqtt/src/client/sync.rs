@@ -6,7 +6,7 @@ use minimq::{
     types::{RetainHandling, SubscriptionOptions, TopicFilter},
 };
 
-use super::request::{has_rev, resolve_leaf, set_leaf};
+use super::request::{Rev, resolve_leaf, rev, set_leaf};
 use crate::{
     Error,
     client::{
@@ -174,12 +174,22 @@ where
         return false;
     };
 
-    if !has_rev(inbound) {
-        crate::debug!(
-            "Ignoring retained setting without rev topic={=str}",
-            inbound.topic()
-        );
-        return false;
+    match rev(inbound) {
+        Rev::Valid => {}
+        Rev::Absent => {
+            crate::debug!(
+                "Ignoring retained setting without rev topic={=str}",
+                inbound.topic()
+            );
+            return false;
+        }
+        Rev::Invalid => {
+            crate::debug!(
+                "Ignoring retained setting with invalid rev topic={=str}",
+                inbound.topic()
+            );
+            return false;
+        }
     }
 
     let mut state = [0; crate::MAX_DEPTH];
@@ -479,9 +489,11 @@ where
         "Subscribing MM2 request ingress topic={=str}",
         topic.as_str()
     );
-    let topics = [
-        TopicFilter::new(&topic).options(SubscriptionOptions::default().ignore_local_messages())
-    ];
+    let topics = [TopicFilter::new(&topic).options(
+        SubscriptionOptions::default()
+            .maximum_qos(QoS::AtLeastOnce)
+            .ignore_local_messages(),
+    )];
     session.subscribe(&topics, &[]).await.map_err(Into::into)
 }
 
@@ -500,6 +512,7 @@ where
     let topics = [TopicFilter::new(&topic).options(
         SubscriptionOptions::default()
             .retain_behavior(RetainHandling::Immediately)
+            .maximum_qos(QoS::AtLeastOnce)
             .retain_as_published()
             .ignore_local_messages(),
     )];

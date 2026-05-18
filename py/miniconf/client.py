@@ -14,14 +14,20 @@ from typing import Any
 import paho.mqtt.client as mqtt
 from aiomqtt import Client, Message, MqttError
 from paho.mqtt.properties import PacketTypes, Properties
+from paho.mqtt.subscribeoptions import SubscribeOptions
 
 from . import _ops
 from .common import (
     LOGGER,
     BurstState,
     MiniconfException,
+    is_retained,
     json_dumps,
+    message_expiry,
+    retained_options,
+    rev_property,
     settings_topics,
+    subscription_key,
     subtree_match,
     validate_path,
 )
@@ -50,10 +56,7 @@ def _response_cd(properties: dict[str, Any]) -> bytes | None:
 
 
 def _response_rev(properties: dict[str, Any]) -> int | None:
-    try:
-        return int(dict(properties["UserProperty"])["rev"])
-    except KeyError:
-        return None
+    return rev_property(properties)
 
 
 @dataclass
@@ -65,15 +68,18 @@ class _BaseClient:
     def __init__(self, client: Client, prefix: str):
         self.client = client
         self.prefix = prefix
-        self.response_topic = f"{prefix}/response"
+        self.response_topic = f"{prefix}/response/{uuid.uuid4().hex}"
         self._inflight: dict[bytes, asyncio.Future[None]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
-        self._subscriptions: dict[str, int] = {}
+        self._subscriptions: dict[str, tuple[int, tuple[int, bool, bool, int]]] = {}
         self.listener = asyncio.create_task(self._listen())
         self.subscribed = asyncio.Event()
 
     def _listen_topics(self) -> tuple[str, ...]:
         return (self.response_topic,)
+
+    def _listen_options(self, _topic: str) -> SubscribeOptions | None:
+        return None
 
     async def __aenter__(self):
         return self
@@ -97,7 +103,7 @@ class _BaseClient:
         topics: list[str] = []
         try:
             for topic in self._listen_topics():
-                await self._subscribe(topic)
+                await self._subscribe(topic, self._listen_options(topic))
                 topics.append(topic)
             self.subscribed.set()
             async for message in self.client.messages:
@@ -152,28 +158,43 @@ class _BaseClient:
     ) -> None:
         pass
 
-    async def _subscribe(self, topic_filter: str):
-        if not self._subscriptions.get(topic_filter):
-            await self.client.subscribe(topic_filter)
+    async def _subscribe(
+        self, topic_filter: str, options: SubscribeOptions | None = None
+    ):
+        key = subscription_key(options)
+        existing = self._subscriptions.get(topic_filter)
+        if existing is None:
+            if options is None:
+                await self.client.subscribe(topic_filter, qos=1)
+            else:
+                await self.client.subscribe(topic_filter, options=options)
             LOGGER.debug("Subscribed to %s", topic_filter)
-        self._subscriptions[topic_filter] = self._subscriptions.get(topic_filter, 0) + 1
+            self._subscriptions[topic_filter] = (1, key)
+            return
+        count, existing_key = existing
+        if existing_key != key:
+            raise MiniconfException("Subscription", topic_filter)
+        self._subscriptions[topic_filter] = (count + 1, key)
 
     async def _unsubscribe(self, topic_filter: str):
-        remaining = self._subscriptions[topic_filter] - 1
+        count, key = self._subscriptions[topic_filter]
+        remaining = count - 1
         if remaining:
-            self._subscriptions[topic_filter] = remaining
+            self._subscriptions[topic_filter] = (remaining, key)
             return
         del self._subscriptions[topic_filter]
         await self.client.unsubscribe(topic_filter)
         LOGGER.debug("Unsubscribed from %s", topic_filter)
 
     @asynccontextmanager
-    async def _watch(self, topic_filter: str) -> AsyncIterator[asyncio.Queue[Message]]:
+    async def _watch(
+        self, topic_filter: str, options: SubscribeOptions | None = None
+    ) -> AsyncIterator[asyncio.Queue[Message]]:
         queue: asyncio.Queue[Message] = asyncio.Queue()
         watchers = self._watchers[topic_filter]
         watchers.append(queue)
         try:
-            await self._subscribe(topic_filter)
+            await self._subscribe(topic_filter, options)
         except Exception:
             watchers.remove(queue)
             if not watchers:
@@ -191,6 +212,8 @@ class _BaseClient:
         self, path: str, payload: str, *, response: bool, timeout: float | None = None
     ):
         props = Properties(PacketTypes.PUBLISH)
+        props.PayloadFormatIndicator = 1
+        props.MessageExpiryInterval = message_expiry(timeout)
         fut = None
         if response:
             await self.subscribed.wait()
@@ -203,7 +226,7 @@ class _BaseClient:
 
         topic = f"{self.prefix}/set{path}"
         LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
-        await self.client.publish(topic, payload=payload, properties=props)
+        await self.client.publish(topic, payload=payload, qos=1, properties=props)
 
         if fut is not None:
             try:
@@ -219,7 +242,7 @@ async def _read_retained_json(
     *,
     timeout: float,
 ):
-    async with watch(topic_filter) as queue:
+    async with watch(topic_filter, retained_options()) as queue:
         end = asyncio.get_running_loop().time() + timeout
         while True:
             remaining = end - asyncio.get_running_loop().time()
@@ -228,6 +251,8 @@ async def _read_retained_json(
                     f"Timed out waiting for retained setting {path or '/'}"
                 )
             message = await asyncio.wait_for(queue.get(), remaining)
+            if not is_retained(message):
+                continue
             if _response_rev(_properties(message)) is None:
                 continue
             if not message.payload:
@@ -337,6 +362,11 @@ class Miniconf(_BaseClient):
     def _listen_topics(self) -> tuple[str, ...]:
         return self.response_topic, self.alive_topic
 
+    def _listen_options(self, topic: str) -> SubscribeOptions | None:
+        if topic == self.alive_topic:
+            return retained_options()
+        return None
+
     async def close(self):
         if self._tracked_root is not None:
             await self._close_track(self._tracked_root)
@@ -351,7 +381,7 @@ class Miniconf(_BaseClient):
             f"{self.prefix}/settings"
         ):
             return
-        if _response_rev(properties) is None:
+        if _response_rev(properties) is None or not is_retained(message):
             return
         path = topic.removeprefix(f"{self.prefix}/settings")
         if not subtree_match(path, self._tracked_root):
@@ -430,13 +460,15 @@ class Miniconf(_BaseClient):
         pages = int(manifest["pages"])
 
         defs: list[list[dict[str, Any]] | None] = [None] * pages
-        async with self._watch(f"{self.prefix}/schema/#") as queue:
+        async with self._watch(f"{self.prefix}/schema/#", retained_options()) as queue:
             deadline = asyncio.get_running_loop().time() + timeout
             while any(page is None for page in defs):
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise TimeoutError("Timed out waiting for schema pages")
                 message = await asyncio.wait_for(queue.get(), remaining)
+                if not is_retained(message):
+                    continue
                 suffix = message.topic.value.removeprefix(f"{self.prefix}/schema/")
                 try:
                     page = int(suffix)
@@ -491,7 +523,7 @@ class Miniconf(_BaseClient):
         self._settings.clear()
         try:
             for topic_filter in settings_topics(self.prefix, root):
-                await self._subscribe(topic_filter)
+                await self._subscribe(topic_filter, retained_options())
             now = asyncio.get_running_loop().time()
             assert self._track_state is not None
             self._track_state.burst.set_roundtrip(start, now, rel_timeout, abs_timeout)

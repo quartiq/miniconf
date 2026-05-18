@@ -76,6 +76,8 @@ pub(crate) const MAX_TOPIC_LENGTH: usize = minimq::TOPIC_CAPACITY;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const RESPONSE_TEXT_LENGTH: usize = 96;
 pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
+// Expire transient request/reply traffic. Retained alive/schema/settings publications are storage.
+pub(crate) const TRANSIENT_EXPIRY_SECS: u32 = 30;
 pub(crate) const UTF8_PAYLOAD_PROPERTIES: &[minimq::Property<'static>] =
     &[minimq::Property::PayloadFormatIndicator(1)];
 

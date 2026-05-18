@@ -63,6 +63,12 @@ pub(crate) struct ReplyMessage {
     payload: ResponseText,
 }
 
+pub(crate) enum Rev {
+    Absent,
+    Valid,
+    Invalid,
+}
+
 pub(crate) fn needs_capacity<Settings>(prefix: &str, inbound: &InboundPublish<'_>) -> bool
 where
     Settings: TreeSchema,
@@ -73,7 +79,7 @@ where
     let Some(path) = settings_path(inbound.topic(), prefix) else {
         return false;
     };
-    if has_rev(inbound) {
+    if !matches!(rev(inbound), Rev::Absent) {
         return false;
     }
     let mut state = [0; crate::MAX_DEPTH];
@@ -214,11 +220,21 @@ where
     }
 }
 
-pub(crate) fn has_rev(inbound: &InboundPublish<'_>) -> bool {
-    inbound
-        .properties()
-        .iter()
-        .any(|property| matches!(property, Ok(Property::UserProperty(key, _)) if key.0 == "rev"))
+pub(crate) fn rev(inbound: &InboundPublish<'_>) -> Rev {
+    let mut seen = false;
+    for property in inbound.properties().iter() {
+        let Ok(Property::UserProperty(key, value)) = property else {
+            continue;
+        };
+        if key.0 != "rev" {
+            continue;
+        }
+        if seen || value.0.parse::<u32>().is_err() {
+            return Rev::Invalid;
+        }
+        seen = true;
+    }
+    if seen { Rev::Valid } else { Rev::Absent }
 }
 
 pub(crate) fn resolve_leaf<Settings>(
@@ -253,7 +269,7 @@ where
 {
     // No-rev settings publications are a narrow compatibility ingress for tools that edit the
     // retained mirror by hand. Rev-bearing publications are the authoritative mirror itself.
-    if has_rev(inbound) {
+    if !matches!(rev(inbound), Rev::Absent) {
         crate::debug!(
             "Ignoring authoritative settings mirror publication topic={=str}",
             inbound.topic()
@@ -530,9 +546,14 @@ fn error_props<'a>(
     class: &'static str,
     error: &'a str,
     depth: Option<&'a str>,
-) -> Vec<Property<'a>, 6> {
+) -> Vec<Property<'a>, 7> {
     let mut props = Vec::new();
     props.push(Property::PayloadFormatIndicator(1)).ok();
+    props
+        .push(Property::MessageExpiryInterval(
+            crate::TRANSIENT_EXPIRY_SECS,
+        ))
+        .ok();
     push_prop(&mut props, "code", code.as_str());
     push_prop(&mut props, "kind", kind);
     push_prop(&mut props, "class", class);
@@ -594,7 +615,11 @@ async fn reply_text<IO>(
 where
     IO: Io,
 {
-    let props = [Property::PayloadFormatIndicator(1), code.into()];
+    let props = [
+        Property::PayloadFormatIndicator(1),
+        Property::MessageExpiryInterval(crate::TRANSIENT_EXPIRY_SECS),
+        code.into(),
+    ];
     reply_bytes(session, target, &props, text).await
 }
 

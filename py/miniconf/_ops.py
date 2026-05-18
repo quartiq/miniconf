@@ -12,7 +12,10 @@ from .common import (
     LOGGER,
     BurstState,
     MiniconfException,
+    is_retained,
     quiet_window,
+    retained_options,
+    rev_property,
     settings_topics,
     subtree_match,
 )
@@ -21,10 +24,10 @@ if TYPE_CHECKING:
     from .client import Miniconf
 
 
-def _user_properties(message: Message) -> dict[str, str]:
+def _properties(message: Message) -> dict[str, Any]:
     try:
-        return dict(message.properties.json()["UserProperty"])
-    except (AttributeError, KeyError):
+        return message.properties.json()
+    except AttributeError:
         return {}
 
 
@@ -41,7 +44,7 @@ async def discover(
     topic = f"{prefix}{suffix}"
 
     start = asyncio.get_running_loop().time()
-    await client.subscribe(topic)
+    await client.subscribe(topic, options=retained_options())
     quiet = quiet_window(
         start,
         asyncio.get_running_loop().time(),
@@ -61,6 +64,8 @@ async def discover(
                 )
             except (asyncio.TimeoutError, StopAsyncIteration):
                 return
+            if not is_retained(message):
+                continue
             peer = message.topic.value.removesuffix(suffix)
             try:
                 discovered[peer] = json.loads(message.payload)
@@ -78,7 +83,9 @@ async def discover(
 async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> dict[str, Any]:
     if interface._manifest is not None:
         return interface._manifest
-    async with interface._watch(f"{interface.prefix}/alive") as queue:
+    async with interface._watch(
+        f"{interface.prefix}/alive", retained_options()
+    ) as queue:
         end = asyncio.get_running_loop().time() + timeout
         while True:
             remaining = end - asyncio.get_running_loop().time()
@@ -86,6 +93,8 @@ async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> dict[str, A
                 raise TimeoutError("Timed out waiting for live manifest")
             message = await asyncio.wait_for(queue.get(), remaining)
             if not message.payload:
+                continue
+            if not is_retained(message):
                 continue
             interface._note_manifest_payload(message.payload)
             if interface._manifest is not None:
@@ -104,7 +113,7 @@ async def _collect_retained_settings(
     start = asyncio.get_running_loop().time()
     retained: dict[str, Any] = {}
     (topic_filter,) = settings_topics(interface.prefix, root)
-    async with interface._watch(topic_filter) as queue:
+    async with interface._watch(topic_filter, retained_options()) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
@@ -121,11 +130,12 @@ async def _collect_retained_settings(
                 )
             except TimeoutError:
                 continue
+            if not is_retained(message):
+                continue
             topic = message.topic.value
             if not topic.startswith(f"{interface.prefix}/settings"):
                 continue
-            props = _user_properties(message)
-            if "rev" not in props:
+            if rev_property(_properties(message)) is None:
                 continue
             settings_path = topic.removeprefix(f"{interface.prefix}/settings")
             if not subtree_match(settings_path, root):
@@ -147,7 +157,7 @@ async def _collect_retained_topics(
 ) -> list[str]:
     start = asyncio.get_running_loop().time()
     seen: set[str] = set()
-    async with interface._watch(topic_filter) as queue:
+    async with interface._watch(topic_filter, retained_options()) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
@@ -163,6 +173,8 @@ async def _collect_retained_topics(
                     min(burst.deadline, end) - now,
                 )
             except TimeoutError:
+                continue
+            if not is_retained(message):
                 continue
             if message.payload:
                 seen.add(message.topic.value)
@@ -182,7 +194,9 @@ async def _prune_schema(
     pages = int(manifest["pages"])
     seen: set[int] = set()
     start = asyncio.get_running_loop().time()
-    async with interface._watch(f"{interface.prefix}/schema/#") as queue:
+    async with interface._watch(
+        f"{interface.prefix}/schema/#", retained_options()
+    ) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
@@ -198,6 +212,8 @@ async def _prune_schema(
                 )
             except TimeoutError:
                 break
+            if not is_retained(message):
+                continue
             suffix = message.topic.value.removeprefix(f"{interface.prefix}/schema/")
             try:
                 seen.add(int(suffix))
@@ -210,6 +226,7 @@ async def _prune_schema(
         await interface.client.publish(
             f"{interface.prefix}/schema/{page}",
             payload=b"",
+            qos=1,
             retain=True,
         )
     return stale
@@ -234,6 +251,7 @@ async def _prune_settings(
         await interface.client.publish(
             f"{interface.prefix}/settings{cache_path}",
             payload=b"",
+            qos=1,
             retain=True,
         )
         interface._settings.pop(cache_path, None)
@@ -258,7 +276,7 @@ async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]
         interface, f"{interface.prefix}/#", timeout=timeout
     )
     for topic in topics:
-        await interface.client.publish(topic, payload=b"", retain=True)
+        await interface.client.publish(topic, payload=b"", qos=1, retain=True)
     interface._schema = None
     interface._manifest = None
     interface._settings.clear()

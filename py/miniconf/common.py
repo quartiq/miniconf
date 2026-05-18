@@ -5,10 +5,53 @@ import json
 import logging
 
 import paho.mqtt
+from paho.mqtt.subscribeoptions import SubscribeOptions
 
 MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 
 LOGGER = logging.getLogger("miniconf")
+# Expire transient set requests. Retained alive/schema/settings publications are storage.
+TRANSIENT_EXPIRY_S = 30
+
+
+def message_expiry(timeout: float | None) -> int:
+    if timeout is None:
+        return TRANSIENT_EXPIRY_S
+    return max(1, int(timeout + 0.999))
+
+
+def retained_options() -> SubscribeOptions:
+    return SubscribeOptions(
+        qos=1,
+        retainAsPublished=True,
+        retainHandling=SubscribeOptions.RETAIN_SEND_ON_SUBSCRIBE,
+    )
+
+
+def subscription_key(options: SubscribeOptions | None) -> tuple[int, bool, bool, int]:
+    if options is None:
+        options = SubscribeOptions(qos=1)
+    return (
+        options.QoS,
+        options.noLocal,
+        options.retainAsPublished,
+        options.retainHandling,
+    )
+
+
+def is_retained(message) -> bool:
+    return bool(getattr(message, "retain", False))
+
+
+def user_property_values(properties: dict, name: str) -> list[str]:
+    return [value for key, value in properties.get("UserProperty", ()) if key == name]
+
+
+def rev_property(properties: dict) -> int | None:
+    values = user_property_values(properties, "rev")
+    if len(values) != 1 or not values[0].isdecimal():
+        return None
+    return int(values[0])
 
 
 def json_dumps(value):
