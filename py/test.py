@@ -14,7 +14,7 @@ from queue import Empty, Queue
 
 import paho.mqtt.client as mqtt
 from aiomqtt import Client
-from miniconf.client import MiniconfClient, RawMiniconfClient
+from miniconf.client import Miniconf, RawMiniconf
 from miniconf.cli import _normalize_command_path
 from miniconf.common import MQTTv5, MiniconfException
 from miniconf.render import render_schema_tree, render_value_tree
@@ -275,7 +275,7 @@ async def main() -> None:
         client = Client(BROKER, protocol=MQTTv5)
         await client.__aenter__()
         try:
-            mc = MiniconfClient(client, TARGET)
+            mc = Miniconf(client, TARGET)
 
             schema = await mc.schema()
             struct_tree = schema.node("/struct_tree")
@@ -332,9 +332,11 @@ async def main() -> None:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for '/'")
-            assert await mc.get("/struct_tree/a") == 0
+            async with mc.track("/struct_tree/a") as tracked:
+                assert tracked.cached() == 0
             try:
-                await mc.get("/struct_tree")
+                async with mc.track("/struct_tree") as tracked:
+                    tracked.cached()
             except MiniconfException as err:
                 assert err.code == "LeafRequired", err
             else:
@@ -372,7 +374,7 @@ async def main() -> None:
             await close_client(client)
             client = None
         client = await Client(BROKER, protocol=MQTTv5).__aenter__()
-        raw = RawMiniconfClient(client, TARGET)
+        raw = RawMiniconf(client, TARGET)
         try:
             assert await raw.get("/struct_tree/a") == 0
             assert await raw.get("/foo") is False

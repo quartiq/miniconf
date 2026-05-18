@@ -11,7 +11,7 @@ import sys
 
 from aiomqtt import Client
 
-from .client import MiniconfClient, RawMiniconfClient
+from .client import Miniconf, RawMiniconf
 from .common import LOGGER, MQTTv5, MiniconfException, json_dumps, validate_path
 from ._ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
@@ -67,9 +67,7 @@ async def _main() -> None:
                 "RawMode", "--prune and --force-prune require tracked mode"
             )
         interface = (
-            RawMiniconfClient(client, prefix)
-            if args.raw
-            else MiniconfClient(client, prefix)
+            RawMiniconf(client, prefix) if args.raw else Miniconf(client, prefix)
         )
         async with interface:
             if args.force_prune:
@@ -229,7 +227,11 @@ async def _handle_commands(
                 print(f"{path}={value}")
             else:
                 path, base = _normalize_command_path(arg, base, subtree=False)
-                value = await interface.get(path, timeout=timeout)
+                if raw:
+                    value = await interface.get(path, timeout=timeout)
+                else:
+                    async with interface.track(path, timeout=timeout) as tracked:
+                        value = tracked.cached()
                 print(f"{path}={json_dumps(value)}")
         except (MiniconfException, TimeoutError, json.JSONDecodeError) as err:
             print(f"{arg}: {err!r}")

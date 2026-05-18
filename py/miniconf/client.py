@@ -245,7 +245,7 @@ class TrackedSubtree:
 
     def __init__(
         self,
-        client: MiniconfClient,
+        client: Miniconf,
         path: str,
         *,
         timeout: float,
@@ -316,7 +316,7 @@ class TrackedSubtree:
         }
 
 
-class MiniconfClient(_BaseClient):
+class Miniconf(_BaseClient):
     """Long-lived MM2 Miniconf session with schema and settings caches.
 
     The client keeps `/alive` subscribed to invalidate cached schema/settings when the device
@@ -418,25 +418,6 @@ class MiniconfClient(_BaseClient):
             raise MiniconfException("LeafRequired", path)
         await self._publish_set(
             path, json_dumps(value), response=response, timeout=timeout
-        )
-
-    async def get(self, path: str, *, timeout: float = 3.0):
-        """Read one exact leaf."""
-
-        schema = await self.schema(timeout=timeout)
-        path = schema.path(path)
-        if schema.node(path).kind != "leaf":
-            raise MiniconfException("LeafRequired", path)
-        if self._tracked_root is not None and subtree_match(path, self._tracked_root):
-            try:
-                return self._settings[path]
-            except KeyError as exc:
-                raise MiniconfException("NotFound", path) from exc
-        return await _read_retained_json(
-            self._watch,
-            f"{self.prefix}/settings{path}",
-            path,
-            timeout=timeout,
         )
 
     async def schema(self, *, timeout: float = 3.0) -> Schema:
@@ -548,7 +529,7 @@ class MiniconfClient(_BaseClient):
             await asyncio.sleep(min(0.01, state.burst.deadline - now, end - now))
 
 
-class RawMiniconfClient(_BaseClient):
+class RawMiniconf(_BaseClient):
     """Schema-less MM2 client for exact-path GET and SET operations."""
 
     def __init__(self, client: Client, prefix: str):

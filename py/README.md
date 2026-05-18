@@ -12,27 +12,26 @@ Use the async client for schema-aware access:
 
 ```python
 from aiomqtt import Client
-from miniconf.client import MiniconfClient
+from miniconf.client import Miniconf
 from miniconf.common import MQTTv5
 
 async with Client("mqtt", protocol=MQTTv5) as mqtt:
-    async with MiniconfClient(mqtt, "app/id") as mc:
+    async with Miniconf(mqtt, "app/id") as mc:
         schema = await mc.schema()
-        value = await mc.get("/path")
-        await mc.set("/path", value + 1)
+        await mc.set("/path", 42)
 
         async with mc.track("/subtree") as tracked:
+            value = tracked.cached("/subtree/leaf")
             cached = tracked.snapshot()
 ```
 
 Core API:
 
 - `schema()` loads and caches the retained MM2 schema.
-- `get(path)` reads one exact leaf from retained authoritative `/settings`.
 - `set(path, value, response=True)` publishes one `set/#` request.
 - `track(path="")` scopes a retained subtree cache; use `cached()` for one leaf or
   `snapshot()` for values below the tracked root.
-- `RawMiniconfClient` provides exact-path `get()` and `set()` without schema loading.
+- `RawMiniconf` provides exact-path `get()` and `set()` without schema loading.
 
 Schema helpers:
 
@@ -47,6 +46,7 @@ Notes:
 
 - The client keeps `/alive` subscribed and invalidates schema/settings caches when `epoch`
   or `schema_rev` changes.
+- Schema-aware reads are explicit: open `track()` for the subtree you want, then read its cache.
 - Retained `/settings` messages without `rev` are ignored as non-authoritative MM2 traffic.
 - Retained burst quiescence uses the same rule as the Rust client:
   `100 ms + 3 * measured_subscribe_rtt`, reset on each accepted retained publication.

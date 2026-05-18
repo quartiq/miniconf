@@ -18,7 +18,7 @@ from .common import (
 )
 
 if TYPE_CHECKING:
-    from .client import MiniconfClient
+    from .client import Miniconf
 
 
 def _user_properties(message: Message) -> dict[str, str]:
@@ -75,9 +75,7 @@ async def discover(
     return discovered
 
 
-async def _manifest(
-    interface: MiniconfClient, *, timeout: float = 3.0
-) -> dict[str, Any]:
+async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> dict[str, Any]:
     if interface._manifest is not None:
         return interface._manifest
     async with interface._watch(f"{interface.prefix}/alive") as queue:
@@ -95,7 +93,7 @@ async def _manifest(
 
 
 async def _collect_retained_settings(
-    interface: MiniconfClient,
+    interface: Miniconf,
     path: str,
     *,
     timeout: float,
@@ -140,7 +138,7 @@ async def _collect_retained_settings(
 
 
 async def _collect_retained_topics(
-    interface: MiniconfClient,
+    interface: Miniconf,
     topic_filter: str,
     *,
     timeout: float,
@@ -172,7 +170,7 @@ async def _collect_retained_topics(
 
 
 async def _prune_schema(
-    interface: MiniconfClient,
+    interface: Miniconf,
     *,
     timeout: float = 3.0,
     rel_timeout: float = 3.0,
@@ -218,7 +216,7 @@ async def _prune_schema(
 
 
 async def _prune_settings(
-    interface: MiniconfClient, path: str = "", *, timeout: float = 3.0
+    interface: Miniconf, path: str = "", *, timeout: float = 3.0
 ) -> list[str]:
     """Clear retained settings below `path` that are not present in the current schema."""
 
@@ -243,7 +241,7 @@ async def _prune_settings(
 
 
 async def prune(
-    interface: MiniconfClient, path: str = "", *, timeout: float = 3.0
+    interface: Miniconf, path: str = "", *, timeout: float = 3.0
 ) -> tuple[list[int], list[str]]:
     """Clear stale retained schema pages and retained settings."""
 
@@ -253,7 +251,7 @@ async def prune(
     )
 
 
-async def force_prune(interface: MiniconfClient, *, timeout: float = 3.0) -> list[str]:
+async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]:
     """Clear all retained MM2 topics below the current prefix."""
 
     topics = await _collect_retained_topics(
