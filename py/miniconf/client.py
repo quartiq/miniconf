@@ -1,4 +1,4 @@
-"""Asynchronous MM2 Miniconf-over-MQTT client."""
+"""Asynchronous Miniconf-over-MQTT client."""
 
 from __future__ import annotations
 
@@ -365,7 +365,7 @@ class TrackedSubtree:
 
 
 class Miniconf(_BaseClient):
-    """Long-lived MM2 Miniconf session with schema and settings caches.
+    """Long-lived Miniconf session with schema and settings caches.
 
     The client keeps `/alive` subscribed to notice new device epochs and schema revisions. Retained
     `settings/#` publications without `auth` are treated as non-authoritative and ignored. One
@@ -658,7 +658,7 @@ class Miniconf(_BaseClient):
 
 
 class RawMiniconf(_BaseClient):
-    """Schema-less MM2 client for exact-path GET and SET operations."""
+    """Schema-less Miniconf client for exact-path GET and SET operations."""
 
     def __init__(self, client: Client, prefix: str):
         super().__init__(client, prefix)

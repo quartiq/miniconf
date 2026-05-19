@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn core::error::Error>> {
     defmt2log::init_from_current_exe();
 
     let mut buffer = vec![0; 4096];
-    let (mut mm2, mut session) =
+    let (mut miniconf, mut session) =
         Miniconf::new(PREFIX, ConfigBuilder::from_buffer(&mut buffer, 1024)?)?;
     let mut settings = common::Settings::new();
     println!("Serving common fixture on {PREFIX}");
@@ -22,11 +22,11 @@ async fn main() -> Result<(), Box<dyn core::error::Error>> {
     loop {
         let io = tokio::net::TcpStream::connect(BROKER).await?;
         let event = session.connect(FromTokio::new(io)).await?;
-        mm2.startup(&mut session, &settings, event).await?;
+        miniconf.startup(&mut session, &settings, event).await?;
         println!("{:?}", event);
 
         loop {
-            match mm2.serve(&mut session, &mut settings, |_| ()).await {
+            match miniconf.serve(&mut session, &mut settings, |_| ()).await {
                 Ok(Event::Unhandled(())) => {}
                 Ok(Event::Changed(idx)) => {
                     println!("Settings updated: {idx:?}");

@@ -3,7 +3,7 @@
 `miniconf_mqtt` exposes a [`miniconf`](../miniconf/README.md) tree over MQTT using
 [`minimq`](../../minimq/README.md).
 
-The protocol is MM2:
+The MQTT wire protocol is MM2 version 1:
 
 - retained `/<prefix>/alive` publishes a compact device manifest
 - retained `/<prefix>/schema/<n>` publishes paged compact schemata
@@ -19,27 +19,27 @@ See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).
 
 For simple services, `miniconf_mqtt` provides two complete unbounded helpers on top:
 
-- `mm2.startup(&mut session, &settings, connect_event)`
-- `mm2.serve(&mut session, &mut settings, on_unhandled)`
+- `miniconf.startup(&mut session, &settings, connect_event)`
+- `miniconf.serve(&mut session, &mut settings, on_unhandled)`
 
-They are the easiest way to serve MM2 when you do not need stepwise control, bounded queued
-follow-up, or exact control over unrelated inbound traffic during MM2 work.
+They are the easiest way to serve a Miniconf tree over MQTT when you do not need stepwise control,
+bounded queued follow-up, or exact control over unrelated inbound traffic during protocol work.
 `on_unhandled` is synchronous and called at most once. For async application handling, copy or
 extract the needed data there and await after `serve()` returns `Event::Unhandled`.
 
 For precise control, `miniconf_mqtt` exposes four explicit building blocks:
 
 - `LoadRetained`: optional retained `settings/#` recovery before connected-session startup
-- `Startup`: MM2 bring-up for one `minimq::ConnectEvent`
-- `Service`: bounded cooperative MM2 request service with non-MM2 passthrough
+- `Startup`: Miniconf MQTT bring-up for one `minimq::ConnectEvent`
+- `Service`: bounded cooperative Miniconf request service with non-Miniconf passthrough
 - `Publisher`: explicit retained republish for a leaf, subtree, or root
 
 Typical flow:
 
-1. construct MM2 state and session with `Miniconf::new(prefix, config)`
+1. construct Miniconf MQTT state and session with `Miniconf::new(prefix, config)`
 2. call `let event = session.connect(io).await?`
-3. call `mm2.startup(&mut session, &settings, event)`
-4. in steady state, call `mm2.serve(&mut session, &mut settings, on_unhandled)`
+3. call `miniconf.startup(&mut session, &settings, event)`
+4. in steady state, call `miniconf.serve(&mut session, &mut settings, on_unhandled)`
 5. use `Publisher::root(Settings::SCHEMA)` or `Publisher::by_key(Settings::SCHEMA, key)` for explicit app-side retained
    republish
 
@@ -49,10 +49,10 @@ Retained settings recovery is a cold-boot step:
 
 ```rust
 let mut load = miniconf_mqtt::LoadRetained::new();
-load.run(&mut mm2, &mut session, &mut settings).await?;
+load.run(&mut miniconf, &mut session, &mut settings).await?;
 
-let mut startup = miniconf_mqtt::Startup::connected(&mut mm2);
-startup.run(&mut mm2, &mut session, &settings).await?;
+let mut startup = miniconf_mqtt::Startup::connected(&mut miniconf);
+startup.run(&mut miniconf, &mut session, &settings).await?;
 ```
 
 `LoadRetained` applies only retained `settings/<leaf>` publications with `auth=""`, waits for
@@ -60,24 +60,26 @@ startup.run(&mut mm2, &mut session, &settings).await?;
 unsubscribes. Stale topics, missing `auth`, empty payloads, and invalid JSON are ignored. Arbitrary
 retained pruning remains a client/tooling operation.
 
-Use it only before the first MM2 startup of a device process. On a device reconnect or network
-glitch, keep the live settings in RAM authoritative and call `mm2.startup(..., connect_event)`:
+Use it only before the first Miniconf MQTT startup of a device process. On a device reconnect or
+network glitch, keep the live settings in RAM authoritative and call
+`miniconf.startup(..., connect_event)`:
 
-- `ConnectEvent::Connected`: the broker did not resume the MQTT session, so MM2 republishes schema,
-  settings, `set/#`, and `alive`
-- `ConnectEvent::Reconnected`: the broker resumed the MQTT session, so MM2 republishes only `alive`
+- `ConnectEvent::Connected`: the broker did not resume the MQTT session, so Miniconf republishes
+  schema, settings, `set/#`, and `alive`
+- `ConnectEvent::Reconnected`: the broker resumed the MQTT session, so Miniconf republishes only
+  `alive`
 
 ## Core contract
 
 Simple helpers:
 
-- `mm2.startup(...)` runs the MM2 work required by one `ConnectEvent` to completion.
-- `mm2.serve(...)` waits until one `/set` has been applied and fully republished, or until
-  one non-MM2 inbound publish has been handled by the callback and returned.
+- `miniconf.startup(...)` runs the Miniconf MQTT work required by one `ConnectEvent` to completion.
+- `miniconf.serve(...)` waits until one `/set` has been applied and fully republished, or until
+  one non-Miniconf inbound publish has been handled by the callback and returned.
 - both helpers are unbounded
 - `Startup::run(...)` may discard inbound publishes while bootstrapping
 - `Publisher::run(...)` may discard inbound publishes while waiting for session progress
-- `serve()` may discard inbound publishes that arrive while completing MM2 follow-up work
+- `serve()` may discard inbound publishes that arrive while completing protocol follow-up work
 - use the explicit stepwise APIs below when that is not acceptable
 
 Stepwise APIs:
@@ -86,17 +88,17 @@ Stepwise APIs:
 - `Startup::step() -> Ok(false)` means it cannot make more immediate startup progress
 - `LoadRetained::step() -> Ok(true)` means retained recovery is complete
 - `Publisher::step() -> Ok(true)` means retained republish is complete
-- `Service::step() -> Ok(true)` means no queued MM2 follow-up work remains
+- `Service::step() -> Ok(true)` means no queued protocol follow-up work remains
 
 `Service` is the cooperative steady-state boundary:
 
-- `ServiceEvent::Unhandled` means the caller still owns the non-MM2 publish and
+- `ServiceEvent::Unhandled` means the caller still owns the non-Miniconf publish and
   may route it elsewhere
 - `ServiceEvent::Changed(changed)` means one `/set` changed local settings and queued authoritative
-  MM2 follow-up work
-- `ServiceEvent::Busy` means bounded service capacity was exhausted, so the MM2 request was
+  protocol follow-up work
+- `ServiceEvent::Busy` means bounded service capacity was exhausted, so the Miniconf request was
   rejected without mutating settings
-- `ServiceEvent::Idle` means MM2 recognized the message and intentionally did nothing
+- `ServiceEvent::Idle` means Miniconf recognized the message and intentionally did nothing
 
 Practical boundary:
 
@@ -115,10 +117,10 @@ Bounded cooperative serving:
 let mut service = Service::<4>::new();
 
 loop {
-    let _empty = service.step(&mut mm2, &mut session, &settings).await?;
+    let _empty = service.step(&mut miniconf, &mut session, &settings).await?;
 
     if let Some(inbound) = session.poll().await? {
-        match service.handle(&mut mm2, &mut settings, &inbound) {
+        match service.handle(&mut miniconf, &mut settings, &inbound) {
             ServiceEvent::Unhandled => { /* app traffic */ }
             ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
         }
@@ -156,7 +158,7 @@ The retained `alive` payload is JSON:
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
 
-`epoch` changes whenever a running device starts a fresh retained MM2 publication cycle. It lets
+`epoch` changes whenever a running device starts a fresh retained Miniconf publication cycle. It lets
 long-lived clients notice a reboot or full republish even when the schema is unchanged, and reload
 tracked retained settings after the new `alive` commit marker. Without `epoch`, a client that
 already has cached settings could miss a same-schema restart that restored different values from
@@ -239,8 +241,8 @@ Success replies carry only `code=Ok`.
 
 ## Limitations
 
-- MM2 is small and opinionated. One MQTT prefix is assumed to have one authoritative device
-  publisher.
+- The MM2 wire protocol is small and opinionated. One MQTT prefix is assumed to have one
+  authoritative device publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.
 - `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait

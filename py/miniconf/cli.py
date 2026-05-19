@@ -1,4 +1,4 @@
-"""Async CLI frontend for the MM2 Python client."""
+"""Async CLI frontend for the Miniconf MQTT client."""
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ async def _main() -> None:
 
 def _cli() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Miniconf MM2 command line interface.",
+        description="Miniconf MQTT command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples (with a target at prefix 'app/id' and id discovery):
         %(prog)s -d app/+ /path       # exact leaf read
@@ -141,7 +141,7 @@ def _cli() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force-prune",
         action="store_true",
-        help="Clear all retained MM2 topics below the resolved prefix",
+        help="Clear all retained Miniconf MQTT topics below the resolved prefix",
     )
     parser.add_argument(
         "prefix",

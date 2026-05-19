@@ -1,6 +1,6 @@
 # `miniconf-mqtt` Python client
 
-Python 3.11+ client and CLI for MM2 `miniconf_mqtt` targets.
+Python 3.11+ client and CLI for `miniconf_mqtt` targets.
 
 ```sh
 python -m pip install -e py/
@@ -28,7 +28,7 @@ async with Client("mqtt", protocol=MQTTv5) as mqtt:
 
 Core API:
 
-- `schema()` loads and caches the retained MM2 schema.
+- `schema()` loads and caches the retained schema.
 - `set(path, value, response=True)` publishes one `set/#` request.
 - `track(path="")` scopes a retained subtree cache; `.ready` reports whether it is
   usable, `wait_ready()` waits through reboot/reload, then `cached()` reads one leaf
@@ -46,10 +46,11 @@ Schema helpers:
 
 Notes:
 
-- The client accepts MM2 `proto=1`, keeps `/alive` subscribed, and reloads tracked
-  settings when `epoch` changes; it reloads schema when `schema_rev` changes.
+- The client accepts the MM2 wire protocol `proto=1`, keeps `/alive` subscribed, and
+  reloads tracked settings when `epoch` changes; it reloads schema when `schema_rev` changes.
 - Schema-aware reads are explicit: open `track()` for the subtree you want, then read its cache.
-- Retained `/settings` messages without `auth=""` are ignored as non-authoritative MM2 traffic.
+- Retained `/settings` messages without `auth=""` are ignored as non-authoritative settings
+  traffic.
 - Retained burst quiescence uses the same rule as the Rust client:
   `100 ms + 3 * measured_subscribe_rtt`, reset on each accepted retained publication.
 
@@ -71,4 +72,4 @@ Command suffixes:
 - `PATH!` renders retained subtree values; `PATH!!` prints raw `/path=value` lines.
 - `--raw` disables schema, subtree tracking, `?`, and `!`.
 - `--prune PATH` clears stale retained schema/settings below `PATH`.
-- `--force-prune` clears all retained MM2 topics below the resolved prefix.
+- `--force-prune` clears all retained Miniconf MQTT topics below the resolved prefix.

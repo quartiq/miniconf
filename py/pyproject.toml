@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "miniconf-mqtt"
 # Note: keep this in sync with Cargo.toml
 version = "0.20.1"
-description = "Async MM2 Miniconf client and CLI"
+description = "Async Miniconf MQTT client and CLI"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

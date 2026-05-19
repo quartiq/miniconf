@@ -74,7 +74,7 @@ async def discover(
                 LOGGER.info("Ignoring %s not/invalid alive", peer)
                 continue
             if not isinstance(manifest, dict) or manifest.get("proto") != MM2_PROTO:
-                LOGGER.info("Ignoring %s unsupported MM2 alive", peer)
+                LOGGER.info("Ignoring %s unsupported protocol alive", peer)
                 continue
             discovered[peer] = manifest
             deadline = asyncio.get_running_loop().time() + quiet
@@ -276,7 +276,7 @@ async def prune(
 
 
 async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]:
-    """Clear all retained MM2 topics below the current prefix."""
+    """Clear all retained Miniconf MQTT topics below the current prefix."""
 
     topics = await _collect_retained_topics(
         interface, f"{interface.prefix}/#", timeout=timeout

@@ -1,4 +1,4 @@
-"""Schema tree and key translation for MM2."""
+"""Schema tree and key translation for Miniconf MQTT."""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ Keys = str | Indices | Packed | tuple[str | int, ...] | list[str | int]
 
 
 class Schema:
-    """Loaded MM2 schema defs with key translation helpers."""
+    """Loaded compact schema defs with key translation helpers."""
 
     def __init__(self, defs: list[dict[str, Any]], rev: int):
         self.rev = rev

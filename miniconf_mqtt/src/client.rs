@@ -23,11 +23,11 @@ use crate::{
 };
 use request::FollowUp;
 
-/// Exact leaf indices produced by MM2 request handling.
+/// Exact leaf indices produced by Miniconf request handling.
 pub type ChangedKey = Indices<[usize; crate::MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
-/// MM2 setup, tree, or MQTT session error.
+/// Miniconf MQTT setup, tree, or MQTT session error.
 pub enum Error<E> {
     /// Tree traversal or path resolution failed before any MQTT I/O.
     #[error("tree path resolution failed: {0}")]
@@ -169,20 +169,20 @@ where
 /// Result of `Miniconf::serve()`.
 #[must_use = "match on the event to handle unhandled traffic or a changed leaf"]
 pub enum Event<T> {
-    /// One non-MM2 inbound publish was returned through the callback.
+    /// One non-Miniconf inbound publish was returned through the callback.
     Unhandled(T),
-    /// One `/set` changed this exact leaf and MM2 follow-up work completed.
+    /// One `/set` changed this exact leaf and protocol follow-up work completed.
     Changed(ChangedKey),
 }
 
-/// Immediate outcome of cooperative MM2 service work.
+/// Immediate outcome of cooperative Miniconf service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
 pub enum ServiceEvent {
-    /// No immediate MM2 work or inbound publish was available.
+    /// No immediate Miniconf work or inbound publish was available.
     Idle,
-    /// One MM2 request was rejected because bounded service capacity was exhausted.
+    /// One Miniconf request was rejected because bounded service capacity was exhausted.
     Busy,
-    /// The message is not MM2 traffic.
+    /// The message is not Miniconf traffic.
     Unhandled,
     /// One `/set` changed this exact leaf and follow-up work was queued.
     Changed(ChangedKey),
@@ -200,15 +200,15 @@ enum Route {
     },
 }
 
-/// MM2 protocol state for one prefix and one settings tree.
+/// Miniconf MQTT protocol state for one prefix and one settings tree.
 pub struct Miniconf<Settings> {
     pub(crate) prefix: TopicString,
     pub(crate) manifest: Manifest,
     _settings: PhantomData<Settings>,
 }
 
-/// MM2 startup workflow for one MQTT connection event.
-#[must_use = "drive startup to completion before relying on MM2 startup state"]
+/// Miniconf MQTT startup workflow for one MQTT connection event.
+#[must_use = "drive startup to completion before relying on Miniconf startup state"]
 pub struct Startup {
     phase: sync::StartupPhase,
 }
@@ -221,7 +221,7 @@ pub struct Startup {
 /// Do not run this on network reconnects of a still-running device. Local settings are already the
 /// authority in that case, even when the broker reports `ConnectEvent::Connected` because the MQTT
 /// session was not resumed.
-#[must_use = "drive retained loading to completion before starting MM2 publication"]
+#[must_use = "drive retained loading to completion before starting Miniconf publication"]
 pub struct LoadRetained {
     phase: sync::LoadRetainedPhase,
 }
@@ -236,10 +236,10 @@ pub struct Publisher {
     op: Option<Op>,
 }
 
-/// Bounded cooperative MM2 service.
+/// Bounded cooperative Miniconf service.
 ///
-/// Use this when you want to interleave MM2 request handling with unrelated work while keeping the
-/// number of queued MM2 follow-up publications bounded.
+/// Use this when you want to interleave Miniconf request handling with unrelated work while keeping
+/// the number of queued protocol follow-up publications bounded.
 pub struct Service<const N: usize = 4> {
     follow_ups: Deque<FollowUp, N>,
 }
@@ -283,7 +283,7 @@ impl<Settings> Miniconf<Settings>
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
-    /// Construct MM2 state and a configured caller-owned MQTT session.
+    /// Construct Miniconf MQTT state and a configured caller-owned MQTT session.
     pub fn new<'buf, IO: Io>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
@@ -318,7 +318,7 @@ where
         ))
     }
 
-    /// Run MM2 startup to completion after one MQTT connect event.
+    /// Run Miniconf MQTT startup to completion after one MQTT connect event.
     ///
     /// `ConnectEvent::Connected` republishes schema/settings, subscribes `set/#`, and publishes
     /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` because the MQTT session kept
@@ -343,23 +343,23 @@ where
         request::route(self.prefix.as_str(), settings, inbound)
     }
 
-    /// Wait until one `/set` completes or one non-MM2 inbound publish is returned.
+    /// Wait until one `/set` completes or one non-Miniconf inbound publish is returned.
     ///
     /// This is the simple unbounded steady-state helper.
     ///
-    /// `on_unhandled` runs synchronously for the first non-MM2 inbound publish and its return
+    /// `on_unhandled` runs synchronously for the first non-Miniconf inbound publish and its return
     /// value is returned as `Event::Unhandled`.
     ///
     /// This callback is the ownership boundary for the borrowed MQTT receive buffer. Returning
     /// `InboundPublish<'_>` directly from this unbounded helper would make the same async loop both
-    /// return a borrow from `session` and reborrow `session` to complete MM2 follow-up work.
+    /// return a borrow from `session` and reborrow `session` to complete protocol follow-up work.
     ///
     /// For async application work, copy or extract the needed data in `on_unhandled`, return it
     /// through `Event::Unhandled`, and await after `serve()` returns.
     ///
     /// This helper favors simplicity over exact control:
     /// - it is unbounded
-    /// - it may discard unrelated inbound publishes that arrive while completing MM2 follow-up
+    /// - it may discard unrelated inbound publishes that arrive while completing protocol follow-up
     ///   work
     /// - use [`Service`] when you need bounded stepwise control
     pub async fn serve<IO, T>(
@@ -467,40 +467,40 @@ where
 }
 
 impl Startup {
-    /// Begin MM2 startup after one MQTT connect event.
-    pub fn new<Settings>(mm2: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
+    /// Begin Miniconf MQTT startup after one MQTT connect event.
+    pub fn new<Settings>(miniconf: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
     where
         Settings: TreeSchema,
     {
         match event {
-            ConnectEvent::Connected => Self::connected(mm2),
+            ConnectEvent::Connected => Self::connected(miniconf),
             ConnectEvent::Reconnected => {
                 crate::info!(
                     "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32}",
-                    mm2.prefix.as_str(),
-                    mm2.manifest.epoch,
-                    mm2.manifest.schema_rev
+                    miniconf.prefix.as_str(),
+                    miniconf.manifest.epoch,
+                    miniconf.manifest.schema_rev
                 );
                 Self::reconnected()
             }
         }
     }
 
-    /// Begin the MM2 startup path for `ConnectEvent::Connected`.
+    /// Begin the Miniconf startup path for `ConnectEvent::Connected`.
     ///
     /// Use this after cold-boot [`LoadRetained`] so the retained mirror is republished
     /// authoritatively from the recovered local settings.
-    pub fn connected<Settings>(mm2: &mut Miniconf<Settings>) -> Self
+    pub fn connected<Settings>(miniconf: &mut Miniconf<Settings>) -> Self
     where
         Settings: TreeSchema,
     {
-        mm2.manifest.epoch = mm2.manifest.epoch.wrapping_add(1);
-        mm2.manifest.schema_rev = 0;
-        mm2.manifest.schema_pages = 0;
+        miniconf.manifest.epoch = miniconf.manifest.epoch.wrapping_add(1);
+        miniconf.manifest.schema_rev = 0;
+        miniconf.manifest.schema_pages = 0;
         crate::info!(
             "Starting connected MM2 startup prefix={=str} epoch={=u32}",
-            mm2.prefix.as_str(),
-            mm2.manifest.epoch
+            miniconf.prefix.as_str(),
+            miniconf.manifest.epoch
         );
         Self {
             phase: sync::StartupPhase::Schema {
@@ -516,12 +516,12 @@ impl Startup {
         }
     }
 
-    /// Run MM2 startup to completion.
+    /// Run Miniconf MQTT startup to completion.
     ///
     /// This helper may consume and discard surfaced inbound publishes while bootstrapping.
     pub async fn run<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
@@ -529,13 +529,13 @@ impl Startup {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        while !self.step(mm2, session, settings).await? {
+        while !self.step(miniconf, session, settings).await? {
             let _ = session.poll().await?;
         }
         Ok(())
     }
 
-    /// Advance MM2 startup.
+    /// Advance Miniconf MQTT startup.
     ///
     /// `Ok(true)` means startup is complete.
     ///
@@ -545,7 +545,7 @@ impl Startup {
     /// Connected-session startup may discard surfaced inbound publishes while bootstrapping.
     pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -553,7 +553,7 @@ impl Startup {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.phase.step(mm2, session, settings).await
+        self.phase.step(miniconf, session, settings).await
     }
 }
 
@@ -574,11 +574,11 @@ impl LoadRetained {
     /// Run retained settings load to completion.
     ///
     /// This helper owns the temporary `settings/#` subscription while it runs. Use it only before
-    /// the first MM2 startup of a device process. Afterwards run [`Startup::connected`] to publish
-    /// the recovered settings authoritatively.
+    /// the first Miniconf startup of a device process. Afterwards run [`Startup::connected`] to
+    /// publish the recovered settings authoritatively.
     pub async fn run<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &mut Settings,
     ) -> Result<(), Error<IO::Error>>
@@ -586,7 +586,7 @@ impl LoadRetained {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        while !self.step(mm2, session, settings).await? {}
+        while !self.step(miniconf, session, settings).await? {}
         Ok(())
     }
 
@@ -598,7 +598,7 @@ impl LoadRetained {
     /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
     pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -606,7 +606,7 @@ impl LoadRetained {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.phase.step(mm2, session, settings).await
+        self.phase.step(miniconf, session, settings).await
     }
 }
 
@@ -642,7 +642,7 @@ impl Publisher {
     /// routed elsewhere.
     pub async fn run<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
@@ -650,7 +650,7 @@ impl Publisher {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        while !self.step(mm2, session, settings).await? {
+        while !self.step(miniconf, session, settings).await? {
             let _ = session.poll().await?;
         }
         Ok(())
@@ -666,7 +666,7 @@ impl Publisher {
     /// This method never consumes unrelated inbound publishes.
     pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -674,7 +674,7 @@ impl Publisher {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        sync::step_publisher(self, mm2, session, settings).await
+        sync::step_publisher(self, miniconf, session, settings).await
     }
 }
 
@@ -685,19 +685,19 @@ impl<const N: usize> Default for Service<N> {
 }
 
 impl<const N: usize> Service<N> {
-    /// Construct an empty bounded MM2 service.
+    /// Construct an empty bounded Miniconf service.
     pub const fn new() -> Self {
         Self {
             follow_ups: Deque::new(),
         }
     }
 
-    /// Return whether no queued MM2 follow-up work remains.
+    /// Return whether no queued protocol follow-up work remains.
     pub fn is_empty(&self) -> bool {
         self.follow_ups.is_empty()
     }
 
-    /// Return the number of queued MM2 follow-up workflows.
+    /// Return the number of queued protocol follow-up workflows.
     pub fn len(&self) -> usize {
         self.follow_ups.len()
     }
@@ -706,23 +706,24 @@ impl<const N: usize> Service<N> {
         self.follow_ups.len() == N
     }
 
-    /// Route one inbound publish through the bounded MM2 service.
+    /// Route one inbound publish through the bounded Miniconf service.
     ///
-    /// Non-MM2 traffic is reported as `ServiceEvent::Unhandled`, while the
+    /// Non-Miniconf traffic is reported as `ServiceEvent::Unhandled`, while the
     /// caller keeps ownership of the inbound publish.
     ///
-    /// If the bounded service is full, MM2 `/set` requests are rejected without mutating local
+    /// If the bounded service is full, Miniconf `/set` requests are rejected without mutating local
     /// settings.
     pub fn handle<Settings>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         settings: &mut Settings,
         inbound: &InboundPublish<'_>,
     ) -> ServiceEvent
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     {
-        if self.is_full() && request::needs_capacity::<Settings>(mm2.prefix.as_str(), inbound) {
+        if self.is_full() && request::needs_capacity::<Settings>(miniconf.prefix.as_str(), inbound)
+        {
             crate::debug!(
                 "Rejecting MM2 request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
                 inbound.topic(),
@@ -733,7 +734,7 @@ impl<const N: usize> Service<N> {
             return ServiceEvent::Busy;
         }
 
-        match mm2.route(settings, inbound) {
+        match miniconf.route(settings, inbound) {
             Route::Unhandled => ServiceEvent::Unhandled,
             Route::Ignored => ServiceEvent::Idle,
             Route::Rejected { follow_up } => {
@@ -762,9 +763,9 @@ impl<const N: usize> Service<N> {
         }
     }
 
-    /// Advance one queued MM2 follow-up workflow.
+    /// Advance one queued protocol follow-up workflow.
     ///
-    /// `Ok(true)` means no queued MM2 follow-up work remains after this step.
+    /// `Ok(true)` means no queued protocol follow-up work remains after this step.
     ///
     /// `Ok(false)` means queued work remains and later session progress is needed before calling
     /// `step()` again.
@@ -772,7 +773,7 @@ impl<const N: usize> Service<N> {
     /// This method never consumes unrelated inbound publishes.
     pub async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         session: &mut Session<'_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -790,7 +791,7 @@ impl<const N: usize> Service<N> {
                 N
             );
 
-            if follow_up.step(mm2, session, settings).await? {
+            if follow_up.step(miniconf, session, settings).await? {
                 crate::debug!(
                     "Completed MM2 follow-up queued_remaining={=usize} capacity={=usize}",
                     self.follow_ups.len(),

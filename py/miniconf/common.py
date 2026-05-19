@@ -1,4 +1,4 @@
-"""Common code for the MM2 Python clients."""
+"""Common code for the Miniconf MQTT clients."""
 
 from dataclasses import dataclass
 import json
@@ -73,7 +73,7 @@ def subtree_match(path: str, root: str) -> bool:
 
 
 def settings_topics(prefix: str, path: str) -> tuple[str, ...]:
-    """MQTT topic filters needed to track one MM2 subtree."""
+    """MQTT topic filters needed to track one Miniconf subtree."""
     root = validate_path(path)
     if not root:
         return (f"{prefix}/settings/#",)

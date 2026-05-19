@@ -3,8 +3,8 @@
 
 //! Serve a `miniconf` tree over MQTT.
 //!
-//! The MQTT [`minimq::Session`] is caller-owned. This crate owns only MM2 state; the protocol and
-//! topic layout are documented in the package README.
+//! The MQTT [`minimq::Session`] is caller-owned. This crate owns only Miniconf MQTT protocol
+//! state; the wire protocol and topic layout are documented in the package README.
 //!
 //! # Simple service
 //!
@@ -22,7 +22,7 @@
 //! }
 //!
 //! async fn serve<IO>(
-//!     mm2: &mut Miniconf<Settings>,
+//!     miniconf: &mut Miniconf<Settings>,
 //!     session: &mut minimq::Session<'_, IO>,
 //!     settings: &mut Settings,
 //!     event: minimq::ConnectEvent,
@@ -30,10 +30,10 @@
 //! where
 //!     IO: minimq::Io,
 //! {
-//!     mm2.startup(session, settings, event).await?;
+//!     miniconf.startup(session, settings, event).await?;
 //!
 //!     loop {
-//!         match mm2.serve(session, settings, |_| ()).await? {
+//!         match miniconf.serve(session, settings, |_| ()).await? {
 //!             Event::Changed(path) => {
 //!                 // `path` is the changed leaf's index path.
 //!                 let _ = path;
@@ -48,8 +48,8 @@
 //! application data through [`Event::Unhandled`] when unhandled traffic needs async follow-up work.
 //!
 //! Use [`LoadRetained`], [`Startup`], [`Service`], and [`Publisher`] directly when an application
-//! must recover retained settings, bound queued MM2 follow-up work, or preserve unrelated inbound
-//! publishes.
+//! must recover retained settings, bound queued protocol follow-up work, or preserve unrelated
+//! inbound publishes.
 //!
 //! Limitations:
 //! - one MQTT prefix is expected to have one authoritative device publisher
