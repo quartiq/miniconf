@@ -153,6 +153,32 @@ class TopicWatcher:
         self.client.loop_stop()
 
 
+class FakeMessages:
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await asyncio.Future()
+
+
+class FakeClient:
+    def __init__(self):
+        self.messages = FakeMessages()
+
+    async def subscribe(self, *_args, **_kwargs):
+        pass
+
+    async def unsubscribe(self, *_args, **_kwargs):
+        pass
+
+
+async def test_listener_close_tolerates_released_subscription() -> None:
+    client = RawMiniconf(FakeClient(), "test")
+    await asyncio.wait_for(client._subscribed.wait(), 1.0)
+    del client._subscriptions[client.response_topic]
+    await client.close()
+
+
 async def close_client(client: Client, timeout: float = 1.0) -> None:
     """Bound aiomqtt teardown so the harness cannot hang on disconnect."""
 
@@ -182,6 +208,8 @@ async def wait_cached(tracked, path: str, expected, timeout: float = 3.0):
 
 
 async def main() -> None:
+    await test_listener_close_tolerates_released_subscription()
+
     assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
     assert _normalize_command_path("/channel/0/demodulate", "") == (
         "/channel/0/demodulate",

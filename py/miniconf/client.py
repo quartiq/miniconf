@@ -117,7 +117,7 @@ class _BaseClient:
             self._subscribed.clear()
             for topic in reversed(topics):
                 try:
-                    await self._unsubscribe(topic)
+                    await self._unsubscribe(topic, missing_ok=True)
                 except MqttError:
                     LOGGER.debug("MQTT unsubscribe error", exc_info=True)
 
@@ -177,8 +177,13 @@ class _BaseClient:
             raise MiniconfException("Subscription", topic_filter)
         self._subscriptions[topic_filter] = (count + 1, key)
 
-    async def _unsubscribe(self, topic_filter: str):
-        count, key = self._subscriptions[topic_filter]
+    async def _unsubscribe(self, topic_filter: str, *, missing_ok: bool = False):
+        existing = self._subscriptions.get(topic_filter)
+        if existing is None:
+            if missing_ok:
+                return
+            raise KeyError(topic_filter)
+        count, key = existing
         remaining = count - 1
         if remaining:
             self._subscriptions[topic_filter] = (remaining, key)
