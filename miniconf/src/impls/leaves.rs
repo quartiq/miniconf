@@ -7,12 +7,17 @@ use core::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::{
-    Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
+    Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, Ty, ValueError,
 };
 
 /// Passthrough Tree*
 pub mod passthrough {
     use super::*;
+
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T: TreeSchema + ?Sized>() -> &'static Schema {
+        T::SCHEMA
+    }
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<T: TreeSerialize + ?Sized, S: Serializer>(
@@ -66,6 +71,11 @@ pub mod leaf {
     /// [`TreeSchema::SCHEMA`]
     pub const SCHEMA: &Schema = &Schema::LEAF;
 
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T>() -> &'static Schema {
+        SCHEMA
+    }
+
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<T: Serialize + ?Sized, S: Serializer>(
         value: &T,
@@ -118,10 +128,12 @@ pub mod leaf {
 /// This wraps [`Serialize`], [`Deserialize`], and [`Any`] into `Tree` a leaf node.
 ///
 /// ```
-/// use miniconf::{json_core, Leaf, Tree};
+/// # #[cfg(feature = "json-core")] {
+/// use miniconf::{json_core, Leaf};
 /// let mut s = Leaf(0);
 /// json_core::set(&mut s, "", b"7").unwrap();
 /// assert!(matches!(*s, 7));
+/// # }
 /// ```
 #[derive(
     Clone, Copy, Default, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
@@ -192,6 +204,51 @@ impl<T: Any> TreeAny for Leaf<T> {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 
+macro_rules! impl_typed_leaf {
+    ($($ty:ty => $variant:ident),* $(,)?) => {$(
+        impl TreeSchema for $ty {
+            const SCHEMA: &'static Schema = &Schema::leaf_ty(Ty::$variant);
+        }
+
+        impl TreeSerialize for $ty {
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                leaf::serialize_by_key(self, keys, ser)
+            }
+        }
+
+        impl<'de> TreeDeserialize<'de> for $ty {
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::deserialize_by_key(self, keys, de)
+            }
+
+            fn probe_by_key<D: Deserializer<'de>>(
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::probe_by_key::<Self, _>(keys, de)
+            }
+        }
+
+        impl TreeAny for $ty {
+            fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+                leaf::ref_any_by_key(self, keys)
+            }
+
+            fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+                leaf::mut_any_by_key(self, keys)
+            }
+        }
+    )*};
+}
+
 macro_rules! impl_leaf {
     ($($ty:ty),*) => {$(
         impl TreeSchema for $ty {
@@ -237,14 +294,32 @@ macro_rules! impl_leaf {
     )*};
 }
 
-impl_leaf! {
-    (), bool, char, f32, f64,
-    i8, i16, i32, i64, i128, isize,
-    u8, u16, u32, u64, u128, usize
+impl_leaf! {(), char}
+impl_typed_leaf! {
+    bool => Bool,
+    f32 => F32,
+    f64 => F64,
+    i8 => I8,
+    i16 => I16,
+    i32 => I32,
+    i64 => I64,
+    i128 => I128,
+    isize => Isize,
+    u8 => U8,
+    u16 => U16,
+    u32 => U32,
+    u64 => U64,
+    u128 => U128,
+    usize => Usize,
 }
-impl_leaf! {core::net::SocketAddr, core::net::SocketAddrV4, core::net::SocketAddrV6}
+impl_typed_leaf! {
+    core::net::SocketAddr => Str,
+    core::net::SocketAddrV4 => Str,
+    core::net::SocketAddrV6 => Str,
+}
 impl_leaf! {core::time::Duration}
 
+#[allow(unused_macros)]
 macro_rules! impl_unsized_leaf {
     ($($ty:ty),*) => {$(
         impl TreeSchema for $ty {
@@ -280,7 +355,42 @@ macro_rules! impl_unsized_leaf {
     )*};
 }
 
-impl_unsized_leaf! {str}
+macro_rules! impl_typed_unsized_leaf {
+    ($($ty:ty => $variant:ident),* $(,)?) => {$(
+        impl TreeSchema for $ty {
+            const SCHEMA: &'static Schema = &Schema::leaf_ty(Ty::$variant);
+        }
+
+        impl TreeSerialize for $ty {
+            fn serialize_by_key<S: Serializer>(
+                &self,
+                keys: impl Keys,
+                ser: S,
+            ) -> Result<S::Ok, SerdeError<S::Error>> {
+                leaf::serialize_by_key(self, keys, ser)
+            }
+        }
+
+        impl<'a, 'de: 'a> TreeDeserialize<'de> for &'a $ty {
+            fn deserialize_by_key<D: Deserializer<'de>>(
+                &mut self,
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::deserialize_by_key(self, keys, de)
+            }
+
+            fn probe_by_key<D: Deserializer<'de>>(
+                keys: impl Keys,
+                de: D,
+            ) -> Result<(), SerdeError<D::Error>> {
+                leaf::probe_by_key::<Self, _>(keys, de)
+            }
+        }
+    )*};
+}
+
+impl_typed_unsized_leaf! {str => Str}
 
 impl<T> TreeSchema for [T] {
     const SCHEMA: &'static Schema = leaf::SCHEMA;
@@ -322,7 +432,7 @@ mod alloc_impls {
 
     use alloc::{string::String, vec::Vec};
 
-    impl_leaf! {String}
+    impl_typed_leaf! {String => Str}
 
     impl<T> TreeSchema for Vec<T> {
         const SCHEMA: &'static Schema = leaf::SCHEMA;
@@ -372,17 +482,30 @@ mod std_impls {
 
     impl_leaf! {std::ffi::CString, std::ffi::OsString}
     impl_leaf! {std::time::SystemTime}
-    impl_leaf! {std::path::PathBuf}
-    impl_unsized_leaf! {std::path::Path}
+    impl_typed_leaf! {std::path::PathBuf => Str}
+    impl_typed_unsized_leaf! {std::path::Path => Str}
 
     #[cfg(target_has_atomic = "8")]
-    impl_leaf! { core::sync::atomic::AtomicBool, core::sync::atomic::AtomicI8, core::sync::atomic::AtomicU8 }
+    impl_typed_leaf! {
+        core::sync::atomic::AtomicBool => Bool,
+        core::sync::atomic::AtomicI8 => I8,
+        core::sync::atomic::AtomicU8 => U8
+    }
     #[cfg(target_has_atomic = "16")]
-    impl_leaf! { core::sync::atomic::AtomicI16, core::sync::atomic::AtomicU16 }
+    impl_typed_leaf! {
+        core::sync::atomic::AtomicI16 => I16,
+        core::sync::atomic::AtomicU16 => U16
+    }
     #[cfg(target_has_atomic = "32")]
-    impl_leaf! { core::sync::atomic::AtomicI32, core::sync::atomic::AtomicU32 }
+    impl_typed_leaf! {
+        core::sync::atomic::AtomicI32 => I32,
+        core::sync::atomic::AtomicU32 => U32
+    }
     #[cfg(target_has_atomic = "64")]
-    impl_leaf! { core::sync::atomic::AtomicI64, core::sync::atomic::AtomicU64 }
+    impl_typed_leaf! {
+        core::sync::atomic::AtomicI64 => I64,
+        core::sync::atomic::AtomicU64 => U64
+    }
 }
 
 #[cfg(feature = "heapless")]
@@ -392,7 +515,7 @@ mod heapless_impls {
     use heapless::{String, Vec};
 
     impl<const N: usize> TreeSchema for String<N> {
-        const SCHEMA: &'static Schema = leaf::SCHEMA;
+        const SCHEMA: &'static Schema = &Schema::leaf_ty(Ty::Str);
     }
 
     impl<const N: usize> TreeSerialize for String<N> {
@@ -485,7 +608,7 @@ mod heapless_09_impls {
     };
 
     impl<LenT: LenType, O: StringStorage + ?Sized> TreeSchema for StringInner<LenT, O> {
-        const SCHEMA: &'static Schema = leaf::SCHEMA;
+        const SCHEMA: &'static Schema = &Schema::leaf_ty(Ty::Str);
     }
 
     impl<LenT: LenType, O: StringStorage + ?Sized> TreeSerialize for StringInner<LenT, O> {
@@ -577,6 +700,7 @@ mod heapless_09_impls {
 /// Inner enum variant field access can be implemented using `defer`.
 ///
 /// ```
+/// # #[cfg(all(feature = "derive", feature = "json-core"))] {
 /// use miniconf::{json_core::set, str_leaf, Tree};
 /// #[derive(Tree, strum::AsRefStr, strum::EnumString)]
 /// enum En {
@@ -596,12 +720,19 @@ mod heapless_09_impls {
 /// set(&mut s, "/t", b"\"B\"").unwrap();
 /// set(&mut s, "/e/B", b"1.2").unwrap();
 /// assert!(matches!(s.e, En::B(1.2)));
+/// # }
 /// ```
 pub mod str_leaf {
     use super::*;
 
     pub use deny::{mut_any_by_key, ref_any_by_key};
-    pub use leaf::SCHEMA;
+    /// [`TreeSchema::SCHEMA`]
+    pub const SCHEMA: &Schema = &Schema::leaf_ty(Ty::Str);
+
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T>() -> &'static Schema {
+        SCHEMA
+    }
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<S: Serializer>(
@@ -645,7 +776,10 @@ pub mod str_leaf {
 pub mod deny {
     use super::*;
 
-    pub use leaf::SCHEMA;
+    /// [`TreeSchema::SCHEMA`]
+    pub const fn schema<T>() -> &'static Schema {
+        leaf::schema::<T>()
+    }
 
     /// [`TreeSerialize::serialize_by_key()`]
     pub fn serialize_by_key<S: Serializer>(

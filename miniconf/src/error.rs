@@ -7,7 +7,7 @@
 ///
 /// If multiple errors are applicable simultaneously the precedence
 /// is as per the order in the enum definition (from high to low).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum KeyError {
     /// The key ends early and does not reach a leaf node.
     #[error("Key does not reach a leaf")]
@@ -23,8 +23,8 @@ pub enum KeyError {
     TooLong,
 }
 
-/// Errors that can occur while visting nodes with [`crate::Schema::descend`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+/// Errors that can occur while visiting nodes with [`crate::Schema::descend()`].
+#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DescendError<E> {
     /// The key is invalid.
     #[error(transparent)]
@@ -36,7 +36,7 @@ pub enum DescendError<E> {
 }
 
 /// Errors that can occur while accessing a value.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ValueError {
     /// Tree traversal error
     #[error(transparent)]
@@ -46,7 +46,7 @@ pub enum ValueError {
     ///
     /// An `enum` variant in the tree towards the node is currently absent.
     /// This is for example the case if an [`Option`] using the `Tree*`
-    /// traits is `None` at runtime. See also [`crate::TreeSchema#option`].
+    /// traits is `None` at runtime. See also [the `Option` section on `TreeSchema`](crate::TreeSchema#option).
     #[error("Variant absent")]
     Absent,
 
@@ -58,7 +58,7 @@ pub enum ValueError {
 }
 
 /// Compound errors
-#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SerdeError<E> {
     /// The value could not be accessed.
     #[error(transparent)]

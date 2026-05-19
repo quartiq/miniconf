@@ -113,8 +113,7 @@ impl<L: Default> From<&'static Schema> for Node<(&'static Schema, L)> {
         Self {
             data: (value, L::default()),
             children: value
-                .internal
-                .as_ref()
+                .internal()
                 .map(|internal| match internal {
                     Internal::Named(n) => n.iter().map(|n| Self::from(n.schema)).collect(),
                     Internal::Numbered(n) => n.iter().map(|n| Self::from(n.schema)).collect(),

@@ -1,6 +1,6 @@
 use miniconf::{
-    Deserialize, Indices, KeyError, Leaf, Packed, Path, SerdeError, Serialize, Shape, Tree,
-    TreeSchema, json_core, leaf,
+    Deserialize, Indices, KeyError, Leaf, Packed, SerdeError, Serialize, Shape, Tree, TreeSchema,
+    json_core, leaf,
 };
 
 mod common;
@@ -30,19 +30,16 @@ fn set_get(
 
     // Indices
     let idx = Settings::SCHEMA
-        .transcode::<Indices<[usize; 4]>>(Path {
-            path,
-            separator: '/',
-        })
+        .transcode::<Indices<[usize; 4]>>(path)
         .unwrap();
     let depth = idx.len();
-    json_core::set_by_key(tree, &idx, value)?;
+    json_core::set_by_key(tree, idx.as_ref(), value)?;
     let mut buf = vec![0; value.len()];
-    let len = json_core::get_by_key(tree, &idx, &mut buf[..]).unwrap();
+    let len = json_core::get_by_key(tree, idx.as_ref(), &mut buf[..]).unwrap();
     assert_eq!(&buf[..len], value);
 
     // Packed
-    let packed = Settings::SCHEMA.transcode::<Packed>(&idx).unwrap();
+    let packed = Settings::SCHEMA.transcode::<Packed>(idx.as_ref()).unwrap();
     json_core::set_by_key(tree, packed, value)?;
     let mut buf = vec![0; value.len()];
     let len = json_core::get_by_key(tree, packed, &mut buf[..]).unwrap();
@@ -137,4 +134,16 @@ fn metadata() {
     assert_eq!(SHAPE.max_depth, 4);
     assert_eq!(SHAPE.max_length("/"), "/aam/0/0/c".len());
     assert_eq!(SHAPE.count.get(), 11);
+}
+
+#[test]
+fn metadata_power_of_ten_homogeneous_len() {
+    #[derive(Tree)]
+    struct Ten {
+        a: [u8; 10],
+    }
+
+    const SHAPE: Shape = Ten::SCHEMA.shape();
+    assert_eq!(SHAPE.max_depth, 2);
+    assert_eq!(SHAPE.max_length("/"), "/a/9".len());
 }

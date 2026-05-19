@@ -94,15 +94,19 @@ fn deny_access() {
     mod deny_write {
         pub use miniconf::{
             deny::{deserialize_by_key, mut_any_by_key},
-            leaf::{SCHEMA, probe_by_key, ref_any_by_key, serialize_by_key},
+            leaf::{probe_by_key, ref_any_by_key, schema, serialize_by_key},
         };
     }
     mod deny_ref {
+        use core::marker::PhantomData;
         use std::cell::RefCell;
 
         use miniconf::{Schema, TreeSchema};
 
-        pub const SCHEMA: &Schema = <&RefCell<i32>>::SCHEMA;
+        pub const fn schema<T>() -> &'static Schema {
+            let _ = PhantomData::<T>;
+            <&RefCell<i32>>::SCHEMA
+        }
         pub use miniconf::{
             deny::{mut_any_by_key, ref_any_by_key},
             passthrough::{deserialize_by_key, probe_by_key, serialize_by_key},

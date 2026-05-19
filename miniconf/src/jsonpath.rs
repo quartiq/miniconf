@@ -2,9 +2,9 @@ use core::fmt::Write;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, FromConfig, IntoKeys, KeysIter, Schema, Transcode};
+use crate::{DescendError, IntoKeys, Keys, KeysIter, Schema, Transcode};
 
-/// JSON style path notation iterator
+/// JSON-style path iterator for boundary key input.
 ///
 /// This is only styled after JSON notation, it does not adhere to it.
 /// Supported are both dot and key notation with and without
@@ -81,13 +81,14 @@ impl<'a> Iterator for JsonPathIter<'a> {
 
 impl core::iter::FusedIterator for JsonPathIter<'_> {}
 
-/// JSON style path notation
+/// JSON-style path notation output.
 ///
 /// `T` can be `Write` for `Transcode` with the following behavior:
 /// * Named fields (struct) are encoded in dot notation.
 /// * Indices (tuple struct, array) are encoded in index notation
 ///
-/// `T` can be `AsRef<str>` for `IntoKeys` with the behavior described in [`JsonPathIter`].
+/// Use [`JsonPathIter`] for boundary key input. `JsonPath<T>` is the output/transcode
+/// representation.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash,
 )]
@@ -108,17 +109,11 @@ impl<T: core::fmt::Display> core::fmt::Display for JsonPath<T> {
     }
 }
 
-impl<'a, T: AsRef<str> + ?Sized> IntoKeys for JsonPath<&'a T> {
-    type IntoKeys = KeysIter<JsonPathIter<'a>>;
-    fn into_keys(self) -> Self::IntoKeys {
-        JsonPathIter(self.0.as_ref()).into_keys()
-    }
-}
+impl<'a> IntoKeys for JsonPathIter<'a> {
+    type IntoKeys = KeysIter<Self>;
 
-impl<'a, T: AsRef<str> + ?Sized> IntoKeys for &'a JsonPath<T> {
-    type IntoKeys = <JsonPath<&'a str> as IntoKeys>::IntoKeys;
     fn into_keys(self) -> Self::IntoKeys {
-        JsonPathIter(self.0.as_ref()).into_keys()
+        KeysIter::new(self)
     }
 }
 
@@ -128,9 +123,9 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_internal| {
+        schema.descend(keys, |_meta, idx_internal| {
             if let Some((index, internal)) = idx_internal {
                 if let Some(name) = internal.get_name(index) {
                     debug_assert!(!name.contains(['.', '\'', '[', ']']));
@@ -144,14 +139,5 @@ impl<T: Write + ?Sized> Transcode for JsonPath<T> {
             }
             Ok(())
         })
-    }
-}
-
-impl<T: Default> FromConfig for JsonPath<T> {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::default()
     }
 }

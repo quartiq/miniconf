@@ -1,5 +1,5 @@
 use anyhow::Context;
-use miniconf::{ConstPath, SerdeError, TreeSchema, ValueError, json_core};
+use miniconf::{ConstPath, ConstPathIter, SerdeError, TreeSchema, ValueError, json_core};
 
 mod common;
 use common::Settings;
@@ -16,21 +16,31 @@ fn main() -> anyhow::Result<()> {
     while let Some(key) = args.next() {
         let key = key.strip_prefix('-').context("stripping initial dash")?;
         let value = args.next().context("looking for value")?;
-        json_core::set_by_key(&mut settings, ConstPath::<_, '-'>(key), value.as_bytes())
-            .context("lookup/deserialize")?;
+        json_core::set_by_key(
+            &mut settings,
+            ConstPathIter::<'_, '-'>::root(key),
+            value.as_bytes(),
+        )
+        .context("lookup/deserialize")?;
     }
 
     // Dump settings
     let mut buf = vec![0; 1024];
-    const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
+    const MAX_DEPTH: usize = Settings::SCHEMA.max_depth();
     for item in Settings::SCHEMA.nodes::<ConstPath<String, '-'>, MAX_DEPTH>() {
         let key = item.unwrap();
-        match json_core::get_by_key(&settings, &key, &mut buf[..]) {
+        match json_core::get_by_key(
+            &settings,
+            ConstPathIter::<'_, '-'>::root(key.as_ref()),
+            &mut buf[..],
+        ) {
             Ok(len) => {
                 println!("-{} {}", key, core::str::from_utf8(&buf[..len]).unwrap());
             }
             Err(SerdeError::Value(ValueError::Absent)) => {
-                let info = Settings::SCHEMA.get(&key).unwrap();
+                let info = Settings::SCHEMA
+                    .get(ConstPathIter::<'_, '-'>::root(key.as_ref()))
+                    .unwrap();
                 println!("-{} absent (depth: {})", key, info.depth);
             }
             err => {

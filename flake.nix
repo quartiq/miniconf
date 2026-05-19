@@ -20,8 +20,8 @@
       };
       miniconf-mqtt-py = pkgs.python3Packages.buildPythonPackage {
         pname = "miniconf";
-        version = "0.18.0";
-        src = self + "/py/miniconf-mqtt";
+        version = "0.20.1";
+        src = self + "/py";
         format = "pyproject";
         buildInputs = [
           pkgs.python3Packages.setuptools

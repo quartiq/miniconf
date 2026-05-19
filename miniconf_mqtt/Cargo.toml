@@ -2,40 +2,60 @@
 name = "miniconf_mqtt"
 version = "0.20.0"
 description = "MQTT interface for `miniconf`, using `minimq`"
+autoexamples = false
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 categories.workspace = true
 keywords.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [lints]
 workspace = true
 
 [lib]
 
+[features]
+default = []
+
 [dependencies]
 miniconf = { version = "0.20.1", features = [
     "json-core",
 ], default-features = false, path = "../miniconf" }
-minimq = "0.10.0"
+minimq = "0.11"
+embassy-time = "0.5.1"
 embedded-io = "0.7"
-log = "0.4"
-heapless = "0.9"
-strum = { version = "0.28", features = ["derive"], default-features = false }
+defmt = "1.0.1"
+heapless = "0.9.1"
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde-json-core = { version = "0.6.0" }
+thiserror = { version = "2", default-features = false }
+yafnv = { version = "3", default-features = false }
 
 [[example]]
-name = "mqtt"
+name = "miniconf"
 
 [dev-dependencies]
+defmt2log = "0.2.0"
+embassy-time = { version = "0.5.1", features = ["std", "generic-queue-8"] }
 env_logger = "0.11"
-std-embedded-nal = "0.4"
-tokio = { version = "1.9", features = ["rt-multi-thread", "time", "macros"] }
-std-embedded-time = "0.1"
+tokio = { version = "1.9", features = [
+    "rt-multi-thread",
+    "time",
+    "macros",
+    "net",
+] }
+embedded-io-adapters = { version = "0.7.0", features = ["tokio-1"] }
 miniconf = { features = [
     "json-core",
     "derive",
     "heapless-09",
+    "sem",
+    "meta-node",
+    "meta-edge",
 ], path = "../miniconf" }
-serde = "1"
 heapless = { version = "0.9", features = ["serde"] }
+
+[package.metadata.docs.rs]
+all-features = true

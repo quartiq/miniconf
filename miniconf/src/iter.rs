@@ -1,4 +1,6 @@
-use crate::{DescendError, FromConfig, IntoKeys, KeyError, Schema, Transcode};
+use core::marker::PhantomData;
+
+use crate::{DescendError, Internal, IntoKeys, KeyError, Schema, Transcode};
 
 /// Counting wrapper for iterators with known exact size
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,37 +46,50 @@ impl<T: Iterator> core::iter::FusedIterator for ExactSize<T> {}
 /// The `Err(N::Error)` variant of the `Iterator::Item` indicates that `N`
 /// failed to encode a yielded node.
 #[derive(Clone, Debug, PartialEq)]
-pub struct NodeIter<N: FromConfig, const D: usize> {
+pub struct NodeIter<N, const D: usize> {
     // We can't use Packed as state since we need to be able to modify the
     // indices directly. Packed erases knowledge of the bit widths of the individual
     // indices.
+    root_schema: &'static Schema,
+    root_depth: usize,
+    parents: [Option<&'static Internal>; D],
+    indices: [usize; D],
     schema: &'static Schema,
-    state: [usize; D],
-    root: usize,
     depth: usize,
-    config: N::Config,
+    target: PhantomData<N>,
 }
 
-impl<N: FromConfig, const D: usize> NodeIter<N, D> {
+impl<N, const D: usize> NodeIter<N, D> {
     /// Create a new iterator.
-    ///
-    /// # Panic
-    /// If the root depth exceeds the state length.
-    pub const fn new(
-        schema: &'static Schema,
-        state: [usize; D],
-        root: usize,
-        config: N::Config,
-    ) -> Self {
-        assert!(root <= D);
+    pub const fn new(root_schema: &'static Schema) -> Self {
         Self {
-            schema,
-            state,
-            root,
-            // Marker to prevent initial increment in `next()`.
+            root_schema,
+            root_depth: 0,
+            parents: [None; D],
+            indices: [0; D],
+            schema: root_schema,
             depth: D + 1,
-            config,
+            target: PhantomData,
         }
+    }
+
+    fn rooted(
+        root_schema: &'static Schema,
+        indices: [usize; D],
+        root_depth: usize,
+        schema: &'static Schema,
+    ) -> Self {
+        let mut iter = Self {
+            root_schema,
+            root_depth,
+            parents: [None; D],
+            indices,
+            schema,
+            depth: D + 1,
+            target: PhantomData,
+        };
+        iter.fill_parents(root_depth);
+        iter
     }
 
     /// Limit and start iteration from the provided root key.
@@ -86,13 +101,12 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     pub fn with_root(
         schema: &'static Schema,
         root: impl IntoKeys,
-        config: N::Config,
     ) -> Result<Self, DescendError<()>> {
-        let mut state = [0; D];
+        let mut indices = [0; D];
         let info = schema
-            .resolve_into(root, state.as_mut())
+            .resolve_into(root, indices.as_mut())
             .map_err(|err| err.error)?;
-        Ok(Self::new(schema, state, info.depth, config))
+        Ok(Self::rooted(schema, indices, info.depth, info.schema))
     }
 
     /// Wrap the iterator in an exact size counting iterator that is
@@ -103,18 +117,18 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
     /// is not the tree root.
     ///
     pub const fn exact_size(self) -> ExactSize<Self> {
-        let shape = self.schema.shape();
+        let shape = self.root_schema.shape();
         if D < shape.max_depth {
             panic!("insufficient depth for exact size iteration");
         }
         let mut i = 0;
         while i < D {
-            if self.state[i] != 0 {
+            if self.indices[i] != 0 {
                 panic!("exact size requires a fresh root iterator");
             }
             i += 1;
         }
-        if self.root != 0 || self.depth != D + 1 {
+        if self.root_depth != 0 || self.depth != D + 1 {
             panic!("exact size requires a fresh root iterator");
         }
         ExactSize {
@@ -123,76 +137,98 @@ impl<N: FromConfig, const D: usize> NodeIter<N, D> {
         }
     }
 
-    /// Return the underlying schema
-    pub const fn schema(&self) -> &'static Schema {
-        self.schema
+    /// Return the schema tree being iterated.
+    pub const fn root_schema(&self) -> &'static Schema {
+        self.root_schema
     }
 
-    /// Return the current state
-    pub fn state(&self) -> Option<&[usize]> {
-        (self.depth <= D).then(|| &self.state[..self.depth])
+    /// Return the current yielded key indices.
+    pub fn indices(&self) -> Option<&[usize]> {
+        self.indices.get(..self.depth)
     }
 
-    /// Return the root depth
-    pub const fn root(&self) -> usize {
-        self.root
+    /// Return the current yielded leaf schema.
+    pub fn schema(&self) -> Option<&'static Schema> {
+        (self.depth <= D).then_some(self.schema)
+    }
+
+    /// Return the selected subtree root depth.
+    pub const fn root_depth(&self) -> usize {
+        self.root_depth
+    }
+
+    fn fill_parents(&mut self, depth: usize) -> &'static Schema {
+        let mut schema = self.root_schema;
+        let mut i = 0;
+        while i < depth {
+            let Some(internal) = schema.internal() else {
+                unreachable!("validated iterator path must stay internal until root depth");
+            };
+            schema = internal.get_schema(self.indices[i]);
+            self.parents[i] = Some(internal);
+            i += 1;
+        }
+        schema
     }
 
     fn descend_leftmost(&mut self) {
-        let mut schema = self.schema.get_indexed(&self.state[..self.depth]);
-        while self.depth < D && !schema.is_leaf() {
-            self.state[self.depth] = 0;
+        let mut schema = self.schema;
+        while self.depth < D {
+            let Some(internal) = schema.internal() else {
+                break;
+            };
+            self.parents[self.depth] = Some(internal);
+            self.indices[self.depth] = 0;
+            schema = internal.get_schema(0);
             self.depth += 1;
-            schema = schema.internal.as_ref().unwrap().get_schema(0);
         }
+        self.schema = schema;
     }
 
     fn bump(&mut self) -> bool {
         let mut depth = self.depth;
-        while depth > self.root {
+        while depth > self.root_depth {
             let parent = depth - 1;
-            let internal = self
-                .schema
-                .get_indexed(&self.state[..parent])
-                .internal
-                .as_ref()
-                .unwrap();
-            let next = self.state[parent] + 1;
+            let Some(internal) = self.parents[parent] else {
+                unreachable!("iterator parent cache must be populated below the active depth");
+            };
+            let next = self.indices[parent] + 1;
             if next < internal.len().get() {
-                self.state[parent] = next;
+                self.indices[parent] = next;
                 self.depth = parent + 1;
+                self.schema = internal.get_schema(next);
                 return true;
             }
             depth = parent;
         }
-        self.depth = self.root;
+        self.depth = self.root_depth;
         false
     }
 }
 
-impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
+impl<N: Transcode + Default, const D: usize> Iterator for NodeIter<N, D> {
     type Item = Result<N, N::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            debug_assert!(self.depth >= self.root);
-            debug_assert!(self.depth <= self.state.len() + 1);
-            if self.depth == self.root {
+            debug_assert!(self.depth >= self.root_depth);
+            debug_assert!(self.depth <= D + 1);
+            if self.depth == self.root_depth {
                 return None;
             }
-            if self.depth <= self.state.len() {
+            if self.depth <= D {
                 if !self.bump() {
                     return None;
                 }
             } else {
-                self.depth = self.root;
+                self.depth = self.root_depth;
             }
 
             self.descend_leftmost();
-            debug_assert!(self.depth >= self.root);
-            debug_assert!(self.depth <= self.state.len());
-            let mut item = N::from_config(&self.config);
-            match item.transcode_from(self.schema, &self.state[..self.depth]) {
+            debug_assert!(self.depth >= self.root_depth);
+            debug_assert!(self.depth <= D);
+            let mut item = N::default();
+            match item.transcode_from(self.root_schema, &self.indices[..self.depth]) {
                 Ok(()) => return Some(Ok(item)),
                 Err(DescendError::Key(KeyError::TooShort)) => {}
                 Err(DescendError::Inner(e)) => return Some(Err(e)),
@@ -203,4 +239,4 @@ impl<N: Transcode + FromConfig, const D: usize> Iterator for NodeIter<N, D> {
 }
 
 // Contract: Do not allow manipulation of `depth` other than through iteration.
-impl<N: Transcode + FromConfig, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}
+impl<N: Transcode + Default, const D: usize> core::iter::FusedIterator for NodeIter<N, D> {}

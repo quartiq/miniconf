@@ -1,4 +1,7 @@
-use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core};
+use miniconf::TreeSchema;
+use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core, leaf};
+#[cfg(all(feature = "schema", feature = "sem"))]
+use schemars::transform::Transform;
 
 mod common;
 use common::*;
@@ -94,6 +97,37 @@ fn option_test_defer_option() {
 }
 
 #[test]
+fn option_test_nullable_option() {
+    #[derive(Copy, Clone, Default, Tree)]
+    struct S {
+        #[tree(with = leaf, meta(nullable))]
+        data: Option<u32>,
+    }
+    assert_eq!(paths::<S, 1>(), ["/data"]);
+
+    let mut s = S::default();
+    set_get(&mut s, "/data", b"7");
+    assert_eq!(s.data, Some(7));
+
+    set_get(&mut s, "/data", b"null");
+    assert_eq!(s.data, None);
+}
+
+#[test]
+fn option_test_nullable_root() {
+    #[derive(Copy, Clone, Default, Tree)]
+    #[tree(flatten)]
+    struct S(#[tree(with = leaf, meta(nullable))] Option<u32>);
+
+    let mut s = S::default();
+    set_get(&mut s, "", b"7");
+    assert_eq!(s.0, Some(7));
+
+    set_get(&mut s, "", b"null");
+    assert_eq!(s.0, None);
+}
+
+#[test]
 fn option_absent() {
     #[derive(Copy, Clone, Default, Tree)]
     struct I(());
@@ -151,4 +185,110 @@ fn array_option() {
         c: [Option<u32>; 1],
         d: [Option<Leaf<u32>>; 1],
     }
+}
+
+#[test]
+fn option_nullable_meta() {
+    #[derive(Copy, Clone, Default, Tree)]
+    struct NullableField {
+        #[tree(with = leaf, meta(nullable))]
+        data: Option<u32>,
+    }
+
+    let miniconf::Internal::Named(children) = NullableField::SCHEMA.internal().unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name(), "data");
+    assert_eq!(children[0].edge_meta().get("nullable"), Some("true"));
+
+    #[derive(Copy, Clone, Default, Tree)]
+    #[tree(flatten)]
+    struct NullableRoot(#[tree(with = leaf, meta(nullable))] Option<u32>);
+
+    assert_eq!(
+        NullableRoot::SCHEMA.node_meta().get("nullable"),
+        Some("true")
+    );
+}
+
+#[cfg(feature = "sem")]
+#[test]
+fn option_sem() {
+    let schema = Option::<u32>::SCHEMA;
+    assert_eq!(schema.sem().unwrap().ty(), Some(miniconf::Ty::U32));
+    assert!(schema.sem().unwrap().maybe_absent());
+
+    let schema = Option::<Inner>::SCHEMA;
+    assert_eq!(schema.sem().unwrap().ty(), None);
+    assert!(schema.sem().unwrap().maybe_absent());
+    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name(), "data");
+}
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn option_json_schema_matches_omitted_named_child() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    let settings = Settings::default();
+    let json = to_json_value(&settings).unwrap();
+    assert_eq!(json, serde_json::json!({}));
+
+    let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
+    assert_eq!(schema.root.get("tree-leaf"), None);
+    assert_eq!(
+        schema
+            .root
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|properties| properties.get("value"))
+            .and_then(|value| value.get("tree-leaf")),
+        None
+    );
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
+}
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn option_json_schema_matches_nullable_leaf() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    #[derive(Copy, Clone, Default, Tree)]
+    struct Settings {
+        #[tree(with = leaf, meta(nullable))]
+        value: Option<u32>,
+    }
+
+    let settings = Settings::default();
+    let json = to_json_value(&settings).unwrap();
+    assert_eq!(json, serde_json::json!({"value": null}));
+
+    let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
+    assert_eq!(schema.root.get("tree-leaf"), None);
+    assert_eq!(
+        schema
+            .root
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|properties| properties.get("value"))
+            .and_then(|value| value.get("tree-leaf")),
+        Some(&serde_json::json!(true))
+    );
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
 }

@@ -2,7 +2,7 @@ use core::num::NonZero;
 
 use crate::{Internal, Packed, Schema};
 
-/// Metadata about a `TreeSchema` namespace.
+/// Metadata about a [`crate::TreeSchema`] namespace.
 ///
 /// Metadata includes paths that may be [`crate::ValueError::Absent`] at runtime.
 #[non_exhaustive]
@@ -24,7 +24,7 @@ pub struct Shape {
     /// The exact total number of leaf nodes.
     pub count: NonZero<usize>,
 
-    /// The maximum number of bits (see [`crate::Packed`])
+    /// The maximum number of bits (see [`Packed`])
     pub max_bits: u32,
 }
 
@@ -55,7 +55,7 @@ impl Shape {
             count: NonZero::<usize>::MIN,
             max_bits: 0,
         };
-        if let Some(internal) = schema.internal.as_ref() {
+        if let Some(internal) = schema.internal() {
             match internal {
                 Internal::Named(nameds) => {
                     let bits = Packed::bits_for(nameds.len() - 1);
@@ -94,7 +94,10 @@ impl Shape {
                 Internal::Homogeneous(homogeneous) => {
                     m = Self::new(homogeneous.schema);
                     m.max_depth += 1;
-                    m.max_length += 1 + homogeneous.len.ilog10() as usize;
+                    m.max_length += match (homogeneous.len.get() - 1).checked_ilog10() {
+                        Some(digits) => 1 + digits as usize,
+                        None => 1,
+                    };
                     m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);
                     m.count = m.count.checked_mul(homogeneous.len).unwrap();
                 }

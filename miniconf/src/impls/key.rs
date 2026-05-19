@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, FromConfig, Internal, IntoKeys, Key, Schema, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, Keys, Schema, Transcode};
 
 // index
 macro_rules! impl_key_integer {
@@ -19,7 +19,7 @@ macro_rules! impl_key_integer {
 }
 impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
-/// Indices of `usize` to identify a node in a `TreeSchema`
+/// Sequence of child indices identifying a node in a `TreeSchema`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub struct Indices<T: ?Sized> {
     len: usize,
@@ -39,7 +39,7 @@ impl<T> Indices<T> {
 }
 
 impl<T: ?Sized> Indices<T> {
-    /// The length of the indices keys
+    /// The number of selector segments in this index path.
     pub fn len(&self) -> usize {
         self.len
     }
@@ -90,10 +90,10 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
         self.len = 0;
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
                 let idx = self.data.as_mut().get_mut(self.len).ok_or(())?;
                 *idx = index;
@@ -104,23 +104,14 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     }
 }
 
-impl<T: Default> FromConfig for Indices<T> {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::from(T::default())
-    }
-}
-
 macro_rules! impl_transcode_slice {
     ($($t:ty)+) => {$(
         impl Transcode for [$t] {
             type Error = ();
 
-            fn transcode_from(&mut self, schema: &Schema, keys: impl IntoKeys) -> Result<(), DescendError<Self::Error>> {
+            fn transcode_from(&mut self, schema: &Schema, keys: impl Keys) -> Result<(), DescendError<Self::Error>> {
                 let mut it = self.iter_mut();
-                schema.descend(keys.into_keys(), |_meta, idx_schema| {
+                schema.descend(keys, |_meta, idx_schema| {
                     if let Some((index, internal)) = idx_schema {
                         debug_assert!(internal.len().get() <= <$t>::MAX as _);
                         let i = index.try_into().or(Err(()))?;
@@ -145,24 +136,14 @@ where
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
                 self.push(index.try_into()?);
             }
             Ok(())
         })
-    }
-}
-
-#[cfg(feature = "alloc")]
-impl<T> FromConfig for Vec<T> {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::default()
     }
 }
 
@@ -176,25 +157,15 @@ where
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
                 let i = index.try_into().or(Err(()))?;
                 self.push(i).or(Err(()))?;
             }
             Ok(())
         })
-    }
-}
-
-#[cfg(feature = "heapless")]
-impl<T, const N: usize> FromConfig for heapless::Vec<T, N> {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::default()
     }
 }
 
@@ -208,25 +179,15 @@ where
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, _schema)) = idx_schema {
                 let i = index.try_into().or(Err(()))?;
                 self.push(i).or(Err(()))?;
             }
             Ok(())
         })
-    }
-}
-
-#[cfg(feature = "heapless-09")]
-impl<T, const N: usize> FromConfig for heapless_09::Vec<T, N> {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::default()
     }
 }
 
@@ -239,13 +200,13 @@ impl Key for str {
     }
 }
 
-/// Path with named keys separated by a separator char
+/// Output path with named selector segments separated by a separator char.
 ///
 /// The path will either be empty or start with the separator.
 ///
 /// * `path: T`: A `Write` to write the separators and node names into during `Transcode`.
-///   See also [`crate::FromConfig::transcode()`], [`crate::Schema::transcode()`], and `Shape.max_length` for upper bounds
-///   on path length. Can also be a `AsRef<str>` to implement `IntoKeys` (see [`crate::KeysIter`]).
+///   See also [`Schema::transcode()`] and `Shape.max_length` for upper bounds
+///   on path length. Use [`PathIter`] for boundary key input.
 /// * `separator`: The path hierarchy separator to be inserted before each name,
 ///   e.g. `'/'`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -297,16 +258,7 @@ impl<T: core::fmt::Display> core::fmt::Display for Path<T> {
     }
 }
 
-impl<T: Default> FromConfig for Path<T> {
-    type Config = char;
-    const DEFAULT_CONFIG: Self::Config = '/';
-
-    fn from_config(config: &Self::Config) -> Self {
-        Self::new(T::default(), *config)
-    }
-}
-
-/// Const-specialized path with named keys separated by a const separator.
+/// Const-specialized output path with named selector segments separated by a const separator.
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -336,15 +288,6 @@ impl<T: core::fmt::Display, const S: char> core::fmt::Display for ConstPath<T, S
     }
 }
 
-impl<T: Default, const S: char> FromConfig for ConstPath<T, S> {
-    type Config = ();
-    const DEFAULT_CONFIG: Self::Config = ();
-
-    fn from_config(_: &Self::Config) -> Self {
-        Self::default()
-    }
-}
-
 fn split_path(path: &str, separator: char) -> (&str, Option<&str>) {
     let pos = path
         .chars()
@@ -354,7 +297,7 @@ fn split_path(path: &str, separator: char) -> (&str, Option<&str>) {
     (left, right.get(separator.len_utf8()..))
 }
 
-/// String split/skip wrapper, smaller/simpler than `.split(separator).skip(1)`
+/// Runtime-separated path iterator for boundary key input.
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct PathIter<'a> {
     path: Option<&'a str>,
@@ -380,7 +323,7 @@ impl<'a> PathIter<'a> {
         // or are empty. Everything before the first separator is ignored.
         // This also means that paths can always be concatenated without having to
         // worry about adding/trimming leading or trailing separators.
-        s.next();
+        Iterator::next(&mut s);
         s
     }
 }
@@ -397,7 +340,21 @@ impl<'a> Iterator for PathIter<'a> {
 
 impl core::iter::FusedIterator for PathIter<'_> {}
 
-/// Const-specialized string split/skip wrapper.
+impl Keys for PathIter<'_> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, crate::KeyError> {
+        let key = Iterator::next(self).ok_or(crate::KeyError::TooShort)?;
+        <str as crate::Key>::find(key, internal).ok_or(crate::KeyError::NotFound)
+    }
+
+    fn finalize(&mut self) -> Result<(), crate::KeyError> {
+        match Iterator::next(self) {
+            Some(_) => Err(crate::KeyError::TooLong),
+            None => Ok(()),
+        }
+    }
+}
+
+/// Const-specialized path iterator for boundary key input.
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -412,7 +369,7 @@ impl<'a, const S: char> ConstPathIter<'a, S> {
     /// Create a new const-specialized `PathIter` starting at the root.
     pub fn root(path: &'a str) -> Self {
         let mut s = Self::new(Some(path));
-        s.next();
+        Iterator::next(&mut s);
         s
     }
 }
@@ -440,35 +397,33 @@ impl<'a, const S: char> Iterator for ConstPathIter<'a, S> {
 
 impl<const S: char> core::iter::FusedIterator for ConstPathIter<'_, S> {}
 
-impl<'a, T: AsRef<str> + ?Sized> IntoKeys for Path<&'a T> {
-    type IntoKeys = <PathIter<'a> as IntoKeys>::IntoKeys;
+impl<const S: char> Keys for ConstPathIter<'_, S> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, crate::KeyError> {
+        let key = Iterator::next(self).ok_or(crate::KeyError::TooShort)?;
+        <str as crate::Key>::find(key, internal).ok_or(crate::KeyError::NotFound)
+    }
 
-    fn into_keys(self) -> Self::IntoKeys {
-        PathIter::root(self.path.as_ref(), self.separator).into_keys()
+    fn finalize(&mut self) -> Result<(), crate::KeyError> {
+        match Iterator::next(self) {
+            Some(_) => Err(crate::KeyError::TooLong),
+            None => Ok(()),
+        }
     }
 }
 
-impl<'a, T: AsRef<str>> IntoKeys for &'a Path<T> {
-    type IntoKeys = <Path<&'a str> as IntoKeys>::IntoKeys;
+impl<'a> IntoKeys for PathIter<'a> {
+    type IntoKeys = Self;
 
     fn into_keys(self) -> Self::IntoKeys {
-        PathIter::root(self.path.as_ref(), self.separator).into_keys()
+        self
     }
 }
 
-impl<'a, T: AsRef<str> + ?Sized, const S: char> IntoKeys for ConstPath<&'a T, S> {
-    type IntoKeys = <ConstPathIter<'a, S> as IntoKeys>::IntoKeys;
+impl<'a, const S: char> IntoKeys for ConstPathIter<'a, S> {
+    type IntoKeys = Self;
 
     fn into_keys(self) -> Self::IntoKeys {
-        ConstPathIter::root(self.0.as_ref()).into_keys()
-    }
-}
-
-impl<'a, T: AsRef<str>, const S: char> IntoKeys for &'a ConstPath<T, S> {
-    type IntoKeys = <ConstPath<&'a str, S> as IntoKeys>::IntoKeys;
-
-    fn into_keys(self) -> Self::IntoKeys {
-        ConstPathIter::root(self.0.as_ref()).into_keys()
+        self
     }
 }
 
@@ -478,9 +433,9 @@ impl<T: Write> Transcode for Path<T> {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 self.path.write_char(self.separator)?;
                 let mut buf = itoa::Buffer::new();
@@ -502,9 +457,9 @@ impl<T: Write, const S: char> Transcode for ConstPath<T, S> {
     fn transcode_from(
         &mut self,
         schema: &Schema,
-        keys: impl IntoKeys,
+        keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
-        schema.descend(keys.into_keys(), |_meta, idx_schema| {
+        schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 self.0.write_char(S)?;
                 let mut buf = itoa::Buffer::new();

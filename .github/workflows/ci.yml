@@ -9,6 +9,13 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   style:
     runs-on: ubuntu-latest
@@ -17,23 +24,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt -- --check
       - run: cargo check
 
-      - run: cargo clippy --all-features
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - uses: actions/setup-python@v4
-      - name: Install Pylint
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: py/pyproject.toml
+      - name: Install Python tools
+        working-directory: py
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pylint
+          python -m pip install -e ".[dev,test]"
 
-      - name: Run Pylint
-        working-directory: py/miniconf-mqtt
-        run: |
-          python -m pip install .
-          python -m pylint miniconf
+      - name: Check Python
+        working-directory: py
+        run: python -m ruff format --check miniconf test.py
+      - working-directory: py
+        run: python -m ruff check miniconf test.py
+      - working-directory: py
+        run: python -m compileall miniconf test.py
 
   documentation:
     runs-on: ubuntu-latest
@@ -41,8 +56,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
 
-      - run: cargo doc
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
 
   compile:
     runs-on: ubuntu-latest
@@ -57,11 +73,15 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
       - run: cargo check --verbose
       - run: cargo build --no-default-features
       - run: cargo build
       - run: cargo build --release
       - run: cargo build --examples
+      - run: cargo run --example cli
+      - run: cargo run --example scpi
+      - run: cargo run --example trace --features schema
 
   test:
     runs-on: ubuntu-latest
@@ -83,7 +103,29 @@ jobs:
         with:
           toolchain: ${{matrix.toolchain}}
           components: rust-src
+      - uses: Swatinem/rust-cache@v2
       - run: cargo test ${{matrix.args }}
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo package -p miniconf_derive --no-verify
+      - run: cargo package -p miniconf --no-verify
+      - run: cargo package -p miniconf_mqtt --no-verify
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: py/pyproject.toml
+      - name: Build Python package
+        working-directory: py
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build
 
   test-embedded:
     runs-on: ubuntu-latest
@@ -93,10 +135,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           target: thumbv7m-none-eabi
+      - uses: Swatinem/rust-cache@v2
       - name: Install QEMU
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-arm binutils-arm-none-eabi
+      - run: cargo build --bins
+        env:
+          RUSTFLAGS: -D warnings
+        working-directory: miniconf/tests/benchmark
       - run: ./run.sh
         env:
           RUSTFLAGS: -D warnings
@@ -115,4 +162,5 @@ jobs:
           sudo apt-get install mosquitto mosquitto-clients
           sudo service mosquitto start
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - run: sh py/test.sh

@@ -18,7 +18,6 @@ fn main() -> anyhow::Result<()> {
         .insert("title".to_string(), "Miniconf example: Settings".into());
 
     use schemars::transform::Transform;
-    //miniconf::json_schema::Strictify.transform(&mut schema.root);
     miniconf::json_schema::AllowAbsent.transform(&mut schema.root);
 
     println!(

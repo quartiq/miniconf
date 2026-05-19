@@ -1,725 +1,90 @@
 #![no_std]
-#![warn(missing_docs)] // avoid hits for tests/examples but see alwo workspace lints
+#![warn(missing_docs)]
 
-//! The Minimq MQTT client for `miniconf``.
+//! Serve a `miniconf` tree over MQTT.
+//!
+//! The MQTT [`minimq::Session`] is caller-owned. This crate owns only Miniconf MQTT protocol
+//! state; the wire protocol and topic layout are documented in the package README.
+//!
+//! # Simple service
+//!
+//! Use [`Miniconf::startup`] once after each MQTT connection event, then call [`Miniconf::serve`]
+//! in steady state.
+//!
+//! ```rust,no_run
+//! use miniconf::Tree;
+//! use miniconf_mqtt::{Error, Event, Miniconf, minimq};
+//!
+//! #[derive(Default, Tree)]
+//! struct Settings {
+//!     enabled: bool,
+//!     gain: u16,
+//! }
+//!
+//! async fn serve<IO>(
+//!     miniconf: &mut Miniconf<Settings>,
+//!     session: &mut minimq::Session<'_, IO>,
+//!     settings: &mut Settings,
+//!     event: minimq::ConnectEvent,
+//! ) -> Result<(), Error<IO::Error>>
+//! where
+//!     IO: minimq::Io,
+//! {
+//!     miniconf.startup(session, settings, event).await?;
+//!
+//!     loop {
+//!         match miniconf.serve(session, settings, |_| ()).await? {
+//!             Event::Changed(path) => {
+//!                 // `path` is the changed leaf's index path.
+//!                 let _ = path;
+//!             }
+//!             Event::Unhandled(()) => {}
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! The `serve` callback is synchronous and runs at most once. Return copied or otherwise owned
+//! application data through [`Event::Unhandled`] when unhandled traffic needs async follow-up work.
+//!
+//! Use [`LoadRetained`], [`Startup`], [`Service`], and [`Publisher`] directly when an application
+//! must recover retained settings, bound queued protocol follow-up work, or preserve unrelated
+//! inbound publishes.
+//!
+//! Limitations:
+//! - one MQTT prefix is expected to have one authoritative device publisher
+//! - retained manifest, schema, and settings publication is incremental rather than atomic
 
-use core::{fmt::Display, marker::PhantomData};
-
-use heapless::{String, Vec};
-use log::{error, info, warn};
-use miniconf::{
-    DescendError, IntoKeys, KeyError, Lookup, NodeIter, Path, Schema, SerdeError,
-    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
-};
-pub use minimq;
-use minimq::{
-    ConfigBuilder, ProtocolError, Publication, QoS,
-    embedded_nal::TcpClientStack,
-    embedded_time,
-    types::{Properties, SubscriptionOptions, TopicFilter},
-};
-use strum::IntoStaticStr;
-
-use embedded_io::Write;
-
-// The maximum topic length of any topic (prefix + "/settings" + miniconf path).
-const MAX_TOPIC_LENGTH: usize = 128;
-const SEPARATOR: char = '/';
-
-// The maximum amount of correlation data that will be cached for listing. This is set to function
-// with the miniconf-mqtt python client (i.e. 32 bytes can encode a UUID).
-const MAX_CD_LENGTH: usize = 32;
-
-// The delay after not receiving messages after initial connection that settings will be
-// dumped.
-const DUMP_TIMEOUT_SECONDS: u32 = 2;
-
-/// Miniconf MQTT joint error type
-#[derive(Debug, PartialEq)]
-pub enum Error<E> {
-    /// Miniconf
-    Miniconf(DescendError<()>),
-    /// Minimq
-    Minimq(minimq::Error<E>),
-}
-
-impl<E> From<DescendError<()>> for Error<E> {
-    fn from(value: DescendError<()>) -> Self {
-        Self::Miniconf(value)
-    }
-}
-
-impl<E> From<minimq::Error<E>> for Error<E> {
-    fn from(value: minimq::Error<E>) -> Self {
-        Self::Minimq(value)
-    }
-}
-
-mod sm {
-    use super::DUMP_TIMEOUT_SECONDS;
-    use minimq::embedded_time::{self, Instant, duration::Extensions};
-
-    #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-    pub enum Phase {
-        Connect,
-        Alive,
-        Subscribe,
-        Wait,
-        Init,
-        Multipart,
-        Single,
-    }
-
-    pub struct Machine<C: embedded_time::Clock> {
-        phase: Phase,
-        clock: C,
-        timeout: Option<Instant<C>>,
-    }
-
-    impl<C: embedded_time::Clock> Machine<C> {
-        pub fn new(clock: C) -> Self {
-            Self {
-                phase: Phase::Connect,
-                clock,
-                timeout: None,
-            }
-        }
-
-        pub fn phase(&self) -> Phase {
-            self.phase
-        }
-
-        pub fn reset(&mut self) {
-            self.phase = Phase::Connect;
-            self.timeout = None;
-        }
-
-        pub fn on_connected(&mut self) {
-            self.phase = Phase::Alive;
-        }
-
-        pub fn on_alive(&mut self) {
-            self.phase = Phase::Subscribe;
-        }
-
-        pub fn on_subscribed(&mut self) {
-            self.timeout = Some(self.clock.try_now().unwrap() + DUMP_TIMEOUT_SECONDS.seconds());
-            self.phase = Phase::Wait;
-        }
-
-        pub fn poll_timeout(&mut self) {
-            if self
-                .timeout
-                .map(|t| self.clock.try_now().unwrap() >= t)
-                .unwrap_or_default()
-            {
-                self.phase = Phase::Init;
-            }
-        }
-
-        pub fn start_multipart(&mut self) {
-            self.phase = Phase::Multipart;
-        }
-
-        pub fn complete(&mut self) {
-            self.phase = Phase::Single;
-        }
-    }
-}
-
-/// Cache correlation data and topic for multi-part responses.
-struct Multipart<const Y: usize> {
-    iter: NodeIter<Path<String<MAX_TOPIC_LENGTH>>, Y>,
-    response_topic: Option<String<MAX_TOPIC_LENGTH>>,
-    correlation_data: Option<Vec<u8, MAX_CD_LENGTH>>,
-}
-
-impl<const Y: usize> Multipart<Y> {
-    fn new(schema: &'static Schema) -> Self {
-        Self {
-            iter: NodeIter::new(schema, [0; Y], 0, SEPARATOR),
-            response_topic: None,
-            correlation_data: None,
-        }
-    }
-}
-
-impl<const Y: usize> Multipart<Y> {
-    fn root(mut self, keys: impl IntoKeys) -> Result<Self, DescendError<()>> {
-        self.iter = NodeIter::with_root(self.iter.schema(), keys, SEPARATOR)?;
-        Ok(self)
-    }
-
-    fn from_properties(
-        schema: &'static Schema,
-        value: &minimq::types::Properties<'_>,
-    ) -> Result<Self, &'static str> {
-        let response_topic = value
-            .into_iter()
-            .response_topic()
-            .map(TryInto::try_into)
-            .transpose()
-            .or(Err("Response topic too long"))?;
-        let correlation_data = value
-            .into_iter()
-            .find_map(|prop| {
-                if let Ok(minimq::Property::CorrelationData(cd)) = prop {
-                    Some(Vec::try_from(cd.0))
-                } else {
-                    None
-                }
-            })
-            .transpose()
-            .or(Err("Correlation data too long"))?;
-        Ok(Self {
-            iter: NodeIter::new(schema, [0; Y], 0, SEPARATOR),
-            response_topic,
-            correlation_data,
-        })
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, IntoStaticStr)]
-enum ResponseCode {
-    Ok,
-    Continue,
-    Error,
-}
-
-impl From<ResponseCode> for minimq::Property<'static> {
-    fn from(value: ResponseCode) -> Self {
-        minimq::Property::UserProperty(
-            minimq::types::Utf8String("code"),
-            minimq::types::Utf8String(value.into()),
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct DepthError<E> {
-    inner: SerdeError<E>,
-    depth: usize,
-    leaf: Option<bool>,
-}
-
-impl<E> Display for DepthError<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.leaf {
-            Some(leaf) => write!(f, "{} (depth {}, leaf {})", self.inner, self.depth, leaf),
-            None => write!(f, "{} (depth {})", self.inner, self.depth),
-        }
-    }
-}
-
-fn resolve<T, E, const Y: usize>(
-    schema: &'static Schema,
-    keys: impl IntoKeys,
-    func: impl FnOnce(&mut &[usize], Lookup) -> Result<T, SerdeError<E>>,
-) -> Result<T, DepthError<E>> {
-    let mut state = [0; Y];
-    let info = schema
-        .resolve_into(keys, &mut state)
-        .map_err(|err| DepthError {
-            inner: match err.error {
-                DescendError::Key(err) => SerdeError::Value(ValueError::Key(err)),
-                DescendError::Inner(()) => {
-                    SerdeError::Value(ValueError::Access("Insufficient state"))
-                }
-            },
-            depth: err.depth,
-            leaf: err.leaf,
-        })?;
-    let full = &state[..info.depth];
-    let mut rest = full;
-    func(&mut rest, info).map_err(|inner| DepthError {
-        inner,
-        depth: full.len() - rest.len(),
-        leaf: Some(info.schema.is_leaf()),
-    })
-}
-
-/// MQTT settings interface.
-///
-/// # Design
-/// The MQTT client places the [TreeSchema] paths `<path>` at the MQTT `<prefix>/settings/<path>` topic,
-/// where `<prefix>` is provided in the client constructor.
-///
-/// By default it publishes its alive-ness as a `1` retained to `<prefix>/alive` and and clears it
-/// when disconnected.
-///
-/// # Limitations
-/// The client supports paths up to `MAX_TOPIC_LENGTH = 128` byte length.
-/// Re-publication timeout is fixed to `DUMP_TIMEOUT_SECONDS = 2` seconds.
-///
-/// # Example
-/// ```
-/// use miniconf::{Leaf, Tree, TreeSchema};
-///
-/// #[derive(Tree, Clone, Default)]
-/// struct Settings {
-///     foo: bool,
-/// }
-///
-/// let mut buffer = [0u8; 1024];
-/// let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
-/// const MAX_DEPTH: usize = Settings::SCHEMA.shape().max_depth;
-/// let mut client = miniconf_mqtt::MqttClient::<_, _, _, _, MAX_DEPTH>::new(
-///     std_embedded_nal::Stack::default(),
-///     "quartiq/application/12345", // prefix
-///     std_embedded_time::StandardClock::default(),
-///     minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer),
-/// )
-/// .unwrap();
-/// let mut settings = Settings::default();
-/// client.update(&mut settings).unwrap();
-/// ```
-pub struct MqttClient<'a, Settings, Stack, Clock, Broker, const Y: usize>
-where
-    Stack: TcpClientStack,
-    Clock: embedded_time::Clock,
-    Broker: minimq::Broker,
-{
-    mqtt: minimq::Minimq<'a, Stack, Clock, Broker>,
-    state: sm::Machine<Clock>,
-    prefix: &'a str,
-    alive: &'a str,
-    pending: Multipart<Y>,
-    _settings: PhantomData<Settings>,
-}
-
-impl<'a, Settings, Stack, Clock, Broker, const Y: usize>
-    MqttClient<'a, Settings, Stack, Clock, Broker, Y>
-where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    Stack: TcpClientStack,
-    Clock: embedded_time::Clock + Clone,
-    Broker: minimq::Broker,
-{
-    /// Construct a new MQTT settings interface.
-    ///
-    /// # Args
-    /// * `stack` - The network stack to use for communication.
-    /// * `prefix` - The MQTT device prefix to use for this device
-    /// * `clock` - The clock for managing the MQTT connection.
-    /// * `config` - The configuration of the MQTT client.
-    pub fn new(
-        stack: Stack,
-        prefix: &'a str,
-        clock: Clock,
-        config: ConfigBuilder<'a, Broker>,
-    ) -> Result<Self, ProtocolError> {
-        const { assert!(Settings::SCHEMA.shape().max_depth <= Y) }
-        let shape = Settings::SCHEMA.shape();
-        if prefix.len() + "/settings".len() + shape.max_length("/") > MAX_TOPIC_LENGTH {
-            return Err(ProtocolError::BufferSize);
-        }
-
-        // Configure a will so that we can indicate whether or not we are connected.
-        let mut will: String<MAX_TOPIC_LENGTH> =
-            prefix.try_into().map_err(|_| ProtocolError::BufferSize)?;
-        will.push_str("/alive")
-            .map_err(|_| ProtocolError::BufferSize)?;
-        // Retained empty payload amounts to clearing the retained value (see MQTT spec).
-        let will = minimq::Will::new(&will, b"", &[])?
-            .retained()
-            .qos(QoS::AtMostOnce);
-        let config = config.autodowngrade_qos().will(will)?;
-
-        Ok(Self {
-            mqtt: minimq::Minimq::new(stack, clock.clone(), config),
-            state: sm::Machine::new(clock),
-            prefix,
-            alive: "1",
-            pending: Multipart::new(Settings::SCHEMA),
-            _settings: PhantomData,
-        })
-    }
-
-    /// Set the payload published on the `/alive` topic when connected to the broker.
-    ///
-    /// The default is to publish `1`.
-    /// The message is retained by the broker.
-    /// On disconnect the message is cleared retained through an MQTT will.
-    pub fn set_alive(&mut self, alive: &'a str) {
-        self.alive = alive;
-    }
-
-    /// Reset and restart state machine.
-    ///
-    /// This rests the state machine to start from the `Connect` state.
-    /// This will connect (if not connected), send the alive message, subscribe,
-    /// and perform the initial settings dump.
-    pub fn reset(&mut self) {
-        self.state.reset();
-    }
-
-    /// Update the MQTT interface and service the network.
-    ///
-    /// # Returns
-    /// True if the settings changed. False otherwise.
-    pub fn update(&mut self, settings: &mut Settings) -> Result<bool, Error<Stack::Error>> {
-        if !self.mqtt.client().is_connected() {
-            self.state.reset();
-        }
-
-        match self.state.phase() {
-            sm::Phase::Connect => {
-                if self.mqtt.client().is_connected() {
-                    info!("Connected");
-                    self.state.on_connected();
-                }
-            }
-            sm::Phase::Alive => {
-                if self.alive().is_ok() {
-                    self.state.on_alive();
-                }
-            }
-            sm::Phase::Subscribe => {
-                if self.subscribe().is_ok() {
-                    info!("Subscribed");
-                    self.state.on_subscribed();
-                }
-            }
-            sm::Phase::Wait => {
-                self.state.poll_timeout();
-            }
-            sm::Phase::Init => {
-                info!("Dumping");
-                self.dump(None).ok();
-            }
-            sm::Phase::Multipart => {
-                if self.pending.response_topic.is_some() {
-                    self.iter_list();
-                } else {
-                    self.iter_dump(settings);
-                }
-            }
-            sm::Phase::Single => { // handled in poll()
-            }
-        }
-        // All states must handle MQTT traffic.
-        self.poll(settings).map(|c| c == State::Changed)
-    }
-
-    fn alive(&mut self) -> Result<(), minimq::PubError<Stack::Error, ()>> {
-        // Publish a connection status message.
-        let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
-        topic.push_str("/alive").unwrap();
-        let msg = Publication::new(&topic, self.alive.as_bytes())
-            .qos(QoS::AtLeastOnce)
-            .retain();
-        self.mqtt.client().publish(msg)
-    }
-
-    fn subscribe(&mut self) -> Result<(), minimq::Error<Stack::Error>> {
-        let mut settings: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
-        settings.push_str("/settings/#").unwrap();
-        let opts = SubscriptionOptions::default().ignore_local_messages();
-        let topics = [TopicFilter::new(&settings).options(opts)];
-        self.mqtt.client().subscribe(&topics, &[])
-    }
-
-    /// Dump the current settings.
-    ///
-    /// # Note
-    /// This is intended to be used if modification of a setting had side effects that affected
-    /// another setting.
-    pub fn dump(&mut self, path: Option<&str>) -> Result<(), Error<Stack::Error>> {
-        let mut m = Multipart::new(Settings::SCHEMA);
-        if let Some(path) = path {
-            m = m.root(Path::new(path, SEPARATOR))?;
-        }
-        self.state.start_multipart();
-        self.pending = m;
-        Ok(())
-    }
-
-    fn iter_list(&mut self) {
-        while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            let (code, path) = if let Some(path) = self.pending.iter.next() {
-                let path = match path {
-                    Ok(ok) => ok,
-                    Err(err) => {
-                        error!("Path iter error at depth: {err}");
-                        continue;
-                    }
-                };
-
-                (ResponseCode::Continue, path.into_inner())
-            } else {
-                (ResponseCode::Ok, String::new())
-            };
-
-            let props = [code.into()];
-            let mut response = Publication::new(
-                self.pending.response_topic.as_ref().unwrap(),
-                path.as_bytes(),
-            )
-            .properties(&props)
-            .qos(QoS::AtLeastOnce);
-
-            if let Some(cd) = &self.pending.correlation_data {
-                response = response.correlate(cd);
-            }
-
-            if let Err(err) = self.mqtt.client().publish(response) {
-                info!("Multipart list publish failure: {err:?}");
-                self.state.complete();
-                break;
-            }
-
-            if code != ResponseCode::Continue {
-                self.state.complete();
-                break;
-            }
-        }
-    }
-
-    fn iter_dump(&mut self, settings: &Settings) {
-        while self.mqtt.client().can_publish(QoS::AtLeastOnce) {
-            let Some(path) = self.pending.iter.next() else {
-                self.state.complete();
-                break;
-            };
-
-            let path = match path {
-                Ok(ok) => ok,
-                Err(err) => {
-                    error!("Path iter error at depth: {err}");
-                    continue;
-                }
-            };
-
-            let mut topic: String<MAX_TOPIC_LENGTH> = self.prefix.try_into().unwrap();
-            topic
-                .push_str("/settings")
-                .and_then(|_| topic.push_str(&path.path))
-                .unwrap();
-
-            let props = [ResponseCode::Ok.into()];
-            let mut response = Publication::new(&topic, |buf: &mut [u8]| {
-                let full = self.pending.iter.state().unwrap();
-                let mut keys = full;
-                let info = Settings::SCHEMA.get(full).unwrap();
-                json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| DepthError {
-                    inner,
-                    depth: full.len() - keys.len(),
-                    leaf: Some(info.schema.is_leaf()),
-                })
-            })
-            .properties(&props)
-            .qos(QoS::AtLeastOnce);
-
-            if let Some(cd) = &self.pending.correlation_data {
-                response = response.correlate(cd);
-            }
-
-            match self.mqtt.client().publish(response) {
-                Err(minimq::PubError::Serialization(DepthError {
-                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                    ..
-                })) => {}
-
-                Err(
-                    minimq::PubError::Error(minimq::Error::Minimq(minimq::MinimqError::Protocol(
-                        minimq::ProtocolError::Serialization(minimq::SerError::InsufficientMemory),
-                    )))
-                    | minimq::PubError::Serialization(_),
-                ) => {
-                    let props = [ResponseCode::Error.into()];
-                    let mut response =
-                        Publication::new(&topic, "Serialized value too large".as_bytes())
-                            .properties(&props)
-                            .qos(QoS::AtLeastOnce);
-
-                    if let Some(cd) = &self.pending.correlation_data {
-                        response = response.correlate(cd);
-                    }
-
-                    if let Err(err) = self.mqtt.client().publish(response) {
-                        info!("Multipart dump error response failure: {err:?}");
-                        self.state.complete();
-                        break;
-                    }
-                }
-                Err(err) => {
-                    info!("Multipart dump publish failure: {err:?}");
-                    self.state.complete();
-                    break;
-                }
-                Ok(()) => {}
-            }
-        }
-    }
-
-    fn respond<'b, T: Display>(
-        response: T,
-        code: ResponseCode,
-        request: &Properties<'b>,
-        client: &mut minimq::mqtt_client::MqttClient<'a, Stack, Clock, Broker>,
-    ) {
-        match Publication::respond(None, request, |mut buf: &mut [u8]| {
-            let start = buf.len();
-            write!(buf, "{}", response).and_then(|_| Ok(start - buf.len()))
-        }) {
-            Ok(p) => match client.publish(p.properties(&[code.into()]).qos(QoS::AtLeastOnce)) {
-                Ok(()) => {}
-                Err(err) => info!("Response failure: {err:?}"),
-            },
-            Err(err) => info!("Response build failure: {err:?}"),
-        }
-    }
-
-    fn poll(&mut self, settings: &mut Settings) -> Result<State, Error<Stack::Error>> {
-        let Self {
-            mqtt,
-            state,
-            prefix,
-            pending,
-            ..
-        } = self;
-        mqtt.poll(|client, topic, payload, properties| {
-            let Some(path) = topic
-                .strip_prefix(*prefix)
-                .and_then(|p| p.strip_prefix("/settings"))
-                .map(|path| Path::new(path, SEPARATOR))
-            else {
-                info!("Unexpected topic: {topic}");
-                return State::Unchanged;
-            };
-
-            if payload.is_empty() {
-                // Get, Dump, or List
-                // Try a Get assuming a leaf node
-                let response_props = [ResponseCode::Ok.into()];
-                let response =
-                    match Publication::respond(Some(topic), properties, |buf: &mut [u8]| {
-                        resolve::<_, _, Y>(Settings::SCHEMA, path, |keys, info| {
-                            json_core::get_by_keys(settings, keys, buf).map_err(|inner| match inner
-                            {
-                                SerdeError::Value(ValueError::Key(KeyError::TooShort)) => {
-                                    debug_assert!(!info.schema.is_leaf());
-                                    inner
-                                }
-                                _ => inner,
-                            })
-                        })
-                    }) {
-                        Ok(response) => response.properties(&response_props).qos(QoS::AtLeastOnce),
-                        Err(err) => {
-                            info!("Get response build failure: {err:?}");
-                            return State::Unchanged;
-                        }
-                    };
-                if let Err(err) = client.publish(response) {
-                    match err {
-                        minimq::PubError::Serialization(DepthError {
-                            inner: SerdeError::Value(ValueError::Key(KeyError::TooShort)),
-                            ..
-                        }) => {
-                            // Internal node: Dump or List
-                            if state.phase() == sm::Phase::Single {
-                                match Multipart::from_properties(Settings::SCHEMA, properties) {
-                                    Ok(m) => {
-                                        *pending = m.root(path).unwrap(); // Note(unwrap) checked that it's TooShort but valid leaf
-                                        state.start_multipart();
-                                        // Responses come through iter_list/iter_dump
-                                    }
-                                    Err(err) => {
-                                        Self::respond(err, ResponseCode::Error, properties, client)
-                                    }
-                                }
-                            } else {
-                                Self::respond(
-                                    "Pending multipart response",
-                                    ResponseCode::Error,
-                                    properties,
-                                    client,
-                                )
-                            }
-                        }
-                        minimq::PubError::Serialization(err) => {
-                            Self::respond(err, ResponseCode::Error, properties, client);
-                        }
-                        minimq::PubError::Error(minimq::Error::NotReady) => {
-                            warn!("Not ready during Get. Discarding.");
-                        }
-                        minimq::PubError::Error(err) => {
-                            error!("Get failure: {err:?}");
-                        }
-                    }
-                }
-                State::Unchanged
-            } else {
-                // Set
-                match resolve::<_, _, Y>(Settings::SCHEMA, path, |keys, _info| {
-                    json_core::set_by_keys(settings, keys, payload)
-                }) {
-                    Err(err) => {
-                        Self::respond(err, ResponseCode::Error, properties, client);
-                        State::Unchanged
-                    }
-                    Ok(_depth) => {
-                        Self::respond("OK", ResponseCode::Ok, properties, client);
-                        State::Changed
-                    }
-                }
-            }
-        })
-        .map(Option::unwrap_or_default)
-        .or_else(|err| match err {
-            minimq::Error::SessionReset => {
-                warn!("Session reset");
-                self.state.reset();
-                Ok(State::Unchanged)
-            }
-            other => Err(other.into()),
-        })
-    }
-}
-
-#[derive(Default, Copy, Clone, PartialEq, PartialOrd)]
-enum State {
-    #[default]
-    Unchanged,
-    Changed,
-}
-
-impl From<bool> for State {
-    fn from(value: bool) -> Self {
-        if value {
-            Self::Changed
-        } else {
-            Self::Unchanged
-        }
-    }
-}
-
+mod client;
+mod message;
+mod schema;
 #[cfg(test)]
-mod test {
-    use super::*;
-    use std_embedded_nal::Stack;
-    use std_embedded_time::StandardClock;
+mod tests;
 
-    #[derive(miniconf::Tree)]
-    struct Tiny {
-        value: u8,
-    }
+pub use minimq;
 
-    #[test]
-    fn constructor_rejects_long_prefix() {
-        let mut buffer = [0u8; 1024];
-        let localhost: core::net::IpAddr = "127.0.0.1".parse().unwrap();
-        const MAX_DEPTH: usize = Tiny::SCHEMA.shape().max_depth;
-        let prefix = "x".repeat(MAX_TOPIC_LENGTH);
+pub use client::{
+    ChangedKey, Error, Event, LoadRetained, Miniconf, Publisher, Service, ServiceEvent, Startup,
+};
 
-        let client = MqttClient::<Tiny, _, _, _, MAX_DEPTH>::new(
-            Stack,
-            &prefix,
-            StandardClock::default(),
-            minimq::ConfigBuilder::<minimq::broker::IpBroker>::new(localhost.into(), &mut buffer),
-        );
+pub(crate) use defmt::{debug, info, warn};
 
-        assert!(matches!(client, Err(ProtocolError::BufferSize)));
-    }
-}
+/// Maximum path-state depth supported by `miniconf_mqtt`.
+pub const MAX_DEPTH: usize = 12;
+
+pub(crate) const MAX_TOPIC_LENGTH: usize = minimq::TOPIC_CAPACITY;
+pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
+pub(crate) const RESPONSE_TEXT_LENGTH: usize = 96;
+pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
+pub(crate) const MM2_PROTO: u8 = 1;
+// Expire transient request/reply traffic. Retained alive/schema/settings publications are storage.
+pub(crate) const TRANSIENT_EXPIRY_SECS: u32 = 30;
+pub(crate) const RETAINED_TEXT_PROPERTIES: &[minimq::Property<'static>] =
+    &[minimq::Property::PayloadFormatIndicator(1)];
+pub(crate) const TRANSIENT_TEXT_PROPERTIES: &[minimq::Property<'static>] = &[
+    minimq::Property::PayloadFormatIndicator(1),
+    minimq::Property::MessageExpiryInterval(TRANSIENT_EXPIRY_SECS),
+];
+
+/// Payload serialization failed because the provided scratch buffer was too small.
+pub(crate) type EncodeError<E> = (bool, E);

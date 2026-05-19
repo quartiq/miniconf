@@ -1,15 +1,26 @@
-//! JSON Schema tools
+//! JSON Schema tools.
+//!
+//! The generated schemas use a small set of `miniconf`-specific extension keys in addition to
+//! standard JSON Schema:
+//!
+//! - `tree-leaf`: this schema node is a `miniconf` leaf
+//! - `tree-node-meta`: metadata attached to the addressed node itself
+//! - `tree-edge-meta`: metadata attached to the parent-child edge
+//! - `tree-maybe-absent`: this node may serialize as [`TREE_ABSENT`]
+//!
+//! [`AllowAbsent`] lowers `tree-maybe-absent` into plain JSON Schema `oneOf` forms for validators
+//! that do not understand the compact extension key.
 
 use schemars::{
     JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema, transform::Transform,
 };
-use serde_json::Map;
+use serde_json::{Map, Value};
 use serde_reflection::{
     ContainerFormat, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
 };
 
 use crate::{
-    Internal, Meta, TreeDeserializeOwned, TreeSerialize,
+    Internal, Meta, Schema, Sem, TreeDeserializeOwned, TreeSerialize, json,
     trace::{Node, Types},
 };
 
@@ -18,30 +29,7 @@ pub const TREE_ABSENT: &str = "__tree-absent__";
 /// Magic JSON Value for access-denied node values
 pub const TREE_ACCESS: &str = "__tree-access__";
 
-/// Disallow additional `items`, `additionalProperties`, and missing `properties`
-pub struct Strictify;
-impl Transform for Strictify {
-    fn transform(&mut self, schema: &mut schemars::Schema) {
-        if let Some(o) = schema.as_object_mut() {
-            if o.contains_key("prefixItems") {
-                assert_eq!(o.insert("items".to_string(), false.into()), None);
-            }
-            if let Some(k) = o.get("properties") {
-                let k = k.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-                assert_eq!(o.insert("required".to_string(), k.into()), None);
-                assert_eq!(
-                    o.insert("additionalProperties".to_string(), false.into()),
-                    None
-                );
-            }
-        }
-        schemars::transform::transform_subschemas(self, schema);
-    }
-}
-
-/// Allow "__tree-absent__" nodes.
-///
-/// Convert `tree-maybe-absent` flags to `oneOf`.
+/// Allow [`TREE_ABSENT`] nodes by lowering `tree-maybe-absent` to `oneOf`.
 pub struct AllowAbsent;
 impl Transform for AllowAbsent {
     fn transform(&mut self, schema: &mut schemars::Schema) {
@@ -104,6 +92,7 @@ impl ReflectJsonSchema for Format {
                                 key.json_schema(generator)?,
                                 value.json_schema(generator)?
                             ],
+                            "items": false
                         }
                     })
                 }
@@ -125,9 +114,12 @@ impl ReflectJsonSchema for Vec<Named<Format>> {
             .iter()
             .map(|n| Some((n.name.to_string(), n.value.json_schema(generator)?.into())))
             .collect();
+        let required = self.iter().map(|n| n.name.clone()).collect::<Vec<_>>();
         Some(json_schema!({
             "type": "object",
             "properties": items?,
+            "required": required,
+            "additionalProperties": false,
         }))
     }
 }
@@ -137,7 +129,8 @@ impl ReflectJsonSchema for Vec<Format> {
         let items: Option<Vec<_>> = self.iter().map(|f| f.json_schema(generator)).collect();
         Some(json_schema!({
             "type": "array",
-            "prefixItems": items?
+            "prefixItems": items?,
+            "items": false
         }))
     }
 }
@@ -163,7 +156,9 @@ impl ReflectJsonSchema for ContainerFormat {
                         } else {
                             json_schema!({
                                 "type": "object",
-                                "properties": {&n.name: sch}
+                                "properties": {&n.name: sch},
+                                "required": [&n.name],
+                                "additionalProperties": false
                             })
                         })
                     })
@@ -187,91 +182,269 @@ impl ReflectJsonSchema for VariantFormat {
     }
 }
 
-impl ReflectJsonSchema for Node<(&'static crate::Schema, Option<Format>)> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        let mut sch = if let Some(internal) = self.data.0.internal.as_ref() {
-            match internal {
-                Internal::Named(nameds) => {
-                    let items: Option<Map<_, _>> = nameds
-                        .iter()
-                        .zip(&self.children)
-                        .map(|(named, child)| {
-                            let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "tree-outer-meta", &named.meta);
-                            Some((named.name.to_string(), sch.into()))
-                        })
-                        .collect();
-                    json_schema!({
-                        "type": "object",
-                        "properties": items?,
-                    })
-                }
-                Internal::Numbered(numbereds) => {
-                    let items: Option<Vec<_>> = numbereds
-                        .iter()
-                        .zip(&self.children)
-                        .map(|(numbered, child)| {
-                            let mut sch = child.json_schema(generator)?;
-                            push_meta(&mut sch, "tree-outer-meta", &numbered.meta);
-                            Some(sch)
-                        })
-                        .collect();
-                    json_schema!({
-                        "type": "array",
-                        "prefixItems": items?
-                    })
-                }
-                Internal::Homogeneous(homogeneous) => {
-                    let mut sch = self.children[0].json_schema(generator)?;
-                    push_meta(&mut sch, "tree-outer-meta", &homogeneous.meta);
-                    json_schema!({
-                        "type": "array",
-                        "items": sch,
-                        "minItems": homogeneous.len,
-                        "maxItems": homogeneous.len
-                    })
-                }
-            }
-        } else {
-            self.data.1.as_ref()?.json_schema(generator)?
-        };
-        sch.insert("tree-maybe-absent".to_string(), true.into());
-        push_meta(&mut sch, "tree-inner-meta", &self.data.0.meta);
-        #[cfg(feature = "meta-str")]
-        if let Some(meta) = &self.data.0.meta
-            && let Some(name) = meta.iter().find_map(|(key, typename)| {
-                (*key == "typename").then_some(format!("tree-internal-{typename}"))
-            })
-        {
-            // Convert to named def reference
-            if let Some(existing) = generator.definitions().get(&name) {
-                assert_eq!(existing, sch.as_value()); // typename not unique
-            } else {
-                generator
-                    .definitions_mut()
-                    .insert(name.to_string(), sch.into());
-            }
-            return Some(schemars::Schema::new_ref(format!("#/$defs/{name}")));
-        }
-        Some(sch)
+type TraceNode = Node<(&'static Schema, Option<Format>)>;
+
+fn strict_object(
+    properties: Map<String, serde_json::Value>,
+    required: Vec<&str>,
+) -> schemars::Schema {
+    json_schema!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": false,
+    })
+}
+
+fn object_sample(sample: Option<&Value>) -> Option<&Map<String, Value>> {
+    match sample {
+        Some(Value::Object(sample)) => Some(sample),
+        _ => None,
     }
 }
 
-fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Option<Meta>) {
-    if let Some(meta) = meta {
-        #[cfg(feature = "meta-str")]
+fn array_sample(sample: Option<&Value>) -> Option<&Vec<Value>> {
+    match sample {
+        Some(Value::Array(sample)) => Some(sample),
+        _ => None,
+    }
+}
+
+fn child_sample<'a>(sample: Option<&'a Map<String, Value>>, name: &str) -> Option<&'a Value> {
+    sample.and_then(|sample| sample.get(name))
+}
+
+fn required_named_child(
+    sample: Option<&Map<String, Value>>,
+    child: &TraceNode,
+    name: &'static str,
+) -> bool {
+    if let Some(sample) = sample {
+        sample.contains_key(name)
+    } else {
+        !child.data.0.sem().is_some_and(Sem::maybe_absent)
+    }
+}
+
+fn strict_named_variant(
+    name: &'static str,
+    schema: schemars::Schema,
+    required: bool,
+) -> schemars::Schema {
+    let mut variant = strict_object(
+        [(name.to_string(), schema.into())].into_iter().collect(),
+        Vec::new(),
+    );
+    if required {
+        variant.insert("required".to_string(), vec![name].into());
+    }
+    variant
+}
+
+fn maybe_absent(node: &TraceNode) -> bool {
+    node.data.0.sem().is_some_and(Sem::maybe_absent)
+}
+
+fn value_allows_null(value: &Value) -> bool {
+    if let Value::Object(object) = value {
+        object.get("const") == Some(&Value::Null)
+            || object.get("type") == Some(&Value::String("null".to_string()))
+            || object
+                .get("type")
+                .and_then(Value::as_array)
+                .is_some_and(|types| types.iter().any(|ty| ty == "null"))
+            || object
+                .get("oneOf")
+                .and_then(Value::as_array)
+                .is_some_and(|schemas| schemas.iter().any(value_allows_null))
+            || object
+                .get("anyOf")
+                .and_then(Value::as_array)
+                .is_some_and(|schemas| schemas.iter().any(value_allows_null))
+    } else {
+        false
+    }
+}
+
+fn nullable_schema(mut schema: schemars::Schema) -> schemars::Schema {
+    if value_allows_null(schema.as_value()) {
+        return schema;
+    }
+    let tree_leaf = schema.remove("tree-leaf");
+    let tree_node_meta = schema.remove("tree-node-meta");
+    let mut wrapper = json_schema!({"oneOf": [schema, {"const": null}]});
+    if let Some(tree_leaf) = tree_leaf {
+        wrapper.insert("tree-leaf".to_string(), tree_leaf);
+    }
+    if let Some(tree_node_meta) = tree_node_meta {
+        wrapper.insert("tree-node-meta".to_string(), tree_node_meta);
+    }
+    wrapper
+}
+
+fn definition_name(meta: &Meta) -> Option<String> {
+    meta.items.iter().find_map(|(key, typename)| {
+        (*key == "typename").then_some(format!("tree-internal-{typename}"))
+    })
+}
+
+fn node_json_schema(
+    node: &TraceNode,
+    sample: Option<&Value>,
+    generator: &mut SchemaGenerator,
+) -> Option<schemars::Schema> {
+    let mut sch = if let Some(internal) = node.data.0.internal() {
+        match internal {
+            Internal::Named(nameds) => {
+                let sample = object_sample(sample);
+                let maybe_absent = node.children.iter().map(maybe_absent).collect::<Vec<_>>();
+                if node.data.0.sem().is_some_and(Sem::oneof)
+                    && maybe_absent.iter().filter(|&&child| child).count() <= 1
+                {
+                    let variants: Option<Vec<_>> = nameds
+                        .iter()
+                        .zip(&node.children)
+                        .zip(&maybe_absent)
+                        .map(|((named, child), maybe_absent)| {
+                            let mut sch = node_json_schema(
+                                child,
+                                child_sample(sample, named.name()),
+                                generator,
+                            )?;
+                            if named.edge_meta().get("nullable") == Some("true") {
+                                sch = nullable_schema(sch);
+                            }
+                            push_meta(&mut sch, "tree-edge-meta", named.edge_meta());
+                            Some(strict_named_variant(named.name(), sch, !maybe_absent))
+                        })
+                        .collect();
+                    json_schema!({"oneOf": variants?})
+                } else {
+                    let mut required = Vec::new();
+                    let items: Option<Map<_, _>> = nameds
+                        .iter()
+                        .zip(&node.children)
+                        .map(|(named, child)| {
+                            let mut sch = node_json_schema(
+                                child,
+                                child_sample(sample, named.name()),
+                                generator,
+                            )?;
+                            if named.edge_meta().get("nullable") == Some("true") {
+                                sch = nullable_schema(sch);
+                            }
+                            push_meta(&mut sch, "tree-edge-meta", named.edge_meta());
+                            if required_named_child(sample, child, named.name()) {
+                                required.push(named.name());
+                            }
+                            Some((named.name().to_string(), sch.into()))
+                        })
+                        .collect();
+                    strict_object(items?, required)
+                }
+            }
+            Internal::Numbered(numbereds) => {
+                let sample = array_sample(sample);
+                let items: Option<Vec<_>> = numbereds
+                    .iter()
+                    .zip(&node.children)
+                    .enumerate()
+                    .map(|(index, (numbered, child))| {
+                        let mut sch = node_json_schema(
+                            child,
+                            sample.and_then(|sample| sample.get(index)),
+                            generator,
+                        )?;
+                        if numbered.edge_meta().get("nullable") == Some("true") {
+                            sch = nullable_schema(sch);
+                        }
+                        push_meta(&mut sch, "tree-edge-meta", numbered.edge_meta());
+                        Some(sch)
+                    })
+                    .collect();
+                json_schema!({
+                    "type": "array",
+                    "prefixItems": items?,
+                    "items": false
+                })
+            }
+            Internal::Homogeneous(homogeneous) => {
+                let sample = array_sample(sample).and_then(|sample| sample.first());
+                let mut sch = node_json_schema(&node.children[0], sample, generator)?;
+                if homogeneous.edge_meta().get("nullable") == Some("true") {
+                    sch = nullable_schema(sch);
+                }
+                push_meta(&mut sch, "tree-edge-meta", homogeneous.edge_meta());
+                json_schema!({
+                    "type": "array",
+                    "items": sch,
+                    "minItems": homogeneous.len(),
+                    "maxItems": homogeneous.len()
+                })
+            }
+        }
+    } else {
+        node.data.1.as_ref()?.json_schema(generator)?
+    };
+    let maybe_absent = maybe_absent(node);
+    push_tree_leaf(&mut sch, node.data.0.internal().is_none());
+    push_meta(&mut sch, "tree-node-meta", node.data.0.node_meta());
+    if let Some(name) = definition_name(node.data.0.node_meta()) {
+        let mut def = sch.clone();
+        if maybe_absent {
+            def.remove("tree-maybe-absent");
+        }
+        if let Some(existing) = generator.definitions().get(&name) {
+            assert_eq!(existing, def.as_value()); // typename not unique
+        } else {
+            generator
+                .definitions_mut()
+                .insert(name.to_string(), def.into());
+        }
+        let mut reference = schemars::Schema::new_ref(format!("#/$defs/{name}"));
+        push_tree_leaf(&mut reference, node.data.0.internal().is_none());
+        if node.data.0.node_meta_value("nullable") == Some("true") {
+            reference = nullable_schema(reference);
+        }
+        if maybe_absent {
+            reference.insert("tree-maybe-absent".to_string(), true.into());
+        }
+        return Some(reference);
+    }
+    if node.data.0.node_meta_value("nullable") == Some("true") {
+        sch = nullable_schema(sch);
+    }
+    if maybe_absent {
+        sch.insert("tree-maybe-absent".to_string(), true.into());
+    }
+    Some(sch)
+}
+
+impl ReflectJsonSchema for TraceNode {
+    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
+        node_json_schema(self, None, generator)
+    }
+}
+
+fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Meta) {
+    if !meta.is_empty() {
         assert_eq!(
             sch.insert(
                 key.to_string(),
-                meta.iter()
+                meta.items
+                    .iter()
                     .map(|(k, v)| (k.to_string(), v.to_string().into()))
                     .collect::<Map<_, _>>()
                     .into(),
             ),
             None
         );
-        #[cfg(not(any(feature = "meta-str")))]
-        let _ = (sch, meta, key);
+    }
+}
+
+fn push_tree_leaf(sch: &mut schemars::Schema, leaf: bool) {
+    if leaf {
+        assert_eq!(sch.insert("tree-leaf".to_string(), true.into()), None);
     }
 }
 
@@ -292,6 +465,10 @@ pub struct TreeJsonSchema<T> {
 impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
     /// Convert a Tree into a JSON Schema
     pub fn new(value: Option<&T>) -> Result<Self, serde_reflection::Error> {
+        let sample = value
+            .map(json::to_json_value)
+            .transpose()
+            .map_err(|e| serde_reflection::Error::Custom(e.to_string()))?;
         let mut types: Types<T> = Default::default();
         let mut tracer = Tracer::new(
             TracerConfig::default()
@@ -325,7 +502,7 @@ impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
         generator.definitions_mut().extend(defs);
 
         types.normalize()?;
-        let mut root = types.root().json_schema(&mut generator).ok_or(
+        let mut root = node_json_schema(types.root(), sample.as_ref(), &mut generator).ok_or(
             serde_reflection::Error::UnknownFormatInContainer("reflection incomplete".to_string()),
         )?;
         root.insert("$defs".to_string(), generator.definitions().clone().into());

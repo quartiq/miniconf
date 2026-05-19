@@ -1,0 +1,5 @@
+error: Node metadata must be placed on the variant, not the tuple field. Tuple fields only support edge metadata.
+ --> tests/ui/enum-field-meta.rs:5:19
+  |
+5 |     A(#[tree(meta(doc = "bad"))] i32),
+  |                   ^^^

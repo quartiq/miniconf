@@ -1,4 +1,8 @@
+#[cfg(feature = "sem")]
+use miniconf::TreeSchema;
 use miniconf::{SerdeError, Tree, ValueError, json_core, str_leaf};
+#[cfg(all(feature = "schema", feature = "sem"))]
+use schemars::transform::Transform;
 
 mod common;
 use common::*;
@@ -89,4 +93,82 @@ fn option() {
     }
     assert_eq!(paths::<Option::<[i32; 1]>, 1>(), ["/0"]);
     assert_eq!(paths::<Option::<::core::option::Option<i32>>, 1>(), [""]);
+}
+
+#[cfg(feature = "sem")]
+#[test]
+fn enum_meta() {
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    enum E {
+        A(i32),
+        B(Inner),
+    }
+
+    assert!(E::SCHEMA.sem().unwrap().oneof());
+    let miniconf::Internal::Named(children) = E::SCHEMA.internal().unwrap() else {
+        panic!("expected named internal schema");
+    };
+    assert_eq!(children[0].name(), "A");
+    assert_eq!(children[1].name(), "B");
+}
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn enum_json_schema_matches_json_value() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    enum E {
+        A(i32),
+        B(Inner),
+    }
+
+    impl Default for E {
+        fn default() -> Self {
+            Self::A(0)
+        }
+    }
+
+    let value = E::A(7);
+    let json = to_json_value(&value).unwrap();
+    assert_eq!(json, serde_json::json!({"A": 7}));
+
+    let mut schema = TreeJsonSchema::new(Some(&value)).unwrap();
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
+}
+
+#[cfg(all(feature = "schema", feature = "sem"))]
+#[test]
+fn enum_json_schema_matches_absent_active_variant() {
+    use miniconf::{
+        json::to_json_value,
+        json_schema::{AllowAbsent, TreeJsonSchema},
+    };
+
+    #[allow(dead_code)]
+    #[derive(Tree)]
+    enum E {
+        A(Option<u32>),
+        B(i32),
+    }
+
+    let value = E::A(None);
+    let json = to_json_value(&value).unwrap();
+    assert_eq!(json, serde_json::json!({}));
+
+    let mut schema = TreeJsonSchema::new(Some(&value)).unwrap();
+    AllowAbsent.transform(&mut schema.root);
+    jsonschema::validator_for(schema.root.as_value())
+        .unwrap()
+        .validate(&json)
+        .unwrap();
 }

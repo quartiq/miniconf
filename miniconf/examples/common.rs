@@ -73,7 +73,7 @@ impl Settings {
         self.option_tree = Some(8);
         self.enum_tree = MyEnum::C(Default::default());
         self.option_tree2 = Some(Default::default());
-        self.array_option_tree = core::array::repeat(Some(Default::default()));
+        self.array_option_tree[1] = Some(Default::default());
         self.option_array = Some(Leaf([1, 2]));
     }
 }
