@@ -21,6 +21,7 @@ impl_key_integer!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 /// Sequence of child indices identifying a node in a `TreeSchema`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Indices<T: ?Sized> {
     len: usize,
     data: T,

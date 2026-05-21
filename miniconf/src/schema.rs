@@ -37,8 +37,21 @@ pub struct Lookup {
     pub schema: &'static Schema,
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Lookup {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(
+            fmt,
+            "Lookup {{ depth: {=usize}, leaf: {=bool} }}",
+            self.depth,
+            self.schema.is_leaf()
+        )
+    }
+}
+
 /// Error returned by [`Schema::resolve_into()`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResolveError {
     /// The traversal error.
     pub error: DescendError<()>,
@@ -48,6 +61,7 @@ pub struct ResolveError {
 
 /// Structured machine-readable schema semantics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Sem {
     /// Semantic leaf type when known.
@@ -157,6 +171,7 @@ const fn edge_meta_ref(_meta: &StoredEdgeMeta) -> &Meta {
 
 /// Compact semantic leaf type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Ty {
     /// Boolean.

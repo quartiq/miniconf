@@ -61,6 +61,7 @@ use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Trans
 #[derive(
     Copy, Clone, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(transparent)]
 #[serde(transparent)]
 pub struct Packed(pub NonZero<usize>);

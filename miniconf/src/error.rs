@@ -7,7 +7,8 @@
 ///
 /// If multiple errors are applicable simultaneously the precedence
 /// is as per the order in the enum definition (from high to low).
-#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum KeyError {
     /// The key ends early and does not reach a leaf node.
     #[error("Key does not reach a leaf")]
@@ -24,7 +25,8 @@ pub enum KeyError {
 }
 
 /// Errors that can occur while visiting nodes with [`crate::Schema::descend()`].
-#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DescendError<E> {
     /// The key is invalid.
     #[error(transparent)]
@@ -36,7 +38,8 @@ pub enum DescendError<E> {
 }
 
 /// Errors that can occur while accessing a value.
-#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ValueError {
     /// Tree traversal error
     #[error(transparent)]
@@ -58,7 +61,8 @@ pub enum ValueError {
 }
 
 /// Compound errors
-#[derive(defmt::Format, Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerdeError<E> {
     /// The value could not be accessed.
     #[error(transparent)]

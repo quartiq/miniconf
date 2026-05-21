@@ -21,6 +21,7 @@ default = []
 
 [dependencies]
 miniconf = { version = "0.20.1", features = [
+    "defmt",
     "json-core",
 ], default-features = false, path = "../miniconf" }
 minimq = "0.11"
@@ -48,6 +49,7 @@ tokio = { version = "1.9", features = [
 ] }
 embedded-io-adapters = { version = "0.7.0", features = ["tokio-1"] }
 miniconf = { features = [
+    "defmt",
     "json-core",
     "derive",
     "heapless-09",
