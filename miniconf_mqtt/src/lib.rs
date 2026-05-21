@@ -72,7 +72,8 @@ pub(crate) use defmt::{debug, info, warn};
 /// Maximum path-state depth supported by `miniconf_mqtt`.
 pub const MAX_DEPTH: usize = 12;
 
-pub(crate) const MAX_TOPIC_LENGTH: usize = minimq::TOPIC_CAPACITY;
+pub(crate) const MAX_TOPIC_LENGTH: usize = 128;
+pub(crate) type TopicString = heapless::String<MAX_TOPIC_LENGTH>;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const RESPONSE_TEXT_LENGTH: usize = 96;
 pub(crate) const MAX_SCHEMA_DEFS: usize = 64;

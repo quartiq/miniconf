@@ -9,15 +9,15 @@ use miniconf::{
     TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 use minimq::{
-    ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op, OpStatus,
-    OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, TopicString,
-    Will, publication::ToPayload, types::Utf8String,
+    ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op,
+    OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, ToPayload,
+    Will,
 };
 use serde::Serialize;
 use serde_json_core::ser::Error as JsonSerError;
 
 use crate::{
-    EncodeError, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH,
+    EncodeError, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, TopicString,
     message::{DepthError, simple_pub_error},
     schema::{SchemaDefs, SchemaSync, SettingsSync, serialize_schema_page},
 };
@@ -74,13 +74,14 @@ where
     let Some(current) = *op else {
         return Ok(PendingOp::Idle);
     };
-    match session.status(&current) {
-        OpStatus::Pending => Ok(PendingOp::Pending),
-        OpStatus::Complete => {
-            *op = None;
-            Ok(PendingOp::Complete)
-        }
-        OpStatus::Invalidated => Err(Error::Mqtt(MqttError::Disconnected)),
+    if session.is_pending(&current) {
+        Ok(PendingOp::Pending)
+    } else if session.is_complete(&current) {
+        *op = None;
+        Ok(PendingOp::Complete)
+    } else {
+        debug_assert!(session.is_invalidated(&current));
+        Err(Error::Mqtt(MqttError::Disconnected))
     }
 }
 
@@ -302,7 +303,7 @@ where
         will_topic
             .push_str("/alive")
             .map_err(|_| ConfigError::InvalidConfig)?;
-        let will = Will::new(will_topic, b"", crate::RETAINED_TEXT_PROPERTIES)?
+        let will = Will::new(will_topic.as_str(), b"", crate::RETAINED_TEXT_PROPERTIES)?
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -432,7 +433,7 @@ where
 
         let props = [
             Property::PayloadFormatIndicator(1),
-            Property::UserProperty(Utf8String("auth"), Utf8String("")),
+            Property::UserProperty("auth", ""),
         ];
         let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
             .properties(&props)

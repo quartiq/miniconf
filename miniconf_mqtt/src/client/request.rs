@@ -6,10 +6,7 @@ use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
 };
-use minimq::{
-    Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session,
-    types::Utf8String,
-};
+use minimq::{Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session};
 use serde_json_core::de::Error as JsonDeError;
 
 use crate::{
@@ -226,10 +223,10 @@ pub(crate) fn auth(inbound: &InboundPublish<'_>) -> Auth {
         let Ok(Property::UserProperty(key, value)) = property else {
             continue;
         };
-        if key.0 != "auth" {
+        if key != "auth" {
             continue;
         }
-        if seen || !value.0.is_empty() {
+        if seen || !value.is_empty() {
             return Auth::Invalid;
         }
         seen = true;
@@ -560,9 +557,7 @@ fn error_props<'a>(
 }
 
 fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'a str) {
-    props
-        .push(Property::UserProperty(Utf8String(key), Utf8String(value)))
-        .ok();
+    props.push(Property::UserProperty(key, value)).ok();
 }
 
 fn push_transient_text_props(props: &mut VecView<Property<'_>>) {

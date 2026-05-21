@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::fmt::Display;
 
 use miniconf::SerdeError;
-use minimq::{Property, PubError, ResourceError, types::Utf8String};
+use minimq::{Property, PubError, ResourceError};
 
 use crate::Error;
 
@@ -31,7 +31,7 @@ impl ResponseCode {
 
 impl From<ResponseCode> for Property<'static> {
     fn from(value: ResponseCode) -> Self {
-        Property::UserProperty(Utf8String("code"), Utf8String(value.as_str()))
+        Property::UserProperty("code", value.as_str())
     }
 }
 

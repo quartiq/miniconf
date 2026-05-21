@@ -2,8 +2,8 @@ use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf::Tree;
 use miniconf_mqtt::{Event, LoadRetained, Miniconf, Service, ServiceEvent};
 use minimq::{
-    ConfigBuilder, ConnectEvent, InboundPublish, Op, OpStatus, Property, Publication, QoS, Session,
-    types::{RetainHandling, SubscriptionOptions, TopicFilter, Utf8String},
+    ConfigBuilder, ConnectEvent, InboundPublish, Op, Property, Publication, QoS, RetainHandling,
+    Session, SubscriptionOptions, TopicFilter,
 };
 use std::sync::OnceLock;
 use std::{
@@ -98,13 +98,14 @@ async fn wait_session(session: &mut Session<'_, TokioConnection>, io: TokioConne
 async fn wait_op(session: &mut Session<'_, TokioConnection>, op: Op) {
     timeout(Duration::from_secs(5), async {
         loop {
-            match session.status(&op) {
-                OpStatus::Complete => break,
-                OpStatus::Invalidated => panic!("operation invalidated"),
-                OpStatus::Pending => {
-                    let _ = session.poll().await.unwrap();
-                }
+            if session.is_complete(&op) {
+                break;
             }
+            if session.is_invalidated(&op) {
+                panic!("operation invalidated");
+            }
+            debug_assert!(session.is_pending(&op));
+            let _ = session.poll().await.unwrap();
         }
     })
     .await
@@ -120,7 +121,7 @@ fn has_utf8_payload_indicator(inbound: &InboundPublish<'_>) -> bool {
 
 fn user_property<'a>(inbound: &'a InboundPublish<'a>, name: &str) -> Option<&'a str> {
     inbound.properties().iter().find_map(|prop| match prop {
-        Ok(Property::UserProperty(key, value)) if key.0 == name => Some(value.0),
+        Ok(Property::UserProperty(key, value)) if key == name => Some(value),
         _ => None,
     })
 }
@@ -188,7 +189,7 @@ async fn mm2_publications_advertise_utf8_payloads() {
     .unwrap();
 
     let reply_topic = format!("{prefix}/reply");
-    let response_props = [Property::ResponseTopic(Utf8String(&reply_topic))];
+    let response_props = [Property::ResponseTopic(&reply_topic)];
     let mut requester = Session::new(config());
     wait_session(&mut requester, connect_addr(addr).await.unwrap()).await;
     let topics = [TopicFilter::new(&reply_topic)
@@ -291,7 +292,7 @@ async fn retained_load_applies_only_auth_leaf_values() {
     let prefix = unique("retained-load");
     let mut seeder = Session::new(config());
     wait_session(&mut seeder, connect_addr(addr).await.unwrap()).await;
-    let auth = [Property::UserProperty(Utf8String("auth"), Utf8String(""))];
+    let auth = [Property::UserProperty("auth", "")];
     let op = seeder
         .publish(
             Publication::bytes(&format!("{prefix}/settings/value"), b"9")

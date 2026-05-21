@@ -1,14 +1,13 @@
 use embassy_time::{Duration, Instant, with_deadline};
 use miniconf::{SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize};
 use minimq::{
-    Error as MqttError, InboundPublish, Io, Op, OpStatus, PubError, Publication, QoS,
-    ResourceError, Retain, Session, TopicString,
-    types::{RetainHandling, SubscriptionOptions, TopicFilter},
+    Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS, ResourceError,
+    RetainHandling, Session, SubscriptionOptions, TopicFilter,
 };
 
 use super::request::{Auth, auth, resolve_leaf, set_leaf};
 use crate::{
-    Error,
+    Error, TopicString,
     client::{
         ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher,
         publish_alive_once, schema_page_topic,
@@ -60,32 +59,29 @@ impl LoadRetainedPhase {
             match self {
                 Self::Subscribe { start, op } => {
                     if let Some(current) = *op {
-                        match session.status(&current) {
-                            OpStatus::Pending => {
-                                if let Some(inbound) = session.poll().await? {
-                                    apply_retained(mm2.prefix.as_str(), settings, &inbound);
-                                }
-                                return Ok(false);
+                        if session.is_pending(&current) {
+                            if let Some(inbound) = session.poll().await? {
+                                apply_retained(mm2.prefix.as_str(), settings, &inbound);
                             }
-                            OpStatus::Complete => {
-                                let now = Instant::now();
-                                let suback_rtt = now.saturating_duration_since(*start);
-                                let quiet = retained_quiet_window(suback_rtt);
-                                crate::debug!(
-                                    "Subscribed retained settings topic={=str}/settings/# suback_rtt_ms={=u64} quiet_ms={=u64}",
-                                    mm2.prefix.as_str(),
-                                    suback_rtt.as_millis(),
-                                    quiet.as_millis()
-                                );
-                                *self = Self::Drain {
-                                    deadline: now.saturating_add(quiet),
-                                    quiet,
-                                };
-                                continue;
-                            }
-                            OpStatus::Invalidated => {
-                                return Err(Error::Mqtt(MqttError::Disconnected));
-                            }
+                            return Ok(false);
+                        } else if session.is_complete(&current) {
+                            let now = Instant::now();
+                            let suback_rtt = now.saturating_duration_since(*start);
+                            let quiet = retained_quiet_window(suback_rtt);
+                            crate::debug!(
+                                "Subscribed retained settings topic={=str}/settings/# suback_rtt_ms={=u64} quiet_ms={=u64}",
+                                mm2.prefix.as_str(),
+                                suback_rtt.as_millis(),
+                                quiet.as_millis()
+                            );
+                            *self = Self::Drain {
+                                deadline: now.saturating_add(quiet),
+                                quiet,
+                            };
+                            continue;
+                        } else {
+                            debug_assert!(session.is_invalidated(&current));
+                            return Err(Error::Mqtt(MqttError::Disconnected));
                         }
                     }
 
@@ -166,7 +162,7 @@ where
     // Startup recovery only trusts previous authoritative mirror publications. No-auth settings are
     // reserved for the runtime compatibility path and stale topics are left for smarter clients to
     // prune because the device cannot enumerate broker-retained state outside this subscription.
-    if inbound.retain() != Retain::Retained || inbound.payload().is_empty() {
+    if !inbound.retained() || inbound.payload().is_empty() {
         return false;
     }
 
