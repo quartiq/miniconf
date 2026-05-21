@@ -1,5 +1,5 @@
 [workspace]
-members = ["miniconf_derive", "miniconf", "miniconf_mqtt"]
+members = ["miniconf_derive", "miniconf", "miniconf_mqtt", "miniconf_coap"]
 resolver = "2"
 
 [workspace.package]
