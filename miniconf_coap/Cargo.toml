@@ -14,9 +14,9 @@ repository.workspace = true
 workspace = true
 
 [features]
-default = ["json"]
+default = ["json-core"]
 coap-handler = ["dep:coap-handler"]
-json = ["dep:serde-json-core", "miniconf/json-core"]
+json-core = ["dep:serde-json-core", "miniconf/json-core"]
 postcard = ["dep:postcard", "miniconf/postcard"]
 
 [dependencies]
@@ -51,4 +51,4 @@ all-features = true
 
 [[example]]
 name = "coap_server"
-required-features = ["coap-handler", "json"]
+required-features = ["coap-handler", "json-core"]

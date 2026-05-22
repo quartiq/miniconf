@@ -1,22 +1,22 @@
 use std::net::UdpSocket;
 
-use coap_handler::Handler as _;
 use coap_handler_implementations::{HandlerBuilder as _, ReportingHandlerBuilder as _};
 use coap_message::error::RenderableOnMinimal as _;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
 use defmt::{info, warn};
-use miniconf::Tree;
-use miniconf_coap::{ConstPathJsonCoapHandler, JSON_CONTENT_FORMAT, MiniconfSchemaHandler};
+use heapless::{String, Vec};
+use miniconf::{Tree, TreeDeserialize, TreeSchema, TreeSerialize};
+use miniconf_coap::{ConstPathJson, JSON_CONTENT_FORMAT, MiniconfHandler, MiniconfSchemaHandler};
 
 const RESPONSE_CAPACITY: usize = 1280;
 
-#[derive(Tree)]
+#[derive(TreeSchema, TreeDeserialize, TreeSerialize)]
 struct Settings {
-    hidden: bool,
     number: u32,
+    list: Vec<usize, 16>,
     #[tree(with = label)]
-    label: heapless::String<16>,
+    label: String<16>,
     visible: Option<Visible>,
 }
 
@@ -28,9 +28,9 @@ struct Visible {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            hidden: false,
             number: 7,
-            label: "demo".try_into().unwrap(),
+            list: Vec::from_slice(&[1, 2, 3]).unwrap(),
+            label: "Hello".try_into().unwrap(),
             visible: Some(Visible { value: 9 }),
         }
     }
@@ -38,19 +38,10 @@ impl Default for Settings {
 
 mod label {
     use miniconf::{Keys, SerdeError, ValueError, leaf};
-    use serde::{Deserializer, Serializer};
 
-    pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, schema};
+    pub use leaf::{probe_by_key, schema, serialize_by_key};
 
-    pub fn serialize_by_key<S: Serializer>(
-        value: &heapless::String<16>,
-        keys: impl Keys,
-        ser: S,
-    ) -> Result<S::Ok, SerdeError<S::Error>> {
-        leaf::serialize_by_key(value, keys, ser)
-    }
-
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: serde::Deserializer<'de>>(
         value: &mut heapless::String<16>,
         keys: impl Keys,
         de: D,
@@ -72,7 +63,7 @@ fn main() -> std::io::Result<()> {
 
     let bind = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:5683".into());
+        .unwrap_or_else(|| "127.0.0.1:56830".into());
     let socket = UdpSocket::bind(&bind)?;
     info!("listening on coap://{=str}", bind.as_str());
     info!(
@@ -88,13 +79,13 @@ fn main() -> std::io::Result<()> {
         bind.as_str()
     );
 
-    let mut settings = Settings::default();
+    let mut handler = demo_handler();
     let mut request = [0; RESPONSE_CAPACITY];
     let mut response = [0; RESPONSE_CAPACITY];
 
     loop {
         let (len, peer) = socket.recv_from(&mut request)?;
-        match handle_packet(&request[..len], &mut settings, &mut response) {
+        match handle_packet(&request[..len], &mut handler, &mut response) {
             Ok(response_len) => {
                 socket.send_to(&response[..response_len], peer)?;
             }
@@ -106,17 +97,13 @@ fn main() -> std::io::Result<()> {
     }
 }
 
-fn handle_packet(
-    request: &[u8],
-    settings: &mut Settings,
-    response: &mut [u8],
-) -> Result<usize, &'static str> {
-    let request = WirePacket::parse(request)?;
-    let miniconf = ConstPathJsonCoapHandler::const_path_json(settings);
-    let schema = MiniconfSchemaHandler::<Settings>::json();
-    let mut handler = coap_handler_implementations::new_dispatcher()
+fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
+    let miniconf =
+        MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(Settings::default());
+
+    coap_handler_implementations::new_dispatcher()
         .below(&["settings"], miniconf)
-        .at(&["schema"], schema)
+        .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
         .at(
             &["status"],
             coap_handler_implementations::SimpleRendered::new_typed_str(
@@ -124,8 +111,18 @@ fn handle_packet(
                 Some(JSON_CONTENT_FORMAT),
             ),
         )
-        .with_wkc();
+        .with_wkc()
+}
 
+fn handle_packet<H>(
+    request: &[u8],
+    handler: &mut H,
+    response: &mut [u8],
+) -> Result<usize, &'static str>
+where
+    H: coap_handler::Handler,
+{
+    let request = WirePacket::parse(request)?;
     let mut code = 0;
     let mut tail = [0; RESPONSE_CAPACITY];
     let mut message = inmemory_write::Message::new(&mut code, &mut tail);

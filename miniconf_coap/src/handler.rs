@@ -2,16 +2,17 @@ use core::{borrow::BorrowMut, fmt::Write as _, marker::PhantomData};
 
 use coap_message::{MinimalWritableMessage, ReadableMessage};
 use coap_numbers::code;
-use miniconf::{TreeDeserializeOwned, TreeSchema, TreeSerialize};
+use miniconf::{ExactSize, NodeIter, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize};
 
 #[cfg(feature = "postcard")]
 use crate::PackedPostcard;
 use crate::{
-    Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_PAYLOAD_LENGTH, Problem,
-    Representation, RequestParts, UriPath, ValueHandler,
+    Accepts, ChangedKey, Error, InvalidOption, JSON_CONTENT_FORMAT, MAX_DEPTH,
+    MAX_HANDLER_PAYLOAD_LENGTH, Problem, Representation, RequestParts, Response, UriPath,
+    ValueHandler,
 };
-#[cfg(feature = "json")]
-use crate::{ConstPathJson, JSON_CONTENT_FORMAT, SchemaHandler};
+#[cfg(feature = "json-core")]
+use crate::{ConstPathJson, SchemaHandler, TEXT_CONTENT_FORMAT};
 
 type HandlerPayload = heapless::Vec<u8, MAX_HANDLER_PAYLOAD_LENGTH>;
 
@@ -23,11 +24,11 @@ type HandlerPayload = heapless::Vec<u8, MAX_HANDLER_PAYLOAD_LENGTH>;
 pub struct MiniconfHandler<Storage, Settings, R> {
     settings: Storage,
     values: ValueHandler<'static, R>,
-    _settings: PhantomData<fn() -> Settings>,
+    _settings: PhantomData<Settings>,
 }
 
 /// Const-path JSON `coap-handler` adapter.
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 pub type ConstPathJsonCoapHandler<'a, Settings> =
     MiniconfHandler<&'a mut Settings, Settings, ConstPathJson>;
 
@@ -36,7 +37,7 @@ pub type ConstPathJsonCoapHandler<'a, Settings> =
 pub type PackedPostcardCoapHandler<'a, Settings> =
     MiniconfHandler<&'a mut Settings, Settings, PackedPostcard>;
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathJson> {
     /// Create a route-relative JSON Miniconf value handler.
     pub const fn const_path_json(settings: Storage) -> Self {
@@ -63,11 +64,6 @@ impl<Storage, Settings> MiniconfHandler<Storage, Settings, PackedPostcard> {
 /// Request data carried from `coap-handler` extraction to response building.
 #[derive(Debug)]
 pub struct CoapHandlerRequest {
-    request: OwnedRequest,
-}
-
-#[derive(Debug)]
-struct OwnedRequest {
     code: u8,
     path: UriPath,
     accepts: Accepts,
@@ -76,7 +72,7 @@ struct OwnedRequest {
     payload: HandlerPayload,
 }
 
-impl OwnedRequest {
+impl CoapHandlerRequest {
     fn from_message<M>(message: &M) -> Result<Self, Error>
     where
         M: ReadableMessage + ?Sized,
@@ -122,9 +118,7 @@ where
         &mut self,
         request: &M,
     ) -> Result<Self::RequestData, Self::ExtractRequestError> {
-        Ok(CoapHandlerRequest {
-            request: OwnedRequest::from_message(request)?,
-        })
+        CoapHandlerRequest::from_message(request)
     }
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
@@ -137,13 +131,13 @@ where
         message: &mut M,
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
-        let request = request.request.as_request_parts();
+        let request = request.as_request_parts();
         let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
         let settings = self.settings.borrow_mut();
         // PUT currently mutates while producing the response. The 2.04 response is tiny, but a
         // stricter version should probe/validate, write success, then commit.
         let outcome = self.values.handle(&request, settings, &mut response_buf);
-        let response = outcome.response().unwrap_or(crate::Response {
+        let response = outcome.response().unwrap_or(Response {
             code: code::NOT_FOUND,
             content_format: None,
             payload: b"",
@@ -153,25 +147,19 @@ where
 }
 
 /// `coap-handler` adapter for a Miniconf JSON schema resource.
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 #[derive(Debug)]
-pub struct MiniconfSchemaHandler<Settings> {
-    schema: SchemaHandler<'static>,
-    _settings: PhantomData<fn() -> Settings>,
-}
+pub struct MiniconfSchemaHandler<Settings>(PhantomData<Settings>);
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl<Settings> MiniconfSchemaHandler<Settings> {
     /// Create a route-relative JSON schema handler.
     pub const fn json() -> Self {
-        Self {
-            schema: SchemaHandler::new(""),
-            _settings: PhantomData,
-        }
+        Self(PhantomData)
     }
 }
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl<Settings> coap_handler::Handler for MiniconfSchemaHandler<Settings>
 where
     Settings: TreeSchema,
@@ -184,14 +172,12 @@ where
         &mut self,
         request: &M,
     ) -> Result<Self::RequestData, Self::ExtractRequestError> {
-        Ok(CoapHandlerRequest {
-            request: OwnedRequest::from_message(request)?,
-        })
+        CoapHandlerRequest::from_message(request)
     }
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
-        response_estimate(JSON_CONTENT_FORMAT)
+        response_estimate(TEXT_CONTENT_FORMAT)
     }
 
     fn build_response<M: coap_message::MutableWritableMessage>(
@@ -199,10 +185,10 @@ where
         message: &mut M,
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
-        let request = request.request.as_request_parts();
+        let request = request.as_request_parts();
         let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
-        let outcome = self.schema.handle::<Settings>(&request, &mut response_buf);
-        let response = outcome.response().unwrap_or(crate::Response {
+        let outcome = SchemaHandler::new("").handle::<Settings>(&request, &mut response_buf);
+        let response = outcome.response().unwrap_or(Response {
             code: code::NOT_FOUND,
             content_format: None,
             payload: b"",
@@ -237,7 +223,7 @@ where
 
 fn response_estimate(content_format: u16) -> usize {
     let content_format_option =
-        1 + coap_uint_len(content_format).max(coap_uint_len(crate::JSON_CONTENT_FORMAT));
+        1 + coap_uint_len(content_format).max(coap_uint_len(JSON_CONTENT_FORMAT));
     content_format_option + 1 + MAX_HANDLER_PAYLOAD_LENGTH
 }
 
@@ -251,7 +237,7 @@ const fn coap_uint_len(value: u16) -> usize {
     }
 }
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl<Settings> coap_handler::Reporting for MiniconfSchemaHandler<Settings>
 where
     Settings: TreeSchema,
@@ -272,8 +258,8 @@ where
 
 /// Iterator over `coap-handler` discovery records for Miniconf leaves.
 pub struct MiniconfReporter<R> {
-    iter: miniconf::ExactSize<miniconf::NodeIter<ChangedKey, MAX_DEPTH>>,
-    root_schema: &'static miniconf::Schema,
+    iter: ExactSize<NodeIter<ChangedKey, MAX_DEPTH>>,
+    root_schema: &'static Schema,
     content_format: u16,
     _representation: PhantomData<R>,
 }
@@ -297,8 +283,8 @@ impl<R> Iterator for MiniconfReporter<R> {
 /// A `coap-handler` discovery record for one Miniconf leaf.
 pub struct MiniconfRecord<R> {
     key: ChangedKey,
-    root_schema: &'static miniconf::Schema,
-    schema: &'static miniconf::Schema,
+    root_schema: &'static Schema,
+    schema: &'static Schema,
     content_format: u16,
     _representation: PhantomData<R>,
 }
@@ -321,19 +307,15 @@ impl<R> coap_handler::Record for MiniconfRecord<R> {
     }
 
     fn attributes(&self) -> Self::Attributes {
-        let title = self
-            .schema
-            .node_meta_value("title")
-            .or_else(|| self.schema.node_meta_value("doc"));
+        let meta = self.schema.node_meta();
+        let title = meta.get("title").or_else(|| meta.get("doc"));
         Attributes {
             attrs: [
                 Some(coap_handler::Attribute::Ct(self.content_format)),
                 Some(coap_handler::Attribute::ResourceType(
-                    self.schema.node_meta_value("rt").unwrap_or("miniconf.leaf"),
+                    meta.get("rt").unwrap_or("miniconf.leaf"),
                 )),
-                self.schema
-                    .node_meta_value("if")
-                    .map(coap_handler::Attribute::Interface),
+                meta.get("if").map(coap_handler::Attribute::Interface),
                 title.map(coap_handler::Attribute::Title),
             ],
             pos: 0,
@@ -343,7 +325,7 @@ impl<R> coap_handler::Record for MiniconfRecord<R> {
 
 /// Iterator over URI path segments for a Miniconf discovery record.
 pub struct PathSegments {
-    schema: &'static miniconf::Schema,
+    schema: &'static Schema,
     root: ChangedKey,
     depth: usize,
 }
@@ -405,10 +387,10 @@ impl Iterator for Attributes {
 }
 
 /// `coap-handler` discovery record for the Miniconf schema resource.
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 pub struct SchemaRecord;
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl coap_handler::Record for SchemaRecord {
     type PathElement = &'static str;
     type PathElements = core::iter::Empty<&'static str>;
@@ -424,7 +406,7 @@ impl coap_handler::Record for SchemaRecord {
 
     fn attributes(&self) -> Self::Attributes {
         [
-            coap_handler::Attribute::Ct(JSON_CONTENT_FORMAT),
+            coap_handler::Attribute::Ct(TEXT_CONTENT_FORMAT),
             coap_handler::Attribute::ResourceType("miniconf.schema"),
             coap_handler::Attribute::Title("Miniconf schema"),
         ]

@@ -14,16 +14,19 @@ use coap_message::{
 };
 use coap_numbers::{code, option};
 use defmt::{debug, trace, warn};
-#[cfg(any(feature = "json", feature = "postcard"))]
-use miniconf::DescendError;
-#[cfg(feature = "postcard")]
-use miniconf::Packed;
-#[cfg(feature = "json")]
-use miniconf::json_core;
+#[cfg(any(feature = "json-core", feature = "postcard"))]
+use miniconf::{DescendError, Lookup, ResolveError};
 use miniconf::{
     Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
 };
-#[cfg(feature = "json")]
+#[cfg(feature = "postcard")]
+use miniconf::{Packed, postcard as miniconf_postcard};
+#[cfg(feature = "json-core")]
+use miniconf::{
+    compact_schema::{SchemaDefs, serialize_schema_page},
+    json_core,
+};
+#[cfg(feature = "json-core")]
 use serde_json_core::{de::Error as JsonDeError, ser::Error as JsonSerError};
 
 const MAX_ACCEPT_OPTIONS: usize = 4;
@@ -34,6 +37,9 @@ pub const JSON_CONTENT_FORMAT: u16 = 50;
 /// CoRE Link Format Content-Format number.
 pub const LINK_FORMAT_CONTENT_FORMAT: u16 = 40;
 
+/// Text Content-Format number.
+pub const TEXT_CONTENT_FORMAT: u16 = 0;
+
 /// Maximum Miniconf tree depth supported by `miniconf_coap`.
 pub const MAX_DEPTH: usize = 12;
 
@@ -42,6 +48,9 @@ pub const MAX_URI_PATH_LENGTH: usize = 256;
 
 /// Maximum request payload bytes and response scratch bytes used by the optional `coap-handler` adapter.
 pub const MAX_HANDLER_PAYLOAD_LENGTH: usize = 512;
+
+/// Maximum compact schema definitions served by `miniconf_coap`.
+pub const MAX_SCHEMA_DEFS: usize = 64;
 
 /// Exact changed leaf indices produced by a successful `PUT`.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
@@ -480,7 +489,7 @@ pub struct ValueHandler<'a, R> {
 }
 
 /// Const-path-addressed JSON value route.
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
 
 /// Packed-key postcard value route.
@@ -488,7 +497,7 @@ pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
 pub type PackedPostcardHandler<'a> = ValueHandler<'a, PackedPostcard>;
 
 /// URI path segments as Miniconf `ConstPath` keys, with JSON payloads.
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 #[derive(defmt::Format, Debug, Clone, Copy)]
 pub struct ConstPathJson;
 
@@ -503,12 +512,12 @@ mod private {
     pub trait Sealed {}
 }
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl private::Sealed for ConstPathJson {}
 #[cfg(feature = "postcard")]
 impl private::Sealed for PackedPostcard {}
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl<'a> ValueHandler<'a, ConstPathJson> {
     /// Serve JSON where remaining URI path segments are Miniconf path segments.
     pub const fn const_path_json(base: &'a str) -> Self {
@@ -748,7 +757,7 @@ where
         Ok(state)
     }
 
-    fn resolve<Settings>(&self, path: &str) -> Result<(miniconf::Lookup, ChangedKey), Error>
+    fn resolve<Settings>(&self, path: &str) -> Result<(Lookup, ChangedKey), Error>
     where
         Settings: TreeSchema,
     {
@@ -784,7 +793,7 @@ pub trait Representation: private::Sealed {
         &self,
         path: &str,
         state: &mut [usize],
-    ) -> Result<miniconf::Lookup, Error>;
+    ) -> Result<Lookup, Error>;
 
     /// Serialize a leaf value into the response buffer.
     fn get<Settings: TreeSerialize + ?Sized>(
@@ -803,7 +812,7 @@ pub trait Representation: private::Sealed {
     ) -> Result<(), SerdeError<Self::DeError>>;
 }
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl Representation for ConstPathJson {
     type SerError = JsonSerError;
     type DeError = JsonDeError;
@@ -816,7 +825,7 @@ impl Representation for ConstPathJson {
         &self,
         path: &str,
         state: &mut [usize],
-    ) -> Result<miniconf::Lookup, Error> {
+    ) -> Result<Lookup, Error> {
         Settings::SCHEMA
             .resolve_into(path, state)
             .map_err(resolve_error)
@@ -854,7 +863,7 @@ impl Representation for PackedPostcard {
         &self,
         path: &str,
         state: &mut [usize],
-    ) -> Result<miniconf::Lookup, Error> {
+    ) -> Result<Lookup, Error> {
         Settings::SCHEMA
             .resolve_into(packed_key(path)?, state)
             .map_err(resolve_error)
@@ -866,7 +875,7 @@ impl Representation for PackedPostcard {
         mut keys: &[usize],
         buf: &mut [u8],
     ) -> Result<usize, SerdeError<Self::SerError>> {
-        let used = miniconf::postcard::get_by_keys(
+        let used = miniconf_postcard::get_by_keys(
             settings,
             &mut keys,
             postcard::ser_flavors::Slice::new(buf),
@@ -880,7 +889,7 @@ impl Representation for PackedPostcard {
         mut keys: &[usize],
         payload: &[u8],
     ) -> Result<(), SerdeError<Self::DeError>> {
-        let remainder = miniconf::postcard::set_by_keys(
+        let remainder = miniconf_postcard::set_by_keys(
             settings,
             &mut keys,
             postcard::de_flavors::Slice::new(payload),
@@ -896,15 +905,17 @@ impl Representation for PackedPostcard {
 }
 
 /// Schema route backed by `TreeSchema`.
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 #[derive(defmt::Format, Debug, Clone, Copy)]
 pub struct SchemaHandler<'a> {
     base: &'a str,
 }
 
-#[cfg(feature = "json")]
+#[cfg(feature = "json-core")]
 impl<'a> SchemaHandler<'a> {
-    /// Construct a schema route mounted at an exact URI path.
+    /// Construct a compact paged schema route.
+    ///
+    /// The base path and `base/0` both serve the first newline-delimited compact schema page.
     pub const fn new(base: &'a str) -> Self {
         Self { base }
     }
@@ -918,10 +929,10 @@ impl<'a> SchemaHandler<'a> {
     where
         Settings: TreeSchema,
     {
-        if request.path() != self.base {
+        let Some(page_index) = self.page_index(request.path()) else {
             trace!("Ignoring non-schema CoAP route request={}", request);
             return Outcome::Unhandled;
-        }
+        };
         if let Err(err) = request.check_options() {
             return Outcome::Handled(err.response(response_buf));
         }
@@ -932,34 +943,70 @@ impl<'a> SchemaHandler<'a> {
                     .response(response_buf),
             );
         }
-        if let Err(err) = request.accepts(JSON_CONTENT_FORMAT) {
+        if let Err(err) = request.accepts(TEXT_CONTENT_FORMAT) {
             return Outcome::Handled(err.response(response_buf));
         }
-        match serde_json_core::to_slice(Settings::SCHEMA, response_buf) {
-            Ok(len) => {
+        let Ok(defs) = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA) else {
+            return Outcome::Handled(
+                Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
+                    .response(response_buf),
+            );
+        };
+        let mut next = 0;
+        for _ in 0..page_index {
+            match serialize_schema_page(&defs, next, response_buf) {
+                Ok(page) if page.count != 0 => next += page.count,
+                _ => {
+                    return Outcome::Handled(
+                        Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 })
+                            .response(response_buf),
+                    );
+                }
+            }
+        }
+        if next >= defs.len() {
+            return Outcome::Handled(
+                Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 }).response(response_buf),
+            );
+        }
+        match serialize_schema_page(&defs, next, response_buf) {
+            Ok(page) => {
                 debug!(
-                    "Handled Miniconf CoAP schema GET path={=str} response_len={=usize}",
+                    "Handled Miniconf CoAP schema GET path={=str} page={=usize} defs={=usize} response_len={=usize}",
                     request.path(),
-                    len
+                    page_index,
+                    page.count,
+                    page.len
                 );
                 Outcome::Handled(Response {
                     code: code::CONTENT,
-                    content_format: Some(JSON_CONTENT_FORMAT),
-                    payload: &response_buf[..len],
+                    content_format: Some(TEXT_CONTENT_FORMAT),
+                    payload: &response_buf[..page.len],
                 })
             }
-            Err(_) => {
+            Err(id) => {
                 warn!(
-                    "Failed to serialize Miniconf CoAP schema path={=str}",
-                    request.path()
+                    "Failed to serialize Miniconf CoAP schema path={=str} definition={=usize}",
+                    request.path(),
+                    id
                 );
-                Outcome::Handled(Response {
-                    code: code::INTERNAL_SERVER_ERROR,
-                    content_format: None,
-                    payload: b"",
-                })
+                Outcome::Handled(
+                    Error::request_entity_too_large(Problem::PayloadTooLong).response(response_buf),
+                )
             }
         }
+    }
+
+    fn page_index(&self, path: &str) -> Option<usize> {
+        if path == self.base {
+            return Some(0);
+        }
+        let suffix = if self.base.is_empty() {
+            path.strip_prefix('/')?
+        } else {
+            path.strip_prefix(self.base)?.strip_prefix('/')?
+        };
+        (!suffix.is_empty() && !suffix.contains('/')).then(|| parse_usize(suffix))?
     }
 }
 
@@ -986,7 +1033,7 @@ fn packed_key(path: &str) -> Result<Packed, Error> {
     Packed::new_from_lsb(parsed).ok_or(Error::new(code::NOT_FOUND, Problem::NotFound { depth: 0 }))
 }
 
-#[cfg(feature = "postcard")]
+#[cfg(any(feature = "json-core", feature = "postcard"))]
 fn parse_usize(value: &str) -> Option<usize> {
     let mut parsed = 0usize;
     for byte in value.bytes() {
@@ -1004,8 +1051,8 @@ fn path_depth(path: &str) -> usize {
     path.as_bytes().iter().filter(|byte| **byte == b'/').count()
 }
 
-#[cfg(any(feature = "json", feature = "postcard"))]
-fn resolve_error(err: miniconf::ResolveError) -> Error {
+#[cfg(any(feature = "json-core", feature = "postcard"))]
+fn resolve_error(err: ResolveError) -> Error {
     let depth = err.lookup.depth;
     match err.error {
         DescendError::Key(KeyError::NotFound) => {
@@ -1230,7 +1277,7 @@ impl From<Infallible> for Error {
     }
 }
 
-#[cfg(all(test, feature = "json"))]
+#[cfg(all(test, feature = "json-core"))]
 mod tests {
     extern crate std;
 
@@ -1488,8 +1535,10 @@ mod tests {
     fn absent_not_found_and_too_long_stay_distinct() {
         init_host_logging();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
-        let mut settings = Settings::default();
-        settings.visible = None;
+        let mut settings = Settings {
+            visible: None,
+            ..Default::default()
+        };
 
         let mut response = [0; 128];
         let req = request(code::GET, &["settings", "visible", "value"], None, b"");
@@ -1544,8 +1593,28 @@ mod tests {
         let out = handler.handle::<Settings>(&req, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(JSON_CONTENT_FORMAT));
+        assert_eq!(response.content_format, Some(TEXT_CONTENT_FORMAT));
         assert!(response.payload.starts_with(b"{"));
+    }
+
+    #[test]
+    fn schema_route_is_paged() {
+        init_host_logging();
+        let handler = SchemaHandler::new("/schema");
+        let mut response = [0; 512];
+        let req = request(code::GET, &["schema", "0"], None, b"");
+        let out = handler.handle::<Settings>(&req, &mut response);
+        let response = out.response().unwrap();
+        assert_eq!(response.code, code::CONTENT);
+        assert_eq!(response.content_format, Some(TEXT_CONTENT_FORMAT));
+        assert!(response.payload.starts_with(b"{"));
+
+        let mut response = [0; 512];
+        let req = request(code::GET, &["schema", "99"], None, b"");
+        let out = handler.handle::<Settings>(&req, &mut response);
+        let response = out.response().unwrap();
+        assert_eq!(response.code, code::NOT_FOUND);
+        assert_eq!(response.payload, br#"{"kind":"not_found","depth":1}"#);
     }
 
     #[test]
@@ -1612,6 +1681,7 @@ mod tests {
         let outcome = handler.handle::<Settings>(&request, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
+        assert_eq!(response.content_format, Some(TEXT_CONTENT_FORMAT));
     }
 
     #[test]
