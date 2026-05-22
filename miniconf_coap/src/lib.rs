@@ -31,16 +31,27 @@ const MAX_ACCEPT_OPTIONS: usize = 4;
 /// JSON Content-Format number.
 pub const JSON_CONTENT_FORMAT: u16 = 50;
 
+/// CoRE Link Format Content-Format number.
+pub const LINK_FORMAT_CONTENT_FORMAT: u16 = 40;
+
 /// Maximum Miniconf tree depth supported by `miniconf_coap`.
 pub const MAX_DEPTH: usize = 12;
 
 /// Maximum bytes in a captured rooted CoAP URI path.
 pub const MAX_URI_PATH_LENGTH: usize = 256;
 
+/// Maximum request payload bytes and response scratch bytes used by the optional `coap-handler` adapter.
+pub const MAX_HANDLER_PAYLOAD_LENGTH: usize = 512;
+
 /// Exact changed leaf indices produced by a successful `PUT`.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
 type UriPath = heapless::String<MAX_URI_PATH_LENGTH>;
+
+#[cfg(feature = "coap-handler")]
+mod handler;
+#[cfg(feature = "coap-handler")]
+pub use handler::*;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Accepts {
@@ -106,6 +117,7 @@ pub struct RequestParts<'a> {
     path: UriPath,
     accepts: Accepts,
     content_format: Option<u16>,
+    invalid_option: Option<InvalidOption>,
     payload: &'a [u8],
 }
 
@@ -123,6 +135,7 @@ impl<'a> RequestParts<'a> {
             path: UriPath::new(),
             accepts: Accepts::from_option(accept),
             content_format,
+            invalid_option: None,
             payload,
         };
         for segment in path {
@@ -141,6 +154,7 @@ impl<'a> RequestParts<'a> {
             path: UriPath::new(),
             accepts: Accepts::new(),
             content_format: None,
+            invalid_option: None,
             payload: message.payload(),
         };
 
@@ -162,7 +176,21 @@ impl<'a> RequestParts<'a> {
                     let Some(content_format) = opt.value_uint() else {
                         return Err(Error::bad_request(Problem::InvalidContentFormat));
                     };
+                    if request.content_format.is_some() {
+                        if request.invalid_option.is_none() {
+                            request.invalid_option = Some(InvalidOption::DuplicateContentFormat);
+                        }
+                        continue;
+                    }
                     request.content_format = Some(content_format);
+                }
+                option::URI_HOST | option::URI_PORT => {}
+                number
+                    if coap_numbers::option::get_criticality(number)
+                        == coap_numbers::option::Criticality::Critical
+                        && request.invalid_option.is_none() =>
+                {
+                    request.invalid_option = Some(InvalidOption::UnknownCritical(number));
                 }
                 _ => {}
             }
@@ -190,6 +218,19 @@ impl<'a> RequestParts<'a> {
         self.accepts.accepts(content_format)
     }
 
+    fn check_options(&self) -> Result<(), Error> {
+        match self.invalid_option {
+            Some(InvalidOption::DuplicateContentFormat) => {
+                Err(Error::bad_request(Problem::DuplicateContentFormat))
+            }
+            Some(InvalidOption::UnknownCritical(number)) => Err(Error::new(
+                code::BAD_OPTION,
+                Problem::UnknownCriticalOption { number },
+            )),
+            None => Ok(()),
+        }
+    }
+
     fn push_path_segment(&mut self, segment: &str) -> Result<(), Error> {
         if segment.contains('/') {
             return Err(Error::bad_request(Problem::InvalidUriPath));
@@ -212,6 +253,12 @@ impl<'a> RequestParts<'a> {
         let tail = self.path.as_str().strip_prefix(base)?;
         tail.starts_with('/').then_some(tail)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum InvalidOption {
+    DuplicateContentFormat,
+    UnknownCritical(u16),
 }
 
 impl defmt::Format for RequestParts<'_> {
@@ -326,8 +373,17 @@ pub enum Problem {
     InvalidAccept,
     /// Content-Format option could not be decoded as a CoAP uint.
     InvalidContentFormat,
+    /// More than one Content-Format option was present.
+    DuplicateContentFormat,
+    /// An unknown critical CoAP option was present.
+    UnknownCriticalOption {
+        /// CoAP option number.
+        number: u16,
+    },
     /// URI path had more segments than this handler captured.
     UriPathTooLong,
+    /// A response payload exceeded the optional handler adapter buffer.
+    PayloadTooLong,
     /// Request had more Accept options than this handler captures.
     TooManyAcceptOptions,
     /// Request path names no static Miniconf resource.
@@ -492,6 +548,9 @@ where
             trace!("Ignoring non-Miniconf CoAP route request={}", request);
             return Outcome::Unhandled;
         };
+        if let Err(err) = request.check_options() {
+            return Outcome::Handled(err.response(response_buf));
+        }
 
         trace!(
             "Handling Miniconf CoAP request base={=str} request={}",
@@ -519,6 +578,9 @@ where
             trace!("Ignoring non-Miniconf CoAP route request={}", request);
             return Outcome::Unhandled;
         };
+        if let Err(err) = request.check_options() {
+            return Outcome::Handled(err.response(response_buf));
+        }
 
         trace!(
             "Handling Miniconf CoAP GET request base={=str} request={}",
@@ -545,6 +607,9 @@ where
             trace!("Ignoring non-Miniconf CoAP route request={}", request);
             return Outcome::Unhandled;
         };
+        if let Err(err) = request.check_options() {
+            return Outcome::Handled(err.response(response_buf));
+        }
 
         trace!(
             "Handling Miniconf CoAP PUT request base={=str} request={}",
@@ -857,6 +922,9 @@ impl<'a> SchemaHandler<'a> {
             trace!("Ignoring non-schema CoAP route request={}", request);
             return Outcome::Unhandled;
         }
+        if let Err(err) = request.check_options() {
+            return Outcome::Handled(err.response(response_buf));
+        }
         trace!("Handling Miniconf CoAP schema request request={}", request);
         if request.code != code::GET {
             return Outcome::Handled(
@@ -1024,7 +1092,15 @@ fn problem_json(problem: Problem, buf: &mut [u8]) -> Result<usize, core::fmt::Er
         Problem::InvalidUriPath => write_kind(&mut out, "invalid_uri_path")?,
         Problem::InvalidAccept => write_kind(&mut out, "invalid_accept")?,
         Problem::InvalidContentFormat => write_kind(&mut out, "invalid_content_format")?,
+        Problem::DuplicateContentFormat => write_kind(&mut out, "duplicate_content_format")?,
+        Problem::UnknownCriticalOption { number } => {
+            write!(
+                out,
+                "{{\"kind\":\"unknown_critical_option\",\"number\":{number}}}"
+            )?;
+        }
         Problem::UriPathTooLong => write_kind(&mut out, "uri_path_too_long")?,
+        Problem::PayloadTooLong => write_kind(&mut out, "payload_too_long")?,
         Problem::TooManyAcceptOptions => write_kind(&mut out, "too_many_accept_options")?,
         Problem::NotFound { depth } => write_depth(&mut out, "not_found", depth)?,
         Problem::TooLong { depth } => write_depth(&mut out, "too_long", depth)?,
@@ -1154,7 +1230,7 @@ impl From<Infallible> for Error {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "json"))]
 mod tests {
     extern crate std;
 
@@ -1583,6 +1659,48 @@ mod tests {
         let err = RequestParts::from_message(&request).unwrap_err();
         assert_eq!(err.code, code::BAD_REQUEST);
         assert_eq!(err.problem, Problem::InvalidContentFormat);
+    }
+
+    #[test]
+    fn duplicate_content_format_is_bad_request_on_matched_route() {
+        init_host_logging();
+        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let mut settings = Settings::default();
+        let request = TestMessage::new(code::PUT)
+            .str_option(option::URI_PATH, "settings")
+            .str_option(option::URI_PATH, "number")
+            .uint_option(option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
+            .uint_option(option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
+            .with_payload(b"12");
+        let request = RequestParts::from_message(&request).unwrap();
+        let mut response = [0; 128];
+        let outcome = handler.handle(&request, &mut settings, &mut response);
+        let response = outcome.response().unwrap();
+
+        assert_eq!(response.code, code::BAD_REQUEST);
+        assert_eq!(response.payload, br#"{"kind":"duplicate_content_format"}"#);
+        assert_eq!(settings.number, 7);
+    }
+
+    #[test]
+    fn unknown_critical_option_is_bad_option_on_matched_route() {
+        init_host_logging();
+        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let mut settings = Settings::default();
+        let request = TestMessage::new(code::GET)
+            .str_option(option::URI_PATH, "settings")
+            .str_option(option::URI_PATH, "number")
+            .option(99, b"critical");
+        let request = RequestParts::from_message(&request).unwrap();
+        let mut response = [0; 128];
+        let outcome = handler.handle(&request, &mut settings, &mut response);
+        let response = outcome.response().unwrap();
+
+        assert_eq!(response.code, code::BAD_OPTION);
+        assert_eq!(
+            response.payload,
+            br#"{"kind":"unknown_critical_option","number":99}"#
+        );
     }
 
     #[test]
