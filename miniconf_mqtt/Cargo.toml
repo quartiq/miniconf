@@ -24,7 +24,7 @@ miniconf = { version = "0.20.1", features = [
     "defmt",
     "json-core",
 ], default-features = false, path = "../miniconf" }
-minimq = "0.11"
+minimq = "0.12"
 embassy-time = "0.5.1"
 embedded-io = "0.7"
 defmt = "1.0.1"
