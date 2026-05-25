@@ -12,6 +12,7 @@ mod key;
 pub use key::*;
 mod schema;
 pub use schema::*;
+pub mod compact_schema;
 mod shape;
 pub use shape::*;
 mod packed;

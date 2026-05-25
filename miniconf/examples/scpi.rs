@@ -1,8 +1,8 @@
 use core::str;
 
 use miniconf::{
-    ConstPath, ConstPathIter, Internal, IntoKeys, KeyError, Keys, SerdeError, TreeDeserializeOwned,
-    TreeSchema, TreeSerialize, ValueError, json_core,
+    ConstPath, ConstPathIter, Internal, IntoKeys, Key, KeyError, Keys, SerdeError,
+    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
 };
 
 mod common;
@@ -19,9 +19,9 @@ use common::Settings;
 #[derive(Copy, Clone)]
 struct ScpiKey<T: ?Sized>(T);
 
-impl<T: AsRef<str> + ?Sized> miniconf::Key for ScpiKey<T> {
-    fn find(&self, lookup: &miniconf::Internal) -> Option<usize> {
-        use miniconf::Internal::*;
+impl<T: AsRef<str> + ?Sized> Key for ScpiKey<T> {
+    fn find(&self, lookup: &Internal) -> Option<usize> {
+        use Internal::*;
         let s = self.0.as_ref();
         match lookup {
             Named(n) => {
@@ -70,7 +70,7 @@ impl<'a> Iterator for ScpiPathIter<'a> {
 impl Keys for ScpiPathIter<'_> {
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
         let key = Iterator::next(self).ok_or(KeyError::TooShort)?;
-        miniconf::Key::find(&key, internal).ok_or(KeyError::NotFound)
+        Key::find(&key, internal).ok_or(KeyError::NotFound)
     }
 
     fn finalize(&mut self) -> Result<(), KeyError> {
@@ -103,9 +103,9 @@ impl<'a> IntoKeys for ScpiPath<'a> {
 #[derive(thiserror::Error, Debug, Copy, Clone)]
 enum Error {
     #[error("While setting value")]
-    Set(#[from] miniconf::SerdeError<serde_json_core::de::Error>),
+    Set(#[from] SerdeError<serde_json_core::de::Error>),
     #[error("While getting value")]
-    Get(#[from] miniconf::SerdeError<serde_json_core::ser::Error>),
+    Get(#[from] SerdeError<serde_json_core::ser::Error>),
     #[error("Parse failure: {0}")]
     Parse(&'static str),
     #[error("Could not print value")]

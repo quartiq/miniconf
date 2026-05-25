@@ -1,5 +1,6 @@
-use miniconf::TreeSchema;
-use miniconf::{KeyError, Leaf, SerdeError, Tree, ValueError, json_core, leaf};
+use miniconf::{
+    Internal, KeyError, Leaf, SerdeError, Tree, TreeSchema, Ty, ValueError, json_core, leaf,
+};
 #[cfg(all(feature = "schema", feature = "sem"))]
 use schemars::transform::Transform;
 
@@ -195,7 +196,7 @@ fn option_nullable_meta() {
         data: Option<u32>,
     }
 
-    let miniconf::Internal::Named(children) = NullableField::SCHEMA.internal().unwrap() else {
+    let Internal::Named(children) = NullableField::SCHEMA.internal().unwrap() else {
         panic!("expected named internal schema");
     };
     assert_eq!(children[0].name(), "data");
@@ -215,13 +216,13 @@ fn option_nullable_meta() {
 #[test]
 fn option_sem() {
     let schema = Option::<u32>::SCHEMA;
-    assert_eq!(schema.sem().unwrap().ty(), Some(miniconf::Ty::U32));
+    assert_eq!(schema.sem().unwrap().ty(), Some(Ty::U32));
     assert!(schema.sem().unwrap().maybe_absent());
 
     let schema = Option::<Inner>::SCHEMA;
     assert_eq!(schema.sem().unwrap().ty(), None);
     assert!(schema.sem().unwrap().maybe_absent());
-    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
+    let Internal::Named(children) = schema.internal().unwrap() else {
         panic!("expected named internal schema");
     };
     assert_eq!(children[0].name(), "data");

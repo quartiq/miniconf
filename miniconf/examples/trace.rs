@@ -1,6 +1,9 @@
 //! Showcase for reflection and schema building
 
-use miniconf::{json::to_json_value, json_schema::TreeJsonSchema};
+use miniconf::{
+    json::to_json_value,
+    json_schema::{AllowAbsent, TreeJsonSchema},
+};
 
 mod common;
 use common::Settings;
@@ -18,7 +21,7 @@ fn main() -> anyhow::Result<()> {
         .insert("title".to_string(), "Miniconf example: Settings".into());
 
     use schemars::transform::Transform;
-    miniconf::json_schema::AllowAbsent.transform(&mut schema.root);
+    AllowAbsent.transform(&mut schema.root);
 
     println!(
         "JSON Schema:\n{}",

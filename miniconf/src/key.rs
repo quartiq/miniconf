@@ -8,7 +8,7 @@
 
 use core::{convert::Infallible, iter::Fuse};
 
-use crate::{DescendError, Internal, KeyError, Schema};
+use crate::{ConstPathIter, DescendError, Internal, KeyError, Schema};
 
 /// Convert one selector segment into a child index for an internal node schema.
 pub trait Key {
@@ -179,13 +179,13 @@ where
 }
 
 impl<'a> IntoKeys for &'a str {
-    type IntoKeys = crate::ConstPathIter<'a, '/'>;
+    type IntoKeys = ConstPathIter<'a, '/'>;
 
     /// Interpret `self` as a rooted slash-separated path.
     ///
     /// Use [`crate::PathIter`] or [`crate::ConstPathIter`] directly for non-`'/'` separators.
     fn into_keys(self) -> Self::IntoKeys {
-        crate::ConstPathIter::root(self)
+        ConstPathIter::root(self)
     }
 }
 

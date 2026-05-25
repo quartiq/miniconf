@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, Internal, IntoKeys, Key, Keys, Schema, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
 // index
 macro_rules! impl_key_integer {
@@ -342,14 +342,14 @@ impl<'a> Iterator for PathIter<'a> {
 impl core::iter::FusedIterator for PathIter<'_> {}
 
 impl Keys for PathIter<'_> {
-    fn next(&mut self, internal: &Internal) -> Result<usize, crate::KeyError> {
-        let key = Iterator::next(self).ok_or(crate::KeyError::TooShort)?;
-        <str as crate::Key>::find(key, internal).ok_or(crate::KeyError::NotFound)
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let key = Iterator::next(self).ok_or(KeyError::TooShort)?;
+        <str as Key>::find(key, internal).ok_or(KeyError::NotFound)
     }
 
-    fn finalize(&mut self) -> Result<(), crate::KeyError> {
+    fn finalize(&mut self) -> Result<(), KeyError> {
         match Iterator::next(self) {
-            Some(_) => Err(crate::KeyError::TooLong),
+            Some(_) => Err(KeyError::TooLong),
             None => Ok(()),
         }
     }
@@ -399,14 +399,14 @@ impl<'a, const S: char> Iterator for ConstPathIter<'a, S> {
 impl<const S: char> core::iter::FusedIterator for ConstPathIter<'_, S> {}
 
 impl<const S: char> Keys for ConstPathIter<'_, S> {
-    fn next(&mut self, internal: &Internal) -> Result<usize, crate::KeyError> {
-        let key = Iterator::next(self).ok_or(crate::KeyError::TooShort)?;
-        <str as crate::Key>::find(key, internal).ok_or(crate::KeyError::NotFound)
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let key = Iterator::next(self).ok_or(KeyError::TooShort)?;
+        <str as Key>::find(key, internal).ok_or(KeyError::NotFound)
     }
 
-    fn finalize(&mut self) -> Result<(), crate::KeyError> {
+    fn finalize(&mut self) -> Result<(), KeyError> {
         match Iterator::next(self) {
-            Some(_) => Err(crate::KeyError::TooLong),
+            Some(_) => Err(KeyError::TooLong),
             None => Ok(()),
         }
     }

@@ -1,10 +1,16 @@
 //! Utilities using `serde_json`
+use alloc::{
+    string::{String, ToString},
+    vec,
+};
 use serde_json::value::{Serializer as ValueSerializer, Value};
 
-use crate::{
-    Internal, IntoKeys, KeyError, Schema, SerdeError, TreeSerialize, ValueError,
-    json_schema::{TREE_ABSENT, TREE_ACCESS},
-};
+use crate::{Internal, IntoKeys, KeyError, Schema, SerdeError, TreeSerialize, ValueError};
+
+/// Magic JSON Value for absent node values.
+pub const TREE_ABSENT: &str = "__tree-absent__";
+/// Magic JSON Value for access-denied node values.
+pub const TREE_ACCESS: &str = "__tree-access__";
 
 /// Serialize a TreeSerialize into a JSON Value
 pub fn to_json_value<T: TreeSerialize>(

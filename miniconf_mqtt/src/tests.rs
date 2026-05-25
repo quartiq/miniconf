@@ -1,11 +1,11 @@
 extern crate std;
 
-use crate::{
-    MAX_TOPIC_LENGTH, Miniconf,
-    schema::{SchemaDefs, serialize_schema_page},
-};
+use crate::{MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, Miniconf};
 use embedded_io_adapters::tokio_1::FromTokio;
-use miniconf::{Tree, TreeSchema};
+use miniconf::{
+    Tree, TreeSchema,
+    compact_schema::{SchemaDefs, serialize_schema_page},
+};
 use minimq::{ConfigBuilder, ConfigError};
 use std::sync::OnceLock;
 use tokio::net::TcpStream;
@@ -52,7 +52,7 @@ fn constructor_rejects_long_prefix() {
 fn schema_pages_match_golden_fixture() {
     init_host_logging();
     let mut payload = [0u8; 1024];
-    let defs = SchemaDefs::new(Settings::SCHEMA).unwrap();
+    let defs = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA).unwrap();
     let page = serialize_schema_page(&defs, 0, &mut payload).unwrap();
     assert_eq!(page.count, 3);
     let normalized = core::str::from_utf8(&payload[..page.len])
@@ -67,6 +67,6 @@ fn schema_pages_match_golden_fixture() {
 #[test]
 fn schema_defs_keep_root_last() {
     init_host_logging();
-    let defs = SchemaDefs::new(Settings::SCHEMA).unwrap();
+    let defs = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA).unwrap();
     assert_eq!(defs.root(), Some(Settings::SCHEMA));
 }

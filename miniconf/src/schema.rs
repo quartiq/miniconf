@@ -1,28 +1,22 @@
 use core::{convert::Infallible, num::NonZero};
-use serde::{
-    Serialize, Serializer,
-    ser::{SerializeMap as _, SerializeStruct as _},
-};
+use serde::{Serialize, Serializer, ser::SerializeMap as _};
 
 use crate::{DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
 
 #[cfg(feature = "sem")]
 type StoredSem = Sem;
 #[cfg(not(feature = "sem"))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StoredSem;
+type StoredSem = ();
 
 #[cfg(feature = "meta-node")]
 type StoredNodeMeta = Meta;
 #[cfg(not(feature = "meta-node"))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StoredNodeMeta;
+type StoredNodeMeta = ();
 
 #[cfg(feature = "meta-edge")]
 type StoredEdgeMeta = Meta;
 #[cfg(not(feature = "meta-edge"))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StoredEdgeMeta;
+type StoredEdgeMeta = ();
 
 /// Structured semantics for a mutually exclusive named node.
 pub const ONEOF_SEM: Sem = Sem::new(None, true, false);
@@ -115,9 +109,7 @@ const fn store_sem(sem: Sem) -> StoredSem {
 }
 
 #[cfg(not(feature = "sem"))]
-const fn store_sem(_sem: Sem) -> StoredSem {
-    StoredSem
-}
+const fn store_sem(_sem: Sem) -> StoredSem {}
 
 #[cfg(feature = "sem")]
 const fn sem_ref(sem: &StoredSem) -> Option<&Sem> {
@@ -135,9 +127,7 @@ const fn store_node_meta(meta: Meta) -> StoredNodeMeta {
 }
 
 #[cfg(not(feature = "meta-node"))]
-const fn store_node_meta(_meta: Meta) -> StoredNodeMeta {
-    StoredNodeMeta
-}
+const fn store_node_meta(_meta: Meta) -> StoredNodeMeta {}
 
 #[cfg(feature = "meta-node")]
 const fn node_meta_ref(meta: &StoredNodeMeta) -> &Meta {
@@ -155,9 +145,7 @@ const fn store_edge_meta(meta: Meta) -> StoredEdgeMeta {
 }
 
 #[cfg(not(feature = "meta-edge"))]
-const fn store_edge_meta(_meta: Meta) -> StoredEdgeMeta {
-    StoredEdgeMeta
-}
+const fn store_edge_meta(_meta: Meta) -> StoredEdgeMeta {}
 
 #[cfg(feature = "meta-edge")]
 const fn edge_meta_ref(meta: &StoredEdgeMeta) -> &Meta {
@@ -225,7 +213,7 @@ pub enum Ty {
 }
 
 /// A numbered schema item
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
     /// The child schema
     pub(crate) schema: &'static Schema,
@@ -253,23 +241,8 @@ impl Numbered {
     }
 }
 
-impl Serialize for Numbered {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer
-            .serialize_struct("Numbered", 1 + usize::from(!self.edge_meta().is_empty()))?;
-        state.serialize_field("schema", self.schema())?;
-        if !self.edge_meta().is_empty() {
-            state.serialize_field("meta", self.edge_meta())?;
-        }
-        state.end()
-    }
-}
-
 /// A named schema item
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Named {
     /// The name of the item
     pub(crate) name: &'static str,
@@ -305,24 +278,8 @@ impl Named {
     }
 }
 
-impl Serialize for Named {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state =
-            serializer.serialize_struct("Named", 2 + usize::from(!self.edge_meta().is_empty()))?;
-        state.serialize_field("name", self.name())?;
-        state.serialize_field("schema", self.schema())?;
-        if !self.edge_meta().is_empty() {
-            state.serialize_field("meta", self.edge_meta())?;
-        }
-        state.end()
-    }
-}
-
 /// A representative schema item for a homogeneous array
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Homogeneous {
     /// The number of items
     pub(crate) len: NonZero<usize>,
@@ -355,22 +312,6 @@ impl Homogeneous {
     /// Edge metadata when present.
     pub const fn edge_meta(&self) -> &Meta {
         edge_meta_ref(&self.meta)
-    }
-}
-
-impl Serialize for Homogeneous {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer
-            .serialize_struct("Homogeneous", 2 + usize::from(!self.edge_meta().is_empty()))?;
-        state.serialize_field("len", &self.len())?;
-        state.serialize_field("schema", self.schema())?;
-        if !self.edge_meta().is_empty() {
-            state.serialize_field("meta", self.edge_meta())?;
-        }
-        state.end()
     }
 }
 
@@ -489,7 +430,7 @@ impl Serialize for Meta {
 }
 
 /// Shared static schema payload for one tree node.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct NodeSchema {
     meta: StoredNodeMeta,
     sem: StoredSem,
@@ -520,7 +461,7 @@ impl NodeSchema {
 }
 
 /// Static schema payload for an internal node.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct InternalSchema {
     node: NodeSchema,
     internal: Internal,
@@ -547,7 +488,7 @@ impl InternalSchema {
 }
 
 /// Static schema for one tree node.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub enum Schema {
     /// Leaf node without children.
     Leaf(NodeSchema),
@@ -558,24 +499,6 @@ pub enum Schema {
 impl Default for Schema {
     fn default() -> Self {
         Self::LEAF
-    }
-}
-
-impl Serialize for Schema {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut len =
-            usize::from(!self.node_meta().is_empty()) + usize::from(self.internal().is_some());
-        if let Some(sem) = self.sem()
-            && !sem.is_empty()
-        {
-            len += 1;
-        }
-        let mut state = serializer.serialize_struct("Schema", len)?;
-        self.serialize_fields(&mut state)?;
-        state.end()
     }
 }
 
@@ -626,26 +549,6 @@ impl Schema {
         ))
     }
 
-    fn serialize_fields<S>(&self, state: &mut S) -> Result<(), S::Error>
-    where
-        S: serde::ser::SerializeStruct,
-    {
-        let node_meta = self.node_meta();
-        let sem = self.sem();
-        if !self.node_meta().is_empty() {
-            state.serialize_field("meta", node_meta)?;
-        }
-        if let Some(sem) = sem
-            && !sem.is_empty()
-        {
-            state.serialize_field("sem", sem)?;
-        }
-        if let Some(internal) = self.internal() {
-            state.serialize_field("internal", internal)?;
-        }
-        Ok(())
-    }
-
     /// Whether this node is a leaf
     pub const fn is_leaf(&self) -> bool {
         matches!(self, Self::Leaf(_))
@@ -678,11 +581,6 @@ impl Schema {
             Self::Leaf(node) => node.node_meta(),
             Self::Internal(schema) => schema.node_meta(),
         }
-    }
-
-    /// Node metadata value for `key` when present.
-    pub fn node_meta_value(&self, key: &str) -> Option<&'static str> {
-        self.node_meta().get(key)
     }
 
     /// Internal schema when present.

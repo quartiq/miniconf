@@ -1,6 +1,8 @@
+#[cfg(feature = "postcard")]
+use miniconf::postcard as minipostcard;
 use miniconf::{
-    ConstPath, DescendError, Indices, JsonPath, KeyError, Lookup, NodeIter, Path, Shape, Transcode,
-    Tree, TreeSchema,
+    ConstPath, DescendError, Indices, Internal, JsonPath, KeyError, Lookup, Meta, NodeIter, Path,
+    SerdeError, Shape, Transcode, Tree, TreeSchema, Ty, ValueError, json_core, str_leaf,
 };
 mod common;
 
@@ -12,7 +14,7 @@ fn assert_lookup(have: Lookup, depth: usize, leaf: bool) {
 #[test]
 fn borrowed() {
     let mut a = "";
-    miniconf::json_core::set(&mut a, "", "\"foo\"".as_bytes()).unwrap();
+    json_core::set(&mut a, "", "\"foo\"".as_bytes()).unwrap();
     assert_eq!(a, "foo");
 }
 
@@ -24,7 +26,7 @@ fn borrowed_u8() {
     let mut a = &[0u8; 0][..];
     let mut buf = [0u8; 32];
     let data = to_slice(&[1u8, 2, 3][..], &mut buf).unwrap();
-    miniconf::postcard::set_by_key(&mut a, [0; 0], Slice::new(data)).unwrap();
+    minipostcard::set_by_key(&mut a, [0; 0], Slice::new(data)).unwrap();
     assert_eq!(a, &[1, 2, 3]);
 }
 
@@ -171,17 +173,15 @@ fn slice_cursor_keys() {
     let full = [2usize, 0];
     let mut rest = &full[..];
     let mut buf = [0u8; 32];
-    let len = miniconf::json_core::get_by_keys(&settings, &mut rest, &mut buf).unwrap();
+    let len = json_core::get_by_keys(&settings, &mut rest, &mut buf).unwrap();
     assert_eq!(&buf[..len], b"0.0");
     assert_eq!(full.len() - rest.len(), 2);
 
     let full = [2usize, 0, 1];
     let mut rest = &full[..];
     assert_eq!(
-        miniconf::json_core::get_by_keys(&settings, &mut rest, &mut buf),
-        Err(miniconf::SerdeError::Value(miniconf::ValueError::Key(
-            KeyError::TooLong
-        )))
+        json_core::get_by_keys(&settings, &mut rest, &mut buf),
+        Err(SerdeError::Value(ValueError::Key(KeyError::TooLong)))
     );
     assert_eq!(full.len() - rest.len(), 2);
 }
@@ -210,8 +210,8 @@ fn cell() {
 #[test]
 fn meta_option_is_niche_optimized() {
     assert_eq!(
-        core::mem::size_of::<Option<miniconf::Meta>>(),
-        core::mem::size_of::<miniconf::Meta>()
+        core::mem::size_of::<Option<Meta>>(),
+        core::mem::size_of::<Meta>()
     );
 }
 
@@ -220,7 +220,7 @@ fn meta_option_is_niche_optimized() {
 fn builtin_oneof_sem() {
     let schema = Result::<u32, i32>::SCHEMA;
     assert!(schema.sem().unwrap().oneof());
-    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
+    let Internal::Named(children) = schema.internal().unwrap() else {
         panic!("expected named internal schema");
     };
     assert_eq!(children[0].name(), "Ok");
@@ -228,7 +228,7 @@ fn builtin_oneof_sem() {
 
     let schema = core::ops::Bound::<u32>::SCHEMA;
     assert!(schema.sem().unwrap().oneof());
-    let miniconf::Internal::Named(children) = schema.internal().unwrap() else {
+    let Internal::Named(children) = schema.internal().unwrap() else {
         panic!("expected named internal schema");
     };
     assert_eq!(children[0].name(), "Included");
@@ -240,20 +240,17 @@ fn builtin_oneof_sem() {
 fn string_like_leaf_ty() {
     assert_eq!(
         std::net::SocketAddr::SCHEMA.sem().unwrap().ty(),
-        Some(miniconf::Ty::Str)
+        Some(Ty::Str)
     );
     assert_eq!(
         std::path::PathBuf::SCHEMA.sem().unwrap().ty(),
-        Some(miniconf::Ty::Str)
+        Some(Ty::Str)
     );
 }
 
 #[cfg(feature = "sem")]
 #[test]
 fn builtin_ty_sem() {
-    assert_eq!(u32::SCHEMA.sem().unwrap().ty(), Some(miniconf::Ty::U32));
-    assert_eq!(
-        miniconf::str_leaf::SCHEMA.sem().unwrap().ty(),
-        Some(miniconf::Ty::Str)
-    );
+    assert_eq!(u32::SCHEMA.sem().unwrap().ty(), Some(Ty::U32));
+    assert_eq!(str_leaf::SCHEMA.sem().unwrap().ty(), Some(Ty::Str));
 }
