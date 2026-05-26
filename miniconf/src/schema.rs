@@ -391,6 +391,10 @@ impl Internal {
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct Meta {
     /// Backing storage for metadata items.
+    ///
+    /// Prefer [`Self::iter()`] and [`Self::get()`] in new code. The field remains
+    /// public for existing callers, but callers should not rely on storage details
+    /// beyond iteration order and duplicate preservation.
     pub items: &'static [(&'static str, &'static str)],
 }
 
@@ -406,6 +410,16 @@ impl Meta {
     /// Whether the metadata bag is empty.
     pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Number of metadata entries.
+    pub const fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Iterate over metadata entries in declaration order.
+    pub fn iter(&self) -> core::slice::Iter<'static, (&'static str, &'static str)> {
+        self.items.iter()
     }
 
     /// Return the first metadata value for `key`.
@@ -426,6 +440,54 @@ impl Serialize for Meta {
             map.serialize_entry(key, value)?;
         }
         map.end()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const META: Meta = Meta::new(&[("doc", "node"), ("doc", "second")]);
+    const EDGE_META: Meta = Meta::new(&[("unit", "V")]);
+    const CHILD: Schema = Schema::leaf(META, Sem::new(Some(Ty::U16), false, false));
+    const ROOT: Schema = Schema::Internal(InternalSchema::new(
+        NodeSchema::new(META, ONEOF_SEM),
+        Internal::Named(&[Named::new("value", &CHILD, EDGE_META)]),
+    ));
+
+    #[test]
+    fn meta_iter_preserves_declaration_order_and_duplicates() {
+        assert_eq!(META.len(), 2);
+        assert_eq!(META.get("doc"), Some("node"));
+        assert_eq!(
+            META.iter().copied().collect::<std::vec::Vec<_>>(),
+            [("doc", "node"), ("doc", "second")]
+        );
+    }
+
+    #[test]
+    fn feature_retention_contract_is_explicit() {
+        #[cfg(feature = "sem")]
+        {
+            assert_eq!(ROOT.sem(), Some(&ONEOF_SEM));
+            assert_eq!(CHILD.sem(), Some(&Sem::new(Some(Ty::U16), false, false)));
+        }
+        #[cfg(not(feature = "sem"))]
+        {
+            assert_eq!(ROOT.sem(), None);
+            assert_eq!(CHILD.sem(), None);
+        }
+
+        #[cfg(feature = "meta-node")]
+        assert_eq!(ROOT.node_meta().get("doc"), Some("node"));
+        #[cfg(not(feature = "meta-node"))]
+        assert!(ROOT.node_meta().is_empty());
+
+        let internal = ROOT.internal().unwrap();
+        #[cfg(feature = "meta-edge")]
+        assert_eq!(internal.get_edge_meta(0).get("unit"), Some("V"));
+        #[cfg(not(feature = "meta-edge"))]
+        assert!(internal.get_edge_meta(0).is_empty());
     }
 }
 
@@ -488,6 +550,25 @@ impl InternalSchema {
 }
 
 /// Static schema for one tree node.
+///
+/// `Schema` exposes the in-crate structural schema model. Its `Serialize`
+/// implementation follows this Rust data model and is useful for inspection and
+/// tests, but transport clients should prefer explicit projections such as
+/// [`crate::compact_schema`] or [`crate::json_schema`] when they need a stable
+/// schema payload contract.
+///
+/// Metadata and structured semantics are retained only when the corresponding
+/// Cargo features are enabled:
+///
+/// - `sem` retains [`Sem`] payloads returned by [`Self::sem()`].
+/// - `meta-node` retains metadata returned by [`Self::node_meta()`].
+/// - `meta-edge` retains metadata returned by child edge accessors such as
+///   [`Named::edge_meta()`], [`Numbered::edge_meta()`], and
+///   [`Homogeneous::edge_meta()`].
+///
+/// Constructors and derive output accept metadata and semantics in all builds;
+/// disabled retention features intentionally discard them and accessors return
+/// `None` or [`Meta::EMPTY`].
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub enum Schema {
     /// Leaf node without children.

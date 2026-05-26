@@ -124,8 +124,10 @@ the `miniconf_mqtt` crate.
 - `json-core`: `serde_json_core` helpers for JSON byte slices.
 - `json`: `serde_json` helpers.
 - `postcard`: compact binary helpers using `postcard`.
-- `sem`, `meta-node`, `meta-edge`: retain structured schema semantics and
-  metadata.
+- `sem`, `meta-node`, `meta-edge`: retain structured schema semantics, node
+  metadata, and parent-child edge metadata. Constructors and derive output accept
+  these payloads in all builds; without the matching feature, they are discarded
+  and schema accessors return `None` or empty metadata.
 - `trace`, `schema`: serde-reflection tracing and JSON Schema generation.
 - `heapless`, `heapless-09`, `alloc`, `std`: support for the corresponding
   storage and platform layers.

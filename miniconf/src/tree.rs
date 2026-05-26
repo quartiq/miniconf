@@ -45,6 +45,10 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, 
 /// Derived enums always carry `sem.oneof`; `meta(enum)` remains an ordinary user metadata item and has no
 /// special meaning.
 ///
+/// Metadata and semantics are code-size controlled. `meta-node`, `meta-edge`, and `sem` retain
+/// node metadata, parent-child edge metadata, and structured semantics respectively. Without the
+/// matching feature, constructors and derive output still compile but the payload is discarded.
+///
 /// ## Rename
 ///
 /// The key for named struct fields or enum variants may be changed from the default field ident using
