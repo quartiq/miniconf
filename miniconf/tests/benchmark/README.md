@@ -6,9 +6,15 @@ Compare serial-style get/set using miniconf vs hand-written handler:
 - `miniconf`: same command protocol, miniconf path lookup on every command, same backend codec.
 - `baseline`: parser/loop baseline for size context.
 
+The manual variant is a fair lower bound for the routed get/set workload, not a
+feature-equivalent replacement for miniconf. It does not provide schema
+iteration, metadata, key transcoding, generic key backends, or generated
+reflection. The `schema` column reports the static miniconf schema payload
+separately; it is already part of `rodata` and `∑ flash`, not an extra addend.
+
 ## Binary size
-| variant | text | rodata | schema | stack | data | bss | **∑ ram** | **∑ flash** |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| baseline | 1636 | 1504 | 0 | 92 | 0 | 8 | **100** | **3140** |
-| manual | 8140 | 1872 | 0 | 608 | 0 | 8 | **616** | **10012** |
-| miniconf | 7520 | 2228 | 860 | 736 | 0 | 8 | **744** | **9748** |
+| variant | text | Δ text | rodata | schema | stack | data | bss | **∑ ram** | **∑ flash** | **Δ flash** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 1636 | 0 | 2140 | 0 | 92 | 0 | 8 | **100** | **3776** | **0** |
+| manual | 9668 | 8032 | 2500 | 0 | 680 | 0 | 8 | **688** | **12168** | **8392** |
+| miniconf | 10108 | 8472 | 3152 | 1172 | 824 | 0 | 8 | **832** | **13260** | **9484** |

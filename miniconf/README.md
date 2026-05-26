@@ -117,6 +117,15 @@ Use [`Schema::transcode()`] to translate one key representation into another.
 Use [`NodeIter`] when publishing, validating, or rendering every leaf; it yields
 leaves only and exposes the current indices and schema while walking.
 
+## Code Size
+
+The embedded benchmark compares `miniconf` against a handwritten serial-style
+router for the same settings tree and value codec. Treat the handwritten router
+as a routed get/set lower bound, not a feature-equivalent replacement: it omits
+schema iteration, metadata, key transcoding, generic key backends, and generated
+reflection. The benchmark reports the static schema payload separately so the
+routed get/set overhead and reflection data can be judged independently.
+
 ## Limits
 
 - Internal tree enums support unit, newtype, and skipped variants only. Enums
