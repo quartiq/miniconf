@@ -1,4 +1,4 @@
-use miniconf::{ConstPath, Indices, NodeIter, Path, Tree, TreeSchema};
+use miniconf::{ConstPath, DescendError, Indices, NodeIter, Path, Tree, TreeSchema};
 
 mod common;
 use common::*;
@@ -105,7 +105,7 @@ fn root_leaf() {
 fn root_insufficient_state() {
     assert_eq!(
         NodeIter::<Path<String>, 1>::with_root(Settings::SCHEMA, ["d", "0"]),
-        Err(miniconf::DescendError::Inner(()))
+        Err(DescendError::Inner(()))
     );
 }
 

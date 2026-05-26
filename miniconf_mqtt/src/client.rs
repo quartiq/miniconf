@@ -6,25 +6,28 @@ use core::marker::PhantomData;
 use heapless::Deque;
 use miniconf::{
     ConstPath, DescendError, Indices, IntoKeys, ResolveError, Schema, SerdeError,
-    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError, json_core,
+    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
+    compact_schema::{SchemaDefs, serialize_schema_page},
+    json_core,
 };
 use minimq::{
-    ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op, OpStatus,
-    OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, TopicString,
-    Will, publication::ToPayload, types::Utf8String,
+    ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op,
+    OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, ToPayload,
+    Will,
 };
 use serde::Serialize;
 use serde_json_core::ser::Error as JsonSerError;
 
 use crate::{
-    EncodeError, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH,
+    EncodeError, MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, MM2_PROTO,
+    RESPONSE_CORRELATION_LENGTH, RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
     message::{DepthError, simple_pub_error},
-    schema::{SchemaDefs, SchemaSync, SettingsSync, serialize_schema_page},
+    schema::{SchemaSync, SettingsSync},
 };
 use request::FollowUp;
 
 /// Exact leaf indices produced by Miniconf request handling.
-pub type ChangedKey = Indices<[usize; crate::MAX_DEPTH]>;
+pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 /// Miniconf MQTT setup, tree, or MQTT session error.
@@ -74,13 +77,14 @@ where
     let Some(current) = *op else {
         return Ok(PendingOp::Idle);
     };
-    match session.status(&current) {
-        OpStatus::Pending => Ok(PendingOp::Pending),
-        OpStatus::Complete => {
-            *op = None;
-            Ok(PendingOp::Complete)
-        }
-        OpStatus::Invalidated => Err(Error::Mqtt(MqttError::Disconnected)),
+    if session.is_pending(&current) {
+        Ok(PendingOp::Pending)
+    } else if session.is_complete(&current) {
+        *op = None;
+        Ok(PendingOp::Complete)
+    } else {
+        debug_assert!(session.is_invalidated(&current));
+        Err(Error::Mqtt(MqttError::Disconnected))
     }
 }
 
@@ -98,7 +102,7 @@ pub(crate) enum PublishPayload<'a, 'b, Settings> {
     // separate payload structs creates separate publish monomorphizations for alive/schema/leaf.
     Alive(&'a Manifest),
     SchemaPage {
-        defs: &'a SchemaDefs,
+        defs: &'a SchemaDefs<{ MAX_SCHEMA_DEFS }>,
         next: usize,
         hash: u32,
         advanced: &'b mut Option<(usize, u32)>,
@@ -135,7 +139,7 @@ where
         match self {
             Self::Alive(manifest) => serde_json_core::to_slice(
                 &AlivePayload {
-                    proto: crate::MM2_PROTO,
+                    proto: MM2_PROTO,
                     epoch: manifest.epoch,
                     schema_rev: manifest.schema_rev,
                     pages: manifest.schema_pages,
@@ -265,7 +269,7 @@ where
     topic
         .push_str("/alive")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-    crate::debug!(
+    debug!(
         "Publishing retained alive topic={=str} epoch={=u32} schema_rev={=u32} pages={=usize}",
         topic.as_str(),
         manifest.epoch,
@@ -273,7 +277,7 @@ where
         manifest.schema_pages
     );
     let publication = Publication::new(&topic, PublishPayload::<Settings>::Alive(manifest))
-        .properties(crate::RETAINED_TEXT_PROPERTIES)
+        .properties(RETAINED_TEXT_PROPERTIES)
         .qos(QoS::AtLeastOnce)
         .retain();
     session.publish(publication).await.map_err(simple_pub_error)
@@ -289,11 +293,11 @@ where
         config: ConfigBuilder<'buf>,
     ) -> Result<(Self, Session<'buf, IO>), ConfigError> {
         let schema = Settings::SCHEMA;
-        const { assert!(Settings::SCHEMA.max_depth() <= crate::MAX_DEPTH) }
+        const { assert!(Settings::SCHEMA.max_depth() <= MAX_DEPTH) }
         if prefix.len() + "/settings".len() + schema.max_length("/") > MAX_TOPIC_LENGTH {
             return Err(ConfigError::InvalidConfig);
         }
-        if SchemaDefs::new(schema).is_err() {
+        if SchemaDefs::<{ MAX_SCHEMA_DEFS }>::new(schema).is_err() {
             return Err(ConfigError::InvalidConfig);
         }
 
@@ -302,7 +306,7 @@ where
         will_topic
             .push_str("/alive")
             .map_err(|_| ConfigError::InvalidConfig)?;
-        let will = Will::new(will_topic, b"", crate::RETAINED_TEXT_PROPERTIES)?
+        let will = Will::new(will_topic.as_str(), b"", RETAINED_TEXT_PROPERTIES)?
             .retained()
             .qos(QoS::AtLeastOnce);
         let config = config.autodowngrade_qos().will(will)?;
@@ -425,14 +429,14 @@ where
             .settings_topic(state)
             .map_err(MqttError::from)
             .map_err(Error::from)?;
-        crate::debug!(
+        debug!(
             "Publishing authoritative setting topic={=str}",
             topic.as_str()
         );
 
         let props = [
             Property::PayloadFormatIndicator(1),
-            Property::UserProperty(Utf8String("auth"), Utf8String("")),
+            Property::UserProperty("auth", ""),
         ];
         let publication = Publication::new(&topic, PublishPayload::Leaf { settings, state })
             .properties(&props)
@@ -447,7 +451,7 @@ where
                     ..
                 }),
             ))) => {
-                crate::debug!(
+                debug!(
                     "Clearing authoritative setting topic={=str}",
                     topic.as_str()
                 );
@@ -475,7 +479,7 @@ impl Startup {
         match event {
             ConnectEvent::Connected => Self::connected(miniconf),
             ConnectEvent::Reconnected => {
-                crate::info!(
+                info!(
                     "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32}",
                     miniconf.prefix.as_str(),
                     miniconf.manifest.epoch,
@@ -497,7 +501,7 @@ impl Startup {
         miniconf.manifest.epoch = miniconf.manifest.epoch.wrapping_add(1);
         miniconf.manifest.schema_rev = 0;
         miniconf.manifest.schema_pages = 0;
-        crate::info!(
+        info!(
             "Starting connected MM2 startup prefix={=str} epoch={=u32}",
             miniconf.prefix.as_str(),
             miniconf.manifest.epoch
@@ -615,7 +619,7 @@ impl Publisher {
     pub fn root(schema: &'static Schema) -> Self {
         Self {
             schema,
-            root: ChangedKey::new([0; crate::MAX_DEPTH], 0),
+            root: ChangedKey::new([0; MAX_DEPTH], 0),
             iter: None,
             pending: None,
             op: None,
@@ -624,7 +628,7 @@ impl Publisher {
 
     /// Begin explicit retained publication for one leaf or subtree.
     pub fn by_key(schema: &'static Schema, key: impl IntoKeys) -> Result<Self, ResolveError> {
-        let mut state = [0; crate::MAX_DEPTH];
+        let mut state = [0; MAX_DEPTH];
         let lookup = schema.resolve_into(key, &mut state)?;
         Ok(Self {
             schema,
@@ -724,7 +728,7 @@ impl<const N: usize> Service<N> {
     {
         if self.is_full() && request::needs_capacity::<Settings>(miniconf.prefix.as_str(), inbound)
         {
-            crate::debug!(
+            debug!(
                 "Rejecting MM2 request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
                 inbound.topic(),
                 self.follow_ups.len(),
@@ -741,7 +745,7 @@ impl<const N: usize> Service<N> {
                 if let Some(follow_up) = follow_up {
                     debug_assert!(!self.is_full());
                     let _ = self.follow_ups.push_back(follow_up);
-                    crate::debug!(
+                    debug!(
                         "Queued MM2 error follow-up queued={=usize} capacity={=usize}",
                         self.follow_ups.len(),
                         N
@@ -752,7 +756,7 @@ impl<const N: usize> Service<N> {
             Route::Accepted { changed, follow_up } => {
                 debug_assert!(!self.is_full());
                 let _ = self.follow_ups.push_back(follow_up);
-                crate::debug!(
+                debug!(
                     "Queued MM2 publish follow-up changed_depth={=usize} queued={=usize} capacity={=usize}",
                     changed.as_ref().len(),
                     self.follow_ups.len(),
@@ -785,14 +789,14 @@ impl<const N: usize> Service<N> {
             let Some(mut follow_up) = self.follow_ups.pop_front() else {
                 return Ok(true);
             };
-            crate::debug!(
+            debug!(
                 "Driving MM2 follow-up queued_before={=usize} capacity={=usize}",
                 self.follow_ups.len() + 1,
                 N
             );
 
             if follow_up.step(miniconf, session, settings).await? {
-                crate::debug!(
+                debug!(
                     "Completed MM2 follow-up queued_remaining={=usize} capacity={=usize}",
                     self.follow_ups.len(),
                     N
@@ -800,7 +804,7 @@ impl<const N: usize> Service<N> {
                 continue;
             }
             let _ = self.follow_ups.push_front(follow_up);
-            crate::debug!(
+            debug!(
                 "MM2 follow-up pending queued_remaining={=usize} capacity={=usize}",
                 self.follow_ups.len(),
                 N

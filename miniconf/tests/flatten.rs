@@ -1,4 +1,4 @@
-use miniconf::{Tree, json_core};
+use miniconf::{Tree, ValueError, json_core};
 
 mod common;
 use common::*;
@@ -52,7 +52,7 @@ fn enum_flatten() {
     assert_eq!(e, E1::A(1));
     assert_eq!(
         json_core::set(&mut E1::None, "", b"1").unwrap_err(),
-        miniconf::ValueError::Absent.into()
+        ValueError::Absent.into()
     );
 
     #[derive(Tree, Default, PartialEq, Debug)]
@@ -68,6 +68,6 @@ fn enum_flatten() {
     assert_eq!(e, E2::A(Inner { a: 1 }));
     assert_eq!(
         json_core::set(&mut E2::None, "/a", b"1").unwrap_err(),
-        miniconf::ValueError::Absent.into()
+        ValueError::Absent.into()
     );
 }

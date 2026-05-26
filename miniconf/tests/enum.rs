@@ -1,6 +1,6 @@
 #[cfg(feature = "sem")]
 use miniconf::TreeSchema;
-use miniconf::{SerdeError, Tree, ValueError, json_core, str_leaf};
+use miniconf::{Internal, SerdeError, Tree, ValueError, json_core, str_leaf};
 #[cfg(all(feature = "schema", feature = "sem"))]
 use schemars::transform::Transform;
 
@@ -106,7 +106,7 @@ fn enum_meta() {
     }
 
     assert!(E::SCHEMA.sem().unwrap().oneof());
-    let miniconf::Internal::Named(children) = E::SCHEMA.internal().unwrap() else {
+    let Internal::Named(children) = E::SCHEMA.internal().unwrap() else {
         panic!("expected named internal schema");
     };
     assert_eq!(children[0].name(), "A");

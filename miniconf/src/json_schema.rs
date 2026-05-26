@@ -20,165 +20,169 @@ use serde_reflection::{
 };
 
 use crate::{
-    Internal, Meta, Schema, Sem, TreeDeserializeOwned, TreeSerialize, json,
+    Internal, Meta, Named as SchemaNamed, Schema, Sem, TreeDeserializeOwned, TreeSerialize,
+    json::{self, TREE_ABSENT},
     trace::{Node, Types},
 };
 
-/// Magic JSON Value for absent node values
-pub const TREE_ABSENT: &str = "__tree-absent__";
-/// Magic JSON Value for access-denied node values
-pub const TREE_ACCESS: &str = "__tree-access__";
+const TREE_LEAF: &str = "tree-leaf";
+const TREE_NODE_META: &str = "tree-node-meta";
+const TREE_EDGE_META: &str = "tree-edge-meta";
+const TREE_MAYBE_ABSENT: &str = "tree-maybe-absent";
+const META_NULLABLE: &str = "nullable";
+const META_TYPENAME: &str = "typename";
 
 /// Allow [`TREE_ABSENT`] nodes by lowering `tree-maybe-absent` to `oneOf`.
 pub struct AllowAbsent;
 impl Transform for AllowAbsent {
     fn transform(&mut self, schema: &mut schemars::Schema) {
         if let Some(o) = schema.as_object_mut()
-            && o.get("tree-maybe-absent") == Some(&true.into())
+            && o.get(TREE_MAYBE_ABSENT) == Some(&true.into())
         {
-            o.remove("tree-maybe-absent").unwrap();
+            o.remove(TREE_MAYBE_ABSENT).unwrap();
             *schema = json_schema!({"oneOf": [schema, {"const": TREE_ABSENT}]});
         }
         schemars::transform::transform_subschemas(self, schema);
     }
 }
 
-/// Capability to convert serde-reflect formats and graph::Node to to JSON schemata
-pub trait ReflectJsonSchema {
-    /// Convert to JSON schema
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema>;
-}
-
-impl ReflectJsonSchema for Format {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        Some(match self {
-            Format::Variable(_variable) => None?, // Unresolved
-            Format::TypeName(name) => schemars::Schema::new_ref(format!("#/$defs/{name}")),
-            Format::Unit => <()>::json_schema(generator),
-            Format::Bool => bool::json_schema(generator),
-            Format::I8 => i8::json_schema(generator),
-            Format::I16 => i16::json_schema(generator),
-            Format::I32 => i32::json_schema(generator),
-            Format::I64 => i64::json_schema(generator),
-            Format::I128 => i128::json_schema(generator),
-            Format::U8 => u8::json_schema(generator),
-            Format::U16 => u16::json_schema(generator),
-            Format::U32 => u32::json_schema(generator),
-            Format::U64 => u64::json_schema(generator),
-            Format::U128 => u128::json_schema(generator),
-            Format::F32 => f32::json_schema(generator),
-            Format::F64 => f64::json_schema(generator),
-            Format::Char => char::json_schema(generator),
-            Format::Str => str::json_schema(generator),
-            Format::Bytes => <[u8]>::json_schema(generator),
-            Format::Option(format) => {
-                json_schema!({"oneOf": [
-                    format.json_schema(generator)?,
-                    {"const": null}
-                ]})
+fn format_schema(format: &Format, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
+    Some(match format {
+        Format::Variable(_variable) => None?, // Unresolved
+        Format::TypeName(name) => schemars::Schema::new_ref(format!("#/$defs/{name}")),
+        Format::Unit => <()>::json_schema(generator),
+        Format::Bool => bool::json_schema(generator),
+        Format::I8 => i8::json_schema(generator),
+        Format::I16 => i16::json_schema(generator),
+        Format::I32 => i32::json_schema(generator),
+        Format::I64 => i64::json_schema(generator),
+        Format::I128 => i128::json_schema(generator),
+        Format::U8 => u8::json_schema(generator),
+        Format::U16 => u16::json_schema(generator),
+        Format::U32 => u32::json_schema(generator),
+        Format::U64 => u64::json_schema(generator),
+        Format::U128 => u128::json_schema(generator),
+        Format::F32 => f32::json_schema(generator),
+        Format::F64 => f64::json_schema(generator),
+        Format::Char => char::json_schema(generator),
+        Format::Str => str::json_schema(generator),
+        Format::Bytes => <[u8]>::json_schema(generator),
+        Format::Option(format) => {
+            json_schema!({"oneOf": [
+                format_schema(format, generator)?,
+                {"const": null}
+            ]})
+        }
+        Format::Seq(format) => json_schema!({"items": format_schema(format, generator)?}),
+        Format::Map { key, value } => {
+            if matches!(**key, Format::Str) {
+                json_schema!({
+                    "type": "object",
+                    "additionalProperties": format_schema(value, generator)?
+                })
+            } else {
+                json_schema!({
+                    "type": "array",
+                    "items": {
+                        "prefixItems": [
+                            format_schema(key, generator)?,
+                            format_schema(value, generator)?
+                        ],
+                        "items": false
+                    }
+                })
             }
-            Format::Seq(format) => json_schema!({"items": format.json_schema(generator)?}),
-            Format::Map { key, value } => {
-                if matches!(**key, Format::Str) {
-                    json_schema!({
-                        "type": "object",
-                        "additionalProperties": value.json_schema(generator)?
-                    })
-                } else {
-                    json_schema!({
-                        "type": "array",
-                        "items": {
-                            "prefixItems": [
-                                key.json_schema(generator)?,
-                                value.json_schema(generator)?
-                            ],
-                            "items": false
-                        }
-                    })
-                }
-            }
-            Format::Tuple(formats) => formats.json_schema(generator)?,
-            Format::TupleArray { content, size } => json_schema!({
-                "type": "array",
-                "items": content.json_schema(generator)?,
-                "minItems": size,
-                "maxItems": size
-            }),
-        })
-    }
-}
-
-impl ReflectJsonSchema for Vec<Named<Format>> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        let items: Option<Map<_, _>> = self
-            .iter()
-            .map(|n| Some((n.name.to_string(), n.value.json_schema(generator)?.into())))
-            .collect();
-        let required = self.iter().map(|n| n.name.clone()).collect::<Vec<_>>();
-        Some(json_schema!({
-            "type": "object",
-            "properties": items?,
-            "required": required,
-            "additionalProperties": false,
-        }))
-    }
-}
-
-impl ReflectJsonSchema for Vec<Format> {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        let items: Option<Vec<_>> = self.iter().map(|f| f.json_schema(generator)).collect();
-        Some(json_schema!({
+        }
+        Format::Tuple(formats) => tuple_schema(formats, generator)?,
+        Format::TupleArray { content, size } => json_schema!({
             "type": "array",
-            "prefixItems": items?,
-            "items": false
-        }))
-    }
+            "items": format_schema(content, generator)?,
+            "minItems": size,
+            "maxItems": size
+        }),
+    })
 }
 
-impl ReflectJsonSchema for ContainerFormat {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        match self {
-            ContainerFormat::UnitStruct => Some(<()>::json_schema(generator)),
-            ContainerFormat::NewTypeStruct(format) => format.json_schema(generator),
-            ContainerFormat::TupleStruct(formats) => formats.json_schema(generator),
-            ContainerFormat::Struct(nameds) => nameds.json_schema(generator),
-            ContainerFormat::Enum(map) => {
-                let variants: Option<Vec<_>> = map
-                    .values()
-                    .map(|n| {
-                        let mut sch = n.value.json_schema(generator)?;
-                        Some(if sch.as_bool() == Some(false) {
-                            // Unit variant
-                            json_schema!({"const": &n.name})
-                        } else if generator.settings().untagged_enum_variant_titles {
-                            sch.insert("title".to_string(), n.name.clone().into());
-                            sch
-                        } else {
-                            json_schema!({
-                                "type": "object",
-                                "properties": {&n.name: sch},
-                                "required": [&n.name],
-                                "additionalProperties": false
-                            })
+fn named_fields_schema(
+    fields: &[Named<Format>],
+    generator: &mut SchemaGenerator,
+) -> Option<schemars::Schema> {
+    let items: Option<Map<_, _>> = fields
+        .iter()
+        .map(|n| {
+            Some((
+                n.name.to_string(),
+                format_schema(&n.value, generator)?.into(),
+            ))
+        })
+        .collect();
+    let required = fields.iter().map(|n| n.name.clone()).collect::<Vec<_>>();
+    Some(json_schema!({
+        "type": "object",
+        "properties": items?,
+        "required": required,
+        "additionalProperties": false,
+    }))
+}
+
+fn tuple_schema(fields: &[Format], generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
+    let items: Option<Vec<_>> = fields
+        .iter()
+        .map(|format| format_schema(format, generator))
+        .collect();
+    Some(json_schema!({
+        "type": "array",
+        "prefixItems": items?,
+        "items": false
+    }))
+}
+
+fn container_schema(
+    container: &ContainerFormat,
+    generator: &mut SchemaGenerator,
+) -> Option<schemars::Schema> {
+    match container {
+        ContainerFormat::UnitStruct => Some(<()>::json_schema(generator)),
+        ContainerFormat::NewTypeStruct(format) => format_schema(format, generator),
+        ContainerFormat::TupleStruct(formats) => tuple_schema(formats, generator),
+        ContainerFormat::Struct(nameds) => named_fields_schema(nameds, generator),
+        ContainerFormat::Enum(map) => {
+            let variants: Option<Vec<_>> = map
+                .values()
+                .map(|n| {
+                    let mut schema = variant_schema(&n.value, generator)?;
+                    Some(if schema.as_bool() == Some(false) {
+                        // Unit variant
+                        json_schema!({"const": &n.name})
+                    } else if generator.settings().untagged_enum_variant_titles {
+                        schema.insert("title".to_string(), n.name.clone().into());
+                        schema
+                    } else {
+                        json_schema!({
+                            "type": "object",
+                            "properties": {&n.name: schema},
+                            "required": [&n.name],
+                            "additionalProperties": false
                         })
                     })
-                    .collect();
-                Some(json_schema!({"oneOf": variants?}))
-            }
+                })
+                .collect();
+            Some(json_schema!({"oneOf": variants?}))
         }
     }
 }
 
-impl ReflectJsonSchema for VariantFormat {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        match self {
-            VariantFormat::Variable(_variable) => None,
-            // Serialized as `{variant_name}`. Use the never-match schema to signal this to the enclosing ContainerFormat impl.
-            VariantFormat::Unit => Some(false.into()),
-            VariantFormat::NewType(format) => format.json_schema(generator),
-            VariantFormat::Tuple(formats) => formats.json_schema(generator),
-            VariantFormat::Struct(nameds) => nameds.json_schema(generator),
-        }
+fn variant_schema(
+    variant: &VariantFormat,
+    generator: &mut SchemaGenerator,
+) -> Option<schemars::Schema> {
+    match variant {
+        VariantFormat::Variable(_variable) => None,
+        // Serialized as `{variant_name}`. Use the never-match schema to signal this to the enclosing container.
+        VariantFormat::Unit => Some(false.into()),
+        VariantFormat::NewType(format) => format_schema(format, generator),
+        VariantFormat::Tuple(formats) => tuple_schema(formats, generator),
+        VariantFormat::Struct(nameds) => named_fields_schema(nameds, generator),
     }
 }
 
@@ -194,36 +198,6 @@ fn strict_object(
         "required": required,
         "additionalProperties": false,
     })
-}
-
-fn object_sample(sample: Option<&Value>) -> Option<&Map<String, Value>> {
-    match sample {
-        Some(Value::Object(sample)) => Some(sample),
-        _ => None,
-    }
-}
-
-fn array_sample(sample: Option<&Value>) -> Option<&Vec<Value>> {
-    match sample {
-        Some(Value::Array(sample)) => Some(sample),
-        _ => None,
-    }
-}
-
-fn child_sample<'a>(sample: Option<&'a Map<String, Value>>, name: &str) -> Option<&'a Value> {
-    sample.and_then(|sample| sample.get(name))
-}
-
-fn required_named_child(
-    sample: Option<&Map<String, Value>>,
-    child: &TraceNode,
-    name: &'static str,
-) -> bool {
-    if let Some(sample) = sample {
-        sample.contains_key(name)
-    } else {
-        !child.data.0.sem().is_some_and(Sem::maybe_absent)
-    }
 }
 
 fn strict_named_variant(
@@ -270,96 +244,73 @@ fn nullable_schema(mut schema: schemars::Schema) -> schemars::Schema {
     if value_allows_null(schema.as_value()) {
         return schema;
     }
-    let tree_leaf = schema.remove("tree-leaf");
-    let tree_node_meta = schema.remove("tree-node-meta");
+    let tree_leaf = schema.remove(TREE_LEAF);
+    let tree_node_meta = schema.remove(TREE_NODE_META);
     let mut wrapper = json_schema!({"oneOf": [schema, {"const": null}]});
     if let Some(tree_leaf) = tree_leaf {
-        wrapper.insert("tree-leaf".to_string(), tree_leaf);
+        wrapper.insert(TREE_LEAF.to_string(), tree_leaf);
     }
     if let Some(tree_node_meta) = tree_node_meta {
-        wrapper.insert("tree-node-meta".to_string(), tree_node_meta);
+        wrapper.insert(TREE_NODE_META.to_string(), tree_node_meta);
     }
     wrapper
 }
 
 fn definition_name(meta: &Meta) -> Option<String> {
     meta.items.iter().find_map(|(key, typename)| {
-        (*key == "typename").then_some(format!("tree-internal-{typename}"))
+        (*key == META_TYPENAME).then_some(format!("tree-internal-{typename}"))
     })
 }
 
-fn node_json_schema(
-    node: &TraceNode,
-    sample: Option<&Value>,
-    generator: &mut SchemaGenerator,
-) -> Option<schemars::Schema> {
-    let mut sch = if let Some(internal) = node.data.0.internal() {
-        match internal {
+struct TreeProjector<'a> {
+    generator: &'a mut SchemaGenerator,
+}
+
+impl TreeProjector<'_> {
+    // Project the Miniconf tree first, then apply node decorations in one place.
+    fn node(&mut self, node: &TraceNode, sample: Option<&Value>) -> Option<schemars::Schema> {
+        let schema = if let Some(internal) = node.data.0.internal() {
+            self.internal(node, internal, sample)?
+        } else {
+            format_schema(node.data.1.as_ref()?, self.generator)?
+        };
+        Some(self.finish_node(node, schema))
+    }
+
+    fn internal(
+        &mut self,
+        node: &TraceNode,
+        internal: &Internal,
+        sample: Option<&Value>,
+    ) -> Option<schemars::Schema> {
+        Some(match internal {
             Internal::Named(nameds) => {
-                let sample = object_sample(sample);
-                let maybe_absent = node.children.iter().map(maybe_absent).collect::<Vec<_>>();
+                let sample = sample.and_then(Value::as_object);
                 if node.data.0.sem().is_some_and(Sem::oneof)
-                    && maybe_absent.iter().filter(|&&child| child).count() <= 1
+                    && node
+                        .children
+                        .iter()
+                        .filter(|child| maybe_absent(child))
+                        .count()
+                        <= 1
                 {
-                    let variants: Option<Vec<_>> = nameds
-                        .iter()
-                        .zip(&node.children)
-                        .zip(&maybe_absent)
-                        .map(|((named, child), maybe_absent)| {
-                            let mut sch = node_json_schema(
-                                child,
-                                child_sample(sample, named.name()),
-                                generator,
-                            )?;
-                            if named.edge_meta().get("nullable") == Some("true") {
-                                sch = nullable_schema(sch);
-                            }
-                            push_meta(&mut sch, "tree-edge-meta", named.edge_meta());
-                            Some(strict_named_variant(named.name(), sch, !maybe_absent))
-                        })
-                        .collect();
-                    json_schema!({"oneOf": variants?})
+                    self.named_oneof(nameds, &node.children, sample)?
                 } else {
-                    let mut required = Vec::new();
-                    let items: Option<Map<_, _>> = nameds
-                        .iter()
-                        .zip(&node.children)
-                        .map(|(named, child)| {
-                            let mut sch = node_json_schema(
-                                child,
-                                child_sample(sample, named.name()),
-                                generator,
-                            )?;
-                            if named.edge_meta().get("nullable") == Some("true") {
-                                sch = nullable_schema(sch);
-                            }
-                            push_meta(&mut sch, "tree-edge-meta", named.edge_meta());
-                            if required_named_child(sample, child, named.name()) {
-                                required.push(named.name());
-                            }
-                            Some((named.name().to_string(), sch.into()))
-                        })
-                        .collect();
-                    strict_object(items?, required)
+                    self.named_object(nameds, &node.children, sample)?
                 }
             }
             Internal::Numbered(numbereds) => {
-                let sample = array_sample(sample);
+                let sample = sample.and_then(Value::as_array);
                 let items: Option<Vec<_>> = numbereds
                     .iter()
                     .zip(&node.children)
                     .enumerate()
                     .map(|(index, (numbered, child))| {
-                        let mut sch = node_json_schema(
+                        self.edge_child(
                             child,
                             sample.and_then(|sample| sample.get(index)),
-                            generator,
-                        )?;
-                        if numbered.edge_meta().get("nullable") == Some("true") {
-                            sch = nullable_schema(sch);
-                        }
-                        push_meta(&mut sch, "tree-edge-meta", numbered.edge_meta());
-                        Some(sch)
+                            numbered.edge_meta(),
+                        )
                     })
                     .collect();
                 json_schema!({
@@ -369,12 +320,10 @@ fn node_json_schema(
                 })
             }
             Internal::Homogeneous(homogeneous) => {
-                let sample = array_sample(sample).and_then(|sample| sample.first());
-                let mut sch = node_json_schema(&node.children[0], sample, generator)?;
-                if homogeneous.edge_meta().get("nullable") == Some("true") {
-                    sch = nullable_schema(sch);
-                }
-                push_meta(&mut sch, "tree-edge-meta", homogeneous.edge_meta());
+                let sample = sample
+                    .and_then(Value::as_array)
+                    .and_then(|sample| sample.first());
+                let sch = self.edge_child(&node.children[0], sample, homogeneous.edge_meta())?;
                 json_schema!({
                     "type": "array",
                     "items": sch,
@@ -382,47 +331,128 @@ fn node_json_schema(
                     "maxItems": homogeneous.len()
                 })
             }
+        })
+    }
+
+    fn named_oneof(
+        &mut self,
+        nameds: &[SchemaNamed],
+        children: &[TraceNode],
+        sample: Option<&Map<String, Value>>,
+    ) -> Option<schemars::Schema> {
+        let variants: Option<Vec<_>> = nameds
+            .iter()
+            .zip(children)
+            .map(|(named, child)| {
+                let sch = self.edge_child(
+                    child,
+                    sample.and_then(|sample| sample.get(named.name())),
+                    named.edge_meta(),
+                )?;
+                Some(strict_named_variant(
+                    named.name(),
+                    sch,
+                    !maybe_absent(child),
+                ))
+            })
+            .collect();
+        Some(json_schema!({"oneOf": variants?}))
+    }
+
+    fn named_object(
+        &mut self,
+        nameds: &[SchemaNamed],
+        children: &[TraceNode],
+        sample: Option<&Map<String, Value>>,
+    ) -> Option<schemars::Schema> {
+        let mut required = Vec::new();
+        let items: Option<Map<_, _>> = nameds
+            .iter()
+            .zip(children)
+            .map(|(named, child)| {
+                let sch = self.edge_child(
+                    child,
+                    sample.and_then(|sample| sample.get(named.name())),
+                    named.edge_meta(),
+                )?;
+                if required_named_child(sample, child, named.name()) {
+                    required.push(named.name());
+                }
+                Some((named.name().to_string(), sch.into()))
+            })
+            .collect();
+        Some(strict_object(items?, required))
+    }
+
+    fn edge_child(
+        &mut self,
+        child: &TraceNode,
+        sample: Option<&Value>,
+        edge_meta: &Meta,
+    ) -> Option<schemars::Schema> {
+        let mut schema = self.node(child, sample)?;
+        if edge_meta.get(META_NULLABLE) == Some("true") {
+            schema = nullable_schema(schema);
         }
-    } else {
-        node.data.1.as_ref()?.json_schema(generator)?
-    };
-    let maybe_absent = maybe_absent(node);
-    push_tree_leaf(&mut sch, node.data.0.internal().is_none());
-    push_meta(&mut sch, "tree-node-meta", node.data.0.node_meta());
-    if let Some(name) = definition_name(node.data.0.node_meta()) {
-        let mut def = sch.clone();
+        push_meta(&mut schema, TREE_EDGE_META, edge_meta);
+        Some(schema)
+    }
+
+    fn finish_node(&mut self, node: &TraceNode, mut schema: schemars::Schema) -> schemars::Schema {
+        let maybe_absent = maybe_absent(node);
+        let is_leaf = node.data.0.internal().is_none();
+        push_tree_leaf(&mut schema, is_leaf);
+        push_meta(&mut schema, TREE_NODE_META, node.data.0.node_meta());
+
+        if let Some(name) = definition_name(node.data.0.node_meta()) {
+            return self.finish_reference(node, schema, name, maybe_absent);
+        }
+
+        if node.data.0.node_meta().get(META_NULLABLE) == Some("true") {
+            schema = nullable_schema(schema);
+        }
         if maybe_absent {
-            def.remove("tree-maybe-absent");
+            schema.insert(TREE_MAYBE_ABSENT.to_string(), true.into());
         }
-        if let Some(existing) = generator.definitions().get(&name) {
+        schema
+    }
+
+    fn finish_reference(
+        &mut self,
+        node: &TraceNode,
+        schema: schemars::Schema,
+        name: String,
+        maybe_absent: bool,
+    ) -> schemars::Schema {
+        let def = schema.clone();
+        if let Some(existing) = self.generator.definitions().get(&name) {
             assert_eq!(existing, def.as_value()); // typename not unique
         } else {
-            generator
+            self.generator
                 .definitions_mut()
                 .insert(name.to_string(), def.into());
         }
         let mut reference = schemars::Schema::new_ref(format!("#/$defs/{name}"));
         push_tree_leaf(&mut reference, node.data.0.internal().is_none());
-        if node.data.0.node_meta_value("nullable") == Some("true") {
+        if node.data.0.node_meta().get(META_NULLABLE) == Some("true") {
             reference = nullable_schema(reference);
         }
         if maybe_absent {
-            reference.insert("tree-maybe-absent".to_string(), true.into());
+            reference.insert(TREE_MAYBE_ABSENT.to_string(), true.into());
         }
-        return Some(reference);
+        reference
     }
-    if node.data.0.node_meta_value("nullable") == Some("true") {
-        sch = nullable_schema(sch);
-    }
-    if maybe_absent {
-        sch.insert("tree-maybe-absent".to_string(), true.into());
-    }
-    Some(sch)
 }
 
-impl ReflectJsonSchema for TraceNode {
-    fn json_schema(&self, generator: &mut SchemaGenerator) -> Option<schemars::Schema> {
-        node_json_schema(self, None, generator)
+fn required_named_child(
+    sample: Option<&Map<String, Value>>,
+    child: &TraceNode,
+    name: &'static str,
+) -> bool {
+    if let Some(sample) = sample {
+        sample.contains_key(name)
+    } else {
+        !maybe_absent(child)
     }
 }
 
@@ -444,7 +474,7 @@ fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Meta) {
 
 fn push_tree_leaf(sch: &mut schemars::Schema, leaf: bool) {
     if leaf {
-        assert_eq!(sch.insert("tree-leaf".to_string(), true.into()), None);
+        assert_eq!(sch.insert(TREE_LEAF.to_string(), true.into()), None);
     }
 }
 
@@ -497,14 +527,18 @@ impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
         let mut generator = SchemaGenerator::new(SchemaSettings::draft2020_12());
         let defs: Vec<_> = registry
             .iter()
-            .map(|(name, value)| (name.clone(), value.json_schema(&mut generator).into()))
+            .map(|(name, value)| (name.clone(), container_schema(value, &mut generator).into()))
             .collect();
         generator.definitions_mut().extend(defs);
 
         types.normalize()?;
-        let mut root = node_json_schema(types.root(), sample.as_ref(), &mut generator).ok_or(
-            serde_reflection::Error::UnknownFormatInContainer("reflection incomplete".to_string()),
-        )?;
+        let mut root = TreeProjector {
+            generator: &mut generator,
+        }
+        .node(types.root(), sample.as_ref())
+        .ok_or(serde_reflection::Error::UnknownFormatInContainer(
+            "reflection incomplete".to_string(),
+        ))?;
         root.insert("$defs".to_string(), generator.definitions().clone().into());
         if let Some(meta_schema) = generator.settings().meta_schema.as_deref() {
             root.insert("$schema".to_string(), meta_schema.into());

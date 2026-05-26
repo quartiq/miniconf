@@ -6,19 +6,20 @@ use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
 };
-use minimq::{
-    Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session,
-    types::Utf8String,
-};
+use minimq::{Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session};
 use serde_json_core::de::Error as JsonDeError;
 
+use super::poll_op;
 use crate::{
-    Error,
+    Error, MAX_DEPTH, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, RESPONSE_TEXT_LENGTH,
+    TRANSIENT_TEXT_PROPERTIES,
     client::{ChangedKey, Miniconf, PendingOp, ReplyTarget, Route},
+    debug,
     message::{DepthError, ResponseBody, ResponseCode, set_path, settings_path, simple_pub_error},
+    warn,
 };
 
-type ResponseText = String<{ crate::RESPONSE_TEXT_LENGTH }>;
+type ResponseText = String<{ RESPONSE_TEXT_LENGTH }>;
 
 pub(crate) enum FollowUp {
     Publish {
@@ -82,7 +83,7 @@ where
     if !matches!(auth(inbound), Auth::Absent) {
         return false;
     }
-    let mut state = [0; crate::MAX_DEPTH];
+    let mut state = [0; MAX_DEPTH];
     resolve_leaf::<Settings>(path, &mut state).is_some()
 }
 
@@ -113,12 +114,11 @@ where
         return Route::Unhandled;
     };
 
-    let reply = match inbound
-        .reply_owned::<{ crate::MAX_TOPIC_LENGTH }, { crate::RESPONSE_CORRELATION_LENGTH }>()
+    let reply = match inbound.reply_owned::<{ MAX_TOPIC_LENGTH }, { RESPONSE_CORRELATION_LENGTH }>()
     {
         Ok(reply) => reply,
         Err(err) => {
-            crate::warn!(
+            warn!(
                 "Rejecting request with oversized reply target topic={=str} err={}",
                 inbound.topic(),
                 err
@@ -127,11 +127,11 @@ where
         }
     };
 
-    let mut state = [0; crate::MAX_DEPTH];
+    let mut state = [0; MAX_DEPTH];
     let lookup = match Settings::SCHEMA.resolve_into(path, &mut state) {
         Ok(lookup) => lookup,
         Err(err) => {
-            crate::debug!(
+            debug!(
                 "Rejecting set request topic={=str} depth={=usize} err={=?}",
                 inbound.topic(),
                 err.lookup.depth,
@@ -157,12 +157,12 @@ where
     };
 
     if inbound.payload().is_empty() {
-        crate::debug!("Ignoring empty set payload topic={=str}", inbound.topic());
+        debug!("Ignoring empty set payload topic={=str}", inbound.topic());
         return Route::Ignored;
     }
 
     if !lookup.schema.is_leaf() {
-        crate::debug!(
+        debug!(
             "Rejecting non-leaf set request topic={=str}",
             inbound.topic()
         );
@@ -183,7 +183,7 @@ where
         json_core::set_by_keys(settings, keys, inbound.payload())
     }) {
         Ok(_) => {
-            crate::debug!(
+            debug!(
                 "Accepted set request topic={=str} depth={=usize} payload_len={=usize} reply={=bool}",
                 inbound.topic(),
                 lookup.depth,
@@ -197,7 +197,7 @@ where
             }
         }
         Err(err) => {
-            crate::debug!(
+            debug!(
                 "Rejecting set request topic={=str} depth={=usize} payload_len={=usize} class={=str}",
                 inbound.topic(),
                 err.depth,
@@ -226,10 +226,10 @@ pub(crate) fn auth(inbound: &InboundPublish<'_>) -> Auth {
         let Ok(Property::UserProperty(key, value)) = property else {
             continue;
         };
-        if key.0 != "auth" {
+        if key != "auth" {
             continue;
         }
-        if seen || !value.0.is_empty() {
+        if seen || !value.is_empty() {
             return Auth::Invalid;
         }
         seen = true;
@@ -237,10 +237,7 @@ pub(crate) fn auth(inbound: &InboundPublish<'_>) -> Auth {
     if seen { Auth::Valid } else { Auth::Absent }
 }
 
-pub(crate) fn resolve_leaf<Settings>(
-    path: &str,
-    state: &mut [usize; crate::MAX_DEPTH],
-) -> Option<usize>
+pub(crate) fn resolve_leaf<Settings>(path: &str, state: &mut [usize; MAX_DEPTH]) -> Option<usize>
 where
     Settings: TreeSchema,
 {
@@ -270,16 +267,16 @@ where
     // No-auth settings publications are a narrow compatibility ingress for tools that edit the
     // retained mirror by hand. Auth-marked publications are the authoritative mirror itself.
     if !matches!(auth(inbound), Auth::Absent) {
-        crate::debug!(
+        debug!(
             "Ignoring authoritative settings mirror publication topic={=str}",
             inbound.topic()
         );
         return Route::Ignored;
     }
 
-    let mut state = [0; crate::MAX_DEPTH];
+    let mut state = [0; MAX_DEPTH];
     let Some(depth) = resolve_leaf::<Settings>(path, &mut state) else {
-        crate::debug!(
+        debug!(
             "Ignoring compatibility settings ingress with invalid path topic={=str}",
             inbound.topic()
         );
@@ -288,7 +285,7 @@ where
 
     let changed = Indices::new(state, depth);
     if inbound.payload().is_empty() {
-        crate::debug!(
+        debug!(
             "Overwriting empty compatibility settings ingress topic={=str}",
             inbound.topic()
         );
@@ -299,7 +296,7 @@ where
 
     match set_leaf(settings, changed.as_ref(), inbound.payload()) {
         Ok(()) => {
-            crate::debug!(
+            debug!(
                 "Accepted compatibility settings ingress topic={=str} depth={=usize} payload_len={=usize}",
                 inbound.topic(),
                 depth,
@@ -311,7 +308,7 @@ where
             }
         }
         Err(err) => {
-            crate::debug!(
+            debug!(
                 "Overwriting failed compatibility settings ingress topic={=str} depth={=usize} payload_len={=usize} class={=str}",
                 inbound.topic(),
                 err.depth,
@@ -343,18 +340,18 @@ impl FollowUp {
         loop {
             match self {
                 Self::Publish { state, reply, op } => {
-                    match super::poll_op(session, op)? {
+                    match poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             if let Some(target) = reply.take() {
-                                crate::debug!(
+                                debug!(
                                     "Published authoritative setting; sending MM2 success reply reply_topic={=str}",
                                     target.topic()
                                 );
                                 *self = Self::ReplyOk { target, op: None };
                                 continue;
                             }
-                            crate::debug!(
+                            debug!(
                                 "Published authoritative setting without reply topic depth={=usize}",
                                 state.as_ref().len()
                             );
@@ -378,7 +375,7 @@ impl FollowUp {
                         }
                         Err(err) => {
                             if let Some(target) = reply.take() {
-                                crate::warn!(
+                                warn!(
                                     "Authoritative setting publish failed; replying with MM2 error reply_topic={=str}",
                                     target.topic()
                                 );
@@ -400,10 +397,10 @@ impl FollowUp {
                     message,
                     op,
                 } => {
-                    match super::poll_op(session, op)? {
+                    match poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
-                            crate::debug!(
+                            debug!(
                                 "Completed MM2 error reply reply_topic={=str} kind={=str} depth={=?}",
                                 target.topic(),
                                 message.kind,
@@ -432,10 +429,10 @@ impl FollowUp {
                     }
                 }
                 Self::ReplyOk { target, op } => {
-                    match super::poll_op(session, op)? {
+                    match poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
-                            crate::debug!(
+                            debug!(
                                 "Completed MM2 success reply reply_topic={=str}",
                                 target.topic()
                             );
@@ -467,10 +464,10 @@ impl FollowUp {
                     payload,
                     op,
                 } => {
-                    match super::poll_op(session, op)? {
+                    match poll_op(session, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
-                            crate::debug!(
+                            debug!(
                                 "Completed MM2 publish-error reply reply_topic={=str}",
                                 target.topic()
                             );
@@ -560,13 +557,11 @@ fn error_props<'a>(
 }
 
 fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'a str) {
-    props
-        .push(Property::UserProperty(Utf8String(key), Utf8String(value)))
-        .ok();
+    props.push(Property::UserProperty(key, value)).ok();
 }
 
 fn push_transient_text_props(props: &mut VecView<Property<'_>>) {
-    for prop in crate::TRANSIENT_TEXT_PROPERTIES {
+    for prop in TRANSIENT_TEXT_PROPERTIES {
         props.push(prop.clone()).ok();
     }
 }

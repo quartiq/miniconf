@@ -1,28 +1,22 @@
 use core::{convert::Infallible, num::NonZero};
-use serde::{
-    Serialize, Serializer,
-    ser::{SerializeMap as _, SerializeStruct as _},
-};
+use serde::{Serialize, Serializer, ser::SerializeMap as _};
 
 use crate::{DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
 
 #[cfg(feature = "sem")]
 type StoredSem = Sem;
 #[cfg(not(feature = "sem"))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StoredSem;
+type StoredSem = ();
 
 #[cfg(feature = "meta-node")]
 type StoredNodeMeta = Meta;
 #[cfg(not(feature = "meta-node"))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StoredNodeMeta;
+type StoredNodeMeta = ();
 
 #[cfg(feature = "meta-edge")]
 type StoredEdgeMeta = Meta;
 #[cfg(not(feature = "meta-edge"))]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct StoredEdgeMeta;
+type StoredEdgeMeta = ();
 
 /// Structured semantics for a mutually exclusive named node.
 pub const ONEOF_SEM: Sem = Sem::new(None, true, false);
@@ -37,8 +31,21 @@ pub struct Lookup {
     pub schema: &'static Schema,
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Lookup {
+    fn format(&self, fmt: defmt::Formatter<'_>) {
+        defmt::write!(
+            fmt,
+            "Lookup {{ depth: {=usize}, leaf: {=bool} }}",
+            self.depth,
+            self.schema.is_leaf()
+        )
+    }
+}
+
 /// Error returned by [`Schema::resolve_into()`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ResolveError {
     /// The traversal error.
     pub error: DescendError<()>,
@@ -48,6 +55,7 @@ pub struct ResolveError {
 
 /// Structured machine-readable schema semantics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Sem {
     /// Semantic leaf type when known.
@@ -101,9 +109,7 @@ const fn store_sem(sem: Sem) -> StoredSem {
 }
 
 #[cfg(not(feature = "sem"))]
-const fn store_sem(_sem: Sem) -> StoredSem {
-    StoredSem
-}
+const fn store_sem(_sem: Sem) -> StoredSem {}
 
 #[cfg(feature = "sem")]
 const fn sem_ref(sem: &StoredSem) -> Option<&Sem> {
@@ -121,9 +127,7 @@ const fn store_node_meta(meta: Meta) -> StoredNodeMeta {
 }
 
 #[cfg(not(feature = "meta-node"))]
-const fn store_node_meta(_meta: Meta) -> StoredNodeMeta {
-    StoredNodeMeta
-}
+const fn store_node_meta(_meta: Meta) -> StoredNodeMeta {}
 
 #[cfg(feature = "meta-node")]
 const fn node_meta_ref(meta: &StoredNodeMeta) -> &Meta {
@@ -141,9 +145,7 @@ const fn store_edge_meta(meta: Meta) -> StoredEdgeMeta {
 }
 
 #[cfg(not(feature = "meta-edge"))]
-const fn store_edge_meta(_meta: Meta) -> StoredEdgeMeta {
-    StoredEdgeMeta
-}
+const fn store_edge_meta(_meta: Meta) -> StoredEdgeMeta {}
 
 #[cfg(feature = "meta-edge")]
 const fn edge_meta_ref(meta: &StoredEdgeMeta) -> &Meta {
@@ -157,6 +159,7 @@ const fn edge_meta_ref(_meta: &StoredEdgeMeta) -> &Meta {
 
 /// Compact semantic leaf type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Ty {
     /// Boolean.
@@ -210,7 +213,7 @@ pub enum Ty {
 }
 
 /// A numbered schema item
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Numbered {
     /// The child schema
     pub(crate) schema: &'static Schema,
@@ -238,23 +241,8 @@ impl Numbered {
     }
 }
 
-impl Serialize for Numbered {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer
-            .serialize_struct("Numbered", 1 + usize::from(!self.edge_meta().is_empty()))?;
-        state.serialize_field("schema", self.schema())?;
-        if !self.edge_meta().is_empty() {
-            state.serialize_field("meta", self.edge_meta())?;
-        }
-        state.end()
-    }
-}
-
 /// A named schema item
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Named {
     /// The name of the item
     pub(crate) name: &'static str,
@@ -290,24 +278,8 @@ impl Named {
     }
 }
 
-impl Serialize for Named {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state =
-            serializer.serialize_struct("Named", 2 + usize::from(!self.edge_meta().is_empty()))?;
-        state.serialize_field("name", self.name())?;
-        state.serialize_field("schema", self.schema())?;
-        if !self.edge_meta().is_empty() {
-            state.serialize_field("meta", self.edge_meta())?;
-        }
-        state.end()
-    }
-}
-
 /// A representative schema item for a homogeneous array
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct Homogeneous {
     /// The number of items
     pub(crate) len: NonZero<usize>,
@@ -340,22 +312,6 @@ impl Homogeneous {
     /// Edge metadata when present.
     pub const fn edge_meta(&self) -> &Meta {
         edge_meta_ref(&self.meta)
-    }
-}
-
-impl Serialize for Homogeneous {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut state = serializer
-            .serialize_struct("Homogeneous", 2 + usize::from(!self.edge_meta().is_empty()))?;
-        state.serialize_field("len", &self.len())?;
-        state.serialize_field("schema", self.schema())?;
-        if !self.edge_meta().is_empty() {
-            state.serialize_field("meta", self.edge_meta())?;
-        }
-        state.end()
     }
 }
 
@@ -435,6 +391,10 @@ impl Internal {
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct Meta {
     /// Backing storage for metadata items.
+    ///
+    /// Prefer [`Self::iter()`] and [`Self::get()`] in new code. The field remains
+    /// public for existing callers, but callers should not rely on storage details
+    /// beyond iteration order and duplicate preservation.
     pub items: &'static [(&'static str, &'static str)],
 }
 
@@ -450,6 +410,16 @@ impl Meta {
     /// Whether the metadata bag is empty.
     pub const fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+
+    /// Number of metadata entries.
+    pub const fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    /// Iterate over metadata entries in declaration order.
+    pub fn iter(&self) -> core::slice::Iter<'static, (&'static str, &'static str)> {
+        self.items.iter()
     }
 
     /// Return the first metadata value for `key`.
@@ -473,8 +443,56 @@ impl Serialize for Meta {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const META: Meta = Meta::new(&[("doc", "node"), ("doc", "second")]);
+    const EDGE_META: Meta = Meta::new(&[("unit", "V")]);
+    const CHILD: Schema = Schema::leaf(META, Sem::new(Some(Ty::U16), false, false));
+    const ROOT: Schema = Schema::Internal(InternalSchema::new(
+        NodeSchema::new(META, ONEOF_SEM),
+        Internal::Named(&[Named::new("value", &CHILD, EDGE_META)]),
+    ));
+
+    #[test]
+    fn meta_iter_preserves_declaration_order_and_duplicates() {
+        assert_eq!(META.len(), 2);
+        assert_eq!(META.get("doc"), Some("node"));
+        assert_eq!(
+            META.iter().copied().collect::<std::vec::Vec<_>>(),
+            [("doc", "node"), ("doc", "second")]
+        );
+    }
+
+    #[test]
+    fn feature_retention_contract_is_explicit() {
+        #[cfg(feature = "sem")]
+        {
+            assert_eq!(ROOT.sem(), Some(&ONEOF_SEM));
+            assert_eq!(CHILD.sem(), Some(&Sem::new(Some(Ty::U16), false, false)));
+        }
+        #[cfg(not(feature = "sem"))]
+        {
+            assert_eq!(ROOT.sem(), None);
+            assert_eq!(CHILD.sem(), None);
+        }
+
+        #[cfg(feature = "meta-node")]
+        assert_eq!(ROOT.node_meta().get("doc"), Some("node"));
+        #[cfg(not(feature = "meta-node"))]
+        assert!(ROOT.node_meta().is_empty());
+
+        let internal = ROOT.internal().unwrap();
+        #[cfg(feature = "meta-edge")]
+        assert_eq!(internal.get_edge_meta(0).get("unit"), Some("V"));
+        #[cfg(not(feature = "meta-edge"))]
+        assert!(internal.get_edge_meta(0).is_empty());
+    }
+}
+
 /// Shared static schema payload for one tree node.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct NodeSchema {
     meta: StoredNodeMeta,
     sem: StoredSem,
@@ -505,7 +523,7 @@ impl NodeSchema {
 }
 
 /// Static schema payload for an internal node.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub struct InternalSchema {
     node: NodeSchema,
     internal: Internal,
@@ -532,7 +550,26 @@ impl InternalSchema {
 }
 
 /// Static schema for one tree node.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash)]
+///
+/// `Schema` exposes the in-crate structural schema model. Its `Serialize`
+/// implementation follows this Rust data model and is useful for inspection and
+/// tests, but transport clients should prefer explicit projections such as
+/// [`crate::compact_schema`] or [`crate::json_schema`] when they need a stable
+/// schema payload contract.
+///
+/// Metadata and structured semantics are retained only when the corresponding
+/// Cargo features are enabled:
+///
+/// - `sem` retains [`Sem`] payloads returned by [`Self::sem()`].
+/// - `meta-node` retains metadata returned by [`Self::node_meta()`].
+/// - `meta-edge` retains metadata returned by child edge accessors such as
+///   [`Named::edge_meta()`], [`Numbered::edge_meta()`], and
+///   [`Homogeneous::edge_meta()`].
+///
+/// Constructors and derive output accept metadata and semantics in all builds;
+/// disabled retention features intentionally discard them and accessors return
+/// `None` or [`Meta::EMPTY`].
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize)]
 pub enum Schema {
     /// Leaf node without children.
     Leaf(NodeSchema),
@@ -543,24 +580,6 @@ pub enum Schema {
 impl Default for Schema {
     fn default() -> Self {
         Self::LEAF
-    }
-}
-
-impl Serialize for Schema {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut len =
-            usize::from(!self.node_meta().is_empty()) + usize::from(self.internal().is_some());
-        if let Some(sem) = self.sem()
-            && !sem.is_empty()
-        {
-            len += 1;
-        }
-        let mut state = serializer.serialize_struct("Schema", len)?;
-        self.serialize_fields(&mut state)?;
-        state.end()
     }
 }
 
@@ -611,26 +630,6 @@ impl Schema {
         ))
     }
 
-    fn serialize_fields<S>(&self, state: &mut S) -> Result<(), S::Error>
-    where
-        S: serde::ser::SerializeStruct,
-    {
-        let node_meta = self.node_meta();
-        let sem = self.sem();
-        if !self.node_meta().is_empty() {
-            state.serialize_field("meta", node_meta)?;
-        }
-        if let Some(sem) = sem
-            && !sem.is_empty()
-        {
-            state.serialize_field("sem", sem)?;
-        }
-        if let Some(internal) = self.internal() {
-            state.serialize_field("internal", internal)?;
-        }
-        Ok(())
-    }
-
     /// Whether this node is a leaf
     pub const fn is_leaf(&self) -> bool {
         matches!(self, Self::Leaf(_))
@@ -663,11 +662,6 @@ impl Schema {
             Self::Leaf(node) => node.node_meta(),
             Self::Internal(schema) => schema.node_meta(),
         }
-    }
-
-    /// Node metadata value for `key` when present.
-    pub fn node_meta_value(&self, key: &str) -> Option<&'static str> {
-        self.node_meta().get(key)
     }
 
     /// Internal schema when present.

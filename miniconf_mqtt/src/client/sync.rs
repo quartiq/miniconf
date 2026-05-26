@@ -1,18 +1,19 @@
 use embassy_time::{Duration, Instant, with_deadline};
 use miniconf::{SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize};
 use minimq::{
-    Error as MqttError, InboundPublish, Io, Op, OpStatus, PubError, Publication, QoS,
-    ResourceError, Retain, Session, TopicString,
-    types::{RetainHandling, SubscriptionOptions, TopicFilter},
+    Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS, ResourceError,
+    RetainHandling, Session, SubscriptionOptions, TopicFilter,
 };
 
+use super::poll_op;
 use super::request::{Auth, auth, resolve_leaf, set_leaf};
 use crate::{
-    Error,
+    Error, MAX_DEPTH, RETAINED_TEXT_PROPERTIES, TopicString,
     client::{
         ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher,
         publish_alive_once, schema_page_topic,
     },
+    debug, info,
     message::settings_path,
     schema::{SchemaSync, SettingsSync},
 };
@@ -60,32 +61,29 @@ impl LoadRetainedPhase {
             match self {
                 Self::Subscribe { start, op } => {
                     if let Some(current) = *op {
-                        match session.status(&current) {
-                            OpStatus::Pending => {
-                                if let Some(inbound) = session.poll().await? {
-                                    apply_retained(mm2.prefix.as_str(), settings, &inbound);
-                                }
-                                return Ok(false);
+                        if session.is_pending(&current) {
+                            if let Some(inbound) = session.poll().await? {
+                                apply_retained(mm2.prefix.as_str(), settings, &inbound);
                             }
-                            OpStatus::Complete => {
-                                let now = Instant::now();
-                                let suback_rtt = now.saturating_duration_since(*start);
-                                let quiet = retained_quiet_window(suback_rtt);
-                                crate::debug!(
-                                    "Subscribed retained settings topic={=str}/settings/# suback_rtt_ms={=u64} quiet_ms={=u64}",
-                                    mm2.prefix.as_str(),
-                                    suback_rtt.as_millis(),
-                                    quiet.as_millis()
-                                );
-                                *self = Self::Drain {
-                                    deadline: now.saturating_add(quiet),
-                                    quiet,
-                                };
-                                continue;
-                            }
-                            OpStatus::Invalidated => {
-                                return Err(Error::Mqtt(MqttError::Disconnected));
-                            }
+                            return Ok(false);
+                        } else if session.is_complete(&current) {
+                            let now = Instant::now();
+                            let suback_rtt = now.saturating_duration_since(*start);
+                            let quiet = retained_quiet_window(suback_rtt);
+                            debug!(
+                                "Subscribed retained settings topic={=str}/settings/# suback_rtt_ms={=u64} quiet_ms={=u64}",
+                                mm2.prefix.as_str(),
+                                suback_rtt.as_millis(),
+                                quiet.as_millis()
+                            );
+                            *self = Self::Drain {
+                                deadline: now.saturating_add(quiet),
+                                quiet,
+                            };
+                            continue;
+                        } else {
+                            debug_assert!(session.is_invalidated(&current));
+                            return Err(Error::Mqtt(MqttError::Disconnected));
                         }
                     }
 
@@ -120,13 +118,13 @@ impl LoadRetainedPhase {
                         }
                     }
                 }
-                Self::Unsubscribe(op) => match super::poll_op(session, op)? {
+                Self::Unsubscribe(op) => match poll_op(session, op)? {
                     PendingOp::Pending => {
                         let _ = session.poll().await?;
                         return Ok(false);
                     }
                     PendingOp::Complete => {
-                        crate::info!("Completed retained settings load");
+                        info!("Completed retained settings load");
                         *self = Self::Done;
                         return Ok(true);
                     }
@@ -166,7 +164,7 @@ where
     // Startup recovery only trusts previous authoritative mirror publications. No-auth settings are
     // reserved for the runtime compatibility path and stale topics are left for smarter clients to
     // prune because the device cannot enumerate broker-retained state outside this subscription.
-    if inbound.retain() != Retain::Retained || inbound.payload().is_empty() {
+    if !inbound.retained() || inbound.payload().is_empty() {
         return false;
     }
 
@@ -177,14 +175,14 @@ where
     match auth(inbound) {
         Auth::Valid => {}
         Auth::Absent => {
-            crate::debug!(
+            debug!(
                 "Ignoring retained setting without auth topic={=str}",
                 inbound.topic()
             );
             return false;
         }
         Auth::Invalid => {
-            crate::debug!(
+            debug!(
                 "Ignoring retained setting with invalid auth topic={=str}",
                 inbound.topic()
             );
@@ -192,9 +190,9 @@ where
         }
     }
 
-    let mut state = [0; crate::MAX_DEPTH];
+    let mut state = [0; MAX_DEPTH];
     let Some(depth) = resolve_leaf::<Settings>(path, &mut state) else {
-        crate::debug!(
+        debug!(
             "Ignoring stale retained setting topic={=str}",
             inbound.topic()
         );
@@ -203,7 +201,7 @@ where
 
     match set_leaf(settings, &state[..depth], inbound.payload()) {
         Ok(()) => {
-            crate::debug!(
+            debug!(
                 "Loaded retained setting topic={=str} depth={=usize} payload_len={=usize}",
                 inbound.topic(),
                 depth,
@@ -212,7 +210,7 @@ where
             true
         }
         Err(err) => {
-            crate::debug!(
+            debug!(
                 "Dropping invalid retained setting topic={=str} depth={=usize} payload_len={=usize} class={=str}",
                 inbound.topic(),
                 err.depth,
@@ -253,10 +251,9 @@ impl StartupPhase {
                     if step_schema::<Settings, _>(&mm2.prefix, session, sync, op).await? {
                         mm2.manifest.schema_pages = sync.page;
                         mm2.manifest.schema_rev = sync.hash;
-                        crate::debug!(
+                        debug!(
                             "Schema startup phase complete pages={=usize} rev={=u32}",
-                            mm2.manifest.schema_pages,
-                            mm2.manifest.schema_rev
+                            mm2.manifest.schema_pages, mm2.manifest.schema_rev
                         );
                         *self = Self::Settings(Publisher::root(Settings::SCHEMA));
                         continue;
@@ -265,16 +262,16 @@ impl StartupPhase {
                 }
                 Self::Settings(publisher) => {
                     if publisher.step(mm2, session, settings).await? {
-                        crate::debug!("Settings startup phase complete");
+                        debug!("Settings startup phase complete");
                         *self = Self::SubscribeSet(None);
                         continue;
                     }
                     return Ok(false);
                 }
-                Self::SubscribeSet(op) => match super::poll_op(session, op)? {
+                Self::SubscribeSet(op) => match poll_op(session, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
-                        crate::debug!("Subscribed MM2 request ingress");
+                        debug!("Subscribed MM2 request ingress");
                         *self = Self::Alive(None);
                         continue;
                     }
@@ -287,13 +284,12 @@ impl StartupPhase {
                         Err(err) => return Err(err),
                     },
                 },
-                Self::Alive(op) => match super::poll_op(session, op)? {
+                Self::Alive(op) => match poll_op(session, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
-                        crate::info!(
+                        info!(
                             "Completed MM2 startup epoch={=u32} schema_rev={=u32}",
-                            mm2.manifest.epoch,
-                            mm2.manifest.schema_rev
+                            mm2.manifest.epoch, mm2.manifest.schema_rev
                         );
                         *self = Self::Done;
                         return Ok(true);
@@ -327,21 +323,20 @@ where
     Settings: TreeSerialize,
     IO: Io,
 {
-    match super::poll_op(session, op)? {
+    match poll_op(session, op)? {
         PendingOp::Pending => return Ok(false),
         PendingOp::Complete | PendingOp::Idle => {}
     }
 
     if sync.next == sync.defs.len() {
-        crate::info!(
+        info!(
             "Completed schema sync pages={=usize} rev={=u32}",
-            sync.page,
-            sync.hash
+            sync.page, sync.hash
         );
         return Ok(true);
     }
 
-    crate::debug!(
+    debug!(
         "Publishing schema page={=usize} next_def={=usize} defs_total={=usize}",
         sync.page,
         sync.next,
@@ -358,7 +353,7 @@ where
             advanced: &mut advanced,
         },
     )
-    .properties(crate::RETAINED_TEXT_PROPERTIES)
+    .properties(RETAINED_TEXT_PROPERTIES)
     .qos(QoS::AtLeastOnce)
     .retain();
     match session.publish(publication).await {
@@ -377,7 +372,7 @@ where
             Ok(false)
         }
         Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
-            crate::info!(
+            info!(
                 "Aborting schema sync after oversized schema entry definition={=usize}",
                 id
             );
@@ -404,7 +399,7 @@ where
                 publisher.schema,
                 publisher.root.as_ref(),
             )?);
-            crate::info!(
+            info!(
                 "Starting retained settings sync root_depth={=usize}",
                 publisher.root.as_ref().len()
             );
@@ -415,18 +410,18 @@ where
             None => {
                 let iter = publisher.iter.as_mut().unwrap();
                 let Some(path) = iter.next() else {
-                    crate::info!("Completed retained settings sync");
+                    info!("Completed retained settings sync");
                     return Ok(true);
                 };
                 path.map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
                 let full = iter
                     .indices()
                     .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-                let mut state = [0; crate::MAX_DEPTH];
+                let mut state = [0; MAX_DEPTH];
                 state[..full.len()].copy_from_slice(full);
                 let state = ChangedKey::new(state, full.len());
                 publisher.pending = Some(state);
-                crate::debug!(
+                debug!(
                     "Preparing retained setting publication depth={=usize}",
                     state.as_ref().len()
                 );
@@ -434,10 +429,10 @@ where
             }
         };
 
-        match super::poll_op(session, &mut publisher.op)? {
+        match poll_op(session, &mut publisher.op)? {
             PendingOp::Pending => return Ok(false),
             PendingOp::Complete => {
-                crate::debug!(
+                debug!(
                     "Published retained setting depth={=usize}",
                     state.as_ref().len()
                 );
@@ -476,7 +471,7 @@ where
     topic
         .push_str("/set/#")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-    crate::debug!(
+    debug!(
         "Subscribing MM2 request ingress topic={=str}",
         topic.as_str()
     );
@@ -499,7 +494,7 @@ where
     topic
         .push_str("/settings/#")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-    crate::debug!("Subscribing retained settings topic={=str}", topic.as_str());
+    debug!("Subscribing retained settings topic={=str}", topic.as_str());
     let topics = [TopicFilter::new(&topic).options(
         SubscriptionOptions::default()
             .retain_behavior(RetainHandling::Immediately)
@@ -521,7 +516,7 @@ where
     topic
         .push_str("/settings/#")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-    crate::debug!(
+    debug!(
         "Unsubscribing retained settings topic={=str}",
         topic.as_str()
     );

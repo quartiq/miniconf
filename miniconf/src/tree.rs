@@ -2,7 +2,7 @@ use core::any::Any;
 
 use serde::{Deserializer, Serializer};
 
-use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError};
+use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, ValueError};
 
 /// Traversal and iteration of key paths in a tree.
 ///
@@ -44,6 +44,10 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, ValueError}
 ///
 /// Derived enums always carry `sem.oneof`; `meta(enum)` remains an ordinary user metadata item and has no
 /// special meaning.
+///
+/// Metadata and semantics are code-size controlled. `meta-node`, `meta-edge`, and `sem` retain
+/// node metadata, parent-child edge metadata, and structured semantics respectively. Without the
+/// matching feature, constructors and derive output still compile but the payload is discarded.
 ///
 /// ## Rename
 ///
@@ -169,7 +173,7 @@ pub trait TreeSchema {
     /// Return an exact size iterator of all leaf nodes
     ///
     /// This ensures sufficient state depth at compile time.
-    fn nodes<N: crate::Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
+    fn nodes<N: Transcode + Default, const D: usize>() -> ExactSize<NodeIter<N, D>> {
         const { assert!(D >= Self::SCHEMA.max_depth()) }
         Self::SCHEMA.nodes::<N, D>()
     }

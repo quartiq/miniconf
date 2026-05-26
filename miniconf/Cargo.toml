@@ -16,12 +16,12 @@ workspace = true
 
 [dependencies]
 serde = { version = "1.0.120", default-features = false }
-miniconf_derive = { path = "../miniconf_derive", version = "0.20.0", optional = true }
 itoa = "1.0.4"
+thiserror = { version = "2", default-features = false }
+miniconf_derive = { path = "../miniconf_derive", version = "0.20.0", optional = true }
 serde-json-core = { version = "0.6.0", optional = true }
 postcard = { version = "1.0.8", optional = true }
-thiserror = { version = "2", default-features = false }
-defmt = "1.0.1"
+defmt = { version = "1.0.1", optional = true }
 serde-reflection = { version = "0.5.2", optional = true }
 schemars = { version = "1.0.4", optional = true, default-features = false }
 serde_json = { version = "1.0.133", features = [
@@ -47,10 +47,11 @@ sem = []
 meta-node = []
 meta-edge = []
 json-core = ["dep:serde-json-core"]
-json = ["dep:serde_json"]
+json = ["alloc", "dep:serde_json", "serde/derive"]
 postcard = ["dep:postcard"]
 heapless = ["dep:heapless"]
 heapless-09 = ["dep:heapless-09"]
+defmt = ["dep:defmt"]
 derive = ["dep:miniconf_derive", "serde/derive"]
 trace = ["std", "dep:serde-reflection"]
 schema = ["trace", "dep:schemars", "json"]
