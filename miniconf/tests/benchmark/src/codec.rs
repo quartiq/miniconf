@@ -88,6 +88,12 @@ impl Response {
         self.write_u32(value as u32)
     }
 
+    pub fn write_str(&mut self, value: &str) -> Result<(), CodecError> {
+        self.push_byte(b'"')?;
+        self.push_bytes(value.as_bytes())?;
+        self.push_byte(b'"')
+    }
+
     pub fn write_i16(&mut self, value: i16) -> Result<(), CodecError> {
         self.write_i32(value as i32)
     }
@@ -197,8 +203,8 @@ impl Serializer for ResponseSerializer<'_> {
     fn serialize_char(self, _v: char) -> Result<Self::Ok, Self::Error> {
         Err(CodecError::Unsupported)
     }
-    fn serialize_str(self, _v: &str) -> Result<Self::Ok, Self::Error> {
-        Err(CodecError::Unsupported)
+    fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
+        self.out.write_str(v)
     }
     fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
         Err(CodecError::Unsupported)
@@ -222,9 +228,9 @@ impl Serializer for ResponseSerializer<'_> {
         self,
         _name: &'static str,
         _variant_index: u32,
-        _variant: &'static str,
+        variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        Err(CodecError::Unsupported)
+        self.out.write_str(variant)
     }
     fn serialize_newtype_struct<T: ?Sized + serde::Serialize>(
         self,
@@ -400,6 +406,18 @@ pub fn parse_i16(input: &str) -> Result<i16, CodecError> {
     input.parse::<i16>().map_err(|_| CodecError::Parse)
 }
 
+pub fn parse_u8(input: &str) -> Result<u8, CodecError> {
+    input.parse::<u8>().map_err(|_| CodecError::Parse)
+}
+
 pub fn parse_u16(input: &str) -> Result<u16, CodecError> {
     input.parse::<u16>().map_err(|_| CodecError::Parse)
+}
+
+pub fn parse_option_i32(input: &str) -> Result<Option<i32>, CodecError> {
+    if input == "null" {
+        Ok(None)
+    } else {
+        Ok(Some(parse_i32(input)?))
+    }
 }
