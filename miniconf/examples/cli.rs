@@ -6,15 +6,15 @@ use common::Settings;
 
 /// Simple command line interface example for miniconf
 ///
-/// This exposes the leaf nodes in `Settings` as long options, parses the command line,
-/// and then prints the settings struct as a list of option key-value pairs.
+/// This exposes `Settings` leaves as long options such as
+/// `--control-enabled false` or `--output-dac-1 2048`, then prints the tree
+/// as option key-value pairs.
 fn main() -> anyhow::Result<()> {
     let mut settings = Settings::new();
-    settings.enable();
-    // Parse args
+
     let mut args = std::env::args().skip(1);
     while let Some(key) = args.next() {
-        let key = key.strip_prefix('-').context("stripping initial dash")?;
+        let key = key.strip_prefix('-').context("stripping option prefix")?;
         let value = args.next().context("looking for value")?;
         json_core::set_by_key(
             &mut settings,
@@ -24,7 +24,6 @@ fn main() -> anyhow::Result<()> {
         .context("lookup/deserialize")?;
     }
 
-    // Dump settings
     let mut buf = vec![0; 1024];
     const MAX_DEPTH: usize = Settings::SCHEMA.max_depth();
     for item in Settings::SCHEMA.nodes::<ConstPath<String, '-'>, MAX_DEPTH>() {

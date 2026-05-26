@@ -8,11 +8,11 @@ use miniconf::{
 mod common;
 use common::Settings;
 
-/// This show-cases the implementation of a custom [`miniconf::Key`]
-/// along the lines of SCPI style hierarchies. It is case-insensitive and
-/// distinguishes relative/absolute paths.
-/// It then proceeds to implement a naive SCPI command parser that supports
-/// setting and getting values.
+/// This adapts the same `Settings` tree to a SCPI-like path syntax.
+///
+/// The custom key is case-insensitive and accepts unambiguous abbreviated
+/// segments. The small parser also preserves a relative command base after an
+/// absolute command.
 ///
 /// This is just a sketch.
 
@@ -149,11 +149,11 @@ fn main() -> anyhow::Result<()> {
 
     scpi(
         &mut settings,
-        "fO?; foo?; FOO?; :FOO?; :ARRAY_OPT:1:A?; A?; A?; A 1; A?; :FOO?",
+        ":CONTROL:ENABLED?; ENABLED false; MODE?; :OUTPUT:DAC:1?; 1 2048; 1?",
     )?;
-    scpi(&mut settings, "FO?; STRUCT_TREE:B 3; STRUCT_TREE:B?")?;
+    scpi(&mut settings, ":CALIBRATION:SLOPE?")?;
 
-    scpi(&mut settings, ":STRUCT_ 42").unwrap_err();
+    scpi(&mut settings, ":C?").unwrap_err();
 
     let mut buf = vec![0; 1024];
     const MAX_DEPTH: usize = Settings::SCHEMA.max_depth();

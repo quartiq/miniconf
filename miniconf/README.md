@@ -5,9 +5,18 @@
 [![QUARTIQ Matrix Chat](https://img.shields.io/matrix/quartiq:matrix.org)](https://matrix.to/#/#quartiq:matrix.org)
 [![Continuous Integration](https://github.com/quartiq/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
-`miniconf` exposes selected values inside heterogeneous Rust data as a small
-tree. It is `no_std` by default, uses Serde for leaf payloads, and supports
-runtime access by paths, compact keys, schema iteration, and metadata.
+`miniconf` turns selected values inside heterogeneous Rust data into a small
+runtime-addressable tree. It is `no_std` by default, uses Serde for leaf
+payloads, and lets the same settings type serve human tools, compact embedded
+links, generated schemas, and transport protocols.
+
+Use it when a typed Rust configuration or state tree should be:
+
+- accessed one leaf at a time by path or compact key
+- exposed over a transport without giving that transport ownership of the data
+- discovered by tools through schema iteration, semantics, and metadata
+- reused across CLIs, SCPI-like protocols, MQTT, tests, or generated UI/API
+  surfaces
 
 ## Quick Start
 
@@ -40,13 +49,22 @@ assert!(settings.enabled);
 assert_eq!(&buf[..len], b"42");
 ```
 
-The common user-facing layers are:
+## Pick The Surface
 
-- [`TreeSchema`]: static schema, exact lookup, leaf iteration, and metadata.
-- [`TreeSerialize`]: serialize one selected leaf.
-- [`TreeDeserialize`]: deserialize one selected leaf.
-- [`TreeAny`]: access leaf values through `core::any::Any`.
-- [`json_core`]: JSON helpers using slash-separated paths and `serde_json_core`.
+Start with [`json_core`] and slash-separated `&str` paths for human-facing
+tools, tests, and protocol sketches. The lower layers are useful when the
+boundary needs something more specific:
+
+- [`TreeSchema`] and [`Schema::nodes()`] discover leaves; [`Schema::get()`]
+  checks one exact key and returns the reached schema.
+- [`TreeSerialize`] and [`TreeDeserialize`] serialize or update exactly one
+  selected leaf with any Serde format.
+- [`TreeAny`] gives typed host-side access through `core::any::Any`.
+- [`PathIter`], [`ConstPathIter`], [`JsonPathIter`], index slices, and
+  [`Packed`] are interchangeable key boundaries through [`IntoKeys`].
+- [`postcard`] with [`Packed`] gives compact binary key-value messages.
+- [`json_schema`] builds host/tooling schemas from the same tree.
+- `miniconf_mqtt` is the ready-made MQTT transport.
 
 ## Tree Shape
 
@@ -75,8 +93,7 @@ struct Calibration {
 
 #[derive(Default, Tree)]
 struct Settings {
-    #[tree(rename = "cal")]
-    #[tree(with = leaf)]
+    #[tree(rename = "cal", with = leaf)]
     calibration: Calibration,
 }
 
@@ -89,22 +106,16 @@ Structs, enums, arrays, tuples, `Option<T>`, and standard container types can be
 combined into larger trees. `Option` branches and inactive enum variants remain
 in the static schema but may return [`ValueError::Absent`] at runtime.
 
-## Keys, Formats, And Transports
+## Adapting Boundaries
 
-Public helper APIs accept [`IntoKeys`]. The default `&str` input is a rooted
-slash path such as `/output/gain/1`. Use [`PathIter`], [`ConstPathIter`],
-[`JsonPathIter`], index slices, or [`Packed`] when another key representation is
-the better boundary format.
+`miniconf` is transport agnostic. Any channel that can carry a key and a Serde
+payload can use the tree. Keep transport routing, sessions, and buffering in
+the transport layer; pass a borrow of the settings tree into `miniconf` access
+functions when a message targets the tree.
 
-[`Path`], [`ConstPath`], [`JsonPath`], [`Indices`], and [`Packed`] can also be
-used as schema iteration or transcode targets. [`NodeIter`] yields leaves only
-and exposes its current indices and schema while walking.
-
-`miniconf` is transport agnostic. Any channel that can carry key-value payloads
-can use the tree. The core crate provides JSON helpers through [`json_core`] and
-allocation-backed [`json`] helpers; [`postcard`] gives compact binary
-serialization that pairs well with [`Packed`]. MQTT settings management lives in
-the `miniconf_mqtt` crate.
+Use [`Schema::transcode()`] to translate one key representation into another.
+Use [`NodeIter`] when publishing, validating, or rendering every leaf; it yields
+leaves only and exposes the current indices and schema while walking.
 
 ## Limits
 
