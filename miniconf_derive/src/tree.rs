@@ -338,14 +338,14 @@ impl Tree {
 
     fn bound_generics(
         &self,
-        traite: TreeTrait,
+        tree_trait: TreeTrait,
         where_clause: Option<&WhereClause>,
     ) -> Option<syn::WhereClause> {
         let type_set = self.generics.declared_type_params();
         let bounds: TokenStream = self
             .fields()
             .iter()
-            .filter_map(|f| f.bound(traite, &type_set))
+            .filter_map(|f| f.bound(tree_trait, &type_set))
             .collect();
         if bounds.is_empty() {
             where_clause.cloned()
@@ -478,11 +478,11 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeSerialize for #ident #ty_generics #where_clause {
-                fn serialize_by_key<S: ::miniconf::Serializer>(
+                fn serialize_by_key<__S: ::miniconf::Serializer>(
                     &self,
                     keys: impl ::miniconf::Keys,
-                    ser: S
-                ) -> ::core::result::Result<S::Ok, ::miniconf::SerdeError<S::Error>>
+                    ser: __S
+                ) -> ::core::result::Result<__S::Ok, ::miniconf::SerdeError<__S::Error>>
                 {
                     #key_setup
                     let index = #index?;
@@ -498,7 +498,7 @@ impl Tree {
     pub fn tree_deserialize(&self) -> TokenStream {
         let ty_generics = self.generics.split_for_impl().1;
         let lifetimes = self.generics.declared_lifetimes();
-        let mut de: syn::LifetimeParam = parse_quote!('de);
+        let mut de: syn::LifetimeParam = parse_quote!('__de);
         de.bounds.extend(
             self.fields()
                 .iter()
@@ -520,12 +520,12 @@ impl Tree {
 
         quote! {
             #[automatically_derived]
-            impl #impl_generics ::miniconf::TreeDeserialize<'de> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<D: ::miniconf::Deserializer<'de>>(
+            impl #impl_generics ::miniconf::TreeDeserialize<'__de> for #ident #ty_generics #where_clause {
+                fn deserialize_by_key<__D: ::miniconf::Deserializer<'__de>>(
                     &mut self,
                     keys: impl ::miniconf::Keys,
-                    de: D
-                ) -> ::core::result::Result<(), ::miniconf::SerdeError<D::Error>>
+                    de: __D
+                ) -> ::core::result::Result<(), ::miniconf::SerdeError<__D::Error>>
                 {
                     #key_setup
                     let index = #index?;
@@ -535,10 +535,10 @@ impl Tree {
                     }
                 }
 
-            fn probe_by_key<D: ::miniconf::Deserializer<'de>>(
+            fn probe_by_key<__D: ::miniconf::Deserializer<'__de>>(
                 keys: impl ::miniconf::Keys,
-                de: D
-            ) -> ::core::result::Result<(), ::miniconf::SerdeError<D::Error>>
+                de: __D
+            ) -> ::core::result::Result<(), ::miniconf::SerdeError<__D::Error>>
                 {
                     #key_setup
                     let index = #index?;

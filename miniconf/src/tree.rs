@@ -102,6 +102,9 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, 
 /// `ref_any_by_key`, `mut_any_by_key`).
 ///
 /// Also use this to relax bounds and deny operations.
+///
+/// Custom `bounds(deserialize = "...")` predicates that mention the generated
+/// deserialization lifetime should refer to it as `'__de`.
 /// ```
 /// # #[cfg(feature = "derive")] {
 /// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
@@ -136,7 +139,9 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, 
 /// ### `defer`
 ///
 /// The `defer` attribute is a shorthand for `with()` that defers
-/// child trait implementations to a given expression.
+/// child trait implementations to a given expression. The expression is emitted
+/// into the generated access methods; prefer `self`, a field of `self`, or
+/// `*self` and avoid relying on names from the generated method body.
 ///
 /// # Array
 ///

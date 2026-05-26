@@ -68,6 +68,9 @@
 //! calls, such as `schema::<T>()`, `serialize_by_key`, `deserialize_by_key`,
 //! `probe_by_key`, `ref_any_by_key`, and `mut_any_by_key`.
 //!
+//! Custom deserialize bounds may refer to the generated deserialize lifetime as
+//! `'__de`.
+//!
 //! Prefer this for real access policy. Keep ordinary Serde leaves on the default
 //! path or use `with = miniconf::leaf`.
 //!
