@@ -4,11 +4,11 @@
 extern crate panic_halt;
 
 use cortex_m_semihosting::{debug, hprintln};
-use miniconf::{Internal, Meta, Named, Numbered, Schema, TreeSchema};
+use miniconf::{Internal, Meta, Schema, TreeSchema};
 use miniconf_benchmark::settings::Settings;
 
 const fn meta_bytes(meta: &Meta) -> usize {
-    meta.items.len() * core::mem::size_of::<(&'static str, &'static str)>()
+    core::mem::size_of_val(meta.items)
 }
 
 const fn schema_bytes(schema: &Schema) -> usize {
@@ -16,7 +16,7 @@ const fn schema_bytes(schema: &Schema) -> usize {
     if let Some(internal) = schema.internal() {
         match internal {
             Internal::Named(children) => {
-                bytes += children.len() * core::mem::size_of::<Named>();
+                bytes += core::mem::size_of_val(*children);
                 let mut index = 0;
                 while index < children.len() {
                     bytes += meta_bytes(children[index].edge_meta());
@@ -25,7 +25,7 @@ const fn schema_bytes(schema: &Schema) -> usize {
                 }
             }
             Internal::Numbered(children) => {
-                bytes += children.len() * core::mem::size_of::<Numbered>();
+                bytes += core::mem::size_of_val(*children);
                 let mut index = 0;
                 while index < children.len() {
                     bytes += meta_bytes(children[index].edge_meta());

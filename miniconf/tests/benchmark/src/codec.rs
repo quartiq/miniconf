@@ -88,11 +88,23 @@ impl Response {
         self.write_u32(value as u32)
     }
 
+    pub fn write_i16(&mut self, value: i16) -> Result<(), CodecError> {
+        self.write_i32(value as i32)
+    }
+
+    pub fn write_u16(&mut self, value: u16) -> Result<(), CodecError> {
+        self.write_u32(value as u32)
+    }
+
+    pub fn write_u32(&mut self, value: u32) -> Result<(), CodecError> {
+        self.write_unsigned(value)
+    }
+
     pub fn write_i32(&mut self, value: i32) -> Result<(), CodecError> {
         if value < 0 {
             self.push_byte(b'-')?;
         }
-        self.write_u32(value.unsigned_abs())
+        self.write_unsigned(value.unsigned_abs())
     }
 
     pub fn write_option_i32(&mut self, value: Option<i32>) -> Result<(), CodecError> {
@@ -102,7 +114,7 @@ impl Response {
         }
     }
 
-    fn write_u32(&mut self, mut value: u32) -> Result<(), CodecError> {
+    fn write_unsigned(&mut self, mut value: u32) -> Result<(), CodecError> {
         let mut tmp = [0u8; 10];
         let mut n = 0usize;
         loop {
@@ -155,8 +167,8 @@ impl Serializer for ResponseSerializer<'_> {
     fn serialize_i8(self, _v: i8) -> Result<Self::Ok, Self::Error> {
         Err(CodecError::Unsupported)
     }
-    fn serialize_i16(self, _v: i16) -> Result<Self::Ok, Self::Error> {
-        Err(CodecError::Unsupported)
+    fn serialize_i16(self, v: i16) -> Result<Self::Ok, Self::Error> {
+        self.out.write_i16(v)
     }
     fn serialize_i32(self, v: i32) -> Result<Self::Ok, Self::Error> {
         self.out.write_i32(v)
@@ -167,11 +179,11 @@ impl Serializer for ResponseSerializer<'_> {
     fn serialize_u8(self, v: u8) -> Result<Self::Ok, Self::Error> {
         self.out.write_u8(v)
     }
-    fn serialize_u16(self, _v: u16) -> Result<Self::Ok, Self::Error> {
-        Err(CodecError::Unsupported)
+    fn serialize_u16(self, v: u16) -> Result<Self::Ok, Self::Error> {
+        self.out.write_u16(v)
     }
-    fn serialize_u32(self, _v: u32) -> Result<Self::Ok, Self::Error> {
-        Err(CodecError::Unsupported)
+    fn serialize_u32(self, v: u32) -> Result<Self::Ok, Self::Error> {
+        self.out.write_u32(v)
     }
     fn serialize_u64(self, _v: u64) -> Result<Self::Ok, Self::Error> {
         Err(CodecError::Unsupported)
@@ -316,12 +328,36 @@ impl<'de> Deserializer<'de> for ValueDeserializer<'de> {
         visitor.visit_i32(v)
     }
 
+    fn deserialize_i16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        let v: i16 = self.input.parse().map_err(|_| CodecError::Parse)?;
+        visitor.visit_i16(v)
+    }
+
     fn deserialize_u8<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: Visitor<'de>,
     {
         let v: u8 = self.input.parse().map_err(|_| CodecError::Parse)?;
         visitor.visit_u8(v)
+    }
+
+    fn deserialize_u16<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        let v: u16 = self.input.parse().map_err(|_| CodecError::Parse)?;
+        visitor.visit_u16(v)
+    }
+
+    fn deserialize_u32<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: Visitor<'de>,
+    {
+        let v: u32 = self.input.parse().map_err(|_| CodecError::Parse)?;
+        visitor.visit_u32(v)
     }
 
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -343,7 +379,7 @@ impl<'de> Deserializer<'de> for ValueDeserializer<'de> {
     }
 
     forward_to_deserialize_any! {
-        i8 i16 i64 i128 u16 u32 u64 u128 f32 f64 char str string bytes byte_buf
+        i8 i64 i128 u64 u128 f32 f64 char str string bytes byte_buf
         unit_struct newtype_struct seq tuple tuple_struct map struct enum identifier ignored_any
     }
 }
@@ -360,14 +396,10 @@ pub fn parse_i32(input: &str) -> Result<i32, CodecError> {
     input.parse::<i32>().map_err(|_| CodecError::Parse)
 }
 
-pub fn parse_u8(input: &str) -> Result<u8, CodecError> {
-    input.parse::<u8>().map_err(|_| CodecError::Parse)
+pub fn parse_i16(input: &str) -> Result<i16, CodecError> {
+    input.parse::<i16>().map_err(|_| CodecError::Parse)
 }
 
-pub fn parse_option_i32(input: &str) -> Result<Option<i32>, CodecError> {
-    if input == "null" {
-        Ok(None)
-    } else {
-        Ok(Some(parse_i32(input)?))
-    }
+pub fn parse_u16(input: &str) -> Result<u16, CodecError> {
+    input.parse::<u16>().map_err(|_| CodecError::Parse)
 }
