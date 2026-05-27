@@ -4,8 +4,8 @@ use coap_message::{MinimalWritableMessage, ReadableMessage};
 use coap_numbers::code;
 use miniconf::{ExactSize, NodeIter, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize};
 
-#[cfg(feature = "postcard")]
-use crate::PackedPostcard;
+#[cfg(feature = "cbor")]
+use crate::ConstPathCbor;
 use crate::{
     Accepts, ChangedKey, Error, InvalidOption, JSON_CONTENT_FORMAT, MAX_DEPTH,
     MAX_HANDLER_PAYLOAD_LENGTH, Problem, Representation, RequestParts, Response, UriPath,
@@ -32,10 +32,10 @@ pub struct MiniconfHandler<Storage, Settings, R> {
 pub type ConstPathJsonCoapHandler<'a, Settings> =
     MiniconfHandler<&'a mut Settings, Settings, ConstPathJson>;
 
-/// Packed-key postcard `coap-handler` adapter.
-#[cfg(feature = "postcard")]
-pub type PackedPostcardCoapHandler<'a, Settings> =
-    MiniconfHandler<&'a mut Settings, Settings, PackedPostcard>;
+/// Const-path CBOR `coap-handler` adapter.
+#[cfg(feature = "cbor")]
+pub type ConstPathCborCoapHandler<'a, Settings> =
+    MiniconfHandler<&'a mut Settings, Settings, ConstPathCbor>;
 
 #[cfg(feature = "json-core")]
 impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathJson> {
@@ -49,13 +49,13 @@ impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathJson> {
     }
 }
 
-#[cfg(feature = "postcard")]
-impl<Storage, Settings> MiniconfHandler<Storage, Settings, PackedPostcard> {
-    /// Create a route-relative postcard Miniconf value handler.
-    pub const fn packed_postcard(settings: Storage, content_format: u16) -> Self {
+#[cfg(feature = "cbor")]
+impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathCbor> {
+    /// Create a route-relative CBOR Miniconf value handler.
+    pub const fn const_path_cbor(settings: Storage) -> Self {
         Self {
             settings,
-            values: ValueHandler::packed_postcard("", content_format),
+            values: ValueHandler::const_path_cbor(""),
             _settings: PhantomData,
         }
     }

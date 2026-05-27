@@ -14,13 +14,18 @@ use coap_message::{
 };
 use coap_numbers::{code, option};
 use defmt::{debug, trace, warn};
-#[cfg(any(feature = "json-core", feature = "postcard"))]
+#[cfg(feature = "cbor")]
+use minicbor::{
+    decode::Error as CborDecodeError,
+    encode::{self, write::EndOfSlice},
+};
+#[cfg(feature = "cbor")]
+use minicbor_serde::error::{DecodeError as CborDeError, EncodeError as CborSerError};
+#[cfg(any(feature = "json-core", feature = "cbor"))]
 use miniconf::{DescendError, Lookup, ResolveError};
 use miniconf::{
     Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
 };
-#[cfg(feature = "postcard")]
-use miniconf::{Packed, postcard as miniconf_postcard};
 #[cfg(feature = "json-core")]
 use miniconf::{
     compact_schema::{SchemaDefs, serialize_schema_page},
@@ -33,6 +38,9 @@ const MAX_ACCEPT_OPTIONS: usize = 4;
 
 /// JSON Content-Format number.
 pub const JSON_CONTENT_FORMAT: u16 = 50;
+
+/// CBOR Content-Format number.
+pub const CBOR_CONTENT_FORMAT: u16 = 60;
 
 /// CoRE Link Format Content-Format number.
 pub const LINK_FORMAT_CONTENT_FORMAT: u16 = 40;
@@ -492,21 +500,19 @@ pub struct ValueHandler<'a, R> {
 #[cfg(feature = "json-core")]
 pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
 
-/// Packed-key postcard value route.
-#[cfg(feature = "postcard")]
-pub type PackedPostcardHandler<'a> = ValueHandler<'a, PackedPostcard>;
+/// Const-path-addressed CBOR value route.
+#[cfg(feature = "cbor")]
+pub type ConstPathCborHandler<'a> = ValueHandler<'a, ConstPathCbor>;
 
 /// URI path segments as Miniconf `ConstPath` keys, with JSON payloads.
 #[cfg(feature = "json-core")]
 #[derive(defmt::Format, Debug, Clone, Copy)]
 pub struct ConstPathJson;
 
-/// One URI path segment as a Miniconf `Packed` LSB key, with postcard payloads.
-#[cfg(feature = "postcard")]
+/// URI path segments as Miniconf `ConstPath` keys, with CBOR payloads.
+#[cfg(feature = "cbor")]
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct PackedPostcard {
-    content_format: u16,
-}
+pub struct ConstPathCbor;
 
 mod private {
     pub trait Sealed {}
@@ -514,8 +520,8 @@ mod private {
 
 #[cfg(feature = "json-core")]
 impl private::Sealed for ConstPathJson {}
-#[cfg(feature = "postcard")]
-impl private::Sealed for PackedPostcard {}
+#[cfg(feature = "cbor")]
+impl private::Sealed for ConstPathCbor {}
 
 #[cfg(feature = "json-core")]
 impl<'a> ValueHandler<'a, ConstPathJson> {
@@ -528,13 +534,13 @@ impl<'a> ValueHandler<'a, ConstPathJson> {
     }
 }
 
-#[cfg(feature = "postcard")]
-impl<'a> ValueHandler<'a, PackedPostcard> {
-    /// Serve postcard where the next URI path segment is a `Packed` key in LSB notation.
-    pub const fn packed_postcard(base: &'a str, content_format: u16) -> Self {
+#[cfg(feature = "cbor")]
+impl<'a> ValueHandler<'a, ConstPathCbor> {
+    /// Serve CBOR where remaining URI path segments are Miniconf path segments.
+    pub const fn const_path_cbor(base: &'a str) -> Self {
         Self {
             base,
-            representation: PackedPostcard { content_format },
+            representation: ConstPathCbor,
         }
     }
 }
@@ -850,13 +856,13 @@ impl Representation for ConstPathJson {
     }
 }
 
-#[cfg(feature = "postcard")]
-impl Representation for PackedPostcard {
-    type SerError = postcard::Error;
-    type DeError = postcard::Error;
+#[cfg(feature = "cbor")]
+impl Representation for ConstPathCbor {
+    type SerError = CborSerError<EndOfSlice>;
+    type DeError = CborDeError;
 
     fn content_format(&self) -> u16 {
-        self.content_format
+        CBOR_CONTENT_FORMAT
     }
 
     fn resolve<Settings: TreeSchema>(
@@ -865,7 +871,7 @@ impl Representation for PackedPostcard {
         state: &mut [usize],
     ) -> Result<Lookup, Error> {
         Settings::SCHEMA
-            .resolve_into(packed_key(path)?, state)
+            .resolve_into(path, state)
             .map_err(resolve_error)
     }
 
@@ -875,12 +881,10 @@ impl Representation for PackedPostcard {
         mut keys: &[usize],
         buf: &mut [u8],
     ) -> Result<usize, SerdeError<Self::SerError>> {
-        let used = miniconf_postcard::get_by_keys(
-            settings,
-            &mut keys,
-            postcard::ser_flavors::Slice::new(buf),
-        )?;
-        Ok(used.len())
+        let mut cursor = encode::write::Cursor::new(buf);
+        let mut serializer = minicbor_serde::Serializer::new(&mut cursor);
+        settings.serialize_by_key(&mut keys, &mut serializer)?;
+        Ok(cursor.position())
     }
 
     fn set<Settings: TreeDeserializeOwned + ?Sized>(
@@ -889,18 +893,15 @@ impl Representation for PackedPostcard {
         mut keys: &[usize],
         payload: &[u8],
     ) -> Result<(), SerdeError<Self::DeError>> {
-        let remainder = miniconf_postcard::set_by_keys(
-            settings,
-            &mut keys,
-            postcard::de_flavors::Slice::new(payload),
-        )?;
-        if remainder.is_empty() {
-            Ok(())
-        } else {
-            Err(SerdeError::Finalization(
-                postcard::Error::DeserializeUnexpectedEnd,
-            ))
+        let mut deserializer = minicbor_serde::Deserializer::new(payload);
+        settings.deserialize_by_key(&mut keys, &mut deserializer)?;
+        let decoder = deserializer.decoder();
+        if decoder.position() == decoder.input().len() {
+            return Ok(());
         }
+        Err(SerdeError::Finalization(
+            CborDecodeError::message("trailing data").into(),
+        ))
     }
 }
 
@@ -1010,30 +1011,7 @@ impl<'a> SchemaHandler<'a> {
     }
 }
 
-#[cfg(feature = "postcard")]
-fn packed_key(path: &str) -> Result<Packed, Error> {
-    let Some(value) = path.strip_prefix('/') else {
-        return Err(Error::new(
-            code::BAD_REQUEST,
-            Problem::NonLeaf {
-                depth: path_depth(path),
-            },
-        ));
-    };
-    if value.contains('/') {
-        return Err(Error::new(
-            code::BAD_REQUEST,
-            Problem::NonLeaf {
-                depth: path_depth(path),
-            },
-        ));
-    }
-    let parsed =
-        parse_usize(value).ok_or(Error::new(code::NOT_FOUND, Problem::NotFound { depth: 0 }))?;
-    Packed::new_from_lsb(parsed).ok_or(Error::new(code::NOT_FOUND, Problem::NotFound { depth: 0 }))
-}
-
-#[cfg(any(feature = "json-core", feature = "postcard"))]
+#[cfg(feature = "json-core")]
 fn parse_usize(value: &str) -> Option<usize> {
     let mut parsed = 0usize;
     for byte in value.bytes() {
@@ -1051,7 +1029,7 @@ fn path_depth(path: &str) -> usize {
     path.as_bytes().iter().filter(|byte| **byte == b'/').count()
 }
 
-#[cfg(any(feature = "json-core", feature = "postcard"))]
+#[cfg(any(feature = "json-core", feature = "cbor"))]
 fn resolve_error(err: ResolveError) -> Error {
     let depth = err.lookup.depth;
     match err.error {
@@ -1841,37 +1819,26 @@ mod tests {
         assert_eq!(content_format, Some(JSON_CONTENT_FORMAT));
     }
 
-    #[cfg(feature = "postcard")]
+    #[cfg(feature = "cbor")]
     #[test]
-    fn packed_postcard_get_and_put_leaf() {
+    fn const_path_cbor_get_and_put_leaf() {
         init_host_logging();
-        const POSTCARD_CONTENT_FORMAT: u16 = 42;
-
-        let number_key = Settings::SCHEMA
-            .nodes::<Packed, MAX_DEPTH>()
-            .nth(1)
-            .unwrap()
-            .unwrap()
-            .into_lsb()
-            .get();
-        let mut path = heapless::String::<16>::new();
-        write!(&mut path, "{}", number_key).unwrap();
-        let handler = PackedPostcardHandler::packed_postcard("/settings", POSTCARD_CONTENT_FORMAT);
+        let handler = ConstPathCborHandler::const_path_cbor("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 
-        let req = request(code::GET, &["settings", path.as_str()], None, b"");
+        let req = request(code::GET, &["settings", "number"], None, b"");
         let out = handler.handle_get(&req, &settings, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(POSTCARD_CONTENT_FORMAT));
+        assert_eq!(response.content_format, Some(CBOR_CONTENT_FORMAT));
         assert_eq!(response.payload, &[7]);
 
         let mut response = [0; 128];
         let req = request(
             code::PUT,
-            &["settings", path.as_str()],
-            Some(POSTCARD_CONTENT_FORMAT),
+            &["settings", "number"],
+            Some(CBOR_CONTENT_FORMAT),
             &[21],
         );
         let out = handler.handle_put(&req, &mut settings, &mut response);

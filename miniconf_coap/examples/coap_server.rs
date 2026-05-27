@@ -5,56 +5,14 @@ use coap_message::error::RenderableOnMinimal as _;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
 use defmt::{info, warn};
-use heapless::{String, Vec};
-use miniconf::{Tree, TreeDeserialize, TreeSchema, TreeSerialize};
 use miniconf_coap::{ConstPathJson, JSON_CONTENT_FORMAT, MiniconfHandler, MiniconfSchemaHandler};
 
 const RESPONSE_CAPACITY: usize = 1280;
 
-#[derive(TreeSchema, TreeDeserialize, TreeSerialize)]
-struct Settings {
-    number: u32,
-    list: Vec<usize, 16>,
-    #[tree(with = label)]
-    label: String<16>,
-    visible: Option<Visible>,
-}
+#[path = "../../miniconf/examples/common.rs"]
+mod common;
 
-#[derive(Tree)]
-struct Visible {
-    value: u8,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            number: 7,
-            list: Vec::from_slice(&[1, 2, 3]).unwrap(),
-            label: "Hello".try_into().unwrap(),
-            visible: Some(Visible { value: 9 }),
-        }
-    }
-}
-
-mod label {
-    use miniconf::{Keys, SerdeError, ValueError, leaf};
-
-    pub use leaf::{probe_by_key, schema, serialize_by_key};
-
-    pub fn deserialize_by_key<'de, D: serde::Deserializer<'de>>(
-        value: &mut heapless::String<16>,
-        keys: impl Keys,
-        de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        let mut next = value.clone();
-        leaf::deserialize_by_key(&mut next, keys, de)?;
-        if next.contains('<') {
-            return Err(ValueError::Access("bad label").into());
-        }
-        *value = next;
-        Ok(())
-    }
-}
+use common::Settings;
 
 fn main() -> std::io::Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -71,11 +29,11 @@ fn main() -> std::io::Result<()> {
         bind.as_str()
     );
     info!(
-        "try: aiocoap-client coap://{=str}/settings/number",
+        "try: aiocoap-client coap://{=str}/settings/control/enabled",
         bind.as_str()
     );
     info!(
-        "try: aiocoap-client -m PUT --content-format application/json --payload 12 coap://{=str}/settings/number",
+        "try: aiocoap-client -m PUT --content-format application/json --payload false coap://{=str}/settings/control/enabled",
         bind.as_str()
     );
 
@@ -99,7 +57,7 @@ fn main() -> std::io::Result<()> {
 
 fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
     let miniconf =
-        MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(Settings::default());
+        MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(Settings::new());
 
     coap_handler_implementations::new_dispatcher()
         .below(&["settings"], miniconf)

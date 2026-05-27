@@ -1,34 +1,33 @@
-#![cfg(feature = "json-core")]
+#![cfg(any(feature = "json-core", feature = "cbor"))]
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_handler::Handler as _;
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_message::MessageOption;
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_message::MinimalWritableMessage as _;
+#[cfg(feature = "json-core")]
 use coap_message::ReadableMessage;
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_message::error::RenderableOnMinimal as _;
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_message_implementations::heap::HeapMessage;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
 use miniconf::Tree;
-#[cfg(feature = "postcard")]
-use miniconf::{Packed, TreeSchema};
-#[cfg(feature = "postcard")]
-use miniconf_coap::PackedPostcardHandler;
-#[cfg(feature = "coap-handler")]
+#[cfg(feature = "cbor")]
+use miniconf_coap::{CBOR_CONTENT_FORMAT, ConstPathCborHandler};
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use miniconf_coap::{
     ConstPathJson, ConstPathJsonCoapHandler, LINK_FORMAT_CONTENT_FORMAT, MiniconfHandler,
     MiniconfSchemaHandler,
 };
+#[cfg(feature = "json-core")]
 use miniconf_coap::{
     ConstPathJsonHandler, JSON_CONTENT_FORMAT, Outcome, RequestParts, Response, SchemaHandler,
 };
-
-#[cfg(feature = "postcard")]
-const POSTCARD_CONTENT_FORMAT: u16 = 42;
+#[cfg(all(feature = "cbor", not(feature = "json-core")))]
+use miniconf_coap::{Outcome, RequestParts, Response};
 
 #[derive(Tree)]
 struct Settings {
@@ -85,6 +84,7 @@ mod label {
 }
 
 #[test]
+#[cfg(feature = "json-core")]
 fn const_path_json_packet_routes_compose_with_user_routes() {
     init_host_logging();
     let mut settings = Settings::default();
@@ -143,19 +143,17 @@ fn const_path_json_packet_routes_compose_with_user_routes() {
     assert_eq!(response.message.payload(), br#"{"ok":true}"#);
 }
 
-#[cfg(feature = "postcard")]
+#[cfg(feature = "cbor")]
 #[test]
-fn packed_postcard_packet_route_reads_and_writes() {
+fn const_path_cbor_packet_route_reads_and_writes() {
     init_host_logging();
     let mut settings = Settings::default();
-    let number_key = number_packed_key();
-    let key = number_key.to_string();
 
     let get_number = Packet::get(0x1239)
         .uri_path("settings")
-        .uri_path(&key)
-        .accept(POSTCARD_CONTENT_FORMAT);
-    let response = handle_packet(&get_number, &mut settings, RouteMode::Postcard);
+        .uri_path("number")
+        .accept(CBOR_CONTENT_FORMAT);
+    let response = handle_packet(&get_number, &mut settings, RouteMode::Cbor);
     assert_eq!(
         response,
         [
@@ -164,23 +162,23 @@ fn packed_postcard_packet_route_reads_and_writes() {
             0x12,
             0x39, // ACK 2.05 Content
             0xc1,
-            POSTCARD_CONTENT_FORMAT as u8, // Content-Format
+            CBOR_CONTENT_FORMAT as u8, // Content-Format: application/cbor
             0xff,
-            7, // postcard u32 varint
+            7, // CBOR u32
         ]
     );
 
     let put_number = Packet::put(0x123a)
         .uri_path("settings")
-        .uri_path(&key)
-        .content_format(POSTCARD_CONTENT_FORMAT)
+        .uri_path("number")
+        .content_format(CBOR_CONTENT_FORMAT)
         .payload(&[21]);
-    let response = handle_packet(&put_number, &mut settings, RouteMode::Postcard);
+    let response = handle_packet(&put_number, &mut settings, RouteMode::Cbor);
     assert_eq!(response, [0x60, 0x44, 0x12, 0x3a]); // ACK 2.04 Changed
     assert_eq!(settings.number, 21);
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 #[test]
 fn coap_handler_reports_and_serves_well_known_core() {
     init_host_logging();
@@ -207,7 +205,7 @@ fn coap_handler_reports_and_serves_well_known_core() {
     assert!(payload.contains("</status>"));
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 #[test]
 fn coap_handler_serves_values_beside_user_routes() {
     init_host_logging();
@@ -231,7 +229,7 @@ fn coap_handler_serves_values_beside_user_routes() {
     assert_eq!(response.payload(), br#"{"ok":true}"#);
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 #[test]
 fn coap_handler_can_own_settings() {
     init_host_logging();
@@ -259,7 +257,7 @@ fn coap_handler_can_own_settings() {
     assert_eq!(response.payload(), b"31");
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 #[test]
 fn coap_handler_routes_binary_packets() {
     init_host_logging();
@@ -355,9 +353,10 @@ impl core::ops::Deref for Packet {
 
 #[derive(Clone, Copy)]
 enum RouteMode {
+    #[cfg(feature = "json-core")]
     Json,
-    #[cfg(feature = "postcard")]
-    Postcard,
+    #[cfg(feature = "cbor")]
+    Cbor,
 }
 
 fn handle_packet(packet: &[u8], settings: &mut Settings, mode: RouteMode) -> Vec<u8> {
@@ -378,7 +377,7 @@ fn handle_packet(packet: &[u8], settings: &mut Settings, mode: RouteMode) -> Vec
     encode_ack(code, request.message_id, request.token, &tail[..tail_len])
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 fn handle_packet_with_coap_handler(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
     let request = WirePacket::parse(packet).unwrap();
     let mut handler = demo_handler(settings);
@@ -396,7 +395,7 @@ fn handle_packet_with_coap_handler(packet: &[u8], settings: &mut Settings) -> Ve
     encode_ack(code, request.message_id, request.token, &tail[..tail_len])
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 fn demo_handler(
     settings: &mut Settings,
 ) -> impl coap_handler::Handler + coap_handler::Reporting + '_ {
@@ -424,6 +423,7 @@ fn route<'a>(
     response_buf: &'a mut [u8],
     mode: RouteMode,
 ) -> Outcome<'a> {
+    #[cfg(feature = "json-core")]
     match request.path() {
         "/schema" => SchemaHandler::new("/schema").handle::<Settings>(request, response_buf),
         "/settings" => settings_route(request, settings, response_buf, mode),
@@ -435,6 +435,14 @@ fn route<'a>(
             content_format: Some(JSON_CONTENT_FORMAT),
             payload: br#"{"ok":true}"#,
         }),
+        _ => Outcome::Unhandled,
+    }
+    #[cfg(not(feature = "json-core"))]
+    match request.path() {
+        "/settings" => settings_route(request, settings, response_buf, mode),
+        path if path.starts_with("/settings/") => {
+            settings_route(request, settings, response_buf, mode)
+        }
         _ => Outcome::Unhandled,
     }
 }
@@ -456,17 +464,18 @@ fn settings_route<'a>(
     mode: RouteMode,
 ) -> Outcome<'a> {
     match mode {
+        #[cfg(feature = "json-core")]
         RouteMode::Json => ConstPathJsonHandler::const_path_json("/settings").handle(
             request,
             settings,
             response_buf,
         ),
-        #[cfg(feature = "postcard")]
-        RouteMode::Postcard => PackedPostcardHandler::packed_postcard(
-            "/settings",
-            POSTCARD_CONTENT_FORMAT,
-        )
-        .handle(request, settings, response_buf),
+        #[cfg(feature = "cbor")]
+        RouteMode::Cbor => ConstPathCborHandler::const_path_cbor("/settings").handle(
+            request,
+            settings,
+            response_buf,
+        ),
     }
 }
 
@@ -497,17 +506,6 @@ impl<'a> WirePacket<'a> {
     }
 }
 
-#[cfg(feature = "postcard")]
-fn number_packed_key() -> usize {
-    Settings::SCHEMA
-        .nodes::<Packed, { miniconf_coap::MAX_DEPTH }>()
-        .nth(1)
-        .unwrap()
-        .unwrap()
-        .into_lsb()
-        .get()
-}
-
 fn init_host_logging() {
     static HOST_LOGGING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
@@ -517,7 +515,7 @@ fn init_host_logging() {
     });
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 fn heap_request(code: u8, path: &[&str], accept: Option<u16>, payload: &[u8]) -> HeapMessage {
     let mut request = HeapMessage::new();
     request.set_code(code);
@@ -535,7 +533,7 @@ fn heap_request(code: u8, path: &[&str], accept: Option<u16>, payload: &[u8]) ->
     request
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 fn handle_heap<H>(handler: &mut H, request: &HeapMessage) -> HeapMessage
 where
     H: coap_handler::Handler,
@@ -548,7 +546,7 @@ where
     response
 }
 
-#[cfg(feature = "coap-handler")]
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
 fn first_uint_option(message: &HeapMessage, number: u16) -> Option<u16> {
     message
         .options()
