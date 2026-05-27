@@ -115,7 +115,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo package -p miniconf_derive --no-verify
       - run: cargo package -p miniconf --no-verify
-      - run: cargo package -p miniconf_mqtt --no-verify
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
