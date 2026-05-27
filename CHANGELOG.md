@@ -43,8 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retained schema/settings protocol with an async-first CLI and client library.
 * The schema family now exposes stable `new(...)` constructors and accessors instead of requiring
   public field construction.
-* Direct `Serialize` output for `Schema`, `Numbered`, `Named`, and `Homogeneous` now follows their
-  derived Rust data shape. Protocol users should use the compact paged schema adapter instead.
 
 ### Added
 
