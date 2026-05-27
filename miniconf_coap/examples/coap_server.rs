@@ -1,12 +1,15 @@
 use std::net::UdpSocket;
 
-use coap_handler_implementations::{HandlerBuilder as _, ReportingHandlerBuilder as _};
+use coap_handler_implementations::{
+    HandlerBuilder as _, ReportingHandlerBuilder as _, SimpleRendered, new_dispatcher,
+};
 use coap_message::error::RenderableOnMinimal as _;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
-use defmt::{info, warn};
+use defmt::{debug, info, warn};
 use miniconf_coap::{ConstPathJson, JSON_CONTENT_FORMAT, MiniconfHandler, MiniconfSchemaHandler};
 
+const DEFAULT_BIND: &str = "127.0.0.1:56830";
 const RESPONSE_CAPACITY: usize = 1280;
 
 #[path = "../../miniconf/examples/common.rs"]
@@ -21,13 +24,14 @@ fn main() -> std::io::Result<()> {
 
     let bind = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:56830".into());
+        .unwrap_or_else(|| DEFAULT_BIND.into());
     let socket = UdpSocket::bind(&bind)?;
     info!("listening on coap://{=str}", bind.as_str());
     info!(
         "try: aiocoap-client coap://{=str}/.well-known/core",
         bind.as_str()
     );
+    info!("try: aiocoap-client coap://{=str}/schema", bind.as_str());
     info!(
         "try: aiocoap-client coap://{=str}/settings/control/enabled",
         bind.as_str()
@@ -43,13 +47,27 @@ fn main() -> std::io::Result<()> {
 
     loop {
         let (len, peer) = socket.recv_from(&mut request)?;
+        let peer_name = peer.to_string();
+        debug!(
+            "received coap datagram peer={=str} len={=usize}",
+            peer_name.as_str(),
+            len
+        );
         match handle_packet(&request[..len], &mut handler, &mut response) {
             Ok(response_len) => {
                 socket.send_to(&response[..response_len], peer)?;
+                debug!(
+                    "sent coap response peer={=str} len={=usize}",
+                    peer_name.as_str(),
+                    response_len
+                );
             }
             Err(error) => {
-                let peer = peer.to_string();
-                warn!("dropping request from {=str}: {=str}", peer.as_str(), error);
+                warn!(
+                    "dropping request from {=str}: {=str}",
+                    peer_name.as_str(),
+                    error
+                );
             }
         }
     }
@@ -59,15 +77,12 @@ fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
     let miniconf =
         MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(Settings::new());
 
-    coap_handler_implementations::new_dispatcher()
+    new_dispatcher()
         .below(&["settings"], miniconf)
         .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
         .at(
             &["status"],
-            coap_handler_implementations::SimpleRendered::new_typed_str(
-                r#"{"ok":true}"#,
-                Some(JSON_CONTENT_FORMAT),
-            ),
+            SimpleRendered::new_typed_str(r#"{"ok":true}"#, Some(JSON_CONTENT_FORMAT)),
         )
         .with_wkc()
 }
@@ -138,8 +153,12 @@ impl<'a> WirePacket<'a> {
         if header >> 6 != 1 {
             return Err("unsupported CoAP version");
         }
-        if header & 0x30 == 0x30 {
-            return Err("reset messages do not get ACK responses");
+        match header & 0x30 {
+            0x00 => {}
+            0x10 => return Err("non-confirmable requests are not supported by this UDP loop"),
+            0x20 => return Err("ACK messages do not get ACK responses"),
+            0x30 => return Err("reset messages do not get ACK responses"),
+            _ => unreachable!(),
         }
         let token_len = usize::from(header & 0x0f);
         if token_len > 8 {
