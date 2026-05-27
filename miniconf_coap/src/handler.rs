@@ -2,7 +2,9 @@ use core::{borrow::BorrowMut, fmt::Write as _, marker::PhantomData};
 
 use coap_message::{MinimalWritableMessage, ReadableMessage};
 use coap_numbers::code;
-use miniconf::{ExactSize, NodeIter, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize};
+use miniconf::{
+    ExactSize, Meta, NodeIter, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+};
 
 #[cfg(feature = "cbor")]
 use crate::ConstPathCbor;
@@ -269,11 +271,12 @@ impl<R> Iterator for MiniconfReporter<R> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let key = self.iter.next()?.ok()?;
-        let lookup = self.root_schema.get(key.as_ref()).ok()?;
+        let (edge_meta, node_meta) = self.root_schema.get_meta(key.as_ref()).ok()?;
         Some(MiniconfRecord {
             key,
             root_schema: self.root_schema,
-            schema: lookup.schema,
+            edge_meta,
+            node_meta,
             content_format: self.content_format,
             _representation: PhantomData,
         })
@@ -284,7 +287,8 @@ impl<R> Iterator for MiniconfReporter<R> {
 pub struct MiniconfRecord<R> {
     key: ChangedKey,
     root_schema: &'static Schema,
-    schema: &'static Schema,
+    edge_meta: Option<&'static Meta>,
+    node_meta: &'static Meta,
     content_format: u16,
     _representation: PhantomData<R>,
 }
@@ -307,13 +311,23 @@ impl<R> coap_handler::Record for MiniconfRecord<R> {
     }
 
     fn attributes(&self) -> Self::Attributes {
-        let meta = self.schema.node_meta();
-        let title = meta.get("title").or_else(|| meta.get("doc"));
+        let edge_meta = self.edge_meta.unwrap_or(&Meta::EMPTY);
+        let title = edge_meta
+            .get("title")
+            .or_else(|| self.node_meta.get("title"))
+            .or_else(|| edge_meta.get("doc"))
+            .or_else(|| self.node_meta.get("doc"));
         Attributes {
             attrs: [
                 Some(coap_handler::Attribute::Ct(self.content_format)),
-                meta.get("rt").map(coap_handler::Attribute::ResourceType),
-                meta.get("if").map(coap_handler::Attribute::Interface),
+                edge_meta
+                    .get("rt")
+                    .or_else(|| self.node_meta.get("rt"))
+                    .map(coap_handler::Attribute::ResourceType),
+                edge_meta
+                    .get("if")
+                    .or_else(|| self.node_meta.get("if"))
+                    .map(coap_handler::Attribute::Interface),
                 title.map(coap_handler::Attribute::Title),
             ],
             pos: 0,

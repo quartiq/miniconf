@@ -8,6 +8,7 @@ use miniconf_coap::{Outcome, Response};
 #[derive(Tree)]
 struct Settings {
     hidden: bool,
+    #[tree(meta(title = "Demo number"))]
     number: u32,
     #[tree(with = label)]
     label: heapless::String<16>,
@@ -276,7 +277,7 @@ mod coap_handler {
             Some(LINK_FORMAT_CONTENT_FORMAT)
         );
         let payload = core::str::from_utf8(response.payload()).unwrap();
-        assert!(payload.contains("</settings/number>;ct=50"));
+        assert!(payload.contains("</settings/number>;ct=50;title=\"Demo number\""));
         assert!(!payload.contains("rt=\"miniconf.leaf\""));
         assert!(payload.contains("</schema>;ct=0;rt=\"miniconf.schema\""));
         assert!(payload.contains("</status>"));
