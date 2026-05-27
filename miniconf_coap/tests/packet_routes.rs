@@ -1,32 +1,9 @@
 #![cfg(any(feature = "json-core", feature = "cbor"))]
 
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-use coap_handler::Handler as _;
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-use coap_message::MessageOption;
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-use coap_message::MinimalWritableMessage as _;
-use coap_message::ReadableMessage;
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-use coap_message::error::RenderableOnMinimal as _;
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-use coap_message_implementations::heap::HeapMessage;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
 use miniconf::Tree;
-#[cfg(feature = "cbor")]
-use miniconf_coap::{CBOR_CONTENT_FORMAT, ConstPathCborHandler};
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-use miniconf_coap::{
-    ConstPathJson, ConstPathJsonCoapHandler, LINK_FORMAT_CONTENT_FORMAT, MiniconfHandler,
-    MiniconfSchemaHandler,
-};
-#[cfg(feature = "json-core")]
-use miniconf_coap::{
-    ConstPathJsonHandler, JSON_CONTENT_FORMAT, Outcome, RequestParts, Response, SchemaHandler,
-};
-#[cfg(all(feature = "cbor", not(feature = "json-core")))]
-use miniconf_coap::{Outcome, RequestParts, Response};
+use miniconf_coap::{Outcome, Response};
 
 #[derive(Tree)]
 struct Settings {
@@ -82,214 +59,378 @@ mod label {
     }
 }
 
-#[test]
 #[cfg(feature = "json-core")]
-fn const_path_json_packet_routes_compose_with_user_routes() {
-    init_host_logging();
-    let mut settings = Settings::default();
+mod json {
+    use coap_message::ReadableMessage as _;
+    use coap_numbers::code;
+    use miniconf_coap::{ConstPathJsonHandler, JSON_CONTENT_FORMAT, Outcome, SchemaHandler};
 
-    let get_number = Packet::get(0x1234)
-        .uri_path("settings")
-        .uri_path("number")
-        .accept(JSON_CONTENT_FORMAT);
-    let response = handle_packet(&get_number, &mut settings, RouteMode::Json);
-    assert_eq!(
-        response,
-        [
-            0x60,
-            0x45,
-            0x12,
-            0x34, // ACK 2.05 Content
-            0xc1,
-            JSON_CONTENT_FORMAT as u8, // Content-Format: application/json
-            0xff,
-            b'7',
-        ]
-    );
+    use crate::{Packet, Settings, WirePacket, init_host_logging, response_packet};
 
-    let put_label = Packet::put(0x1235)
-        .uri_path("settings")
-        .uri_path("label")
-        .content_format(JSON_CONTENT_FORMAT)
-        .payload(br#""good""#);
-    let response = handle_packet(&put_label, &mut settings, RouteMode::Json);
-    assert_eq!(response, [0x60, 0x44, 0x12, 0x35]); // ACK 2.04 Changed
-    assert_eq!(settings.label.as_str(), "good");
+    #[test]
+    fn const_path_json_packet_routes_compose_with_user_routes() {
+        init_host_logging();
+        let mut settings = Settings::default();
 
-    settings.visible = None;
-    let absent = Packet::get(0x1236)
-        .uri_path("settings")
-        .uri_path("visible")
-        .uri_path("value");
-    let response = handle_packet(&absent, &mut settings, RouteMode::Json);
-    let response = WirePacket::parse(&response).unwrap();
-    assert_eq!(response.message.code(), code::CONFLICT);
-    assert_eq!(
-        response.message.payload(),
-        br#"{"kind":"absent","depth":2}"#
-    );
+        let get_number = Packet::get(0x1234)
+            .uri_path("settings")
+            .uri_path("number")
+            .accept(JSON_CONTENT_FORMAT);
+        let response = handle_json_packet(&get_number, &mut settings);
+        assert_eq!(
+            response,
+            [
+                0x60,
+                0x45,
+                0x12,
+                0x34,
+                0xc1,
+                JSON_CONTENT_FORMAT as u8,
+                0xff,
+                b'7',
+            ]
+        );
 
-    let schema = Packet::get(0x1237).uri_path("schema");
-    let packet = handle_packet(&schema, &mut settings, RouteMode::Json);
-    let response = WirePacket::parse(&packet).unwrap();
-    assert_eq!(response.message.code(), code::CONTENT);
-    assert!(response.message.payload().starts_with(b"{"));
+        let put_label = Packet::put(0x1235)
+            .uri_path("settings")
+            .uri_path("label")
+            .content_format(JSON_CONTENT_FORMAT)
+            .payload(br#""good""#);
+        let response = handle_json_packet(&put_label, &mut settings);
+        assert_eq!(response, [0x60, 0x44, 0x12, 0x35]);
+        assert_eq!(settings.label.as_str(), "good");
 
-    let status = Packet::get(0x1238).uri_path("status");
-    let packet = handle_packet(&status, &mut settings, RouteMode::Json);
-    let response = WirePacket::parse(&packet).unwrap();
-    assert_eq!(response.message.code(), code::CONTENT);
-    assert_eq!(response.message.payload(), br#"{"ok":true}"#);
+        settings.visible = None;
+        let absent = Packet::get(0x1236)
+            .uri_path("settings")
+            .uri_path("visible")
+            .uri_path("value");
+        let response = handle_json_packet(&absent, &mut settings);
+        let response = WirePacket::parse(&response).unwrap();
+        assert_eq!(response.message.code(), code::CONFLICT);
+        assert_eq!(
+            response.message.payload(),
+            br#"{"kind":"absent","depth":2}"#
+        );
+
+        let schema = Packet::get(0x1237).uri_path("schema");
+        let packet = handle_json_packet(&schema, &mut settings);
+        let response = WirePacket::parse(&packet).unwrap();
+        assert_eq!(response.message.code(), code::CONTENT);
+        assert!(response.message.payload().starts_with(b"{"));
+
+        let status = Packet::get(0x1238).uri_path("status");
+        let packet = handle_json_packet(&status, &mut settings);
+        let response = WirePacket::parse(&packet).unwrap();
+        assert_eq!(response.message.code(), code::CONTENT);
+        assert_eq!(response.message.payload(), br#"{"ok":true}"#);
+    }
+
+    pub fn handle_json_packet(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
+        let request = WirePacket::parse(packet).unwrap();
+        let parts = miniconf_coap::RequestParts::from_message(&request.message).unwrap();
+        let mut response_buf = [0; 512];
+        let outcome = route(&parts, settings, &mut response_buf);
+        response_packet(&request, outcome)
+    }
+
+    fn route<'a>(
+        request: &miniconf_coap::RequestParts<'_>,
+        settings: &mut Settings,
+        response_buf: &'a mut [u8],
+    ) -> Outcome<'a> {
+        match request.path() {
+            "/schema" => SchemaHandler::new("/schema").handle::<Settings>(request, response_buf),
+            "/settings" => settings_route(request, settings, response_buf),
+            path if path.starts_with("/settings/") => {
+                settings_route(request, settings, response_buf)
+            }
+            "/status" => Outcome::Handled(miniconf_coap::Response {
+                code: code::CONTENT,
+                content_format: Some(JSON_CONTENT_FORMAT),
+                payload: br#"{"ok":true}"#,
+            }),
+            _ => Outcome::Unhandled,
+        }
+    }
+
+    fn settings_route<'a>(
+        request: &miniconf_coap::RequestParts<'_>,
+        settings: &mut Settings,
+        response_buf: &'a mut [u8],
+    ) -> Outcome<'a> {
+        ConstPathJsonHandler::const_path_json("/settings").handle(request, settings, response_buf)
+    }
 }
 
 #[cfg(feature = "cbor")]
-#[test]
-fn const_path_cbor_packet_route_reads_and_writes() {
-    init_host_logging();
-    let mut settings = Settings::default();
+mod cbor {
+    use coap_message::ReadableMessage as _;
+    use coap_numbers::code;
+    use miniconf_coap::{CBOR_CONTENT_FORMAT, ConstPathCborHandler, Outcome};
 
-    let get_number = Packet::get(0x1239)
-        .uri_path("settings")
-        .uri_path("number")
-        .accept(CBOR_CONTENT_FORMAT);
-    let response = handle_packet(&get_number, &mut settings, RouteMode::Cbor);
-    assert_eq!(
-        response,
-        [
-            0x60,
-            0x45,
-            0x12,
-            0x39, // ACK 2.05 Content
-            0xc1,
-            CBOR_CONTENT_FORMAT as u8, // Content-Format: application/cbor
-            0xff,
-            7, // CBOR u32
-        ]
-    );
+    use crate::{Packet, Settings, WirePacket, init_host_logging, response_packet};
 
-    let put_number = Packet::put(0x123a)
-        .uri_path("settings")
-        .uri_path("number")
-        .content_format(CBOR_CONTENT_FORMAT)
-        .payload(&[21]);
-    let response = handle_packet(&put_number, &mut settings, RouteMode::Cbor);
-    assert_eq!(response, [0x60, 0x44, 0x12, 0x3a]); // ACK 2.04 Changed
-    assert_eq!(settings.number, 21);
+    #[test]
+    fn const_path_cbor_packet_route_reads_and_writes() {
+        init_host_logging();
+        let mut settings = Settings::default();
 
-    let trailing = Packet::put(0x123b)
-        .uri_path("settings")
-        .uri_path("number")
-        .content_format(CBOR_CONTENT_FORMAT)
-        .payload(&[22, 0]);
-    let response = handle_packet(&trailing, &mut settings, RouteMode::Cbor);
-    let response = WirePacket::parse(&response).unwrap();
-    assert_eq!(response.message.code(), code::BAD_REQUEST);
-    assert_eq!(response.message.payload(), br#"{"kind":"bad_payload"}"#);
-    assert_eq!(settings.number, 21);
+        let get_number = Packet::get(0x1239)
+            .uri_path("settings")
+            .uri_path("number")
+            .accept(CBOR_CONTENT_FORMAT);
+        let response = handle_cbor_packet(&get_number, &mut settings);
+        assert_eq!(
+            response,
+            [
+                0x60,
+                0x45,
+                0x12,
+                0x39,
+                0xc1,
+                CBOR_CONTENT_FORMAT as u8,
+                0xff,
+                7,
+            ]
+        );
+
+        let put_number = Packet::put(0x123a)
+            .uri_path("settings")
+            .uri_path("number")
+            .content_format(CBOR_CONTENT_FORMAT)
+            .payload(&[21]);
+        let response = handle_cbor_packet(&put_number, &mut settings);
+        assert_eq!(response, [0x60, 0x44, 0x12, 0x3a]);
+        assert_eq!(settings.number, 21);
+
+        let trailing = Packet::put(0x123b)
+            .uri_path("settings")
+            .uri_path("number")
+            .content_format(CBOR_CONTENT_FORMAT)
+            .payload(&[22, 0]);
+        let response = handle_cbor_packet(&trailing, &mut settings);
+        let response = WirePacket::parse(&response).unwrap();
+        assert_eq!(response.message.code(), code::BAD_REQUEST);
+        assert_eq!(response.message.payload(), br#"{"kind":"bad_payload"}"#);
+        assert_eq!(settings.number, 21);
+    }
+
+    fn handle_cbor_packet(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
+        let request = WirePacket::parse(packet).unwrap();
+        let parts = miniconf_coap::RequestParts::from_message(&request.message).unwrap();
+        let mut response_buf = [0; 512];
+        let outcome = match parts.path() {
+            "/settings" => settings_route(&parts, settings, &mut response_buf),
+            path if path.starts_with("/settings/") => {
+                settings_route(&parts, settings, &mut response_buf)
+            }
+            _ => Outcome::Unhandled,
+        };
+        response_packet(&request, outcome)
+    }
+
+    fn settings_route<'a>(
+        request: &miniconf_coap::RequestParts<'_>,
+        settings: &mut Settings,
+        response_buf: &'a mut [u8],
+    ) -> Outcome<'a> {
+        ConstPathCborHandler::const_path_cbor("/settings").handle(request, settings, response_buf)
+    }
 }
 
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
-#[test]
-fn coap_handler_reports_and_serves_well_known_core() {
-    init_host_logging();
+mod coap_handler {
+    use coap_handler::Handler as _;
+    use coap_message::{
+        MessageOption, MinimalWritableMessage as _, ReadableMessage as _,
+        error::RenderableOnMinimal as _,
+    };
+    use coap_message_implementations::heap::HeapMessage;
+    use coap_numbers::code;
+    use miniconf_coap::{
+        ConstPathJson, ConstPathJsonCoapHandler, JSON_CONTENT_FORMAT, LINK_FORMAT_CONTENT_FORMAT,
+        MiniconfHandler, MiniconfSchemaHandler,
+    };
 
-    let mut settings = Settings::default();
-    let mut handler = demo_handler(&mut settings);
+    use crate::{Packet, Settings, WirePacket, encode_ack, init_host_logging};
 
-    let request = heap_request(
-        code::GET,
-        &[".well-known", "core"],
-        Some(LINK_FORMAT_CONTENT_FORMAT),
-        b"",
-    );
-    let response = handle_heap(&mut handler, &request);
+    #[test]
+    fn reports_and_serves_well_known_core() {
+        init_host_logging();
 
-    assert_eq!(response.code(), code::CONTENT);
-    assert_eq!(
-        first_uint_option(&response, coap_numbers::option::CONTENT_FORMAT),
-        Some(LINK_FORMAT_CONTENT_FORMAT)
-    );
-    let payload = core::str::from_utf8(response.payload()).unwrap();
-    assert!(payload.contains("</settings/number>;ct=50"));
-    assert!(!payload.contains("rt=\"miniconf.leaf\""));
-    assert!(payload.contains("</schema>;ct=0;rt=\"miniconf.schema\""));
-    assert!(payload.contains("</status>"));
-}
+        let mut settings = Settings::default();
+        let mut handler = demo_handler(&mut settings);
 
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-#[test]
-fn coap_handler_serves_values_beside_user_routes() {
-    init_host_logging();
+        let request = heap_request(
+            code::GET,
+            &[".well-known", "core"],
+            Some(LINK_FORMAT_CONTENT_FORMAT),
+            b"",
+        );
+        let response = handle_heap(&mut handler, &request);
 
-    let mut settings = Settings::default();
-    let mut handler = demo_handler(&mut settings);
+        assert_eq!(response.code(), code::CONTENT);
+        assert_eq!(
+            first_uint_option(&response, coap_numbers::option::CONTENT_FORMAT),
+            Some(LINK_FORMAT_CONTENT_FORMAT)
+        );
+        let payload = core::str::from_utf8(response.payload()).unwrap();
+        assert!(payload.contains("</settings/number>;ct=50"));
+        assert!(!payload.contains("rt=\"miniconf.leaf\""));
+        assert!(payload.contains("</schema>;ct=0;rt=\"miniconf.schema\""));
+        assert!(payload.contains("</status>"));
+    }
 
-    let request = heap_request(
-        code::GET,
-        &["settings", "number"],
-        Some(JSON_CONTENT_FORMAT),
-        b"",
-    );
-    let response = handle_heap(&mut handler, &request);
-    assert_eq!(response.code(), code::CONTENT);
-    assert_eq!(response.payload(), b"7");
+    #[test]
+    fn serves_values_beside_user_routes() {
+        init_host_logging();
 
-    let request = heap_request(code::GET, &["status"], Some(JSON_CONTENT_FORMAT), b"");
-    let response = handle_heap(&mut handler, &request);
-    assert_eq!(response.code(), code::CONTENT);
-    assert_eq!(response.payload(), br#"{"ok":true}"#);
-}
+        let mut settings = Settings::default();
+        let mut handler = demo_handler(&mut settings);
 
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-#[test]
-fn coap_handler_can_own_settings() {
-    init_host_logging();
-    use coap_handler_implementations::HandlerBuilder as _;
+        let request = heap_request(
+            code::GET,
+            &["settings", "number"],
+            Some(JSON_CONTENT_FORMAT),
+            b"",
+        );
+        let response = handle_heap(&mut handler, &request);
+        assert_eq!(response.code(), code::CONTENT);
+        assert_eq!(response.payload(), b"7");
 
-    let miniconf =
-        MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(Settings::default());
-    let mut handler = coap_handler_implementations::new_dispatcher().below(&["settings"], miniconf);
+        let request = heap_request(code::GET, &["status"], Some(JSON_CONTENT_FORMAT), b"");
+        let response = handle_heap(&mut handler, &request);
+        assert_eq!(response.code(), code::CONTENT);
+        assert_eq!(response.payload(), br#"{"ok":true}"#);
+    }
 
-    let mut request = heap_request(code::PUT, &["settings", "number"], None, br#"31"#);
-    request
-        .add_option_uint(coap_numbers::option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
-        .unwrap();
-    let response = handle_heap(&mut handler, &request);
-    assert_eq!(response.code(), code::CHANGED);
+    #[test]
+    fn can_own_settings() {
+        init_host_logging();
+        use coap_handler_implementations::HandlerBuilder as _;
 
-    let request = heap_request(
-        code::GET,
-        &["settings", "number"],
-        Some(JSON_CONTENT_FORMAT),
-        b"",
-    );
-    let response = handle_heap(&mut handler, &request);
-    assert_eq!(response.code(), code::CONTENT);
-    assert_eq!(response.payload(), b"31");
-}
+        let miniconf = MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(
+            Settings::default(),
+        );
+        let mut handler =
+            coap_handler_implementations::new_dispatcher().below(&["settings"], miniconf);
 
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-#[test]
-fn coap_handler_routes_binary_packets() {
-    init_host_logging();
-    let mut settings = Settings::default();
+        let mut request = heap_request(code::PUT, &["settings", "number"], None, br#"31"#);
+        request
+            .add_option_uint(coap_numbers::option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
+            .unwrap();
+        let response = handle_heap(&mut handler, &request);
+        assert_eq!(response.code(), code::CHANGED);
 
-    let get_number = Packet::get(0x1234).uri_path("settings").uri_path("number");
-    let response = handle_packet_with_coap_handler(&get_number, &mut settings);
-    assert_eq!(&response[..4], [0x60, code::CONTENT, 0x12, 0x34]);
-    assert_eq!(
-        &response[4..],
-        [0xc1, JSON_CONTENT_FORMAT as u8, 0xff, b'7']
-    );
+        let request = heap_request(
+            code::GET,
+            &["settings", "number"],
+            Some(JSON_CONTENT_FORMAT),
+            b"",
+        );
+        let response = handle_heap(&mut handler, &request);
+        assert_eq!(response.code(), code::CONTENT);
+        assert_eq!(response.payload(), b"31");
+    }
 
-    let put_number = Packet::put(0x1235)
-        .uri_path("settings")
-        .uri_path("number")
-        .content_format(JSON_CONTENT_FORMAT)
-        .payload(b"23");
-    let response = handle_packet_with_coap_handler(&put_number, &mut settings);
-    assert_eq!(response, [0x60, code::CHANGED, 0x12, 0x35]);
-    assert_eq!(settings.number, 23);
+    #[test]
+    fn routes_binary_packets() {
+        init_host_logging();
+        let mut settings = Settings::default();
+
+        let get_number = Packet::get(0x1234).uri_path("settings").uri_path("number");
+        let response = handle_packet_with_coap_handler(&get_number, &mut settings);
+        assert_eq!(&response[..4], [0x60, code::CONTENT, 0x12, 0x34]);
+        assert_eq!(
+            &response[4..],
+            [0xc1, JSON_CONTENT_FORMAT as u8, 0xff, b'7']
+        );
+
+        let put_number = Packet::put(0x1235)
+            .uri_path("settings")
+            .uri_path("number")
+            .content_format(JSON_CONTENT_FORMAT)
+            .payload(b"23");
+        let response = handle_packet_with_coap_handler(&put_number, &mut settings);
+        assert_eq!(response, [0x60, code::CHANGED, 0x12, 0x35]);
+        assert_eq!(settings.number, 23);
+    }
+
+    fn handle_packet_with_coap_handler(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
+        let request = WirePacket::parse(packet).unwrap();
+        let mut handler = demo_handler(settings);
+
+        let mut code = 0;
+        let mut tail = [0; 512];
+        let mut message =
+            coap_message_implementations::inmemory_write::Message::new(&mut code, &mut tail);
+
+        match handler.extract_request_data(&request.message) {
+            Ok(data) => handler.build_response(&mut message, data).unwrap(),
+            Err(error) => error.render(&mut message).unwrap(),
+        }
+
+        let tail_len = message.finish();
+        encode_ack(code, request.message_id, request.token, &tail[..tail_len])
+    }
+
+    fn demo_handler(
+        settings: &mut Settings,
+    ) -> impl coap_handler::Handler + coap_handler::Reporting + '_ {
+        use coap_handler_implementations::{HandlerBuilder as _, ReportingHandlerBuilder as _};
+
+        coap_handler_implementations::new_dispatcher()
+            .below(
+                &["settings"],
+                ConstPathJsonCoapHandler::const_path_json(settings),
+            )
+            .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
+            .at(
+                &["status"],
+                coap_handler_implementations::SimpleRendered::new_typed_str(
+                    r#"{"ok":true}"#,
+                    Some(JSON_CONTENT_FORMAT),
+                ),
+            )
+            .with_wkc()
+    }
+
+    fn heap_request(code: u8, path: &[&str], accept: Option<u16>, payload: &[u8]) -> HeapMessage {
+        let mut request = HeapMessage::new();
+        request.set_code(code);
+        for segment in path {
+            request
+                .add_option_str(coap_numbers::option::URI_PATH, segment)
+                .unwrap();
+        }
+        if let Some(accept) = accept {
+            request
+                .add_option_uint(coap_numbers::option::ACCEPT, accept)
+                .unwrap();
+        }
+        request.set_payload(payload).unwrap();
+        request
+    }
+
+    fn handle_heap<H>(handler: &mut H, request: &HeapMessage) -> HeapMessage
+    where
+        H: coap_handler::Handler,
+        H::ExtractRequestError: core::fmt::Debug,
+        H::BuildResponseError<HeapMessage>: core::fmt::Debug,
+    {
+        let data = handler.extract_request_data(request).unwrap();
+        let mut response = HeapMessage::new();
+        handler.build_response(&mut response, data).unwrap();
+        response
+    }
+
+    fn first_uint_option(message: &HeapMessage, number: u16) -> Option<u16> {
+        message
+            .options()
+            .find(|option| option.number() == number)
+            .and_then(|option| option.value_uint())
+    }
 }
 
 struct Packet {
@@ -362,134 +503,6 @@ impl core::ops::Deref for Packet {
     }
 }
 
-#[derive(Clone, Copy)]
-enum RouteMode {
-    #[cfg(feature = "json-core")]
-    Json,
-    #[cfg(feature = "cbor")]
-    Cbor,
-}
-
-fn handle_packet(packet: &[u8], settings: &mut Settings, mode: RouteMode) -> Vec<u8> {
-    let request = WirePacket::parse(packet).unwrap();
-    let parts = RequestParts::from_message(&request.message).unwrap();
-    let mut response_buf = [0; 512];
-    let outcome = route(&parts, settings, &mut response_buf, mode);
-    let response = outcome.response().unwrap_or(Response {
-        code: code::NOT_FOUND,
-        content_format: None,
-        payload: b"",
-    });
-    let mut code = 0;
-    let mut tail = [0; 512];
-    let mut message = inmemory_write::Message::new(&mut code, &mut tail);
-    response.write_to(&mut message).unwrap();
-    let tail_len = message.finish();
-    encode_ack(code, request.message_id, request.token, &tail[..tail_len])
-}
-
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-fn handle_packet_with_coap_handler(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
-    let request = WirePacket::parse(packet).unwrap();
-    let mut handler = demo_handler(settings);
-
-    let mut code = 0;
-    let mut tail = [0; 512];
-    let mut message = inmemory_write::Message::new(&mut code, &mut tail);
-
-    match handler.extract_request_data(&request.message) {
-        Ok(data) => handler.build_response(&mut message, data).unwrap(),
-        Err(error) => error.render(&mut message).unwrap(),
-    }
-
-    let tail_len = message.finish();
-    encode_ack(code, request.message_id, request.token, &tail[..tail_len])
-}
-
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-fn demo_handler(
-    settings: &mut Settings,
-) -> impl coap_handler::Handler + coap_handler::Reporting + '_ {
-    use coap_handler_implementations::{HandlerBuilder as _, ReportingHandlerBuilder as _};
-
-    coap_handler_implementations::new_dispatcher()
-        .below(
-            &["settings"],
-            ConstPathJsonCoapHandler::const_path_json(settings),
-        )
-        .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
-        .at(
-            &["status"],
-            coap_handler_implementations::SimpleRendered::new_typed_str(
-                r#"{"ok":true}"#,
-                Some(JSON_CONTENT_FORMAT),
-            ),
-        )
-        .with_wkc()
-}
-
-fn route<'a>(
-    request: &RequestParts<'_>,
-    settings: &mut Settings,
-    response_buf: &'a mut [u8],
-    mode: RouteMode,
-) -> Outcome<'a> {
-    #[cfg(feature = "json-core")]
-    match request.path() {
-        "/schema" => SchemaHandler::new("/schema").handle::<Settings>(request, response_buf),
-        "/settings" => settings_route(request, settings, response_buf, mode),
-        path if path.starts_with("/settings/") => {
-            settings_route(request, settings, response_buf, mode)
-        }
-        "/status" => Outcome::Handled(Response {
-            code: code::CONTENT,
-            content_format: Some(JSON_CONTENT_FORMAT),
-            payload: br#"{"ok":true}"#,
-        }),
-        _ => Outcome::Unhandled,
-    }
-    #[cfg(not(feature = "json-core"))]
-    match request.path() {
-        "/settings" => settings_route(request, settings, response_buf, mode),
-        path if path.starts_with("/settings/") => {
-            settings_route(request, settings, response_buf, mode)
-        }
-        _ => Outcome::Unhandled,
-    }
-}
-
-fn encode_ack(code: u8, message_id: [u8; 2], token: &[u8], tail: &[u8]) -> Vec<u8> {
-    let mut packet = Vec::new();
-    packet.push(0x60 | token.len() as u8); // ACK with matching token length
-    packet.push(code);
-    packet.extend_from_slice(&message_id);
-    packet.extend_from_slice(token);
-    packet.extend_from_slice(tail);
-    packet
-}
-
-fn settings_route<'a>(
-    request: &RequestParts<'_>,
-    settings: &mut Settings,
-    response_buf: &'a mut [u8],
-    mode: RouteMode,
-) -> Outcome<'a> {
-    match mode {
-        #[cfg(feature = "json-core")]
-        RouteMode::Json => ConstPathJsonHandler::const_path_json("/settings").handle(
-            request,
-            settings,
-            response_buf,
-        ),
-        #[cfg(feature = "cbor")]
-        RouteMode::Cbor => ConstPathCborHandler::const_path_cbor("/settings").handle(
-            request,
-            settings,
-            response_buf,
-        ),
-    }
-}
-
 #[derive(Debug)]
 struct WirePacket<'a> {
     message_id: [u8; 2],
@@ -517,6 +530,30 @@ impl<'a> WirePacket<'a> {
     }
 }
 
+fn response_packet(request: &WirePacket<'_>, outcome: Outcome<'_>) -> Vec<u8> {
+    let response = outcome.response().unwrap_or(Response {
+        code: code::NOT_FOUND,
+        content_format: None,
+        payload: b"",
+    });
+    let mut code = 0;
+    let mut tail = [0; 512];
+    let mut message = inmemory_write::Message::new(&mut code, &mut tail);
+    response.write_to(&mut message).unwrap();
+    let tail_len = message.finish();
+    encode_ack(code, request.message_id, request.token, &tail[..tail_len])
+}
+
+fn encode_ack(code: u8, message_id: [u8; 2], token: &[u8], tail: &[u8]) -> Vec<u8> {
+    let mut packet = Vec::new();
+    packet.push(0x60 | token.len() as u8);
+    packet.push(code);
+    packet.extend_from_slice(&message_id);
+    packet.extend_from_slice(token);
+    packet.extend_from_slice(tail);
+    packet
+}
+
 fn init_host_logging() {
     static HOST_LOGGING: std::sync::OnceLock<()> = std::sync::OnceLock::new();
 
@@ -524,43 +561,4 @@ fn init_host_logging() {
         let _ = env_logger::builder().is_test(true).try_init();
         defmt2log::init_from_current_exe();
     });
-}
-
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-fn heap_request(code: u8, path: &[&str], accept: Option<u16>, payload: &[u8]) -> HeapMessage {
-    let mut request = HeapMessage::new();
-    request.set_code(code);
-    for segment in path {
-        request
-            .add_option_str(coap_numbers::option::URI_PATH, segment)
-            .unwrap();
-    }
-    if let Some(accept) = accept {
-        request
-            .add_option_uint(coap_numbers::option::ACCEPT, accept)
-            .unwrap();
-    }
-    request.set_payload(payload).unwrap();
-    request
-}
-
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-fn handle_heap<H>(handler: &mut H, request: &HeapMessage) -> HeapMessage
-where
-    H: coap_handler::Handler,
-    H::ExtractRequestError: core::fmt::Debug,
-    H::BuildResponseError<HeapMessage>: core::fmt::Debug,
-{
-    let data = handler.extract_request_data(request).unwrap();
-    let mut response = HeapMessage::new();
-    handler.build_response(&mut response, data).unwrap();
-    response
-}
-
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-fn first_uint_option(message: &HeapMessage, number: u16) -> Option<u16> {
-    message
-        .options()
-        .find(|option| option.number() == number)
-        .and_then(|option| option.value_uint())
 }
