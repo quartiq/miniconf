@@ -1,6 +1,6 @@
 use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf_mqtt::{Error, Event, Miniconf};
-use minimq::{ConfigBuilder, ConnectEvent, Error as MqttError};
+use minimq::{ConfigBuilder, Error as MqttError};
 
 #[path = "../../miniconf/examples/common.rs"]
 mod common;
@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn core::error::Error>> {
         let io = tokio::net::TcpStream::connect(&broker).await?;
         let event = session.connect(FromTokio::new(io)).await?;
         miniconf.startup(&mut session, &settings, event).await?;
-        defmt::info!("mqtt session ready event={=str}", connect_event(event));
+        defmt::info!("mqtt session ready event={}", defmt::Debug2Format(&event));
 
         loop {
             match miniconf.serve(&mut session, &mut settings, |_| ()).await {
@@ -51,12 +51,5 @@ async fn main() -> Result<(), Box<dyn core::error::Error>> {
                 Err(err) => panic!("{err}"),
             }
         }
-    }
-}
-
-fn connect_event(event: ConnectEvent) -> &'static str {
-    match event {
-        ConnectEvent::Connected => "connected",
-        ConnectEvent::Reconnected => "reconnected",
     }
 }
