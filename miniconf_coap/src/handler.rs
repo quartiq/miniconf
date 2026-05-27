@@ -312,9 +312,7 @@ impl<R> coap_handler::Record for MiniconfRecord<R> {
         Attributes {
             attrs: [
                 Some(coap_handler::Attribute::Ct(self.content_format)),
-                Some(coap_handler::Attribute::ResourceType(
-                    meta.get("rt").unwrap_or("miniconf.leaf"),
-                )),
+                meta.get("rt").map(coap_handler::Attribute::ResourceType),
                 meta.get("if").map(coap_handler::Attribute::Interface),
                 title.map(coap_handler::Attribute::Title),
             ],

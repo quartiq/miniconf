@@ -200,7 +200,8 @@ fn coap_handler_reports_and_serves_well_known_core() {
         Some(LINK_FORMAT_CONTENT_FORMAT)
     );
     let payload = core::str::from_utf8(response.payload()).unwrap();
-    assert!(payload.contains("</settings/number>;ct=50;rt=\"miniconf.leaf\""));
+    assert!(payload.contains("</settings/number>;ct=50"));
+    assert!(!payload.contains("rt=\"miniconf.leaf\""));
     assert!(payload.contains("</schema>;ct=0;rt=\"miniconf.schema\""));
     assert!(payload.contains("</status>"));
 }
