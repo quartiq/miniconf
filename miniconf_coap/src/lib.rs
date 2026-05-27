@@ -16,7 +16,7 @@ use coap_numbers::{code, option};
 use defmt::{debug, trace, warn};
 #[cfg(feature = "cbor")]
 use minicbor::{
-    decode::Error as CborDecodeError,
+    decode::{Decoder as CborDecoder, Error as CborDecodeError},
     encode::{self, write::EndOfSlice},
 };
 #[cfg(feature = "cbor")]
@@ -893,15 +893,20 @@ impl Representation for ConstPathCbor {
         mut keys: &[usize],
         payload: &[u8],
     ) -> Result<(), SerdeError<Self::DeError>> {
+        validate_cbor_payload(payload).map_err(SerdeError::Finalization)?;
         let mut deserializer = minicbor_serde::Deserializer::new(payload);
-        settings.deserialize_by_key(&mut keys, &mut deserializer)?;
-        let decoder = deserializer.decoder();
-        if decoder.position() == decoder.input().len() {
-            return Ok(());
-        }
-        Err(SerdeError::Finalization(
-            CborDecodeError::message("trailing data").into(),
-        ))
+        settings.deserialize_by_key(&mut keys, &mut deserializer)
+    }
+}
+
+#[cfg(feature = "cbor")]
+fn validate_cbor_payload(payload: &[u8]) -> Result<(), CborDeError> {
+    let mut decoder = CborDecoder::new(payload);
+    decoder.skip()?;
+    if decoder.position() == decoder.input().len() {
+        Ok(())
+    } else {
+        Err(CborDecodeError::message("trailing data").into())
     }
 }
 

@@ -6,7 +6,6 @@ use coap_handler::Handler as _;
 use coap_message::MessageOption;
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_message::MinimalWritableMessage as _;
-#[cfg(feature = "json-core")]
 use coap_message::ReadableMessage;
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
 use coap_message::error::RenderableOnMinimal as _;
@@ -175,6 +174,17 @@ fn const_path_cbor_packet_route_reads_and_writes() {
         .payload(&[21]);
     let response = handle_packet(&put_number, &mut settings, RouteMode::Cbor);
     assert_eq!(response, [0x60, 0x44, 0x12, 0x3a]); // ACK 2.04 Changed
+    assert_eq!(settings.number, 21);
+
+    let trailing = Packet::put(0x123b)
+        .uri_path("settings")
+        .uri_path("number")
+        .content_format(CBOR_CONTENT_FORMAT)
+        .payload(&[22, 0]);
+    let response = handle_packet(&trailing, &mut settings, RouteMode::Cbor);
+    let response = WirePacket::parse(&response).unwrap();
+    assert_eq!(response.message.code(), code::BAD_REQUEST);
+    assert_eq!(response.message.payload(), br#"{"kind":"bad_payload"}"#);
     assert_eq!(settings.number, 21);
 }
 
