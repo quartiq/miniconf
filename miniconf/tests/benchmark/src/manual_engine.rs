@@ -1,5 +1,7 @@
-use crate::codec::{CodecError, Response, parse_bool, parse_i32, parse_option_i32, parse_u8};
-use crate::settings::{MyEnum, Settings};
+use crate::codec::{
+    CodecError, Response, parse_bool, parse_i16, parse_i32, parse_option_i32, parse_u8, parse_u16,
+};
+use crate::settings::{MyEnum, Settings, device::Mode};
 
 pub struct Engine {
     settings: Settings,
@@ -15,6 +17,96 @@ pub enum ManualError {
 macro_rules! manual_leafs {
     ($m:ident) => {
         $m! {
+            DeviceSerial, "/device/serial",
+            |s: &Engine, o: &mut Response| o.write_u32(s.settings.device.serial).map_err(ManualError::Codec),
+            |_s: &mut Engine, _i: &str| Err(ManualError::InvalidPath);
+
+            DeviceControlEnabled, "/device/control/enabled",
+            |s: &Engine, o: &mut Response| o.write_bool(s.settings.device.control.enabled).map_err(ManualError::Codec),
+            |s: &mut Engine, i: &str| {
+                s.settings.device.control.enabled = parse_bool(i).map_err(ManualError::Codec)?;
+                Ok(())
+            };
+
+            DeviceControlMode, "/device/control/mode",
+            |s: &Engine, o: &mut Response| o.write_str(match s.settings.device.control.mode {
+                Mode::Standby => "Standby",
+                Mode::Run => "Run",
+            }).map_err(ManualError::Codec),
+            |s: &mut Engine, i: &str| {
+                s.settings.device.control.mode = match i {
+                    "\"Standby\"" | "Standby" => Mode::Standby,
+                    "\"Run\"" | "Run" => Mode::Run,
+                    _ => return Err(ManualError::Codec(CodecError::Parse)),
+                };
+                Ok(())
+            };
+
+            DeviceOutputDac0, "/device/output/dac/0",
+            |s: &Engine, o: &mut Response| o.write_u16(s.settings.device.output.dac[0]).map_err(ManualError::Codec),
+            |s: &mut Engine, i: &str| {
+                let value = parse_u16(i).map_err(ManualError::Codec)?;
+                if value > 4095 {
+                    return Err(ManualError::InvalidPath);
+                }
+                s.settings.device.output.dac[0] = value;
+                Ok(())
+            };
+
+            DeviceOutputDac1, "/device/output/dac/1",
+            |s: &Engine, o: &mut Response| o.write_u16(s.settings.device.output.dac[1]).map_err(ManualError::Codec),
+            |s: &mut Engine, i: &str| {
+                let value = parse_u16(i).map_err(ManualError::Codec)?;
+                if value > 4095 {
+                    return Err(ManualError::InvalidPath);
+                }
+                s.settings.device.output.dac[1] = value;
+                Ok(())
+            };
+
+            DeviceOutputAttenuation0, "/device/output/attenuation/0",
+            |s: &Engine, o: &mut Response| o.write_i16(s.settings.device.output.attenuation[0]).map_err(ManualError::Codec),
+            |s: &mut Engine, i: &str| {
+                s.settings.device.output.attenuation[0] = parse_i16(i).map_err(ManualError::Codec)?;
+                Ok(())
+            };
+
+            DeviceOutputAttenuation1, "/device/output/attenuation/1",
+            |s: &Engine, o: &mut Response| o.write_i16(s.settings.device.output.attenuation[1]).map_err(ManualError::Codec),
+            |s: &mut Engine, i: &str| {
+                s.settings.device.output.attenuation[1] = parse_i16(i).map_err(ManualError::Codec)?;
+                Ok(())
+            };
+
+            DeviceCalibrationOffset, "/device/calibration/offset",
+            |s: &Engine, o: &mut Response| {
+                o.write_i32(s.settings.device.calibration.as_ref().ok_or(ManualError::Absent)?.offset)
+                    .map_err(ManualError::Codec)
+            },
+            |s: &mut Engine, i: &str| {
+                s.settings.device.calibration.as_mut().ok_or(ManualError::Absent)?.offset =
+                    parse_i32(i).map_err(ManualError::Codec)?;
+                Ok(())
+            };
+
+            DeviceCalibrationSlope, "/device/calibration/slope",
+            |s: &Engine, o: &mut Response| {
+                o.write_i16(s.settings.device.calibration.as_ref().ok_or(ManualError::Absent)?.slope)
+                    .map_err(ManualError::Codec)
+            },
+            |s: &mut Engine, i: &str| {
+                s.settings.device.calibration.as_mut().ok_or(ManualError::Absent)?.slope =
+                    parse_i16(i).map_err(ManualError::Codec)?;
+                Ok(())
+            };
+
+            DeviceTemperature, "/device/temp",
+            |s: &Engine, _o: &mut Response| {
+                s.settings.device.temperature.ok_or(ManualError::Absent)?;
+                Err(ManualError::Unsupported)
+            },
+            |_s: &mut Engine, _i: &str| Err(ManualError::InvalidPath);
+
             Foo, "/foo",
             |s: &Engine, o: &mut Response| o.write_bool(s.settings.foo).map_err(ManualError::Codec),
             |s: &mut Engine, i: &str| {

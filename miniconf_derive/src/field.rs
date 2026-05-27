@@ -8,7 +8,7 @@ use darling::{
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
+use syn::{parse_quote_spanned, spanned::Spanned};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TreeTrait {
@@ -86,14 +86,17 @@ impl TreeField {
         {
             None
         } else {
-            let bound: syn::TraitBound = match trtr {
-                TreeTrait::Schema => parse_quote!(::miniconf::TreeSchema),
-                TreeTrait::Serialize => parse_quote!(::miniconf::TreeSerialize),
-                TreeTrait::Deserialize => parse_quote!(::miniconf::TreeDeserialize<'de>),
-                TreeTrait::Any => parse_quote!(::miniconf::TreeAny),
-            };
             let ty = self.typ();
-            Some(quote_spanned!(self.span()=> #ty: #bound,))
+            Some(match trtr {
+                TreeTrait::Schema => quote_spanned!(self.span()=> #ty: ::miniconf::TreeSchema,),
+                TreeTrait::Serialize => {
+                    quote_spanned!(self.span()=> #ty: ::miniconf::TreeSerialize,)
+                }
+                TreeTrait::Deserialize => {
+                    quote_spanned!(self.span()=> #ty: ::miniconf::TreeDeserialize<'__de>,)
+                }
+                TreeTrait::Any => quote_spanned!(self.span()=> #ty: ::miniconf::TreeAny,),
+            })
         }
     }
 
@@ -147,7 +150,7 @@ impl TreeField {
             .as_ref()
             .map(|m| quote!(#m::probe_by_key::<#typ, _>(keys, de)))
             .unwrap_or(
-                quote!(<#typ as ::miniconf::TreeDeserialize::<'de>>::probe_by_key(keys, de)),
+                quote!(<#typ as ::miniconf::TreeDeserialize::<'__de>>::probe_by_key(keys, de)),
             );
         quote_spanned! { self.span()=> #i => #imp }
     }

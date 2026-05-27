@@ -26,6 +26,13 @@ FIXTURE = ROOT / "testdata" / "compact-schema" / "fixture.ndjson"
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
 BROKER = os.environ.get("BROKER", "localhost")
+CONTROL = "/control"
+ENABLED = "/control/enabled"
+MODE = "/control/mode"
+DAC = "/output/dac"
+DAC0 = "/output/dac/0"
+DAC1 = "/output/dac/1"
+SERIAL = "/serial"
 EXAMPLE = Path(
     os.environ.get(
         "MINICONF_EXAMPLE",
@@ -55,6 +62,10 @@ def cli_stdout(*args: str) -> str:
 def fixture_schema() -> Schema:
     defs = [json.loads(line) for line in FIXTURE.read_text().splitlines() if line]
     return Schema.from_defs(defs, 1)
+
+
+def schema_node(schema: Schema, path: str) -> SchemaNode:
+    return SchemaNode(path, schema.node(path).schema)
 
 
 class TopicWatcher:
@@ -309,142 +320,133 @@ async def main() -> None:
             mc = Miniconf(client, TARGET)
 
             schema = await mc.schema()
-            struct_tree = schema.node("/struct_tree")
-            array_tree2 = schema.node("/array_tree2")
-            struct_schema = schema.compact("/struct_tree")
-            assert struct_tree.kind == "named", struct_tree
-            assert array_tree2.kind == "homogeneous", array_tree2
-            assert array_tree2.schema["internal"]["len"] == 2, array_tree2
-            assert struct_schema["path"] == "/struct_tree", struct_schema
-            assert struct_schema["defs"][-1]["i"]["k"] == "n", struct_schema
-            assert set(struct_schema["defs"][-1]["i"]["c"]) == {
-                "a",
-                "b",
-            }, struct_schema
-            assert schema.node("/struct_tree").schema["internal"]["kind"] == "named"
-            assert schema.node("/struct_tree").node["typename"] == "MyStruct"
-            assert schema.node("/struct_tree/b").edge["doc"] == "Outer doc"
-            assert schema.node("/enum_tree/C") == SchemaNode(
-                "/enum_tree/C", schema.node("/enum_tree/C").schema
-            )
-            assert schema.path("/enum_tree/C/0/a") == "/enum_tree/C/0/a"
+            control = schema.node(CONTROL)
+            dac = schema.node(DAC)
+            control_schema = schema.compact(CONTROL)
+            assert control.kind == "named", control
+            assert dac.kind == "homogeneous", dac
+            assert dac.schema["internal"]["len"] == 2, dac
+            assert control_schema["path"] == CONTROL, control_schema
+            assert control_schema["defs"][-1]["i"]["k"] == "n", control_schema
+            assert set(control_schema["defs"][-1]["i"]["c"]) == {
+                "enabled",
+                "mode",
+            }, control_schema
+            assert control.schema["internal"]["kind"] == "named"
+            assert control.node["typename"] == "Control"
+            assert schema.node(SERIAL).edge["doc"] == "Hardware serial number."
+            assert dac.edge["max"] == "4095"
+            assert schema.node(MODE) == schema_node(schema, MODE)
+            assert schema.path(DAC0) == DAC0
             try:
                 schema.path("/missing")
             except MiniconfException as err:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for /missing")
-            assert [node.path for node in schema.walk("/struct_tree")] == [
-                "/struct_tree",
-                "/struct_tree/a",
-                "/struct_tree/b",
+            assert [node.path for node in schema.walk(CONTROL)] == [
+                CONTROL,
+                ENABLED,
+                MODE,
             ]
-            assert SchemaNode(
-                "/enum_tree/C", schema.node("/enum_tree/C").schema
-            ) in schema.children("/enum_tree")
-            assert schema.children("/struct_tree") == [
-                SchemaNode("/struct_tree/a", schema.node("/struct_tree/a").schema),
-                SchemaNode("/struct_tree/b", schema.node("/struct_tree/b").schema),
+            assert schema_node(schema, CONTROL) in schema.children("")
+            assert schema.children(CONTROL) == [
+                schema_node(schema, ENABLED),
+                schema_node(schema, MODE),
             ]
-            assert schema.node("/enum_tree/C/0/a").kind == "leaf"
-            assert schema.node("/struct_tree").kind == "named"
-            assert schema.path(schema.indices("/array_tree2/1")) == "/array_tree2/1"
-            assert (
-                schema.path(Indices(schema.indices("/struct_tree/a")))
-                == "/struct_tree/a"
-            )
-            assert (
-                schema.path(Packed(schema.packed("/struct_tree/a").value))
-                == "/struct_tree/a"
-            )
+            assert schema.node(DAC0).kind == "leaf"
+            assert control.kind == "named"
+            assert schema.path(schema.indices(DAC1)) == DAC1
+            assert schema.path(Indices(schema.indices(ENABLED))) == ENABLED
+            assert schema.path(Packed(schema.packed(ENABLED).value)) == ENABLED
             try:
                 schema.path("/")
             except MiniconfException as err:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for '/'")
-            async with mc.track("/struct_tree/a") as tracked:
-                assert tracked.cached() == 0
+            async with mc.track(ENABLED) as tracked:
+                assert tracked.cached() is True
             try:
-                async with mc.track("/struct_tree") as tracked:
+                async with mc.track(CONTROL) as tracked:
                     tracked.cached()
             except MiniconfException as err:
                 assert err.code == "LeafRequired", err
             else:
-                raise AssertionError("expected leaf-required error for /struct_tree")
+                raise AssertionError(f"expected leaf-required error for {CONTROL}")
 
-            async with mc.track("/struct_tree") as tracked:
-                assert tracked.cached("/struct_tree/a") == 0
+            async with mc.track(CONTROL) as tracked:
+                assert tracked.cached(ENABLED) is True
                 dump = tracked.snapshot()
-                assert dump["/struct_tree/a"] == 0
-                assert dump["/struct_tree/b"] == 0
+                assert dump[ENABLED] is True
+                assert dump[MODE] == "Run"
                 assert render_value_tree(schema, dump, tracked.root).splitlines() == [
-                    "struct_tree",
-                    "├─ a = 0",
-                    "└─ b = 0",
+                    "control",
+                    "├─ enabled = true",
+                    '└─ mode = "Run"',
                 ]
                 try:
-                    async with mc.track("/foo"):
+                    async with mc.track(ENABLED):
                         raise AssertionError("expected tracked-subtree conflict")
                 except MiniconfException as err:
                     assert err.code == "Tracked", err
 
-            await mc.set("/foo", True)
-            async with mc.track("/foo") as tracked:
+            await mc.set(ENABLED, True)
+            async with mc.track(ENABLED) as tracked:
                 assert tracked.cached() is True
             settings.drain()
-            await mc.set("/foo", False, response=False)
-            assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "false"
-            async with mc.track("/array_tree2") as tracked:
-                assert tracked.cached("/array_tree2/0/a") == 0
-                await mc.set("/array_tree2/0/a", 3)
-                await wait_cached(tracked, "/array_tree2/0/a", 3)
+            await mc.set(ENABLED, False, response=False)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "false"
+            async with mc.track("/output") as tracked:
+                assert tracked.cached(DAC0) == 1024
+                await mc.set(DAC0, 2048)
+                await wait_cached(tracked, DAC0, 2048)
                 tree_dump = tracked.snapshot()
-                assert tree_dump["/array_tree2/0/a"] == 3, tree_dump
+                assert tree_dump[DAC0] == 2048, tree_dump
         finally:
             await close_client(client)
             client = None
         client = await Client(BROKER, protocol=MQTTv5).__aenter__()
         raw = RawMiniconf(client, TARGET)
         try:
-            assert await raw.get("/struct_tree/a") == 0
-            assert await raw.get("/foo") is False
-            await raw.set("/foo", True)
-            assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "true"
-            assert await raw.get("/foo") is True
+            assert await raw.get(ENABLED) is False
+            assert await raw.get(DAC0) == 2048
+            await raw.set(ENABLED, True)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "true"
+            assert await raw.get(ENABLED) is True
             settings.drain()
-            await raw.set("/foo", False, response=False)
-            assert settings.wait_payload(3.0, f"{TARGET}/settings/foo") == "false"
+            await raw.set(ENABLED, False, response=False)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "false"
         finally:
             await raw.close()
             await close_client(client)
             client = None
         schema_out = cli_stdout(TARGET, "?").splitlines()
-        assert any("struct_tree" in line for line in schema_out), schema_out
+        assert any("control" in line for line in schema_out), schema_out
         schema_raw = cli_stdout(TARGET, "??").splitlines()
         schema_dump = [json.loads(line) for line in schema_raw]
         assert schema_dump[-1]["i"]["k"] == "n", schema_dump
-        assert "struct_tree" in schema_dump[-1]["i"]["c"], schema_dump
+        assert "control" in schema_dump[-1]["i"]["c"], schema_dump
         dump_out = cli_stdout(TARGET, "!").splitlines()
-        assert any("struct_tree" in line for line in dump_out), dump_out
-        assert any("─ a " in line for line in dump_out), dump_out
-        leaf_dump_rel = cli_stdout(TARGET, "foo!").strip()
-        assert leaf_dump_rel == "foo = false", leaf_dump_rel
-        leaf_dump = cli_stdout(TARGET, "/foo!").strip()
-        assert leaf_dump == "foo = false", leaf_dump
+        assert any("control" in line for line in dump_out), dump_out
+        assert any("─ enabled " in line for line in dump_out), dump_out
+        leaf_dump_rel = cli_stdout(TARGET, "control/enabled!").strip()
+        assert leaf_dump_rel == "enabled = false", leaf_dump_rel
+        leaf_dump = cli_stdout(TARGET, f"{ENABLED}!").strip()
+        assert leaf_dump == "enabled = false", leaf_dump
         dump_raw = cli_stdout(TARGET, "!!").splitlines()
-        assert any(line.startswith("/struct_tree/a=") for line in dump_raw), dump_raw
-        leaf_dump_raw_rel = cli_stdout(TARGET, "foo!!").strip()
-        assert leaf_dump_raw_rel == "/foo=false", leaf_dump_raw_rel
-        raw_out = cli_stdout("--raw", TARGET, "/struct_tree/a").strip()
-        assert raw_out == "/struct_tree/a=0", raw_out
-        raw_discover_out = cli_stdout("--raw", "-d", f"{PREFIX}/+", "/foo").strip()
-        assert raw_discover_out == "/foo=false", raw_discover_out
+        assert any(line.startswith(f"{ENABLED}=") for line in dump_raw), dump_raw
+        leaf_dump_raw_rel = cli_stdout(TARGET, "control/enabled!!").strip()
+        assert leaf_dump_raw_rel == f"{ENABLED}=false", leaf_dump_raw_rel
+        raw_out = cli_stdout("--raw", TARGET, ENABLED).strip()
+        assert raw_out == f"{ENABLED}=false", raw_out
+        raw_discover_out = cli_stdout("--raw", "-d", f"{PREFIX}/+", ENABLED).strip()
+        assert raw_discover_out == f"{ENABLED}=false", raw_discover_out
         for command in ("/", "/?", "/!"):
             invalid = cli(TARGET, command)
             assert invalid.returncode != 0, invalid
             assert "NotFound:" in invalid.stdout, invalid.stdout
-        branch_invalid = cli(TARGET, "/struct_tree")
+        branch_invalid = cli(TARGET, CONTROL)
         assert branch_invalid.returncode != 0, branch_invalid
         assert "LeafRequired:" in branch_invalid.stdout, branch_invalid.stdout
         raw_invalid = cli("--raw", TARGET, "/?")

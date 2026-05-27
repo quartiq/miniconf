@@ -1,79 +1,120 @@
-use miniconf::{Leaf, Tree, leaf};
+// Shared demo fixture. This tree is not just local example data.
+//
+// Checked-in users:
+// - miniconf examples: `cli`, `scpi`, `trace`
+// - embedded code-size benchmark: included as the `/device` subtree
+// - miniconf_mqtt example and integration tests
+// - Python client/CLI integration test through the MQTT fixture
+// - CI jobs that run those examples, integration tests, and benchmark
+//
+// This is distinct from `miniconf/tests/common`, which is a test helper module.
+// Other transport demos on topic branches have reused this tree as well. Keep
+// path, schema, metadata, and initial-value changes deliberate and update all
+// downstream expectations together.
+use miniconf::{Tree, leaf};
 use serde::{Deserialize, Serialize};
 
-// Either/Inner/Settings are straight from README.md
-
-/// Inner doc
-#[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq, Tree)]
-#[tree(meta(doc, typename))]
-pub struct MyStruct {
-    #[tree(meta(max = "10"))]
-    pub a: i32,
-    /// Outer doc
-    pub b: u8,
-}
-
-/// Inner doc
-#[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq, Tree)]
-#[tree(meta(doc, typename))]
-pub enum MyEnum {
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mode {
     #[default]
-    Bad,
-    Good,
-    A(i32),
-    /// Outer doc
-    B(MyStruct),
-    C([MyStruct; 2]),
+    Standby,
+    Run,
 }
 
-#[derive(Deserialize, Serialize, Default, Clone, PartialEq, Eq)]
-pub struct Uni;
+#[derive(Clone, Default, PartialEq, Eq, Tree)]
+#[tree(meta(typename))]
+pub struct Calibration {
+    pub offset: i32,
+    #[tree(meta(unit = "ppm"))]
+    pub slope: i16,
+}
 
-#[derive(Tree, Default, Clone, PartialEq, Eq)]
+#[derive(Clone, Default, PartialEq, Tree)]
 #[tree(meta(typename))]
 pub struct Settings {
-    pub foo: bool,
-    #[tree(with=leaf)]
-    pub enum_: MyEnum,
-    #[tree(with=leaf)]
-    pub struct_: MyStruct,
-    #[tree(with=leaf)]
-    pub array: [i32; 2],
-    #[tree(with=leaf)]
-    pub option: Option<i32>,
-    #[tree(with=leaf)]
-    pub uni: Uni,
-
-    #[tree(skip)]
-    #[allow(unused)]
-    pub skipped: (),
-
-    pub struct_tree: MyStruct,
-    pub enum_tree: MyEnum,
-    pub array_tree: [i32; 2],
-    pub array_tree2: [MyStruct; 2],
-    pub tuple_tree: (i32, MyStruct),
-    pub option_tree: Option<i32>,
-    pub option_tree2: Option<MyStruct>,
-    pub array_option_tree: [Option<MyStruct>; 2],
-    pub option_array: Option<Leaf<[i16; 2]>>,
+    /// Hardware serial number.
+    #[tree(with = read_only, meta(doc))]
+    pub serial: u32,
+    pub control: Control,
+    pub output: Output,
+    /// Factory calibration applied to measurements.
+    #[tree(meta(doc))]
+    pub calibration: Option<Calibration>,
+    #[tree(rename = "temp", with = read_only, meta(unit = "°C"))]
+    pub temperature: Option<f32>,
 }
 
-#[allow(unused)]
-impl Settings {
-    /// Create a new enabled Settings
-    pub fn new() -> Self {
-        let mut s = Self::default();
-        s.enable();
-        s
-    }
+#[derive(Clone, Default, PartialEq, Eq, Tree)]
+#[tree(meta(typename))]
+pub struct Control {
+    pub enabled: bool,
+    #[tree(with = leaf)]
+    pub mode: Mode,
+}
 
-    /// Fill some of the Options
-    pub fn enable(&mut self) {
-        self.option_tree = Some(8);
-        self.enum_tree = MyEnum::C(Default::default());
-        self.option_tree2 = Some(Default::default());
-        self.array_option_tree[1] = Some(Default::default());
-        self.option_array = Some(Leaf([1, 2]));
+#[derive(Clone, PartialEq, Eq, Tree)]
+#[tree(meta(typename))]
+pub struct Output {
+    #[tree(with = dac, meta(max = "4095"))]
+    pub dac: [u16; 2],
+    #[tree(meta(unit = "dB"))]
+    pub attenuation: [i16; 2],
+}
+
+impl Default for Output {
+    fn default() -> Self {
+        Self {
+            dac: [1024, 1024],
+            attenuation: [0, 0],
+        }
+    }
+}
+
+impl Settings {
+    pub fn new() -> Self {
+        Self {
+            serial: 0x1234,
+            control: Control {
+                enabled: true,
+                mode: Mode::Run,
+            },
+            output: Output::default(),
+            calibration: Some(Calibration {
+                offset: -3,
+                slope: 12,
+            }),
+            temperature: None,
+        }
+    }
+}
+
+mod read_only {
+    pub use miniconf::{
+        deny::{deserialize_by_key, mut_any_by_key},
+        passthrough::{probe_by_key, ref_any_by_key, schema, serialize_by_key},
+    };
+}
+
+mod dac {
+    use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
+
+    pub use miniconf::passthrough::{
+        mut_any_by_key, probe_by_key, ref_any_by_key, schema, serialize_by_key,
+    };
+
+    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        value: &mut [u16; 2],
+        keys: impl Keys,
+        de: D,
+    ) -> Result<(), SerdeError<D::Error>> {
+        // Validate into a scratch copy so a rejected write leaves the DAC unchanged.
+        let mut next = *value;
+        next.deserialize_by_key(keys, de)?;
+        if next.iter().all(|value| *value <= 4095) {
+            *value = next;
+            Ok(())
+        } else {
+            Err(ValueError::Access("DAC value exceeds 12-bit range").into())
+        }
     }
 }

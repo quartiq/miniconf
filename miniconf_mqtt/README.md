@@ -2,20 +2,11 @@
 
 `miniconf_mqtt` exposes a [`miniconf`](../miniconf/README.md) tree over MQTT using
 [`minimq`](../../minimq/README.md).
-
-The MQTT wire protocol is MM2 version 1:
-
-- retained `/<prefix>/alive` publishes a compact device manifest
-- retained `/<prefix>/schema/<n>` publishes paged compact schemata
-- retained `/<prefix>/settings/<path>` publishes authoritative leaf values
-- `/<prefix>/set/<path>` accepts explicit leaf mutation requests
-- `/<prefix>/response` carries metadata-only ACK/NACK replies when requested
+It owns Miniconf MQTT protocol state; the caller owns both the MQTT session and the settings tree.
 
 ## Quick start
 
 See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).
-
-`minimq::Session` is caller-owned.
 
 For simple services, `miniconf_mqtt` provides two complete unbounded helpers on top:
 
@@ -68,6 +59,16 @@ network glitch, keep the live settings in RAM authoritative and call
   schema, settings, `set/#`, and `alive`
 - `ConnectEvent::Reconnected`: the broker resumed the MQTT session, so Miniconf republishes only
   `alive`
+
+## Protocol details
+
+The MQTT wire protocol is MM2 version 1:
+
+- retained `/<prefix>/alive` publishes a compact device manifest
+- retained `/<prefix>/schema/<n>` publishes paged compact schemata
+- retained `/<prefix>/settings/<path>` publishes authoritative leaf values
+- `/<prefix>/set/<path>` accepts explicit leaf mutation requests
+- `/<prefix>/response` carries metadata-only ACK/NACK replies when requested
 
 ## Core contract
 

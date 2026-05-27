@@ -1,4 +1,4 @@
-//! Showcase for reflection and schema building
+//! Build a JSON tree and JSON Schema from one `Settings` type.
 
 use miniconf::{
     json::to_json_value,

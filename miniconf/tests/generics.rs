@@ -86,6 +86,24 @@ fn generic_atomic() {
 }
 
 #[test]
+fn derived_impl_generics_do_not_collide() {
+    #[derive(Tree, Default)]
+    struct Settings<'de, S, D> {
+        value: S,
+        other: D,
+        #[tree(skip)]
+        _lifetime: core::marker::PhantomData<&'de ()>,
+    }
+
+    let mut settings = Settings::<u32, u16>::default();
+    json_core::set(&mut settings, "/value", b"3").unwrap();
+    json_core::set(&mut settings, "/other", b"5").unwrap();
+
+    assert_eq!(settings.value, 3);
+    assert_eq!(settings.other, 5);
+}
+
+#[test]
 fn test_depth() {
     #[derive(Tree)]
     struct S<T>(Option<Option<T>>);
