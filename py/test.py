@@ -26,6 +26,13 @@ FIXTURE = ROOT / "testdata" / "compact-schema" / "fixture.ndjson"
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
 BROKER = os.environ.get("BROKER", "localhost")
+CONTROL = "/control"
+ENABLED = "/control/enabled"
+MODE = "/control/mode"
+DAC = "/output/dac"
+DAC0 = "/output/dac/0"
+DAC1 = "/output/dac/1"
+SERIAL = "/serial"
 EXAMPLE = Path(
     os.environ.get(
         "MINICONF_EXAMPLE",
@@ -55,6 +62,10 @@ def cli_stdout(*args: str) -> str:
 def fixture_schema() -> Schema:
     defs = [json.loads(line) for line in FIXTURE.read_text().splitlines() if line]
     return Schema.from_defs(defs, 1)
+
+
+def schema_node(schema: Schema, path: str) -> SchemaNode:
+    return SchemaNode(path, schema.node(path).schema)
 
 
 class TopicWatcher:
@@ -309,122 +320,103 @@ async def main() -> None:
             mc = Miniconf(client, TARGET)
 
             schema = await mc.schema()
-            control = schema.node("/control")
-            dac = schema.node("/output/dac")
-            control_schema = schema.compact("/control")
+            control = schema.node(CONTROL)
+            dac = schema.node(DAC)
+            control_schema = schema.compact(CONTROL)
             assert control.kind == "named", control
             assert dac.kind == "homogeneous", dac
             assert dac.schema["internal"]["len"] == 2, dac
-            assert control_schema["path"] == "/control", control_schema
+            assert control_schema["path"] == CONTROL, control_schema
             assert control_schema["defs"][-1]["i"]["k"] == "n", control_schema
             assert set(control_schema["defs"][-1]["i"]["c"]) == {
                 "enabled",
                 "mode",
             }, control_schema
-            assert schema.node("/control").schema["internal"]["kind"] == "named"
-            assert schema.node("/control").node["typename"] == "Control"
-            assert schema.node("/serial").edge["doc"] == "Hardware serial number."
-            assert schema.node("/output/dac").edge["max"] == "4095"
-            assert schema.node("/control/mode") == SchemaNode(
-                "/control/mode", schema.node("/control/mode").schema
-            )
-            assert schema.path("/output/dac/0") == "/output/dac/0"
+            assert control.schema["internal"]["kind"] == "named"
+            assert control.node["typename"] == "Control"
+            assert schema.node(SERIAL).edge["doc"] == "Hardware serial number."
+            assert dac.edge["max"] == "4095"
+            assert schema.node(MODE) == schema_node(schema, MODE)
+            assert schema.path(DAC0) == DAC0
             try:
                 schema.path("/missing")
             except MiniconfException as err:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for /missing")
-            assert [node.path for node in schema.walk("/control")] == [
-                "/control",
-                "/control/enabled",
-                "/control/mode",
+            assert [node.path for node in schema.walk(CONTROL)] == [
+                CONTROL,
+                ENABLED,
+                MODE,
             ]
-            assert SchemaNode(
-                "/control", schema.node("/control").schema
-            ) in schema.children("")
-            assert schema.children("/control") == [
-                SchemaNode("/control/enabled", schema.node("/control/enabled").schema),
-                SchemaNode("/control/mode", schema.node("/control/mode").schema),
+            assert schema_node(schema, CONTROL) in schema.children("")
+            assert schema.children(CONTROL) == [
+                schema_node(schema, ENABLED),
+                schema_node(schema, MODE),
             ]
-            assert schema.node("/output/dac/0").kind == "leaf"
-            assert schema.node("/control").kind == "named"
-            assert schema.path(schema.indices("/output/dac/1")) == "/output/dac/1"
-            assert (
-                schema.path(Indices(schema.indices("/control/enabled")))
-                == "/control/enabled"
-            )
-            assert (
-                schema.path(Packed(schema.packed("/control/enabled").value))
-                == "/control/enabled"
-            )
+            assert schema.node(DAC0).kind == "leaf"
+            assert control.kind == "named"
+            assert schema.path(schema.indices(DAC1)) == DAC1
+            assert schema.path(Indices(schema.indices(ENABLED))) == ENABLED
+            assert schema.path(Packed(schema.packed(ENABLED).value)) == ENABLED
             try:
                 schema.path("/")
             except MiniconfException as err:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for '/'")
-            async with mc.track("/control/enabled") as tracked:
+            async with mc.track(ENABLED) as tracked:
                 assert tracked.cached() is True
             try:
-                async with mc.track("/control") as tracked:
+                async with mc.track(CONTROL) as tracked:
                     tracked.cached()
             except MiniconfException as err:
                 assert err.code == "LeafRequired", err
             else:
-                raise AssertionError("expected leaf-required error for /control")
+                raise AssertionError(f"expected leaf-required error for {CONTROL}")
 
-            async with mc.track("/control") as tracked:
-                assert tracked.cached("/control/enabled") is True
+            async with mc.track(CONTROL) as tracked:
+                assert tracked.cached(ENABLED) is True
                 dump = tracked.snapshot()
-                assert dump["/control/enabled"] is True
-                assert dump["/control/mode"] == "Run"
+                assert dump[ENABLED] is True
+                assert dump[MODE] == "Run"
                 assert render_value_tree(schema, dump, tracked.root).splitlines() == [
                     "control",
                     "├─ enabled = true",
                     '└─ mode = "Run"',
                 ]
                 try:
-                    async with mc.track("/control/enabled"):
+                    async with mc.track(ENABLED):
                         raise AssertionError("expected tracked-subtree conflict")
                 except MiniconfException as err:
                     assert err.code == "Tracked", err
 
-            await mc.set("/control/enabled", True)
-            async with mc.track("/control/enabled") as tracked:
+            await mc.set(ENABLED, True)
+            async with mc.track(ENABLED) as tracked:
                 assert tracked.cached() is True
             settings.drain()
-            await mc.set("/control/enabled", False, response=False)
-            assert (
-                settings.wait_payload(3.0, f"{TARGET}/settings/control/enabled")
-                == "false"
-            )
+            await mc.set(ENABLED, False, response=False)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "false"
             async with mc.track("/output") as tracked:
-                assert tracked.cached("/output/dac/0") == 1024
-                await mc.set("/output/dac/0", 2048)
-                await wait_cached(tracked, "/output/dac/0", 2048)
+                assert tracked.cached(DAC0) == 1024
+                await mc.set(DAC0, 2048)
+                await wait_cached(tracked, DAC0, 2048)
                 tree_dump = tracked.snapshot()
-                assert tree_dump["/output/dac/0"] == 2048, tree_dump
+                assert tree_dump[DAC0] == 2048, tree_dump
         finally:
             await close_client(client)
             client = None
         client = await Client(BROKER, protocol=MQTTv5).__aenter__()
         raw = RawMiniconf(client, TARGET)
         try:
-            assert await raw.get("/control/enabled") is False
-            assert await raw.get("/output/dac/0") == 2048
-            await raw.set("/control/enabled", True)
-            assert (
-                settings.wait_payload(3.0, f"{TARGET}/settings/control/enabled")
-                == "true"
-            )
-            assert await raw.get("/control/enabled") is True
+            assert await raw.get(ENABLED) is False
+            assert await raw.get(DAC0) == 2048
+            await raw.set(ENABLED, True)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "true"
+            assert await raw.get(ENABLED) is True
             settings.drain()
-            await raw.set("/control/enabled", False, response=False)
-            assert (
-                settings.wait_payload(3.0, f"{TARGET}/settings/control/enabled")
-                == "false"
-            )
+            await raw.set(ENABLED, False, response=False)
+            assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "false"
         finally:
             await raw.close()
             await close_client(client)
@@ -440,23 +432,21 @@ async def main() -> None:
         assert any("─ enabled " in line for line in dump_out), dump_out
         leaf_dump_rel = cli_stdout(TARGET, "control/enabled!").strip()
         assert leaf_dump_rel == "enabled = false", leaf_dump_rel
-        leaf_dump = cli_stdout(TARGET, "/control/enabled!").strip()
+        leaf_dump = cli_stdout(TARGET, f"{ENABLED}!").strip()
         assert leaf_dump == "enabled = false", leaf_dump
         dump_raw = cli_stdout(TARGET, "!!").splitlines()
-        assert any(line.startswith("/control/enabled=") for line in dump_raw), dump_raw
+        assert any(line.startswith(f"{ENABLED}=") for line in dump_raw), dump_raw
         leaf_dump_raw_rel = cli_stdout(TARGET, "control/enabled!!").strip()
-        assert leaf_dump_raw_rel == "/control/enabled=false", leaf_dump_raw_rel
-        raw_out = cli_stdout("--raw", TARGET, "/control/enabled").strip()
-        assert raw_out == "/control/enabled=false", raw_out
-        raw_discover_out = cli_stdout(
-            "--raw", "-d", f"{PREFIX}/+", "/control/enabled"
-        ).strip()
-        assert raw_discover_out == "/control/enabled=false", raw_discover_out
+        assert leaf_dump_raw_rel == f"{ENABLED}=false", leaf_dump_raw_rel
+        raw_out = cli_stdout("--raw", TARGET, ENABLED).strip()
+        assert raw_out == f"{ENABLED}=false", raw_out
+        raw_discover_out = cli_stdout("--raw", "-d", f"{PREFIX}/+", ENABLED).strip()
+        assert raw_discover_out == f"{ENABLED}=false", raw_discover_out
         for command in ("/", "/?", "/!"):
             invalid = cli(TARGET, command)
             assert invalid.returncode != 0, invalid
             assert "NotFound:" in invalid.stdout, invalid.stdout
-        branch_invalid = cli(TARGET, "/control")
+        branch_invalid = cli(TARGET, CONTROL)
         assert branch_invalid.returncode != 0, branch_invalid
         assert "LeafRequired:" in branch_invalid.stdout, branch_invalid.stdout
         raw_invalid = cli("--raw", TARGET, "/?")
