@@ -1,3 +1,16 @@
+// Shared demo fixture. This tree is not just local example data.
+//
+// Checked-in users:
+// - miniconf examples: `cli`, `scpi`, `trace`
+// - embedded code-size benchmark: included as the `/device` subtree
+// - miniconf_mqtt example and integration tests
+// - Python client/CLI integration test through the MQTT fixture
+// - CI jobs that run those examples, integration tests, and benchmark
+//
+// This is distinct from `miniconf/tests/common`, which is a test helper module.
+// Other transport demos on topic branches have reused this tree as well. Keep
+// path, schema, metadata, and initial-value changes deliberate and update all
+// downstream expectations together.
 use miniconf::{Tree, leaf};
 use serde::{Deserialize, Serialize};
 
