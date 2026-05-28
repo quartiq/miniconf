@@ -580,64 +580,6 @@ where
         }
     }
 
-    /// Handle a `GET` request with read-only settings bounds.
-    pub fn handle_get<'b, Settings>(
-        &self,
-        request: &RequestParts<'_>,
-        settings: &Settings,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeSerialize,
-    {
-        let Some(path) = request.relative_to(self.base) else {
-            trace!("Ignoring non-Miniconf CoAP route request={}", request);
-            return Outcome::Unhandled;
-        };
-        if let Err(err) = request.check_options() {
-            return Outcome::Handled(err.response(response_buf));
-        }
-
-        trace!(
-            "Handling Miniconf CoAP GET request base={=str} request={}",
-            self.base, request
-        );
-
-        if request.code != code::GET {
-            return method_not_allowed(request, response_buf);
-        }
-        self.get(path, settings, request, response_buf)
-    }
-
-    /// Handle a `PUT` request with write-only settings bounds.
-    pub fn handle_put<'b, Settings>(
-        &self,
-        request: &RequestParts<'_>,
-        settings: &mut Settings,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeDeserializeOwned,
-    {
-        let Some(path) = request.relative_to(self.base) else {
-            trace!("Ignoring non-Miniconf CoAP route request={}", request);
-            return Outcome::Unhandled;
-        };
-        if let Err(err) = request.check_options() {
-            return Outcome::Handled(err.response(response_buf));
-        }
-
-        trace!(
-            "Handling Miniconf CoAP PUT request base={=str} request={}",
-            self.base, request
-        );
-
-        if request.code != code::PUT {
-            return method_not_allowed(request, response_buf);
-        }
-        self.put(path, settings, request, response_buf)
-    }
-
     fn get<'b, Settings>(
         &self,
         path: &str,
@@ -1602,14 +1544,14 @@ mod tests {
     }
 
     #[test]
-    fn get_and_put_can_be_used_separately() {
+    fn get_and_put_leaf() {
         init_host_logging();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 
         let req = request(code::GET, &["settings", "number"], None, b"");
-        let outcome = handler.handle_get(&req, &settings, &mut response);
+        let outcome = handler.handle(&req, &mut settings, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.payload, b"7");
 
@@ -1621,7 +1563,7 @@ mod tests {
             b"14",
         );
         assert!(matches!(
-            handler.handle_put(&req, &mut settings, &mut response),
+            handler.handle(&req, &mut settings, &mut response),
             Outcome::Changed { .. }
         ));
         assert_eq!(settings.number, 14);
@@ -1637,10 +1579,10 @@ mod tests {
             .uint_option(option::ACCEPT, JSON_CONTENT_FORMAT);
         let request = RequestParts::from_message(&request).unwrap();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
-        let settings = Settings::default();
+        let mut settings = Settings::default();
         let mut response = [0; 128];
 
-        let outcome = handler.handle_get(&request, &settings, &mut response);
+        let outcome = handler.handle(&request, &mut settings, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(response.payload, b"7");
@@ -1651,7 +1593,7 @@ mod tests {
             .uint_option(option::ACCEPT, 0);
         let request = RequestParts::from_message(&request).unwrap();
         let mut response = [0; 128];
-        let outcome = handler.handle_get(&request, &settings, &mut response);
+        let outcome = handler.handle(&request, &mut settings, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::NOT_ACCEPTABLE);
 
@@ -1681,9 +1623,9 @@ mod tests {
             .uint_option(option::ACCEPT, 3);
         let request = RequestParts::from_message(&request).unwrap();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
-        let settings = Settings::default();
+        let mut settings = Settings::default();
         let mut response = [0; 128];
-        let outcome = handler.handle_get(&request, &settings, &mut response);
+        let outcome = handler.handle(&request, &mut settings, &mut response);
         assert_eq!(outcome.response().unwrap().code, code::CONTENT);
 
         let request = TestMessage::new(code::GET)
@@ -1696,7 +1638,7 @@ mod tests {
             .uint_option(option::ACCEPT, 4);
         let request = RequestParts::from_message(&request).unwrap();
         let mut response = [0; 128];
-        let outcome = handler.handle_get(&request, &settings, &mut response);
+        let outcome = handler.handle(&request, &mut settings, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::BAD_OPTION);
         assert_eq!(response.payload, br#"{"kind":"too_many_accept_options"}"#);
@@ -1761,10 +1703,10 @@ mod tests {
     fn get_serialization_failures_are_not_bad_payload() {
         init_host_logging();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
-        let settings = Settings::default();
+        let mut settings = Settings::default();
         let mut response = [0; 0];
         let req = request(code::GET, &["settings", "number"], None, b"");
-        let outcome = handler.handle_get(&req, &settings, &mut response);
+        let outcome = handler.handle(&req, &mut settings, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::INTERNAL_SERVER_ERROR);
         assert_eq!(response.payload, b"");
@@ -1834,7 +1776,7 @@ mod tests {
         let mut response = [0; 128];
 
         let req = request(code::GET, &["settings", "number"], None, b"");
-        let out = handler.handle_get(&req, &settings, &mut response);
+        let out = handler.handle(&req, &mut settings, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(response.content_format, Some(CBOR_CONTENT_FORMAT));
@@ -1847,7 +1789,7 @@ mod tests {
             Some(CBOR_CONTENT_FORMAT),
             &[21],
         );
-        let out = handler.handle_put(&req, &mut settings, &mut response);
+        let out = handler.handle(&req, &mut settings, &mut response);
         assert!(matches!(out, Outcome::Changed { .. }));
         assert_eq!(settings.number, 21);
     }
