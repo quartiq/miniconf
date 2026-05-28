@@ -1,0 +1,56 @@
+[package]
+name = "miniconf_coap"
+version = "0.1.0"
+description = "CoAP interface for `miniconf`"
+autoexamples = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+categories.workspace = true
+keywords.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["json-core"]
+cbor = ["dep:minicbor", "dep:minicbor-serde"]
+coap-handler = ["dep:coap-handler"]
+json-core = ["dep:serde-json-core", "miniconf/json-core"]
+
+[dependencies]
+coap-handler = { version = "=0.2.1", optional = true }
+coap-message = "0.3.6"
+coap-numbers = "0.2.9"
+defmt = "1.0.1"
+heapless = "0.9.1"
+minicbor = { version = "2.2.2", default-features = false, optional = true }
+minicbor-serde = { version = "0.7.0", default-features = false, optional = true }
+miniconf = { version = "0.20.1", features = ["defmt"], default-features = false, path = "../miniconf" }
+serde = { version = "1", default-features = false, features = ["derive"] }
+serde-json-core = { version = "0.6.0", optional = true }
+yafnv = { version = "3", default-features = false }
+
+[dev-dependencies]
+coap-handler-implementations = "0.6.2"
+coap-message-implementations = { version = "0.1.10", features = ["alloc"] }
+defmt2log = "0.2.0"
+env_logger = "0.11"
+miniconf = { features = [
+    "defmt",
+    "derive",
+    "json-core",
+    "heapless-09",
+    "sem",
+    "meta-node",
+    "meta-edge",
+], path = "../miniconf" }
+serde = { version = "1", default-features = false, features = ["derive"] }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[[example]]
+name = "coap_server"
+required-features = ["coap-handler", "json-core"]
