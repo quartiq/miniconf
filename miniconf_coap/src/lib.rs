@@ -68,8 +68,14 @@ type UriPath = heapless::String<MAX_URI_PATH_LENGTH>;
 
 #[cfg(feature = "coap-handler")]
 mod handler;
+#[cfg(all(feature = "coap-handler", feature = "cbor"))]
+pub use handler::ConstPathCborCoapHandler;
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
+pub use handler::ConstPathJsonCoapHandler;
 #[cfg(feature = "coap-handler")]
-pub use handler::*;
+pub use handler::MiniconfHandler;
+#[cfg(all(feature = "coap-handler", feature = "json-core"))]
+pub use handler::MiniconfSchemaHandler;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct Accepts {
@@ -492,18 +498,20 @@ impl Error {
 
 /// Leaf value route backed by a Miniconf tree.
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ValueHandler<'a, R> {
+pub(crate) struct ValueHandler<'a, R> {
     base: &'a str,
     representation: R,
 }
 
 /// Const-path-addressed JSON value route.
 #[cfg(feature = "json-core")]
-pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
+#[derive(defmt::Format, Debug, Clone, Copy)]
+pub struct ConstPathJsonHandler<'a>(ValueHandler<'a, ConstPathJson>);
 
 /// Const-path-addressed CBOR value route.
 #[cfg(feature = "cbor")]
-pub type ConstPathCborHandler<'a> = ValueHandler<'a, ConstPathCbor>;
+#[derive(defmt::Format, Debug, Clone, Copy)]
+pub struct ConstPathCborHandler<'a>(ValueHandler<'a, ConstPathCbor>);
 
 /// URI path segments as Miniconf `ConstPath` keys, with JSON payloads.
 #[cfg(feature = "json-core")]
@@ -526,8 +534,7 @@ impl private::Sealed for ConstPathCbor {}
 
 #[cfg(feature = "json-core")]
 impl<'a> ValueHandler<'a, ConstPathJson> {
-    /// Serve JSON where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_json(base: &'a str) -> Self {
+    const fn const_path_json(base: &'a str) -> Self {
         Self {
             base,
             representation: ConstPathJson,
@@ -537,8 +544,7 @@ impl<'a> ValueHandler<'a, ConstPathJson> {
 
 #[cfg(feature = "cbor")]
 impl<'a> ValueHandler<'a, ConstPathCbor> {
-    /// Serve CBOR where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_cbor(base: &'a str) -> Self {
+    const fn const_path_cbor(base: &'a str) -> Self {
         Self {
             base,
             representation: ConstPathCbor,
@@ -546,12 +552,53 @@ impl<'a> ValueHandler<'a, ConstPathCbor> {
     }
 }
 
+#[cfg(feature = "json-core")]
+impl<'a> ConstPathJsonHandler<'a> {
+    /// Serve JSON where remaining URI path segments are Miniconf path segments.
+    pub const fn const_path_json(base: &'a str) -> Self {
+        Self(ValueHandler::const_path_json(base))
+    }
+
+    /// Handle a single request using cooperative borrows.
+    pub fn handle<'b, Settings>(
+        &self,
+        request: &RequestParts<'_>,
+        settings: &mut Settings,
+        response_buf: &'b mut [u8],
+    ) -> Outcome<'b>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    {
+        self.0.handle(request, settings, response_buf)
+    }
+}
+
+#[cfg(feature = "cbor")]
+impl<'a> ConstPathCborHandler<'a> {
+    /// Serve CBOR where remaining URI path segments are Miniconf path segments.
+    pub const fn const_path_cbor(base: &'a str) -> Self {
+        Self(ValueHandler::const_path_cbor(base))
+    }
+
+    /// Handle a single request using cooperative borrows.
+    pub fn handle<'b, Settings>(
+        &self,
+        request: &RequestParts<'_>,
+        settings: &mut Settings,
+        response_buf: &'b mut [u8],
+    ) -> Outcome<'b>
+    where
+        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    {
+        self.0.handle(request, settings, response_buf)
+    }
+}
+
 impl<'a, R> ValueHandler<'a, R>
 where
     R: Representation,
 {
-    /// Handle a single request using cooperative borrows.
-    pub fn handle<'b, Settings>(
+    fn handle<'b, Settings>(
         &self,
         request: &RequestParts<'_>,
         settings: &mut Settings,
@@ -728,7 +775,7 @@ where
 }
 
 /// Complete value representation used by a [`ValueHandler`].
-pub trait Representation: private::Sealed {
+pub(crate) trait Representation: private::Sealed {
     /// Serialization error type.
     type SerError;
     /// Deserialization error type.

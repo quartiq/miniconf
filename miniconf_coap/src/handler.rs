@@ -93,17 +93,6 @@ impl CoapHandlerRequest {
             payload,
         })
     }
-
-    fn as_request_parts(&self) -> RequestParts<'_> {
-        RequestParts {
-            code: self.code,
-            path: self.path.clone(),
-            accepts: self.accepts,
-            content_format: self.content_format,
-            invalid_option: self.invalid_option,
-            payload: self.payload.as_slice(),
-        }
-    }
 }
 
 impl<Storage, Settings, R> coap_handler::Handler for MiniconfHandler<Storage, Settings, R>
@@ -133,7 +122,22 @@ where
         message: &mut M,
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
-        let request = request.as_request_parts();
+        let CoapHandlerRequest {
+            code,
+            path,
+            accepts,
+            content_format,
+            invalid_option,
+            payload,
+        } = request;
+        let request = RequestParts {
+            code,
+            path,
+            accepts,
+            content_format,
+            invalid_option,
+            payload: payload.as_slice(),
+        };
         let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
         let settings = self.settings.borrow_mut();
         // PUT currently mutates while producing the response. The 2.04 response is tiny, but a
@@ -187,7 +191,22 @@ where
         message: &mut M,
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
-        let request = request.as_request_parts();
+        let CoapHandlerRequest {
+            code,
+            path,
+            accepts,
+            content_format,
+            invalid_option,
+            payload,
+        } = request;
+        let request = RequestParts {
+            code,
+            path,
+            accepts,
+            content_format,
+            invalid_option,
+            payload: payload.as_slice(),
+        };
         let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
         let outcome = SchemaHandler::new("").handle::<Settings>(&request, &mut response_buf);
         let response = outcome.response().unwrap_or(Response {
