@@ -7,7 +7,9 @@
 //! cooperative request handlers, and keep ownership of CoAP sockets, message IDs, tokens, routing,
 //! retransmission, and unrelated resources.
 
-use core::{convert::Infallible, fmt::Write as _};
+use core::convert::Infallible;
+#[cfg(feature = "json-core")]
+use core::fmt::Write as _;
 
 use coap_message::{
     Code as _, MessageOption, MinimalWritableMessage, OptionNumber as _, ReadableMessage,
@@ -16,6 +18,8 @@ use coap_numbers::{code, option};
 use defmt::{debug, trace, warn};
 #[cfg(feature = "cbor")]
 use minicbor::{
+    Encoder as CborEncoder,
+    data::Int as CborInt,
     decode::{Decoder as CborDecoder, Error as CborDecodeError},
     encode::{self, write::EndOfSlice},
 };
@@ -42,6 +46,9 @@ pub const JSON_CONTENT_FORMAT: u16 = 50;
 
 /// CBOR Content-Format number.
 pub const CBOR_CONTENT_FORMAT: u16 = 60;
+
+/// Concise Problem Details CBOR Content-Format number from RFC 9290.
+pub const PROBLEM_DETAILS_CBOR_CONTENT_FORMAT: u16 = 257;
 
 /// CoRE Link Format Content-Format number.
 pub const LINK_FORMAT_CONTENT_FORMAT: u16 = 40;
@@ -481,37 +488,47 @@ impl Error {
     }
 
     fn response<'a>(self, buf: &'a mut [u8]) -> Response<'a> {
-        match problem_json(self.problem, buf) {
-            Ok(len) => Response {
-                code: self.code,
-                content_format: Some(JSON_CONTENT_FORMAT),
-                payload: &buf[..len],
-            },
-            Err(_) => Response {
+        #[cfg(feature = "json-core")]
+        {
+            match problem_json(self.problem, buf) {
+                Ok(len) => Response {
+                    code: self.code,
+                    content_format: Some(JSON_CONTENT_FORMAT),
+                    payload: &buf[..len],
+                },
+                Err(_) => Response {
+                    code: self.code,
+                    content_format: None,
+                    payload: b"",
+                },
+            }
+        }
+        #[cfg(not(feature = "json-core"))]
+        {
+            let _ = buf;
+            Response {
                 code: self.code,
                 content_format: None,
                 payload: b"",
-            },
+            }
         }
     }
 }
 
 /// Leaf value route backed by a Miniconf tree.
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub(crate) struct ValueHandler<'a, R> {
+pub struct ValueHandler<'a, R> {
     base: &'a str,
     representation: R,
 }
 
 /// Const-path-addressed JSON value route.
 #[cfg(feature = "json-core")]
-#[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ConstPathJsonHandler<'a>(ValueHandler<'a, ConstPathJson>);
+pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
 
 /// Const-path-addressed CBOR value route.
 #[cfg(feature = "cbor")]
-#[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ConstPathCborHandler<'a>(ValueHandler<'a, ConstPathCbor>);
+pub type ConstPathCborHandler<'a> = ValueHandler<'a, ConstPathCbor>;
 
 /// URI path segments as Miniconf `ConstPath` keys, with JSON payloads.
 #[cfg(feature = "json-core")]
@@ -534,7 +551,8 @@ impl private::Sealed for ConstPathCbor {}
 
 #[cfg(feature = "json-core")]
 impl<'a> ValueHandler<'a, ConstPathJson> {
-    const fn const_path_json(base: &'a str) -> Self {
+    /// Serve JSON where remaining URI path segments are Miniconf path segments.
+    pub const fn const_path_json(base: &'a str) -> Self {
         Self {
             base,
             representation: ConstPathJson,
@@ -544,7 +562,8 @@ impl<'a> ValueHandler<'a, ConstPathJson> {
 
 #[cfg(feature = "cbor")]
 impl<'a> ValueHandler<'a, ConstPathCbor> {
-    const fn const_path_cbor(base: &'a str) -> Self {
+    /// Serve CBOR where remaining URI path segments are Miniconf path segments.
+    pub const fn const_path_cbor(base: &'a str) -> Self {
         Self {
             base,
             representation: ConstPathCbor,
@@ -552,53 +571,12 @@ impl<'a> ValueHandler<'a, ConstPathCbor> {
     }
 }
 
-#[cfg(feature = "json-core")]
-impl<'a> ConstPathJsonHandler<'a> {
-    /// Serve JSON where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_json(base: &'a str) -> Self {
-        Self(ValueHandler::const_path_json(base))
-    }
-
-    /// Handle a single request using cooperative borrows.
-    pub fn handle<'b, Settings>(
-        &self,
-        request: &RequestParts<'_>,
-        settings: &mut Settings,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    {
-        self.0.handle(request, settings, response_buf)
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl<'a> ConstPathCborHandler<'a> {
-    /// Serve CBOR where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_cbor(base: &'a str) -> Self {
-        Self(ValueHandler::const_path_cbor(base))
-    }
-
-    /// Handle a single request using cooperative borrows.
-    pub fn handle<'b, Settings>(
-        &self,
-        request: &RequestParts<'_>,
-        settings: &mut Settings,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    {
-        self.0.handle(request, settings, response_buf)
-    }
-}
-
 impl<'a, R> ValueHandler<'a, R>
 where
     R: Representation,
 {
-    fn handle<'b, Settings>(
+    /// Handle a single request using cooperative borrows.
+    pub fn handle<'b, Settings>(
         &self,
         request: &RequestParts<'_>,
         settings: &mut Settings,
@@ -612,7 +590,7 @@ where
             return Outcome::Unhandled;
         };
         if let Err(err) = request.check_options() {
-            return Outcome::Handled(err.response(response_buf));
+            return Outcome::Handled(self.representation.error_response(err, response_buf));
         }
 
         trace!(
@@ -623,7 +601,7 @@ where
         match request.code {
             code::GET => self.get(path, &*settings, request, response_buf),
             code::PUT => self.put(path, settings, request, response_buf),
-            _ => method_not_allowed(request, response_buf),
+            _ => self.method_not_allowed(request, response_buf),
         }
     }
 
@@ -653,7 +631,7 @@ where
             }
             Err(err) => {
                 debug!("Rejecting Miniconf CoAP GET err={}", err);
-                Outcome::Handled(err.response(response_buf))
+                Outcome::Handled(self.representation.error_response(err, response_buf))
             }
         }
     }
@@ -707,7 +685,7 @@ where
             },
             Err(err) => {
                 debug!("Rejecting Miniconf CoAP PUT err={}", err);
-                Outcome::Handled(err.response(response_buf))
+                Outcome::Handled(self.representation.error_response(err, response_buf))
             }
         }
     }
@@ -772,10 +750,24 @@ where
         let lookup = self.representation.resolve::<Settings>(path, &mut state)?;
         Ok((lookup, Indices::new(state, lookup.depth)))
     }
+
+    fn method_not_allowed<'b>(
+        &self,
+        request: &RequestParts<'_>,
+        response_buf: &'b mut [u8],
+    ) -> Outcome<'b> {
+        let err = Error::new(code::METHOD_NOT_ALLOWED, Problem::MethodNotAllowed);
+        debug!(
+            "Rejecting Miniconf CoAP request code={=u8} err={}",
+            request.code, err
+        );
+        Outcome::Handled(self.representation.error_response(err, response_buf))
+    }
 }
 
 /// Complete value representation used by a [`ValueHandler`].
-pub(crate) trait Representation: private::Sealed {
+#[doc(hidden)]
+pub trait Representation: private::Sealed {
     /// Serialization error type.
     type SerError;
     /// Deserialization error type.
@@ -783,6 +775,12 @@ pub(crate) trait Representation: private::Sealed {
 
     /// CoAP Content-Format used for successful responses and accepted request payloads.
     fn content_format(&self) -> u16;
+
+    /// CoAP Content-Format used for structured error responses.
+    fn error_content_format(&self) -> u16;
+
+    /// Serialize this route's structured error response into the response buffer.
+    fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a>;
 
     /// Resolve a route-relative URI path into a Miniconf schema lookup.
     fn resolve<Settings: TreeSchema>(
@@ -815,6 +813,14 @@ impl Representation for ConstPathJson {
 
     fn content_format(&self) -> u16 {
         JSON_CONTENT_FORMAT
+    }
+
+    fn error_content_format(&self) -> u16 {
+        JSON_CONTENT_FORMAT
+    }
+
+    fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
+        error.response(buf)
     }
 
     fn resolve<Settings: TreeSchema>(
@@ -853,6 +859,25 @@ impl Representation for ConstPathCbor {
 
     fn content_format(&self) -> u16 {
         CBOR_CONTENT_FORMAT
+    }
+
+    fn error_content_format(&self) -> u16 {
+        PROBLEM_DETAILS_CBOR_CONTENT_FORMAT
+    }
+
+    fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
+        match problem_cbor(error, buf) {
+            Ok(len) => Response {
+                code: error.code,
+                content_format: Some(PROBLEM_DETAILS_CBOR_CONTENT_FORMAT),
+                payload: &buf[..len],
+            },
+            Err(_) => Response {
+                code: error.code,
+                content_format: None,
+                payload: b"",
+            },
+        }
     }
 
     fn resolve<Settings: TreeSchema>(
@@ -1097,31 +1122,28 @@ fn value_error<E>(err: SerdeError<E>, op: Operation, depth: usize) -> Error {
     }
 }
 
-fn method_not_allowed<'a>(request: &RequestParts<'_>, response_buf: &'a mut [u8]) -> Outcome<'a> {
-    let err = Error::new(code::METHOD_NOT_ALLOWED, Problem::MethodNotAllowed);
-    debug!(
-        "Rejecting Miniconf CoAP request code={=u8} err={}",
-        request.code, err
-    );
-    Outcome::Handled(err.response(response_buf))
-}
-
+#[cfg(feature = "json-core")]
 fn problem_json(problem: Problem, buf: &mut [u8]) -> Result<usize, core::fmt::Error> {
     let mut out = SliceWriter::new(buf);
     match problem {
-        Problem::InvalidUriPath => write_kind(&mut out, "invalid_uri_path")?,
-        Problem::InvalidAccept => write_kind(&mut out, "invalid_accept")?,
-        Problem::InvalidContentFormat => write_kind(&mut out, "invalid_content_format")?,
-        Problem::DuplicateContentFormat => write_kind(&mut out, "duplicate_content_format")?,
+        Problem::InvalidUriPath
+        | Problem::InvalidAccept
+        | Problem::InvalidContentFormat
+        | Problem::DuplicateContentFormat
+        | Problem::UriPathTooLong
+        | Problem::PayloadTooLong
+        | Problem::TooManyAcceptOptions
+        | Problem::MethodNotAllowed
+        | Problem::NotAcceptable
+        | Problem::UnsupportedContentFormat
+        | Problem::BadPayload
+        | Problem::Serialization => write_kind(&mut out, problem_kind(problem))?,
         Problem::UnknownCriticalOption { number } => {
             write!(
                 out,
                 "{{\"kind\":\"unknown_critical_option\",\"number\":{number}}}"
             )?;
         }
-        Problem::UriPathTooLong => write_kind(&mut out, "uri_path_too_long")?,
-        Problem::PayloadTooLong => write_kind(&mut out, "payload_too_long")?,
-        Problem::TooManyAcceptOptions => write_kind(&mut out, "too_many_accept_options")?,
         Problem::NotFound { depth } => write_depth(&mut out, "not_found", depth)?,
         Problem::TooLong { depth } => write_depth(&mut out, "too_long", depth)?,
         Problem::NonLeaf { depth } => write_depth(&mut out, "non_leaf", depth)?,
@@ -1130,28 +1152,109 @@ fn problem_json(problem: Problem, buf: &mut [u8]) -> Result<usize, core::fmt::Er
             write!(
                 out,
                 "{{\"kind\":\"access\",\"op\":\"{}\",\"message\":",
-                match op {
-                    Operation::Read => "read",
-                    Operation::Write => "write",
-                }
+                operation_name(op)
             )?;
             write_json_string_truncated(&mut out, message, 1)?;
             out.push('}')?;
         }
-        Problem::MethodNotAllowed => write_kind(&mut out, "method_not_allowed")?,
-        Problem::NotAcceptable => write_kind(&mut out, "not_acceptable")?,
-        Problem::UnsupportedContentFormat => write_kind(&mut out, "unsupported_content_format")?,
-        Problem::BadPayload => write_kind(&mut out, "bad_payload")?,
-        Problem::Serialization => write_kind(&mut out, "serialization")?,
     }
     Ok(out.len())
 }
 
+#[cfg(feature = "cbor")]
+fn problem_cbor(error: Error, buf: &mut [u8]) -> Result<usize, encode::Error<EndOfSlice>> {
+    const MINICONF_PROBLEM_KEY: &str = "tag:quartiq.de,2026:miniconf";
+
+    let mut cursor = encode::write::Cursor::new(buf);
+    {
+        let kind = problem_kind(error.problem);
+        let mut encoder = CborEncoder::new(&mut cursor);
+        encoder
+            .map(3)?
+            .int(CborInt::from(-1i8))?
+            .str(kind)?
+            .int(CborInt::from(-4i8))?
+            .u8(error.code)?
+            .str(MINICONF_PROBLEM_KEY)?
+            .map(problem_detail_len(error.problem))?
+            .str("kind")?
+            .str(kind)?;
+
+        match error.problem {
+            Problem::UnknownCriticalOption { number } => {
+                encoder.str("number")?.u16(number)?;
+            }
+            Problem::NotFound { depth }
+            | Problem::TooLong { depth }
+            | Problem::NonLeaf { depth }
+            | Problem::Absent { depth } => {
+                encoder.str("depth")?.u64(depth as u64)?;
+            }
+            Problem::Access { op, message } => {
+                encoder
+                    .str("op")?
+                    .str(operation_name(op))?
+                    .str("message")?
+                    .str(message)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(cursor.position())
+}
+
+#[cfg(feature = "cbor")]
+const fn problem_detail_len(problem: Problem) -> u64 {
+    match problem {
+        Problem::UnknownCriticalOption { .. }
+        | Problem::NotFound { .. }
+        | Problem::TooLong { .. }
+        | Problem::NonLeaf { .. }
+        | Problem::Absent { .. } => 2,
+        Problem::Access { .. } => 3,
+        _ => 1,
+    }
+}
+
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+const fn problem_kind(problem: Problem) -> &'static str {
+    match problem {
+        Problem::InvalidUriPath => "invalid_uri_path",
+        Problem::InvalidAccept => "invalid_accept",
+        Problem::InvalidContentFormat => "invalid_content_format",
+        Problem::DuplicateContentFormat => "duplicate_content_format",
+        Problem::UnknownCriticalOption { .. } => "unknown_critical_option",
+        Problem::UriPathTooLong => "uri_path_too_long",
+        Problem::PayloadTooLong => "payload_too_long",
+        Problem::TooManyAcceptOptions => "too_many_accept_options",
+        Problem::NotFound { .. } => "not_found",
+        Problem::TooLong { .. } => "too_long",
+        Problem::NonLeaf { .. } => "non_leaf",
+        Problem::Absent { .. } => "absent",
+        Problem::Access { .. } => "access",
+        Problem::MethodNotAllowed => "method_not_allowed",
+        Problem::NotAcceptable => "not_acceptable",
+        Problem::UnsupportedContentFormat => "unsupported_content_format",
+        Problem::BadPayload => "bad_payload",
+        Problem::Serialization => "serialization",
+    }
+}
+
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+const fn operation_name(op: Operation) -> &'static str {
+    match op {
+        Operation::Read => "read",
+        Operation::Write => "write",
+    }
+}
+
+#[cfg(feature = "json-core")]
 struct SliceWriter<'a> {
     buf: &'a mut [u8],
     len: usize,
 }
 
+#[cfg(feature = "json-core")]
 impl<'a> SliceWriter<'a> {
     fn new(buf: &'a mut [u8]) -> Self {
         Self { buf, len: 0 }
@@ -1170,6 +1273,7 @@ impl<'a> SliceWriter<'a> {
     }
 }
 
+#[cfg(feature = "json-core")]
 impl core::fmt::Write for SliceWriter<'_> {
     fn write_str(&mut self, value: &str) -> core::fmt::Result {
         let bytes = value.as_bytes();
@@ -1182,14 +1286,17 @@ impl core::fmt::Write for SliceWriter<'_> {
     }
 }
 
+#[cfg(feature = "json-core")]
 fn write_kind(out: &mut impl core::fmt::Write, kind: &str) -> core::fmt::Result {
     write!(out, "{{\"kind\":\"{}\"}}", kind)
 }
 
+#[cfg(feature = "json-core")]
 fn write_depth(out: &mut impl core::fmt::Write, kind: &str, depth: usize) -> core::fmt::Result {
     write!(out, "{{\"kind\":\"{}\",\"depth\":{}}}", kind, depth)
 }
 
+#[cfg(feature = "json-core")]
 fn write_json_string_truncated(
     out: &mut SliceWriter<'_>,
     value: &str,

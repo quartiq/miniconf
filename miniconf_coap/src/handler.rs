@@ -9,9 +9,8 @@ use miniconf::{
 #[cfg(feature = "cbor")]
 use crate::ConstPathCbor;
 use crate::{
-    Accepts, ChangedKey, Error, InvalidOption, JSON_CONTENT_FORMAT, MAX_DEPTH,
-    MAX_HANDLER_PAYLOAD_LENGTH, Problem, Representation, RequestParts, Response, UriPath,
-    ValueHandler,
+    Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_PAYLOAD_LENGTH, Problem,
+    Representation, RequestParts, Response, UriPath, ValueHandler,
 };
 #[cfg(feature = "json-core")]
 use crate::{ConstPathJson, SchemaHandler, TEXT_CONTENT_FORMAT};
@@ -114,7 +113,10 @@ where
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
-        response_estimate(self.values.representation.content_format())
+        response_estimate(
+            self.values.representation.content_format(),
+            self.values.representation.error_content_format(),
+        )
     }
 
     fn build_response<M: coap_message::MutableWritableMessage>(
@@ -183,7 +185,7 @@ where
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
-        response_estimate(TEXT_CONTENT_FORMAT)
+        response_estimate(TEXT_CONTENT_FORMAT, crate::JSON_CONTENT_FORMAT)
     }
 
     fn build_response<M: coap_message::MutableWritableMessage>(
@@ -242,9 +244,9 @@ where
     }
 }
 
-fn response_estimate(content_format: u16) -> usize {
+fn response_estimate(content_format: u16, error_content_format: u16) -> usize {
     let content_format_option =
-        1 + coap_uint_len(content_format).max(coap_uint_len(JSON_CONTENT_FORMAT));
+        1 + coap_uint_len(content_format).max(coap_uint_len(error_content_format));
     content_format_option + 1 + MAX_HANDLER_PAYLOAD_LENGTH
 }
 

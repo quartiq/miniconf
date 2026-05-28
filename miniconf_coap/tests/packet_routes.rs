@@ -166,9 +166,12 @@ mod json {
 
 #[cfg(feature = "cbor")]
 mod cbor {
-    use coap_message::ReadableMessage as _;
+    use coap_message::{MessageOption as _, ReadableMessage as _};
     use coap_numbers::code;
-    use miniconf_coap::{CBOR_CONTENT_FORMAT, ConstPathCborHandler, Outcome};
+    use minicbor::{Decoder, data::Type};
+    use miniconf_coap::{
+        CBOR_CONTENT_FORMAT, ConstPathCborHandler, Outcome, PROBLEM_DETAILS_CBOR_CONTENT_FORMAT,
+    };
 
     use crate::{Packet, Settings, WirePacket, init_host_logging, response_packet};
 
@@ -213,7 +216,15 @@ mod cbor {
         let response = handle_cbor_packet(&trailing, &mut settings);
         let response = WirePacket::parse(&response).unwrap();
         assert_eq!(response.message.code(), code::BAD_REQUEST);
-        assert_eq!(response.message.payload(), br#"{"kind":"bad_payload"}"#);
+        assert_eq!(
+            response
+                .message
+                .options()
+                .find(|option| option.number() == coap_numbers::option::CONTENT_FORMAT)
+                .and_then(|option| option.value_uint::<u16>()),
+            Some(PROBLEM_DETAILS_CBOR_CONTENT_FORMAT)
+        );
+        assert_cbor_problem(response.message.payload(), code::BAD_REQUEST, "bad_payload");
         assert_eq!(settings.number, 21);
     }
 
@@ -237,6 +248,55 @@ mod cbor {
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
         ConstPathCborHandler::const_path_cbor("/settings").handle(request, settings, response_buf)
+    }
+
+    fn assert_cbor_problem(payload: &[u8], response_code: u8, kind: &str) {
+        let mut decoder = Decoder::new(payload);
+        assert_eq!(decoder.map().unwrap(), Some(3));
+        let mut saw_title = false;
+        let mut saw_response_code = false;
+        let mut saw_miniconf = false;
+
+        for _ in 0..3 {
+            match decoder.datatype().unwrap() {
+                Type::I8
+                | Type::I16
+                | Type::I32
+                | Type::I64
+                | Type::Int
+                | Type::U8
+                | Type::U16
+                | Type::U32
+                | Type::U64 => match i128::from(decoder.int().unwrap()) {
+                    -1 => {
+                        assert_eq!(decoder.str().unwrap(), kind);
+                        saw_title = true;
+                    }
+                    -4 => {
+                        assert_eq!(decoder.u8().unwrap(), response_code);
+                        saw_response_code = true;
+                    }
+                    _ => decoder.skip().unwrap(),
+                },
+                Type::String => {
+                    let key = decoder.str().unwrap();
+                    if key == "tag:quartiq.de,2026:miniconf" {
+                        assert_eq!(decoder.map().unwrap(), Some(1));
+                        assert_eq!(decoder.str().unwrap(), "kind");
+                        assert_eq!(decoder.str().unwrap(), kind);
+                        saw_miniconf = true;
+                    } else {
+                        decoder.skip().unwrap();
+                    }
+                }
+                ty => panic!("unexpected problem key type {ty:?}"),
+            }
+        }
+
+        assert!(saw_title);
+        assert!(saw_response_code);
+        assert!(saw_miniconf);
+        assert_eq!(decoder.position(), payload.len());
     }
 }
 
