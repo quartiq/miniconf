@@ -2,6 +2,8 @@ use core::{convert::Infallible, fmt};
 #[cfg(feature = "json-core")]
 use fmt::Write as _;
 
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+use coap_message::MutableWritableMessage;
 use coap_message::{
     Code as _, MessageOption, MinimalWritableMessage, OptionNumber as _, ReadableMessage,
     error::RenderableOnMinimal,
@@ -451,6 +453,17 @@ impl Error {
         }
     }
 
+    #[cfg(feature = "json-core")]
+    pub(crate) fn write_json_response_to<M: MutableWritableMessage>(
+        self,
+        message: &mut M,
+        max_len: usize,
+    ) -> Result<(), M::UnionError> {
+        self.write_problem_to(message, format::JSON, max_len, |error, buf| {
+            problem_json(error.problem, buf).ok()
+        })
+    }
+
     #[cfg(feature = "cbor")]
     pub(crate) fn cbor_response<'a>(self, buf: &'a mut [u8]) -> Response<'a> {
         match problem_cbor(self, buf) {
@@ -465,6 +478,47 @@ impl Error {
                 payload: b"",
             },
         }
+    }
+
+    #[cfg(feature = "cbor")]
+    pub(crate) fn write_cbor_response_to<M: MutableWritableMessage>(
+        self,
+        message: &mut M,
+        max_len: usize,
+    ) -> Result<(), M::UnionError> {
+        self.write_problem_to(
+            message,
+            format::CONCISE_PROBLEM_CBOR,
+            max_len,
+            |error, buf| problem_cbor(error, buf).ok(),
+        )
+    }
+
+    #[cfg(any(feature = "json-core", feature = "cbor"))]
+    fn write_problem_to<M, F>(
+        self,
+        message: &mut M,
+        content_format: u16,
+        max_len: usize,
+        encode: F,
+    ) -> Result<(), M::UnionError>
+    where
+        M: MutableWritableMessage,
+        F: FnOnce(Self, &mut [u8]) -> Option<usize>,
+    {
+        message.set_code(M::Code::new(self.code).map_err(M::convert_code_error)?);
+        message
+            .add_option_uint(
+                M::OptionNumber::new(option::CONTENT_FORMAT)
+                    .map_err(M::convert_option_number_error)?,
+                content_format,
+            )
+            .map_err(M::convert_add_option_error)?;
+        let payload = message
+            .payload_mut_with_len(max_len)
+            .map_err(M::convert_set_payload_error)?;
+        let len = encode(self, payload).unwrap_or(0);
+        message.truncate(len).map_err(M::convert_set_payload_error)
     }
 }
 

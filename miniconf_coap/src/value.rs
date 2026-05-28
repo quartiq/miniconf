@@ -1,3 +1,4 @@
+use coap_message::MutableWritableMessage;
 use coap_numbers::code;
 use defmt::{debug, trace, warn};
 #[cfg(feature = "cbor")]
@@ -200,7 +201,7 @@ where
         }
     }
 
-    fn put_key<Settings>(
+    pub(crate) fn put_key<Settings>(
         &self,
         path: &str,
         settings: &mut Settings,
@@ -293,6 +294,14 @@ pub trait Representation: private::Sealed {
     /// Serialize this route's structured error response into the response buffer.
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a>;
 
+    /// Write this route's structured error response directly into a mutable CoAP message.
+    fn write_error<M: MutableWritableMessage>(
+        &self,
+        error: Error,
+        message: &mut M,
+        max_len: usize,
+    ) -> Result<(), M::UnionError>;
+
     /// Resolve a route-relative URI path into a Miniconf schema lookup.
     fn resolve<Settings: TreeSchema>(
         &self,
@@ -332,6 +341,15 @@ impl Representation for ConstPathJson {
 
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
         error.response(buf)
+    }
+
+    fn write_error<M: MutableWritableMessage>(
+        &self,
+        error: Error,
+        message: &mut M,
+        max_len: usize,
+    ) -> Result<(), M::UnionError> {
+        error.write_json_response_to(message, max_len)
     }
 
     fn resolve<Settings: TreeSchema>(
@@ -378,6 +396,15 @@ impl Representation for ConstPathCbor {
 
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
         error.cbor_response(buf)
+    }
+
+    fn write_error<M: MutableWritableMessage>(
+        &self,
+        error: Error,
+        message: &mut M,
+        max_len: usize,
+    ) -> Result<(), M::UnionError> {
+        error.write_cbor_response_to(message, max_len)
     }
 
     fn resolve<Settings: TreeSchema>(

@@ -120,9 +120,20 @@ mod json {
         let packet = handle_json_packet(&schema, &mut settings);
         let response = WirePacket::parse(&packet).unwrap();
         assert_eq!(response.message.code(), code::CONTENT);
+        assert!(
+            response
+                .message
+                .payload()
+                .starts_with(br#"{"proto":1,"epoch":0,"schema_rev":"#)
+        );
+
+        let schema_page = Packet::get(0x1238).uri_path("schema").uri_path("0");
+        let packet = handle_json_packet(&schema_page, &mut settings);
+        let response = WirePacket::parse(&packet).unwrap();
+        assert_eq!(response.message.code(), code::CONTENT);
         assert!(response.message.payload().starts_with(b"{"));
 
-        let status = Packet::get(0x1238).uri_path("status");
+        let status = Packet::get(0x1239).uri_path("status");
         let packet = handle_json_packet(&status, &mut settings);
         let response = WirePacket::parse(&packet).unwrap();
         assert_eq!(response.message.code(), code::CONTENT);
@@ -144,6 +155,9 @@ mod json {
     ) -> Outcome<'a> {
         match request.path() {
             "/schema" => SchemaHandler::new("/schema").handle::<Settings>(request, response_buf),
+            path if path.starts_with("/schema/") => {
+                SchemaHandler::new("/schema").handle::<Settings>(request, response_buf)
+            }
             "/settings" => settings_route(request, settings, response_buf),
             path if path.starts_with("/settings/") => {
                 settings_route(request, settings, response_buf)
@@ -343,7 +357,7 @@ mod coap_handler {
         let payload = core::str::from_utf8(response.payload()).unwrap();
         assert!(payload.contains("</settings/number>;ct=50;title=\"Demo number\""));
         assert!(!payload.contains("rt=\"miniconf.leaf\""));
-        assert!(payload.contains("</schema>;ct=0;rt=\"miniconf.schema\""));
+        assert!(payload.contains("</schema>;ct=50;rt=\"miniconf.schema\""));
         assert!(payload.contains("</status>"));
     }
 
@@ -422,13 +436,43 @@ mod coap_handler {
             ]
         );
 
-        let put_number = Packet::put(0x1235)
+        let schema_manifest = Packet::get(0x1235).uri_path("schema");
+        let response = handle_packet_with_coap_handler(&schema_manifest, &mut settings);
+        let response = WirePacket::parse(&response).unwrap();
+        assert_eq!(response.message.code(), code::CONTENT);
+        assert!(
+            response
+                .message
+                .payload()
+                .starts_with(br#"{"proto":1,"epoch":0,"schema_rev":"#)
+        );
+
+        let schema_page = Packet::get(0x1236).uri_path("schema").uri_path("0");
+        let response = handle_packet_with_coap_handler(&schema_page, &mut settings);
+        let response = WirePacket::parse(&response).unwrap();
+        assert_eq!(response.message.code(), code::CONTENT);
+        assert!(response.message.payload().starts_with(b"{"));
+
+        let put_number = Packet::put(0x1237)
             .uri_path("settings")
             .uri_path("number")
             .content_format(content_format::from_str("application/json").unwrap())
             .payload(b"23");
         let response = handle_packet_with_coap_handler(&put_number, &mut settings);
-        assert_eq!(response, [0x60, code::CHANGED, 0x12, 0x35]);
+        assert_eq!(response, [0x60, code::CHANGED, 0x12, 0x37]);
+        assert_eq!(settings.number, 23);
+
+        let bad_put = Packet::put(0x1238)
+            .uri_path("settings")
+            .uri_path("number")
+            .payload(b"24");
+        let response = handle_packet_with_coap_handler(&bad_put, &mut settings);
+        let response = WirePacket::parse(&response).unwrap();
+        assert_eq!(response.message.code(), code::UNSUPPORTED_CONTENT_FORMAT);
+        assert_eq!(
+            response.message.payload(),
+            br#"{"kind":"unsupported_content_format"}"#
+        );
         assert_eq!(settings.number, 23);
     }
 
@@ -457,7 +501,7 @@ mod coap_handler {
                 &["settings"],
                 ConstPathJsonCoapHandler::const_path_json(settings),
             )
-            .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
+            .below(&["schema"], MiniconfSchemaHandler::<Settings>::json())
             .at(
                 &["status"],
                 SimpleRendered::new_typed_str(

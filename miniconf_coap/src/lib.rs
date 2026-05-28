@@ -15,7 +15,7 @@ pub const MAX_DEPTH: usize = 12;
 /// Maximum bytes in a captured rooted CoAP URI path.
 pub const MAX_URI_PATH_LENGTH: usize = 256;
 
-/// Maximum request payload bytes and response scratch bytes used by the optional `coap-handler` adapter.
+/// Maximum response scratch bytes used by the optional `coap-handler` adapter.
 pub const MAX_HANDLER_PAYLOAD_LENGTH: usize = 512;
 
 /// Maximum compact schema definitions served by `miniconf_coap`.
@@ -297,6 +297,9 @@ mod tests {
 
         match request.path() {
             "/schema" => return schema.handle::<Settings>(request, response_buf),
+            path if path.starts_with("/schema/") => {
+                return schema.handle::<Settings>(request, response_buf);
+            }
             "/settings" => return values.handle(request, settings, response_buf),
             path if path.starts_with("/settings/") => {
                 return values.handle(request, settings, response_buf);
@@ -406,9 +409,14 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format::from_str("text/plain; charset=utf-8").unwrap())
+            Some(content_format::from_str("application/json").unwrap())
         );
-        assert!(response.payload.starts_with(b"{"));
+        assert!(
+            response
+                .payload
+                .starts_with(br#"{"proto":1,"epoch":0,"schema_rev":"#)
+        );
+        assert!(response.payload.ends_with(br#","pages":1}"#));
     }
 
     #[test]
@@ -506,7 +514,7 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format::from_str("text/plain; charset=utf-8").unwrap())
+            Some(content_format::from_str("application/json").unwrap())
         );
     }
 

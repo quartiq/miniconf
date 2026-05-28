@@ -34,6 +34,7 @@ fn main() -> io::Result<()> {
         bind.as_str()
     );
     info!("try: aiocoap-client coap://{=str}/schema", bind.as_str());
+    info!("try: aiocoap-client coap://{=str}/schema/0", bind.as_str());
     info!(
         "try: aiocoap-client coap://{=str}/settings/control/enabled",
         bind.as_str()
@@ -81,7 +82,7 @@ fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
 
     new_dispatcher()
         .below(&["settings"], miniconf)
-        .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
+        .below(&["schema"], MiniconfSchemaHandler::<Settings>::json())
         .at(
             &["status"],
             SimpleRendered::new_typed_str(r#"{"ok":true}"#, Some(JSON_CONTENT_FORMAT)),

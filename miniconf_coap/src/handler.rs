@@ -9,23 +9,19 @@ use miniconf::{
 
 #[cfg(feature = "cbor")]
 use crate::ConstPathCbor;
-use crate::value::Representation;
 use crate::{
     Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_PAYLOAD_LENGTH, Problem,
-    RequestParts, Response, UriPath, ValueHandler, format,
+    RequestParts, Response, UriPath, ValueHandler, format, value::Representation,
 };
 #[cfg(feature = "json-core")]
 use crate::{ConstPathJson, SchemaHandler};
-
-type HandlerPayload<const N: usize> = heapless::Vec<u8, N>;
 
 /// `coap-handler` adapter for Miniconf leaf value resources.
 ///
 /// This adapter is route-relative: mount it with `coap-handler-implementations`
 /// `.below(&["settings"], ...)` and leave URI prefix handling to the ecosystem router.
-/// The const parameter sets the request payload and response scratch capacity.
 #[derive(Debug)]
-pub struct MiniconfHandler<Storage, Settings, R, const N: usize = MAX_HANDLER_PAYLOAD_LENGTH> {
+pub struct MiniconfHandler<Storage, Settings, R> {
     settings: Storage,
     values: ValueHandler<'static, R>,
     _settings: PhantomData<Settings>,
@@ -42,7 +38,7 @@ pub type ConstPathCborCoapHandler<'a, Settings> =
     MiniconfHandler<&'a mut Settings, Settings, ConstPathCbor>;
 
 #[cfg(feature = "json-core")]
-impl<Storage, Settings, const N: usize> MiniconfHandler<Storage, Settings, ConstPathJson, N> {
+impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathJson> {
     /// Create a route-relative JSON Miniconf value handler.
     pub const fn const_path_json(settings: Storage) -> Self {
         Self {
@@ -54,7 +50,7 @@ impl<Storage, Settings, const N: usize> MiniconfHandler<Storage, Settings, Const
 }
 
 #[cfg(feature = "cbor")]
-impl<Storage, Settings, const N: usize> MiniconfHandler<Storage, Settings, ConstPathCbor, N> {
+impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathCbor> {
     /// Create a route-relative CBOR Miniconf value handler.
     pub const fn const_path_cbor(settings: Storage) -> Self {
         Self {
@@ -65,46 +61,61 @@ impl<Storage, Settings, const N: usize> MiniconfHandler<Storage, Settings, Const
     }
 }
 
-/// Request data carried from `coap-handler` extraction to response building.
-#[derive(Debug)]
-pub struct CoapHandlerRequest<const N: usize = MAX_HANDLER_PAYLOAD_LENGTH> {
+/// Request metadata carried from `coap-handler` extraction to response building.
+#[doc(hidden)]
+#[derive(Debug, Default)]
+pub struct CoapHandlerRequest {
     code: u8,
     path: UriPath,
     accepts: Accepts,
     content_format: Option<u16>,
     invalid_option: Option<InvalidOption>,
-    payload: HandlerPayload<N>,
 }
 
-impl<const N: usize> CoapHandlerRequest<N> {
-    fn from_message<M>(message: &M) -> Result<Self, Error>
-    where
-        M: ReadableMessage + ?Sized,
-    {
-        let request = RequestParts::from_message(message)?;
-        let mut payload = HandlerPayload::<N>::new();
-        payload
-            .extend_from_slice(request.payload())
-            .map_err(|_| Error::request_entity_too_large(Problem::PayloadTooLong))?;
-        Ok(Self {
+impl CoapHandlerRequest {
+    fn from_parts(request: &RequestParts<'_>) -> Self {
+        Self {
             code: request.code,
-            path: request.path,
+            path: request.path.clone(),
             accepts: request.accepts,
             content_format: request.content_format,
             invalid_option: request.invalid_option,
-            payload,
-        })
+        }
+    }
+
+    fn into_request_parts(self) -> RequestParts<'static> {
+        RequestParts {
+            code: self.code,
+            path: self.path,
+            accepts: self.accepts,
+            content_format: self.content_format,
+            invalid_option: self.invalid_option,
+            payload: b"",
+        }
     }
 }
 
-impl<Storage, Settings, R, const N: usize> coap_handler::Handler
-    for MiniconfHandler<Storage, Settings, R, N>
+#[derive(Debug)]
+#[doc(hidden)]
+pub struct ValueRequest {
+    request: CoapHandlerRequest,
+    action: ValueAction,
+}
+
+#[derive(Debug)]
+enum ValueAction {
+    Build,
+    Changed,
+    Error(Error),
+}
+
+impl<Storage, Settings, R> coap_handler::Handler for MiniconfHandler<Storage, Settings, R>
 where
     Storage: BorrowMut<Settings>,
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     R: Representation,
 {
-    type RequestData = CoapHandlerRequest<N>;
+    type RequestData = ValueRequest;
     type ExtractRequestError = Error;
     type BuildResponseError<M: MinimalWritableMessage> = M::UnionError;
 
@@ -112,7 +123,42 @@ where
         &mut self,
         request: &M,
     ) -> Result<Self::RequestData, Self::ExtractRequestError> {
-        CoapHandlerRequest::from_message(request)
+        let request = RequestParts::from_message(request)?;
+        if let Err(err) = request.check_options() {
+            return Ok(ValueRequest {
+                request: CoapHandlerRequest::default(),
+                action: ValueAction::Error(err),
+            });
+        }
+        if request.code() == code::GET {
+            return Ok(ValueRequest {
+                request: CoapHandlerRequest::from_parts(&request),
+                action: ValueAction::Build,
+            });
+        }
+        if request.code() != code::PUT {
+            let err = Error::new(code::METHOD_NOT_ALLOWED, Problem::MethodNotAllowed);
+            return Ok(ValueRequest {
+                request: CoapHandlerRequest::default(),
+                action: ValueAction::Error(err),
+            });
+        }
+        // `coap-handler` request data can not borrow the request payload. Apply idempotent PUTs
+        // during extraction and carry only the response action, matching the ecosystem handlers.
+        let settings = self.settings.borrow_mut();
+        let path = request.path();
+        let action = match self
+            .values
+            .put_key(path, settings, &request)
+            .map(|_key| ValueAction::Changed)
+        {
+            Ok(action) => action,
+            Err(err) => ValueAction::Error(err),
+        };
+        Ok(ValueRequest {
+            request: CoapHandlerRequest::default(),
+            action,
+        })
     }
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
@@ -120,7 +166,7 @@ where
         response_estimate(
             self.values.representation.content_format(),
             self.values.representation.error_content_format(),
-            N,
+            MAX_HANDLER_PAYLOAD_LENGTH,
         )
     }
 
@@ -129,47 +175,42 @@ where
         message: &mut M,
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
-        let CoapHandlerRequest {
-            code,
-            path,
-            accepts,
-            content_format,
-            invalid_option,
-            payload,
-        } = request;
-        let request = RequestParts {
-            code,
-            path,
-            accepts,
-            content_format,
-            invalid_option,
-            payload: payload.as_slice(),
-        };
-        let mut response_buf = [0; N];
-        let settings = self.settings.borrow_mut();
-        // PUT currently mutates while producing the response. The 2.04 response is tiny, but a
-        // stricter version should probe/validate, write success, then commit.
-        let outcome = self.values.handle(&request, settings, &mut response_buf);
-        let response = outcome.response().unwrap_or(Response {
-            code: code::NOT_FOUND,
-            content_format: None,
-            payload: b"",
-        });
-        response.write_to(message)
+        match request.action {
+            ValueAction::Build => {
+                let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
+                let request = request.request.into_request_parts();
+                let settings = self.settings.borrow_mut();
+                let outcome = self.values.handle(&request, settings, &mut response_buf);
+                let response = outcome.response().unwrap_or(Response {
+                    code: code::NOT_FOUND,
+                    content_format: None,
+                    payload: b"",
+                });
+                response.write_to(message)
+            }
+            ValueAction::Changed => Response {
+                code: code::CHANGED,
+                content_format: None,
+                payload: b"",
+            }
+            .write_to(message),
+            ValueAction::Error(err) => {
+                self.values
+                    .representation
+                    .write_error(err, message, MAX_HANDLER_PAYLOAD_LENGTH)
+            }
+        }
     }
 }
 
 /// `coap-handler` adapter for a Miniconf JSON schema resource.
 ///
-/// The const parameter sets the request payload and response scratch capacity.
 #[cfg(feature = "json-core")]
 #[derive(Debug)]
-pub struct MiniconfSchemaHandler<Settings, const N: usize = MAX_HANDLER_PAYLOAD_LENGTH>(
-    PhantomData<Settings>,
-);
+pub struct MiniconfSchemaHandler<Settings>(PhantomData<Settings>);
 
 #[cfg(feature = "json-core")]
-impl<Settings, const N: usize> MiniconfSchemaHandler<Settings, N> {
+impl<Settings> MiniconfSchemaHandler<Settings> {
     /// Create a route-relative JSON schema handler.
     pub const fn json() -> Self {
         Self(PhantomData)
@@ -177,11 +218,11 @@ impl<Settings, const N: usize> MiniconfSchemaHandler<Settings, N> {
 }
 
 #[cfg(feature = "json-core")]
-impl<Settings, const N: usize> coap_handler::Handler for MiniconfSchemaHandler<Settings, N>
+impl<Settings> coap_handler::Handler for MiniconfSchemaHandler<Settings>
 where
     Settings: TreeSchema,
 {
-    type RequestData = CoapHandlerRequest<N>;
+    type RequestData = CoapHandlerRequest;
     type ExtractRequestError = Error;
     type BuildResponseError<M: MinimalWritableMessage> = M::UnionError;
 
@@ -189,12 +230,12 @@ where
         &mut self,
         request: &M,
     ) -> Result<Self::RequestData, Self::ExtractRequestError> {
-        CoapHandlerRequest::from_message(request)
+        RequestParts::from_message(request).map(|request| CoapHandlerRequest::from_parts(&request))
     }
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
-        response_estimate(format::TEXT, format::JSON, N)
+        response_estimate(format::TEXT, format::JSON, MAX_HANDLER_PAYLOAD_LENGTH)
     }
 
     fn build_response<M: coap_message::MutableWritableMessage>(
@@ -202,23 +243,8 @@ where
         message: &mut M,
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
-        let CoapHandlerRequest {
-            code,
-            path,
-            accepts,
-            content_format,
-            invalid_option,
-            payload,
-        } = request;
-        let request = RequestParts {
-            code,
-            path,
-            accepts,
-            content_format,
-            invalid_option,
-            payload: payload.as_slice(),
-        };
-        let mut response_buf = [0; N];
+        let request = request.into_request_parts();
+        let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
         let outcome = SchemaHandler::new("").handle::<Settings>(&request, &mut response_buf);
         let response = outcome.response().unwrap_or(Response {
             code: code::NOT_FOUND,
@@ -229,8 +255,7 @@ where
     }
 }
 
-impl<Storage, Settings, R, const N: usize> coap_handler::Reporting
-    for MiniconfHandler<Storage, Settings, R, N>
+impl<Storage, Settings, R> coap_handler::Reporting for MiniconfHandler<Storage, Settings, R>
 where
     Settings: TreeSchema,
     R: Representation,
@@ -275,7 +300,7 @@ const fn coap_uint_len(value: u16) -> usize {
 }
 
 #[cfg(feature = "json-core")]
-impl<Settings, const N: usize> coap_handler::Reporting for MiniconfSchemaHandler<Settings, N>
+impl<Settings> coap_handler::Reporting for MiniconfSchemaHandler<Settings>
 where
     Settings: TreeSchema,
 {
@@ -453,7 +478,7 @@ impl coap_handler::Record for SchemaRecord {
 
     fn attributes(&self) -> Self::Attributes {
         [
-            Attribute::Ct(format::TEXT),
+            Attribute::Ct(format::JSON),
             Attribute::ResourceType("miniconf.schema"),
             Attribute::Title("Miniconf schema"),
         ]
