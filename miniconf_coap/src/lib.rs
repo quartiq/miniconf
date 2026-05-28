@@ -6,6 +6,9 @@
 //! The crate is deliberately sessionless. Applications pass caller-owned settings into
 //! cooperative request handlers, and keep ownership of CoAP sockets, message IDs, tokens, routing,
 //! retransmission, and unrelated resources.
+//!
+//! The schema route serves a JSON manifest at `/schema` and compact text schema pages at
+//! `/schema/{page}`.
 
 use miniconf::Indices;
 
@@ -15,8 +18,8 @@ pub const MAX_DEPTH: usize = 12;
 /// Maximum bytes in a captured rooted CoAP URI path.
 pub const MAX_URI_PATH_LENGTH: usize = 256;
 
-/// Maximum response scratch bytes used by the optional `coap-handler` adapter.
-pub const MAX_HANDLER_PAYLOAD_LENGTH: usize = 512;
+/// Maximum value, schema, or error response bytes staged by the optional `coap-handler` adapter.
+pub const MAX_HANDLER_RESPONSE_LENGTH: usize = 512;
 
 /// Maximum compact schema definitions served by `miniconf_coap`.
 pub const MAX_SCHEMA_DEFS: usize = 64;

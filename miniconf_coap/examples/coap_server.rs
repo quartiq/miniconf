@@ -33,8 +33,14 @@ fn main() -> io::Result<()> {
         "try: aiocoap-client coap://{=str}/.well-known/core",
         bind.as_str()
     );
-    info!("try: aiocoap-client coap://{=str}/schema", bind.as_str());
-    info!("try: aiocoap-client coap://{=str}/schema/0", bind.as_str());
+    info!(
+        "try schema manifest: aiocoap-client coap://{=str}/schema",
+        bind.as_str()
+    );
+    info!(
+        "try schema page 0: aiocoap-client coap://{=str}/schema/0",
+        bind.as_str()
+    );
     info!(
         "try: aiocoap-client coap://{=str}/settings/control/enabled",
         bind.as_str()

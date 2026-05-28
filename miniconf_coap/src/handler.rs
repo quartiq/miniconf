@@ -10,7 +10,7 @@ use miniconf::{
 #[cfg(feature = "cbor")]
 use crate::ConstPathCbor;
 use crate::{
-    Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_PAYLOAD_LENGTH, Problem,
+    Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_RESPONSE_LENGTH, Problem,
     RequestParts, Response, UriPath, ValueHandler, format, value::Representation,
 };
 #[cfg(feature = "json-core")]
@@ -166,7 +166,7 @@ where
         response_estimate(
             self.values.representation.content_format(),
             self.values.representation.error_content_format(),
-            MAX_HANDLER_PAYLOAD_LENGTH,
+            MAX_HANDLER_RESPONSE_LENGTH,
         )
     }
 
@@ -177,7 +177,7 @@ where
     ) -> Result<(), Self::BuildResponseError<M>> {
         match request.action {
             ValueAction::Build => {
-                let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
+                let mut response_buf = [0; MAX_HANDLER_RESPONSE_LENGTH];
                 let request = request.request.into_request_parts();
                 let settings = self.settings.borrow_mut();
                 let outcome = self.values.handle(&request, settings, &mut response_buf);
@@ -197,7 +197,7 @@ where
             ValueAction::Error(err) => {
                 self.values
                     .representation
-                    .write_error(err, message, MAX_HANDLER_PAYLOAD_LENGTH)
+                    .write_error(err, message, MAX_HANDLER_RESPONSE_LENGTH)
             }
         }
     }
@@ -235,7 +235,7 @@ where
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
-        response_estimate(format::TEXT, format::JSON, MAX_HANDLER_PAYLOAD_LENGTH)
+        response_estimate(format::TEXT, format::JSON, MAX_HANDLER_RESPONSE_LENGTH)
     }
 
     fn build_response<M: coap_message::MutableWritableMessage>(
@@ -244,7 +244,7 @@ where
         request: Self::RequestData,
     ) -> Result<(), Self::BuildResponseError<M>> {
         let request = request.into_request_parts();
-        let mut response_buf = [0; MAX_HANDLER_PAYLOAD_LENGTH];
+        let mut response_buf = [0; MAX_HANDLER_RESPONSE_LENGTH];
         let outcome = SchemaHandler::new("").handle::<Settings>(&request, &mut response_buf);
         let response = outcome.response().unwrap_or(Response {
             code: code::NOT_FOUND,
