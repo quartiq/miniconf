@@ -24,6 +24,35 @@ pub const MAX_SCHEMA_DEFS: usize = 64;
 /// Exact changed leaf indices produced by a successful `PUT`.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
+#[cfg(any(feature = "json-core", feature = "cbor", feature = "coap-handler"))]
+pub(crate) mod format {
+    #[cfg(any(feature = "json-core", feature = "coap-handler"))]
+    pub const JSON: u16 = match coap_numbers::content_format::from_str("application/json") {
+        Some(value) => value,
+        None => panic!("unknown CoAP content format"),
+    };
+
+    #[cfg(feature = "cbor")]
+    pub const CBOR: u16 = match coap_numbers::content_format::from_str("application/cbor") {
+        Some(value) => value,
+        None => panic!("unknown CoAP content format"),
+    };
+
+    #[cfg(any(feature = "json-core", feature = "coap-handler"))]
+    pub const TEXT: u16 = match coap_numbers::content_format::from_str("text/plain; charset=utf-8")
+    {
+        Some(value) => value,
+        None => panic!("unknown CoAP content format"),
+    };
+
+    #[cfg(feature = "cbor")]
+    pub const CONCISE_PROBLEM_CBOR: u16 =
+        match coap_numbers::content_format::from_str("application/concise-problem-details+cbor") {
+            Some(value) => value,
+            None => panic!("unknown CoAP content format"),
+        };
+}
+
 #[cfg(feature = "coap-handler")]
 mod handler;
 mod message;

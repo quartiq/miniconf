@@ -1,6 +1,4 @@
 use coap_numbers::code;
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-use coap_numbers::content_format;
 use defmt::{debug, trace, warn};
 #[cfg(feature = "cbor")]
 use minicbor::{
@@ -23,6 +21,8 @@ use miniconf::{
 #[cfg(feature = "json-core")]
 use serde_json_core::{de::Error as JsonDeError, ser::Error as JsonSerError};
 
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+use crate::format;
 use crate::{ChangedKey, Error, MAX_DEPTH, Operation, Outcome, Problem, RequestParts, Response};
 
 /// Leaf value route backed by a Miniconf tree.
@@ -323,11 +323,11 @@ impl Representation for ConstPathJson {
     type DeError = JsonDeError;
 
     fn content_format(&self) -> u16 {
-        content_format::from_str("application/json").unwrap()
+        format::JSON
     }
 
     fn error_content_format(&self) -> u16 {
-        content_format::from_str("application/json").unwrap()
+        format::JSON
     }
 
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
@@ -369,11 +369,11 @@ impl Representation for ConstPathCbor {
     type DeError = CborDeError;
 
     fn content_format(&self) -> u16 {
-        content_format::from_str("application/cbor").unwrap()
+        format::CBOR
     }
 
     fn error_content_format(&self) -> u16 {
-        content_format::from_str("application/concise-problem-details+cbor").unwrap()
+        format::CONCISE_PROBLEM_CBOR
     }
 
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {

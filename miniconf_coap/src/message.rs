@@ -6,8 +6,6 @@ use coap_message::{
     Code as _, MessageOption, MinimalWritableMessage, OptionNumber as _, ReadableMessage,
     error::RenderableOnMinimal,
 };
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-use coap_numbers::content_format;
 use coap_numbers::{code, option};
 #[cfg(feature = "cbor")]
 use minicbor::{
@@ -16,6 +14,8 @@ use minicbor::{
     encode::{self, write::EndOfSlice},
 };
 
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+use crate::format;
 use crate::{ChangedKey, MAX_URI_PATH_LENGTH};
 
 const MAX_ACCEPT_OPTIONS: usize = 4;
@@ -430,7 +430,7 @@ impl Error {
             match problem_json(self.problem, buf) {
                 Ok(len) => Response {
                     code: self.code,
-                    content_format: Some(content_format::from_str("application/json").unwrap()),
+                    content_format: Some(format::JSON),
                     payload: &buf[..len],
                 },
                 Err(_) => Response {
@@ -456,9 +456,7 @@ impl Error {
         match problem_cbor(self, buf) {
             Ok(len) => Response {
                 code: self.code,
-                content_format: Some(
-                    content_format::from_str("application/concise-problem-details+cbor").unwrap(),
-                ),
+                content_format: Some(format::CONCISE_PROBLEM_CBOR),
                 payload: &buf[..len],
             },
             Err(_) => Response {
