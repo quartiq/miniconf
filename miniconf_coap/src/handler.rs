@@ -8,12 +8,13 @@ use miniconf::{
 
 #[cfg(feature = "cbor")]
 use crate::ConstPathCbor;
+use crate::value::Representation;
 use crate::{
     Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_PAYLOAD_LENGTH, Problem,
-    Representation, RequestParts, Response, UriPath, ValueHandler,
+    RequestParts, Response, UriPath, ValueHandler, content_format,
 };
 #[cfg(feature = "json-core")]
-use crate::{ConstPathJson, SchemaHandler, TEXT_CONTENT_FORMAT};
+use crate::{ConstPathJson, SchemaHandler};
 
 type HandlerPayload = heapless::Vec<u8, MAX_HANDLER_PAYLOAD_LENGTH>;
 
@@ -185,7 +186,10 @@ where
 
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
-        response_estimate(TEXT_CONTENT_FORMAT, crate::JSON_CONTENT_FORMAT)
+        response_estimate(
+            content_format("text/plain; charset=utf-8"),
+            content_format("application/json"),
+        )
     }
 
     fn build_response<M: coap_message::MutableWritableMessage>(
@@ -439,7 +443,7 @@ impl coap_handler::Record for SchemaRecord {
 
     fn attributes(&self) -> Self::Attributes {
         [
-            coap_handler::Attribute::Ct(TEXT_CONTENT_FORMAT),
+            coap_handler::Attribute::Ct(content_format("text/plain; charset=utf-8")),
             coap_handler::Attribute::ResourceType("miniconf.schema"),
             coap_handler::Attribute::Title("Miniconf schema"),
         ]

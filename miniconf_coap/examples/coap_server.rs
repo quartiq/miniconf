@@ -7,10 +7,17 @@ use coap_message::error::RenderableOnMinimal as _;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
 use defmt::{debug, info, warn};
-use miniconf_coap::{ConstPathJson, JSON_CONTENT_FORMAT, MiniconfHandler, MiniconfSchemaHandler};
+use miniconf_coap::{ConstPathJson, MiniconfHandler, MiniconfSchemaHandler};
 
 const DEFAULT_BIND: &str = "127.0.0.1:56830";
 const RESPONSE_CAPACITY: usize = 1280;
+
+const fn content_format(name: &str) -> u16 {
+    match coap_numbers::content_format::from_str(name) {
+        Some(value) => value,
+        None => panic!("unknown CoAP content format"),
+    }
+}
 
 #[path = "../../miniconf/examples/common.rs"]
 mod common;
@@ -82,7 +89,10 @@ fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
         .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
         .at(
             &["status"],
-            SimpleRendered::new_typed_str(r#"{"ok":true}"#, Some(JSON_CONTENT_FORMAT)),
+            SimpleRendered::new_typed_str(
+                r#"{"ok":true}"#,
+                Some(content_format("application/json")),
+            ),
         )
         .with_wkc()
 }

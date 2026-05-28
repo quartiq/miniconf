@@ -7,54 +7,7 @@
 //! cooperative request handlers, and keep ownership of CoAP sockets, message IDs, tokens, routing,
 //! retransmission, and unrelated resources.
 
-use core::convert::Infallible;
-#[cfg(feature = "json-core")]
-use core::fmt::Write as _;
-
-use coap_message::{
-    Code as _, MessageOption, MinimalWritableMessage, OptionNumber as _, ReadableMessage,
-};
-use coap_numbers::{code, option};
-use defmt::{debug, trace, warn};
-#[cfg(feature = "cbor")]
-use minicbor::{
-    Encoder as CborEncoder,
-    data::Int as CborInt,
-    decode::{Decoder as CborDecoder, Error as CborDecodeError},
-    encode::{self, write::EndOfSlice},
-};
-#[cfg(feature = "cbor")]
-use minicbor_serde::error::{DecodeError as CborDeError, EncodeError as CborSerError};
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-use miniconf::{DescendError, ResolveError};
-use miniconf::{
-    Indices, KeyError, Lookup, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
-    ValueError,
-};
-#[cfg(feature = "json-core")]
-use miniconf::{
-    compact_schema::{SchemaDefs, serialize_schema_page},
-    json_core,
-};
-#[cfg(feature = "json-core")]
-use serde_json_core::{de::Error as JsonDeError, ser::Error as JsonSerError};
-
-const MAX_ACCEPT_OPTIONS: usize = 4;
-
-/// JSON Content-Format number.
-pub const JSON_CONTENT_FORMAT: u16 = 50;
-
-/// CBOR Content-Format number.
-pub const CBOR_CONTENT_FORMAT: u16 = 60;
-
-/// Concise Problem Details CBOR Content-Format number from RFC 9290.
-pub const PROBLEM_DETAILS_CBOR_CONTENT_FORMAT: u16 = 257;
-
-/// CoRE Link Format Content-Format number.
-pub const LINK_FORMAT_CONTENT_FORMAT: u16 = 40;
-
-/// Text Content-Format number.
-pub const TEXT_CONTENT_FORMAT: u16 = 0;
+use miniconf::Indices;
 
 /// Maximum Miniconf tree depth supported by `miniconf_coap`.
 pub const MAX_DEPTH: usize = 12;
@@ -71,10 +24,21 @@ pub const MAX_SCHEMA_DEFS: usize = 64;
 /// Exact changed leaf indices produced by a successful `PUT`.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
-type UriPath = heapless::String<MAX_URI_PATH_LENGTH>;
+#[cfg(any(feature = "json-core", feature = "cbor", feature = "coap-handler"))]
+pub(crate) const fn content_format(name: &str) -> u16 {
+    match coap_numbers::content_format::from_str(name) {
+        Some(value) => value,
+        None => panic!("unknown CoAP content format"),
+    }
+}
 
 #[cfg(feature = "coap-handler")]
 mod handler;
+mod message;
+#[cfg(feature = "json-core")]
+mod schema;
+mod value;
+
 #[cfg(all(feature = "coap-handler", feature = "cbor"))]
 pub use handler::ConstPathCborCoapHandler;
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
@@ -83,1279 +47,17 @@ pub use handler::ConstPathJsonCoapHandler;
 pub use handler::MiniconfHandler;
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
 pub use handler::MiniconfSchemaHandler;
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Accepts {
-    values: [u16; MAX_ACCEPT_OPTIONS],
-    len: usize,
-    overflow: bool,
-}
-
-impl Accepts {
-    const fn new() -> Self {
-        Self {
-            values: [0; MAX_ACCEPT_OPTIONS],
-            len: 0,
-            overflow: false,
-        }
-    }
-
-    fn from_option(value: Option<u16>) -> Self {
-        let mut accepts = Self::new();
-        if let Some(value) = value {
-            accepts.values[0] = value;
-            accepts.len = 1;
-        }
-        accepts
-    }
-
-    fn push(&mut self, value: u16) {
-        if let Some(slot) = self.values.get_mut(self.len) {
-            *slot = value;
-            self.len += 1;
-        } else {
-            self.overflow = true;
-        }
-    }
-
-    const fn is_present(&self) -> bool {
-        self.len != 0
-    }
-
-    fn first(&self) -> Option<u16> {
-        self.values.first().copied().filter(|_| self.len != 0)
-    }
-
-    fn contains(&self, content_format: u16) -> bool {
-        self.values[..self.len].contains(&content_format)
-    }
-
-    fn accepts(&self, content_format: u16) -> Result<(), Error> {
-        if !self.is_present() || self.contains(content_format) {
-            Ok(())
-        } else if self.overflow {
-            Err(Error::new(code::BAD_OPTION, Problem::TooManyAcceptOptions))
-        } else {
-            Err(Error::new(code::NOT_ACCEPTABLE, Problem::NotAcceptable))
-        }
-    }
-}
-
-/// Parsed CoAP request data used by cooperative handlers.
-#[derive(Debug)]
-pub struct RequestParts<'a> {
-    code: u8,
-    path: UriPath,
-    accepts: Accepts,
-    content_format: Option<u16>,
-    invalid_option: Option<InvalidOption>,
-    payload: &'a [u8],
-}
-
-impl<'a> RequestParts<'a> {
-    /// Build request parts from already-decoded fields.
-    pub fn new(
-        code: u8,
-        path: &[&str],
-        accept: Option<u16>,
-        content_format: Option<u16>,
-        payload: &'a [u8],
-    ) -> Result<Self, Error> {
-        let mut request = Self {
-            code,
-            path: UriPath::new(),
-            accepts: Accepts::from_option(accept),
-            content_format,
-            invalid_option: None,
-            payload,
-        };
-        for segment in path {
-            request.push_path_segment(segment)?;
-        }
-        Ok(request)
-    }
-
-    /// Extract method, URI path, content negotiation options, and payload from a readable message.
-    pub fn from_message<M>(message: &'a M) -> Result<Self, Error>
-    where
-        M: ReadableMessage + ?Sized,
-    {
-        let mut request = Self {
-            code: message.code().into(),
-            path: UriPath::new(),
-            accepts: Accepts::new(),
-            content_format: None,
-            invalid_option: None,
-            payload: message.payload(),
-        };
-
-        for opt in message.options() {
-            match opt.number() {
-                option::URI_PATH => {
-                    let Some(segment) = opt.value_str() else {
-                        return Err(Error::bad_request(Problem::InvalidUriPath));
-                    };
-                    request.push_path_segment(segment)?;
-                }
-                option::ACCEPT => {
-                    let Some(accept) = opt.value_uint() else {
-                        return Err(Error::bad_request(Problem::InvalidAccept));
-                    };
-                    request.accepts.push(accept);
-                }
-                option::CONTENT_FORMAT => {
-                    let Some(content_format) = opt.value_uint() else {
-                        return Err(Error::bad_request(Problem::InvalidContentFormat));
-                    };
-                    if request.content_format.is_some() {
-                        if request.invalid_option.is_none() {
-                            request.invalid_option = Some(InvalidOption::DuplicateContentFormat);
-                        }
-                        continue;
-                    }
-                    request.content_format = Some(content_format);
-                }
-                option::URI_HOST | option::URI_PORT => {}
-                number
-                    if coap_numbers::option::get_criticality(number)
-                        == coap_numbers::option::Criticality::Critical
-                        && request.invalid_option.is_none() =>
-                {
-                    request.invalid_option = Some(InvalidOption::UnknownCritical(number));
-                }
-                _ => {}
-            }
-        }
-
-        Ok(request)
-    }
-
-    /// Request method code.
-    pub const fn code(&self) -> u8 {
-        self.code
-    }
-
-    /// URI path segments.
-    pub fn path(&self) -> &str {
-        self.path.as_str()
-    }
-
-    /// Request payload.
-    pub const fn payload(&self) -> &'a [u8] {
-        self.payload
-    }
-
-    fn accepts(&self, content_format: u16) -> Result<(), Error> {
-        self.accepts.accepts(content_format)
-    }
-
-    fn check_options(&self) -> Result<(), Error> {
-        match self.invalid_option {
-            Some(InvalidOption::DuplicateContentFormat) => {
-                Err(Error::bad_request(Problem::DuplicateContentFormat))
-            }
-            Some(InvalidOption::UnknownCritical(number)) => Err(Error::new(
-                code::BAD_OPTION,
-                Problem::UnknownCriticalOption { number },
-            )),
-            None => Ok(()),
-        }
-    }
-
-    fn push_path_segment(&mut self, segment: &str) -> Result<(), Error> {
-        if segment.contains('/') {
-            return Err(Error::bad_request(Problem::InvalidUriPath));
-        }
-        self.path
-            .push('/')
-            .map_err(|_| Error::request_entity_too_large(Problem::UriPathTooLong))?;
-        self.path
-            .push_str(segment)
-            .map_err(|_| Error::request_entity_too_large(Problem::UriPathTooLong))
-    }
-
-    fn relative_to(&self, base: &str) -> Option<&str> {
-        if base.is_empty() {
-            return Some(self.path.as_str());
-        }
-        if self.path.as_str() == base {
-            return Some("");
-        }
-        let tail = self.path.as_str().strip_prefix(base)?;
-        tail.starts_with('/').then_some(tail)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum InvalidOption {
-    DuplicateContentFormat,
-    UnknownCritical(u16),
-}
-
-impl defmt::Format for RequestParts<'_> {
-    fn format(&self, fmt: defmt::Formatter<'_>) {
-        defmt::write!(
-            fmt,
-            "RequestParts {{ code: {=u8}, path: {=str}, accept_present: {=bool}, accept: {=u16}, content_format_present: {=bool}, content_format: {=u16}, payload_len: {=usize} }}",
-            self.code,
-            self.path.as_str(),
-            self.accepts.is_present(),
-            self.accepts.first().unwrap_or(0),
-            self.content_format.is_some(),
-            self.content_format.unwrap_or(0),
-            self.payload.len()
-        )
-    }
-}
-
-/// CoAP response data produced by cooperative handlers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Response<'a> {
-    /// CoAP response code.
-    pub code: u8,
-    /// Optional CoAP Content-Format value.
-    pub content_format: Option<u16>,
-    /// Response payload.
-    pub payload: &'a [u8],
-}
-
-impl Response<'_> {
-    /// Render this response into a writable CoAP message.
-    pub fn write_to<M: MinimalWritableMessage>(
-        &self,
-        message: &mut M,
-    ) -> Result<(), M::UnionError> {
-        message.set_code(M::Code::new(self.code).map_err(M::convert_code_error)?);
-        if let Some(content_format) = self.content_format {
-            message
-                .add_option_uint(
-                    M::OptionNumber::new(option::CONTENT_FORMAT)
-                        .map_err(M::convert_option_number_error)?,
-                    content_format,
-                )
-                .map_err(M::convert_add_option_error)?;
-        }
-        message
-            .set_payload(self.payload)
-            .map_err(M::convert_set_payload_error)
-    }
-}
-
-impl defmt::Format for Response<'_> {
-    fn format(&self, fmt: defmt::Formatter<'_>) {
-        defmt::write!(
-            fmt,
-            "Response {{ code: {=u8}, content_format_present: {=bool}, content_format: {=u16}, payload_len: {=usize} }}",
-            self.code,
-            self.content_format.is_some(),
-            self.content_format.unwrap_or(0),
-            self.payload.len()
-        )
-    }
-}
-
-/// Handler outcome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Outcome<'a> {
-    /// Request path is outside this handler's route.
-    Unhandled,
-    /// Request was handled without changing settings.
-    Handled(Response<'a>),
-    /// Request changed one exact leaf.
-    Changed {
-        /// Changed Miniconf leaf key.
-        key: ChangedKey,
-        /// CoAP response to send.
-        response: Response<'a>,
-    },
-}
-
-impl Outcome<'_> {
-    /// Return the response, if any.
-    pub const fn response(&self) -> Option<Response<'_>> {
-        match self {
-            Self::Unhandled => None,
-            Self::Handled(response) | Self::Changed { response, .. } => Some(*response),
-        }
-    }
-}
-
-impl defmt::Format for Outcome<'_> {
-    fn format(&self, fmt: defmt::Formatter<'_>) {
-        match self {
-            Self::Unhandled => defmt::write!(fmt, "Outcome::Unhandled"),
-            Self::Handled(response) => defmt::write!(fmt, "Outcome::Handled({})", response),
-            Self::Changed { key, response } => defmt::write!(
-                fmt,
-                "Outcome::Changed {{ key: {}, response: {} }}",
-                key,
-                response
-            ),
-        }
-    }
-}
-
-/// Problem details preserved in error responses.
-#[derive(defmt::Format, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Problem {
-    /// URI path option was not valid UTF-8.
-    InvalidUriPath,
-    /// Accept option could not be decoded as a CoAP uint.
-    InvalidAccept,
-    /// Content-Format option could not be decoded as a CoAP uint.
-    InvalidContentFormat,
-    /// More than one Content-Format option was present.
-    DuplicateContentFormat,
-    /// An unknown critical CoAP option was present.
-    UnknownCriticalOption {
-        /// CoAP option number.
-        number: u16,
-    },
-    /// URI path had more segments than this handler captured.
-    UriPathTooLong,
-    /// A response payload exceeded the optional handler adapter buffer.
-    PayloadTooLong,
-    /// Request had more Accept options than this handler captures.
-    TooManyAcceptOptions,
-    /// Request path names no static Miniconf resource.
-    NotFound {
-        /// Depth reached before lookup failed.
-        depth: usize,
-    },
-    /// Request path continues below a leaf.
-    TooLong {
-        /// Depth of the leaf under which the request continued.
-        depth: usize,
-    },
-    /// Request path names a known branch, but this route handles leaves only.
-    NonLeaf {
-        /// Depth of the branch resource.
-        depth: usize,
-    },
-    /// Static schema contains the leaf, but runtime state makes it absent.
-    Absent {
-        /// Depth of the runtime-absent leaf.
-        depth: usize,
-    },
-    /// Runtime access policy denied the operation.
-    Access {
-        /// Operation being performed.
-        op: Operation,
-        /// Error text from Miniconf.
-        message: &'static str,
-    },
-    /// Request method is not supported here.
-    MethodNotAllowed,
-    /// Request `Accept` option does not allow this route's representation.
-    NotAcceptable,
-    /// Request payload Content-Format is not supported here.
-    UnsupportedContentFormat,
-    /// Payload could not be decoded.
-    BadPayload,
-    /// A read-side value serialization failed.
-    Serialization,
-}
-
-/// CoAP operation being performed.
-#[derive(defmt::Format, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Operation {
-    /// Read operation.
-    Read,
-    /// Write operation.
-    Write,
-}
-
-/// CoAP handler error.
-#[derive(defmt::Format, Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Error {
-    /// CoAP response code.
-    pub code: u8,
-    /// Machine-readable problem.
-    pub problem: Problem,
-}
-
-impl Error {
-    const fn new(code: u8, problem: Problem) -> Self {
-        Self { code, problem }
-    }
-
-    const fn bad_request(problem: Problem) -> Self {
-        Self::new(code::BAD_REQUEST, problem)
-    }
-
-    const fn request_entity_too_large(problem: Problem) -> Self {
-        Self::new(code::REQUEST_ENTITY_TOO_LARGE, problem)
-    }
-
-    fn response<'a>(self, buf: &'a mut [u8]) -> Response<'a> {
-        #[cfg(feature = "json-core")]
-        {
-            match problem_json(self.problem, buf) {
-                Ok(len) => Response {
-                    code: self.code,
-                    content_format: Some(JSON_CONTENT_FORMAT),
-                    payload: &buf[..len],
-                },
-                Err(_) => Response {
-                    code: self.code,
-                    content_format: None,
-                    payload: b"",
-                },
-            }
-        }
-        #[cfg(not(feature = "json-core"))]
-        {
-            let _ = buf;
-            Response {
-                code: self.code,
-                content_format: None,
-                payload: b"",
-            }
-        }
-    }
-}
-
-/// Leaf value route backed by a Miniconf tree.
-#[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ValueHandler<'a, R> {
-    base: &'a str,
-    representation: R,
-}
-
-/// Const-path-addressed JSON value route.
+pub use message::{Error, Operation, Outcome, Problem, RequestParts, Response};
 #[cfg(feature = "json-core")]
-pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
-
-/// Const-path-addressed CBOR value route.
+pub use schema::SchemaHandler;
+pub use value::ValueHandler;
 #[cfg(feature = "cbor")]
-pub type ConstPathCborHandler<'a> = ValueHandler<'a, ConstPathCbor>;
-
-/// URI path segments as Miniconf `ConstPath` keys, with JSON payloads.
+pub use value::{ConstPathCbor, ConstPathCborHandler};
 #[cfg(feature = "json-core")]
-#[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ConstPathJson;
+pub use value::{ConstPathJson, ConstPathJsonHandler};
 
-/// URI path segments as Miniconf `ConstPath` keys, with CBOR payloads.
-#[cfg(feature = "cbor")]
-#[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ConstPathCbor;
-
-mod private {
-    pub trait Sealed {}
-}
-
-#[cfg(feature = "json-core")]
-impl private::Sealed for ConstPathJson {}
-#[cfg(feature = "cbor")]
-impl private::Sealed for ConstPathCbor {}
-
-#[cfg(feature = "json-core")]
-impl<'a> ValueHandler<'a, ConstPathJson> {
-    /// Serve JSON where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_json(base: &'a str) -> Self {
-        Self {
-            base,
-            representation: ConstPathJson,
-        }
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl<'a> ValueHandler<'a, ConstPathCbor> {
-    /// Serve CBOR where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_cbor(base: &'a str) -> Self {
-        Self {
-            base,
-            representation: ConstPathCbor,
-        }
-    }
-}
-
-impl<'a, R> ValueHandler<'a, R>
-where
-    R: Representation,
-{
-    /// Handle a single request using cooperative borrows.
-    pub fn handle<'b, Settings>(
-        &self,
-        request: &RequestParts<'_>,
-        settings: &mut Settings,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
-    {
-        let Some(path) = request.relative_to(self.base) else {
-            trace!("Ignoring non-Miniconf CoAP route request={}", request);
-            return Outcome::Unhandled;
-        };
-        if let Err(err) = request.check_options() {
-            return Outcome::Handled(self.representation.error_response(err, response_buf));
-        }
-
-        trace!(
-            "Handling Miniconf CoAP request base={=str} request={}",
-            self.base, request
-        );
-
-        match request.code {
-            code::GET => self.get(path, &*settings, request, response_buf),
-            code::PUT => self.put(path, settings, request, response_buf),
-            _ => self.method_not_allowed(request, response_buf),
-        }
-    }
-
-    fn get<'b, Settings>(
-        &self,
-        path: &str,
-        settings: &Settings,
-        request: &RequestParts<'_>,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeSerialize,
-    {
-        match self.get_len::<Settings>(path, settings, request, response_buf) {
-            Ok(len) => {
-                debug!(
-                    "Handled Miniconf CoAP GET path={=str} depth={=usize} response_len={=usize}",
-                    request.path(),
-                    path_depth(path),
-                    len
-                );
-                Outcome::Handled(Response {
-                    code: code::CONTENT,
-                    content_format: Some(self.representation.content_format()),
-                    payload: &response_buf[..len],
-                })
-            }
-            Err(err) => {
-                debug!("Rejecting Miniconf CoAP GET err={}", err);
-                Outcome::Handled(self.representation.error_response(err, response_buf))
-            }
-        }
-    }
-
-    fn get_len<Settings>(
-        &self,
-        path: &str,
-        settings: &Settings,
-        request: &RequestParts<'_>,
-        response_buf: &mut [u8],
-    ) -> Result<usize, Error>
-    where
-        Settings: TreeSchema + TreeSerialize,
-    {
-        request.accepts(self.representation.content_format())?;
-        let (lookup, state) = self.resolve::<Settings>(path)?;
-        if !lookup.schema.is_leaf() {
-            return Err(Error::new(
-                code::METHOD_NOT_ALLOWED,
-                Problem::NonLeaf {
-                    depth: lookup.depth,
-                },
-            ));
-        }
-
-        let len = self
-            .representation
-            .get(settings, &state.as_ref()[..lookup.depth], response_buf)
-            .map_err(|err| read_error(err, lookup.depth))?;
-        Ok(len)
-    }
-
-    fn put<'b, Settings>(
-        &self,
-        path: &str,
-        settings: &mut Settings,
-        request: &RequestParts<'_>,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema + TreeDeserializeOwned,
-    {
-        match self.put_key::<Settings>(path, settings, request) {
-            Ok(key) => Outcome::Changed {
-                key,
-                response: Response {
-                    code: code::CHANGED,
-                    content_format: None,
-                    payload: b"",
-                },
-            },
-            Err(err) => {
-                debug!("Rejecting Miniconf CoAP PUT err={}", err);
-                Outcome::Handled(self.representation.error_response(err, response_buf))
-            }
-        }
-    }
-
-    fn put_key<Settings>(
-        &self,
-        path: &str,
-        settings: &mut Settings,
-        request: &RequestParts<'_>,
-    ) -> Result<ChangedKey, Error>
-    where
-        Settings: TreeSchema + TreeDeserializeOwned,
-    {
-        match request.content_format {
-            Some(format) if format == self.representation.content_format() => {}
-            _ => {
-                return Err(Error::new(
-                    code::UNSUPPORTED_CONTENT_FORMAT,
-                    Problem::UnsupportedContentFormat,
-                ));
-            }
-        }
-
-        let (lookup, state) = self.resolve::<Settings>(path)?;
-        if !lookup.schema.is_leaf() {
-            return Err(Error::new(
-                code::METHOD_NOT_ALLOWED,
-                Problem::NonLeaf {
-                    depth: lookup.depth,
-                },
-            ));
-        }
-
-        self.representation
-            .set(settings, &state.as_ref()[..lookup.depth], request.payload)
-            .map_err(|err| value_error(err, Operation::Write, lookup.depth))?;
-        debug!(
-            "Accepted Miniconf CoAP PUT path={=str} depth={=usize} payload_len={=usize}",
-            request.path(),
-            lookup.depth,
-            request.payload.len()
-        );
-        Ok(state)
-    }
-
-    fn resolve<Settings>(&self, path: &str) -> Result<(Lookup, ChangedKey), Error>
-    where
-        Settings: TreeSchema,
-    {
-        if Settings::SCHEMA.max_depth() > MAX_DEPTH {
-            warn!(
-                "Rejecting Miniconf CoAP request because schema depth={=usize} exceeds max_depth={=usize}",
-                Settings::SCHEMA.max_depth(),
-                MAX_DEPTH
-            );
-            return Err(Error::new(
-                code::REQUEST_ENTITY_TOO_LARGE,
-                Problem::UriPathTooLong,
-            ));
-        }
-        let mut state = [0; MAX_DEPTH];
-        let lookup = self.representation.resolve::<Settings>(path, &mut state)?;
-        Ok((lookup, Indices::new(state, lookup.depth)))
-    }
-
-    fn method_not_allowed<'b>(
-        &self,
-        request: &RequestParts<'_>,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b> {
-        let err = Error::new(code::METHOD_NOT_ALLOWED, Problem::MethodNotAllowed);
-        debug!(
-            "Rejecting Miniconf CoAP request code={=u8} err={}",
-            request.code, err
-        );
-        Outcome::Handled(self.representation.error_response(err, response_buf))
-    }
-}
-
-/// Complete value representation used by a [`ValueHandler`].
-#[doc(hidden)]
-pub trait Representation: private::Sealed {
-    /// Serialization error type.
-    type SerError;
-    /// Deserialization error type.
-    type DeError;
-
-    /// CoAP Content-Format used for successful responses and accepted request payloads.
-    fn content_format(&self) -> u16;
-
-    /// CoAP Content-Format used for structured error responses.
-    fn error_content_format(&self) -> u16;
-
-    /// Serialize this route's structured error response into the response buffer.
-    fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a>;
-
-    /// Resolve a route-relative URI path into a Miniconf schema lookup.
-    fn resolve<Settings: TreeSchema>(
-        &self,
-        path: &str,
-        state: &mut [usize],
-    ) -> Result<Lookup, Error>;
-
-    /// Serialize a leaf value into the response buffer.
-    fn get<Settings: TreeSerialize + ?Sized>(
-        &self,
-        settings: &Settings,
-        keys: &[usize],
-        buf: &mut [u8],
-    ) -> Result<usize, SerdeError<Self::SerError>>;
-
-    /// Deserialize and set a leaf value from a request payload.
-    fn set<Settings: TreeDeserializeOwned + ?Sized>(
-        &self,
-        settings: &mut Settings,
-        keys: &[usize],
-        payload: &[u8],
-    ) -> Result<(), SerdeError<Self::DeError>>;
-}
-
-#[cfg(feature = "json-core")]
-impl Representation for ConstPathJson {
-    type SerError = JsonSerError;
-    type DeError = JsonDeError;
-
-    fn content_format(&self) -> u16 {
-        JSON_CONTENT_FORMAT
-    }
-
-    fn error_content_format(&self) -> u16 {
-        JSON_CONTENT_FORMAT
-    }
-
-    fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
-        error.response(buf)
-    }
-
-    fn resolve<Settings: TreeSchema>(
-        &self,
-        path: &str,
-        state: &mut [usize],
-    ) -> Result<Lookup, Error> {
-        Settings::SCHEMA
-            .resolve_into(path, state)
-            .map_err(resolve_error)
-    }
-
-    fn get<Settings: TreeSerialize + ?Sized>(
-        &self,
-        settings: &Settings,
-        mut keys: &[usize],
-        buf: &mut [u8],
-    ) -> Result<usize, SerdeError<Self::SerError>> {
-        json_core::get_by_keys(settings, &mut keys, buf)
-    }
-
-    fn set<Settings: TreeDeserializeOwned + ?Sized>(
-        &self,
-        settings: &mut Settings,
-        mut keys: &[usize],
-        payload: &[u8],
-    ) -> Result<(), SerdeError<Self::DeError>> {
-        json_core::set_by_keys(settings, &mut keys, payload).map(|_| ())
-    }
-}
-
-#[cfg(feature = "cbor")]
-impl Representation for ConstPathCbor {
-    type SerError = CborSerError<EndOfSlice>;
-    type DeError = CborDeError;
-
-    fn content_format(&self) -> u16 {
-        CBOR_CONTENT_FORMAT
-    }
-
-    fn error_content_format(&self) -> u16 {
-        PROBLEM_DETAILS_CBOR_CONTENT_FORMAT
-    }
-
-    fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
-        match problem_cbor(error, buf) {
-            Ok(len) => Response {
-                code: error.code,
-                content_format: Some(PROBLEM_DETAILS_CBOR_CONTENT_FORMAT),
-                payload: &buf[..len],
-            },
-            Err(_) => Response {
-                code: error.code,
-                content_format: None,
-                payload: b"",
-            },
-        }
-    }
-
-    fn resolve<Settings: TreeSchema>(
-        &self,
-        path: &str,
-        state: &mut [usize],
-    ) -> Result<Lookup, Error> {
-        Settings::SCHEMA
-            .resolve_into(path, state)
-            .map_err(resolve_error)
-    }
-
-    fn get<Settings: TreeSerialize + ?Sized>(
-        &self,
-        settings: &Settings,
-        mut keys: &[usize],
-        buf: &mut [u8],
-    ) -> Result<usize, SerdeError<Self::SerError>> {
-        let mut cursor = encode::write::Cursor::new(buf);
-        let mut serializer = minicbor_serde::Serializer::new(&mut cursor);
-        settings.serialize_by_key(&mut keys, &mut serializer)?;
-        Ok(cursor.position())
-    }
-
-    fn set<Settings: TreeDeserializeOwned + ?Sized>(
-        &self,
-        settings: &mut Settings,
-        mut keys: &[usize],
-        payload: &[u8],
-    ) -> Result<(), SerdeError<Self::DeError>> {
-        validate_cbor_payload(payload).map_err(SerdeError::Finalization)?;
-        let mut deserializer = minicbor_serde::Deserializer::new(payload);
-        settings.deserialize_by_key(&mut keys, &mut deserializer)
-    }
-}
-
-#[cfg(feature = "cbor")]
-fn validate_cbor_payload(payload: &[u8]) -> Result<(), CborDeError> {
-    let mut decoder = CborDecoder::new(payload);
-    decoder.skip()?;
-    if decoder.position() == decoder.input().len() {
-        Ok(())
-    } else {
-        Err(CborDecodeError::message("trailing data").into())
-    }
-}
-
-/// Schema route backed by `TreeSchema`.
-#[cfg(feature = "json-core")]
-#[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct SchemaHandler<'a> {
-    base: &'a str,
-}
-
-#[cfg(feature = "json-core")]
-impl<'a> SchemaHandler<'a> {
-    /// Construct a compact paged schema route.
-    ///
-    /// The base path and `base/0` both serve the first newline-delimited compact schema page.
-    pub const fn new(base: &'a str) -> Self {
-        Self { base }
-    }
-
-    /// Handle a schema `GET` request.
-    pub fn handle<'b, Settings>(
-        &self,
-        request: &RequestParts<'_>,
-        response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema,
-    {
-        let Some(page_index) = self.page_index(request.path()) else {
-            trace!("Ignoring non-schema CoAP route request={}", request);
-            return Outcome::Unhandled;
-        };
-        if let Err(err) = request.check_options() {
-            return Outcome::Handled(err.response(response_buf));
-        }
-        trace!("Handling Miniconf CoAP schema request request={}", request);
-        if request.code != code::GET {
-            return Outcome::Handled(
-                Error::new(code::METHOD_NOT_ALLOWED, Problem::MethodNotAllowed)
-                    .response(response_buf),
-            );
-        }
-        if let Err(err) = request.accepts(TEXT_CONTENT_FORMAT) {
-            return Outcome::Handled(err.response(response_buf));
-        }
-        let Ok(defs) = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA) else {
-            return Outcome::Handled(
-                Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
-                    .response(response_buf),
-            );
-        };
-        let mut next = 0;
-        for _ in 0..page_index {
-            match serialize_schema_page(&defs, next, response_buf) {
-                Ok(page) if page.count != 0 => next += page.count,
-                _ => {
-                    return Outcome::Handled(
-                        Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 })
-                            .response(response_buf),
-                    );
-                }
-            }
-        }
-        if next >= defs.len() {
-            return Outcome::Handled(
-                Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 }).response(response_buf),
-            );
-        }
-        match serialize_schema_page(&defs, next, response_buf) {
-            Ok(page) => {
-                debug!(
-                    "Handled Miniconf CoAP schema GET path={=str} page={=usize} defs={=usize} response_len={=usize}",
-                    request.path(),
-                    page_index,
-                    page.count,
-                    page.len
-                );
-                Outcome::Handled(Response {
-                    code: code::CONTENT,
-                    content_format: Some(TEXT_CONTENT_FORMAT),
-                    payload: &response_buf[..page.len],
-                })
-            }
-            Err(id) => {
-                warn!(
-                    "Failed to serialize Miniconf CoAP schema path={=str} definition={=usize}",
-                    request.path(),
-                    id
-                );
-                Outcome::Handled(
-                    Error::request_entity_too_large(Problem::PayloadTooLong).response(response_buf),
-                )
-            }
-        }
-    }
-
-    fn page_index(&self, path: &str) -> Option<usize> {
-        if path == self.base {
-            return Some(0);
-        }
-        let suffix = if self.base.is_empty() {
-            path.strip_prefix('/')?
-        } else {
-            path.strip_prefix(self.base)?.strip_prefix('/')?
-        };
-        (!suffix.is_empty() && !suffix.contains('/')).then(|| parse_usize(suffix))?
-    }
-}
-
-#[cfg(feature = "json-core")]
-fn parse_usize(value: &str) -> Option<usize> {
-    let mut parsed = 0usize;
-    for byte in value.bytes() {
-        if !byte.is_ascii_digit() {
-            return None;
-        }
-        parsed = parsed
-            .checked_mul(10)?
-            .checked_add(usize::from(byte - b'0'))?;
-    }
-    Some(parsed)
-}
-
-fn path_depth(path: &str) -> usize {
-    path.as_bytes().iter().filter(|byte| **byte == b'/').count()
-}
-
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-fn resolve_error(err: ResolveError) -> Error {
-    let depth = err.lookup.depth;
-    match err.error {
-        DescendError::Key(KeyError::NotFound) => {
-            Error::new(code::NOT_FOUND, Problem::NotFound { depth })
-        }
-        DescendError::Key(KeyError::TooLong) => {
-            Error::new(code::NOT_FOUND, Problem::TooLong { depth })
-        }
-        DescendError::Key(KeyError::TooShort) => {
-            Error::new(code::METHOD_NOT_ALLOWED, Problem::NonLeaf { depth })
-        }
-        DescendError::Inner(()) => {
-            Error::new(code::REQUEST_ENTITY_TOO_LARGE, Problem::UriPathTooLong)
-        }
-    }
-}
-
-fn read_error<E>(err: SerdeError<E>, depth: usize) -> Error {
-    match err {
-        SerdeError::Value(ValueError::Key(KeyError::NotFound)) => {
-            Error::new(code::NOT_FOUND, Problem::NotFound { depth })
-        }
-        SerdeError::Value(ValueError::Key(KeyError::TooLong)) => {
-            Error::new(code::NOT_FOUND, Problem::TooLong { depth })
-        }
-        SerdeError::Value(ValueError::Key(KeyError::TooShort)) => {
-            Error::new(code::METHOD_NOT_ALLOWED, Problem::NonLeaf { depth })
-        }
-        SerdeError::Value(ValueError::Absent) => {
-            Error::new(code::CONFLICT, Problem::Absent { depth })
-        }
-        SerdeError::Value(ValueError::Access(message)) => Error::new(
-            code::FORBIDDEN,
-            Problem::Access {
-                op: Operation::Read,
-                message,
-            },
-        ),
-        SerdeError::Inner(_) | SerdeError::Finalization(_) => {
-            Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
-        }
-    }
-}
-
-fn value_error<E>(err: SerdeError<E>, op: Operation, depth: usize) -> Error {
-    match err {
-        SerdeError::Value(ValueError::Key(KeyError::NotFound)) => {
-            Error::new(code::NOT_FOUND, Problem::NotFound { depth })
-        }
-        SerdeError::Value(ValueError::Key(KeyError::TooLong)) => {
-            Error::new(code::NOT_FOUND, Problem::TooLong { depth })
-        }
-        SerdeError::Value(ValueError::Key(KeyError::TooShort)) => {
-            Error::new(code::METHOD_NOT_ALLOWED, Problem::NonLeaf { depth })
-        }
-        SerdeError::Value(ValueError::Absent) => {
-            Error::new(code::CONFLICT, Problem::Absent { depth })
-        }
-        SerdeError::Value(ValueError::Access(message)) => Error::new(
-            match op {
-                Operation::Read => code::FORBIDDEN,
-                Operation::Write => code::UNPROCESSABLE_ENTITY,
-            },
-            Problem::Access { op, message },
-        ),
-        SerdeError::Inner(_) | SerdeError::Finalization(_) => {
-            Error::new(code::BAD_REQUEST, Problem::BadPayload)
-        }
-    }
-}
-
-#[cfg(feature = "json-core")]
-fn problem_json(problem: Problem, buf: &mut [u8]) -> Result<usize, core::fmt::Error> {
-    let mut out = SliceWriter::new(buf);
-    match problem {
-        Problem::InvalidUriPath
-        | Problem::InvalidAccept
-        | Problem::InvalidContentFormat
-        | Problem::DuplicateContentFormat
-        | Problem::UriPathTooLong
-        | Problem::PayloadTooLong
-        | Problem::TooManyAcceptOptions
-        | Problem::MethodNotAllowed
-        | Problem::NotAcceptable
-        | Problem::UnsupportedContentFormat
-        | Problem::BadPayload
-        | Problem::Serialization => write_kind(&mut out, problem_kind(problem))?,
-        Problem::UnknownCriticalOption { number } => {
-            write!(
-                out,
-                "{{\"kind\":\"unknown_critical_option\",\"number\":{number}}}"
-            )?;
-        }
-        Problem::NotFound { depth } => write_depth(&mut out, "not_found", depth)?,
-        Problem::TooLong { depth } => write_depth(&mut out, "too_long", depth)?,
-        Problem::NonLeaf { depth } => write_depth(&mut out, "non_leaf", depth)?,
-        Problem::Absent { depth } => write_depth(&mut out, "absent", depth)?,
-        Problem::Access { op, message } => {
-            write!(
-                out,
-                "{{\"kind\":\"access\",\"op\":\"{}\",\"message\":",
-                operation_name(op)
-            )?;
-            write_json_string_truncated(&mut out, message, 1)?;
-            out.push('}')?;
-        }
-    }
-    Ok(out.len())
-}
-
-#[cfg(feature = "cbor")]
-fn problem_cbor(error: Error, buf: &mut [u8]) -> Result<usize, encode::Error<EndOfSlice>> {
-    const MINICONF_PROBLEM_KEY: &str = "tag:quartiq.de,2026:miniconf";
-
-    let mut cursor = encode::write::Cursor::new(buf);
-    {
-        let kind = problem_kind(error.problem);
-        let mut encoder = CborEncoder::new(&mut cursor);
-        encoder
-            .map(3)?
-            .int(CborInt::from(-1i8))?
-            .str(kind)?
-            .int(CborInt::from(-4i8))?
-            .u8(error.code)?
-            .str(MINICONF_PROBLEM_KEY)?
-            .map(problem_detail_len(error.problem))?
-            .str("kind")?
-            .str(kind)?;
-
-        match error.problem {
-            Problem::UnknownCriticalOption { number } => {
-                encoder.str("number")?.u16(number)?;
-            }
-            Problem::NotFound { depth }
-            | Problem::TooLong { depth }
-            | Problem::NonLeaf { depth }
-            | Problem::Absent { depth } => {
-                encoder.str("depth")?.u64(depth as u64)?;
-            }
-            Problem::Access { op, message } => {
-                encoder
-                    .str("op")?
-                    .str(operation_name(op))?
-                    .str("message")?
-                    .str(message)?;
-            }
-            _ => {}
-        }
-    }
-    Ok(cursor.position())
-}
-
-#[cfg(feature = "cbor")]
-const fn problem_detail_len(problem: Problem) -> u64 {
-    match problem {
-        Problem::UnknownCriticalOption { .. }
-        | Problem::NotFound { .. }
-        | Problem::TooLong { .. }
-        | Problem::NonLeaf { .. }
-        | Problem::Absent { .. } => 2,
-        Problem::Access { .. } => 3,
-        _ => 1,
-    }
-}
-
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-const fn problem_kind(problem: Problem) -> &'static str {
-    match problem {
-        Problem::InvalidUriPath => "invalid_uri_path",
-        Problem::InvalidAccept => "invalid_accept",
-        Problem::InvalidContentFormat => "invalid_content_format",
-        Problem::DuplicateContentFormat => "duplicate_content_format",
-        Problem::UnknownCriticalOption { .. } => "unknown_critical_option",
-        Problem::UriPathTooLong => "uri_path_too_long",
-        Problem::PayloadTooLong => "payload_too_long",
-        Problem::TooManyAcceptOptions => "too_many_accept_options",
-        Problem::NotFound { .. } => "not_found",
-        Problem::TooLong { .. } => "too_long",
-        Problem::NonLeaf { .. } => "non_leaf",
-        Problem::Absent { .. } => "absent",
-        Problem::Access { .. } => "access",
-        Problem::MethodNotAllowed => "method_not_allowed",
-        Problem::NotAcceptable => "not_acceptable",
-        Problem::UnsupportedContentFormat => "unsupported_content_format",
-        Problem::BadPayload => "bad_payload",
-        Problem::Serialization => "serialization",
-    }
-}
-
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-const fn operation_name(op: Operation) -> &'static str {
-    match op {
-        Operation::Read => "read",
-        Operation::Write => "write",
-    }
-}
-
-#[cfg(feature = "json-core")]
-struct SliceWriter<'a> {
-    buf: &'a mut [u8],
-    len: usize,
-}
-
-#[cfg(feature = "json-core")]
-impl<'a> SliceWriter<'a> {
-    fn new(buf: &'a mut [u8]) -> Self {
-        Self { buf, len: 0 }
-    }
-
-    const fn len(&self) -> usize {
-        self.len
-    }
-
-    fn remaining(&self) -> usize {
-        self.buf.len() - self.len
-    }
-
-    fn push(&mut self, value: char) -> core::fmt::Result {
-        self.write_char(value)
-    }
-}
-
-#[cfg(feature = "json-core")]
-impl core::fmt::Write for SliceWriter<'_> {
-    fn write_str(&mut self, value: &str) -> core::fmt::Result {
-        let bytes = value.as_bytes();
-        let Some(dst) = self.buf.get_mut(self.len..self.len + bytes.len()) else {
-            return Err(core::fmt::Error);
-        };
-        dst.copy_from_slice(bytes);
-        self.len += bytes.len();
-        Ok(())
-    }
-}
-
-#[cfg(feature = "json-core")]
-fn write_kind(out: &mut impl core::fmt::Write, kind: &str) -> core::fmt::Result {
-    write!(out, "{{\"kind\":\"{}\"}}", kind)
-}
-
-#[cfg(feature = "json-core")]
-fn write_depth(out: &mut impl core::fmt::Write, kind: &str, depth: usize) -> core::fmt::Result {
-    write!(out, "{{\"kind\":\"{}\",\"depth\":{}}}", kind, depth)
-}
-
-#[cfg(feature = "json-core")]
-fn write_json_string_truncated(
-    out: &mut SliceWriter<'_>,
-    value: &str,
-    reserve: usize,
-) -> core::fmt::Result {
-    out.push('"')?;
-    for byte in value.bytes() {
-        let escaped = match byte {
-            b'"' => "\\\"",
-            b'\\' => "\\\\",
-            0x08 => "\\b",
-            0x0c => "\\f",
-            b'\n' => "\\n",
-            b'\r' => "\\r",
-            b'\t' => "\\t",
-            _ => "",
-        };
-        if !escaped.is_empty() {
-            if out.remaining() <= reserve + 1 || escaped.len() > out.remaining() - reserve - 1 {
-                break;
-            }
-            out.write_str(escaped)?;
-            continue;
-        }
-        match byte {
-            0x00..=0x1f => {
-                if out.remaining() <= reserve + 1 || 6 > out.remaining() - reserve - 1 {
-                    break;
-                }
-                write!(out, "\\u{:04x}", byte)?;
-            }
-            _ => {
-                if out.remaining() <= reserve + 1 {
-                    break;
-                }
-                out.push(char::from(byte))?;
-            }
-        }
-    }
-    out.push('"')
-}
-
-impl coap_message::error::RenderableOnMinimal for Error {
-    type Error<IE: coap_message::error::RenderableOnMinimal + core::fmt::Debug> = IE;
-
-    fn render<M: MinimalWritableMessage>(
-        self,
-        message: &mut M,
-    ) -> Result<(), Self::Error<M::UnionError>> {
-        let mut buf = [0; 96];
-        self.response(&mut buf).write_to(message)
-    }
-}
-
-impl From<Infallible> for Error {
-    fn from(value: Infallible) -> Self {
-        match value {}
-    }
-}
+#[cfg(feature = "coap-handler")]
+pub(crate) use message::{Accepts, InvalidOption, UriPath};
 
 #[cfg(all(test, feature = "json-core"))]
 mod tests {
@@ -1364,7 +66,7 @@ mod tests {
     use core::convert::Infallible;
 
     use coap_message::{MessageOption as _, MinimalWritableMessage, ReadableMessage};
-    use coap_numbers::code;
+    use coap_numbers::{code, option};
     use miniconf::Tree;
     use std::{sync::OnceLock, vec::Vec};
 
@@ -1578,7 +280,7 @@ mod tests {
         if request.path() == "/status" {
             return Outcome::Handled(Response {
                 code: code::CONTENT,
-                content_format: Some(JSON_CONTENT_FORMAT),
+                content_format: Some(content_format("application/json")),
                 payload: br#"{"ok":true}"#,
             });
         }
@@ -1596,14 +298,17 @@ mod tests {
         let out = handler.handle(&req, &mut settings, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(JSON_CONTENT_FORMAT));
+        assert_eq!(
+            response.content_format,
+            Some(content_format("application/json"))
+        );
         assert_eq!(response.payload, b"7");
 
         let mut response = [0; 128];
         let req = request(
             code::PUT,
             &["settings", "number"],
-            Some(JSON_CONTENT_FORMAT),
+            Some(content_format("application/json")),
             b"12",
         );
         let out = handler.handle(&req, &mut settings, &mut response);
@@ -1652,7 +357,7 @@ mod tests {
         let req = request(
             code::PUT,
             &["settings", "label"],
-            Some(JSON_CONTENT_FORMAT),
+            Some(content_format("application/json")),
             br#""bad<label""#,
         );
         let out = handler.handle(&req, &mut settings, &mut response);
@@ -1673,7 +378,10 @@ mod tests {
         let out = handler.handle::<Settings>(&req, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(TEXT_CONTENT_FORMAT));
+        assert_eq!(
+            response.content_format,
+            Some(content_format("text/plain; charset=utf-8"))
+        );
         assert!(response.payload.starts_with(b"{"));
     }
 
@@ -1686,7 +394,10 @@ mod tests {
         let out = handler.handle::<Settings>(&req, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(TEXT_CONTENT_FORMAT));
+        assert_eq!(
+            response.content_format,
+            Some(content_format("text/plain; charset=utf-8"))
+        );
         assert!(response.payload.starts_with(b"{"));
 
         let mut response = [0; 512];
@@ -1713,7 +424,7 @@ mod tests {
         let req = request(
             code::PUT,
             &["settings", "number"],
-            Some(JSON_CONTENT_FORMAT),
+            Some(content_format("application/json")),
             b"14",
         );
         assert!(matches!(
@@ -1730,7 +441,7 @@ mod tests {
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
             .uint_option(option::ACCEPT, 0)
-            .uint_option(option::ACCEPT, JSON_CONTENT_FORMAT);
+            .uint_option(option::ACCEPT, content_format("application/json"));
         let request = RequestParts::from_message(&request).unwrap();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
         let mut settings = Settings::default();
@@ -1754,14 +465,17 @@ mod tests {
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "schema")
             .uint_option(option::ACCEPT, 0)
-            .uint_option(option::ACCEPT, JSON_CONTENT_FORMAT);
+            .uint_option(option::ACCEPT, content_format("application/json"));
         let request = RequestParts::from_message(&request).unwrap();
         let handler = SchemaHandler::new("/schema");
         let mut response = [0; 512];
         let outcome = handler.handle::<Settings>(&request, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(TEXT_CONTENT_FORMAT));
+        assert_eq!(
+            response.content_format,
+            Some(content_format("text/plain; charset=utf-8"))
+        );
     }
 
     #[test]
@@ -1770,7 +484,7 @@ mod tests {
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
-            .uint_option(option::ACCEPT, JSON_CONTENT_FORMAT)
+            .uint_option(option::ACCEPT, content_format("application/json"))
             .uint_option(option::ACCEPT, 0)
             .uint_option(option::ACCEPT, 1)
             .uint_option(option::ACCEPT, 2)
@@ -1819,8 +533,8 @@ mod tests {
         let request = TestMessage::new(code::PUT)
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
-            .uint_option(option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
-            .uint_option(option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
+            .uint_option(option::CONTENT_FORMAT, content_format("application/json"))
+            .uint_option(option::CONTENT_FORMAT, content_format("application/json"))
             .with_payload(b"12");
         let request = RequestParts::from_message(&request).unwrap();
         let mut response = [0; 128];
@@ -1877,7 +591,10 @@ mod tests {
         );
         let mut response = [0; 64];
         let response = err.response(&mut response);
-        assert_eq!(response.content_format, Some(JSON_CONTENT_FORMAT));
+        assert_eq!(
+            response.content_format,
+            Some(content_format("application/json"))
+        );
         assert!(
             response
                 .payload
@@ -1892,7 +609,7 @@ mod tests {
         let request = TestMessage::new(code::PUT)
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
-            .uint_option(option::CONTENT_FORMAT, JSON_CONTENT_FORMAT)
+            .uint_option(option::CONTENT_FORMAT, content_format("application/json"))
             .with_payload(b"18");
         let request = RequestParts::from_message(&request).unwrap();
         let mut settings = Settings::default();
@@ -1906,7 +623,7 @@ mod tests {
 
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "status")
-            .uint_option(option::ACCEPT, JSON_CONTENT_FORMAT);
+            .uint_option(option::ACCEPT, content_format("application/json"));
         let request = RequestParts::from_message(&request).unwrap();
         let mut response_buf = [0; 128];
         let outcome = route(&request, &mut settings, &mut response_buf);
@@ -1914,11 +631,14 @@ mod tests {
         outcome.response().unwrap().write_to(&mut response).unwrap();
         assert_eq!(response.code(), code::CONTENT);
         assert_eq!(ReadableMessage::payload(&response), br#"{"ok":true}"#);
-        let content_format = response
+        let content_format_option = response
             .options()
             .find(|opt| opt.number() == option::CONTENT_FORMAT)
             .and_then(|opt| opt.value_uint::<u16>());
-        assert_eq!(content_format, Some(JSON_CONTENT_FORMAT));
+        assert_eq!(
+            content_format_option,
+            Some(content_format("application/json"))
+        );
     }
 
     #[cfg(feature = "cbor")]
@@ -1933,14 +653,17 @@ mod tests {
         let out = handler.handle(&req, &mut settings, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
-        assert_eq!(response.content_format, Some(CBOR_CONTENT_FORMAT));
+        assert_eq!(
+            response.content_format,
+            Some(content_format("application/cbor"))
+        );
         assert_eq!(response.payload, &[7]);
 
         let mut response = [0; 128];
         let req = request(
             code::PUT,
             &["settings", "number"],
-            Some(CBOR_CONTENT_FORMAT),
+            Some(content_format("application/cbor")),
             &[21],
         );
         let out = handler.handle(&req, &mut settings, &mut response);
