@@ -1,7 +1,10 @@
-use core::{borrow::BorrowMut, fmt::Write as _, marker::PhantomData};
+use core::{borrow::BorrowMut, fmt::Write as _, iter, marker::PhantomData};
 
+use coap_handler::Attribute;
 use coap_message::{MinimalWritableMessage, ReadableMessage};
 use coap_numbers::code;
+#[cfg(feature = "json-core")]
+use coap_numbers::content_format;
 use miniconf::{
     ExactSize, Meta, NodeIter, Schema, TreeDeserializeOwned, TreeSchema, TreeSerialize,
 };
@@ -11,7 +14,7 @@ use crate::ConstPathCbor;
 use crate::value::Representation;
 use crate::{
     Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_PAYLOAD_LENGTH, Problem,
-    RequestParts, Response, UriPath, ValueHandler, content_format,
+    RequestParts, Response, UriPath, ValueHandler,
 };
 #[cfg(feature = "json-core")]
 use crate::{ConstPathJson, SchemaHandler};
@@ -187,8 +190,8 @@ where
     fn estimate_length(&mut self, request: &Self::RequestData) -> usize {
         let _ = request;
         response_estimate(
-            content_format("text/plain; charset=utf-8"),
-            content_format("application/json"),
+            content_format::from_str("text/plain; charset=utf-8").unwrap(),
+            content_format::from_str("application/json").unwrap(),
         )
     }
 
@@ -274,12 +277,12 @@ where
     where
         Self: 'res;
     type Reporter<'res>
-        = core::iter::Once<SchemaRecord>
+        = iter::Once<SchemaRecord>
     where
         Self: 'res;
 
     fn report(&self) -> Self::Reporter<'_> {
-        core::iter::once(SchemaRecord)
+        iter::once(SchemaRecord)
     }
 }
 
@@ -344,16 +347,16 @@ impl<R> coap_handler::Record for MiniconfRecord<R> {
             .or_else(|| self.node_meta.get("doc"));
         Attributes {
             attrs: [
-                Some(coap_handler::Attribute::Ct(self.content_format)),
+                Some(Attribute::Ct(self.content_format)),
                 edge_meta
                     .get("rt")
                     .or_else(|| self.node_meta.get("rt"))
-                    .map(coap_handler::Attribute::ResourceType),
+                    .map(Attribute::ResourceType),
                 edge_meta
                     .get("if")
                     .or_else(|| self.node_meta.get("if"))
-                    .map(coap_handler::Attribute::Interface),
-                title.map(coap_handler::Attribute::Title),
+                    .map(Attribute::Interface),
+                title.map(Attribute::Title),
             ],
             pos: 0,
         }
@@ -405,12 +408,12 @@ impl AsRef<str> for DiscoveryPathElement {
 
 /// Iterator over CoRE Link Format attributes for a Miniconf discovery record.
 pub struct Attributes {
-    attrs: [Option<coap_handler::Attribute>; 4],
+    attrs: [Option<Attribute>; 4],
     pos: usize,
 }
 
 impl Iterator for Attributes {
-    type Item = coap_handler::Attribute;
+    type Item = Attribute;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(attr) = self.attrs.get(self.pos).copied() {
@@ -430,11 +433,11 @@ pub struct SchemaRecord;
 #[cfg(feature = "json-core")]
 impl coap_handler::Record for SchemaRecord {
     type PathElement = &'static str;
-    type PathElements = core::iter::Empty<&'static str>;
-    type Attributes = core::array::IntoIter<coap_handler::Attribute, 3>;
+    type PathElements = iter::Empty<&'static str>;
+    type Attributes = core::array::IntoIter<Attribute, 3>;
 
     fn path(&self) -> Self::PathElements {
-        core::iter::empty()
+        iter::empty()
     }
 
     fn rel(&self) -> Option<&str> {
@@ -443,9 +446,9 @@ impl coap_handler::Record for SchemaRecord {
 
     fn attributes(&self) -> Self::Attributes {
         [
-            coap_handler::Attribute::Ct(content_format("text/plain; charset=utf-8")),
-            coap_handler::Attribute::ResourceType("miniconf.schema"),
-            coap_handler::Attribute::Title("Miniconf schema"),
+            Attribute::Ct(content_format::from_str("text/plain; charset=utf-8").unwrap()),
+            Attribute::ResourceType("miniconf.schema"),
+            Attribute::Title("Miniconf schema"),
         ]
         .into_iter()
     }

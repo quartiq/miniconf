@@ -24,14 +24,6 @@ pub const MAX_SCHEMA_DEFS: usize = 64;
 /// Exact changed leaf indices produced by a successful `PUT`.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
-#[cfg(any(feature = "json-core", feature = "cbor", feature = "coap-handler"))]
-pub(crate) const fn content_format(name: &str) -> u16 {
-    match coap_numbers::content_format::from_str(name) {
-        Some(value) => value,
-        None => panic!("unknown CoAP content format"),
-    }
-}
-
 #[cfg(feature = "coap-handler")]
 mod handler;
 mod message;
@@ -66,11 +58,16 @@ mod tests {
     use core::convert::Infallible;
 
     use coap_message::{MessageOption as _, MinimalWritableMessage, ReadableMessage};
-    use coap_numbers::{code, option};
+    use coap_numbers::{code, content_format, option};
     use miniconf::Tree;
     use std::{sync::OnceLock, vec::Vec};
 
-    use super::*;
+    #[cfg(feature = "cbor")]
+    use crate::ConstPathCborHandler;
+    use crate::{
+        ConstPathJsonHandler, Error, Operation, Outcome, Problem, RequestParts, Response,
+        SchemaHandler,
+    };
 
     #[derive(Tree)]
     struct Settings {
@@ -280,7 +277,7 @@ mod tests {
         if request.path() == "/status" {
             return Outcome::Handled(Response {
                 code: code::CONTENT,
-                content_format: Some(content_format("application/json")),
+                content_format: Some(content_format::from_str("application/json").unwrap()),
                 payload: br#"{"ok":true}"#,
             });
         }
@@ -300,7 +297,7 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format("application/json"))
+            Some(content_format::from_str("application/json").unwrap())
         );
         assert_eq!(response.payload, b"7");
 
@@ -308,7 +305,7 @@ mod tests {
         let req = request(
             code::PUT,
             &["settings", "number"],
-            Some(content_format("application/json")),
+            Some(content_format::from_str("application/json").unwrap()),
             b"12",
         );
         let out = handler.handle(&req, &mut settings, &mut response);
@@ -357,7 +354,7 @@ mod tests {
         let req = request(
             code::PUT,
             &["settings", "label"],
-            Some(content_format("application/json")),
+            Some(content_format::from_str("application/json").unwrap()),
             br#""bad<label""#,
         );
         let out = handler.handle(&req, &mut settings, &mut response);
@@ -380,7 +377,7 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format("text/plain; charset=utf-8"))
+            Some(content_format::from_str("text/plain; charset=utf-8").unwrap())
         );
         assert!(response.payload.starts_with(b"{"));
     }
@@ -396,7 +393,7 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format("text/plain; charset=utf-8"))
+            Some(content_format::from_str("text/plain; charset=utf-8").unwrap())
         );
         assert!(response.payload.starts_with(b"{"));
 
@@ -424,7 +421,7 @@ mod tests {
         let req = request(
             code::PUT,
             &["settings", "number"],
-            Some(content_format("application/json")),
+            Some(content_format::from_str("application/json").unwrap()),
             b"14",
         );
         assert!(matches!(
@@ -441,7 +438,10 @@ mod tests {
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
             .uint_option(option::ACCEPT, 0)
-            .uint_option(option::ACCEPT, content_format("application/json"));
+            .uint_option(
+                option::ACCEPT,
+                content_format::from_str("application/json").unwrap(),
+            );
         let request = RequestParts::from_message(&request).unwrap();
         let handler = ConstPathJsonHandler::const_path_json("/settings");
         let mut settings = Settings::default();
@@ -465,7 +465,10 @@ mod tests {
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "schema")
             .uint_option(option::ACCEPT, 0)
-            .uint_option(option::ACCEPT, content_format("application/json"));
+            .uint_option(
+                option::ACCEPT,
+                content_format::from_str("application/json").unwrap(),
+            );
         let request = RequestParts::from_message(&request).unwrap();
         let handler = SchemaHandler::new("/schema");
         let mut response = [0; 512];
@@ -474,7 +477,7 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format("text/plain; charset=utf-8"))
+            Some(content_format::from_str("text/plain; charset=utf-8").unwrap())
         );
     }
 
@@ -484,7 +487,10 @@ mod tests {
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
-            .uint_option(option::ACCEPT, content_format("application/json"))
+            .uint_option(
+                option::ACCEPT,
+                content_format::from_str("application/json").unwrap(),
+            )
             .uint_option(option::ACCEPT, 0)
             .uint_option(option::ACCEPT, 1)
             .uint_option(option::ACCEPT, 2)
@@ -533,8 +539,14 @@ mod tests {
         let request = TestMessage::new(code::PUT)
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
-            .uint_option(option::CONTENT_FORMAT, content_format("application/json"))
-            .uint_option(option::CONTENT_FORMAT, content_format("application/json"))
+            .uint_option(
+                option::CONTENT_FORMAT,
+                content_format::from_str("application/json").unwrap(),
+            )
+            .uint_option(
+                option::CONTENT_FORMAT,
+                content_format::from_str("application/json").unwrap(),
+            )
             .with_payload(b"12");
         let request = RequestParts::from_message(&request).unwrap();
         let mut response = [0; 128];
@@ -593,7 +605,7 @@ mod tests {
         let response = err.response(&mut response);
         assert_eq!(
             response.content_format,
-            Some(content_format("application/json"))
+            Some(content_format::from_str("application/json").unwrap())
         );
         assert!(
             response
@@ -609,7 +621,10 @@ mod tests {
         let request = TestMessage::new(code::PUT)
             .str_option(option::URI_PATH, "settings")
             .str_option(option::URI_PATH, "number")
-            .uint_option(option::CONTENT_FORMAT, content_format("application/json"))
+            .uint_option(
+                option::CONTENT_FORMAT,
+                content_format::from_str("application/json").unwrap(),
+            )
             .with_payload(b"18");
         let request = RequestParts::from_message(&request).unwrap();
         let mut settings = Settings::default();
@@ -623,7 +638,10 @@ mod tests {
 
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "status")
-            .uint_option(option::ACCEPT, content_format("application/json"));
+            .uint_option(
+                option::ACCEPT,
+                content_format::from_str("application/json").unwrap(),
+            );
         let request = RequestParts::from_message(&request).unwrap();
         let mut response_buf = [0; 128];
         let outcome = route(&request, &mut settings, &mut response_buf);
@@ -637,7 +655,7 @@ mod tests {
             .and_then(|opt| opt.value_uint::<u16>());
         assert_eq!(
             content_format_option,
-            Some(content_format("application/json"))
+            Some(content_format::from_str("application/json").unwrap())
         );
     }
 
@@ -655,7 +673,7 @@ mod tests {
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
             response.content_format,
-            Some(content_format("application/cbor"))
+            Some(content_format::from_str("application/cbor").unwrap())
         );
         assert_eq!(response.payload, &[7]);
 
@@ -663,7 +681,7 @@ mod tests {
         let req = request(
             code::PUT,
             &["settings", "number"],
-            Some(content_format("application/cbor")),
+            Some(content_format::from_str("application/cbor").unwrap()),
             &[21],
         );
         let out = handler.handle(&req, &mut settings, &mut response);

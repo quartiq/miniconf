@@ -1,10 +1,13 @@
-use core::convert::Infallible;
+use core::{convert::Infallible, fmt};
 #[cfg(feature = "json-core")]
-use core::fmt::Write as _;
+use fmt::Write as _;
 
 use coap_message::{
     Code as _, MessageOption, MinimalWritableMessage, OptionNumber as _, ReadableMessage,
+    error::RenderableOnMinimal,
 };
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+use coap_numbers::content_format;
 use coap_numbers::{code, option};
 #[cfg(feature = "cbor")]
 use minicbor::{
@@ -13,8 +16,6 @@ use minicbor::{
     encode::{self, write::EndOfSlice},
 };
 
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-use crate::content_format;
 use crate::{ChangedKey, MAX_URI_PATH_LENGTH};
 
 const MAX_ACCEPT_OPTIONS: usize = 4;
@@ -154,8 +155,7 @@ impl<'a> RequestParts<'a> {
                 }
                 option::URI_HOST | option::URI_PORT => {}
                 number
-                    if coap_numbers::option::get_criticality(number)
-                        == coap_numbers::option::Criticality::Critical
+                    if option::get_criticality(number) == option::Criticality::Critical
                         && request.invalid_option.is_none() =>
                 {
                     request.invalid_option = Some(InvalidOption::UnknownCritical(number));
@@ -430,7 +430,7 @@ impl Error {
             match problem_json(self.problem, buf) {
                 Ok(len) => Response {
                     code: self.code,
-                    content_format: Some(content_format("application/json")),
+                    content_format: Some(content_format::from_str("application/json").unwrap()),
                     payload: &buf[..len],
                 },
                 Err(_) => Response {
@@ -456,7 +456,9 @@ impl Error {
         match problem_cbor(self, buf) {
             Ok(len) => Response {
                 code: self.code,
-                content_format: Some(content_format("application/concise-problem-details+cbor")),
+                content_format: Some(
+                    content_format::from_str("application/concise-problem-details+cbor").unwrap(),
+                ),
                 payload: &buf[..len],
             },
             Err(_) => Response {
@@ -469,7 +471,7 @@ impl Error {
 }
 
 #[cfg(feature = "json-core")]
-fn problem_json(problem: Problem, buf: &mut [u8]) -> Result<usize, core::fmt::Error> {
+fn problem_json(problem: Problem, buf: &mut [u8]) -> Result<usize, fmt::Error> {
     let mut out = SliceWriter::new(buf);
     match problem {
         Problem::InvalidUriPath
@@ -614,17 +616,17 @@ impl<'a> SliceWriter<'a> {
         self.buf.len() - self.len
     }
 
-    fn push(&mut self, value: char) -> core::fmt::Result {
+    fn push(&mut self, value: char) -> fmt::Result {
         self.write_char(value)
     }
 }
 
 #[cfg(feature = "json-core")]
-impl core::fmt::Write for SliceWriter<'_> {
-    fn write_str(&mut self, value: &str) -> core::fmt::Result {
+impl fmt::Write for SliceWriter<'_> {
+    fn write_str(&mut self, value: &str) -> fmt::Result {
         let bytes = value.as_bytes();
         let Some(dst) = self.buf.get_mut(self.len..self.len + bytes.len()) else {
-            return Err(core::fmt::Error);
+            return Err(fmt::Error);
         };
         dst.copy_from_slice(bytes);
         self.len += bytes.len();
@@ -633,12 +635,12 @@ impl core::fmt::Write for SliceWriter<'_> {
 }
 
 #[cfg(feature = "json-core")]
-fn write_kind(out: &mut impl core::fmt::Write, kind: &str) -> core::fmt::Result {
+fn write_kind(out: &mut impl fmt::Write, kind: &str) -> fmt::Result {
     write!(out, "{{\"kind\":\"{}\"}}", kind)
 }
 
 #[cfg(feature = "json-core")]
-fn write_depth(out: &mut impl core::fmt::Write, kind: &str, depth: usize) -> core::fmt::Result {
+fn write_depth(out: &mut impl fmt::Write, kind: &str, depth: usize) -> fmt::Result {
     write!(out, "{{\"kind\":\"{}\",\"depth\":{}}}", kind, depth)
 }
 
@@ -647,7 +649,7 @@ fn write_json_string_truncated(
     out: &mut SliceWriter<'_>,
     value: &str,
     reserve: usize,
-) -> core::fmt::Result {
+) -> fmt::Result {
     out.push('"')?;
     for byte in value.bytes() {
         let escaped = match byte {
@@ -685,8 +687,8 @@ fn write_json_string_truncated(
     out.push('"')
 }
 
-impl coap_message::error::RenderableOnMinimal for Error {
-    type Error<IE: coap_message::error::RenderableOnMinimal + core::fmt::Debug> = IE;
+impl RenderableOnMinimal for Error {
+    type Error<IE: RenderableOnMinimal + fmt::Debug> = IE;
 
     fn render<M: MinimalWritableMessage>(
         self,

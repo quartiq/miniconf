@@ -1,37 +1,28 @@
-use std::net::UdpSocket;
+use std::{env, io, net::UdpSocket};
 
 use coap_handler_implementations::{
     HandlerBuilder as _, ReportingHandlerBuilder as _, SimpleRendered, new_dispatcher,
 };
 use coap_message::error::RenderableOnMinimal as _;
 use coap_message_implementations::{inmemory, inmemory_write};
-use coap_numbers::code;
+use coap_numbers::{code, content_format};
 use defmt::{debug, info, warn};
 use miniconf_coap::{ConstPathJson, MiniconfHandler, MiniconfSchemaHandler};
 
 const DEFAULT_BIND: &str = "127.0.0.1:56830";
 const RESPONSE_CAPACITY: usize = 1280;
 
-const fn content_format(name: &str) -> u16 {
-    match coap_numbers::content_format::from_str(name) {
-        Some(value) => value,
-        None => panic!("unknown CoAP content format"),
-    }
-}
-
 #[path = "../../miniconf/examples/common.rs"]
 mod common;
 
 use common::Settings;
 
-fn main() -> std::io::Result<()> {
+fn main() -> io::Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .try_init();
     defmt2log::init_from_current_exe();
 
-    let bind = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| DEFAULT_BIND.into());
+    let bind = env::args().nth(1).unwrap_or_else(|| DEFAULT_BIND.into());
     let socket = UdpSocket::bind(&bind)?;
     info!("listening on coap://{=str}", bind.as_str());
     info!(
@@ -91,7 +82,7 @@ fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
             &["status"],
             SimpleRendered::new_typed_str(
                 r#"{"ok":true}"#,
-                Some(content_format("application/json")),
+                Some(content_format::from_str("application/json").unwrap()),
             ),
         )
         .with_wkc()

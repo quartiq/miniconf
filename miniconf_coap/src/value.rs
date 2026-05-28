@@ -1,4 +1,6 @@
 use coap_numbers::code;
+#[cfg(any(feature = "json-core", feature = "cbor"))]
+use coap_numbers::content_format;
 use defmt::{debug, trace, warn};
 #[cfg(feature = "cbor")]
 use minicbor::{
@@ -6,7 +8,10 @@ use minicbor::{
     encode::{self, write::EndOfSlice},
 };
 #[cfg(feature = "cbor")]
-use minicbor_serde::error::{DecodeError as CborDeError, EncodeError as CborSerError};
+use minicbor_serde::{
+    Deserializer as CborDeserializer, Serializer as CborSerializer,
+    error::{DecodeError as CborDeError, EncodeError as CborSerError},
+};
 #[cfg(feature = "json-core")]
 use miniconf::json_core;
 #[cfg(any(feature = "json-core", feature = "cbor"))]
@@ -18,8 +23,6 @@ use miniconf::{
 #[cfg(feature = "json-core")]
 use serde_json_core::{de::Error as JsonDeError, ser::Error as JsonSerError};
 
-#[cfg(any(feature = "json-core", feature = "cbor"))]
-use crate::content_format;
 use crate::{ChangedKey, Error, MAX_DEPTH, Operation, Outcome, Problem, RequestParts, Response};
 
 /// Leaf value route backed by a Miniconf tree.
@@ -320,11 +323,11 @@ impl Representation for ConstPathJson {
     type DeError = JsonDeError;
 
     fn content_format(&self) -> u16 {
-        content_format("application/json")
+        content_format::from_str("application/json").unwrap()
     }
 
     fn error_content_format(&self) -> u16 {
-        content_format("application/json")
+        content_format::from_str("application/json").unwrap()
     }
 
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
@@ -366,11 +369,11 @@ impl Representation for ConstPathCbor {
     type DeError = CborDeError;
 
     fn content_format(&self) -> u16 {
-        content_format("application/cbor")
+        content_format::from_str("application/cbor").unwrap()
     }
 
     fn error_content_format(&self) -> u16 {
-        content_format("application/concise-problem-details+cbor")
+        content_format::from_str("application/concise-problem-details+cbor").unwrap()
     }
 
     fn error_response<'a>(&self, error: Error, buf: &'a mut [u8]) -> Response<'a> {
@@ -394,7 +397,7 @@ impl Representation for ConstPathCbor {
         buf: &mut [u8],
     ) -> Result<usize, SerdeError<Self::SerError>> {
         let mut cursor = encode::write::Cursor::new(buf);
-        let mut serializer = minicbor_serde::Serializer::new(&mut cursor);
+        let mut serializer = CborSerializer::new(&mut cursor);
         settings.serialize_by_key(&mut keys, &mut serializer)?;
         Ok(cursor.position())
     }
@@ -406,7 +409,7 @@ impl Representation for ConstPathCbor {
         payload: &[u8],
     ) -> Result<(), SerdeError<Self::DeError>> {
         validate_cbor_payload(payload).map_err(SerdeError::Finalization)?;
-        let mut deserializer = minicbor_serde::Deserializer::new(payload);
+        let mut deserializer = CborDeserializer::new(payload);
         settings.deserialize_by_key(&mut keys, &mut deserializer)
     }
 }

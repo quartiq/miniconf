@@ -1,16 +1,9 @@
 #![cfg(any(feature = "json-core", feature = "cbor"))]
 
 use coap_message_implementations::{inmemory, inmemory_write};
-use coap_numbers::code;
+use coap_numbers::{code, option};
 use miniconf::Tree;
-use miniconf_coap::{Outcome, Response};
-
-const fn content_format(name: &str) -> u16 {
-    match coap_numbers::content_format::from_str(name) {
-        Some(value) => value,
-        None => panic!("unknown CoAP content format"),
-    }
-}
+use miniconf_coap::{Outcome, RequestParts, Response};
 
 #[derive(Tree)]
 struct Settings {
@@ -70,10 +63,12 @@ mod label {
 #[cfg(feature = "json-core")]
 mod json {
     use coap_message::ReadableMessage as _;
-    use coap_numbers::code;
+    use coap_numbers::{code, content_format};
     use miniconf_coap::{ConstPathJsonHandler, Outcome, SchemaHandler};
 
-    use crate::{Packet, Settings, WirePacket, content_format, init_host_logging, response_packet};
+    use crate::{
+        Packet, RequestParts, Response, Settings, WirePacket, init_host_logging, response_packet,
+    };
 
     #[test]
     fn const_path_json_packet_routes_compose_with_user_routes() {
@@ -83,7 +78,7 @@ mod json {
         let get_number = Packet::get(0x1234)
             .uri_path("settings")
             .uri_path("number")
-            .accept(content_format("application/json"));
+            .accept(content_format::from_str("application/json").unwrap());
         let response = handle_json_packet(&get_number, &mut settings);
         assert_eq!(
             response,
@@ -93,7 +88,7 @@ mod json {
                 0x12,
                 0x34,
                 0xc1,
-                content_format("application/json") as u8,
+                content_format::from_str("application/json").unwrap() as u8,
                 0xff,
                 b'7',
             ]
@@ -102,7 +97,7 @@ mod json {
         let put_label = Packet::put(0x1235)
             .uri_path("settings")
             .uri_path("label")
-            .content_format(content_format("application/json"))
+            .content_format(content_format::from_str("application/json").unwrap())
             .payload(br#""good""#);
         let response = handle_json_packet(&put_label, &mut settings);
         assert_eq!(response, [0x60, 0x44, 0x12, 0x35]);
@@ -136,14 +131,14 @@ mod json {
 
     pub fn handle_json_packet(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
         let request = WirePacket::parse(packet).unwrap();
-        let parts = miniconf_coap::RequestParts::from_message(&request.message).unwrap();
+        let parts = RequestParts::from_message(&request.message).unwrap();
         let mut response_buf = [0; 512];
         let outcome = route(&parts, settings, &mut response_buf);
         response_packet(&request, outcome)
     }
 
     fn route<'a>(
-        request: &miniconf_coap::RequestParts<'_>,
+        request: &RequestParts<'_>,
         settings: &mut Settings,
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
@@ -153,9 +148,9 @@ mod json {
             path if path.starts_with("/settings/") => {
                 settings_route(request, settings, response_buf)
             }
-            "/status" => Outcome::Handled(miniconf_coap::Response {
+            "/status" => Outcome::Handled(Response {
                 code: code::CONTENT,
-                content_format: Some(content_format("application/json")),
+                content_format: Some(content_format::from_str("application/json").unwrap()),
                 payload: br#"{"ok":true}"#,
             }),
             _ => Outcome::Unhandled,
@@ -163,7 +158,7 @@ mod json {
     }
 
     fn settings_route<'a>(
-        request: &miniconf_coap::RequestParts<'_>,
+        request: &RequestParts<'_>,
         settings: &mut Settings,
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
@@ -174,11 +169,11 @@ mod json {
 #[cfg(feature = "cbor")]
 mod cbor {
     use coap_message::{MessageOption as _, ReadableMessage as _};
-    use coap_numbers::code;
+    use coap_numbers::{code, content_format, option};
     use minicbor::{Decoder, data::Type};
     use miniconf_coap::{ConstPathCborHandler, Outcome};
 
-    use crate::{Packet, Settings, WirePacket, content_format, init_host_logging, response_packet};
+    use crate::{Packet, RequestParts, Settings, WirePacket, init_host_logging, response_packet};
 
     #[test]
     fn const_path_cbor_packet_route_reads_and_writes() {
@@ -188,7 +183,7 @@ mod cbor {
         let get_number = Packet::get(0x1239)
             .uri_path("settings")
             .uri_path("number")
-            .accept(content_format("application/cbor"));
+            .accept(content_format::from_str("application/cbor").unwrap());
         let response = handle_cbor_packet(&get_number, &mut settings);
         assert_eq!(
             response,
@@ -198,7 +193,7 @@ mod cbor {
                 0x12,
                 0x39,
                 0xc1,
-                content_format("application/cbor") as u8,
+                content_format::from_str("application/cbor").unwrap() as u8,
                 0xff,
                 7,
             ]
@@ -207,7 +202,7 @@ mod cbor {
         let put_number = Packet::put(0x123a)
             .uri_path("settings")
             .uri_path("number")
-            .content_format(content_format("application/cbor"))
+            .content_format(content_format::from_str("application/cbor").unwrap())
             .payload(&[21]);
         let response = handle_cbor_packet(&put_number, &mut settings);
         assert_eq!(response, [0x60, 0x44, 0x12, 0x3a]);
@@ -216,7 +211,7 @@ mod cbor {
         let trailing = Packet::put(0x123b)
             .uri_path("settings")
             .uri_path("number")
-            .content_format(content_format("application/cbor"))
+            .content_format(content_format::from_str("application/cbor").unwrap())
             .payload(&[22, 0]);
         let response = handle_cbor_packet(&trailing, &mut settings);
         let response = WirePacket::parse(&response).unwrap();
@@ -225,9 +220,9 @@ mod cbor {
             response
                 .message
                 .options()
-                .find(|option| option.number() == coap_numbers::option::CONTENT_FORMAT)
+                .find(|option| option.number() == option::CONTENT_FORMAT)
                 .and_then(|option| option.value_uint::<u16>()),
-            Some(content_format("application/concise-problem-details+cbor"))
+            Some(content_format::from_str("application/concise-problem-details+cbor").unwrap())
         );
         assert_cbor_problem(response.message.payload(), code::BAD_REQUEST, "bad_payload");
         assert_eq!(settings.number, 21);
@@ -235,7 +230,7 @@ mod cbor {
 
     fn handle_cbor_packet(packet: &[u8], settings: &mut Settings) -> Vec<u8> {
         let request = WirePacket::parse(packet).unwrap();
-        let parts = miniconf_coap::RequestParts::from_message(&request.message).unwrap();
+        let parts = RequestParts::from_message(&request.message).unwrap();
         let mut response_buf = [0; 512];
         let outcome = match parts.path() {
             "/settings" => settings_route(&parts, settings, &mut response_buf),
@@ -248,7 +243,7 @@ mod cbor {
     }
 
     fn settings_route<'a>(
-        request: &miniconf_coap::RequestParts<'_>,
+        request: &RequestParts<'_>,
         settings: &mut Settings,
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
@@ -307,18 +302,23 @@ mod cbor {
 
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
 mod coap_handler {
+    use core::fmt;
+
     use coap_handler::Handler as _;
+    use coap_handler_implementations::{
+        HandlerBuilder as _, ReportingHandlerBuilder as _, SimpleRendered, new_dispatcher,
+    };
     use coap_message::{
         MessageOption, MinimalWritableMessage as _, ReadableMessage as _,
         error::RenderableOnMinimal as _,
     };
-    use coap_message_implementations::heap::HeapMessage;
-    use coap_numbers::code;
+    use coap_message_implementations::{heap::HeapMessage, inmemory_write};
+    use coap_numbers::{code, content_format, option};
     use miniconf_coap::{
         ConstPathJson, ConstPathJsonCoapHandler, MiniconfHandler, MiniconfSchemaHandler,
     };
 
-    use crate::{Packet, Settings, WirePacket, content_format, encode_ack, init_host_logging};
+    use crate::{Packet, Settings, WirePacket, encode_ack, init_host_logging};
 
     #[test]
     fn reports_and_serves_well_known_core() {
@@ -330,15 +330,15 @@ mod coap_handler {
         let request = heap_request(
             code::GET,
             &[".well-known", "core"],
-            Some(content_format("application/link-format")),
+            Some(content_format::from_str("application/link-format").unwrap()),
             b"",
         );
         let response = handle_heap(&mut handler, &request);
 
         assert_eq!(response.code(), code::CONTENT);
         assert_eq!(
-            first_uint_option(&response, coap_numbers::option::CONTENT_FORMAT),
-            Some(content_format("application/link-format"))
+            first_uint_option(&response, option::CONTENT_FORMAT),
+            Some(content_format::from_str("application/link-format").unwrap())
         );
         let payload = core::str::from_utf8(response.payload()).unwrap();
         assert!(payload.contains("</settings/number>;ct=50;title=\"Demo number\""));
@@ -357,7 +357,7 @@ mod coap_handler {
         let request = heap_request(
             code::GET,
             &["settings", "number"],
-            Some(content_format("application/json")),
+            Some(content_format::from_str("application/json").unwrap()),
             b"",
         );
         let response = handle_heap(&mut handler, &request);
@@ -367,7 +367,7 @@ mod coap_handler {
         let request = heap_request(
             code::GET,
             &["status"],
-            Some(content_format("application/json")),
+            Some(content_format::from_str("application/json").unwrap()),
             b"",
         );
         let response = handle_heap(&mut handler, &request);
@@ -378,19 +378,16 @@ mod coap_handler {
     #[test]
     fn can_own_settings() {
         init_host_logging();
-        use coap_handler_implementations::HandlerBuilder as _;
-
         let miniconf = MiniconfHandler::<Settings, Settings, ConstPathJson>::const_path_json(
             Settings::default(),
         );
-        let mut handler =
-            coap_handler_implementations::new_dispatcher().below(&["settings"], miniconf);
+        let mut handler = new_dispatcher().below(&["settings"], miniconf);
 
         let mut request = heap_request(code::PUT, &["settings", "number"], None, br#"31"#);
         request
             .add_option_uint(
-                coap_numbers::option::CONTENT_FORMAT,
-                content_format("application/json"),
+                option::CONTENT_FORMAT,
+                content_format::from_str("application/json").unwrap(),
             )
             .unwrap();
         let response = handle_heap(&mut handler, &request);
@@ -399,7 +396,7 @@ mod coap_handler {
         let request = heap_request(
             code::GET,
             &["settings", "number"],
-            Some(content_format("application/json")),
+            Some(content_format::from_str("application/json").unwrap()),
             b"",
         );
         let response = handle_heap(&mut handler, &request);
@@ -417,13 +414,18 @@ mod coap_handler {
         assert_eq!(&response[..4], [0x60, code::CONTENT, 0x12, 0x34]);
         assert_eq!(
             &response[4..],
-            [0xc1, content_format("application/json") as u8, 0xff, b'7']
+            [
+                0xc1,
+                content_format::from_str("application/json").unwrap() as u8,
+                0xff,
+                b'7'
+            ]
         );
 
         let put_number = Packet::put(0x1235)
             .uri_path("settings")
             .uri_path("number")
-            .content_format(content_format("application/json"))
+            .content_format(content_format::from_str("application/json").unwrap())
             .payload(b"23");
         let response = handle_packet_with_coap_handler(&put_number, &mut settings);
         assert_eq!(response, [0x60, code::CHANGED, 0x12, 0x35]);
@@ -436,8 +438,7 @@ mod coap_handler {
 
         let mut code = 0;
         let mut tail = [0; 512];
-        let mut message =
-            coap_message_implementations::inmemory_write::Message::new(&mut code, &mut tail);
+        let mut message = inmemory_write::Message::new(&mut code, &mut tail);
 
         match handler.extract_request_data(&request.message) {
             Ok(data) => handler.build_response(&mut message, data).unwrap(),
@@ -451,9 +452,7 @@ mod coap_handler {
     fn demo_handler(
         settings: &mut Settings,
     ) -> impl coap_handler::Handler + coap_handler::Reporting + '_ {
-        use coap_handler_implementations::{HandlerBuilder as _, ReportingHandlerBuilder as _};
-
-        coap_handler_implementations::new_dispatcher()
+        new_dispatcher()
             .below(
                 &["settings"],
                 ConstPathJsonCoapHandler::const_path_json(settings),
@@ -461,9 +460,9 @@ mod coap_handler {
             .at(&["schema"], MiniconfSchemaHandler::<Settings>::json())
             .at(
                 &["status"],
-                coap_handler_implementations::SimpleRendered::new_typed_str(
+                SimpleRendered::new_typed_str(
                     r#"{"ok":true}"#,
-                    Some(content_format("application/json")),
+                    Some(content_format::from_str("application/json").unwrap()),
                 ),
             )
             .with_wkc()
@@ -473,14 +472,10 @@ mod coap_handler {
         let mut request = HeapMessage::new();
         request.set_code(code);
         for segment in path {
-            request
-                .add_option_str(coap_numbers::option::URI_PATH, segment)
-                .unwrap();
+            request.add_option_str(option::URI_PATH, segment).unwrap();
         }
         if let Some(accept) = accept {
-            request
-                .add_option_uint(coap_numbers::option::ACCEPT, accept)
-                .unwrap();
+            request.add_option_uint(option::ACCEPT, accept).unwrap();
         }
         request.set_payload(payload).unwrap();
         request
@@ -489,8 +484,8 @@ mod coap_handler {
     fn handle_heap<H>(handler: &mut H, request: &HeapMessage) -> HeapMessage
     where
         H: coap_handler::Handler,
-        H::ExtractRequestError: core::fmt::Debug,
-        H::BuildResponseError<HeapMessage>: core::fmt::Debug,
+        H::ExtractRequestError: fmt::Debug,
+        H::BuildResponseError<HeapMessage>: fmt::Debug,
     {
         let data = handler.extract_request_data(request).unwrap();
         let mut response = HeapMessage::new();
@@ -528,15 +523,15 @@ impl Packet {
     }
 
     fn uri_path(self, segment: &str) -> Self {
-        self.option(coap_numbers::option::URI_PATH, segment.as_bytes())
+        self.option(option::URI_PATH, segment.as_bytes())
     }
 
     fn accept(self, content_format: u16) -> Self {
-        self.uint_option(coap_numbers::option::ACCEPT, content_format)
+        self.uint_option(option::ACCEPT, content_format)
     }
 
     fn content_format(self, content_format: u16) -> Self {
-        self.uint_option(coap_numbers::option::CONTENT_FORMAT, content_format)
+        self.uint_option(option::CONTENT_FORMAT, content_format)
     }
 
     fn uint_option(self, number: u16, value: u16) -> Self {

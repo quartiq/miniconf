@@ -1,11 +1,11 @@
-use coap_numbers::code;
+use coap_numbers::{code, content_format};
 use defmt::{debug, trace, warn};
 use miniconf::{
     TreeSchema,
     compact_schema::{SchemaDefs, serialize_schema_page},
 };
 
-use crate::{Error, MAX_SCHEMA_DEFS, Outcome, Problem, RequestParts, Response, content_format};
+use crate::{Error, MAX_SCHEMA_DEFS, Outcome, Problem, RequestParts, Response};
 
 /// Schema route backed by `TreeSchema`.
 #[derive(defmt::Format, Debug, Clone, Copy)]
@@ -44,7 +44,9 @@ impl<'a> SchemaHandler<'a> {
                     .response(response_buf),
             );
         }
-        if let Err(err) = request.accepts(content_format("text/plain; charset=utf-8")) {
+        if let Err(err) =
+            request.accepts(content_format::from_str("text/plain; charset=utf-8").unwrap())
+        {
             return Outcome::Handled(err.response(response_buf));
         }
         let Ok(defs) = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA) else {
@@ -81,7 +83,9 @@ impl<'a> SchemaHandler<'a> {
                 );
                 Outcome::Handled(Response {
                     code: code::CONTENT,
-                    content_format: Some(content_format("text/plain; charset=utf-8")),
+                    content_format: Some(
+                        content_format::from_str("text/plain; charset=utf-8").unwrap(),
+                    ),
                     payload: &response_buf[..page.len],
                 })
             }
