@@ -22,9 +22,10 @@ use minicbor::{
 #[cfg(feature = "cbor")]
 use minicbor_serde::error::{DecodeError as CborDeError, EncodeError as CborSerError};
 #[cfg(any(feature = "json-core", feature = "cbor"))]
-use miniconf::{DescendError, Lookup, ResolveError};
+use miniconf::{DescendError, ResolveError};
 use miniconf::{
-    Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
+    Indices, KeyError, Lookup, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    ValueError,
 };
 #[cfg(feature = "json-core")]
 use miniconf::{
