@@ -1,4 +1,5 @@
 export type AppRoute = {
+  page: "landing" | "discover" | "browse";
   broker: string;
   discoveryPattern: string;
   activePrefix: string;
@@ -31,19 +32,18 @@ function brokerToken(broker: string): string {
   return endpoint === url.host ? url.host : `ws+${encodeURIComponent(endpoint)}`;
 }
 
-function brokerFromToken(token: string, fallback: string): string {
+function brokerFromToken(token: string): string | undefined {
   if (token.startsWith("wss+")) {
-    return safeBroker(`wss://${decodeURIComponent(token.slice(4))}`, fallback);
+    return safeBroker(`wss://${decodeURIComponent(token.slice(4))}`);
   }
   if (token.startsWith("ws+")) {
-    return safeBroker(`ws://${decodeURIComponent(token.slice(3))}`, fallback);
+    return safeBroker(`ws://${decodeURIComponent(token.slice(3))}`);
   }
-  const decoded = decodeURIComponent(token);
-  return safeBroker(decoded.includes("://") ? decoded : `ws://${decoded}`, fallback);
+  return safeBroker(`ws://${decodeURIComponent(token)}`);
 }
 
-function safeBroker(broker: string, fallback: string): string {
-  return safeUrl(broker) ? broker : fallback;
+function safeBroker(broker: string): string | undefined {
+  return safeUrl(broker) ? broker : undefined;
 }
 
 function safeUrl(url: string): URL | undefined {
@@ -61,15 +61,20 @@ function hashRoute(location: Pick<Location, "hash">): { path: string; search: st
 }
 
 export function readRoute(location: Pick<Location, "hash"> & Partial<Pick<Location, "protocol">>): AppRoute {
-  const fallbackBroker = defaultBroker(location.protocol);
+  const defaultBrokerUrl = defaultBroker(location.protocol);
   try {
     const route = hashRoute(location);
     const params = new URLSearchParams(route.search);
     const parts = route.path.split("/").filter(Boolean);
     if (parts.length >= 2 && (parts[0] === "discover" || parts[0] === "browse")) {
       const [action, broker, ...topic] = parts;
+      const routeBroker = brokerFromToken(broker);
+      if (!routeBroker) {
+        return landingRoute(defaultBrokerUrl);
+      }
       return {
-        broker: brokerFromToken(broker, fallbackBroker),
+        page: action,
+        broker: routeBroker,
         discoveryPattern: action === "discover"
           ? topicFromSegments(topic) || DEFAULT_FILTER
           : params.get("discover") || DEFAULT_FILTER,
@@ -80,8 +85,13 @@ export function readRoute(location: Pick<Location, "hash"> & Partial<Pick<Locati
   } catch {
     // Malformed hashes should not break the static app shell.
   }
+  return landingRoute(defaultBrokerUrl);
+}
+
+function landingRoute(broker: string): AppRoute {
   return {
-    broker: fallbackBroker,
+    page: "landing",
+    broker,
     discoveryPattern: DEFAULT_FILTER,
     activePrefix: "",
     subtreePath: "",

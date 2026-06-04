@@ -164,6 +164,14 @@
     treeFlash.reset();
   }
 
+  function showDiscoveryIdle() {
+    error = "";
+    resetBrowseState();
+    activePrefix = "";
+    discoveredPrefixes = [];
+    setStatus("Idle");
+  }
+
   function authKey(broker: string): string {
     return `miniconf-web-auth:${broker}`;
   }
@@ -375,10 +383,12 @@
     discoveryPattern = next.discoveryPattern;
     activePrefix = next.activePrefix;
     subtreePath = next.subtreePath;
-    if (activePrefix) {
+    if (next.page === "browse") {
       void startBrowse(serial);
-    } else {
+    } else if (next.page === "discover") {
       void startDiscovery(serial);
+    } else {
+      showDiscoveryIdle();
     }
   }
 

@@ -27,6 +27,7 @@ describe("semantic routes", () => {
 
   it("parses hash routes", () => {
     expect(readRoute({ hash: "#/discover/mqtt:8083/dt/sinara/+/+" })).toEqual({
+      page: "discover",
       broker: "ws://mqtt:8083",
       discoveryPattern: "dt/sinara/+/+",
       activePrefix: "",
@@ -37,6 +38,7 @@ describe("semantic routes", () => {
         hash: "#/browse/mqtt:8083/dt/sinara/thermostat-eem/host?path=%2Fpid&discover=dt%2Fsinara%2Fthermostat-eem%2F%2B",
       }),
     ).toEqual({
+      page: "browse",
       broker: "ws://mqtt:8083",
       discoveryPattern: "dt/sinara/thermostat-eem/+",
       activePrefix: "dt/sinara/thermostat-eem/host",
@@ -44,8 +46,9 @@ describe("semantic routes", () => {
     });
   });
 
-  it("ignores legacy query routing", () => {
+  it("keeps the landing route idle", () => {
     expect(readRoute({ hash: "", protocol: "http:" })).toEqual({
+      page: "landing",
       broker: "ws://mqtt:8083",
       discoveryPattern: "dt/sinara/+/+",
       activePrefix: "",
@@ -59,8 +62,9 @@ describe("semantic routes", () => {
     });
   });
 
-  it("falls back instead of throwing on malformed route input", () => {
+  it("lands idle instead of throwing on malformed route input", () => {
     expect(readRoute({ hash: "#/discover/%zz/dt/sinara/+/+", protocol: "https:" })).toEqual({
+      page: "landing",
       broker: "wss://mqtt:8084",
       discoveryPattern: "dt/sinara/+/+",
       activePrefix: "",
