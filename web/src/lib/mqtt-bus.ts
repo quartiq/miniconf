@@ -77,7 +77,10 @@ export class MqttBus {
     });
   }
 
-  static connect(broker: string, auth?: Partial<MqttAuth>): Promise<MqttBus> {
+  static async connect(broker: string, auth?: Partial<MqttAuth>): Promise<MqttBus> {
+    if (globalThis.location?.protocol === "https:" && new URL(broker).protocol === "ws:") {
+      throw new Error("HTTPS pages cannot connect to ws:// brokers; open the app over HTTP or use a wss:// broker.");
+    }
     const options: IClientOptions = {
       clean: true,
       clientId: `miniconf-web-${nanoid()}`,

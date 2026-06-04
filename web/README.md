@@ -47,13 +47,8 @@ publications without exactly one empty `auth` user property.
 ## Static Hosting
 
 The app is a static Vite build and can be deployed to GitHub Pages. The repository includes a
-manual/push workflow for Pages. For project pages, the workflow builds with:
-
-```sh
-BASE_PATH=/<repo-name>/ npm run build
-```
-
-The app uses hash routing, so deep links work without `404.html` fallbacks.
+manual/push workflow for Pages and publishes root-relative assets for the configured custom
+domain. Hash routing keeps deep links independent of server-side route handling.
 
 Public HTTPS hosting requires brokers reachable through `wss://` with browser-valid TLS. Browser
 pages served over HTTPS cannot use insecure `ws://` brokers. Broker authentication and ACLs remain
