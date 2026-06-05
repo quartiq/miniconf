@@ -390,12 +390,7 @@ impl Internal {
 /// Immutable schema metadata.
 #[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct Meta {
-    /// Backing storage for metadata items.
-    ///
-    /// Prefer [`Self::iter()`] and [`Self::get()`] in new code. The field remains
-    /// public for existing callers, but callers should not rely on storage details
-    /// beyond iteration order and duplicate preservation.
-    pub items: &'static [(&'static str, &'static str)],
+    items: &'static [(&'static str, &'static str)],
 }
 
 impl Meta {
@@ -415,6 +410,11 @@ impl Meta {
     /// Number of metadata entries.
     pub const fn len(&self) -> usize {
         self.items.len()
+    }
+
+    /// Metadata entries in declaration order.
+    pub const fn as_slice(&self) -> &'static [(&'static str, &'static str)] {
+        self.items
     }
 
     /// Iterate over metadata entries in declaration order.
@@ -636,16 +636,12 @@ impl Schema {
     }
 
     /// Number of child nodes
+    #[allow(clippy::len_without_is_empty)]
     pub const fn len(&self) -> usize {
         match self {
             Self::Leaf(_) => 0,
             Self::Internal(schema) => schema.internal().len().get(),
         }
-    }
-
-    /// See [`Self::is_leaf()`]
-    pub const fn is_empty(&self) -> bool {
-        self.is_leaf()
     }
 
     /// Structured semantics when present.
