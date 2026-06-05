@@ -84,22 +84,30 @@ export class MqttBus {
     const options: IClientOptions = {
       clean: true,
       clientId: `miniconf-web-${nanoid()}`,
+      connectTimeout: 5000,
       protocolVersion: 5,
       queueQoSZero: false,
-      reconnectPeriod: 1000,
+      reconnectPeriod: 0,
       resubscribe: true,
       ...(auth?.username ? { username: auth.username } : {}),
       ...(auth?.password ? { password: auth.password } : {}),
     };
-    const client = mqtt.connect(broker, options);
+const client = mqtt.connect(broker, options);
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         client.off("connect", onConnect);
+        client.off("close", onClose);
         client.off("error", onError);
       };
       const onConnect = () => {
         cleanup();
+        client.options.reconnectPeriod = 1000;
         resolve(new MqttBus(client));
+      };
+      const onClose = () => {
+        cleanup();
+        client.end(true);
+        reject(new Error(`Could not connect to ${broker}`));
       };
       const onError = (error: Error) => {
         cleanup();
@@ -107,6 +115,7 @@ export class MqttBus {
         reject(error);
       };
       client.once("connect", onConnect);
+      client.once("close", onClose);
       client.once("error", onError);
     });
   }
