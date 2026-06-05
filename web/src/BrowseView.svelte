@@ -80,7 +80,7 @@
     gap: var(--space);
     /* Keep one scrollable browse region above a stable selected/log panel. */
     grid-template-rows: minmax(0, 1fr) auto;
-    height: calc(100dvh - 2 * var(--space));
+    height: calc(100svh - 2 * var(--space));
     min-width: 0;
   }
 
@@ -118,5 +118,11 @@
     margin: 0;
     min-width: 0;
     padding: 0;
+  }
+
+  @media (min-width: 761px) {
+    .browse {
+      height: calc(100dvh - 2 * var(--space));
+    }
   }
 </style>
