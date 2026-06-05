@@ -1,10 +1,6 @@
 # Miniconf MQTT Web Browser
 
-Proof-of-principle browser app for `miniconf_mqtt` targets.
-
-The app talks directly to an MQTT broker through MQTT v5 over WebSockets.
-Configure a broker WebSocket listener and pass its
-authority in the URL.
+Browser UI for `miniconf_mqtt` targets over MQTT v5 WebSockets.
 
 ## Run
 
@@ -13,63 +9,61 @@ npm install
 npm run dev
 ```
 
-Open the printed local URL. Discovery uses hash paths so the static build can be served by
-hosts without route fallback support:
+Open the printed local URL. Development uses normal Vite modules and HMR.
 
-```text
-#/discover/mqtt:8083/dt/sinara/+/+
+## Build
+
+```sh
+npm run build
 ```
 
-Routes:
+The production artifact is a single self-contained `dist/index.html`. It can be deployed to
+GitHub Pages, served from any static host, or opened as a local file.
 
-- `#/discover/{broker}/{wildcard}` discovers device prefixes. `{broker}` is the WebSocket broker authority; `mqtt:8083` means `ws://mqtt:8083`.
+No local tooling is needed to get the bundle: open <https://miniconf.quartiq.de/>, save the page as
+HTML, and open the saved file in the browser.
+
+## Routes
+
+- `#/discover/{broker}/{wildcard}` discovers device prefixes.
 - `#/browse/{broker}/{prefix}` opens an active prefix.
-- `?path=` selects an active-prefix subtree. The default is the empty root path.
+- `?path=` selects a subtree. The default is the empty root path.
+- `?log=1` opens the log from startup.
 
-Discovery lists all matching prefixes as links. Opening a prefix link enters the browse
-view, loads the retained /alive manifest, paged schema, retained settings below the URL subtree, and keeps
-listening for authoritative `/alive` and `/settings` updates.
+`{broker}` is the WebSocket broker authority. `mqtt:8083` means `ws://mqtt:8083`;
+`wss+broker.example%2Fmqtt` means `wss://broker.example/mqtt`.
 
-The status line is a collapsed log. Open it to inspect recent coalesced protocol/UI events, or
-append `?log=1` to the page URL to open the log from startup.
+## Browser/Broker Matrix
 
-Leaf values are edited as JSON and submitted through `/set`. The explicit response reports
-whether the request was accepted; the retained `/settings` publication remains the authoritative
-applied value.
+| App origin | Broker | Chromium | Firefox/Safari | Notes |
+| --- | --- | --- | --- | --- |
+| `http://localhost` or private `http://` | private `ws://` | Works | Works | Best for LAN brokers and development. |
+| `file://` | private `ws://` | Works | Works | Use `dist/index.html`. |
+| public `http://` | private `ws://` | Usually blocked or permission-gated | Works today | Chromium Local Network Access applies. |
+| public `https://` | private `ws://` | Blocked | Blocked | Mixed content. Use `wss://` or local origin. |
+| public `https://` | public `wss://` with valid cert | Works | Works | Clean public deployment. |
+| public `https://` | public reverse proxy `wss://` -> private `ws://` | Works | Works | Proxy owns TLS and access control. |
 
-Optional MQTT username/password fields are stored in `sessionStorage` per broker and are never
-placed in route URLs. A direct browse link can use stored credentials from the same browser session;
-otherwise it connects anonymously.
+## Use
 
-The client accepts the miniconf_mqtt wire protocol `proto=1` alive manifests and ignores retained `/settings`
-publications without exactly one empty `auth` user property.
+Discovery lists matching prefixes. Selecting a prefix loads the retained `/alive` manifest,
+paged schema, retained settings for the selected subtree, and live `/alive` and `/settings`
+updates.
 
-## Static Hosting
+Leaf values are edited as JSON and submitted through `/set`. `/set` responses report request
+acceptance; `/settings` publications remain the authoritative applied values.
 
-The app is a static Vite build and can be deployed to GitHub Pages. The repository includes a
-manual/push workflow for Pages and publishes root-relative assets for the configured custom
-domain. Hash routing keeps deep links independent of server-side route handling.
-
-Public HTTPS hosting requires brokers reachable through `wss://` with browser-valid TLS. Browser
-pages served over HTTPS cannot use insecure `ws://` brokers. Broker authentication and ACLs remain
-the access-control boundary; publishing this static app does not protect a broker that is already
-publicly reachable.
-
-The included HTML uses a pragmatic meta CSP: scripts/styles load from the static site,
-`worker-src` allows MQTT.js' browser worker, and browser connections are allowed to `ws:`/`wss:`
-so users can choose brokers. Tighten `connect-src` to known broker origins for a locked-down
-deployment.
+Optional MQTT username/password values are stored in `sessionStorage` per broker and are never
+placed in route URLs.
 
 ## Test
-
-Run the static and fixture-backed checks:
 
 ```sh
 npm run check
 npm test
 ```
 
-To include a live WebSocket broker smoke test:
+Live broker smoke test:
 
 ```sh
 MINICONF_WEB_BROKER=ws://mqtt:8083 \
