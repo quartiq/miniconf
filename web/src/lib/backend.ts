@@ -53,6 +53,8 @@ export class PrefixSession {
   private schema: Schema | undefined;
   private settingsRoot: string | undefined;
   private syncSerial = 0;
+  private initialized = false;
+  private cancelAliveWait: (() => void) | undefined;
   private stopConnection: (() => void) | undefined;
   private stopAlive: (() => void) | undefined;
   private stopSettings: (() => void) | undefined;
@@ -71,17 +73,17 @@ export class PrefixSession {
     const serial = ++this.syncSerial;
     this.watchConnection();
     this.callbacks.status("Loading alive manifest");
-    const alive = await this.client.aliveManifest(this.prefix);
+    const alive = await this.watchAliveOnce();
     if (!this.active(serial)) {
       return;
     }
+    this.initialized = true;
     this.alive = alive;
     this.callbacks.alive(this.alive);
     await this.loadSchema(this.alive, serial);
     if (!this.active(serial)) {
       return;
     }
-    this.watchAlive();
     await this.settleSettings(serial);
   }
 
@@ -94,6 +96,9 @@ export class PrefixSession {
 
   close(): void {
     this.syncSerial += 1;
+    this.initialized = false;
+    this.cancelAliveWait?.();
+    this.cancelAliveWait = undefined;
     this.stopConnection?.();
     this.stopSettings?.();
     this.stopAlive?.();
@@ -129,20 +134,45 @@ export class PrefixSession {
     this.watchSettings();
   }
 
-  private watchAlive(): void {
-    if (this.stopAlive) {
-      return;
-    }
-    this.stopAlive = this.client.watchAlive(this.prefix, (next) => {
-      if (!next) {
-        this.syncSerial += 1;
-        this.callbacks.status("Prefix offline");
-        this.callbacks.alive(undefined);
-        return;
-      }
-      if (this.alive?.epoch !== next.epoch || this.alive.schema_rev !== next.schema_rev) {
-        void this.reload(next);
-      }
+  private watchAliveOnce(): Promise<AliveManifest> {
+    return new Promise((resolve, reject) => {
+      let resolved = false;
+      let settled = false;
+      const finish = (complete: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(timer);
+        this.cancelAliveWait = undefined;
+        complete();
+      };
+      const timer = globalThis.setTimeout(() => {
+        this.stopAlive?.();
+        this.stopAlive = undefined;
+        finish(() => reject(new Error(`Timed out waiting for ${this.prefix}/alive`)));
+      }, 3000);
+      this.cancelAliveWait = () => {
+        finish(() => reject(new Error("Prefix session closed")));
+      };
+      this.stopAlive = this.client.watchAlive(this.prefix, (next) => {
+        if (!next) {
+          if (this.initialized) {
+            this.syncSerial += 1;
+            this.callbacks.status("Prefix offline");
+            this.callbacks.alive(undefined);
+          }
+          return;
+        }
+        if (!resolved) {
+          resolved = true;
+          finish(() => resolve(next));
+          return;
+        }
+        if (this.alive?.epoch !== next.epoch || this.alive.schema_rev !== next.schema_rev) {
+          void this.reload(next);
+        }
+      });
     });
   }
 
@@ -165,7 +195,9 @@ export class PrefixSession {
     this.stopConnection = this.client.watchConnection((event) => {
       switch (event.state) {
         case "connected":
-          void this.refreshRetained();
+          if (this.initialized) {
+            void this.refreshRetained();
+          }
           break;
         case "reconnecting":
           this.callbacks.status("Broker reconnecting");
@@ -175,8 +207,8 @@ export class PrefixSession {
           this.callbacks.status("Broker disconnected");
           break;
         case "error":
-          this.callbacks.status("Broker connection error");
-          if (event.error) {
+          this.callbacks.status(event.transient ? "Broker reconnecting" : "Broker connection error");
+          if (event.error && !event.transient) {
             this.callbacks.error(event.error);
           }
           break;
@@ -188,20 +220,11 @@ export class PrefixSession {
     const serial = ++this.syncSerial;
     this.callbacks.status("Broker reconnected; refreshing retained state");
     try {
-      const next = await this.client.aliveManifest(this.prefix);
-      if (serial !== this.syncSerial) {
-        return;
-      }
-      if (!this.alive || this.alive.epoch !== next.epoch || this.alive.schema_rev !== next.schema_rev) {
-        await this.reload(next, serial);
-      } else {
-        // Retained clears/deletions cannot be inferred from replaying live
-        // updates after reconnect, so refresh retained settings even when the
-        // alive manifest did not change.
-        this.callbacks.alive(next);
-        this.mirror.beginRetained();
-        await this.settleSettings(serial);
-      }
+      // The durable /alive watcher is resubscribed by MQTT.js and handles
+      // epoch/schema/offline changes. Reconnect refresh only needs retained
+      // settings, because retained clears cannot be inferred from live replay.
+      this.mirror.beginRetained();
+      await this.settleSettings(serial);
     } catch {
       if (serial !== this.syncSerial) {
         return;

@@ -31,7 +31,13 @@ export type MqttAuth = {
 export type MqttConnectionEvent = {
   state: "connected" | "reconnecting" | "offline" | "closed" | "error";
   error?: string;
+  transient?: boolean;
 };
+
+function transientConnectionError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  return message.includes("connack timeout") || message.includes("keepalive timeout");
+}
 
 export function topicMatches(filter: string, topic: string): boolean {
   const filterParts = filter.split("/");
@@ -73,7 +79,11 @@ export class MqttBus {
       }
     });
     this.client.on("error", (error: Error) => {
-      this.notifyConnection({ state: "error", error: error.message });
+      this.notifyConnection({
+        state: "error",
+        error: error.message,
+        transient: transientConnectionError(error),
+      });
     });
   }
 
@@ -92,7 +102,7 @@ export class MqttBus {
       ...(auth?.username ? { username: auth.username } : {}),
       ...(auth?.password ? { password: auth.password } : {}),
     };
-const client = mqtt.connect(broker, options);
+    const client = mqtt.connect(broker, options);
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         client.off("connect", onConnect);

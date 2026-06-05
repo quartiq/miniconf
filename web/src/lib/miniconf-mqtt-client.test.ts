@@ -105,6 +105,9 @@ describe("MiniconfMqttClient subscriptions", () => {
 
     expect(updates.at(-1)).toEqual(["dt/device"]);
 
+    mqtt.publishRetained("dt/device/alive", "");
+    expect(updates.at(-1)).toEqual([]);
+
     mqtt.emit("connect");
     expect(updates.at(-1)).toEqual([]);
 

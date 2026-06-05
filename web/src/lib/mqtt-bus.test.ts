@@ -76,4 +76,19 @@ describe("MQTT browser transport", () => {
     expect(connectMock.mock.calls[0][1]).toMatchObject({ reconnectPeriod: 0 });
     expect(mqtt.ended).toBe(true);
   });
+
+  it("marks reconnect transport timeouts as transient connection errors", () => {
+    const mqtt = new FakeMqttClient();
+    const events: unknown[] = [];
+    const bus = new MqttBus(mqtt as never);
+    bus.watchConnection((event) => events.push(event));
+
+    mqtt.emit("error", new Error("connack timeout"));
+    mqtt.emit("error", new Error("bad credentials"));
+
+    expect(events).toEqual([
+      { state: "error", error: "connack timeout", transient: true },
+      { state: "error", error: "bad credentials", transient: false },
+    ]);
+  });
 });

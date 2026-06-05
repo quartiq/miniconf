@@ -267,8 +267,10 @@
             break;
           case "error":
             setStatus("Broker connection error");
-            error = event.error ?? "";
-            if (error) {
+            if (!event.transient) {
+              error = event.error ?? "";
+            }
+            if (error && !event.transient) {
               log("error", error);
             }
             break;
@@ -282,6 +284,9 @@
         setStatus(`${discoveredPrefixes.length} matching prefix${discoveredPrefixes.length === 1 ? "" : "es"}`);
       });
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
       setStatus("Error");
       log("error", error);
@@ -342,6 +347,9 @@
       });
       await prefixSession.open();
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
       setStatus("Error");
       log("error", error);
