@@ -15,6 +15,32 @@
   export let select: () => void;
   export let toggle: () => void;
   export let keydown: (event: KeyboardEvent) => void;
+
+  const flashFrames = [
+    { background: "var(--flash)" },
+    { background: "var(--flash-end)" },
+  ];
+
+  function flash(node: HTMLElement, active: boolean) {
+    let animation: Animation | undefined;
+    const run = (next: boolean) => {
+      if (!next) {
+        return;
+      }
+      animation?.cancel();
+      animation = node.animate(flashFrames, {
+        duration: 1000,
+        easing: "ease-out",
+      });
+    };
+    run(active);
+    return {
+      update: run,
+      destroy() {
+        animation?.cancel();
+      },
+    };
+  }
 </script>
 
 {#if href}
@@ -31,6 +57,7 @@
     style:padding-left={`${depth}rem`}
     tabindex={selected ? 0 : -1}
     {title}
+    use:flash={flashed}
     on:click={select}
     on:keydown={keydown}
   >
@@ -55,6 +82,7 @@
     style:padding-left={`${depth}rem`}
     tabindex={selected ? 0 : -1}
     {title}
+    use:flash={flashed}
     on:click={select}
     on:keydown={keydown}
   >
@@ -93,6 +121,7 @@
     text-align: left;
     text-decoration: none;
     width: 100%;
+    --flash-end: transparent;
   }
 
   div[role="treeitem"] {
@@ -126,6 +155,8 @@
 
   .selected {
     background: var(--selected);
+    box-shadow: inset 2px 0 0 var(--selected-mark);
+    --flash-end: var(--selected);
   }
 
   .label {
@@ -151,17 +182,4 @@
     white-space: pre;
   }
 
-  .flash {
-    animation: flash 1s;
-  }
-
-  @keyframes flash {
-    0% {
-      background: var(--flash);
-    }
-
-    100% {
-      background: transparent;
-    }
-  }
 </style>

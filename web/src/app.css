@@ -12,8 +12,9 @@ body {
   --fg: CanvasText;
   --muted: color-mix(in srgb, CanvasText 62%, Canvas);
   --border: color-mix(in srgb, CanvasText 22%, Canvas);
-  --selected: color-mix(in srgb, Highlight 18%, transparent);
-  --flash: color-mix(in srgb, Highlight 32%, transparent);
+  --selected: color-mix(in srgb, Highlight 8%, transparent);
+  --selected-mark: Highlight;
+  --flash: color-mix(in srgb, Mark 70%, transparent);
   --focus: Highlight;
   --ok: color-mix(in srgb, green 72%, CanvasText);
   --warn: color-mix(in srgb, orange 78%, CanvasText);

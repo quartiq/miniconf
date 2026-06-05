@@ -10,21 +10,21 @@
     type DiscoveredPrefix,
     type AliveManifest,
   } from "./lib/backend";
+  import { loadAuth, saveAuth } from "./lib/auth-store";
   import { BrowseModel } from "./lib/browse-model";
+  import { EventLog } from "./lib/event-log";
   import { FlashSet } from "./lib/flash-set";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
   import { type SettingsCommit } from "./lib/settings-mirror";
   import { type NavDirection } from "./lib/tree-navigation";
 
-  const LOG_LIMIT = 100;
-  const LOG_FLUSH_MS = 500;
   const route = readRoute(location);
   let broker = route.broker;
   let discoveryPattern = route.discoveryPattern;
   let activePrefix = route.activePrefix;
   let subtreePath = route.subtreePath;
-  let username = storedAuth(broker).username;
-  let password = storedAuth(broker).password;
+  let username = loadAuth(broker).username;
+  let password = loadAuth(broker).password;
   let authBroker = broker;
 
   let backend: MiniconfBackend | undefined;
@@ -37,13 +37,14 @@
   let error = "";
   let logOpen = new URLSearchParams(location.search).get("log") === "1";
   let logLines: string[] = [];
-  let logTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-  const logBuffer: string[] = [];
   let stopConnection: (() => void) | undefined;
   let stopDiscovery: (() => void) | undefined;
   let routeSerial = 0;
-  // Row flashes are UI cues for /settings echoes only. /set responses update
-  // the status/log, but the retained/live settings mirror is authoritative.
+  const eventLog = new EventLog(() => {
+    logLines = eventLog.lines;
+  });
+  // Row flashes are UI cues for authoritative /settings echoes only. /set
+  // responses update the status/log but do not mutate the settings model.
   const treeFlash = new FlashSet((paths) => {
     browse.setFlashed(paths);
     browse = browse;
@@ -53,17 +54,11 @@
   $: mode = activePrefix ? "browse" : "discover";
   $: if (broker !== authBroker) {
     authBroker = broker;
-    ({ username, password } = storedAuth(broker));
+    ({ username, password } = loadAuth(broker));
   }
-  $: if (!logOpen && (logLines.length || logBuffer.length || logTimer !== undefined)) {
-    // Hidden logs stay inactive to avoid startup floods and retained-setting
-    // bursts consuming CPU for diagnostics the user did not open.
-    if (logTimer !== undefined) {
-      globalThis.clearTimeout(logTimer);
-      logTimer = undefined;
-    }
-    logBuffer.length = 0;
-    logLines = [];
+  $: {
+    eventLog.clearHidden(logOpen);
+    logLines = eventLog.lines;
   }
 
   function syncUrl() {
@@ -135,13 +130,11 @@
     focusTreeItem(next);
   }
 
-  function commitSettings({ settings: nextSettings, changed, source }: SettingsCommit) {
+  function commitSettings({ settings: nextSettings, changed }: SettingsCommit) {
     const commit = browse.commit({ settings: nextSettings, changed });
     settingsRevision = commit.rev ?? settingsRevision;
     browse = browse;
-    if (source === "live") {
-      treeFlash.add(commit.cues);
-    }
+    treeFlash.add(commit.cues);
     if (commit.status) {
       setStatus(commit.status);
     }
@@ -172,21 +165,8 @@
     setStatus("Idle");
   }
 
-  function authKey(broker: string): string {
-    return `miniconf-web-auth:${broker}`;
-  }
-
-  function storedAuth(broker: string): { username: string; password: string } {
-    try {
-      const raw = sessionStorage.getItem(authKey(broker));
-      return raw ? JSON.parse(raw) : { username: "", password: "" };
-    } catch {
-      return { username: "", password: "" };
-    }
-  }
-
   function storeAuth() {
-    sessionStorage.setItem(authKey(broker), JSON.stringify({ username, password }));
+    saveAuth(broker, { username, password });
   }
 
   async function connectBackend(serial: number): Promise<MiniconfBackend | undefined> {
@@ -209,19 +189,8 @@
   }
 
   function log(event: string, detail: string) {
-    if (!logOpen) {
-      return;
-    }
-    const line = `${new Date().toLocaleTimeString(undefined)} ${event}: ${detail}`;
-    logBuffer.unshift(line);
-    logBuffer.length = Math.min(logBuffer.length, LOG_LIMIT);
-    if (logTimer !== undefined) {
-      return;
-    }
-    logTimer = globalThis.setTimeout(() => {
-      logTimer = undefined;
-      logLines = [...logBuffer];
-    }, LOG_FLUSH_MS);
+    eventLog.add(logOpen, event, detail);
+    logLines = eventLog.lines;
   }
 
   function setStatus(next: string) {
@@ -256,7 +225,7 @@
         }
         switch (event.state) {
           case "connected":
-            setStatus("Broker reconnected; refreshing discovery");
+            setStatus("Broker reconnected; waiting for devices");
             break;
           case "reconnecting":
             setStatus("Broker reconnecting");
@@ -266,9 +235,11 @@
             setStatus("Broker disconnected");
             break;
           case "error":
-            setStatus("Broker connection error");
-            error = event.error ?? "";
-            if (error) {
+            setStatus(event.transient ? "Broker reconnecting" : "Broker connection error");
+            if (!event.transient) {
+              error = event.error ?? "";
+            }
+            if (error && !event.transient) {
               log("error", error);
             }
             break;
@@ -282,6 +253,9 @@
         setStatus(`${discoveredPrefixes.length} matching prefix${discoveredPrefixes.length === 1 ? "" : "es"}`);
       });
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
       setStatus("Error");
       log("error", error);
@@ -342,6 +316,9 @@
       });
       await prefixSession.open();
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
       setStatus("Error");
       log("error", error);
@@ -376,8 +353,8 @@
   function applyRoute() {
     const next = readRoute(location);
     // Route changes are the app-level cancellation boundary. Backend sessions
-    // also serialize their own retained refreshes, but stale callbacks can still
-    // arrive at this shell while navigation is in progress.
+    // also serialize their own loads, but stale callbacks can still arrive at
+    // this shell while navigation is in progress.
     const serial = ++routeSerial;
     broker = next.broker;
     discoveryPattern = next.discoveryPattern;
@@ -402,9 +379,7 @@
     stopConnection?.();
     stopDiscovery?.();
     prefixSession?.close();
-    if (logTimer !== undefined) {
-      globalThis.clearTimeout(logTimer);
-    }
+    eventLog.dispose();
     treeFlash.reset();
     backend?.close();
   });

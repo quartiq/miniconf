@@ -20,8 +20,6 @@ const RETAINED_SUBSCRIBE: IClientSubscribeOptions = {
   rh: 0,
 };
 
-export type Settings = Map<string, unknown>;
-
 export type DiscoveredPrefix = {
   prefix: string;
   aliveManifest: AliveManifest;
@@ -57,7 +55,6 @@ export type MiniconfMqttTransport = Pick<
   MqttBus,
   | "close"
   | "collectUntil"
-  | "firstMessage"
   | "listen"
   | "publish"
   | "watch"
@@ -174,49 +171,6 @@ export class MiniconfMqttClient {
     return this.bus.watchConnection(onChange);
   }
 
-  async discover(prefixFilter: string, timeout = 150): Promise<DiscoveredPrefix[]> {
-    const topic = `${prefixFilter}/alive`;
-    const suffix = "/alive";
-    const found = new Map<string, AliveManifest>();
-    const start = performance.now();
-    let quiet = timeout;
-    let deadline = start + timeout;
-    let accepted = false;
-    let lastAccepted = start;
-    const pending = this.bus.collectUntil(
-      topic,
-      RETAINED_SUBSCRIBE,
-      (message) => {
-        if (!message.payload.byteLength) {
-          return;
-        }
-        try {
-          found.set(
-            message.topic.slice(0, -suffix.length),
-            validateAliveManifest(jsonParse(message.payload)),
-          );
-          accepted = true;
-          lastAccepted = performance.now();
-          deadline = lastAccepted + quiet;
-        } catch {
-          // Discovery ignores invalid alive payloads like the Python client.
-        }
-      },
-      () => performance.now() >= deadline,
-      timeout * 10,
-      () => deadline - performance.now(),
-      (subscribeRtt) => {
-        quiet = quietWindow(subscribeRtt, 3, timeout);
-        if (!accepted) {
-          lastAccepted = performance.now();
-        }
-        deadline = lastAccepted + quiet;
-      },
-    );
-    await pending;
-    return [...found.entries()].map(([prefix, aliveManifest]) => ({ prefix, aliveManifest }));
-  }
-
   watchDiscovery(prefixFilter: string, onChange: (prefixes: DiscoveredPrefix[]) => void): () => void {
     const topic = `${prefixFilter}/alive`;
     const suffix = "/alive";
@@ -250,28 +204,6 @@ export class MiniconfMqttClient {
     };
   }
 
-  async aliveManifest(prefix: string, timeout = 3000): Promise<AliveManifest> {
-    const topic = `${prefix}/alive`;
-    let alive: AliveManifest | undefined;
-    await this.bus.firstMessage(
-      topic,
-      RETAINED_SUBSCRIBE,
-      (candidate) => {
-        if (!candidate.payload.byteLength) {
-          return false;
-        }
-        try {
-          alive = validateAliveManifest(jsonParse(candidate.payload));
-          return true;
-        } catch {
-          return false;
-        }
-      },
-      timeout,
-    );
-    return alive!;
-  }
-
   async schema(prefix: string, alive: AliveManifest, timeout = 3000): Promise<Schema> {
     const topic = `${prefix}/schema/#`;
     const pages: (string | undefined)[] = Array.from(
@@ -301,47 +233,6 @@ export class MiniconfMqttClient {
         .map((line) => JSON.parse(line) as CompactDef) ?? [],
     );
     return new Schema(defs, alive.schema_rev);
-  }
-
-  async settings(prefix: string, root: string, timeout = 3000): Promise<Settings> {
-    const settingsRoot = miniconfPath(root, "Settings root");
-    const topic = settingsFilter(prefix, settingsRoot);
-    const settings: Settings = new Map();
-    const start = performance.now();
-    let quiet = 100;
-    let deadline = start + quiet;
-    let accepted = false;
-    let lastAccepted = start;
-    const pending = this.bus.collectUntil(
-      topic,
-      RETAINED_SUBSCRIBE,
-      (message) => {
-        const change = settingsChange(prefix, settingsRoot, message);
-        if (!change) {
-          return;
-        }
-        if (change.present) {
-          settings.set(change.path, change.value);
-        } else {
-          settings.delete(change.path);
-        }
-        accepted = true;
-        lastAccepted = performance.now();
-        deadline = lastAccepted + quiet;
-      },
-      () => performance.now() >= deadline,
-      timeout,
-      () => deadline - performance.now(),
-      (subscribeRtt) => {
-        quiet = quietWindow(subscribeRtt, 3, 100);
-        if (!accepted) {
-          lastAccepted = performance.now();
-        }
-        deadline = lastAccepted + quiet;
-      },
-    );
-    await pending;
-    return settings;
   }
 
   watchAlive(prefix: string, onChange: (alive: AliveManifest | undefined) => void): () => void {

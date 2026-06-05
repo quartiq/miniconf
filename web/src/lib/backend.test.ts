@@ -14,12 +14,8 @@ class FakeClient {
   private settingsListener: ((change: SettingsChange) => void) | undefined;
   private aliveListener: ((alive: { proto: number; epoch: number; schema_rev: number; pages: number } | undefined) => void) | undefined;
   private aliveResult = { proto: 1, epoch: 1, schema_rev: 7, pages: 1 };
+  private replayAlive = true;
   private settingsResult: Map<string, unknown> = new Map([["/leaf", 1]]);
-
-  async aliveManifest(prefix: string) {
-    this.calls.push(`alive ${prefix}`);
-    return this.aliveResult;
-  }
 
   async schema(prefix: string) {
     this.calls.push(`schema ${prefix}`);
@@ -38,18 +34,17 @@ class FakeClient {
   ) {
     this.calls.push(`watchAlive ${prefix}`);
     this.aliveListener = listener;
+    if (this.replayAlive) {
+      queueMicrotask(() => listener(this.aliveResult));
+    }
     return () => this.calls.push(`stopAlive ${prefix}`);
   }
 
   watchSettings(prefix: string, root: string, listener: (change: SettingsChange) => void) {
     this.calls.push(`watchSettings ${prefix} ${root}`);
     this.settingsListener = listener;
+    queueMicrotask(() => this.replaySettings());
     return () => this.calls.push(`stopSettings ${prefix} ${root}`);
-  }
-
-  async settings(prefix: string, root: string) {
-    this.calls.push(`settings ${prefix} ${root}`);
-    return this.settingsResult;
   }
 
   async set(prefix: string, path: string, value: unknown) {
@@ -67,12 +62,31 @@ class FakeClient {
     this.aliveListener?.(alive);
   }
 
+  clearAlive() {
+    this.aliveListener?.(undefined);
+  }
+
   setSettings(settings: Map<string, unknown>) {
     this.settingsResult = settings;
   }
 
+  setReplayAlive(replay: boolean) {
+    this.replayAlive = replay;
+  }
+
   reconnect() {
     this.connectionListener?.({ state: "connected" });
+    queueMicrotask(() => this.replaySettings());
+  }
+
+  connectionError(error: string, transient = false) {
+    this.connectionListener?.({ state: "error", error, transient });
+  }
+
+  private replaySettings() {
+    for (const [path, value] of this.settingsResult) {
+      this.settingsListener?.({ path, present: true, value });
+    }
   }
 }
 
@@ -94,13 +108,12 @@ describe("PrefixSession", () => {
       const session = new PrefixSession(client as never, "dt/device", "", callbacks);
 
       await session.open();
+      await vi.advanceTimersByTimeAsync(100);
       expect(client.calls).toEqual([
         "watchConnection",
-        "alive dt/device",
+        "watchAlive dt/device",
         "schema dt/device",
         "watchSettings dt/device ",
-        "watchAlive dt/device",
-        "settings dt/device ",
       ]);
       expect(commits).toEqual(["1"]);
 
@@ -121,7 +134,7 @@ describe("PrefixSession", () => {
     }
   });
 
-  it("reloads retained state without dropping the permanent settings watcher", async () => {
+  it("restarts the settings stream after schema reload", async () => {
     vi.useFakeTimers();
     try {
       const client = new FakeClient();
@@ -142,21 +155,45 @@ describe("PrefixSession", () => {
 
       expect(client.calls).toEqual([
         "watchConnection",
-        "alive dt/device",
+        "watchAlive dt/device",
         "schema dt/device",
         "watchSettings dt/device ",
-        "watchAlive dt/device",
-        "settings dt/device ",
         "schema dt/device",
-        "settings dt/device ",
+        "stopSettings dt/device ",
+        "watchSettings dt/device ",
       ]);
-      expect(client.calls).not.toContain("stopSettings dt/device ");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("refreshes retained settings after broker reconnect", async () => {
+  it("marks the active prefix offline and reloads when it reappears", async () => {
+    const client = new FakeClient();
+    const alive: string[] = [];
+    const statuses: string[] = [];
+    const session = new PrefixSession(client as never, "dt/device", "", {
+      error: () => {},
+      alive: (next) => alive.push(next ? `${next.epoch}:${next.schema_rev}` : "offline"),
+      response: () => {},
+      schema: () => {},
+      settings: () => {},
+      status: (status) => statuses.push(status),
+    });
+
+    await session.open();
+    client.clearAlive();
+    client.publishAlive({ proto: 1, epoch: 2, schema_rev: 8, pages: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(alive).toEqual(["1:7", "offline", "2:8"]);
+    expect(statuses).toContain("Prefix offline");
+    expect(client.calls.filter((call) => call === "watchAlive dt/device")).toHaveLength(1);
+    expect(client.calls.filter((call) => call === "watchSettings dt/device ")).toHaveLength(2);
+  });
+
+  it("clears and streams settings again after broker reconnect", async () => {
     vi.useFakeTimers();
     try {
       const client = new FakeClient();
@@ -177,18 +214,59 @@ describe("PrefixSession", () => {
       });
 
       await session.open();
+      await vi.advanceTimersByTimeAsync(100);
       expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 1 }]);
 
-      client.setSettings(new Map());
+      client.setSettings(new Map([["/leaf", 2]]));
       client.reconnect();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(100);
 
-      expect(commits.at(-1)).toEqual([]);
+      expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 2 }]);
+      expect(client.calls.filter((call) => call === "alive dt/device")).toEqual([]);
       expect(client.calls).not.toContain("stopSettings dt/device ");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("cancels the initial alive wait when the session closes", async () => {
+    const client = new FakeClient();
+    client.setReplayAlive(false);
+    const session = new PrefixSession(client as never, "dt/device", "", {
+      error: () => {},
+      alive: () => {},
+      response: () => {},
+      schema: () => {},
+      settings: () => {},
+      status: () => {},
+    });
+
+    const opened = session.open();
+    await Promise.resolve();
+    session.close();
+
+    await expect(opened).rejects.toThrow("Prefix session closed");
+    expect(client.calls).toContain("stopAlive dt/device");
+  });
+
+  it("does not surface transient reconnect timeouts as app errors", async () => {
+    const client = new FakeClient();
+    const errors: string[] = [];
+    const statuses: string[] = [];
+    const session = new PrefixSession(client as never, "dt/device", "", {
+      error: (error) => errors.push(error),
+      alive: () => {},
+      response: () => {},
+      schema: () => {},
+      settings: () => {},
+      status: (status) => statuses.push(status),
+    });
+
+    await session.open();
+    client.connectionError("connack timeout", true);
+    client.connectionError("bad credentials", false);
+
+    expect(statuses).toContain("Broker reconnecting");
+    expect(errors).toEqual(["bad credentials"]);
   });
 });

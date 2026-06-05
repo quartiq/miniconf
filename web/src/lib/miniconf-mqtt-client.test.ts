@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { EventEmitter } from "node:events";
 import { MiniconfMqttClient } from "./miniconf-mqtt-client";
 import { MqttBus } from "./mqtt-bus";
@@ -105,72 +105,34 @@ describe("MiniconfMqttClient subscriptions", () => {
 
     expect(updates.at(-1)).toEqual(["dt/device"]);
 
+    mqtt.publishRetained("dt/device/alive", "");
+    expect(updates.at(-1)).toEqual([]);
+
     mqtt.emit("connect");
     expect(updates.at(-1)).toEqual([]);
 
     stop();
   });
 
-  it("keeps the main settings watcher subscribed after retained sync releases its reference", async () => {
-    vi.useFakeTimers();
-    try {
-      const mqtt = new FakeMqttClient();
-      const bus = new MqttBus(mqtt as never);
-      const client = new MiniconfMqttClient(bus);
+  it("streams only retained authoritative settings", async () => {
+    const mqtt = new FakeMqttClient();
+    const client = new MiniconfMqttClient(new MqttBus(mqtt as never));
+    const changes: unknown[] = [];
 
-      client.watchSettings("dt/device", "/sub", () => {});
-      await Promise.resolve();
+    client.watchSettings("dt/device", "/sub", (change) => changes.push(change));
+    await Promise.resolve();
+    mqtt.completeSubscribe();
+    mqtt.publishRetained("dt/device/settings/sub/a", "1");
+    mqtt.publishRetained("dt/device/settings/sub/b", "2", { auth: "bad" });
+    mqtt.publishRetained("dt/device/settings/sub/c", "3", { auth: ["", ""] });
+    mqtt.publishRetained("dt/device/settings/sub/d", "4", { auth: "" });
 
-      const retained = client.settings("dt/device", "/sub", 100);
-      await Promise.resolve();
-      mqtt.completeSubscribe();
-      mqtt.completeSubscribe();
-      await vi.advanceTimersByTimeAsync(100);
-      await retained;
-
-      expect(mqtt.subscribed).toEqual([
-        "dt/device/settings/sub/#",
-        "dt/device/settings/sub/#",
-      ]);
-      expect(mqtt.unsubscribed).toEqual([]);
-      expect((bus as unknown as {
-        subscriptions: Map<string, { durable: number; transient: number }>;
-      }).subscriptions.get("dt/device/settings/sub/#")).toMatchObject({
-        durable: 1,
-        transient: 0,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("accepts only retained authoritative settings", async () => {
-    vi.useFakeTimers();
-    try {
-      const mqtt = new FakeMqttClient();
-      const client = new MiniconfMqttClient(new MqttBus(mqtt as never));
-
-      const retained = client.settings("dt/device", "/sub", 1000);
-      await Promise.resolve();
-      mqtt.completeSubscribe();
-      mqtt.publishRetained("dt/device/settings/sub/a", "1");
-      mqtt.publishRetained("dt/device/settings/sub/b", "2", { auth: "bad" });
-      mqtt.publishRetained("dt/device/settings/sub/c", "3", { auth: ["", ""] });
-      mqtt.publishRetained("dt/device/settings/sub/d", "4", { auth: "" });
-      await vi.advanceTimersByTimeAsync(100);
-
-      await expect(retained).resolves.toEqual(new Map([["/sub/d", 4]]));
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(changes).toEqual([{ path: "/sub/d", value: 4, present: true, rev: undefined }]);
   });
 
   it("rejects invalid Miniconf setting roots", async () => {
     const client = new MiniconfMqttClient(new MqttBus(new FakeMqttClient() as never));
 
-    await expect(client.settings("dt/device", "sub")).rejects.toThrow(
-      'Settings root must be empty or start with "/"',
-    );
     expect(() => client.watchSettings("dt/device", "sub", () => {})).toThrow(
       'Settings root must be empty or start with "/"',
     );
