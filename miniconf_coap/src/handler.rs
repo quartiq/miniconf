@@ -1,4 +1,4 @@
-use core::{borrow::BorrowMut, fmt::Write as _, iter, marker::PhantomData};
+use core::{fmt::Write as _, iter, marker::PhantomData};
 
 use coap_handler::Attribute;
 use coap_message::{MinimalWritableMessage, ReadableMessage};
@@ -8,55 +8,45 @@ use miniconf::{
 };
 
 #[cfg(feature = "cbor")]
-use crate::ConstPathCbor;
+use crate::Cbor;
 use crate::{
     Accepts, ChangedKey, Error, InvalidOption, MAX_DEPTH, MAX_HANDLER_RESPONSE_LENGTH, Problem,
-    RequestParts, Response, UriPath, ValueHandler, format, value::Representation,
+    RequestParts, Response, UriPath, ValueRoute, format, value::Representation,
 };
 #[cfg(feature = "json-core")]
-use crate::{ConstPathJson, SchemaHandler};
+use crate::{Json, SchemaRoute};
 
 /// `coap-handler` adapter for Miniconf leaf value resources.
 ///
 /// This adapter is route-relative: mount it with `coap-handler-implementations`
 /// `.below(&["settings"], ...)` and leave URI prefix handling to the ecosystem router.
+///
+/// It owns its settings because `coap-handler::Handler` has no per-request application context.
+/// Use [`ValueRoute`] directly when other components also need cooperative settings access.
 #[derive(Debug)]
-pub struct MiniconfHandler<Storage, Settings, R> {
-    settings: Storage,
-    values: ValueHandler<'static, R>,
-    _settings: PhantomData<Settings>,
+pub struct MiniconfCoapHandler<Settings, R> {
+    settings: Settings,
+    values: ValueRoute<'static, R>,
 }
 
-/// Const-path JSON `coap-handler` adapter.
 #[cfg(feature = "json-core")]
-pub type ConstPathJsonCoapHandler<'a, Settings> =
-    MiniconfHandler<&'a mut Settings, Settings, ConstPathJson>;
-
-/// Const-path CBOR `coap-handler` adapter.
-#[cfg(feature = "cbor")]
-pub type ConstPathCborCoapHandler<'a, Settings> =
-    MiniconfHandler<&'a mut Settings, Settings, ConstPathCbor>;
-
-#[cfg(feature = "json-core")]
-impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathJson> {
+impl<Settings> MiniconfCoapHandler<Settings, Json> {
     /// Create a route-relative JSON Miniconf value handler.
-    pub const fn const_path_json(settings: Storage) -> Self {
+    pub const fn json(settings: Settings) -> Self {
         Self {
             settings,
-            values: ValueHandler::const_path_json(""),
-            _settings: PhantomData,
+            values: ValueRoute::json(""),
         }
     }
 }
 
 #[cfg(feature = "cbor")]
-impl<Storage, Settings> MiniconfHandler<Storage, Settings, ConstPathCbor> {
+impl<Settings> MiniconfCoapHandler<Settings, Cbor> {
     /// Create a route-relative CBOR Miniconf value handler.
-    pub const fn const_path_cbor(settings: Storage) -> Self {
+    pub const fn cbor(settings: Settings) -> Self {
         Self {
             settings,
-            values: ValueHandler::const_path_cbor(""),
-            _settings: PhantomData,
+            values: ValueRoute::cbor(""),
         }
     }
 }
@@ -109,10 +99,9 @@ enum ValueAction {
     Error(Error),
 }
 
-impl<Storage, Settings, R> coap_handler::Handler for MiniconfHandler<Storage, Settings, R>
+impl<Settings, R> coap_handler::Handler for MiniconfCoapHandler<Settings, R>
 where
-    Storage: BorrowMut<Settings>,
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: 'static + TreeSchema + TreeSerialize + TreeDeserializeOwned,
     R: Representation,
 {
     type RequestData = ValueRequest;
@@ -145,7 +134,7 @@ where
         }
         // `coap-handler` request data can not borrow the request payload. Apply idempotent PUTs
         // during extraction and carry only the response action, matching the ecosystem handlers.
-        let settings = self.settings.borrow_mut();
+        let settings = &mut self.settings;
         let path = request.path();
         let action = match self
             .values
@@ -179,7 +168,7 @@ where
             ValueAction::Build => {
                 let mut response_buf = [0; MAX_HANDLER_RESPONSE_LENGTH];
                 let request = request.request.into_request_parts();
-                let settings = self.settings.borrow_mut();
+                let settings = &mut self.settings;
                 let outcome = self.values.handle(&request, settings, &mut response_buf);
                 let response = outcome.response().unwrap_or(Response {
                     code: code::NOT_FOUND,
@@ -207,10 +196,10 @@ where
 ///
 #[cfg(feature = "json-core")]
 #[derive(Debug)]
-pub struct MiniconfSchemaHandler<Settings>(PhantomData<Settings>);
+pub struct SchemaCoapHandler<Settings>(PhantomData<Settings>);
 
 #[cfg(feature = "json-core")]
-impl<Settings> MiniconfSchemaHandler<Settings> {
+impl<Settings> SchemaCoapHandler<Settings> {
     /// Create a route-relative JSON schema handler.
     pub const fn json() -> Self {
         Self(PhantomData)
@@ -218,7 +207,7 @@ impl<Settings> MiniconfSchemaHandler<Settings> {
 }
 
 #[cfg(feature = "json-core")]
-impl<Settings> coap_handler::Handler for MiniconfSchemaHandler<Settings>
+impl<Settings> coap_handler::Handler for SchemaCoapHandler<Settings>
 where
     Settings: TreeSchema,
 {
@@ -245,7 +234,7 @@ where
     ) -> Result<(), Self::BuildResponseError<M>> {
         let request = request.into_request_parts();
         let mut response_buf = [0; MAX_HANDLER_RESPONSE_LENGTH];
-        let outcome = SchemaHandler::new("").handle::<Settings>(&request, &mut response_buf);
+        let outcome = SchemaRoute::new("").handle::<Settings>(&request, &mut response_buf);
         let response = outcome.response().unwrap_or(Response {
             code: code::NOT_FOUND,
             content_format: None,
@@ -255,9 +244,9 @@ where
     }
 }
 
-impl<Storage, Settings, R> coap_handler::Reporting for MiniconfHandler<Storage, Settings, R>
+impl<Settings, R> coap_handler::Reporting for MiniconfCoapHandler<Settings, R>
 where
-    Settings: TreeSchema,
+    Settings: 'static + TreeSchema,
     R: Representation,
 {
     type Record<'res>
@@ -300,7 +289,7 @@ const fn coap_uint_len(value: u16) -> usize {
 }
 
 #[cfg(feature = "json-core")]
-impl<Settings> coap_handler::Reporting for MiniconfSchemaHandler<Settings>
+impl<Settings> coap_handler::Reporting for SchemaCoapHandler<Settings>
 where
     Settings: TreeSchema,
 {

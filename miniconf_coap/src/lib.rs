@@ -3,9 +3,9 @@
 
 //! Serve selected `miniconf` trees as CoAP resources.
 //!
-//! The crate is deliberately sessionless. Applications pass caller-owned settings into
-//! cooperative request handlers, and keep ownership of CoAP sockets, message IDs, tokens, routing,
-//! retransmission, and unrelated resources.
+//! The crate is deliberately sessionless. Applications pass caller-owned settings into value
+//! routes, and keep ownership of CoAP sockets, message IDs, tokens, routing, retransmission, and
+//! unrelated resources.
 //!
 //! The schema route serves a JSON manifest at `/schema` and compact text schema pages at
 //! `/schema/{page}`.
@@ -63,22 +63,18 @@ mod message;
 mod schema;
 mod value;
 
-#[cfg(all(feature = "coap-handler", feature = "cbor"))]
-pub use handler::ConstPathCborCoapHandler;
-#[cfg(all(feature = "coap-handler", feature = "json-core"))]
-pub use handler::ConstPathJsonCoapHandler;
 #[cfg(feature = "coap-handler")]
-pub use handler::MiniconfHandler;
+pub use handler::MiniconfCoapHandler;
 #[cfg(all(feature = "coap-handler", feature = "json-core"))]
-pub use handler::MiniconfSchemaHandler;
+pub use handler::SchemaCoapHandler;
 pub use message::{Error, Operation, Outcome, Problem, RequestParts, Response};
 #[cfg(feature = "json-core")]
-pub use schema::SchemaHandler;
-pub use value::ValueHandler;
+pub use schema::SchemaRoute;
+pub use value::ValueRoute;
 #[cfg(feature = "cbor")]
-pub use value::{ConstPathCbor, ConstPathCborHandler};
+pub use value::{Cbor, CborValueRoute};
 #[cfg(feature = "json-core")]
-pub use value::{ConstPathJson, ConstPathJsonHandler};
+pub use value::{Json, JsonValueRoute};
 
 #[cfg(feature = "coap-handler")]
 pub(crate) use message::{Accepts, InvalidOption, UriPath};
@@ -95,10 +91,9 @@ mod tests {
     use std::{sync::OnceLock, vec::Vec};
 
     #[cfg(feature = "cbor")]
-    use crate::ConstPathCborHandler;
+    use crate::CborValueRoute;
     use crate::{
-        ConstPathJsonHandler, Error, Operation, Outcome, Problem, RequestParts, Response,
-        SchemaHandler,
+        Error, JsonValueRoute, Operation, Outcome, Problem, RequestParts, Response, SchemaRoute,
     };
 
     #[derive(Tree)]
@@ -295,8 +290,8 @@ mod tests {
         settings: &mut Settings,
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
-        let schema = SchemaHandler::new("/schema");
-        let values = ConstPathJsonHandler::const_path_json("/settings");
+        let schema = SchemaRoute::new("/schema");
+        let values = JsonValueRoute::json("/settings");
 
         match request.path() {
             "/schema" => return schema.handle::<Settings>(request, response_buf),
@@ -322,7 +317,7 @@ mod tests {
     #[test]
     fn get_and_put_json_leaf() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 
@@ -351,7 +346,7 @@ mod tests {
     #[test]
     fn absent_not_found_and_too_long_stay_distinct() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings {
             visible: None,
             ..Default::default()
@@ -382,7 +377,7 @@ mod tests {
     #[test]
     fn access_write_maps_to_unprocessable_entity() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 
@@ -404,7 +399,7 @@ mod tests {
     #[test]
     fn schema_route_is_separate() {
         init_host_logging();
-        let handler = SchemaHandler::new("/schema");
+        let handler = SchemaRoute::new("/schema");
         let mut response = [0; 512];
         let req = request(code::GET, &["schema"], None, b"");
         let out = handler.handle::<Settings>(&req, &mut response);
@@ -425,7 +420,7 @@ mod tests {
     #[test]
     fn schema_route_is_paged() {
         init_host_logging();
-        let handler = SchemaHandler::new("/schema");
+        let handler = SchemaRoute::new("/schema");
         let mut response = [0; 512];
         let req = request(code::GET, &["schema", "0"], None, b"");
         let out = handler.handle::<Settings>(&req, &mut response);
@@ -448,7 +443,7 @@ mod tests {
     #[test]
     fn get_and_put_leaf() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 
@@ -483,7 +478,7 @@ mod tests {
                 content_format::from_str("application/json").unwrap(),
             );
         let request = RequestParts::from_message(&request).unwrap();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 
@@ -510,7 +505,7 @@ mod tests {
                 content_format::from_str("application/json").unwrap(),
             );
         let request = RequestParts::from_message(&request).unwrap();
-        let handler = SchemaHandler::new("/schema");
+        let handler = SchemaRoute::new("/schema");
         let mut response = [0; 512];
         let outcome = handler.handle::<Settings>(&request, &mut response);
         let response = outcome.response().unwrap();
@@ -536,7 +531,7 @@ mod tests {
             .uint_option(option::ACCEPT, 2)
             .uint_option(option::ACCEPT, 3);
         let request = RequestParts::from_message(&request).unwrap();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
         let outcome = handler.handle(&request, &mut settings, &mut response);
@@ -574,7 +569,7 @@ mod tests {
     #[test]
     fn duplicate_content_format_is_bad_request_on_matched_route() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let request = TestMessage::new(code::PUT)
             .str_option(option::URI_PATH, "settings")
@@ -601,7 +596,7 @@ mod tests {
     #[test]
     fn unknown_critical_option_is_bad_option_on_matched_route() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let request = TestMessage::new(code::GET)
             .str_option(option::URI_PATH, "settings")
@@ -622,7 +617,7 @@ mod tests {
     #[test]
     fn get_serialization_failures_are_not_bad_payload() {
         init_host_logging();
-        let handler = ConstPathJsonHandler::const_path_json("/settings");
+        let handler = JsonValueRoute::json("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 0];
         let req = request(code::GET, &["settings", "number"], None, b"");
@@ -701,9 +696,9 @@ mod tests {
 
     #[cfg(feature = "cbor")]
     #[test]
-    fn const_path_cbor_get_and_put_leaf() {
+    fn cbor_get_and_put_leaf() {
         init_host_logging();
-        let handler = ConstPathCborHandler::const_path_cbor("/settings");
+        let handler = CborValueRoute::cbor("/settings");
         let mut settings = Settings::default();
         let mut response = [0; 128];
 

@@ -257,7 +257,7 @@ fn nullable_schema(mut schema: schemars::Schema) -> schemars::Schema {
 }
 
 fn definition_name(meta: &Meta) -> Option<String> {
-    meta.items.iter().find_map(|(key, typename)| {
+    meta.iter().find_map(|(key, typename)| {
         (*key == META_TYPENAME).then_some(format!("tree-internal-{typename}"))
     })
 }
@@ -461,8 +461,7 @@ fn push_meta(sch: &mut schemars::Schema, key: &str, meta: &Meta) {
         assert_eq!(
             sch.insert(
                 key.to_string(),
-                meta.items
-                    .iter()
+                meta.iter()
                     .map(|(k, v)| (k.to_string(), v.to_string().into()))
                     .collect::<Map<_, _>>()
                     .into(),

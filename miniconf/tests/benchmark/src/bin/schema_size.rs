@@ -8,7 +8,7 @@ use miniconf::{Internal, Meta, Schema, TreeSchema};
 use miniconf_benchmark::settings::Settings;
 
 const fn meta_bytes(meta: &Meta) -> usize {
-    core::mem::size_of_val(meta.items)
+    core::mem::size_of_val(meta.as_slice())
 }
 
 const fn schema_bytes(schema: &Schema) -> usize {

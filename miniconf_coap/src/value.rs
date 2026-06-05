@@ -28,61 +28,61 @@ use crate::{ChangedKey, Error, MAX_DEPTH, Operation, Outcome, Problem, RequestPa
 
 /// Leaf value route backed by a Miniconf tree.
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ValueHandler<'a, R> {
+pub struct ValueRoute<'a, R> {
     base: &'a str,
     pub(crate) representation: R,
 }
 
-/// Const-path-addressed JSON value route.
+/// JSON value route.
 #[cfg(feature = "json-core")]
-pub type ConstPathJsonHandler<'a> = ValueHandler<'a, ConstPathJson>;
+pub type JsonValueRoute<'a> = ValueRoute<'a, Json>;
 
-/// Const-path-addressed CBOR value route.
+/// CBOR value route.
 #[cfg(feature = "cbor")]
-pub type ConstPathCborHandler<'a> = ValueHandler<'a, ConstPathCbor>;
+pub type CborValueRoute<'a> = ValueRoute<'a, Cbor>;
 
-/// URI path segments as Miniconf `ConstPath` keys, with JSON payloads.
+/// URI path segments as Miniconf keys, with JSON payloads.
 #[cfg(feature = "json-core")]
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ConstPathJson;
+pub struct Json;
 
-/// URI path segments as Miniconf `ConstPath` keys, with CBOR payloads.
+/// URI path segments as Miniconf keys, with CBOR payloads.
 #[cfg(feature = "cbor")]
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct ConstPathCbor;
+pub struct Cbor;
 
 mod private {
     pub trait Sealed {}
 }
 
 #[cfg(feature = "json-core")]
-impl private::Sealed for ConstPathJson {}
+impl private::Sealed for Json {}
 #[cfg(feature = "cbor")]
-impl private::Sealed for ConstPathCbor {}
+impl private::Sealed for Cbor {}
 
 #[cfg(feature = "json-core")]
-impl<'a> ValueHandler<'a, ConstPathJson> {
+impl<'a> ValueRoute<'a, Json> {
     /// Serve JSON where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_json(base: &'a str) -> Self {
+    pub const fn json(base: &'a str) -> Self {
         Self {
             base,
-            representation: ConstPathJson,
+            representation: Json,
         }
     }
 }
 
 #[cfg(feature = "cbor")]
-impl<'a> ValueHandler<'a, ConstPathCbor> {
+impl<'a> ValueRoute<'a, Cbor> {
     /// Serve CBOR where remaining URI path segments are Miniconf path segments.
-    pub const fn const_path_cbor(base: &'a str) -> Self {
+    pub const fn cbor(base: &'a str) -> Self {
         Self {
             base,
-            representation: ConstPathCbor,
+            representation: Cbor,
         }
     }
 }
 
-impl<'a, R> ValueHandler<'a, R>
+impl<'a, R> ValueRoute<'a, R>
 where
     R: Representation,
 {
@@ -277,7 +277,7 @@ where
     }
 }
 
-/// Complete value representation used by a [`ValueHandler`].
+/// Complete value representation used by a [`ValueRoute`].
 #[doc(hidden)]
 pub trait Representation: private::Sealed {
     /// Serialization error type.
@@ -327,7 +327,7 @@ pub trait Representation: private::Sealed {
 }
 
 #[cfg(feature = "json-core")]
-impl Representation for ConstPathJson {
+impl Representation for Json {
     type SerError = JsonSerError;
     type DeError = JsonDeError;
 
@@ -382,7 +382,7 @@ impl Representation for ConstPathJson {
 }
 
 #[cfg(feature = "cbor")]
-impl Representation for ConstPathCbor {
+impl Representation for Cbor {
     type SerError = CborSerError<EndOfSlice>;
     type DeError = CborDeError;
 

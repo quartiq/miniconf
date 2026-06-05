@@ -13,11 +13,11 @@ const SCHEMA_PROTO: u8 = 1;
 
 /// Schema route backed by `TreeSchema`.
 #[derive(defmt::Format, Debug, Clone, Copy)]
-pub struct SchemaHandler<'a> {
+pub struct SchemaRoute<'a> {
     base: &'a str,
 }
 
-impl<'a> SchemaHandler<'a> {
+impl<'a> SchemaRoute<'a> {
     /// Construct a compact schema route.
     ///
     /// The base path serves a JSON manifest. `base/{page}` serves newline-delimited compact schema
