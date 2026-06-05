@@ -136,13 +136,22 @@
   .actions {
     align-items: baseline;
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: var(--space);
   }
 
   @media (max-width: 760px) {
     .editor {
       grid-template-columns: 1fr;
+    }
+
+    .actions {
+      flex-direction: row;
+    }
+
+    .actions button {
+      flex: 1 1 0;
+      width: auto;
     }
   }
 </style>

@@ -8,8 +8,8 @@ import mqtt, {
 import { nanoid } from "nanoid";
 
 // MQTT.js owns the WebSocket transport. This wrapper keeps browser sessions
-// clean/ephemeral, centralizes topic filtering, and tracks durable watchers
-// separately from transient retained scans or response subscriptions.
+// clean/ephemeral, centralizes topic filtering, and owns durable resubscribe
+// ordering so retained replay happens after app-level reconnect handlers run.
 export type MqttMessage = {
   topic: string;
   payload: Uint8Array;
@@ -19,8 +19,8 @@ export type MqttMessage = {
 type Listener = (message: MqttMessage) => void;
 
 type Subscription = {
-  durable: number;
-  transient: number;
+  durable: boolean;
+  options: IClientSubscribeOptions;
 };
 
 export type MqttAuth = {
@@ -70,7 +70,7 @@ export class MqttBus {
         listener(message);
       }
     });
-    this.client.on("connect", () => this.notifyConnection({ state: "connected" }));
+    this.client.on("connect", () => this.handleConnect());
     this.client.on("reconnect", () => this.notifyConnection({ state: "reconnecting" }));
     this.client.on("offline", () => this.notifyConnection({ state: "offline" }));
     this.client.on("close", () => {
@@ -98,7 +98,7 @@ export class MqttBus {
       protocolVersion: 5,
       queueQoSZero: false,
       reconnectPeriod: 0,
-      resubscribe: true,
+      resubscribe: false,
       ...(auth?.username ? { username: auth.username } : {}),
       ...(auth?.password ? { password: auth.password } : {}),
     };
@@ -150,13 +150,12 @@ export class MqttBus {
     options: IClientSubscribeOptions,
     onMessage: (message: MqttMessage) => void,
   ): () => void {
-    // Durable watchers describe desired subscriptions and survive reconnect via
-    // MQTT.js resubscribe. One-shot scans use withSubscription instead.
+    this.reserveSubscription(filter, options, true, false);
     const stop = this.listen(filter, onMessage);
-    void this.subscribe(filter, options, { durable: true }).catch(() => stop());
+    void this.subscribeReserved(filter, options, true).catch(() => stop());
     return () => {
       stop();
-      void this.unsubscribe(filter, true);
+      void this.unsubscribe(filter);
     };
   }
 
@@ -170,32 +169,6 @@ export class MqttBus {
     return () => {
       this.listeners.delete(listener);
     };
-  }
-
-  async firstMessage(
-    filter: string,
-    options: IClientSubscribeOptions,
-    predicate: (message: MqttMessage) => boolean,
-    timeout: number,
-  ): Promise<MqttMessage> {
-    const pending = new Promise<MqttMessage>((resolve, reject) => {
-      const timer = globalThis.setTimeout(() => {
-        cleanup();
-        reject(new Error(`Timed out waiting for ${filter}`));
-      }, timeout);
-      const cleanup = () => {
-        globalThis.clearTimeout(timer);
-        this.listeners.delete(listener);
-      };
-      const listener = (message: MqttMessage) => {
-        if (topicMatches(filter, message.topic) && predicate(message)) {
-          cleanup();
-          resolve(message);
-        }
-      };
-      this.listeners.add(listener);
-    });
-    return this.withSubscription(filter, options, () => pending);
   }
 
   async collectUntil(
@@ -294,74 +267,62 @@ export class MqttBus {
   ): Promise<T> {
     // Transient subscriptions are connected-only by design; do not silently
     // queue retained scans or /set response waits while disconnected.
-    await this.subscribe(topic, options, {
-      refresh: true,
-      requireConnected: true,
-    });
+    this.reserveSubscription(topic, options, false, true);
+    await this.subscribeReserved(topic, options, true);
     try {
       return await body();
     } finally {
-      await this.unsubscribe(topic, false);
+      await this.unsubscribe(topic);
     }
   }
 
-  private async subscribe(
+  private reserveSubscription(
     topic: string,
     options: IClientSubscribeOptions,
-    config: { durable?: boolean; refresh?: boolean; requireConnected?: boolean } = {},
-  ): Promise<void> {
-    const entry = this.subscriptions.get(topic) ?? { durable: 0, transient: 0 };
-    const existing = entry.durable + entry.transient;
-    if (config.durable) {
-      entry.durable += 1;
-    } else {
-      entry.transient += 1;
+    durable: boolean,
+    requireConnected: boolean,
+  ): void {
+    if (this.subscriptions.has(topic)) {
+      throw new Error(`MQTT topic filter already subscribed: ${topic}`);
     }
-    this.subscriptions.set(topic, entry);
-
-    if (existing && !config.refresh) {
-      return;
-    }
-    if (config.requireConnected && !this.client.connected) {
-      this.decrementSubscription(topic, Boolean(config.durable));
+    if (requireConnected && !this.client.connected) {
       throw new Error("MQTT broker disconnected");
     }
+    this.subscriptions.set(topic, { durable, options });
+  }
+
+  private async subscribeReserved(
+    topic: string,
+    options: IClientSubscribeOptions,
+    removeOnError: boolean,
+  ): Promise<void> {
     if (!this.client.connected) {
       return;
     }
     try {
       await this.client.subscribeAsync(topic, options);
     } catch (error) {
-      this.decrementSubscription(topic, Boolean(config.durable));
+      if (removeOnError) {
+        this.subscriptions.delete(topic);
+      }
       throw error;
     }
   }
 
-  private async unsubscribe(topic: string, durable: boolean): Promise<void> {
-    const remaining = this.decrementSubscription(topic, durable);
-    if (remaining > 0 || !this.client.connected) {
+  private async unsubscribe(topic: string): Promise<void> {
+    if (!this.subscriptions.delete(topic) || !this.client.connected) {
       return;
     }
     await this.client.unsubscribeAsync(topic);
   }
 
-  private decrementSubscription(topic: string, durable: boolean): number {
-    const entry = this.subscriptions.get(topic);
-    if (!entry) {
-      return 0;
+  private handleConnect(): void {
+    this.notifyConnection({ state: "connected" });
+    for (const [topic, subscription] of this.subscriptions) {
+      if (subscription.durable) {
+        void this.subscribeReserved(topic, subscription.options, false);
+      }
     }
-    if (durable) {
-      entry.durable = Math.max(0, entry.durable - 1);
-    } else {
-      entry.transient = Math.max(0, entry.transient - 1);
-    }
-    const remaining = entry.durable + entry.transient;
-    if (remaining) {
-      this.subscriptions.set(topic, entry);
-    } else {
-      this.subscriptions.delete(topic);
-    }
-    return remaining;
   }
 
   private notifyConnection(event: MqttConnectionEvent): void {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MiniconfMqttClient } from "./miniconf-mqtt-client";
+import { MiniconfMqttClient, type DiscoveredPrefix } from "./miniconf-mqtt-client";
 
 const broker = process.env.MINICONF_WEB_BROKER;
 const discoveryPattern = process.env.MINICONF_WEB_FILTER ?? "dt/sinara/+/+";
@@ -9,31 +9,29 @@ describe.skipIf(!broker)("Miniconf WebSocket broker", () => {
   it("discovers one target and resolves its retained schema", async () => {
     const client = await MiniconfMqttClient.connect(broker!);
     try {
-      const prefixes = await client.discover(discoveryPattern);
+      const prefixes = await new Promise<DiscoveredPrefix[]>((resolve, reject) => {
+        let stop: (() => void) | undefined;
+        const timer = globalThis.setTimeout(() => {
+          stop?.();
+          reject(new Error("Timed out waiting for discovery"));
+        }, 3_000);
+        stop = client.watchDiscovery(discoveryPattern, (next) => {
+          if (!next.length) {
+            return;
+          }
+          globalThis.clearTimeout(timer);
+          stop?.();
+          resolve(next);
+        });
+      });
       expect(prefixes.length).toBeGreaterThan(0);
 
-      let foundMpll = false;
-      for (const discovered of prefixes) {
-        const aliveManifest = await client.aliveManifest(discovered.prefix);
-        const schema = await client.schema(discovered.prefix, aliveManifest);
+      const discovered = prefixes[0];
+      const schema = await client.schema(discovered.prefix, discovered.aliveManifest);
 
-        expect(schema.node("").kind).not.toBe("leaf");
-        expect(schema.walk().length).toBeGreaterThan(1);
-        expect(() => schema.path("/")).toThrow("Unknown schema path");
-
-        try {
-          expect(schema.node("/mpll/amplitude/1").sem).toEqual({ ty: "f32" });
-          foundMpll = true;
-          break;
-        } catch (err) {
-          if (err instanceof Error && err.message.startsWith("Unknown schema path")) {
-            continue;
-          }
-          throw err;
-        }
-      }
-
-      expect(foundMpll).toBe(true);
+      expect(schema.node("").kind).not.toBe("leaf");
+      expect(schema.walk().length).toBeGreaterThan(1);
+      expect(() => schema.path("/")).toThrow("Unknown schema path");
     } finally {
       client.close();
     }

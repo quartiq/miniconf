@@ -10,8 +10,8 @@ import type { MqttAuth, MqttConnectionEvent } from "./mqtt-bus";
 import { SettingsMirror, type SettingsCommit } from "./settings-mirror";
 
 // Session orchestration between raw protocol calls and Svelte state. Prefix
-// loads and reconnect refreshes are serialized so stale retained scans cannot
-// commit after a newer route or schema epoch wins.
+// loads are serialized so stale schema work cannot commit after a newer route
+// or schema epoch wins.
 export type { DiscoveredPrefix, AliveManifest, SetResponse } from "./miniconf-mqtt-client";
 
 export type PrefixSessionCallbacks = {
@@ -21,6 +21,12 @@ export type PrefixSessionCallbacks = {
   schema: (schema: Schema, root: string) => void;
   settings: (commit: SettingsCommit) => void;
   status: (status: string) => void;
+};
+
+type SessionState = "closed" | "opening" | "active" | "offline";
+
+type Load = {
+  abort: AbortController;
 };
 
 export class MiniconfBackend {
@@ -51,10 +57,8 @@ export class PrefixSession {
   private alive: AliveManifest | undefined;
   private root = "";
   private schema: Schema | undefined;
-  private settingsRoot: string | undefined;
-  private syncSerial = 0;
-  private initialized = false;
-  private cancelAliveWait: (() => void) | undefined;
+  private state: SessionState = "closed";
+  private load: Load | undefined;
   private stopConnection: (() => void) | undefined;
   private stopAlive: (() => void) | undefined;
   private stopSettings: (() => void) | undefined;
@@ -70,21 +74,17 @@ export class PrefixSession {
   }
 
   async open(): Promise<void> {
-    const serial = ++this.syncSerial;
+    const load = this.beginLoad("opening");
     this.watchConnection();
     this.callbacks.status("Loading alive manifest");
-    const alive = await this.watchAliveOnce();
-    if (!this.active(serial)) {
+    const alive = await this.waitInitialAlive(load);
+    if (!this.active(load)) {
       return;
     }
-    this.initialized = true;
+    this.state = "active";
     this.alive = alive;
     this.callbacks.alive(this.alive);
-    await this.loadSchema(this.alive, serial);
-    if (!this.active(serial)) {
-      return;
-    }
-    await this.settleSettings(serial);
+    await this.loadSchema(this.alive, load);
   }
 
   async set(path: string, value: unknown): Promise<SetResponse> {
@@ -95,10 +95,8 @@ export class PrefixSession {
   }
 
   close(): void {
-    this.syncSerial += 1;
-    this.initialized = false;
-    this.cancelAliveWait?.();
-    this.cancelAliveWait = undefined;
+    this.state = "closed";
+    this.cancelLoad();
     this.stopConnection?.();
     this.stopSettings?.();
     this.stopAlive?.();
@@ -108,57 +106,54 @@ export class PrefixSession {
     this.mirror.dispose();
   }
 
-  private async reload(next: AliveManifest, serial = ++this.syncSerial): Promise<void> {
-    this.callbacks.status("Reloading retained state");
+  private async reload(next: AliveManifest, load = this.beginLoad("active")): Promise<void> {
+    this.callbacks.status("Device manifest changed; reloading schema");
     this.alive = next;
     this.callbacks.alive(next);
-    await this.loadSchema(next, serial);
-    if (!this.active(serial)) {
-      return;
-    }
-    await this.settleSettings(serial);
+    await this.loadSchema(next, load);
   }
 
-  private async loadSchema(alive: AliveManifest, serial: number): Promise<void> {
+  private async loadSchema(alive: AliveManifest, load: Load): Promise<void> {
     this.callbacks.status("Loading schema");
     const schema = await this.client.schema(this.prefix, alive);
-    if (!this.active(serial)) {
+    if (!this.active(load)) {
       return;
     }
     this.schema = schema;
     this.root = this.schema.path(this.subtreePath);
-    this.mirror.beginRetained();
+    this.mirror.clear();
     this.callbacks.schema(this.schema, this.root);
-    // Keep the live /settings watcher active while the retained scan runs.
-    // Otherwise the browser can miss publish echoes that arrive during startup.
-    this.watchSettings();
+    this.restartSettings();
   }
 
-  private watchAliveOnce(): Promise<AliveManifest> {
+  private waitInitialAlive(load: Load): Promise<AliveManifest> {
     return new Promise((resolve, reject) => {
       let resolved = false;
       let settled = false;
+      const timer = globalThis.setTimeout(() => {
+        this.stopAlive?.();
+        this.stopAlive = undefined;
+        finish(() => reject(new Error(`Timed out waiting for ${this.prefix}/alive`)));
+      }, 3000);
+      const onAbort = () => {
+        finish(() => reject(new Error("Prefix session closed")));
+      };
       const finish = (complete: () => void) => {
         if (settled) {
           return;
         }
         settled = true;
         globalThis.clearTimeout(timer);
-        this.cancelAliveWait = undefined;
+        load.abort.signal.removeEventListener("abort", onAbort);
         complete();
       };
-      const timer = globalThis.setTimeout(() => {
-        this.stopAlive?.();
-        this.stopAlive = undefined;
-        finish(() => reject(new Error(`Timed out waiting for ${this.prefix}/alive`)));
-      }, 3000);
-      this.cancelAliveWait = () => {
-        finish(() => reject(new Error("Prefix session closed")));
-      };
+      load.abort.signal.addEventListener("abort", onAbort, { once: true });
       this.stopAlive = this.client.watchAlive(this.prefix, (next) => {
         if (!next) {
-          if (this.initialized) {
-            this.syncSerial += 1;
+          if (this.state === "active") {
+            this.cancelLoad();
+            this.state = "offline";
+            this.alive = undefined;
             this.callbacks.status("Prefix offline");
             this.callbacks.alive(undefined);
           }
@@ -169,6 +164,9 @@ export class PrefixSession {
           finish(() => resolve(next));
           return;
         }
+        if (this.state === "opening") {
+          return;
+        }
         if (this.alive?.epoch !== next.epoch || this.alive.schema_rev !== next.schema_rev) {
           void this.reload(next);
         }
@@ -176,13 +174,9 @@ export class PrefixSession {
     });
   }
 
-  private watchSettings(): void {
-    if (this.stopSettings && this.settingsRoot === this.root) {
-      return;
-    }
+  private restartSettings(): void {
     this.stopSettings?.();
     this.callbacks.status("Subscribing to settings");
-    this.settingsRoot = this.root;
     this.stopSettings = this.client.watchSettings(this.prefix, this.root, (change) => {
       this.noteSettingsChange(change);
     });
@@ -195,8 +189,9 @@ export class PrefixSession {
     this.stopConnection = this.client.watchConnection((event) => {
       switch (event.state) {
         case "connected":
-          if (this.initialized) {
-            void this.refreshRetained();
+          if (this.state === "active") {
+            this.mirror.clear();
+            this.callbacks.status("Broker reconnected; waiting for settings");
           }
           break;
         case "reconnecting":
@@ -216,51 +211,24 @@ export class PrefixSession {
     });
   }
 
-  private async refreshRetained(): Promise<void> {
-    const serial = ++this.syncSerial;
-    this.callbacks.status("Broker reconnected; refreshing retained state");
-    try {
-      // The durable /alive watcher is resubscribed by MQTT.js and handles
-      // epoch/schema/offline changes. Reconnect refresh only needs retained
-      // settings, because retained clears cannot be inferred from live replay.
-      this.mirror.beginRetained();
-      await this.settleSettings(serial);
-    } catch {
-      if (serial !== this.syncSerial) {
-        return;
-      }
-      this.alive = undefined;
-      this.callbacks.alive(undefined);
-      this.mirror.failRetained();
-      this.callbacks.status("Prefix offline");
-    }
-  }
-
-  private async settleSettings(serial: number): Promise<void> {
-    this.callbacks.status("Loading retained settings");
-    try {
-      const settled = await this.client.settings(this.prefix, this.root);
-      if (!this.active(serial)) {
-        return;
-      }
-      this.mirror.finishRetained(settled);
-      this.callbacks.status(`Retained settings settled for ${this.prefix}`);
-    } catch (err) {
-      if (!this.active(serial)) {
-        return;
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      this.mirror.failRetained();
-      this.callbacks.status("Retained settings incomplete");
-      this.callbacks.error(message);
-    }
-  }
-
   private noteSettingsChange(change: SettingsChange): void {
     this.mirror.ingest(change.path, change.value, change.present, change.rev);
   }
 
-  private active(serial: number): boolean {
-    return serial === this.syncSerial;
+  private beginLoad(state: SessionState): Load {
+    this.cancelLoad();
+    const load = { abort: new AbortController() };
+    this.load = load;
+    this.state = state;
+    return load;
+  }
+
+  private cancelLoad(): void {
+    this.load?.abort.abort();
+    this.load = undefined;
+  }
+
+  private active(load: Load): boolean {
+    return this.load === load && !load.abort.signal.aborted;
   }
 }

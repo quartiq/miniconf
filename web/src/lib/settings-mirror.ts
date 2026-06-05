@@ -1,20 +1,16 @@
-// Merges retained scans and live /settings publications into the authoritative
-// settings map. Retained scans use a shadow map so deletions are only committed
-// after the scan completes successfully.
+// Coalesces authoritative /settings publications into the visible settings map.
+// Absence is not inferred: empty retained/live settings payloads delete exact
+// leaves, while reconnect/schema reload clears the map before retained replay.
 export type Settings = Map<string, unknown>;
 
 export type SettingsCommit = {
   settings: Settings;
   changed: Set<string>;
   rev?: string;
-  source: "live" | "retained";
 };
 
 export class SettingsMirror {
   private changed = new Set<string>();
-  private loadingRetained = false;
-  private retainedBase = new Set<string>();
-  private retainedShadow: Settings | undefined;
   private rev: string | undefined;
   private shadow: Settings = new Map();
   private timer: ReturnType<typeof globalThis.setTimeout> | undefined;
@@ -27,59 +23,30 @@ export class SettingsMirror {
   reset(): void {
     this.cancel();
     this.changed = new Set();
-    this.loadingRetained = false;
-    this.retainedBase = new Set();
-    this.retainedShadow = undefined;
     this.rev = undefined;
     this.shadow = new Map();
   }
 
-  beginRetained(): void {
+  clear(): void {
     this.cancel();
+    const changed = new Set(this.shadow.keys());
     this.changed = new Set();
-    this.loadingRetained = true;
-    this.retainedBase = new Set(this.shadow.keys());
-    this.retainedShadow = new Map();
     this.rev = undefined;
+    this.shadow = new Map();
+    if (changed.size) {
+      this.onCommit({ settings: new Map(), changed });
+    }
   }
 
   ingest(path: string, value: unknown, present: boolean, rev?: string): void {
     this.rev = rev ?? this.rev;
-    const shadow = this.retainedShadow ?? this.shadow;
     if (present) {
-      shadow.set(path, value);
+      this.shadow.set(path, value);
     } else {
-      shadow.delete(path);
+      this.shadow.delete(path);
     }
     this.changed.add(path);
-    if (!this.loadingRetained) {
-      this.schedule();
-    }
-  }
-
-  finishRetained(retained: Settings): void {
-    const shadow = this.retainedShadow ?? new Map();
-    for (const [path, value] of retained) {
-      shadow.set(path, value);
-      this.changed.add(path);
-    }
-    for (const path of this.retainedBase) {
-      if (!shadow.has(path)) {
-        this.changed.add(path);
-      }
-    }
-    this.shadow = shadow;
-    this.retainedBase = new Set();
-    this.retainedShadow = undefined;
-    this.loadingRetained = false;
-    this.commit("retained");
-  }
-
-  failRetained(): void {
-    this.changed = new Set();
-    this.retainedBase = new Set();
-    this.retainedShadow = undefined;
-    this.loadingRetained = false;
+    this.schedule();
   }
 
   dispose(): void {
@@ -92,14 +59,14 @@ export class SettingsMirror {
     }
     this.timer = globalThis.setTimeout(() => {
       this.timer = undefined;
-      this.commit("live");
+      this.commit();
     }, this.liveDelay);
   }
 
-  private commit(source: SettingsCommit["source"]): void {
+  private commit(): void {
     const changed = new Set(this.changed);
     this.changed = new Set();
-    this.onCommit({ settings: new Map(this.shadow), changed, rev: this.rev, source });
+    this.onCommit({ settings: new Map(this.shadow), changed, rev: this.rev });
   }
 
   private cancel(): void {

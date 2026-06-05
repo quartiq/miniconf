@@ -11,10 +11,26 @@ vi.mock("mqtt", () => ({
 
 class FakeMqttClient extends EventEmitter {
   options: { reconnectPeriod?: number } = {};
+  connected = true;
   ended = false;
+  publications: string[] = [];
+  subscriptions: string[] = [];
+  unsubscriptions: string[] = [];
 
   end() {
     this.ended = true;
+  }
+
+  async publishAsync(topic: string) {
+    this.publications.push(topic);
+  }
+
+  async subscribeAsync(topic: string) {
+    this.subscriptions.push(topic);
+  }
+
+  async unsubscribeAsync(topic: string) {
+    this.unsubscriptions.push(topic);
   }
 }
 
@@ -55,7 +71,7 @@ describe("MQTT browser transport", () => {
     expect(connectMock.mock.calls[0][1]).toMatchObject({
       protocolVersion: 5,
       reconnectPeriod: 0,
-      resubscribe: true,
+      resubscribe: false,
     });
 
     mqtt.options = connectMock.mock.calls[0][1];
@@ -90,5 +106,65 @@ describe("MQTT browser transport", () => {
       { state: "error", error: "connack timeout", transient: true },
       { state: "error", error: "bad credentials", transient: false },
     ]);
+  });
+
+  it("forbids shared exact subscriptions", async () => {
+    const mqtt = new FakeMqttClient();
+    const bus = new MqttBus(mqtt as never);
+
+    const stopA = bus.watch("dt/device/settings/#", { qos: 0 }, () => {});
+    expect(() => bus.watch("dt/device/settings/#", { qos: 0 }, () => {})).toThrow(
+      "MQTT topic filter already subscribed",
+    );
+    await Promise.resolve();
+
+    stopA();
+    await Promise.resolve();
+
+    expect(mqtt.subscriptions).toEqual(["dt/device/settings/#"]);
+    expect(mqtt.unsubscriptions).toEqual(["dt/device/settings/#"]);
+  });
+
+  it("notifies reconnect before app-owned durable resubscribe", async () => {
+    const mqtt = new FakeMqttClient();
+    const bus = new MqttBus(mqtt as never);
+    const order: string[] = [];
+    mqtt.subscribeAsync = async (topic: string) => {
+      order.push(`subscribe ${topic}`);
+    };
+    bus.watchConnection((event) => order.push(event.state));
+
+    bus.watch("dt/device/settings/#", { qos: 0 }, () => {});
+    await Promise.resolve();
+    order.length = 0;
+
+    mqtt.emit("connect");
+    await Promise.resolve();
+
+    expect(order).toEqual(["connected", "subscribe dt/device/settings/#"]);
+  });
+
+  it("does not resubscribe transient subscriptions on reconnect", async () => {
+    const mqtt = new FakeMqttClient();
+    const bus = new MqttBus(mqtt as never);
+
+    const pending = bus.withSubscription("dt/device/response/1", { qos: 0 }, async () => {
+      mqtt.emit("connect");
+      await Promise.resolve();
+    });
+    await pending;
+
+    expect(mqtt.subscriptions).toEqual(["dt/device/response/1"]);
+  });
+
+  it("publishes only while connected", async () => {
+    const mqtt = new FakeMqttClient();
+    const bus = new MqttBus(mqtt as never);
+
+    await bus.publish("dt/device/set", "1", {});
+
+    mqtt.connected = false;
+    await expect(bus.publish("dt/device/set", "2", {})).rejects.toThrow("MQTT broker disconnected");
+    expect(mqtt.publications).toEqual(["dt/device/set"]);
   });
 });

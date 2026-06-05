@@ -17,11 +17,6 @@ class FakeClient {
   private replayAlive = true;
   private settingsResult: Map<string, unknown> = new Map([["/leaf", 1]]);
 
-  async aliveManifest(prefix: string) {
-    this.calls.push(`alive ${prefix}`);
-    return this.aliveResult;
-  }
-
   async schema(prefix: string) {
     this.calls.push(`schema ${prefix}`);
     return this.schemaValue;
@@ -48,12 +43,8 @@ class FakeClient {
   watchSettings(prefix: string, root: string, listener: (change: SettingsChange) => void) {
     this.calls.push(`watchSettings ${prefix} ${root}`);
     this.settingsListener = listener;
+    queueMicrotask(() => this.replaySettings());
     return () => this.calls.push(`stopSettings ${prefix} ${root}`);
-  }
-
-  async settings(prefix: string, root: string) {
-    this.calls.push(`settings ${prefix} ${root}`);
-    return this.settingsResult;
   }
 
   async set(prefix: string, path: string, value: unknown) {
@@ -85,10 +76,17 @@ class FakeClient {
 
   reconnect() {
     this.connectionListener?.({ state: "connected" });
+    queueMicrotask(() => this.replaySettings());
   }
 
   connectionError(error: string, transient = false) {
     this.connectionListener?.({ state: "error", error, transient });
+  }
+
+  private replaySettings() {
+    for (const [path, value] of this.settingsResult) {
+      this.settingsListener?.({ path, present: true, value });
+    }
   }
 }
 
@@ -110,12 +108,12 @@ describe("PrefixSession", () => {
       const session = new PrefixSession(client as never, "dt/device", "", callbacks);
 
       await session.open();
+      await vi.advanceTimersByTimeAsync(100);
       expect(client.calls).toEqual([
         "watchConnection",
         "watchAlive dt/device",
         "schema dt/device",
         "watchSettings dt/device ",
-        "settings dt/device ",
       ]);
       expect(commits).toEqual(["1"]);
 
@@ -136,7 +134,7 @@ describe("PrefixSession", () => {
     }
   });
 
-  it("reloads retained state without dropping the permanent settings watcher", async () => {
+  it("restarts the settings stream after schema reload", async () => {
     vi.useFakeTimers();
     try {
       const client = new FakeClient();
@@ -160,11 +158,10 @@ describe("PrefixSession", () => {
         "watchAlive dt/device",
         "schema dt/device",
         "watchSettings dt/device ",
-        "settings dt/device ",
         "schema dt/device",
-        "settings dt/device ",
+        "stopSettings dt/device ",
+        "watchSettings dt/device ",
       ]);
-      expect(client.calls).not.toContain("stopSettings dt/device ");
     } finally {
       vi.useRealTimers();
     }
@@ -193,10 +190,10 @@ describe("PrefixSession", () => {
     expect(alive).toEqual(["1:7", "offline", "2:8"]);
     expect(statuses).toContain("Prefix offline");
     expect(client.calls.filter((call) => call === "watchAlive dt/device")).toHaveLength(1);
-    expect(client.calls.filter((call) => call === "settings dt/device ")).toHaveLength(2);
+    expect(client.calls.filter((call) => call === "watchSettings dt/device ")).toHaveLength(2);
   });
 
-  it("refreshes retained settings after broker reconnect", async () => {
+  it("clears and streams settings again after broker reconnect", async () => {
     vi.useFakeTimers();
     try {
       const client = new FakeClient();
@@ -217,17 +214,15 @@ describe("PrefixSession", () => {
       });
 
       await session.open();
+      await vi.advanceTimersByTimeAsync(100);
       expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 1 }]);
 
-      client.setSettings(new Map());
+      client.setSettings(new Map([["/leaf", 2]]));
       client.reconnect();
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(100);
 
-      expect(commits.at(-1)).toEqual([]);
+      expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 2 }]);
       expect(client.calls.filter((call) => call === "alive dt/device")).toEqual([]);
-      expect(client.calls.filter((call) => call === "settings dt/device ")).toHaveLength(2);
       expect(client.calls).not.toContain("stopSettings dt/device ");
     } finally {
       vi.useRealTimers();
