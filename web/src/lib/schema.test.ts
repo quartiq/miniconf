@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { formatSchemaMetadata, renderSchemaTree, Schema, type CompactDef } from "./schema";
+import { formatSchemaMetadata, Schema, type CompactDef } from "./schema";
 
 function fixtureSchema(): Schema {
   const fixture = resolve("../testdata/compact-schema/fixture.ndjson");
@@ -142,17 +142,6 @@ describe("Schema", () => {
       "/mpll/amplitude/0",
       "/mpll/amplitude/1",
     ]);
-  });
-
-  it("renders schema trees like the Python CLI", () => {
-    const schema = fixtureSchema();
-
-    expect(renderSchemaTree(schema)).toBe(
-      '├─ value [edge role="selector"]\n└─ nested\n   └─ leaf',
-    );
-    expect(renderSchemaTree(mpllSchema(), "/mpll/amplitude")).toBe(
-      'amplitude [homogeneous] [edge doc="Output amplitude"]\n└─ 0..2 [homogeneous] [sem ty=f32]',
-    );
   });
 
   it("formats schema metadata for selected rows", () => {

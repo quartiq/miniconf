@@ -17,10 +17,10 @@ describe("semantic routes", () => {
     );
   });
 
-  it("round-trips broker paths and query strings", () => {
-    const path = discoveryPath("wss://broker.example/mqtt?tenant=lab", "dt/sinara/+/+");
+  it("round-trips secure broker authorities", () => {
+    const path = discoveryPath("wss://broker.example:8084", "dt/sinara/+/+");
     expect(readRoute({ hash: path })).toMatchObject({
-      broker: "wss://broker.example/mqtt?tenant=lab",
+      broker: "wss://broker.example:8084",
       discoveryPattern: "dt/sinara/+/+",
     });
   });

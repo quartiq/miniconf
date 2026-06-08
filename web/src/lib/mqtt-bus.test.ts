@@ -1,6 +1,6 @@
-import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MqttBus, topicMatches } from "./mqtt-bus";
+import { FakeMqttClient } from "./mqtt-test-fixture";
 
 const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
 const connectMock = vi.hoisted(() => vi.fn());
@@ -8,31 +8,6 @@ const connectMock = vi.hoisted(() => vi.fn());
 vi.mock("mqtt", () => ({
   default: { connect: connectMock },
 }));
-
-class FakeMqttClient extends EventEmitter {
-  options: { reconnectPeriod?: number } = {};
-  connected = true;
-  ended = false;
-  publications: string[] = [];
-  subscriptions: string[] = [];
-  unsubscriptions: string[] = [];
-
-  end() {
-    this.ended = true;
-  }
-
-  async publishAsync(topic: string) {
-    this.publications.push(topic);
-  }
-
-  async subscribeAsync(topic: string) {
-    this.subscriptions.push(topic);
-  }
-
-  async unsubscribeAsync(topic: string) {
-    this.unsubscriptions.push(topic);
-  }
-}
 
 afterEach(() => {
   connectMock.mockReset();
@@ -125,7 +100,7 @@ describe("MQTT browser transport", () => {
     expect(mqtt.unsubscriptions).toEqual(["dt/device/settings/#"]);
   });
 
-  it("notifies reconnect before app-owned durable resubscribe", async () => {
+  it("notifies reconnect before app-owned durable resubscribe and reports restoration", async () => {
     const mqtt = new FakeMqttClient();
     const bus = new MqttBus(mqtt as never);
     const order: string[] = [];
@@ -140,19 +115,38 @@ describe("MQTT browser transport", () => {
 
     mqtt.emit("connect");
     await Promise.resolve();
+    await Promise.resolve();
 
-    expect(order).toEqual(["connected", "subscribe dt/device/settings/#"]);
+    expect(order).toEqual(["connected", "subscribe dt/device/settings/#", "retained-replay-ready"]);
+  });
+
+  it("surfaces durable resubscribe failures", async () => {
+    const mqtt = new FakeMqttClient();
+    const bus = new MqttBus(mqtt as never);
+    const events: string[] = [];
+
+    bus.watchConnection((event) => events.push(`${event.state}:${event.error ?? ""}`));
+    bus.watch("dt/device/settings/#", { qos: 0 }, () => {});
+    await Promise.resolve();
+    mqtt.subscribeAsync = async () => {
+      throw new Error("subscribe failed");
+    };
+
+    mqtt.emit("connect");
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(events).toEqual(["connected:", "error:subscribe failed"]);
   });
 
   it("does not resubscribe transient subscriptions on reconnect", async () => {
     const mqtt = new FakeMqttClient();
     const bus = new MqttBus(mqtt as never);
 
-    const pending = bus.withSubscription("dt/device/response/1", { qos: 0 }, async () => {
+    await bus.withSubscription("dt/device/response/1", { qos: 0 }, async () => {
       mqtt.emit("connect");
       await Promise.resolve();
     });
-    await pending;
 
     expect(mqtt.subscriptions).toEqual(["dt/device/response/1"]);
   });

@@ -1,6 +1,6 @@
 // Coalesces authoritative /settings publications into the visible settings map.
-// Absence is not inferred: empty retained/live settings payloads delete exact
-// leaves, while reconnect/schema reload clears the map before retained replay.
+// Absence is not inferred: empty settings payloads delete exact leaves, while
+// reconnect/schema reload clears the map before retained replay.
 export type Settings = Map<string, unknown>;
 
 export type SettingsCommit = {
@@ -17,7 +17,7 @@ export class SettingsMirror {
 
   constructor(
     private readonly onCommit: (commit: SettingsCommit) => void,
-    private readonly liveDelay = 100,
+    private readonly commitDelayMs = 100,
   ) {}
 
   reset(): void {
@@ -60,7 +60,7 @@ export class SettingsMirror {
     this.timer = globalThis.setTimeout(() => {
       this.timer = undefined;
       this.commit();
-    }, this.liveDelay);
+    }, this.commitDelayMs);
   }
 
   private commit(): void {

@@ -173,24 +173,6 @@ function segment(path: string): string {
   return path ? (path.split("/").at(-1) ?? "") : "";
 }
 
-function formatScalar(value: unknown, quoteStrings = false): string {
-  if (typeof value === "string") {
-    return quoteStrings ? JSON.stringify(value) : value;
-  }
-  return JSON.stringify(value);
-}
-
-function formatMapping(prefix: string, value: unknown, quoteStrings = false): string {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return `${prefix} ${formatScalar(value, quoteStrings)}`;
-  }
-  const items = Object.entries(value)
-    .map(([key, item]) =>
-      item === true ? key : `${key}=${formatScalar(item, quoteStrings)}`,
-    );
-  return items.length ? `${prefix} ${items.join(" ")}` : prefix;
-}
-
 function formatMetadataValue(value: unknown): string {
   if (typeof value === "string") {
     return value;
@@ -215,25 +197,6 @@ function metadataLines(prefix: string, value: unknown): string[] {
   return lines.length ? lines : [prefix];
 }
 
-function annotations(node: SchemaNode, compressedHomogeneous = false): string[] {
-  const tags: string[] = [];
-  if (compressedHomogeneous || node.kind === "homogeneous") {
-    tags.push("homogeneous");
-  } else if (node.kind === "numbered") {
-    tags.push("numbered");
-  }
-  if (node.sem !== undefined) {
-    tags.push(formatMapping("sem", node.sem));
-  }
-  if (node.edge !== undefined) {
-    tags.push(formatMapping("edge", node.edge, true));
-  }
-  if (node.node !== undefined) {
-    tags.push(formatMapping("node", node.node, true));
-  }
-  return tags.map((tag) => `[${tag}]`);
-}
-
 export function formatSchemaName(node: SchemaNode, name?: string): string {
   return name ?? segment(node.path);
 }
@@ -245,78 +208,4 @@ export function formatSchemaMetadata(node: SchemaNode): string {
     ...(node.edge === undefined ? [] : metadataLines("edge", node.edge)),
     ...(node.node === undefined ? [] : metadataLines("node", node.node)),
   ].join("\n");
-}
-
-export function formatSchemaLabel(
-  node: SchemaNode,
-  options: { name?: string; compressedHomogeneous?: boolean } = {},
-): string {
-  const label = formatSchemaName(node, options.name);
-  return [
-    label,
-    ...annotations(node, options.compressedHomogeneous ?? false),
-  ].filter(Boolean).join(" ");
-}
-
-function treeLines(
-  rootLine: string | undefined,
-  children: [string, () => string[]][],
-): string[] {
-  const lines = rootLine === undefined ? [] : [rootLine];
-  children.forEach(([label, descend], index) => {
-    const last = index + 1 === children.length;
-    lines.push(`${last ? "└─ " : "├─ "}${label}`);
-    const prefix = last ? "   " : "│  ";
-    for (const line of descend()) {
-      lines.push(`${prefix}${line}`);
-    }
-  });
-  return lines;
-}
-
-export function renderSchemaTree(schema: Schema, root = ""): string {
-  const normalizedRoot = schema.path(root);
-
-  function visit(path: string, compress: boolean): string[] {
-    const node = schema.node(path);
-    if (compress && node.kind === "homogeneous") {
-      const children = schema.children(path);
-      if (children.length) {
-        const child = children[0];
-        return treeLines(formatSchemaLabel(node), [
-          [
-            formatSchemaLabel(child, {
-              name: `0..${node.children.length}`,
-              compressedHomogeneous: true,
-            }),
-            () => visit(child.path, false).slice(1),
-          ],
-        ]);
-      }
-    }
-
-    return treeLines(
-      formatSchemaLabel(node),
-      schema.children(path).map((child) => [
-        formatSchemaLabel(child),
-        () => visit(child.path, true).slice(1),
-      ]),
-    );
-  }
-
-  if (!normalizedRoot) {
-    const children = schema.children("");
-    const lines: string[] = [];
-    children.forEach((child, index) => {
-      const childLines = visit(child.path, true);
-      const last = index + 1 === children.length;
-      lines.push(`${last ? "└─ " : "├─ "}${childLines[0]}`);
-      const prefix = last ? "   " : "│  ";
-      for (const line of childLines.slice(1)) {
-        lines.push(`${prefix}${line}`);
-      }
-    });
-    return lines.join("\n");
-  }
-  return visit(normalizedRoot, true).join("\n");
 }
