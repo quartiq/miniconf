@@ -1,6 +1,6 @@
-import { EventEmitter } from "node:events";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MqttBus, topicMatches } from "./mqtt-bus";
+import { FakeMqttClient } from "./mqtt-test-fixture";
 
 const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
 const connectMock = vi.hoisted(() => vi.fn());
@@ -8,31 +8,6 @@ const connectMock = vi.hoisted(() => vi.fn());
 vi.mock("mqtt", () => ({
   default: { connect: connectMock },
 }));
-
-class FakeMqttClient extends EventEmitter {
-  options: { reconnectPeriod?: number } = {};
-  connected = true;
-  ended = false;
-  publications: string[] = [];
-  subscriptions: string[] = [];
-  unsubscriptions: string[] = [];
-
-  end() {
-    this.ended = true;
-  }
-
-  async publishAsync(topic: string) {
-    this.publications.push(topic);
-  }
-
-  async subscribeAsync(topic: string) {
-    this.subscriptions.push(topic);
-  }
-
-  async unsubscribeAsync(topic: string) {
-    this.unsubscriptions.push(topic);
-  }
-}
 
 afterEach(() => {
   connectMock.mockReset();
@@ -142,7 +117,7 @@ describe("MQTT browser transport", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(order).toEqual(["connected", "subscribe dt/device/settings/#", "subscriptions-restored"]);
+    expect(order).toEqual(["connected", "subscribe dt/device/settings/#", "retained-replay-ready"]);
   });
 
   it("surfaces durable resubscribe failures", async () => {

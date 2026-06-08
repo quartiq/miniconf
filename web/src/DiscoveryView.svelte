@@ -1,7 +1,8 @@
 <script lang="ts">
   import { discoveryTree, discoveryTreeView, flatDiscoveryNodes } from "./lib/discovery-tree";
+  import { TreeInteraction } from "./lib/tree-interaction";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
-  import { movePath, toggleExpansion, visibleTreePaths, type NavDirection } from "./lib/tree-navigation";
+  import { type NavDirection } from "./lib/tree-navigation";
   import TreeItem from "./TreeItem.svelte";
 
   export let broker: string;
@@ -12,9 +13,7 @@
   export let discover: () => void;
   export let browseHref: (prefix: string) => string;
 
-  let selectedPath = "";
-  let expanded = new Set([""]);
-  let userClosed = new Set<string>();
+  let interaction = new TreeInteraction([""]);
   let prefixKey = "";
 
   $: nodes = discoveryTree(discoveredPrefixes);
@@ -23,24 +22,28 @@
   $: nextPrefixKey = discoveredPrefixes.map((prefix) => prefix.prefix).sort().join("\n");
   $: if (nextPrefixKey !== prefixKey) {
     prefixKey = nextPrefixKey;
-    expanded = new Set([
-      ...expanded,
+    interaction.expanded = new Set([
+      ...interaction.expanded,
       ...[...nodes.values()]
-        .filter((node) => node.children.length && !userClosed.has(node.path))
+        .filter((node) => node.children.length && !interaction.userClosed.has(node.path))
         .map((node) => node.path),
     ]);
+    interaction = interaction;
   }
-  $: visiblePaths = visibleTreePaths("", flatDiscoveryNodes(nodes), expanded);
-  $: if (!nodes.has(selectedPath)) {
-    selectedPath = visiblePaths[0] ?? "";
-  }
+  $: flatNodes = flatDiscoveryNodes(nodes);
+  $: visiblePaths = interaction.visiblePaths("", flatNodes);
+  $: interaction.ensureSelected(visiblePaths);
+  $: selectedPath = interaction.selectedPath;
+  $: expanded = interaction.expanded;
 
   function select(path: string) {
-    selectedPath = path;
+    interaction.select(path);
+    interaction = interaction;
   }
 
   function setExpanded(path: string, open: boolean) {
-    ({ expanded, userClosed } = toggleExpansion(expanded, userClosed, path, open));
+    interaction.setExpanded(path, open);
+    interaction = interaction;
   }
 
   function focusTreeItem(path: string) {
@@ -52,8 +55,8 @@
   }
 
   function navigateTree(path: string, direction: NavDirection, step?: number) {
-    const next = movePath(visiblePaths, path, direction, step);
-    select(next);
+    const next = interaction.navigate(visiblePaths, path, direction, step);
+    interaction = interaction;
     focusTreeItem(next);
   }
 

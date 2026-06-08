@@ -11,14 +11,12 @@ describe("BrowseModel", () => {
     ], 7);
 
     expect(model.loadSchema(schema, "")).toBe("");
-    const commit = model.commit({
+    model.commit({
       settings: new Map([["/leaf", 3]]),
       changed: new Set(["/leaf"]),
       rev: "42",
     });
 
-    expect(commit.status).toBe("Updated /leaf");
-    expect(commit.rev).toBe("42");
     expect(model.rootNode?.path).toBe("");
     expect(model.selectedPath).toBe("");
 

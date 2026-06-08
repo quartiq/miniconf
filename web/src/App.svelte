@@ -10,21 +10,22 @@
     type DiscoveredPrefix,
     type AliveManifest,
   } from "./lib/backend";
+  import { loadAuth, saveAuth } from "./lib/auth-store";
   import { BrowseModel } from "./lib/browse-model";
+  import { EventLog } from "./lib/event-log";
   import { FlashSet } from "./lib/flash-set";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
   import { type SettingsCommit } from "./lib/settings-mirror";
   import { type NavDirection } from "./lib/tree-navigation";
 
-  const LOG_LIMIT = 100;
-  const LOG_FLUSH_MS = 500;
   const route = readRoute(location);
   let broker = route.broker;
   let discoveryPattern = route.discoveryPattern;
   let activePrefix = route.activePrefix;
   let subtreePath = route.subtreePath;
-  let username = storedAuth(broker).username;
-  let password = storedAuth(broker).password;
+  const initialAuth = loadAuth(broker);
+  let username = initialAuth.username;
+  let password = initialAuth.password;
   let authBroker = broker;
 
   let backend: MiniconfBackend | undefined;
@@ -37,8 +38,6 @@
   let error = "";
   let logOpen = new URLSearchParams(location.search).get("log") === "1";
   let logLines: string[] = [];
-  let logTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-  const logBuffer: string[] = [];
   let stopConnection: (() => void) | undefined;
   let stopDiscovery: (() => void) | undefined;
   let routeSerial = 0;
@@ -48,23 +47,17 @@
     browse.setFlashed(paths);
     browse = browse;
   });
+  const eventLog = new EventLog(() => {
+    logLines = eventLog.lines;
+  });
 
   $: selected = browse.selected;
   $: mode = activePrefix ? "browse" : "discover";
   $: if (broker !== authBroker) {
     authBroker = broker;
-    ({ username, password } = storedAuth(broker));
+    ({ username, password } = loadAuth(broker));
   }
-  $: if (!logOpen && (logLines.length || logBuffer.length || logTimer !== undefined)) {
-    // Hidden logs stay inactive to avoid startup floods and retained-setting
-    // bursts consuming CPU for diagnostics the user did not open.
-    if (logTimer !== undefined) {
-      globalThis.clearTimeout(logTimer);
-      logTimer = undefined;
-    }
-    logBuffer.length = 0;
-    logLines = [];
-  }
+  $: eventLog.clearHidden(logOpen);
 
   function syncUrl() {
     history.replaceState(
@@ -140,9 +133,6 @@
     settingsRevision = commit.rev ?? settingsRevision;
     browse = browse;
     treeFlash.add(commit.cues);
-    if (commit.status) {
-      setStatus(commit.status);
-    }
     if (changed.size) {
       log("commit", `${changed.size} changed`);
     }
@@ -170,21 +160,8 @@
     setStatus("Idle");
   }
 
-  function authKey(broker: string): string {
-    return `miniconf-web-auth:${broker}`;
-  }
-
-  function storedAuth(broker: string): { username: string; password: string } {
-    try {
-      const raw = sessionStorage.getItem(authKey(broker));
-      return raw ? JSON.parse(raw) : { username: "", password: "" };
-    } catch {
-      return { username: "", password: "" };
-    }
-  }
-
   function storeAuth() {
-    sessionStorage.setItem(authKey(broker), JSON.stringify({ username, password }));
+    saveAuth(broker, { username, password });
   }
 
   async function connectBackend(serial: number): Promise<MiniconfBackend | undefined> {
@@ -207,19 +184,7 @@
   }
 
   function log(event: string, detail: string) {
-    if (!logOpen) {
-      return;
-    }
-    const line = `${new Date().toLocaleTimeString(undefined)} ${event}: ${detail}`;
-    logBuffer.unshift(line);
-    logBuffer.length = Math.min(logBuffer.length, LOG_LIMIT);
-    if (logTimer !== undefined) {
-      return;
-    }
-    logTimer = globalThis.setTimeout(() => {
-      logTimer = undefined;
-      logLines = [...logBuffer];
-    }, LOG_FLUSH_MS);
+    eventLog.add(logOpen, event, detail);
   }
 
   function setStatus(next: string) {
@@ -256,7 +221,7 @@
           case "connected":
             setStatus("Broker reconnected; restoring discovery subscription");
             break;
-          case "subscriptions-restored":
+          case "retained-replay-ready":
             setStatus("Watching discovery");
             break;
           case "reconnecting":
@@ -328,12 +293,6 @@
           if (serial === routeSerial) {
             loadSchema(nextSchema, root);
           }
-        },
-        schemaProgress: (progress) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          setStatus(`Loading schema ${progress.received}/${progress.total}`);
         },
         settings: (commit) => {
           if (serial === routeSerial) {
@@ -409,10 +368,8 @@
     stopConnection?.();
     stopDiscovery?.();
     prefixSession?.close();
-    if (logTimer !== undefined) {
-      globalThis.clearTimeout(logTimer);
-    }
     treeFlash.reset();
+    eventLog.dispose();
     backend?.close();
   });
 </script>

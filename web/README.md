@@ -31,7 +31,7 @@ HTML, and open the saved file in the browser.
 - `?log=1` opens the log from startup.
 
 `{broker}` is the WebSocket broker authority. `mqtt:8083` means `ws://mqtt:8083`;
-`wss+broker.example%2Fmqtt` means `wss://broker.example/mqtt`.
+`wss+broker.example:8084` means `wss://broker.example:8084`.
 
 ## Browser/Broker Matrix
 

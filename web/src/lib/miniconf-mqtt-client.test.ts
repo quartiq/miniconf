@@ -1,91 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { EventEmitter } from "node:events";
 import { MiniconfMqttClient } from "./miniconf-mqtt-client";
 import { MqttBus } from "./mqtt-bus";
-
-class FakeMqttClient extends EventEmitter {
-  readonly connected = true;
-  readonly subscribed: string[] = [];
-  readonly unsubscribed: string[] = [];
-  private pendingSubscribes: (() => void)[] = [];
-
-  subscribeAsync(topic: string, _options: unknown) {
-    this.subscribed.push(topic);
-    return new Promise<void>((resolve) => {
-      this.pendingSubscribes.push(resolve);
-    });
-  }
-
-  async unsubscribeAsync(topic: string) {
-    this.unsubscribed.push(topic);
-  }
-
-  end() {}
-
-  completeSubscribe() {
-    this.pendingSubscribes.shift()?.();
-  }
-
-  publishRetained(topic: string, payload: string, userProperties?: Record<string, string | string[]>) {
-    this.emit("message", topic, new TextEncoder().encode(payload), {
-      retain: true,
-      properties: { userProperties },
-    });
-  }
-}
-
-class ResponseMqttClient extends EventEmitter {
-  readonly connected = true;
-  readonly publications: {
-    topic: string;
-    payload: string;
-    properties: { correlationData?: unknown; responseTopic?: string };
-  }[] = [];
-
-  async subscribeAsync(_topic: string, _options: unknown) {
-    return undefined;
-  }
-
-  async unsubscribeAsync(_topic: string) {
-    return undefined;
-  }
-
-  async publishAsync(
-    topic: string,
-    payload: string,
-    options: { properties?: { correlationData?: unknown; responseTopic?: string } },
-  ) {
-    this.publications.push({
-      topic,
-      payload,
-      properties: options.properties ?? {},
-    });
-  }
-
-  respond(index: number, code: string, payload = "") {
-    this.emit(
-      "message",
-      this.publications[index].properties.responseTopic,
-      new TextEncoder().encode(payload),
-      {
-        properties: {
-          correlationData: this.publications[index].properties.correlationData,
-          userProperties: { code },
-        },
-      },
-    );
-  }
-
-  respondToSet(path: string, code: string, payload = "") {
-    const index = this.publications.findIndex((publication) => publication.topic.endsWith(path));
-    if (index < 0) {
-      throw new Error(`No publication for ${path}`);
-    }
-    this.respond(index, code, payload);
-  }
-
-  end() {}
-}
+import { FakeMqttClient, ResponseMqttClient } from "./mqtt-test-fixture";
 
 describe("MiniconfMqttClient subscriptions", () => {
   it("clears discovered prefixes on broker reconnect before retained alive replay", async () => {
@@ -130,10 +46,7 @@ describe("MiniconfMqttClient subscriptions", () => {
   it("resolves schema when all pages arrive", async () => {
     const mqtt = new FakeMqttClient();
     const client = new MiniconfMqttClient(new MqttBus(mqtt as never));
-    const progress: string[] = [];
-    const schema = client.schema("dt/device", { proto: 1, epoch: 1, schema_rev: 2, pages: 2 }, {
-      progress: ({ received, total }) => progress.push(`${received}/${total}`),
-    });
+    const schema = client.schema("dt/device", { proto: 1, epoch: 1, schema_rev: 2, pages: 2 });
     await Promise.resolve();
     mqtt.completeSubscribe();
 
@@ -141,7 +54,6 @@ describe("MiniconfMqttClient subscriptions", () => {
     mqtt.publishRetained("dt/device/schema/0", "{\"s\":\"value\"}\n");
 
     await expect(schema).resolves.toMatchObject({ rev: 2 });
-    expect(progress).toEqual(["0/2", "1/2", "2/2"]);
   });
 
   it("rejects invalid Miniconf setting roots", async () => {

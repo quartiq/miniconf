@@ -3,7 +3,6 @@ import {
   MiniconfMqttClient,
   type DiscoveredPrefix,
   type AliveManifest,
-  type SchemaProgress,
   type SetResponse,
   type SettingsChange,
 } from "./miniconf-mqtt-client";
@@ -20,7 +19,6 @@ export type PrefixSessionCallbacks = {
   alive: (alive: AliveManifest | undefined) => void;
   response: (response: SetResponse) => void;
   schema: (schema: Schema, root: string) => void;
-  schemaProgress: (progress: SchemaProgress) => void;
   settings: (commit: SettingsCommit) => void;
   status: (status: string) => void;
 };
@@ -108,22 +106,14 @@ export class PrefixSession {
   }
 
   private async reload(next: AliveManifest, load = this.beginLoad("active")): Promise<void> {
-    this.callbacks.status("Device manifest changed; loading schema");
     this.manifestKey = manifestKey(next);
     this.callbacks.alive(next);
     await this.loadSchema(next, load);
   }
 
   private async loadSchema(alive: AliveManifest, load: Load): Promise<void> {
-    this.callbacks.status("Loading schema");
-    const schema = await this.client.schema(this.prefix, alive, {
-      signal: load.abort.signal,
-      progress: (progress) => {
-        if (this.active(load)) {
-          this.callbacks.schemaProgress(progress);
-        }
-      },
-    });
+    this.callbacks.status(`Loading schema rev ${alive.schema_rev} (${alive.pages} page${alive.pages === 1 ? "" : "s"})`);
+    const schema = await this.client.schema(this.prefix, alive, load.abort.signal);
     if (!this.active(load)) {
       return;
     }
@@ -180,7 +170,7 @@ export class PrefixSession {
 
   private restartSettings(root: string): void {
     this.stopSettings?.();
-    this.callbacks.status("Subscribing to settings");
+    this.callbacks.status("Watching settings");
     this.stopSettings = this.client.watchSettings(this.prefix, root, (change) => {
       this.noteSettingsChange(change);
     });
@@ -198,9 +188,9 @@ export class PrefixSession {
             this.callbacks.status("Broker reconnected; restoring subscriptions");
           }
           break;
-        case "subscriptions-restored":
+        case "retained-replay-ready":
           if (this.state === "active") {
-            this.callbacks.status("Broker subscriptions restored; waiting for settings");
+            this.callbacks.status("Watching settings");
           }
           break;
         case "reconnecting":

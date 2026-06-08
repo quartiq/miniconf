@@ -46,16 +46,6 @@ export type SetResponse = {
   message: string;
 };
 
-export type SchemaProgress = {
-  received: number;
-  total: number;
-};
-
-export type SchemaLoadOptions = {
-  signal?: AbortSignal;
-  progress?: (progress: SchemaProgress) => void;
-};
-
 type PacketProperties = {
   userProperties?: Record<string, string | string[]>;
   correlationData?: unknown;
@@ -207,20 +197,12 @@ export class MiniconfMqttClient {
     };
   }
 
-  async schema(prefix: string, alive: AliveManifest, options: SchemaLoadOptions = {}): Promise<Schema> {
-    const { signal, progress } = options;
+  async schema(prefix: string, alive: AliveManifest, signal?: AbortSignal): Promise<Schema> {
     const topic = `${prefix}/schema/#`;
     const pages: (string | undefined)[] = Array.from(
       { length: alive.pages },
       () => undefined,
     );
-    const emitProgress = () => {
-      progress?.({
-        received: pages.filter((page) => page !== undefined).length,
-        total: pages.length,
-      });
-    };
-    emitProgress();
     await new Promise<void>((resolve, reject) => {
       if (signal?.aborted) {
         reject(new Error("Schema load cancelled"));
@@ -253,7 +235,6 @@ export class MiniconfMqttClient {
         const page = Number.parseInt(suffix, 10);
         if (Number.isInteger(page) && page >= 0 && page < pages.length) {
           pages[page] = decode(message.payload);
-          emitProgress();
         }
         if (pages.every((page) => page !== undefined)) {
           finish();

@@ -32,26 +32,6 @@
     }
   }
 
-  function pageStep(target: EventTarget | null): number {
-    if (!(target instanceof HTMLElement)) {
-      return 10;
-    }
-    const height = target.getBoundingClientRect().height || parseFloat(getComputedStyle(target).lineHeight);
-    const scroller = scrollParent(target);
-    const page = scroller ? scroller.clientHeight : window.innerHeight;
-    return Math.max(1, Math.floor(page / Math.max(1, height)) - 1);
-  }
-
-  function scrollParent(element: HTMLElement): HTMLElement | undefined {
-    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
-      const overflow = getComputedStyle(parent).overflowY;
-      if ((overflow === "auto" || overflow === "scroll") && parent.scrollHeight > parent.clientHeight) {
-        return parent;
-      }
-    }
-    return undefined;
-  }
-
   function keydown(event: KeyboardEvent) {
     // Follow the usual tree-view model: arrows navigate structure, Space folds,
     // Enter activates, and focus stays on the selected row.
@@ -111,11 +91,11 @@
         break;
       case "PageDown":
         event.preventDefault();
-        actions.key(node, "pageNext", pageStep(event.currentTarget));
+        actions.key(node, "pageNext", 10);
         break;
       case "PageUp":
         event.preventDefault();
-        actions.key(node, "pagePrevious", pageStep(event.currentTarget));
+        actions.key(node, "pagePrevious", 10);
         break;
       case "Home":
         event.preventDefault();

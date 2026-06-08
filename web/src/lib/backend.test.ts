@@ -17,13 +17,8 @@ class FakeClient {
   private replayAlive = true;
   private settingsResult: Map<string, unknown> = new Map([["/leaf", 1]]);
 
-  async schema(
-    prefix: string,
-    _alive: unknown,
-    options?: { progress?: (progress: { received: number; total: number }) => void },
-  ) {
+  async schema(prefix: string) {
     this.calls.push(`schema ${prefix}`);
-    options?.progress?.({ received: 1, total: 1 });
     return this.schemaValue;
   }
 
@@ -77,7 +72,7 @@ class FakeClient {
 
   reconnect() {
     this.connectionListener?.({ state: "connected" });
-    this.connectionListener?.({ state: "subscriptions-restored" });
+    this.connectionListener?.({ state: "retained-replay-ready" });
     queueMicrotask(() => this.replaySettings());
   }
 
@@ -108,7 +103,6 @@ describe("PrefixSession", () => {
         alive: (alive) => statuses.push(`alive ${alive?.epoch ?? "none"}`),
         response: (response) => statuses.push(`response ${response.code} ${response.path}`),
         schema: (_schema, root) => statuses.push(`schema ${root || "/"}`),
-        schemaProgress: ({ received, total }) => statuses.push(`progress ${received}/${total}`),
         settings: (commit) => commits.push(`${commit.changed.size}`),
         status: (status) => statuses.push(status),
       };
@@ -122,6 +116,8 @@ describe("PrefixSession", () => {
         "schema dt/device",
         "watchSettings dt/device ",
       ]);
+      expect(statuses).toContain("Loading schema rev 7 (1 page)");
+      expect(statuses).toContain("Watching settings");
       expect(commits).toEqual(["1"]);
 
       client.publishSetting({ path: "/leaf", present: true, value: 2 });
@@ -150,7 +146,6 @@ describe("PrefixSession", () => {
         alive: () => {},
         response: () => {},
         schema: () => {},
-        schemaProgress: () => {},
         settings: () => {},
         status: () => {},
       });
@@ -185,7 +180,6 @@ describe("PrefixSession", () => {
         alive: () => {},
         response: () => {},
         schema: () => {},
-        schemaProgress: () => {},
         settings: (commit) => {
           commits.push([...commit.settings].map(([path, value]) => ({
             path,
@@ -219,7 +213,6 @@ describe("PrefixSession", () => {
       alive: () => {},
       response: () => {},
       schema: () => {},
-      schemaProgress: () => {},
       settings: () => {},
       status: () => {},
     });
@@ -241,7 +234,6 @@ describe("PrefixSession", () => {
       alive: () => {},
       response: () => {},
       schema: () => {},
-      schemaProgress: () => {},
       settings: () => {},
       status: (status) => statuses.push(status),
     });
@@ -264,7 +256,6 @@ describe("PrefixSession", () => {
       alive: (next) => alive.push(String(next?.epoch ?? "none")),
       response: () => {},
       schema: () => {},
-      schemaProgress: () => {},
       settings: () => {},
       status: (status) => statuses.push(status),
     });

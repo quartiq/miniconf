@@ -1,4 +1,4 @@
-import { displayPath, type Schema } from "./schema";
+import { type Schema } from "./schema";
 import type { Settings } from "./settings-mirror";
 import {
   cuePaths,
@@ -7,14 +7,14 @@ import {
   type TreeSnapshot,
   type ViewNode,
 } from "./tree-state";
-import { movePath, toggleExpansion, visibleTreePaths, type NavDirection } from "./tree-navigation";
+import { TreeInteraction } from "./tree-interaction";
+import { type NavDirection } from "./tree-navigation";
 
 // Pure browse UI state. The editor draft is user-owned after selection/opening;
 // incoming settings rebuild row values and flashes but must not overwrite it.
 export type BrowseCommit = {
   cues: Set<string>;
   rev?: string;
-  status: string;
 };
 
 type BrowseSettings = {
@@ -24,15 +24,12 @@ type BrowseSettings = {
 };
 
 export class BrowseModel {
-  private userClosed = new Set<string>();
-
   schema: Schema | undefined;
   settings: Settings = new Map();
   root = "";
-  expanded = new Set<string>();
-  selectedPath = "";
   editor = "null";
   flashed = new Set<string>();
+  interaction = new TreeInteraction();
   private tree = emptyTree();
 
   get selected(): ViewNode | undefined {
@@ -48,17 +45,23 @@ export class BrowseModel {
   }
 
   get visiblePaths(): string[] {
-    return visibleTreePaths(this.root, this.tree.flatNodes, this.expanded);
+    return this.interaction.visiblePaths(this.root, this.tree.flatNodes);
+  }
+
+  get expanded(): Set<string> {
+    return this.interaction.expanded;
+  }
+
+  get selectedPath(): string {
+    return this.interaction.selectedPath;
   }
 
   reset(): void {
-    this.userClosed = new Set();
     this.schema = undefined;
     this.settings = new Map();
     this.root = "";
     this.tree = emptyTree();
-    this.expanded = new Set();
-    this.selectedPath = "";
+    this.interaction.reset();
     this.editor = "null";
     this.flashed = new Set();
   }
@@ -67,8 +70,7 @@ export class BrowseModel {
     this.schema = schema;
     this.root = schema.path(subtreePath);
     this.settings = new Map();
-    this.expanded = new Set();
-    this.userClosed = new Set();
+    this.interaction.reset();
     this.rebuild();
     return this.root;
   }
@@ -76,9 +78,9 @@ export class BrowseModel {
   commit({ settings, changed, rev }: BrowseSettings): BrowseCommit {
     this.settings = settings;
     this.rebuild(false);
-    this.expanded = revealPresentSettings(
-      this.expanded,
-      this.userClosed,
+    this.interaction.expanded = revealPresentSettings(
+      this.interaction.expanded,
+      this.interaction.userClosed,
       changed,
       this.settings,
       this.root,
@@ -86,35 +88,27 @@ export class BrowseModel {
     return {
       cues: cuePaths(changed, this.root),
       rev: changed.size ? rev : undefined,
-      status: commitStatus(changed),
     };
   }
 
   setExpanded(path: string, open: boolean): void {
-    ({ expanded: this.expanded, userClosed: this.userClosed } = toggleExpansion(
-      this.expanded,
-      this.userClosed,
-      path,
-      open,
-    ));
+    this.interaction.setExpanded(path, open);
     if (!open && this.selectedPath !== path && this.selectedPath.startsWith(path ? `${path}/` : "/")) {
       this.select(path);
     }
   }
 
   select(path: string): void {
-    this.selectedPath = path;
+    this.interaction.select(path);
   }
 
   loadSelected(path: string): void {
-    this.selectedPath = path;
+    this.interaction.select(path);
     this.loadEditor();
   }
 
   navigate(path: string, direction: NavDirection, step?: number): string {
-    const next = movePath(this.visiblePaths, path, direction, step);
-    this.select(next);
-    return next;
+    return this.interaction.navigate(this.visiblePaths, path, direction, step);
   }
 
   updateEditor(value: string): void {
@@ -136,20 +130,11 @@ export class BrowseModel {
 
   private rebuild(reloadEditor = true): void {
     this.tree = treeSnapshot(this.schema, this.root, this.settings);
-    if (!this.tree.nodeByPath.has(this.selectedPath)) {
-      this.selectedPath = this.tree.nodes[0]?.path ?? "";
-    }
+    this.interaction.ensureSelected(this.tree.nodes.map((node) => node.path));
     if (reloadEditor) {
       this.loadEditor();
     }
   }
-}
-
-function commitStatus(changed: Set<string>): string {
-  if (changed.size === 1) {
-    return `Updated ${displayPath([...changed][0])}`;
-  }
-  return changed.size ? `Updated ${changed.size} settings` : "";
 }
 
 function emptyTree(): TreeSnapshot {

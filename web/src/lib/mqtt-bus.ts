@@ -29,7 +29,7 @@ export type MqttAuth = {
 };
 
 export type MqttConnectionEvent = {
-  state: "connected" | "subscriptions-restored" | "reconnecting" | "offline" | "closed" | "error";
+  state: "connected" | "retained-replay-ready" | "reconnecting" | "offline" | "closed" | "error";
   error?: string;
   transient?: boolean;
 };
@@ -61,7 +61,6 @@ export class MqttBus {
   private readonly client: MqttClient;
   private closing = false;
   private connectionListeners = new Set<(event: MqttConnectionEvent) => void>();
-  private connectionState = "";
   private listeners = new Set<Listener>();
   private subscriptions = new Map<string, Subscription>();
 
@@ -155,7 +154,10 @@ export class MqttBus {
   ): () => void {
     this.reserveSubscription(filter, options, true, false);
     const stop = this.listen(filter, onMessage);
-    void this.subscribeReserved(filter, options, true).catch(() => stop());
+    void this.subscribeReserved(filter, options).catch(() => {
+      this.subscriptions.delete(filter);
+      stop();
+    });
     return () => {
       stop();
       void this.unsubscribe(filter).catch(() => {});
@@ -191,7 +193,12 @@ export class MqttBus {
     body: () => Promise<T>,
   ): Promise<T> {
     this.reserveSubscription(topic, options, false, true);
-    await this.subscribeReserved(topic, options, true);
+    try {
+      await this.subscribeReserved(topic, options);
+    } catch (error) {
+      this.subscriptions.delete(topic);
+      throw error;
+    }
     try {
       return await body();
     } finally {
@@ -217,19 +224,11 @@ export class MqttBus {
   private async subscribeReserved(
     topic: string,
     options: IClientSubscribeOptions,
-    removeOnError: boolean,
   ): Promise<void> {
     if (!this.client.connected) {
       return;
     }
-    try {
-      await this.client.subscribeAsync(topic, options);
-    } catch (error) {
-      if (removeOnError) {
-        this.subscriptions.delete(topic);
-      }
-      throw error;
-    }
+    await this.client.subscribeAsync(topic, options);
   }
 
   private async unsubscribe(topic: string): Promise<void> {
@@ -248,7 +247,7 @@ export class MqttBus {
     for (const [topic, subscription] of this.subscriptions) {
       if (subscription.durable) {
         try {
-          await this.subscribeReserved(topic, subscription.options, false);
+          await this.subscribeReserved(topic, subscription.options);
         } catch (error) {
           if (this.client.connected && !this.closing) {
             this.notifyConnection({
@@ -262,16 +261,11 @@ export class MqttBus {
       }
     }
     if (this.client.connected && !this.closing) {
-      this.notifyConnection({ state: "subscriptions-restored" });
+      this.notifyConnection({ state: "retained-replay-ready" });
     }
   }
 
   private notifyConnection(event: MqttConnectionEvent): void {
-    const key = `${event.state}:${event.error ?? ""}`;
-    if (key === this.connectionState) {
-      return;
-    }
-    this.connectionState = key;
     for (const listener of [...this.connectionListeners]) {
       listener(event);
     }

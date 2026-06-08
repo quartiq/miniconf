@@ -25,21 +25,14 @@ function topicFromSegments(segments: string[]): string {
 function brokerToken(broker: string): string {
   const normalized = broker.includes("://") ? broker : `ws://${broker}`;
   const url = safeUrl(normalized) ?? new URL(defaultBroker());
-  const endpoint = `${url.host}${url.pathname === "/" ? "" : url.pathname}${url.search}`;
-  if (url.protocol === "wss:") {
-    return `wss+${encodeURIComponent(endpoint)}`;
-  }
-  return endpoint === url.host ? url.host : `ws+${encodeURIComponent(endpoint)}`;
+  return url.protocol === "wss:" ? `wss+${url.host}` : url.host;
 }
 
 function brokerFromToken(token: string): string | undefined {
   if (token.startsWith("wss+")) {
-    return safeBroker(`wss://${decodeURIComponent(token.slice(4))}`);
+    return safeBroker(`wss://${token.slice(4)}`);
   }
-  if (token.startsWith("ws+")) {
-    return safeBroker(`ws://${decodeURIComponent(token.slice(3))}`);
-  }
-  return safeBroker(`ws://${decodeURIComponent(token)}`);
+  return safeBroker(`ws://${token}`);
 }
 
 function safeBroker(broker: string): string | undefined {
