@@ -8,6 +8,13 @@ export type ViewNode = SchemaNode & {
   present: boolean;
 };
 
+export type TreeSnapshot = {
+  nodes: ViewNode[];
+  flatNodes: Map<string, FlatTreeNode>;
+  nodeViews: Map<string, TreeNodeView>;
+  nodeByPath: Map<string, ViewNode>;
+};
+
 export function parentPath(path: string): string | undefined {
   if (!path) {
     return undefined;
@@ -22,6 +29,20 @@ export function viewNodes(schema: Schema | undefined, root: string, settings: Ma
     value: settings.get(node.path),
     present: settings.has(node.path),
   })) ?? [];
+}
+
+export function treeSnapshot(
+  schema: Schema | undefined,
+  root: string,
+  settings: Map<string, unknown>,
+): TreeSnapshot {
+  const nodes = viewNodes(schema, root, settings);
+  return {
+    nodes,
+    flatNodes: flatTreeNodes(nodes),
+    nodeViews: treeViewNodes(nodes, root),
+    nodeByPath: new Map(nodes.map((node) => [node.path, node])),
+  };
 }
 
 export function formatLeafValue(node: ViewNode): string {
@@ -79,7 +100,7 @@ export function treeViewNodes(
 
 export function revealPresentSettings(
   expanded: Set<string>,
-  collapsed: Set<string>,
+  userClosed: Set<string>,
   changed: Iterable<string>,
   settings: Map<string, unknown>,
   root: string,
@@ -91,9 +112,9 @@ export function revealPresentSettings(
     }
     let parent = parentPath(path);
     while (parent !== undefined) {
-      // Auto-reveal only for branches the user has not explicitly collapsed;
+      // Auto-reveal only for branches the user has not explicitly closed;
       // retained startup bursts must not fight manual folding.
-      if (withinRoot(parent, root) && autoExpandAllowed(parent, collapsed)) {
+      if (withinRoot(parent, root) && autoExpandAllowed(parent, userClosed)) {
         next.add(parent);
       }
       if (parent === root) {
@@ -127,8 +148,8 @@ function withinRoot(path: string, root: string): boolean {
   return !root || path === root || path.startsWith(`${root}/`);
 }
 
-function autoExpandAllowed(path: string, collapsed: Set<string>): boolean {
-  for (const item of collapsed) {
+function autoExpandAllowed(path: string, userClosed: Set<string>): boolean {
+  for (const item of userClosed) {
     if (path === item || path.startsWith(`${item}/`)) {
       return false;
     }

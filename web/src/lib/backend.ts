@@ -3,6 +3,7 @@ import {
   MiniconfMqttClient,
   type DiscoveredPrefix,
   type AliveManifest,
+  type SchemaProgress,
   type SetResponse,
   type SettingsChange,
 } from "./miniconf-mqtt-client";
@@ -19,6 +20,7 @@ export type PrefixSessionCallbacks = {
   alive: (alive: AliveManifest | undefined) => void;
   response: (response: SetResponse) => void;
   schema: (schema: Schema, root: string) => void;
+  schemaProgress: (progress: SchemaProgress) => void;
   settings: (commit: SettingsCommit) => void;
   status: (status: string) => void;
 };
@@ -54,9 +56,7 @@ export class MiniconfBackend {
 }
 
 export class PrefixSession {
-  private alive: AliveManifest | undefined;
-  private root = "";
-  private schema: Schema | undefined;
+  private manifestKey = "";
   private state: SessionState = "closed";
   private load: Load | undefined;
   private stopConnection: (() => void) | undefined;
@@ -76,15 +76,15 @@ export class PrefixSession {
   async open(): Promise<void> {
     const load = this.beginLoad("opening");
     this.watchConnection();
-    this.callbacks.status("Loading alive manifest");
+    this.callbacks.status("Waiting for alive");
     const alive = await this.waitInitialAlive(load);
     if (!this.active(load)) {
       return;
     }
     this.state = "active";
-    this.alive = alive;
-    this.callbacks.alive(this.alive);
-    await this.loadSchema(this.alive, load);
+    this.manifestKey = manifestKey(alive);
+    this.callbacks.alive(alive);
+    await this.loadSchema(alive, load);
   }
 
   async set(path: string, value: unknown): Promise<SetResponse> {
@@ -96,6 +96,7 @@ export class PrefixSession {
 
   close(): void {
     this.state = "closed";
+    this.manifestKey = "";
     this.cancelLoad();
     this.stopConnection?.();
     this.stopSettings?.();
@@ -107,34 +108,35 @@ export class PrefixSession {
   }
 
   private async reload(next: AliveManifest, load = this.beginLoad("active")): Promise<void> {
-    this.callbacks.status("Device manifest changed; reloading schema");
-    this.alive = next;
+    this.callbacks.status("Device manifest changed; loading schema");
+    this.manifestKey = manifestKey(next);
     this.callbacks.alive(next);
     await this.loadSchema(next, load);
   }
 
   private async loadSchema(alive: AliveManifest, load: Load): Promise<void> {
     this.callbacks.status("Loading schema");
-    const schema = await this.client.schema(this.prefix, alive);
+    const schema = await this.client.schema(this.prefix, alive, {
+      signal: load.abort.signal,
+      progress: (progress) => {
+        if (this.active(load)) {
+          this.callbacks.schemaProgress(progress);
+        }
+      },
+    });
     if (!this.active(load)) {
       return;
     }
-    this.schema = schema;
-    this.root = this.schema.path(this.subtreePath);
+    const root = schema.path(this.subtreePath);
     this.mirror.clear();
-    this.callbacks.schema(this.schema, this.root);
-    this.restartSettings();
+    this.callbacks.schema(schema, root);
+    this.restartSettings(root);
   }
 
   private waitInitialAlive(load: Load): Promise<AliveManifest> {
     return new Promise((resolve, reject) => {
       let resolved = false;
       let settled = false;
-      const timer = globalThis.setTimeout(() => {
-        this.stopAlive?.();
-        this.stopAlive = undefined;
-        finish(() => reject(new Error(`Timed out waiting for ${this.prefix}/alive`)));
-      }, 3000);
       const onAbort = () => {
         finish(() => reject(new Error("Prefix session closed")));
       };
@@ -143,19 +145,21 @@ export class PrefixSession {
           return;
         }
         settled = true;
-        globalThis.clearTimeout(timer);
         load.abort.signal.removeEventListener("abort", onAbort);
         complete();
       };
       load.abort.signal.addEventListener("abort", onAbort, { once: true });
       this.stopAlive = this.client.watchAlive(this.prefix, (next) => {
         if (!next) {
+          this.manifestKey = "";
+          this.callbacks.alive(undefined);
+          if (this.state === "opening") {
+            this.callbacks.status("Prefix offline; waiting for alive");
+          }
           if (this.state === "active") {
             this.cancelLoad();
             this.state = "offline";
-            this.alive = undefined;
             this.callbacks.status("Prefix offline");
-            this.callbacks.alive(undefined);
           }
           return;
         }
@@ -167,17 +171,17 @@ export class PrefixSession {
         if (this.state === "opening") {
           return;
         }
-        if (this.alive?.epoch !== next.epoch || this.alive.schema_rev !== next.schema_rev) {
+        if (this.state === "offline" || this.manifestKey !== manifestKey(next)) {
           void this.reload(next);
         }
       });
     });
   }
 
-  private restartSettings(): void {
+  private restartSettings(root: string): void {
     this.stopSettings?.();
     this.callbacks.status("Subscribing to settings");
-    this.stopSettings = this.client.watchSettings(this.prefix, this.root, (change) => {
+    this.stopSettings = this.client.watchSettings(this.prefix, root, (change) => {
       this.noteSettingsChange(change);
     });
   }
@@ -191,7 +195,12 @@ export class PrefixSession {
         case "connected":
           if (this.state === "active") {
             this.mirror.clear();
-            this.callbacks.status("Broker reconnected; waiting for settings");
+            this.callbacks.status("Broker reconnected; restoring subscriptions");
+          }
+          break;
+        case "subscriptions-restored":
+          if (this.state === "active") {
+            this.callbacks.status("Broker subscriptions restored; waiting for settings");
           }
           break;
         case "reconnecting":
@@ -231,4 +240,8 @@ export class PrefixSession {
   private active(load: Load): boolean {
     return this.load === load && !load.abort.signal.aborted;
   }
+}
+
+function manifestKey(alive: AliveManifest): string {
+  return `${alive.epoch}:${alive.schema_rev}`;
 }

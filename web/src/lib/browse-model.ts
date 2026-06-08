@@ -2,15 +2,12 @@ import { displayPath, type Schema } from "./schema";
 import type { Settings } from "./settings-mirror";
 import {
   cuePaths,
-  flatTreeNodes,
   revealPresentSettings,
-  treeViewNodes,
-  viewNodes,
+  treeSnapshot,
+  type TreeSnapshot,
   type ViewNode,
 } from "./tree-state";
 import { movePath, toggleExpansion, visibleTreePaths, type NavDirection } from "./tree-navigation";
-import type { FlatTreeNode } from "./tree-navigation";
-import type { TreeNodeView } from "./tree-view";
 
 // Pure browse UI state. The editor draft is user-owned after selection/opening;
 // incoming settings rebuild row values and flashes but must not overwrite it.
@@ -27,45 +24,39 @@ type BrowseSettings = {
 };
 
 export class BrowseModel {
-  private collapsed = new Set<string>();
+  private userClosed = new Set<string>();
 
   schema: Schema | undefined;
   settings: Settings = new Map();
   root = "";
-  nodes: ViewNode[] = [];
   expanded = new Set<string>();
   selectedPath = "";
   editor = "null";
   flashed = new Set<string>();
-  private flatNodes = new Map<string, FlatTreeNode>();
-  private nodeViews = new Map<string, TreeNodeView>();
-  private nodeByPath = new Map<string, ViewNode>();
+  private tree = emptyTree();
 
   get selected(): ViewNode | undefined {
-    return this.nodeByPath.get(this.selectedPath);
+    return this.tree.nodeByPath.get(this.selectedPath);
   }
 
   get rootNode(): ViewNode | undefined {
-    return this.nodeByPath.get(this.root);
+    return this.tree.nodeByPath.get(this.root);
   }
 
   get treeNodes() {
-    return this.nodeViews;
+    return this.tree.nodeViews;
   }
 
   get visiblePaths(): string[] {
-    return visibleTreePaths(this.root, this.flatNodes, this.expanded);
+    return visibleTreePaths(this.root, this.tree.flatNodes, this.expanded);
   }
 
   reset(): void {
-    this.collapsed = new Set();
+    this.userClosed = new Set();
     this.schema = undefined;
     this.settings = new Map();
     this.root = "";
-    this.nodes = [];
-    this.flatNodes = new Map();
-    this.nodeViews = new Map();
-    this.nodeByPath = new Map();
+    this.tree = emptyTree();
     this.expanded = new Set();
     this.selectedPath = "";
     this.editor = "null";
@@ -77,7 +68,7 @@ export class BrowseModel {
     this.root = schema.path(subtreePath);
     this.settings = new Map();
     this.expanded = new Set();
-    this.collapsed = new Set();
+    this.userClosed = new Set();
     this.rebuild();
     return this.root;
   }
@@ -87,7 +78,7 @@ export class BrowseModel {
     this.rebuild(false);
     this.expanded = revealPresentSettings(
       this.expanded,
-      this.collapsed,
+      this.userClosed,
       changed,
       this.settings,
       this.root,
@@ -100,9 +91,9 @@ export class BrowseModel {
   }
 
   setExpanded(path: string, open: boolean): void {
-    ({ expanded: this.expanded, collapsed: this.collapsed } = toggleExpansion(
+    ({ expanded: this.expanded, userClosed: this.userClosed } = toggleExpansion(
       this.expanded,
-      this.collapsed,
+      this.userClosed,
       path,
       open,
     ));
@@ -144,12 +135,9 @@ export class BrowseModel {
   }
 
   private rebuild(reloadEditor = true): void {
-    this.nodes = viewNodes(this.schema, this.root, this.settings);
-    this.flatNodes = flatTreeNodes(this.nodes);
-    this.nodeViews = treeViewNodes(this.nodes, this.root);
-    this.nodeByPath = new Map(this.nodes.map((node) => [node.path, node]));
-    if (!this.nodeByPath.has(this.selectedPath)) {
-      this.selectedPath = this.nodes[0]?.path ?? "";
+    this.tree = treeSnapshot(this.schema, this.root, this.settings);
+    if (!this.tree.nodeByPath.has(this.selectedPath)) {
+      this.selectedPath = this.tree.nodes[0]?.path ?? "";
     }
     if (reloadEditor) {
       this.loadEditor();
@@ -162,4 +150,13 @@ function commitStatus(changed: Set<string>): string {
     return `Updated ${displayPath([...changed][0])}`;
   }
   return changed.size ? `Updated ${changed.size} settings` : "";
+}
+
+function emptyTree(): TreeSnapshot {
+  return {
+    nodes: [],
+    flatNodes: new Map(),
+    nodeViews: new Map(),
+    nodeByPath: new Map(),
+  };
 }

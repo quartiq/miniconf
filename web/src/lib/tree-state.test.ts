@@ -9,11 +9,11 @@ describe("tree state", () => {
     expect(parentPath("/a/b")).toBe("/a");
   });
 
-  it("reveals present setting ancestors without reopening collapsed branches", () => {
-    const collapsed = new Set(["/a"]);
+  it("reveals present setting ancestors without reopening user-closed branches", () => {
+    const userClosed = new Set(["/a"]);
     const expanded = revealPresentSettings(
       new Set([""]),
-      collapsed,
+      userClosed,
       ["/a/b/c", "/d/e"],
       new Map([
         ["/a/b/c", 1],
@@ -31,11 +31,11 @@ describe("tree state", () => {
   it("tracks user toggles separately from expansion", () => {
     const closed = toggleExpansion(new Set(["/a"]), new Set(), "/a", false);
     expect(closed.expanded.has("/a")).toBe(false);
-    expect(closed.collapsed.has("/a")).toBe(true);
+    expect(closed.userClosed.has("/a")).toBe(true);
 
-    const opened = toggleExpansion(closed.expanded, closed.collapsed, "/a", true);
+    const opened = toggleExpansion(closed.expanded, closed.userClosed, "/a", true);
     expect(opened.expanded.has("/a")).toBe(true);
-    expect(opened.collapsed.has("/a")).toBe(false);
+    expect(opened.userClosed.has("/a")).toBe(false);
   });
 
   it("cues changed paths and ancestors", () => {

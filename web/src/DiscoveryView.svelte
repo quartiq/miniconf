@@ -14,7 +14,7 @@
 
   let selectedPath = "";
   let expanded = new Set([""]);
-  let collapsed = new Set<string>();
+  let userClosed = new Set<string>();
   let prefixKey = "";
 
   $: nodes = discoveryTree(discoveredPrefixes);
@@ -26,7 +26,7 @@
     expanded = new Set([
       ...expanded,
       ...[...nodes.values()]
-        .filter((node) => node.children.length && !collapsed.has(node.path))
+        .filter((node) => node.children.length && !userClosed.has(node.path))
         .map((node) => node.path),
     ]);
   }
@@ -40,7 +40,7 @@
   }
 
   function setExpanded(path: string, open: boolean) {
-    ({ expanded, collapsed } = toggleExpansion(expanded, collapsed, path, open));
+    ({ expanded, userClosed } = toggleExpansion(expanded, userClosed, path, open));
   }
 
   function focusTreeItem(path: string) {

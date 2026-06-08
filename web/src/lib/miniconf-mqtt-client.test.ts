@@ -105,9 +105,6 @@ describe("MiniconfMqttClient subscriptions", () => {
 
     expect(updates.at(-1)).toEqual(["dt/device"]);
 
-    mqtt.publishRetained("dt/device/alive", "");
-    expect(updates.at(-1)).toEqual([]);
-
     mqtt.emit("connect");
     expect(updates.at(-1)).toEqual([]);
 
@@ -128,6 +125,23 @@ describe("MiniconfMqttClient subscriptions", () => {
     mqtt.publishRetained("dt/device/settings/sub/d", "4", { auth: "" });
 
     expect(changes).toEqual([{ path: "/sub/d", value: 4, present: true, rev: undefined }]);
+  });
+
+  it("resolves schema when all pages arrive", async () => {
+    const mqtt = new FakeMqttClient();
+    const client = new MiniconfMqttClient(new MqttBus(mqtt as never));
+    const progress: string[] = [];
+    const schema = client.schema("dt/device", { proto: 1, epoch: 1, schema_rev: 2, pages: 2 }, {
+      progress: ({ received, total }) => progress.push(`${received}/${total}`),
+    });
+    await Promise.resolve();
+    mqtt.completeSubscribe();
+
+    mqtt.publishRetained("dt/device/schema/1", "{\"i\":{\"k\":\"n\",\"c\":{}},\"m\":{}}\n");
+    mqtt.publishRetained("dt/device/schema/0", "{\"s\":\"value\"}\n");
+
+    await expect(schema).resolves.toMatchObject({ rev: 2 });
+    expect(progress).toEqual(["0/2", "1/2", "2/2"]);
   });
 
   it("rejects invalid Miniconf setting roots", async () => {

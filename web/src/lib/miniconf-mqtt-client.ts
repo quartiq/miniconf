@@ -46,6 +46,16 @@ export type SetResponse = {
   message: string;
 };
 
+export type SchemaProgress = {
+  received: number;
+  total: number;
+};
+
+export type SchemaLoadOptions = {
+  signal?: AbortSignal;
+  progress?: (progress: SchemaProgress) => void;
+};
+
 type PacketProperties = {
   userProperties?: Record<string, string | string[]>;
   correlationData?: unknown;
@@ -54,7 +64,6 @@ type PacketProperties = {
 export type MiniconfMqttTransport = Pick<
   MqttBus,
   | "close"
-  | "collectUntil"
   | "listen"
   | "publish"
   | "watch"
@@ -137,12 +146,6 @@ function randomCorrelation(): Uint8Array {
   return bytes;
 }
 
-function quietWindow(subscribeRtt: number, relTimeout: number, absTimeout: number) {
-  // Retained discovery/settings use the Python client policy: wait for
-  // quiescence after SUBACK or the last accepted retained publish.
-  return absTimeout + relTimeout * subscribeRtt;
-}
-
 function miniconfPath(path: string, label = "Path"): string {
   if (path === "" || path.startsWith("/")) {
     return path;
@@ -195,7 +198,7 @@ export class MiniconfMqttClient {
         found.set(prefix, validateAliveManifest(jsonParse(message.payload)));
         emit();
       } catch {
-        // Discovery ignores invalid alive payloads like the finite retained scan.
+        // Discovery ignores invalid alive payloads.
       }
     });
     return () => {
@@ -204,28 +207,59 @@ export class MiniconfMqttClient {
     };
   }
 
-  async schema(prefix: string, alive: AliveManifest, timeout = 3000): Promise<Schema> {
+  async schema(prefix: string, alive: AliveManifest, options: SchemaLoadOptions = {}): Promise<Schema> {
+    const { signal, progress } = options;
     const topic = `${prefix}/schema/#`;
     const pages: (string | undefined)[] = Array.from(
       { length: alive.pages },
       () => undefined,
     );
-    await this.bus.collectUntil(
-      topic,
-      RETAINED_SUBSCRIBE,
-      (message) => {
+    const emitProgress = () => {
+      progress?.({
+        received: pages.filter((page) => page !== undefined).length,
+        total: pages.length,
+      });
+    };
+    emitProgress();
+    await new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new Error("Schema load cancelled"));
+        return;
+      }
+      let stop: (() => void) | undefined;
+      let settled = false;
+      const settle = (complete: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        stop?.();
+        complete();
+      };
+      const onAbort = () => {
+        settle(() => reject(new Error("Schema load cancelled")));
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      const finish = () => {
+        settle(resolve);
+      };
+      if (!pages.length) {
+        finish();
+        return;
+      }
+      stop = this.bus.watch(topic, RETAINED_SUBSCRIBE, (message) => {
         const suffix = message.topic.slice(`${prefix}/schema/`.length);
         const page = Number.parseInt(suffix, 10);
         if (Number.isInteger(page) && page >= 0 && page < pages.length) {
           pages[page] = decode(message.payload);
+          emitProgress();
         }
-      },
-      () => pages.every((page) => page !== undefined),
-      timeout,
-    );
-    if (pages.some((page) => page === undefined)) {
-      throw new Error("Timed out waiting for schema pages");
-    }
+        if (pages.every((page) => page !== undefined)) {
+          finish();
+        }
+      });
+    });
     const defs = pages.flatMap((page) =>
       page
         ?.split(/\r?\n/)

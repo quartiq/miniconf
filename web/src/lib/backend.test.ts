@@ -17,8 +17,13 @@ class FakeClient {
   private replayAlive = true;
   private settingsResult: Map<string, unknown> = new Map([["/leaf", 1]]);
 
-  async schema(prefix: string) {
+  async schema(
+    prefix: string,
+    _alive: unknown,
+    options?: { progress?: (progress: { received: number; total: number }) => void },
+  ) {
     this.calls.push(`schema ${prefix}`);
+    options?.progress?.({ received: 1, total: 1 });
     return this.schemaValue;
   }
 
@@ -62,10 +67,6 @@ class FakeClient {
     this.aliveListener?.(alive);
   }
 
-  clearAlive() {
-    this.aliveListener?.(undefined);
-  }
-
   setSettings(settings: Map<string, unknown>) {
     this.settingsResult = settings;
   }
@@ -76,7 +77,12 @@ class FakeClient {
 
   reconnect() {
     this.connectionListener?.({ state: "connected" });
+    this.connectionListener?.({ state: "subscriptions-restored" });
     queueMicrotask(() => this.replaySettings());
+  }
+
+  clearAlive() {
+    this.aliveListener?.(undefined);
   }
 
   connectionError(error: string, transient = false) {
@@ -102,6 +108,7 @@ describe("PrefixSession", () => {
         alive: (alive) => statuses.push(`alive ${alive?.epoch ?? "none"}`),
         response: (response) => statuses.push(`response ${response.code} ${response.path}`),
         schema: (_schema, root) => statuses.push(`schema ${root || "/"}`),
+        schemaProgress: ({ received, total }) => statuses.push(`progress ${received}/${total}`),
         settings: (commit) => commits.push(`${commit.changed.size}`),
         status: (status) => statuses.push(status),
       };
@@ -143,6 +150,7 @@ describe("PrefixSession", () => {
         alive: () => {},
         response: () => {},
         schema: () => {},
+        schemaProgress: () => {},
         settings: () => {},
         status: () => {},
       });
@@ -167,32 +175,6 @@ describe("PrefixSession", () => {
     }
   });
 
-  it("marks the active prefix offline and reloads when it reappears", async () => {
-    const client = new FakeClient();
-    const alive: string[] = [];
-    const statuses: string[] = [];
-    const session = new PrefixSession(client as never, "dt/device", "", {
-      error: () => {},
-      alive: (next) => alive.push(next ? `${next.epoch}:${next.schema_rev}` : "offline"),
-      response: () => {},
-      schema: () => {},
-      settings: () => {},
-      status: (status) => statuses.push(status),
-    });
-
-    await session.open();
-    client.clearAlive();
-    client.publishAlive({ proto: 1, epoch: 2, schema_rev: 8, pages: 1 });
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(alive).toEqual(["1:7", "offline", "2:8"]);
-    expect(statuses).toContain("Prefix offline");
-    expect(client.calls.filter((call) => call === "watchAlive dt/device")).toHaveLength(1);
-    expect(client.calls.filter((call) => call === "watchSettings dt/device ")).toHaveLength(2);
-  });
-
   it("clears and streams settings again after broker reconnect", async () => {
     vi.useFakeTimers();
     try {
@@ -203,6 +185,7 @@ describe("PrefixSession", () => {
         alive: () => {},
         response: () => {},
         schema: () => {},
+        schemaProgress: () => {},
         settings: (commit) => {
           commits.push([...commit.settings].map(([path, value]) => ({
             path,
@@ -222,7 +205,6 @@ describe("PrefixSession", () => {
       await vi.advanceTimersByTimeAsync(100);
 
       expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 2 }]);
-      expect(client.calls.filter((call) => call === "alive dt/device")).toEqual([]);
       expect(client.calls).not.toContain("stopSettings dt/device ");
     } finally {
       vi.useRealTimers();
@@ -237,6 +219,7 @@ describe("PrefixSession", () => {
       alive: () => {},
       response: () => {},
       schema: () => {},
+      schemaProgress: () => {},
       settings: () => {},
       status: () => {},
     });
@@ -258,6 +241,7 @@ describe("PrefixSession", () => {
       alive: () => {},
       response: () => {},
       schema: () => {},
+      schemaProgress: () => {},
       settings: () => {},
       status: (status) => statuses.push(status),
     });
@@ -268,5 +252,31 @@ describe("PrefixSession", () => {
 
     expect(statuses).toContain("Broker reconnecting");
     expect(errors).toEqual(["bad credentials"]);
+  });
+
+  it("reports retained-empty alive as offline while opening", async () => {
+    const client = new FakeClient();
+    client.setReplayAlive(false);
+    const statuses: string[] = [];
+    const alive: string[] = [];
+    const session = new PrefixSession(client as never, "dt/device", "", {
+      error: () => {},
+      alive: (next) => alive.push(String(next?.epoch ?? "none")),
+      response: () => {},
+      schema: () => {},
+      schemaProgress: () => {},
+      settings: () => {},
+      status: (status) => statuses.push(status),
+    });
+
+    const opened = session.open();
+    await Promise.resolve();
+    client.clearAlive();
+
+    expect(statuses).toContain("Prefix offline; waiting for alive");
+    expect(alive).toContain("none");
+
+    session.close();
+    await expect(opened).rejects.toThrow("Prefix session closed");
   });
 });

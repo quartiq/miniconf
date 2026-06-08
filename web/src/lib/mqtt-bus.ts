@@ -9,7 +9,7 @@ import { nanoid } from "nanoid";
 
 // MQTT.js owns the WebSocket transport. This wrapper keeps browser sessions
 // clean/ephemeral, centralizes topic filtering, and owns durable resubscribe
-// ordering so retained replay happens after app-level reconnect handlers run.
+// ordering so reconnect handlers run before retained replay resumes.
 export type MqttMessage = {
   topic: string;
   payload: Uint8Array;
@@ -29,12 +29,15 @@ export type MqttAuth = {
 };
 
 export type MqttConnectionEvent = {
-  state: "connected" | "reconnecting" | "offline" | "closed" | "error";
+  state: "connected" | "subscriptions-restored" | "reconnecting" | "offline" | "closed" | "error";
   error?: string;
   transient?: boolean;
 };
 
-function transientConnectionError(error: Error): boolean {
+function isTransientMqttJsConnectionError(error: Error): boolean {
+  // MQTT.js exposes reconnect-time transport failures as generic Error events.
+  // Keep this presentation policy here so protocol/session code does not
+  // string-match browser transport messages.
   const message = error.message.toLowerCase();
   return message.includes("connack timeout") || message.includes("keepalive timeout");
 }
@@ -82,7 +85,7 @@ export class MqttBus {
       this.notifyConnection({
         state: "error",
         error: error.message,
-        transient: transientConnectionError(error),
+        transient: isTransientMqttJsConnectionError(error),
       });
     });
   }
@@ -155,7 +158,7 @@ export class MqttBus {
     void this.subscribeReserved(filter, options, true).catch(() => stop());
     return () => {
       stop();
-      void this.unsubscribe(filter);
+      void this.unsubscribe(filter).catch(() => {});
     };
   }
 
@@ -169,84 +172,6 @@ export class MqttBus {
     return () => {
       this.listeners.delete(listener);
     };
-  }
-
-  async collectUntil(
-    filter: string,
-    options: IClientSubscribeOptions,
-    collect: (message: MqttMessage) => void,
-    done: () => boolean,
-    timeout: number,
-    nextCheck?: () => number | undefined,
-    onSubscribed?: (subscribeRtt: number) => void,
-  ): Promise<void> {
-    let start = (_subscribeRtt: number) => {};
-    const pending = new Promise<void>((resolve, reject) => {
-      let active = false;
-      let checkTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-      let hardTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
-      let settled = false;
-      const finish = (complete: () => void) => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        cleanup();
-        complete();
-      };
-      const check = () => {
-        if (done()) {
-          finish(resolve);
-          return;
-        }
-        scheduleCheck();
-      };
-      const scheduleCheck = () => {
-        if (!active || !nextCheck) {
-          return;
-        }
-        const delay = nextCheck();
-        if (delay === undefined || !Number.isFinite(delay)) {
-          return;
-        }
-        globalThis.clearTimeout(checkTimer);
-        checkTimer = globalThis.setTimeout(check, Math.max(0, delay));
-      };
-      const cleanup = () => {
-        globalThis.clearTimeout(hardTimer);
-        globalThis.clearTimeout(checkTimer);
-        this.listeners.delete(listener);
-      };
-      const listener = (message: MqttMessage) => {
-        if (topicMatches(filter, message.topic)) {
-          collect(message);
-          check();
-        }
-      };
-      this.listeners.add(listener);
-      start = (subscribeRtt) => {
-        if (settled) {
-          return;
-        }
-        active = true;
-        onSubscribed?.(subscribeRtt);
-        hardTimer = globalThis.setTimeout(() => {
-          finish(() => {
-            if (done()) {
-              resolve();
-            } else {
-              reject(new Error(`Timed out waiting for ${filter}`));
-            }
-          });
-        }, timeout);
-        check();
-      };
-    });
-    const subscribeStarted = performance.now();
-    return this.withSubscription(filter, options, () => {
-      start(performance.now() - subscribeStarted);
-      return pending;
-    });
   }
 
   async publish(
@@ -265,8 +190,6 @@ export class MqttBus {
     options: IClientSubscribeOptions,
     body: () => Promise<T>,
   ): Promise<T> {
-    // Transient subscriptions are connected-only by design; do not silently
-    // queue retained scans or /set response waits while disconnected.
     this.reserveSubscription(topic, options, false, true);
     await this.subscribeReserved(topic, options, true);
     try {
@@ -318,10 +241,28 @@ export class MqttBus {
 
   private handleConnect(): void {
     this.notifyConnection({ state: "connected" });
+    void this.restoreDurableSubscriptions();
+  }
+
+  private async restoreDurableSubscriptions(): Promise<void> {
     for (const [topic, subscription] of this.subscriptions) {
       if (subscription.durable) {
-        void this.subscribeReserved(topic, subscription.options, false);
+        try {
+          await this.subscribeReserved(topic, subscription.options, false);
+        } catch (error) {
+          if (this.client.connected && !this.closing) {
+            this.notifyConnection({
+              state: "error",
+              error: error instanceof Error ? error.message : String(error),
+              transient: false,
+            });
+          }
+          return;
+        }
       }
+    }
+    if (this.client.connected && !this.closing) {
+      this.notifyConnection({ state: "subscriptions-restored" });
     }
   }
 

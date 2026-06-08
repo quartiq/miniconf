@@ -73,20 +73,20 @@ export function movePath(
 
 export function toggleExpansion(
   expanded: Set<string>,
-  collapsed: Set<string>,
+  userClosed: Set<string>,
   path: string,
   open: boolean,
-): { expanded: Set<string>; collapsed: Set<string> } {
+): { expanded: Set<string>; userClosed: Set<string> } {
   const nextExpanded = new Set(expanded);
-  const nextCollapsed = new Set(collapsed);
+  const nextUserClosed = new Set(userClosed);
   if (open) {
     nextExpanded.add(path);
-    nextCollapsed.delete(path);
+    nextUserClosed.delete(path);
   } else {
     nextExpanded.delete(path);
-    nextCollapsed.add(path);
+    nextUserClosed.add(path);
   }
-  return { expanded: nextExpanded, collapsed: nextCollapsed };
+  return { expanded: nextExpanded, userClosed: nextUserClosed };
 }
 
 function parentTreePath(path: string): string | undefined {
