@@ -18,6 +18,7 @@ from miniconf.common import MQTTv5
 async with Client("mqtt", protocol=MQTTv5) as mqtt:
     async with Miniconf(mqtt, "app/id") as mc:
         schema = await mc.schema()
+        value = await mc.get("/path")
         await mc.set("/path", 42)
 
         async with mc.track("/subtree") as tracked:
@@ -29,6 +30,7 @@ async with Client("mqtt", protocol=MQTTv5) as mqtt:
 Core API:
 
 - `schema()` loads and caches the retained schema.
+- `get(path)` reads one schema-validated retained leaf without opening a subtree cache.
 - `set(path, value, response=True)` publishes one `set/#` request.
 - `track(path="")` scopes a retained subtree cache; `.ready` reports whether it is
   usable, `wait_ready()` waits through reboot/reload, then `cached()` reads one leaf

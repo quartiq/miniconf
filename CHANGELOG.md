@@ -33,8 +33,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_mqtt` MM2 now publishes retained manifest, paged schema, and authoritative retained
   settings. Compatibility with request/response-only settings writes is retained behind the
   `compat-settings-ingress` feature.
-* MM2 manifests now publish `epoch` and `schema_rev`. Long-lived Python clients use them to
-  invalidate cached schema and settings.
 * The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the MM2
   retained schema/settings protocol with an async-first CLI and client library.
 

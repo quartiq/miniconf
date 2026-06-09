@@ -477,6 +477,20 @@ class Miniconf(_BaseClient):
             path, json_dumps(value), response=response, timeout=timeout
         )
 
+    async def get(self, path: str, *, timeout: float = 3.0):
+        """Read one schema-validated retained authoritative leaf."""
+
+        schema = await self.schema(timeout=timeout)
+        path = schema.path(path)
+        if schema.node(path).kind != "leaf":
+            raise MiniconfException("LeafRequired", path)
+        return await _read_retained_json(
+            self._watch,
+            f"{self.prefix}/settings{path}",
+            path,
+            timeout=timeout,
+        )
+
     async def schema(self, *, timeout: float = 3.0) -> Schema:
         """Load and cache the retained paged schema."""
 

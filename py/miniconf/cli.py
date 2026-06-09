@@ -227,11 +227,7 @@ async def _handle_commands(
                 print(f"{path}={value}")
             else:
                 path, base = _normalize_command_path(arg, base, subtree=False)
-                if raw:
-                    value = await interface.get(path, timeout=timeout)
-                else:
-                    async with interface.track(path, timeout=timeout) as tracked:
-                        value = tracked.cached()
+                value = await interface.get(path, timeout=timeout)
                 print(f"{path}={json_dumps(value)}")
         except (MiniconfException, TimeoutError, json.JSONDecodeError) as err:
             print(f"{arg}: {err!r}")
