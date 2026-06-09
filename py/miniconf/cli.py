@@ -9,10 +9,9 @@ import logging
 import os
 import sys
 
-from aiomqtt import Client
-
 from .client import Miniconf, RawMiniconf
-from .common import LOGGER, MQTTv5, MiniconfException, json_dumps, validate_path
+from .common import LOGGER, MiniconfException, json_dumps, validate_path
+from ._mqtt import Client
 from ._ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
@@ -60,7 +59,7 @@ async def _main() -> None:
         level=logging.WARN - 10 * args.verbose,
     )
 
-    async with Client(args.broker, protocol=MQTTv5) as client:
+    async with Client(args.broker) as client:
         prefix = await _resolve_prefix(client, args.prefix, args.discover)
         if args.raw and (args.prune or args.force_prune):
             raise MiniconfException(
@@ -207,14 +206,16 @@ async def _handle_commands(
                 print(render_schema_tree(await interface.schema(timeout=timeout), path))
             elif arg.endswith("!!"):
                 path = normalize(arg.removesuffix("!!"))
-                async with interface.track(path, timeout=timeout) as tracked:
-                    for dump_path, value in sorted(tracked.snapshot().items()):
-                        print(f"{dump_path}={json_dumps(value)}")
+                for dump_path, value in sorted(
+                    (await interface.snapshot(path, timeout=timeout)).items()
+                ):
+                    print(f"{dump_path}={json_dumps(value)}")
             elif arg.endswith("!"):
                 path = normalize(arg.removesuffix("!"))
                 schema = await interface.schema(timeout=timeout)
-                async with interface.track(path, timeout=timeout) as tracked:
-                    print(render_value_tree(schema, tracked.snapshot(), tracked.root))
+                root = schema.path(path)
+                snapshot = await interface.snapshot(root, timeout=timeout)
+                print(render_value_tree(schema, snapshot, root))
             elif "=" in arg:
                 path, value = arg.split("=", 1)
                 path, base = _normalize_command_path(path, base, subtree=False)

@@ -11,58 +11,77 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
-import paho.mqtt.client as mqtt
-from aiomqtt import Client, Message, MqttError
-from paho.mqtt.properties import PacketTypes, Properties
-from paho.mqtt.subscribeoptions import SubscribeOptions
-
 from . import _ops
 from .common import (
+    DEFAULT_SUBSCRIPTION,
     LOGGER,
-    MM2_PROTO,
+    RETAINED_SUBSCRIPTION,
+    AliveManifest,
+    SubscriptionKey,
     BurstState,
     MiniconfException,
+    alive_manifest,
     is_authoritative,
     is_retained,
     json_dumps,
     message_expiry,
-    retained_options,
     settings_topics,
-    subscription_key,
     subtree_match,
     validate_path,
 )
+from ._mqtt import Client, Message, MQTTError, topic_matches_sub
 from .schema import Schema
 
 
 def _properties(message: Message) -> dict[str, Any]:
-    try:
-        return message.properties.json()
-    except AttributeError:
-        return {}
+    return message.properties
 
 
 def _response_code(properties: dict[str, Any]) -> str:
     try:
-        return dict(properties["UserProperty"])["code"]
+        return dict(properties["user_property"])["code"]
     except KeyError as exc:
         raise MiniconfException("Protocol", "Missing response code") from exc
 
 
 def _response_cd(properties: dict[str, Any]) -> bytes | None:
-    try:
-        return bytes.fromhex(properties["CorrelationData"])
-    except KeyError:
+    return properties.get("correlation_data")
+
+
+@dataclass(frozen=True)
+class SettingEvent:
+    """One authoritative `/settings` publication."""
+
+    path: str
+    present: bool
+    retained: bool = True
+    value: Any = None
+    rev: str | None = None
+
+
+def _setting_event(message: Message, prefix: str, root: str) -> SettingEvent | None:
+    properties = _properties(message)
+    if not is_retained(message) or not is_authoritative(properties):
         return None
+    topic = message.topic
+    if not topic.startswith(f"{prefix}/settings"):
+        return None
+    path = topic.removeprefix(f"{prefix}/settings")
+    if path and not path.startswith("/"):
+        return None
+    if not subtree_match(path, root):
+        return None
+    rev = _user_property(properties, "rev")
+    if not message.payload:
+        return SettingEvent(path, False, rev=rev)
+    return SettingEvent(path, True, value=json.loads(message.payload), rev=rev)
 
 
-@dataclass
-class _TrackState:
-    burst: BurstState
-    timeout: float
-    rel_timeout: float
-    abs_timeout: float
-    reload_task: asyncio.Task[None] | None = None
+def _user_property(properties: dict[str, Any], name: str) -> str | None:
+    try:
+        return dict(properties.get("user_property", ())).get(name)
+    except (TypeError, ValueError):
+        return None
 
 
 class _BaseClient:
@@ -72,15 +91,15 @@ class _BaseClient:
         self.response_topic = f"{prefix}/response/{uuid.uuid4().hex}"
         self._inflight: dict[bytes, asyncio.Future[None]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
-        self._subscriptions: dict[str, tuple[int, tuple[int, bool, bool, int]]] = {}
+        self._subscriptions: dict[str, tuple[int, SubscriptionKey]] = {}
         self._listener = asyncio.create_task(self._listen())
         self._subscribed = asyncio.Event()
 
     def _listen_topics(self) -> tuple[str, ...]:
         return (self.response_topic,)
 
-    def _listen_options(self, _topic: str) -> SubscribeOptions | None:
-        return None
+    def _listen_subscription(self, _topic: str) -> SubscriptionKey:
+        return DEFAULT_SUBSCRIPTION
 
     async def __aenter__(self):
         return self
@@ -104,30 +123,30 @@ class _BaseClient:
         topics: list[str] = []
         try:
             for topic in self._listen_topics():
-                await self._subscribe(topic, self._listen_options(topic))
+                await self._subscribe(topic, self._listen_subscription(topic))
                 topics.append(topic)
             self._subscribed.set()
             async for message in self.client.messages:
                 self._dispatch(message)
         except asyncio.CancelledError:
             pass
-        except MqttError:
+        except MQTTError:
             LOGGER.debug("MQTT error", exc_info=True)
         finally:
             self._subscribed.clear()
             for topic in reversed(topics):
                 try:
                     await self._unsubscribe(topic, missing_ok=True)
-                except MqttError:
+                except MQTTError:
                     LOGGER.debug("MQTT unsubscribe error", exc_info=True)
 
     def _dispatch(self, message: Message):
-        topic = message.topic.value
+        topic = message.topic
         properties = _properties(message)
         LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
 
         for topic_filter, queues in tuple(self._watchers.items()):
-            if mqtt.topic_matches_sub(topic_filter, topic):
+            if topic_matches_sub(topic_filter, topic):
                 for queue in tuple(queues):
                     queue.put_nowait(message)
 
@@ -139,11 +158,11 @@ class _BaseClient:
     def _handle_response(self, properties: dict[str, Any], payload: bytes):
         cd = _response_cd(properties)
         if cd is None:
-            LOGGER.debug("Discarding response without CorrelationData")
+            LOGGER.debug("Discarding response without correlation_data")
             return
         fut = self._inflight.pop(cd, None)
         if fut is None:
-            LOGGER.debug("Discarding unexpected CorrelationData: %s", cd.hex())
+            LOGGER.debug("Discarding unexpected correlation_data: %s", cd.hex())
             return
         if fut.done():
             LOGGER.debug("Discarding late response: %s", cd.hex())
@@ -160,22 +179,27 @@ class _BaseClient:
         pass
 
     async def _subscribe(
-        self, topic_filter: str, options: SubscribeOptions | None = None
+        self,
+        topic_filter: str,
+        subscription: SubscriptionKey = DEFAULT_SUBSCRIPTION,
     ):
-        key = subscription_key(options)
         existing = self._subscriptions.get(topic_filter)
         if existing is None:
-            if options is None:
-                await self.client.subscribe(topic_filter, qos=1)
-            else:
-                await self.client.subscribe(topic_filter, options=options)
+            qos, no_local, retain_as_published, retain_handling = subscription
+            await self.client.subscribe(
+                topic_filter,
+                qos=qos,
+                no_local=no_local,
+                retain_as_published=retain_as_published,
+                retain_handling=retain_handling,
+            )
             LOGGER.debug("Subscribed to %s", topic_filter)
-            self._subscriptions[topic_filter] = (1, key)
+            self._subscriptions[topic_filter] = (1, subscription)
             return
         count, existing_key = existing
-        if existing_key != key:
+        if existing_key != subscription:
             raise MiniconfException("Subscription", topic_filter)
-        self._subscriptions[topic_filter] = (count + 1, key)
+        self._subscriptions[topic_filter] = (count + 1, subscription)
 
     async def _unsubscribe(self, topic_filter: str, *, missing_ok: bool = False):
         existing = self._subscriptions.get(topic_filter)
@@ -194,13 +218,15 @@ class _BaseClient:
 
     @asynccontextmanager
     async def _watch(
-        self, topic_filter: str, options: SubscribeOptions | None = None
+        self,
+        topic_filter: str,
+        subscription: SubscriptionKey = DEFAULT_SUBSCRIPTION,
     ) -> AsyncIterator[asyncio.Queue[Message]]:
         queue: asyncio.Queue[Message] = asyncio.Queue()
         watchers = self._watchers[topic_filter]
         watchers.append(queue)
         try:
-            await self._subscribe(topic_filter, options)
+            await self._subscribe(topic_filter, subscription)
         except Exception:
             watchers.remove(queue)
             if not watchers:
@@ -214,18 +240,36 @@ class _BaseClient:
                 del self._watchers[topic_filter]
             await self._unsubscribe(topic_filter)
 
+    async def _watch_settings(self, root: str) -> AsyncIterator[SettingEvent]:
+        async with self._settings_queue(root) as queue:
+            while True:
+                message = await queue.get()
+                event = self._setting_event(message, root)
+                if event is not None:
+                    yield event
+
+    def _setting_event(self, message: Message, root: str) -> SettingEvent | None:
+        return _setting_event(message, self.prefix, root)
+
+    @asynccontextmanager
+    async def _settings_queue(self, root: str) -> AsyncIterator[asyncio.Queue[Message]]:
+        (topic_filter,) = settings_topics(self.prefix, root)
+        async with self._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
+            yield queue
+
     async def _publish_set(
         self, path: str, payload: str, *, response: bool, timeout: float | None = None
     ):
-        props = Properties(PacketTypes.PUBLISH)
-        props.PayloadFormatIndicator = 1
-        props.MessageExpiryInterval = message_expiry(timeout)
+        props: dict[str, Any] = {
+            "payload_format_id": 1,
+            "message_expiry_interval": message_expiry(timeout),
+        }
         fut = None
         if response:
             await self._subscribed.wait()
-            props.ResponseTopic = self.response_topic
+            props["response_topic"] = self.response_topic
             cd = uuid.uuid4().bytes
-            props.CorrelationData = cd
+            props["correlation_data"] = cd
             fut = asyncio.get_running_loop().create_future()
             assert cd not in self._inflight
             self._inflight[cd] = fut
@@ -248,7 +292,7 @@ async def _read_retained_json(
     *,
     timeout: float,
 ):
-    async with watch(topic_filter, retained_options()) as queue:
+    async with watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
         end = asyncio.get_running_loop().time() + timeout
         while True:
             remaining = end - asyncio.get_running_loop().time()
@@ -271,183 +315,58 @@ async def _read_retained_json(
                 ) from exc
 
 
-class TrackedSubtree:
-    """Scoped retained-settings subtree tracker."""
-
-    def __init__(
-        self,
-        client: Miniconf,
-        path: str,
-        *,
-        timeout: float,
-        rel_timeout: float,
-        abs_timeout: float,
-    ):
-        self._client = client
-        self._path = path
-        self._timeout = timeout
-        self._rel_timeout = rel_timeout
-        self._abs_timeout = abs_timeout
-        self._root: str | None = None
-
-    @property
-    def root(self) -> str:
-        if self._root is None:
-            raise MiniconfException("Closed", "Tracked subtree is closed")
-        return self._root
-
-    async def __aenter__(self) -> TrackedSubtree:
-        self._root = await self._client._open_track(
-            self._path,
-            timeout=self._timeout,
-            rel_timeout=self._rel_timeout,
-            abs_timeout=self._abs_timeout,
-        )
-        return self
-
-    async def __aexit__(self, *_exc_info) -> None:
-        await self.close()
-
-    async def close(self) -> None:
-        if self._root is None:
-            return
-        await self._client._close_track(self._root)
-        self._root = None
-
-    @property
-    def ready(self) -> bool:
-        """Whether the tracked cache is currently usable."""
-
-        if self._root is None:
-            return False
-        task = self._client._tracking_reload()
-        if task is None:
-            return True
-        if not task.done() or task.cancelled():
-            return False
-        return task.exception() is None
-
-    async def wait_ready(self, timeout: float | None = None) -> None:
-        """Wait until any tracked-cache reload triggered by `/alive` is complete."""
-
-        if self._root is None:
-            raise MiniconfException("Closed", "Tracked subtree is closed")
-        await self._client._wait_tracking_reload(timeout)
-
-    def _resolve(self, path: str, *, leaf: bool) -> str:
-        root = self.root
-        if not path:
-            full = root
-        else:
-            full = validate_path(path)
-        full = self._client._schema.path(full)
-        if not subtree_match(full, root):
-            raise MiniconfException("Untracked", full)
-        if leaf and self._client._schema.node(full).kind != "leaf":
-            raise MiniconfException("LeafRequired", full)
-        return full
-
-    def cached(self, path: str = ""):
-        """Read one cached tracked leaf."""
-
-        path = self._resolve(path, leaf=True)
-        self._client._check_tracking_reload()
-        try:
-            return self._client._settings[path]
-        except KeyError as exc:
-            raise MiniconfException("NotFound", path) from exc
-
-    def snapshot(self, path: str = "") -> dict[str, Any]:
-        """Return cached retained values below one tracked subtree."""
-
-        root = self._resolve(path, leaf=False)
-        self._client._check_tracking_reload()
-        return {
-            cache_path: value
-            for cache_path, value in self._client._settings.items()
-            if subtree_match(cache_path, root)
-        }
-
-
 class Miniconf(_BaseClient):
-    """Long-lived Miniconf session with schema and settings caches.
+    """Long-lived Miniconf session with retained schema cache.
 
     The client keeps `/alive` subscribed to notice new device epochs and schema revisions. Retained
-    `settings/#` publications without `auth` are treated as non-authoritative and ignored. One
-    explicit tracked settings subtree may be active at a time through `track()`.
+    `settings/#` publications without `auth` are treated as non-authoritative and ignored.
     """
 
     def __init__(self, client: Client, prefix: str):
         self.alive_topic = f"{prefix}/alive"
         self._schema: Schema | None = None
-        self._manifest: dict[str, Any] | None = None
-        self._settings: dict[str, Any] = {}
-        self._tracked_root: str | None = None
-        self._track_state: _TrackState | None = None
+        self._manifest: AliveManifest | None = None
         super().__init__(client, prefix)
+
+    @classmethod
+    @asynccontextmanager
+    async def connect(
+        cls, broker: str, prefix: str, **client_kwargs: Any
+    ) -> AsyncIterator[Miniconf]:
+        async with Client(broker, **client_kwargs) as client:
+            async with cls(client, prefix) as interface:
+                yield interface
 
     def _listen_topics(self) -> tuple[str, ...]:
         return self.response_topic, self.alive_topic
 
-    def _listen_options(self, topic: str) -> SubscribeOptions | None:
+    def _listen_subscription(self, topic: str) -> SubscriptionKey:
         if topic == self.alive_topic:
-            return retained_options()
-        return None
-
-    async def close(self) -> None:
-        if self._tracked_root is not None:
-            await self._close_track(self._tracked_root)
-        await super().close()
+            return RETAINED_SUBSCRIPTION
+        return DEFAULT_SUBSCRIPTION
 
     def _handle_message(self, message: Message, topic: str, properties: dict[str, Any]):
         if topic == self.alive_topic:
             self._note_manifest_payload(message.payload)
-            return
 
-        if self._tracked_root is None or not topic.startswith(
-            f"{self.prefix}/settings"
-        ):
-            return
-        if not is_authoritative(properties) or not is_retained(message):
-            return
-        path = topic.removeprefix(f"{self.prefix}/settings")
-        if not subtree_match(path, self._tracked_root):
-            return
-        if not message.payload:
-            self._settings.pop(path, None)
-        else:
-            self._settings[path] = json.loads(message.payload)
-        now = asyncio.get_running_loop().time()
-        assert self._track_state is not None
-        self._track_state.burst.reset(now)
-
-    def _note_manifest(self, manifest: dict[str, Any]):
-        if not isinstance(manifest, dict):
+    def _note_manifest(self, manifest: Any):
+        prev = self._manifest
+        try:
+            next_manifest = alive_manifest(manifest)
+        except MiniconfException:
             LOGGER.debug("Ignoring invalid alive manifest: %r", manifest)
             return
-        if manifest.get("proto") != MM2_PROTO:
-            LOGGER.debug("Ignoring unsupported alive manifest: %r", manifest)
-            return
-
-        prev = self._manifest
-        self._manifest = manifest
+        self._manifest = next_manifest
         if prev is None:
-            prev_epoch = prev_schema_rev = None
+            prev_schema_rev = None
         else:
-            prev_epoch = prev.get("epoch")
-            prev_schema_rev = prev.get("schema_rev")
-        epoch = manifest.get("epoch")
-        schema_rev = manifest.get("schema_rev")
-        if prev_epoch != epoch or prev_schema_rev != schema_rev:
-            self._start_tracking_reload()
-        if prev_schema_rev != schema_rev:
+            prev_schema_rev = prev.schema_rev
+        if prev_schema_rev != next_manifest.schema_rev:
             self._schema = None
 
     def _note_device_gone(self):
         self._manifest = None
         self._schema = None
-        self._settings.clear()
-        self._cancel_tracking_reload()
 
     def _note_manifest_payload(self, payload: bytes):
         if not payload:
@@ -491,17 +410,46 @@ class Miniconf(_BaseClient):
             timeout=timeout,
         )
 
+    async def snapshot(
+        self,
+        path: str = "",
+        *,
+        timeout: float = 3.0,
+        rel_timeout: float = 3.0,
+        abs_timeout: float = 0.1,
+    ) -> dict[str, Any]:
+        """Return a finite retained settings snapshot below one subtree."""
+
+        return await _ops._collect_retained_settings(
+            self,
+            path,
+            timeout=timeout,
+            rel_timeout=rel_timeout,
+            abs_timeout=abs_timeout,
+        )
+
+    async def watch(
+        self, path: str = "", *, timeout: float = 3.0
+    ) -> AsyncIterator[SettingEvent]:
+        """Yield authoritative settings updates below one subtree without waiting for quiescence."""
+
+        root = (await self.schema(timeout=timeout)).path(path)
+        async for event in self._watch_settings(root):
+            yield event
+
     async def schema(self, *, timeout: float = 3.0) -> Schema:
         """Load and cache the retained paged schema."""
 
         if self._schema is not None:
             return self._schema
         manifest = await _ops._manifest(self, timeout=timeout)
-        schema_rev = int(manifest["schema_rev"])
-        pages = int(manifest["pages"])
+        schema_rev = manifest.schema_rev
+        pages = manifest.pages
 
         defs: list[list[dict[str, Any]] | None] = [None] * pages
-        async with self._watch(f"{self.prefix}/schema/#", retained_options()) as queue:
+        async with self._watch(
+            f"{self.prefix}/schema/#", RETAINED_SUBSCRIPTION
+        ) as queue:
             deadline = asyncio.get_running_loop().time() + timeout
             while any(page is None for page in defs):
                 remaining = deadline - asyncio.get_running_loop().time()
@@ -510,7 +458,7 @@ class Miniconf(_BaseClient):
                 message = await asyncio.wait_for(queue.get(), remaining)
                 if not is_retained(message):
                     continue
-                suffix = message.topic.value.removeprefix(f"{self.prefix}/schema/")
+                suffix = message.topic.removeprefix(f"{self.prefix}/schema/")
                 try:
                     page = int(suffix)
                 except ValueError:
@@ -525,162 +473,21 @@ class Miniconf(_BaseClient):
         )
         return self._schema
 
-    def track(
-        self,
-        path: str = "",
-        *,
-        timeout: float = 3.0,
-        rel_timeout: float = 3.0,
-        abs_timeout: float = 0.1,
-    ) -> TrackedSubtree:
-        """Return a scoped tracker for one retained settings subtree."""
-
-        return TrackedSubtree(
-            self,
-            path,
-            timeout=timeout,
-            rel_timeout=rel_timeout,
-            abs_timeout=abs_timeout,
-        )
-
-    async def _open_track(
-        self,
-        path: str,
-        *,
-        timeout: float,
-        rel_timeout: float,
-        abs_timeout: float,
-    ) -> str:
-        # Match the embedded retained-load phase: measure the subscribe round trip once, then wait
-        # for quiescence until the last retained publication plus abs_timeout + rel_timeout * rtt.
-        if self._tracked_root is not None:
-            raise MiniconfException("Tracked", self._tracked_root)
-        root = (await self.schema(timeout=timeout)).path(path)
-        start = asyncio.get_running_loop().time()
-        self._tracked_root = root
-        self._track_state = _TrackState(
-            burst=BurstState.from_roundtrip(start, start, rel_timeout, abs_timeout),
-            timeout=timeout,
-            rel_timeout=rel_timeout,
-            abs_timeout=abs_timeout,
-        )
-        self._settings.clear()
-        try:
-            for topic_filter in settings_topics(self.prefix, root):
-                await self._subscribe(topic_filter, retained_options())
-            now = asyncio.get_running_loop().time()
-            assert self._track_state is not None
-            self._track_state.burst.set_roundtrip(start, now, rel_timeout, abs_timeout)
-            await self._wait_tracking(timeout)
-        except Exception:
-            for topic_filter in settings_topics(self.prefix, root):
-                await self._unsubscribe(topic_filter)
-            self._tracked_root = None
-            self._track_state = None
-            self._settings.clear()
-            raise
-        return root
-
-    async def _close_track(self, root: str):
-        if self._tracked_root != root:
-            raise MiniconfException("Tracked", root)
-        self._cancel_tracking_reload()
-        for topic_filter in settings_topics(self.prefix, root):
-            await self._unsubscribe(topic_filter)
-        self._tracked_root = None
-        self._track_state = None
-        self._settings.clear()
-
-    def _start_tracking_reload(self) -> None:
-        state = self._track_state
-        if self._tracked_root is None or state is None:
-            self._settings.clear()
-            return
-        if state.reload_task is not None and not state.reload_task.done():
-            return
-        self._settings.clear()
-        state.reload_task = asyncio.create_task(self._reload_tracking())
-
-    def _cancel_tracking_reload(self) -> None:
-        state = self._track_state
-        if state is None or state.reload_task is None:
-            return
-        state.reload_task.cancel()
-        state.reload_task = None
-
-    def _check_tracking_reload(self) -> None:
-        task = self._tracking_reload()
-        if task is None:
-            return
-        if task.done():
-            self._finish_tracking_reload(task)
-            return
-        raise MiniconfException("Reloading", self._tracked_root or "/")
-
-    def _tracking_reload(self) -> asyncio.Task[None] | None:
-        state = self._track_state
-        if state is None or state.reload_task is None:
-            return None
-        return state.reload_task
-
-    def _finish_tracking_reload(self, task: asyncio.Task[None]) -> None:
-        try:
-            task.result()
-        finally:
-            state = self._track_state
-            if state is not None and state.reload_task is task:
-                state.reload_task = None
-
-    async def _wait_tracking_reload(self, timeout: float | None) -> None:
-        task = self._tracking_reload()
-        if task is None:
-            return
-        await asyncio.wait_for(asyncio.shield(task), timeout)
-        self._finish_tracking_reload(task)
-
-    async def _reload_tracking(self) -> None:
-        state = self._track_state
-        root = self._tracked_root
-        if state is None or root is None:
-            return
-        if self._schema is None:
-            root = (await self.schema(timeout=state.timeout)).path(root)
-            self._tracked_root = root
-        start = asyncio.get_running_loop().time()
-        for topic_filter in settings_topics(self.prefix, root):
-            # Force a retained replay for the already-open tracked subscription without changing
-            # the local refcount: a new alive generation means the cache must be rebuilt from the
-            # authoritative retained mirror.
-            await self.client.subscribe(topic_filter, options=retained_options())
-        state.burst.reset(asyncio.get_running_loop().time())
-        state.burst.set_roundtrip(
-            start,
-            asyncio.get_running_loop().time(),
-            rel_timeout=state.rel_timeout,
-            abs_timeout=state.abs_timeout,
-        )
-        await self._wait_tracking(state.timeout)
-
-    async def _wait_tracking(self, timeout: float):
-        state = self._track_state
-        assert state is not None
-        end = asyncio.get_running_loop().time() + timeout
-        while True:
-            now = asyncio.get_running_loop().time()
-            if now >= state.burst.deadline:
-                return
-            if now >= end:
-                raise TimeoutError(
-                    f"Timed out waiting for retained settings under {self._tracked_root or '/'}"
-                )
-            await asyncio.sleep(min(0.01, state.burst.deadline - now, end - now))
-
 
 class RawMiniconf(_BaseClient):
     """Schema-less Miniconf client for exact-path GET and SET operations."""
 
     def __init__(self, client: Client, prefix: str):
         super().__init__(client, prefix)
+
+    @classmethod
+    @asynccontextmanager
+    async def connect(
+        cls, broker: str, prefix: str, **client_kwargs: Any
+    ) -> AsyncIterator[RawMiniconf]:
+        async with Client(broker, **client_kwargs) as client:
+            async with cls(client, prefix) as interface:
+                yield interface
 
     async def set(
         self,
@@ -707,3 +514,50 @@ class RawMiniconf(_BaseClient):
             path,
             timeout=timeout,
         )
+
+    async def snapshot(
+        self,
+        path: str = "",
+        *,
+        timeout: float = 3.0,
+        rel_timeout: float = 3.0,
+        abs_timeout: float = 0.1,
+    ) -> dict[str, Any]:
+        """Return a finite retained settings snapshot below one exact subtree."""
+
+        root = validate_path(path)
+        start = asyncio.get_running_loop().time()
+        retained: dict[str, Any] = {}
+        async with self._settings_queue(root) as queue:
+            burst = BurstState.from_roundtrip(
+                start,
+                asyncio.get_running_loop().time(),
+                rel_timeout,
+                abs_timeout,
+            )
+            end = asyncio.get_running_loop().time() + timeout
+            while True:
+                now = asyncio.get_running_loop().time()
+                if now >= burst.deadline or now >= end:
+                    return retained
+                try:
+                    message = await asyncio.wait_for(
+                        queue.get(), min(burst.deadline, end) - now
+                    )
+                except TimeoutError:
+                    continue
+                event = self._setting_event(message, root)
+                if event is None:
+                    continue
+                if not event.present:
+                    retained.pop(event.path, None)
+                else:
+                    retained[event.path] = event.value
+                burst.reset(asyncio.get_running_loop().time())
+
+    async def watch(self, path: str = "") -> AsyncIterator[SettingEvent]:
+        """Yield authoritative settings updates below one exact subtree."""
+
+        root = validate_path(path)
+        async for event in self._watch_settings(root):
+            yield event

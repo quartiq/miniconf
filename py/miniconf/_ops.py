@@ -6,30 +6,21 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
-from aiomqtt import Client, Message
-
 from .common import (
+    RETAINED_SUBSCRIPTION,
+    AliveManifest,
     LOGGER,
-    MM2_PROTO,
     BurstState,
     MiniconfException,
-    is_authoritative,
     is_retained,
+    alive_manifest,
     quiet_window,
-    retained_options,
     settings_topics,
-    subtree_match,
 )
+from ._mqtt import Client
 
 if TYPE_CHECKING:
     from .client import Miniconf
-
-
-def _properties(message: Message) -> dict[str, Any]:
-    try:
-        return message.properties.json()
-    except AttributeError:
-        return {}
 
 
 async def discover(
@@ -45,7 +36,14 @@ async def discover(
     topic = f"{prefix}{suffix}"
 
     start = asyncio.get_running_loop().time()
-    await client.subscribe(topic, options=retained_options())
+    qos, no_local, retain_as_published, retain_handling = RETAINED_SUBSCRIPTION
+    await client.subscribe(
+        topic,
+        qos=qos,
+        no_local=no_local,
+        retain_as_published=retain_as_published,
+        retain_handling=retain_handling,
+    )
     quiet = quiet_window(
         start,
         asyncio.get_running_loop().time(),
@@ -67,14 +65,14 @@ async def discover(
                 return
             if not is_retained(message):
                 continue
-            peer = message.topic.value.removesuffix(suffix)
-            try:
-                manifest = json.loads(message.payload)
-            except json.JSONDecodeError:
-                LOGGER.info("Ignoring %s not/invalid alive", peer)
+            peer = message.topic.removesuffix(suffix)
+            if not message.payload:
+                discovered.pop(peer, None)
                 continue
-            if not isinstance(manifest, dict) or manifest.get("proto") != MM2_PROTO:
-                LOGGER.info("Ignoring %s unsupported protocol alive", peer)
+            try:
+                manifest = alive_manifest(json.loads(message.payload))
+            except (json.JSONDecodeError, MiniconfException):
+                LOGGER.info("Ignoring %s not/invalid alive", peer)
                 continue
             discovered[peer] = manifest
             deadline = asyncio.get_running_loop().time() + quiet
@@ -86,11 +84,11 @@ async def discover(
     return discovered
 
 
-async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> dict[str, Any]:
+async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> AliveManifest:
     if interface._manifest is not None:
         return interface._manifest
     async with interface._watch(
-        f"{interface.prefix}/alive", retained_options()
+        f"{interface.prefix}/alive", RETAINED_SUBSCRIPTION
     ) as queue:
         end = asyncio.get_running_loop().time() + timeout
         while True:
@@ -119,7 +117,7 @@ async def _collect_retained_settings(
     start = asyncio.get_running_loop().time()
     retained: dict[str, Any] = {}
     (topic_filter,) = settings_topics(interface.prefix, root)
-    async with interface._watch(topic_filter, retained_options()) as queue:
+    async with interface._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
@@ -138,18 +136,13 @@ async def _collect_retained_settings(
                 continue
             if not is_retained(message):
                 continue
-            topic = message.topic.value
-            if not topic.startswith(f"{interface.prefix}/settings"):
+            event = interface._setting_event(message, root)
+            if event is None:
                 continue
-            if not is_authoritative(_properties(message)):
-                continue
-            settings_path = topic.removeprefix(f"{interface.prefix}/settings")
-            if not subtree_match(settings_path, root):
-                continue
-            if not message.payload:
-                retained.pop(settings_path, None)
+            if not event.present:
+                retained.pop(event.path, None)
             else:
-                retained[settings_path] = json.loads(message.payload)
+                retained[event.path] = event.value
             burst.reset(asyncio.get_running_loop().time())
 
 
@@ -163,7 +156,7 @@ async def _collect_retained_topics(
 ) -> list[str]:
     start = asyncio.get_running_loop().time()
     seen: set[str] = set()
-    async with interface._watch(topic_filter, retained_options()) as queue:
+    async with interface._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
         end = now + timeout
@@ -183,7 +176,7 @@ async def _collect_retained_topics(
             if not is_retained(message):
                 continue
             if message.payload:
-                seen.add(message.topic.value)
+                seen.add(message.topic)
             burst.reset(asyncio.get_running_loop().time())
 
 
@@ -197,11 +190,11 @@ async def _prune_schema(
     """Clear retained schema pages above the current manifest page count."""
 
     manifest = await _manifest(interface, timeout=timeout)
-    pages = int(manifest["pages"])
+    pages = manifest.pages
     seen: set[int] = set()
     start = asyncio.get_running_loop().time()
     async with interface._watch(
-        f"{interface.prefix}/schema/#", retained_options()
+        f"{interface.prefix}/schema/#", RETAINED_SUBSCRIPTION
     ) as queue:
         now = asyncio.get_running_loop().time()
         burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
@@ -220,7 +213,7 @@ async def _prune_schema(
                 break
             if not is_retained(message):
                 continue
-            suffix = message.topic.value.removeprefix(f"{interface.prefix}/schema/")
+            suffix = message.topic.removeprefix(f"{interface.prefix}/schema/")
             try:
                 seen.add(int(suffix))
             except ValueError:
@@ -260,7 +253,6 @@ async def _prune_settings(
             qos=1,
             retain=True,
         )
-        interface._settings.pop(cache_path, None)
     return stale
 
 
@@ -285,5 +277,4 @@ async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]
         await interface.client.publish(topic, payload=b"", qos=1, retain=True)
     interface._schema = None
     interface._manifest = None
-    interface._settings.clear()
     return [topic.removeprefix(f"{interface.prefix}/") for topic in topics]
