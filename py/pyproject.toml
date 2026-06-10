@@ -30,7 +30,7 @@ test = ["paho-mqtt>=2"]
 Homepage = "https://github.com/quartiq/miniconf"
 Issues = "https://github.com/quartiq/miniconf/issues"
 Repository = "https://github.com/quartiq/miniconf/tree/main/py"
-Changelog = "https://github.com/quartiq/miniconf/blob/main/CHANGELOG.md"
+Changelog = "https://github.com/quartiq/miniconf/blob/main/py/CHANGELOG.md"
 
 [project.scripts]
 miniconf = "miniconf.__main__:main"

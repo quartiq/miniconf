@@ -6,67 +6,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...HEAD) - DATE
+This legacy changelog keeps monorepo history through `miniconf` 0.20.1. Current
+unreleased changes are tracked per package:
 
-### Changed
-
-* `Path` and `PathIter` now store the separator at runtime, reducing monomorphization bloat for
-  dynamic path handling.
-* Key handling now uses `IntoKeys` as the boundary normalization layer. Slash-separated `&str`
-  remains the default shorthand, while explicit separators use `PathIter` or `ConstPathIter`.
-* `Schema::get()` now performs exact lookup and returns `Lookup`; use `Schema::resolve_into()` for
-  consumed-depth reporting on partial or failed lookup.
-* `Schema::transcode()` now takes `impl IntoKeys` and default-constructs the target.
-* `NodeIter` now yields leaves only. Depth-limited iteration skips leaves deeper than the limit,
-  and iterator position is exposed through `indices()`, `schema()`, and `root_schema()`.
-* `Schema` is now a public enum with explicit `Leaf` and `Internal` variants backed by shared
-  `NodeSchema` and `InternalSchema`; schema nodes now have stable constructors and accessors.
-* Custom `#[tree(with = ...)]` modules now expose typed schema via `schema::<T>()` instead of a
-  monomorphic `SCHEMA` constant.
-* `Meta` is now an always-available newtype with direct serialization support, and schema metadata
-  terminology is now consistently `node` and `edge`.
-* `Schema::get_meta()` now returns both edge and node metadata for one path.
-* JSON Schema output now marks Miniconf leaves explicitly and better matches the emitted JSON tree
-  for omitted named absences, nullable leaves, and `oneOf` nodes.
-* `miniconf_mqtt` is now async-first on `minimq::Session`. The old `update()` loop was replaced by
-  `Miniconf::poll().await`, which returns `Changed`, `Connected`, `Reconnected`, or `Other`.
-* `miniconf_mqtt` MM2 now publishes retained manifest, paged schema, and authoritative retained
-  settings. Compatibility with direct `settings/#` writes is available when applications
-  explicitly subscribe to and route those publications through `Service`.
-* MM2 manifests now publish `epoch` and `schema_rev`. Long-lived Python clients use `schema_rev`
-  to invalidate cached schema.
-* The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the MM2
-  retained schema/settings protocol with an async-first CLI and client library.
-
-### Added
-
-* `ConstPath` and `ConstPathIter` take the separator as a const generic, allowing compile-time
-  specialization of ASCII separators.
-* `json_core::{get_by_keys, set_by_keys}` and `postcard::{get_by_keys, set_by_keys}` for live
-  key cursors.
-* `Keys` for borrowed slices `&[T]` where `T: Key`.
-* `Sem` offers semantic structured information about nodes in a `Schema`.
-* `#[tree(meta(...))]` for derive metadata syntax.
-* Structured `sem.maybe_absent` on `Option<T>` schema nodes and `sem.oneof` on derived enums,
-  `Result<T, E>`, and `Bound<T>`.
-* `nullable` as an edge metadata hint, e.g. `#[tree(with = leaf, meta(nullable))]`, propagated
-  into JSON Schema as `null`.
-* `miniconf/tests/benchmark` is now the embedded code-size and workload benchmark harness, with
-  `baseline`, `manual`, and `miniconf` binaries plus schema-size measurement support.
-* `miniconf_mqtt::Miniconf::{publish_root,publish_by_key}` for explicit app-driven retained
-  settings publication.
-* The Python package now ships MM2 schema parsing/rendering helpers and one-shot retained-state
-  operations such as `read()`, `dump()`, `prune()`, and `force_prune()`.
-* `miniconf_coap`, a new CoAP transport crate with low-level request handlers, JSON and CBOR value
-  representations, compact schema serving, `coap-handler` integration, and a packet-level server
-  example.
-
-### Removed
-
-* `meta-str`
-* The legacy `miniconf_mqtt::MqttClient` API.
-* The Python synchronous client surface (`miniconf.sync`) and the old package layout under
-  `py/miniconf-mqtt`.
+* [`miniconf`](miniconf/CHANGELOG.md)
+* [`miniconf_derive`](miniconf_derive/CHANGELOG.md)
+* [`miniconf_mqtt`](miniconf_mqtt/CHANGELOG.md)
+* [`miniconf_coap`](miniconf_coap/CHANGELOG.md)
+* [`miniconf-mqtt` Python package](py/CHANGELOG.md)
 
 ## [0.20.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.0...miniconf-v0.20.1) - 2026-02-12
 
