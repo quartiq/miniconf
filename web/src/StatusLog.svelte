@@ -1,8 +1,19 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
-  export let status: string;
-  export let error = "";
-  export let logLines: string[] = [];
-  export let open = false;
+  type Props = {
+    status: string;
+    error?: string;
+    logLines?: string[];
+    open?: boolean;
+  };
+
+  let {
+    status,
+    error = "",
+    logLines = [],
+    open = $bindable(false),
+  }: Props = $props();
 </script>
 
 <details class="log" bind:open>

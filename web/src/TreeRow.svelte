@@ -1,20 +1,43 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
-  export let path: string;
-  export let label: string;
-  export let selected: boolean;
-  export let internal = false;
-  export let open = false;
-  export let depth = 0;
-  export let level = 1;
-  export let posinset = 1;
-  export let setsize = 1;
-  export let value = "";
-  export let href: string | undefined = undefined;
-  export let flashed = false;
-  export let title = "";
-  export let select: () => void;
-  export let toggle: () => void;
-  export let keydown: (event: KeyboardEvent) => void;
+  type Props = {
+    path: string;
+    label: string;
+    selected: boolean;
+    internal?: boolean;
+    open?: boolean;
+    depth?: number;
+    level?: number;
+    posinset?: number;
+    setsize?: number;
+    value?: string;
+    href?: string;
+    flashed?: boolean;
+    title?: string;
+    select: () => void;
+    toggle: () => void;
+    keydown: (event: KeyboardEvent) => void;
+  };
+
+  let {
+    path,
+    label,
+    selected,
+    internal = false,
+    open = false,
+    depth = 0,
+    level = 1,
+    posinset = 1,
+    setsize = 1,
+    value = "",
+    href = undefined,
+    flashed = false,
+    title = "",
+    select,
+    toggle,
+    keydown,
+  }: Props = $props();
 
   const flashFrames = [
     { background: "var(--flash)" },
@@ -41,6 +64,16 @@
       },
     };
   }
+
+  function stopAndToggle(event: MouseEvent) {
+    event.stopPropagation();
+    toggle();
+  }
+
+  function stopAndSelect(event: MouseEvent) {
+    event.stopPropagation();
+    select();
+  }
 </script>
 
 {#if href && !internal}
@@ -58,8 +91,8 @@
     tabindex={selected ? 0 : -1}
     {title}
     use:flash={flashed}
-    on:click={select}
-    on:keydown={keydown}
+    onclick={select}
+    onkeydown={keydown}
   >
     <span aria-hidden="true" class="spacer"></span>
     <span class="label">{label}</span>
@@ -83,8 +116,8 @@
     tabindex={selected ? 0 : -1}
     {title}
     use:flash={flashed}
-    on:click={select}
-    on:keydown={keydown}
+    onclick={select}
+    onkeydown={keydown}
   >
     {#if internal}
       <button
@@ -92,13 +125,13 @@
         class="toggle"
         tabindex="-1"
         type="button"
-        on:click|stopPropagation={toggle}
+        onclick={stopAndToggle}
       >{open ? "▾" : "▸"}</button>
     {:else}
       <span aria-hidden="true" class="spacer"></span>
     {/if}
     {#if href}
-      <a class="label" {href} tabindex="-1" on:click|stopPropagation={select}>{label}</a>
+      <a class="label" {href} tabindex="-1" onclick={stopAndSelect}>{label}</a>
     {:else}
       <span class="label">{label}</span>
     {/if}

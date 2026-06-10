@@ -1,28 +1,45 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
+  import TreeItem from "./TreeItem.svelte";
   import TreeRow from "./TreeRow.svelte";
 
-  export let node: TreeNodeView;
-  export let nodes: Map<string, TreeNodeView>;
-  export let selectedPath: string;
-  export let flashed: Set<string> = new Set();
-  export let expanded: Set<string>;
-  export let actions: TreeActions;
-  export let depth = 0;
-  export let index = 1;
-  export let size = 1;
+  type Props = {
+    node: TreeNodeView;
+    nodes: Map<string, TreeNodeView>;
+    selectedPath: string;
+    flashed?: Set<string>;
+    expanded: Set<string>;
+    actions: TreeActions;
+    depth?: number;
+    index?: number;
+    size?: number;
+  };
 
-  $: selected = node.path === selectedPath;
-  $: internal = node.children.length > 0;
-  $: open = expanded.has(node.path);
-  $: flashedRow = flashed.has(node.path);
-  $: title = node.href
+  let {
+    node,
+    nodes,
+    selectedPath,
+    flashed = new Set(),
+    expanded,
+    actions,
+    depth = 0,
+    index = 1,
+    size = 1,
+  }: Props = $props();
+
+  let selected = $derived(node.path === selectedPath);
+  let internal = $derived(node.children.length > 0);
+  let open = $derived(expanded.has(node.path));
+  let flashedRow = $derived(flashed.has(node.path));
+  let title = $derived(node.href
     ? internal
       ? "Enter opens. Space toggles. Arrows/Home/End/Page navigate."
       : "Enter opens. Ctrl-click opens a new tab. Arrows/Home/End/Page navigate."
     : internal
       ? "Enter or Space toggles. Arrows/Home/End/Page navigate."
-      : "Enter edits. Arrows/Home/End/Page navigate.";
+      : "Enter edits. Arrows/Home/End/Page navigate.");
 
   function select() {
     actions.select(node.path);
@@ -136,7 +153,7 @@
       {#each node.children as childPath, childIndex (childPath)}
         {@const child = nodes.get(childPath)}
         {#if child}
-          <svelte:self
+          <TreeItem
             node={child}
             {nodes}
             {selectedPath}

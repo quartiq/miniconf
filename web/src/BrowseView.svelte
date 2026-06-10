@@ -1,3 +1,5 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
   import type { ViewNode } from "./lib/tree-state";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
@@ -5,27 +7,53 @@
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
 
-  export let activePrefix: string;
-  export let discoverHref: string;
-  export let subtreePath: string;
-  export let aliveManifest: { epoch: number; schema_rev: number } | undefined;
-  export let settingsRevision: string;
-  export let status: string;
-  export let error: string;
-  export let treeNodes: Map<string, TreeNodeView>;
-  export let selectedPath: string;
-  export let selected: ViewNode | undefined;
-  export let flashed: Set<string>;
-  export let expanded: Set<string>;
-  export let treeRoot: string;
-  export let editor: string;
-  export let logOpen: boolean;
-  export let logLines: string[];
-  export let treeActions: TreeActions;
-  export let updateEditor: (value: string) => void;
-  export let submit: () => void;
-  export let resetEditor: () => void;
-  export let focusTree: () => void;
+  type Props = {
+    activePrefix: string;
+    discoverHref: string;
+    subtreePath: string;
+    aliveManifest: { epoch: number; schema_rev: number } | undefined;
+    settingsRevision: string;
+    status: string;
+    error: string;
+    treeNodes: Map<string, TreeNodeView>;
+    selectedPath: string;
+    selected: ViewNode | undefined;
+    flashed: Set<string>;
+    expanded: Set<string>;
+    treeRoot: string;
+    editor: string;
+    logOpen?: boolean;
+    logLines: string[];
+    treeActions: TreeActions;
+    updateEditor: (value: string) => void;
+    submit: () => void;
+    resetEditor: () => void;
+    focusTree: () => void;
+  };
+
+  let {
+    activePrefix,
+    discoverHref,
+    subtreePath,
+    aliveManifest,
+    settingsRevision,
+    status,
+    error,
+    treeNodes,
+    selectedPath,
+    selected,
+    flashed,
+    expanded,
+    treeRoot,
+    editor,
+    logOpen = $bindable(false),
+    logLines,
+    treeActions,
+    updateEditor,
+    submit,
+    resetEditor,
+    focusTree,
+  }: Props = $props();
 </script>
 
 <section class="browse">

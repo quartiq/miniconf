@@ -1,83 +1,84 @@
 import { describe, expect, it } from "vitest";
-import { BrowseModel } from "./browse-model";
+import * as browse from "./browse-model";
 import { Schema } from "./schema";
 
-describe("BrowseModel", () => {
+describe("browse model", () => {
   it("keeps browse tree, editor, and settings commits together", () => {
-    const model = new BrowseModel();
+    let state = browse.emptyState();
     const schema = new Schema([
       { s: "value" },
       { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
     ], 7);
 
-    expect(model.loadSchema(schema, "")).toBe("");
-    model.commit({
+    state = browse.loadSchema(state, schema, "");
+    expect(state.root).toBe("");
+    state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 3]]),
       changed: new Set(["/leaf"]),
       rev: "42",
-    });
+    }).state;
 
-    expect(model.rootNode?.path).toBe("");
-    expect(model.selectedPath).toBe("");
+    expect(state.tree.nodeByPath.get(state.root)?.path).toBe("");
+    expect(state.selectedPath).toBe("");
 
-    model.loadSelected("/leaf");
-    expect(model.editor).toBe("3");
-    expect(model.parseEditor()).toBe(3);
+    state = browse.loadSelected(state, "/leaf");
+    expect(state.editor).toBe("3");
+    expect(browse.parseEditor(state)).toBe(3);
   });
 
   it("does not rewrite an open editor when settings updates arrive", () => {
-    const model = new BrowseModel();
+    let state = browse.emptyState();
     const schema = new Schema([
       { s: "value" },
       { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
     ], 7);
 
-    model.loadSchema(schema, "");
-    model.commit({
+    state = browse.loadSchema(state, schema, "");
+    state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 1]]),
       changed: new Set(["/leaf"]),
-    });
-    model.loadSelected("/leaf");
-    model.updateEditor("123");
+    }).state;
+    state = browse.loadSelected(state, "/leaf");
+    state = browse.updateEditor(state, "123");
 
-    model.commit({
+    state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 2]]),
       changed: new Set(["/leaf"]),
-    });
+    }).state;
 
-    expect(model.editor).toBe("123");
-    expect(model.selected?.value).toBe(2);
+    expect(state.editor).toBe("123");
+    expect(browse.selected(state)?.value).toBe(2);
 
-    model.commit({
+    state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 3]]),
       changed: new Set(["/leaf"]),
-    });
+    }).state;
 
-    expect(model.editor).toBe("123");
-    expect(model.selected?.value).toBe(3);
+    expect(state.editor).toBe("123");
+    expect(browse.selected(state)?.value).toBe(3);
 
-    model.loadEditor();
-    expect(model.editor).toBe("3");
+    state = browse.loadEditor(state);
+    expect(state.editor).toBe("3");
   });
 
   it("loads editor text only when selection is explicitly loaded", () => {
-    const model = new BrowseModel();
+    let state = browse.emptyState();
     const schema = new Schema([
       { s: "value" },
       { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
     ], 7);
 
-    model.loadSchema(schema, "");
-    model.commit({
+    state = browse.loadSchema(state, schema, "");
+    state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 4]]),
       changed: new Set(["/leaf"]),
-    });
+    }).state;
 
-    model.select("/leaf");
-    expect(model.selectedPath).toBe("/leaf");
-    expect(model.editor).toBe("null");
+    state = browse.select(state, "/leaf");
+    expect(state.selectedPath).toBe("/leaf");
+    expect(state.editor).toBe("null");
 
-    model.loadSelected("/leaf");
-    expect(model.editor).toBe("4");
+    state = browse.loadSelected(state, "/leaf");
+    expect(state.editor).toBe("4");
   });
 });

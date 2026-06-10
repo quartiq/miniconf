@@ -1,57 +1,80 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
   import { discoveryTree, discoveryTreeView, flatDiscoveryNodes } from "./lib/discovery-tree";
-  import { TreeInteraction } from "./lib/tree-interaction";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
-  import { type NavDirection } from "./lib/tree-navigation";
+  import {
+    movePath,
+    toggleExpansion,
+    visibleTreePaths,
+    type NavDirection,
+  } from "./lib/tree-navigation";
   import TreeView from "./TreeView.svelte";
 
-  export let broker: string;
-  export let discoveryPattern: string;
-  export let username: string;
-  export let password: string;
-  export let discoveredPrefixes: { prefix: string }[];
-  export let discover: () => void;
-  export let browseHref: (prefix: string) => string;
+  type Props = {
+    broker?: string;
+    discoveryPattern?: string;
+    username?: string;
+    password?: string;
+    discoveredPrefixes: { prefix: string }[];
+    discover: () => void;
+    browseHref: (prefix: string) => string;
+  };
 
-  let interaction = new TreeInteraction([""]);
-  let prefixKey = "";
+  let {
+    broker = $bindable(""),
+    discoveryPattern = $bindable(""),
+    username = $bindable(""),
+    password = $bindable(""),
+    discoveredPrefixes,
+    discover,
+    browseHref,
+  }: Props = $props();
 
-  $: nodes = discoveryTree(discoveredPrefixes);
-  $: treeNodes = discoveryTreeView(nodes, browseHref);
-  $: nextPrefixKey = discoveredPrefixes.map((prefix) => prefix.prefix).sort().join("\n");
-  $: if (nextPrefixKey !== prefixKey) {
+  let expanded = $state(new Set([""]));
+  let selectedPath = $state("");
+  let userClosed = $state(new Set<string>());
+  let prefixKey = $state("");
+  let nodes = $derived(discoveryTree(discoveredPrefixes));
+  let treeNodes = $derived(discoveryTreeView(nodes, browseHref));
+  let flatNodes = $derived(flatDiscoveryNodes(nodes));
+  let visiblePaths = $derived(visibleTreePaths("", flatNodes, expanded));
+  let nextPrefixKey = $derived(discoveredPrefixes.map((prefix) => prefix.prefix).sort().join("\n"));
+
+  $effect(() => {
+    if (nextPrefixKey === prefixKey) {
+      return;
+    }
     prefixKey = nextPrefixKey;
-    interaction.expanded = new Set([
-      ...interaction.expanded,
+    expanded = new Set([
+      ...expanded,
       ...[...nodes.values()]
-        .filter((node) => node.children.length && !interaction.userClosed.has(node.path))
+        .filter((node) => node.children.length && !userClosed.has(node.path))
         .map((node) => node.path),
     ]);
-    interaction = interaction;
-  }
-  $: flatNodes = flatDiscoveryNodes(nodes);
-  $: visiblePaths = interaction.visiblePaths("", flatNodes);
-  $: interaction.ensureSelected(visiblePaths);
-  $: selectedPath = interaction.selectedPath;
-  $: expanded = interaction.expanded;
+  });
+
+  $effect(() => {
+    if (!visiblePaths.includes(selectedPath)) {
+      selectedPath = visiblePaths[0] ?? "";
+    }
+  });
 
   function select(path: string) {
-    interaction.select(path);
-    interaction = interaction;
+    selectedPath = path;
   }
 
   function setExpanded(path: string, open: boolean) {
-    interaction.setExpanded(path, open);
-    interaction = interaction;
+    ({ expanded, userClosed } = toggleExpansion(expanded, userClosed, path, open));
   }
 
   function navigateTree(path: string, direction: NavDirection, step?: number): string {
-    const next = interaction.navigate("", flatNodes, path, direction, step);
-    interaction = interaction;
+    const next = movePath(visiblePaths, path, direction, flatNodes, step);
+    selectedPath = next;
     return next;
   }
 
-  $: treeActions = {
+  let treeActions = $derived({
     activate: (node: TreeNodeView, internal: boolean, open: boolean) => {
       if (node.href) {
         location.href = node.href;
@@ -64,12 +87,17 @@
     },
     open: setExpanded,
     select,
-  } satisfies TreeActions;
+  } satisfies TreeActions);
+
+  function submit(event: SubmitEvent) {
+    event.preventDefault();
+    discover();
+  }
 </script>
 
 <header>
   <h1>Discover Prefixes</h1>
-  <form on:submit|preventDefault={discover}>
+  <form onsubmit={submit}>
     <label>
       Broker
       <input bind:value={broker} />
