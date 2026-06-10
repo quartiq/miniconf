@@ -16,6 +16,8 @@ settings tree unless they opt into the `coap-handler` adapter.
 The cooperative routes borrow settings for each request:
 
 ```rust
+# #[cfg(feature = "json-core")]
+# {
 use miniconf::{Tree, TreeSchema};
 use miniconf_coap::{JsonValueRoute, Outcome, RequestParts, SchemaRoute};
 
@@ -45,6 +47,7 @@ match values.handle(&request, &mut settings, &mut response) {
 
 let request = RequestParts::new(coap_numbers::code::GET, &["schema"], None, None, b"").unwrap();
 assert!(schema.handle(&request, &mut response).response().is_some());
+# }
 ```
 
 ## `coap-handler`
