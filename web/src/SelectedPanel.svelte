@@ -1,17 +1,30 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
   import { formatSchemaMetadata } from "./lib/schema";
   import type { ViewNode } from "./lib/tree-state";
 
-  export let node: ViewNode | undefined;
-  export let editor = "null";
-  export let updateEditor: (value: string) => void;
-  export let submit: () => void;
-  export let resetEditor: () => void;
-  export let focusTree: () => void;
+  type Props = {
+    node: ViewNode | undefined;
+    editor?: string;
+    updateEditor: (value: string) => void;
+    submit: () => void;
+    resetEditor: () => void;
+    focusTree: () => void;
+  };
 
-  let schemaOpen = true;
-  $: metadata = node ? formatSchemaMetadata(node) : "";
-  $: leaf = node?.kind === "leaf";
+  let {
+    node,
+    editor = "null",
+    updateEditor,
+    submit,
+    resetEditor,
+    focusTree,
+  }: Props = $props();
+
+  let schemaOpen = $state(true);
+  let metadata = $derived(node ? formatSchemaMetadata(node) : "");
+  let leaf = $derived(node?.kind === "leaf");
 
   function edit(event: Event) {
     updateEditor((event.currentTarget as HTMLTextAreaElement).value);
@@ -49,21 +62,21 @@
         data-leaf-editor
         title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
         value={editor}
-        on:input={edit}
-        on:keydown={maybeSubmit}
+        oninput={edit}
+        onkeydown={maybeSubmit}
       ></textarea>
       <div class="actions">
         <button
           aria-keyshortcuts="Control+Enter Meta+Enter"
           title="Ctrl/Cmd+Enter"
           type="button"
-          on:click={submit}
+          onclick={submit}
         >Set</button>
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
           title="Reset the draft to the current value"
           type="button"
-          on:click={resetEditor}
+          onclick={resetEditor}
         >Reset</button>
       </div>
     {:else}

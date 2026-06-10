@@ -1,5 +1,7 @@
+<svelte:options runes={true} />
+
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import { displayPath, type Schema } from "./lib/schema";
   import BrowseView from "./BrowseView.svelte";
   import DiscoveryView from "./DiscoveryView.svelte";
@@ -11,7 +13,7 @@
     type AliveManifest,
   } from "./lib/backend";
   import { loadAuth, saveAuth } from "./lib/auth-store";
-  import { BrowseModel } from "./lib/browse-model";
+  import * as browse from "./lib/browse-model";
   import { EventLog } from "./lib/event-log";
   import { FlashSet } from "./lib/flash-set";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
@@ -19,45 +21,51 @@
   import { type NavDirection } from "./lib/tree-navigation";
 
   const route = readRoute(location);
-  let broker = route.broker;
-  let discoveryPattern = route.discoveryPattern;
-  let activePrefix = route.activePrefix;
-  let subtreePath = route.subtreePath;
-  const initialAuth = loadAuth(broker);
-  let username = initialAuth.username;
-  let password = initialAuth.password;
-  let authBroker = broker;
+  let broker = $state(route.broker);
+  let discoveryPattern = $state(route.discoveryPattern);
+  let activePrefix = $state(route.activePrefix);
+  let subtreePath = $state(route.subtreePath);
+  const initialAuth = loadAuth(route.broker);
+  let username = $state(initialAuth.username);
+  let password = $state(initialAuth.password);
+  let authBroker = $state(route.broker);
 
   let backend: MiniconfBackend | undefined;
   let prefixSession: PrefixSession | undefined;
-  let discoveredPrefixes: DiscoveredPrefix[] = [];
-  let aliveManifest: AliveManifest | undefined;
-  let browse = new BrowseModel();
-  let status = "Idle";
-  let settingsRevision = "";
-  let error = "";
-  let logOpen = new URLSearchParams(location.search).get("log") === "1";
-  let logLines: string[] = [];
+  let discoveredPrefixes = $state<DiscoveredPrefix[]>([]);
+  let aliveManifest = $state<AliveManifest | undefined>();
+  let browseState = $state(browse.emptyState());
+  let status = $state("Idle");
+  let settingsRevision = $state("");
+  let error = $state("");
+  let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
+  let logLines = $state<string[]>([]);
   let stopConnection: (() => void) | undefined;
   let stopDiscovery: (() => void) | undefined;
   let routeSerial = 0;
   // Row flashes are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
   const treeFlash = new FlashSet((paths) => {
-    browse.setFlashed(paths);
-    browse = browse;
+    browseState = browse.setFlashed(browseState, paths);
   });
   const eventLog = new EventLog(() => {
     logLines = eventLog.lines;
   });
 
-  $: selected = browse.selected;
-  $: mode = activePrefix ? "browse" : "discover";
-  $: if (broker !== authBroker) {
+  let selected = $derived(browse.selected(browseState));
+  let mode = $derived(activePrefix ? "browse" : "discover");
+
+  $effect(() => {
+    if (broker === authBroker) {
+      return;
+    }
     authBroker = broker;
     ({ username, password } = loadAuth(broker));
-  }
-  $: eventLog.clearHidden(logOpen);
+  });
+
+  $effect(() => {
+    eventLog.clearHidden(logOpen);
+  });
 
   function syncUrl() {
     history.replaceState(
@@ -82,18 +90,15 @@
   }
 
   function setExpanded(path: string, open: boolean) {
-    browse.setExpanded(path, open);
-    browse = browse;
+    browseState = browse.setExpanded(browseState, path, open);
   }
 
   function updateEditor(value: string) {
-    browse.updateEditor(value);
-    browse = browse;
+    browseState = browse.updateEditor(browseState, value);
   }
 
   function select(path: string) {
-    browse.loadSelected(path);
-    browse = browse;
+    browseState = browse.loadSelected(browseState, path);
   }
 
   function focusTreeItem(path: string) {
@@ -116,22 +121,21 @@
       setExpanded(path, !open);
       return;
     }
-    if (browse.selected?.kind === "leaf") {
+    if (browse.selected(browseState)?.kind === "leaf") {
       focusEditor();
     }
   }
 
   function navigateBrowseTree(path: string, direction: NavDirection, step?: number): string {
-    const next = browse.navigate(path, direction, step);
-    browse.loadSelected(next);
-    browse = browse;
-    return next;
+    const next = browse.navigate(browseState, path, direction, step);
+    browseState = next.state;
+    return next.path;
   }
 
   function commitSettings({ settings: nextSettings, changed }: SettingsCommit) {
-    const commit = browse.commit({ settings: nextSettings, changed });
+    const commit = browse.commitSettings(browseState, { settings: nextSettings, changed });
+    browseState = commit.state;
     settingsRevision = commit.rev ?? settingsRevision;
-    browse = browse;
     treeFlash.add(commit.cues);
     if (changed.size) {
       log("commit", `${changed.size} changed`);
@@ -147,8 +151,7 @@
     prefixSession = undefined;
     aliveManifest = undefined;
     settingsRevision = "";
-    browse.reset();
-    browse = browse;
+    browseState = browse.emptyState();
     treeFlash.reset();
   }
 
@@ -177,9 +180,8 @@
   }
 
   function loadSchema(nextSchema: Schema, root: string) {
-    browse.loadSchema(nextSchema, root);
-    browse = browse;
-    subtreePath = root;
+    browseState = browse.loadSchema(browseState, nextSchema, root);
+    subtreePath = browseState.root;
     syncUrl();
   }
 
@@ -320,7 +322,7 @@
     }
     let value: unknown;
     try {
-      value = browse.parseEditor();
+      value = browse.parseEditor(browseState);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
       log("error", error);
@@ -361,16 +363,15 @@
   onMount(() => {
     addEventListener("hashchange", applyRoute);
     applyRoute();
-  });
-
-  onDestroy(() => {
-    removeEventListener("hashchange", applyRoute);
-    stopConnection?.();
-    stopDiscovery?.();
-    prefixSession?.close();
-    treeFlash.reset();
-    eventLog.dispose();
-    backend?.close();
+    return () => {
+      removeEventListener("hashchange", applyRoute);
+      stopConnection?.();
+      stopDiscovery?.();
+      prefixSession?.close();
+      treeFlash.reset();
+      eventLog.dispose();
+      backend?.close();
+    };
   });
 </script>
 
@@ -395,15 +396,15 @@
       {settingsRevision}
       {status}
       {error}
-      treeNodes={browse.treeNodes}
-      selectedPath={browse.selectedPath}
-      selected={browse.selected}
-      flashed={browse.flashed}
-      expanded={browse.expanded}
-      editor={browse.editor}
+      treeNodes={browseState.tree.nodeViews}
+      selectedPath={browseState.selectedPath}
+      selected={selected}
+      flashed={browseState.flashed}
+      expanded={browseState.expanded}
+      editor={browseState.editor}
       bind:logOpen
       {logLines}
-      treeRoot={browse.root}
+      treeRoot={browseState.root}
       treeActions={{
         activate: (node, internal, open) => activateBrowseTree(node.path, internal, open),
         key: (node, direction, step) => navigateBrowseTree(node.path, direction, step),
@@ -412,10 +413,9 @@
       }}
       {updateEditor}
       submit={() => void submit()}
-      focusTree={() => focusTreeItem(browse.selectedPath)}
+      focusTree={() => focusTreeItem(browseState.selectedPath)}
       resetEditor={() => {
-        browse.loadEditor();
-        browse = browse;
+        browseState = browse.loadEditor(browseState);
       }}
     />
   {/if}
