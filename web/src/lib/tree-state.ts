@@ -70,13 +70,17 @@ export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
 
 export function flatTreeNodes(nodes: ViewNode[]): Map<string, FlatTreeNode> {
   const children = childrenByParent(nodes);
-  return new Map(nodes.map((node) => [
-    node.path,
-    {
-      path: node.path,
-      children: (children.get(node.path) ?? []).map((child) => child.path),
-    },
-  ]));
+  return new Map(nodes.map((node) => {
+    const parent = parentPath(node.path);
+    return [
+      node.path,
+      {
+        path: node.path,
+        ...(parent === undefined ? {} : { parent }),
+        children: (children.get(node.path) ?? []).map((child) => child.path),
+      },
+    ];
+  }));
 }
 
 export function treeViewNodes(

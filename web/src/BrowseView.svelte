@@ -3,7 +3,7 @@
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import SelectedPanel from "./SelectedPanel.svelte";
   import StatusLog from "./StatusLog.svelte";
-  import TreeItem from "./TreeItem.svelte";
+  import TreeView from "./TreeView.svelte";
 
   export let activePrefix: string;
   export let discoverHref: string;
@@ -12,7 +12,6 @@
   export let settingsRevision: string;
   export let status: string;
   export let error: string;
-  export let rootNode: ViewNode | undefined;
   export let treeNodes: Map<string, TreeNodeView>;
   export let selectedPath: string;
   export let selected: ViewNode | undefined;
@@ -51,17 +50,15 @@
     {/if}
 
     <div class="tree" aria-label="Schema tree">
-      {#if rootNode}
-        <ul role="tree">
-          <TreeItem
-            node={treeNodes.get(treeRoot)!}
-            nodes={treeNodes}
-            {selectedPath}
-            {flashed}
-            {expanded}
-            actions={treeActions}
-          />
-        </ul>
+      {#if treeNodes.has(treeRoot)}
+        <TreeView
+          root={treeRoot}
+          nodes={treeNodes}
+          {selectedPath}
+          {flashed}
+          {expanded}
+          actions={treeActions}
+        />
       {:else}
         <p>No schema loaded.</p>
       {/if}
@@ -113,13 +110,6 @@
     min-width: 0;
     overflow: hidden;
   }
-
-  .tree ul {
-    margin: 0;
-    min-width: 0;
-    padding: 0;
-  }
-
   @media (min-width: 761px) {
     .browse {
       height: calc(100dvh - 2 * var(--space));

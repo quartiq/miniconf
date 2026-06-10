@@ -64,7 +64,7 @@ describe("tree state", () => {
       { path: "/a", kind: "leaf", children: [], present: true, value: 1 },
     ]).values()]).toEqual([
       { path: "", children: ["/a"] },
-      { path: "/a", children: [] },
+      { path: "/a", parent: "", children: [] },
     ]);
   });
 

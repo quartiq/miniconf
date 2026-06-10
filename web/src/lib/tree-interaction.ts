@@ -44,8 +44,9 @@ export class TreeInteraction {
     return visibleTreePaths(root, nodes, this.expanded);
   }
 
-  navigate(visible: string[], path: string, direction: NavDirection, step?: number): string {
-    const next = movePath(visible, path, direction, step);
+  navigate(root: string, nodes: Map<string, FlatTreeNode>, path: string, direction: NavDirection, step?: number): string {
+    const visible = this.visiblePaths(root, nodes);
+    const next = movePath(visible, path, direction, nodes, step);
     this.select(next);
     return next;
   }
