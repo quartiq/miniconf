@@ -154,9 +154,11 @@ mod json {
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
         match request.path() {
-            "/schema" => SchemaRoute::new("/schema").handle::<Settings>(request, response_buf),
+            "/schema" => SchemaRoute::new("/schema", <Settings as miniconf::TreeSchema>::SCHEMA)
+                .handle(request, response_buf),
             path if path.starts_with("/schema/") => {
-                SchemaRoute::new("/schema").handle::<Settings>(request, response_buf)
+                SchemaRoute::new("/schema", <Settings as miniconf::TreeSchema>::SCHEMA)
+                    .handle(request, response_buf)
             }
             "/settings" => settings_route(request, settings, response_buf),
             path if path.starts_with("/settings/") => {
@@ -500,7 +502,10 @@ mod coap_handler {
                 &["settings"],
                 MiniconfCoapHandler::<Settings, Json>::json(Settings::default()),
             )
-            .below(&["schema"], SchemaCoapHandler::<Settings>::json())
+            .below(
+                &["schema"],
+                SchemaCoapHandler::json(<Settings as miniconf::TreeSchema>::SCHEMA),
+            )
             .at(
                 &["status"],
                 SimpleRendered::new_typed_str(

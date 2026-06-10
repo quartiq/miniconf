@@ -290,13 +290,13 @@ mod tests {
         settings: &mut Settings,
         response_buf: &'a mut [u8],
     ) -> Outcome<'a> {
-        let schema = SchemaRoute::new("/schema");
+        let schema = SchemaRoute::new("/schema", <Settings as miniconf::TreeSchema>::SCHEMA);
         let values = JsonValueRoute::json("/settings");
 
         match request.path() {
-            "/schema" => return schema.handle::<Settings>(request, response_buf),
+            "/schema" => return schema.handle(request, response_buf),
             path if path.starts_with("/schema/") => {
-                return schema.handle::<Settings>(request, response_buf);
+                return schema.handle(request, response_buf);
             }
             "/settings" => return values.handle(request, settings, response_buf),
             path if path.starts_with("/settings/") => {
@@ -399,10 +399,10 @@ mod tests {
     #[test]
     fn schema_route_is_separate() {
         init_host_logging();
-        let handler = SchemaRoute::new("/schema");
+        let handler = SchemaRoute::new("/schema", <Settings as miniconf::TreeSchema>::SCHEMA);
         let mut response = [0; 512];
         let req = request(code::GET, &["schema"], None, b"");
-        let out = handler.handle::<Settings>(&req, &mut response);
+        let out = handler.handle(&req, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
@@ -420,10 +420,10 @@ mod tests {
     #[test]
     fn schema_route_is_paged() {
         init_host_logging();
-        let handler = SchemaRoute::new("/schema");
+        let handler = SchemaRoute::new("/schema", <Settings as miniconf::TreeSchema>::SCHEMA);
         let mut response = [0; 512];
         let req = request(code::GET, &["schema", "0"], None, b"");
-        let out = handler.handle::<Settings>(&req, &mut response);
+        let out = handler.handle(&req, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(
@@ -434,7 +434,7 @@ mod tests {
 
         let mut response = [0; 512];
         let req = request(code::GET, &["schema", "99"], None, b"");
-        let out = handler.handle::<Settings>(&req, &mut response);
+        let out = handler.handle(&req, &mut response);
         let response = out.response().unwrap();
         assert_eq!(response.code, code::NOT_FOUND);
         assert_eq!(response.payload, br#"{"kind":"not_found","depth":1}"#);
@@ -505,9 +505,9 @@ mod tests {
                 content_format::from_str("application/json").unwrap(),
             );
         let request = RequestParts::from_message(&request).unwrap();
-        let handler = SchemaRoute::new("/schema");
+        let handler = SchemaRoute::new("/schema", <Settings as miniconf::TreeSchema>::SCHEMA);
         let mut response = [0; 512];
-        let outcome = handler.handle::<Settings>(&request, &mut response);
+        let outcome = handler.handle(&request, &mut response);
         let response = outcome.response().unwrap();
         assert_eq!(response.code, code::CONTENT);
         assert_eq!(

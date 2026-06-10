@@ -7,6 +7,7 @@ use coap_message::error::RenderableOnMinimal as _;
 use coap_message_implementations::{inmemory, inmemory_write};
 use coap_numbers::code;
 use defmt::{debug, info, warn};
+use miniconf::TreeSchema;
 use miniconf_coap::{Json, MiniconfCoapHandler, SchemaCoapHandler};
 
 const DEFAULT_BIND: &str = "127.0.0.1:56830";
@@ -87,7 +88,7 @@ fn demo_handler() -> impl coap_handler::Handler + coap_handler::Reporting {
 
     new_dispatcher()
         .below(&["settings"], miniconf)
-        .below(&["schema"], SchemaCoapHandler::<Settings>::json())
+        .below(&["schema"], SchemaCoapHandler::json(Settings::SCHEMA))
         .at(
             &["status"],
             SimpleRendered::new_typed_str(r#"{"ok":true}"#, Some(JSON_CONTENT_FORMAT)),

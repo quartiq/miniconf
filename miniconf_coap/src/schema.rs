@@ -1,7 +1,7 @@
 use coap_numbers::code;
 use defmt::{debug, trace, warn};
 use miniconf::{
-    TreeSchema,
+    Schema,
     compact_schema::{SchemaDefs, serialize_schema_page},
 };
 use serde::Serialize;
@@ -11,10 +11,11 @@ use crate::{Error, MAX_SCHEMA_DEFS, Outcome, Problem, RequestParts, Response, fo
 
 const SCHEMA_PROTO: u8 = 1;
 
-/// Schema route backed by `TreeSchema`.
-#[derive(defmt::Format, Debug, Clone, Copy)]
+/// Schema route backed by a Miniconf schema.
+#[derive(Debug, Clone, Copy)]
 pub struct SchemaRoute<'a> {
     base: &'a str,
+    schema: &'static Schema,
 }
 
 impl<'a> SchemaRoute<'a> {
@@ -22,19 +23,16 @@ impl<'a> SchemaRoute<'a> {
     ///
     /// The base path serves a JSON manifest. `base/{page}` serves newline-delimited compact schema
     /// pages.
-    pub const fn new(base: &'a str) -> Self {
-        Self { base }
+    pub const fn new(base: &'a str, schema: &'static Schema) -> Self {
+        Self { base, schema }
     }
 
     /// Handle a schema `GET` request.
-    pub fn handle<'b, Settings>(
+    pub fn handle<'b>(
         &self,
         request: &RequestParts<'_>,
         response_buf: &'b mut [u8],
-    ) -> Outcome<'b>
-    where
-        Settings: TreeSchema,
-    {
+    ) -> Outcome<'b> {
         let Some(resource) = self.resource(request.path()) else {
             trace!("Ignoring non-schema CoAP route request={}", request);
             return Outcome::Unhandled;
@@ -49,7 +47,7 @@ impl<'a> SchemaRoute<'a> {
                     .response(response_buf),
             );
         }
-        let Ok(defs) = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA) else {
+        let Ok(defs) = SchemaDefs::<MAX_SCHEMA_DEFS>::new(self.schema) else {
             return Outcome::Handled(
                 Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
                     .response(response_buf),
