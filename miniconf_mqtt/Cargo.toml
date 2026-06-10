@@ -20,7 +20,7 @@ workspace = true
 default = []
 
 [dependencies]
-miniconf = { version = "0.20.1", features = [
+miniconf = { version = "0.21.0", features = [
     "defmt",
     "json-core",
 ], default-features = false, path = "../miniconf" }
