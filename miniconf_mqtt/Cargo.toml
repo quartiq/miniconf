@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_mqtt"
-version = "0.20.0"
+version = "0.21.0"
 description = "MQTT interface for `miniconf`, using `minimq`"
 autoexamples = false
 authors.workspace = true
