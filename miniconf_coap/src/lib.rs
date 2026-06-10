@@ -1,14 +1,6 @@
 #![no_std]
+#![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
-
-//! Serve selected `miniconf` trees as CoAP resources.
-//!
-//! The crate is deliberately sessionless. Applications pass caller-owned settings into value
-//! routes, and keep ownership of CoAP sockets, message IDs, tokens, routing, retransmission, and
-//! unrelated resources.
-//!
-//! The schema route serves a JSON manifest at `/schema` and compact text schema pages at
-//! `/schema/{page}`.
 
 use miniconf::Indices;
 

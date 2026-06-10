@@ -72,7 +72,7 @@ boundary needs something more specific:
 [`macro@TreeDeserialize`], and [`macro@TreeAny`]. Derive attributes live under
 `#[tree(...)]`:
 
-- `rename = "name"` changes a field or variant path segment.
+- `rename = ident` changes a field or variant path segment to a Rust identifier.
 - `skip` removes a field or variant from the tree.
 - `flatten` splices a single unambiguous child tree into its parent.
 - `with = module` delegates access to a custom implementation module.

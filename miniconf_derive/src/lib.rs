@@ -34,7 +34,7 @@
 //!
 //! `#[tree(...)]` is accepted on containers, fields, and variants:
 //!
-//! - `rename = "name"` exposes a different path segment.
+//! - `rename = ident` exposes a different Rust identifier as the path segment.
 //! - `skip` removes the field or variant from the tree.
 //! - `flatten` splices one child tree into the parent when lookup is unambiguous.
 //! - `with = module` delegates schema, serialization, deserialization, and `Any`

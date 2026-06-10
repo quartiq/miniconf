@@ -31,8 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_mqtt` is now async-first on `minimq::Session`. The old `update()` loop was replaced by
   `Miniconf::poll().await`, which returns `Changed`, `Connected`, `Reconnected`, or `Other`.
 * `miniconf_mqtt` MM2 now publishes retained manifest, paged schema, and authoritative retained
-  settings. Compatibility with request/response-only settings writes is retained behind the
-  `compat-settings-ingress` feature.
+  settings. Compatibility with direct `settings/#` writes is available when applications
+  explicitly subscribe to and route those publications through `Service`.
 * MM2 manifests now publish `epoch` and `schema_rev`. Long-lived Python clients use `schema_rev`
   to invalidate cached schema.
 * The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the MM2
