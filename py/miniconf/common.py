@@ -1,18 +1,19 @@
 """Common code for the Miniconf MQTT clients."""
 
 from dataclasses import dataclass
+from typing import Any
 import json
 import logging
 
-import paho.mqtt
-from paho.mqtt.subscribeoptions import SubscribeOptions
-
-MQTTv5 = paho.mqtt.enums.MQTTProtocolVersion.MQTTv5
 MM2_PROTO = 1
 
 LOGGER = logging.getLogger("miniconf")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.
 TRANSIENT_EXPIRY_S = 30
+RETAIN_SEND_ON_SUBSCRIBE = 0
+SubscriptionKey = tuple[int, bool, bool, int]
+DEFAULT_SUBSCRIPTION: SubscriptionKey = (1, False, False, RETAIN_SEND_ON_SUBSCRIBE)
+RETAINED_SUBSCRIPTION: SubscriptionKey = (1, False, True, RETAIN_SEND_ON_SUBSCRIBE)
 
 
 def message_expiry(timeout: float | None) -> int:
@@ -21,23 +22,29 @@ def message_expiry(timeout: float | None) -> int:
     return max(1, int(timeout + 0.999))
 
 
-def retained_options() -> SubscribeOptions:
-    return SubscribeOptions(
-        qos=1,
-        retainAsPublished=True,
-        retainHandling=SubscribeOptions.RETAIN_SEND_ON_SUBSCRIBE,
-    )
+@dataclass(frozen=True)
+class AliveManifest:
+    proto: int
+    epoch: int
+    schema_rev: int
+    pages: int
 
 
-def subscription_key(options: SubscribeOptions | None) -> tuple[int, bool, bool, int]:
-    if options is None:
-        options = SubscribeOptions(qos=1)
-    return (
-        options.QoS,
-        options.noLocal,
-        options.retainAsPublished,
-        options.retainHandling,
-    )
+def alive_manifest(value: Any) -> AliveManifest:
+    if not isinstance(value, dict):
+        raise MiniconfException("Protocol", "Invalid alive manifest")
+    if value.get("proto") != MM2_PROTO:
+        raise MiniconfException("Protocol", "Unsupported alive manifest")
+    epoch = value.get("epoch")
+    schema_rev = value.get("schema_rev")
+    pages = value.get("pages")
+    if (
+        not isinstance(epoch, int)
+        or not isinstance(schema_rev, int)
+        or not isinstance(pages, int)
+    ):
+        raise MiniconfException("Protocol", "Invalid alive manifest")
+    return AliveManifest(MM2_PROTO, epoch, schema_rev, pages)
 
 
 def is_retained(message) -> bool:
@@ -45,7 +52,7 @@ def is_retained(message) -> bool:
 
 
 def user_property_values(properties: dict, name: str) -> list[str]:
-    return [value for key, value in properties.get("UserProperty", ()) if key == name]
+    return [value for key, value in properties.get("user_property", ()) if key == name]
 
 
 def is_authoritative(properties: dict) -> bool:

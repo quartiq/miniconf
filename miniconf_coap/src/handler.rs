@@ -196,21 +196,20 @@ where
 ///
 #[cfg(feature = "json-core")]
 #[derive(Debug)]
-pub struct SchemaCoapHandler<Settings>(PhantomData<Settings>);
+pub struct SchemaCoapHandler {
+    schema: &'static Schema,
+}
 
 #[cfg(feature = "json-core")]
-impl<Settings> SchemaCoapHandler<Settings> {
+impl SchemaCoapHandler {
     /// Create a route-relative JSON schema handler.
-    pub const fn json() -> Self {
-        Self(PhantomData)
+    pub const fn json(schema: &'static Schema) -> Self {
+        Self { schema }
     }
 }
 
 #[cfg(feature = "json-core")]
-impl<Settings> coap_handler::Handler for SchemaCoapHandler<Settings>
-where
-    Settings: TreeSchema,
-{
+impl coap_handler::Handler for SchemaCoapHandler {
     type RequestData = CoapHandlerRequest;
     type ExtractRequestError = Error;
     type BuildResponseError<M: MinimalWritableMessage> = M::UnionError;
@@ -234,7 +233,7 @@ where
     ) -> Result<(), Self::BuildResponseError<M>> {
         let request = request.into_request_parts();
         let mut response_buf = [0; MAX_HANDLER_RESPONSE_LENGTH];
-        let outcome = SchemaRoute::new("").handle::<Settings>(&request, &mut response_buf);
+        let outcome = SchemaRoute::new("", self.schema).handle(&request, &mut response_buf);
         let response = outcome.response().unwrap_or(Response {
             code: code::NOT_FOUND,
             content_format: None,
@@ -289,10 +288,7 @@ const fn coap_uint_len(value: u16) -> usize {
 }
 
 #[cfg(feature = "json-core")]
-impl<Settings> coap_handler::Reporting for SchemaCoapHandler<Settings>
-where
-    Settings: TreeSchema,
-{
+impl coap_handler::Reporting for SchemaCoapHandler {
     type Record<'res>
         = SchemaRecord
     where

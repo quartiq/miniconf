@@ -3,7 +3,7 @@
   import { TreeInteraction } from "./lib/tree-interaction";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import { type NavDirection } from "./lib/tree-navigation";
-  import TreeItem from "./TreeItem.svelte";
+  import TreeView from "./TreeView.svelte";
 
   export let broker: string;
   export let discoveryPattern: string;
@@ -18,7 +18,6 @@
 
   $: nodes = discoveryTree(discoveredPrefixes);
   $: treeNodes = discoveryTreeView(nodes, browseHref);
-  $: rootNode = nodes.get("");
   $: nextPrefixKey = discoveredPrefixes.map((prefix) => prefix.prefix).sort().join("\n");
   $: if (nextPrefixKey !== prefixKey) {
     prefixKey = nextPrefixKey;
@@ -46,23 +45,22 @@
     interaction = interaction;
   }
 
-  function focusTreeItem(path: string) {
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
-        ?.focus();
-    });
-  }
-
-  function navigateTree(path: string, direction: NavDirection, step?: number) {
-    const next = interaction.navigate(visiblePaths, path, direction, step);
+  function navigateTree(path: string, direction: NavDirection, step?: number): string {
+    const next = interaction.navigate("", flatNodes, path, direction, step);
     interaction = interaction;
-    focusTreeItem(next);
+    return next;
   }
 
   $: treeActions = {
+    activate: (node: TreeNodeView, internal: boolean, open: boolean) => {
+      if (node.href) {
+        location.href = node.href;
+      } else if (internal) {
+        setExpanded(node.path, !open);
+      }
+    },
     key: (node: TreeNodeView, direction: NavDirection, step?: number) => {
-      navigateTree(node.path, direction, step);
+      return navigateTree(node.path, direction, step);
     },
     open: setExpanded,
     select,
@@ -95,23 +93,12 @@
 {#if discoveredPrefixes.length}
   <section>
     <h2>Prefixes</h2>
-    <ul role="tree">
-      {#if rootNode}
-        <TreeItem
-          node={treeNodes.get("")!}
-          nodes={treeNodes}
-          {selectedPath}
-          {expanded}
-          actions={treeActions}
-        />
-      {/if}
-    </ul>
+    <TreeView
+      root=""
+      nodes={treeNodes}
+      {selectedPath}
+      {expanded}
+      actions={treeActions}
+    />
   </section>
 {/if}
-
-<style>
-  ul {
-    margin: 0;
-    padding: 0;
-  }
-</style>

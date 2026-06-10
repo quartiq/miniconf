@@ -43,7 +43,7 @@
   }
 </script>
 
-{#if href}
+{#if href && !internal}
   <a
     aria-level={level}
     aria-posinset={posinset}
@@ -97,7 +97,11 @@
     {:else}
       <span aria-hidden="true" class="spacer"></span>
     {/if}
-    <span class="label">{label}</span>
+    {#if href}
+      <a class="label" {href} tabindex="-1" on:click|stopPropagation={select}>{label}</a>
+    {:else}
+      <span class="label">{label}</span>
+    {/if}
     {#if value}
       <span class="separator"> = </span>
       <span class="value">{value}</span>
@@ -165,6 +169,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  a.label {
+    color: inherit;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
   }
 
   .value {

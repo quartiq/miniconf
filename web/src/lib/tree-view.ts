@@ -12,7 +12,7 @@ export type TreeNodeView = {
 
 export type TreeActions = {
   activate?: (node: TreeNodeView, internal: boolean, open: boolean) => void;
-  key: (node: TreeNodeView, direction: NavDirection, step?: number) => void;
+  key: (node: TreeNodeView, direction: NavDirection, step?: number) => string;
   open: (path: string, open: boolean) => void;
   select: (path: string) => void;
 };

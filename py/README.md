@@ -11,29 +11,28 @@ python -m pip install -e py/
 Use the async client for schema-aware access:
 
 ```python
-from aiomqtt import Client
 from miniconf.client import Miniconf
-from miniconf.common import MQTTv5
 
-async with Client("mqtt", protocol=MQTTv5) as mqtt:
-    async with Miniconf(mqtt, "app/id") as mc:
-        schema = await mc.schema()
-        await mc.set("/path", 42)
+async with Miniconf.connect("mqtt", "app/id") as mc:
+    schema = await mc.schema()
+    value = await mc.get("/path")
+    snapshot = await mc.snapshot("/subtree")
+    await mc.set("/path", 42)
 
-        async with mc.track("/subtree") as tracked:
-            await tracked.wait_ready()
-            value = tracked.cached("/subtree/leaf")
-            cached = tracked.snapshot()
+    async for event in mc.watch("/subtree"):
+        print(event.path, event.value if event.present else "<deleted>")
 ```
 
 Core API:
 
 - `schema()` loads and caches the retained schema.
+- `get(path)` reads one schema-validated retained leaf without opening a subtree cache.
 - `set(path, value, response=True)` publishes one `set/#` request.
-- `track(path="")` scopes a retained subtree cache; `.ready` reports whether it is
-  usable, `wait_ready()` waits through reboot/reload, then `cached()` reads one leaf
-  and `snapshot()` reads a subtree.
-- `RawMiniconf` provides exact-path `get()` and `set()` without schema loading.
+- `snapshot(path="")` reads a finite retained subtree snapshot.
+- `watch(path="")` streams authoritative retained settings publications below a subtree without
+  waiting for quiescence. Events distinguish JSON `null` from retained deletes through `.present`.
+- `RawMiniconf` provides exact-path `get()`, `set()`, `snapshot()`, and `watch()` without schema
+  loading.
 
 Schema helpers:
 
@@ -46,9 +45,11 @@ Schema helpers:
 
 Notes:
 
-- The client accepts the MM2 wire protocol `proto=1`, keeps `/alive` subscribed, and
-  reloads tracked settings when `epoch` changes; it reloads schema when `schema_rev` changes.
-- Schema-aware reads are explicit: open `track()` for the subtree you want, then read its cache.
+- The client accepts the MM2 wire protocol `proto=1`, keeps `/alive` subscribed, and reloads schema
+  when `schema_rev` changes.
+- Exact reads and open watches do not wait for subtree quiescence.
+- Finite retained subtree snapshots use a quiescence window because MQTT retained replay has no
+  end-of-set marker.
 - Retained `/settings` messages without `auth=""` are ignored as non-authoritative settings
   traffic.
 - Retained burst quiescence uses the same rule as the Rust client:

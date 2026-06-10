@@ -108,7 +108,7 @@ export class BrowseModel {
   }
 
   navigate(path: string, direction: NavDirection, step?: number): string {
-    return this.interaction.navigate(this.visiblePaths, path, direction, step);
+    return this.interaction.navigate(this.root, this.tree.flatNodes, path, direction, step);
   }
 
   updateEditor(value: string): void {

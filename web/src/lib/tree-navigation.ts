@@ -10,6 +10,7 @@ export type NavDirection =
 
 export type FlatTreeNode = {
   path: string;
+  parent?: string;
   children: string[];
 };
 
@@ -41,6 +42,7 @@ export function movePath(
   visible: string[],
   current: string,
   direction: NavDirection,
+  nodes: Map<string, FlatTreeNode>,
   step = 1,
 ): string {
   if (!visible.length) {
@@ -50,7 +52,7 @@ export function movePath(
   switch (direction) {
     case "child": {
       const child = visible[index + 1];
-      return child && parentTreePath(child) === current ? child : current;
+      return child && nodes.get(child)?.parent === current ? child : current;
     }
     case "first":
       return visible[0];
@@ -65,7 +67,7 @@ export function movePath(
     case "previous":
       return visible[Math.max(index - 1, 0)];
     case "parent": {
-      const parent = parentTreePath(current);
+      const parent = nodes.get(current)?.parent;
       return parent !== undefined && visible.includes(parent) ? parent : current;
     }
   }
@@ -87,12 +89,4 @@ export function toggleExpansion(
     nextUserClosed.add(path);
   }
   return { expanded: nextExpanded, userClosed: nextUserClosed };
-}
-
-function parentTreePath(path: string): string | undefined {
-  if (!path) {
-    return undefined;
-  }
-  const index = path.lastIndexOf("/");
-  return index <= 0 ? "" : path.slice(0, index);
 }

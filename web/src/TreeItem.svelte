@@ -17,7 +17,9 @@
   $: open = expanded.has(node.path);
   $: flashedRow = flashed.has(node.path);
   $: title = node.href
-    ? "Enter opens. Ctrl-click opens a new tab. Arrows/Home/End/Page navigate."
+    ? internal
+      ? "Enter opens. Space toggles. Arrows/Home/End/Page navigate."
+      : "Enter opens. Ctrl-click opens a new tab. Arrows/Home/End/Page navigate."
     : internal
       ? "Enter or Space toggles. Arrows/Home/End/Page navigate."
       : "Enter edits. Arrows/Home/End/Page navigate.";
@@ -37,7 +39,7 @@
     // Enter activates, and focus stays on the selected row.
     switch (event.key) {
       case "Enter":
-        if (!node.href) {
+        if (!node.href || internal) {
           event.preventDefault();
           if (actions.activate) {
             actions.activate(node, internal, open);

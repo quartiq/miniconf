@@ -121,11 +121,11 @@
     }
   }
 
-  function navigateBrowseTree(path: string, direction: NavDirection, step?: number) {
+  function navigateBrowseTree(path: string, direction: NavDirection, step?: number): string {
     const next = browse.navigate(path, direction, step);
     browse.loadSelected(next);
     browse = browse;
-    focusTreeItem(next);
+    return next;
   }
 
   function commitSettings({ settings: nextSettings, changed }: SettingsCommit) {
@@ -395,7 +395,6 @@
       {settingsRevision}
       {status}
       {error}
-      rootNode={browse.rootNode}
       treeNodes={browse.treeNodes}
       selectedPath={browse.selectedPath}
       selected={browse.selected}

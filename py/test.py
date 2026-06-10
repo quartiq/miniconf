@@ -13,10 +13,10 @@ from pathlib import Path
 from queue import Empty, Queue
 
 import paho.mqtt.client as mqtt
-from aiomqtt import Client
 from miniconf.client import Miniconf, RawMiniconf
 from miniconf.cli import _normalize_command_path
-from miniconf.common import MQTTv5, MiniconfException
+from miniconf.common import MiniconfException
+from miniconf._mqtt import Client
 from miniconf.render import render_schema_tree, render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
@@ -191,30 +191,46 @@ async def test_listener_close_tolerates_released_subscription() -> None:
 
 
 async def close_client(client: Client, timeout: float = 1.0) -> None:
-    """Bound aiomqtt teardown so the harness cannot hang on disconnect."""
+    """Bound MQTT teardown so the harness cannot hang on disconnect."""
 
-    try:
-        await asyncio.wait_for(client.__aexit__(None, None, None), timeout)
-    except TimeoutError:
-        client._client.disconnect()  # type: ignore[attr-defined]
+    await asyncio.wait_for(client.__aexit__(None, None, None), timeout)
 
 
-async def wait_cached(tracked, path: str, expected, timeout: float = 3.0):
+async def wait_event_value(events, path: str, expected, timeout: float = 3.0):
     end = asyncio.get_running_loop().time() + timeout
     while True:
-        with contextlib.suppress(TimeoutError):
-            await tracked.wait_ready(max(0.0, end - asyncio.get_running_loop().time()))
-        try:
-            value = tracked.cached(path)
-        except MiniconfException:
-            value = object()
-        if value == expected:
-            return
         remaining = end - asyncio.get_running_loop().time()
         if remaining <= 0:
-            raise TimeoutError(
-                f"Timed out waiting for cached {path or '/'}={expected!r}"
-            )
+            raise TimeoutError(f"Timed out waiting for event {path}={expected!r}")
+        event = await asyncio.wait_for(events.__anext__(), remaining)
+        if event.path == path and event.present and event.value == expected:
+            return event
+
+
+async def wait_event_delete(events, path: str, timeout: float = 3.0):
+    end = asyncio.get_running_loop().time() + timeout
+    while True:
+        remaining = end - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError(f"Timed out waiting for delete event {path}")
+        event = await asyncio.wait_for(events.__anext__(), remaining)
+        if event.path == path and not event.present:
+            return event
+
+
+async def wait_snapshot_value(
+    client, root: str, path: str, expected, timeout: float = 3.0
+):
+    end = asyncio.get_running_loop().time() + timeout
+    while True:
+        snapshot = await client.snapshot(
+            root, timeout=max(0.1, end - asyncio.get_running_loop().time())
+        )
+        if snapshot.get(path, object()) == expected:
+            return snapshot
+        remaining = end - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError(f"Timed out waiting for snapshot {path}={expected!r}")
         await asyncio.sleep(min(0.01, remaining))
 
 
@@ -314,7 +330,7 @@ async def main() -> None:
         settings.drain()
         schema_topics.drain()
 
-        client = Client(BROKER, protocol=MQTTv5)
+        client = Client(BROKER)
         await client.__aenter__()
         try:
             mc = Miniconf(client, TARGET)
@@ -365,52 +381,86 @@ async def main() -> None:
                 assert err.code == "NotFound", err
             else:
                 raise AssertionError("expected lookup error for '/'")
-            async with mc.track(ENABLED) as tracked:
-                assert tracked.cached() is True
+            connected_value = None
+            async with Miniconf.connect(BROKER, TARGET) as connected:
+                connected_value = await connected.get(ENABLED)
+            assert connected_value is True
+            snapshot = await mc.snapshot(CONTROL)
+            assert snapshot[ENABLED] is True
+            assert snapshot[MODE] == "Run"
             try:
-                async with mc.track(CONTROL) as tracked:
-                    tracked.cached()
+                await mc.get(CONTROL)
             except MiniconfException as err:
                 assert err.code == "LeafRequired", err
             else:
                 raise AssertionError(f"expected leaf-required error for {CONTROL}")
 
-            async with mc.track(CONTROL) as tracked:
-                assert tracked.cached(ENABLED) is True
-                dump = tracked.snapshot()
-                assert dump[ENABLED] is True
-                assert dump[MODE] == "Run"
-                assert render_value_tree(schema, dump, tracked.root).splitlines() == [
-                    "control",
-                    "├─ enabled = true",
-                    '└─ mode = "Run"',
-                ]
-                try:
-                    async with mc.track(ENABLED):
-                        raise AssertionError("expected tracked-subtree conflict")
-                except MiniconfException as err:
-                    assert err.code == "Tracked", err
+            dump = await mc.snapshot(CONTROL)
+            assert dump[ENABLED] is True
+            assert dump[MODE] == "Run"
+            assert render_value_tree(schema, dump, CONTROL).splitlines() == [
+                "control",
+                "├─ enabled = true",
+                '└─ mode = "Run"',
+            ]
 
             await mc.set(ENABLED, True)
-            async with mc.track(ENABLED) as tracked:
-                assert tracked.cached() is True
+            assert await mc.get(ENABLED) is True
             settings.drain()
             await mc.set(ENABLED, False, response=False)
             assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "false"
-            async with mc.track("/output") as tracked:
-                assert tracked.cached(DAC0) == 1024
+            events = mc.watch(ENABLED)
+            try:
+                await wait_event_value(events, ENABLED, False)
+                await mc.set(ENABLED, True)
+                await wait_event_value(events, ENABLED, True)
+                await mc.set(ENABLED, False)
+                await wait_event_value(events, ENABLED, False)
+            finally:
+                await events.aclose()
+            output = await mc.snapshot("/output")
+            assert output[DAC0] == 1024
+            events = mc.watch("/output")
+            try:
+                await wait_event_value(events, DAC0, 1024)
                 await mc.set(DAC0, 2048)
-                await wait_cached(tracked, DAC0, 2048)
-                tree_dump = tracked.snapshot()
-                assert tree_dump[DAC0] == 2048, tree_dump
+                await wait_event_value(events, DAC0, 2048)
+            finally:
+                await events.aclose()
+            await wait_snapshot_value(mc, "/output", DAC0, 2048)
         finally:
             await close_client(client)
             client = None
-        client = await Client(BROKER, protocol=MQTTv5).__aenter__()
+        client = await Client(BROKER).__aenter__()
         raw = RawMiniconf(client, TARGET)
         try:
             assert await raw.get(ENABLED) is False
             assert await raw.get(DAC0) == 2048
+            assert (await raw.snapshot(ENABLED))[ENABLED] is False
+            null_path = "/raw-null"
+            events = raw.watch(null_path)
+            try:
+                await client.publish(
+                    f"{TARGET}/settings{null_path}",
+                    payload=b"null",
+                    qos=1,
+                    retain=True,
+                    properties={"user_property": [("auth", "")]},
+                )
+                event = await wait_event_value(events, null_path, None)
+                assert event.retained
+                assert event.rev is None
+                await client.publish(
+                    f"{TARGET}/settings{null_path}",
+                    payload=b"",
+                    qos=1,
+                    retain=True,
+                    properties={"user_property": [("auth", "")]},
+                )
+                event = await wait_event_delete(events, null_path)
+                assert event.retained
+            finally:
+                await events.aclose()
             await raw.set(ENABLED, True)
             assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "true"
             assert await raw.get(ENABLED) is True
