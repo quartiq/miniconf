@@ -39,17 +39,21 @@ export class FakeMqttClient extends EventEmitter {
 
 export class ResponseMqttClient extends EventEmitter {
   readonly connected = true;
+  readonly subscriptions: string[] = [];
+  readonly unsubscriptions: string[] = [];
   readonly publications: {
     topic: string;
     payload: string;
     properties: { correlationData?: unknown; responseTopic?: string };
   }[] = [];
 
-  async subscribeAsync(_topic: string, _options: unknown) {
+  async subscribeAsync(topic: string, _options: unknown) {
+    this.subscriptions.push(topic);
     return undefined;
   }
 
-  async unsubscribeAsync(_topic: string) {
+  async unsubscribeAsync(topic: string) {
+    this.unsubscriptions.push(topic);
     return undefined;
   }
 

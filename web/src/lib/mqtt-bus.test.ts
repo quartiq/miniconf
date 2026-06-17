@@ -139,18 +139,6 @@ describe("MQTT browser transport", () => {
     expect(events).toEqual(["connected:", "error:subscribe failed"]);
   });
 
-  it("does not resubscribe transient subscriptions on reconnect", async () => {
-    const mqtt = new FakeMqttClient();
-    const bus = new MqttBus(mqtt as never);
-
-    await bus.withSubscription("dt/device/response/1", { qos: 0 }, async () => {
-      mqtt.emit("connect");
-      await Promise.resolve();
-    });
-
-    expect(mqtt.subscriptions).toEqual(["dt/device/response/1"]);
-  });
-
   it("publishes only while connected", async () => {
     const mqtt = new FakeMqttClient();
     const bus = new MqttBus(mqtt as never);
