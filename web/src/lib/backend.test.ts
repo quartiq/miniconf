@@ -4,6 +4,22 @@ import { type SettingsChange } from "./miniconf-mqtt-client";
 import { type MqttConnectionEvent } from "./mqtt-bus";
 import { Schema } from "./schema";
 
+class FakeResponseChannel {
+  constructor(
+    private readonly calls: string[],
+    private readonly prefix: string,
+  ) {}
+
+  async set(path: string, value: unknown) {
+    this.calls.push(`set ${this.prefix} ${path} ${JSON.stringify(value)}`);
+    return { path, ok: true, code: "Ok", message: "" };
+  }
+
+  close() {
+    this.calls.push(`stopResponses ${this.prefix}`);
+  }
+}
+
 class FakeClient {
   readonly calls: string[] = [];
   readonly schemaValue = new Schema([
@@ -20,6 +36,11 @@ class FakeClient {
   async schema(prefix: string) {
     this.calls.push(`schema ${prefix}`);
     return this.schemaValue;
+  }
+
+  async openResponseChannel(prefix: string) {
+    this.calls.push(`watchResponses ${prefix}`);
+    return new FakeResponseChannel(this.calls, prefix);
   }
 
   watchConnection(listener: (event: MqttConnectionEvent) => void) {
@@ -45,11 +66,6 @@ class FakeClient {
     this.settingsListener = listener;
     queueMicrotask(() => this.replaySettings());
     return () => this.calls.push(`stopSettings ${prefix} ${root}`);
-  }
-
-  async set(prefix: string, path: string, value: unknown) {
-    this.calls.push(`set ${prefix} ${path} ${JSON.stringify(value)}`);
-    return { path, ok: true, code: "Ok", message: "" };
   }
 
   publishSetting(change: SettingsChange) {
@@ -112,6 +128,7 @@ describe("PrefixSession", () => {
       await vi.advanceTimersByTimeAsync(100);
       expect(client.calls).toEqual([
         "watchConnection",
+        "watchResponses dt/device",
         "watchAlive dt/device",
         "schema dt/device",
         "watchSettings dt/device ",
@@ -126,11 +143,12 @@ describe("PrefixSession", () => {
 
       await session.set("/leaf", 3);
       session.close();
-      expect(client.calls.slice(-4)).toEqual([
+      expect(client.calls.slice(-5)).toEqual([
         "set dt/device /leaf 3",
         "stopConnection",
         "stopSettings dt/device ",
         "stopAlive dt/device",
+        "stopResponses dt/device",
       ]);
     } finally {
       vi.useRealTimers();
@@ -158,6 +176,7 @@ describe("PrefixSession", () => {
 
       expect(client.calls).toEqual([
         "watchConnection",
+        "watchResponses dt/device",
         "watchAlive dt/device",
         "schema dt/device",
         "watchSettings dt/device ",
@@ -223,6 +242,7 @@ describe("PrefixSession", () => {
 
     await expect(opened).rejects.toThrow("Prefix session closed");
     expect(client.calls).toContain("stopAlive dt/device");
+    expect(client.calls).toContain("stopResponses dt/device");
   });
 
   it("does not surface transient reconnect timeouts as app errors", async () => {

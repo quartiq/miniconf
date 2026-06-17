@@ -164,6 +164,26 @@ export class MqttBus {
     };
   }
 
+  async subscribe(
+    filter: string,
+    options: IClientSubscribeOptions,
+    onMessage: (message: MqttMessage) => void,
+  ): Promise<() => void> {
+    this.reserveSubscription(filter, options, true, true);
+    const stop = this.listen(filter, onMessage);
+    try {
+      await this.subscribeReserved(filter, options);
+    } catch (error) {
+      this.subscriptions.delete(filter);
+      stop();
+      throw error;
+    }
+    return () => {
+      stop();
+      void this.unsubscribe(filter).catch(() => {});
+    };
+  }
+
   listen(filter: string, onMessage: (message: MqttMessage) => void): () => void {
     const listener = (message: MqttMessage) => {
       if (topicMatches(filter, message.topic)) {
@@ -185,25 +205,6 @@ export class MqttBus {
       throw new Error("MQTT broker disconnected");
     }
     await this.client.publishAsync(topic, payload, options);
-  }
-
-  async withSubscription<T>(
-    topic: string,
-    options: IClientSubscribeOptions,
-    body: () => Promise<T>,
-  ): Promise<T> {
-    this.reserveSubscription(topic, options, false, true);
-    try {
-      await this.subscribeReserved(topic, options);
-    } catch (error) {
-      this.subscriptions.delete(topic);
-      throw error;
-    }
-    try {
-      return await body();
-    } finally {
-      await this.unsubscribe(topic);
-    }
   }
 
   private reserveSubscription(

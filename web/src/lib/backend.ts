@@ -4,6 +4,7 @@ import {
   type DiscoveredPrefix,
   type AliveManifest,
   type SetResponse,
+  type SetResponseChannel,
   type SettingsChange,
 } from "./miniconf-mqtt-client";
 import type { MqttAuth, MqttConnectionEvent } from "./mqtt-bus";
@@ -60,6 +61,7 @@ export class PrefixSession {
   private stopConnection: (() => void) | undefined;
   private stopAlive: (() => void) | undefined;
   private stopSettings: (() => void) | undefined;
+  private responseChannel: SetResponseChannel | undefined;
   private readonly mirror: SettingsMirror;
 
   constructor(
@@ -74,6 +76,12 @@ export class PrefixSession {
   async open(): Promise<void> {
     const load = this.beginLoad("opening");
     this.watchConnection();
+    this.responseChannel = await this.client.openResponseChannel(this.prefix);
+    if (!this.active(load)) {
+      this.responseChannel.close();
+      this.responseChannel = undefined;
+      return;
+    }
     this.callbacks.status("Waiting for alive");
     const alive = await this.waitInitialAlive(load);
     if (!this.active(load)) {
@@ -86,8 +94,11 @@ export class PrefixSession {
   }
 
   async set(path: string, value: unknown): Promise<SetResponse> {
+    if (!this.responseChannel) {
+      throw new Error("Prefix session is not open");
+    }
     this.callbacks.status(`Setting ${displayPath(path)}`);
-    const response = await this.client.set(this.prefix, path, value);
+    const response = await this.responseChannel.set(path, value);
     this.callbacks.response(response);
     return response;
   }
@@ -99,9 +110,11 @@ export class PrefixSession {
     this.stopConnection?.();
     this.stopSettings?.();
     this.stopAlive?.();
+    this.responseChannel?.close();
     this.stopConnection = undefined;
     this.stopSettings = undefined;
     this.stopAlive = undefined;
+    this.responseChannel = undefined;
     this.mirror.dispose();
   }
 

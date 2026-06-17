@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MiniconfMqttClient } from "./miniconf-mqtt-client";
 import { MqttBus } from "./mqtt-bus";
 import { FakeMqttClient, ResponseMqttClient } from "./mqtt-test-fixture";
@@ -69,12 +69,15 @@ describe("MiniconfMqttClient set", () => {
   it("matches overlapping set responses by correlation data", async () => {
     const mqtt = new ResponseMqttClient();
     const client = new MiniconfMqttClient(new MqttBus(mqtt as never));
+    const responses = await client.openResponseChannel("dt/device");
 
-    const first = client.set("dt/device", "/a", 1);
-    const second = client.set("dt/device", "/b", 2);
-    for (let i = 0; i < 4; i += 1) {
-      await Promise.resolve();
-    }
+    const first = responses.set("/a", 1);
+    const second = responses.set("/b", 2);
+    await vi.waitFor(() => expect(mqtt.publications).toHaveLength(2));
+
+    expect(mqtt.subscriptions).toHaveLength(1);
+    expect(mqtt.unsubscriptions).toEqual([]);
+    expect(new Set(mqtt.publications.map(({ properties }) => properties.responseTopic)).size).toBe(1);
 
     mqtt.respondToSet("/b", "Ok");
     mqtt.respondToSet("/a", "BadRequest", "invalid");
@@ -90,11 +93,12 @@ describe("MiniconfMqttClient set", () => {
 
   it("validates set path and payload at the protocol boundary", async () => {
     const client = new MiniconfMqttClient(new MqttBus(new ResponseMqttClient() as never));
+    const responses = await client.openResponseChannel("dt/device");
 
-    await expect(client.set("dt/device", "a", 1)).rejects.toThrow(
+    await expect(responses.set("a", 1)).rejects.toThrow(
       'Path must be empty or start with "/"',
     );
-    await expect(client.set("dt/device", "/a", undefined)).rejects.toThrow(
+    await expect(responses.set("/a", undefined)).rejects.toThrow(
       "Set value must be JSON-serializable",
     );
   });

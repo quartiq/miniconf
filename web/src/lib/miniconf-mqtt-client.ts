@@ -54,12 +54,18 @@ type PacketProperties = {
 export type MiniconfMqttTransport = Pick<
   MqttBus,
   | "close"
-  | "listen"
   | "publish"
+  | "subscribe"
   | "watch"
   | "watchConnection"
-  | "withSubscription"
 >;
+
+type PendingSetResponse = {
+  path: string;
+  resolve: (response: SetResponse) => void;
+  reject: (error: Error) => void;
+  timer: ReturnType<typeof globalThis.setTimeout>;
+};
 
 function properties(packet: Packet): PacketProperties {
   return (packet as Packet & { properties?: PacketProperties }).properties ?? {};
@@ -277,60 +283,107 @@ export class MiniconfMqttClient {
     });
   }
 
-  async set(prefix: string, path: string, value: unknown, timeout = 3000): Promise<SetResponse> {
+  async openResponseChannel(prefix: string): Promise<SetResponseChannel> {
+    const topic = `${prefix}/response/${nanoid()}`;
+    let channel: SetResponseChannel | undefined;
+    const stop = await this.bus.subscribe(topic, SUBSCRIBE, (message) => {
+      channel?.handle(message);
+    });
+    channel = new SetResponseChannel(this.bus, prefix, topic, stop);
+    return channel;
+  }
+}
+
+export class SetResponseChannel {
+  private readonly pending = new Map<string, PendingSetResponse>();
+  private closed = false;
+
+  constructor(
+    private readonly bus: Pick<MiniconfMqttTransport, "publish">,
+    private readonly prefix: string,
+    private readonly topic: string,
+    private readonly stop: () => void,
+  ) {}
+
+  close(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    this.stop();
+    for (const [key, pending] of this.pending) {
+      this.reject(key, pending, new Error("Response channel closed"));
+    }
+  }
+
+  async set(path: string, value: unknown, timeout = 3000): Promise<SetResponse> {
+    if (this.closed) {
+      throw new Error("Response channel closed");
+    }
     const settingsPath = miniconfPath(path);
     const payload = JSON.stringify(value);
     if (payload === undefined) {
       throw new Error("Set value must be JSON-serializable");
     }
-    const responseTopic = `${prefix}/response/${nanoid()}`;
     const correlation = randomCorrelation();
     const key = bytesKey(correlation);
-    return this.bus.withSubscription(responseTopic, SUBSCRIBE, async () => {
-      return await new Promise<SetResponse>((resolve, reject) => {
-        const timer = globalThis.setTimeout(() => {
-          cleanup();
-          reject(new Error("Timed out waiting for set response"));
-        }, timeout);
-        const cleanup = () => {
-          globalThis.clearTimeout(timer);
-          stop();
-        };
-        const listener = (message: MqttMessage) => {
-          // Multiple /set requests may overlap on the same response topic
-          // pattern. Only MQTT v5 correlation data identifies this response.
-          if (bytesKey(properties(message.packet).correlationData) !== key) {
-            return;
-          }
-          cleanup();
-          const code = userProperty(message.packet, "code") || "Error";
-          const response = decode(message.payload);
-          resolve({
-            path: settingsPath,
-            ok: code === "Ok",
-            code,
-            message: response,
-          });
-        };
-        const stop = this.bus.listen(responseTopic, listener);
-        this.bus.publish(
-          `${prefix}/set${settingsPath}`,
-          payload,
-          {
-            qos: 1,
-            properties: {
-              responseTopic,
-              correlationData: correlation as never,
-              payloadFormatIndicator: true,
-              messageExpiryInterval: Math.max(1, Math.ceil(timeout / 1000)) || TRANSIENT_EXPIRY_S,
-            },
+
+    return await new Promise<SetResponse>((resolve, reject) => {
+      const timer = globalThis.setTimeout(() => {
+        this.reject(key, pending, new Error("Timed out waiting for set response"));
+      }, timeout);
+      const pending: PendingSetResponse = {
+        path: settingsPath,
+        resolve,
+        reject,
+        timer,
+      };
+      this.pending.set(key, pending);
+      this.bus.publish(
+        `${this.prefix}/set${settingsPath}`,
+        payload,
+        {
+          qos: 1,
+          properties: {
+            responseTopic: this.topic,
+            correlationData: correlation as never,
+            payloadFormatIndicator: true,
+            messageExpiryInterval: Math.max(1, Math.ceil(timeout / 1000)) || TRANSIENT_EXPIRY_S,
           },
-        ).catch((error: unknown) => {
-          cleanup();
-          reject(error);
-        });
+        },
+      ).catch((error: unknown) => {
+        this.reject(
+          key,
+          pending,
+          error instanceof Error ? error : new Error(String(error)),
+        );
       });
     });
+  }
+
+  handle(message: MqttMessage): void {
+    const key = bytesKey(properties(message.packet).correlationData);
+    const pending = this.pending.get(key);
+    if (!pending) {
+      return;
+    }
+    this.pending.delete(key);
+    globalThis.clearTimeout(pending.timer);
+    const code = userProperty(message.packet, "code") || "Error";
+    pending.resolve({
+      path: pending.path,
+      ok: code === "Ok",
+      code,
+      message: decode(message.payload),
+    });
+  }
+
+  private reject(key: string, pending: PendingSetResponse, error: Error): void {
+    if (!this.pending.delete(key)) {
+      return;
+    }
+    globalThis.clearTimeout(pending.timer);
+    pending.reject(error);
   }
 }
 
