@@ -11,9 +11,9 @@ use miniconf::{
     json_core,
 };
 use minimq::{
-    ConfigBuilder, ConfigError, ConnectEvent, Error as MqttError, InboundPublish, Io, Op,
-    OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session, ToPayload,
-    Will,
+    ConfigBuilder, ConfigError, ConnectEvent, Connection, Error as MqttError, InboundPublish, Io,
+    Op, OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session,
+    ToPayload, Will,
 };
 use serde::Serialize;
 use serde_json_core::ser::Error as JsonSerError;
@@ -30,12 +30,12 @@ use request::FollowUp;
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
 
 #[derive(Debug, PartialEq, thiserror::Error)]
-/// Miniconf MQTT setup, tree, or MQTT session error.
+/// Miniconf MQTT setup, tree, or MQTT connection error.
 pub enum Error<E> {
     /// Tree traversal or path resolution failed before any MQTT I/O.
     #[error("tree path resolution failed: {0}")]
     Tree(DescendError<()>),
-    /// MQTT session or publication failure.
+    /// MQTT connection or publication failure.
     #[error(transparent)]
     Mqtt(#[from] MqttError<E>),
 }
@@ -68,7 +68,7 @@ pub(crate) enum PendingOp {
 }
 
 fn poll_op<IO>(
-    session: &Session<'_, IO>,
+    connection: &Connection<'_, '_, IO>,
     op: &mut Option<Op>,
 ) -> Result<PendingOp, Error<IO::Error>>
 where
@@ -77,13 +77,13 @@ where
     let Some(current) = *op else {
         return Ok(PendingOp::Idle);
     };
-    if session.is_pending(&current) {
+    if connection.is_pending(&current) {
         Ok(PendingOp::Pending)
-    } else if session.is_complete(&current) {
+    } else if connection.is_complete(&current) {
         *op = None;
         Ok(PendingOp::Complete)
     } else {
-        debug_assert!(session.is_invalidated(&current));
+        debug_assert!(connection.is_invalidated(&current));
         Err(Error::Mqtt(MqttError::Disconnected))
     }
 }
@@ -98,7 +98,7 @@ struct AlivePayload {
 
 pub(crate) enum PublishPayload<'a, 'b, Settings> {
     // Keep MM2 publications behind one concrete payload type per Settings tree.
-    // `Session::publish<P>()` is generic over `P: ToPayload`; splitting these variants into
+    // `Connection::publish<P>()` is generic over `P: ToPayload`; splitting these variants into
     // separate payload structs creates separate publish monomorphizations for alive/schema/leaf.
     Alive(&'a Manifest),
     SchemaPage {
@@ -224,7 +224,7 @@ pub struct Startup {
 ///
 /// Do not run this on network reconnects of a still-running device. Local settings are already the
 /// authority in that case, even when the broker reports `ConnectEvent::Connected` because the MQTT
-/// session was not resumed.
+/// connection was not resumed.
 #[must_use = "drive retained loading to completion before starting Miniconf publication"]
 pub struct LoadRetained {
     phase: sync::LoadRetainedPhase,
@@ -259,7 +259,7 @@ pub(crate) fn schema_page_topic(prefix: &TopicString, page: usize) -> TopicStrin
 pub(crate) async fn publish_alive_once<Settings, IO>(
     prefix: &TopicString,
     manifest: &Manifest,
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
 ) -> Result<Option<Op>, Error<IO::Error>>
 where
     Settings: TreeSerialize,
@@ -280,7 +280,10 @@ where
         .properties(RETAINED_TEXT_PROPERTIES)
         .qos(QoS::AtLeastOnce)
         .retain();
-    session.publish(publication).await.map_err(simple_pub_error)
+    connection
+        .publish(publication)
+        .await
+        .map_err(simple_pub_error)
 }
 
 impl<Settings> Miniconf<Settings>
@@ -288,10 +291,10 @@ where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
     /// Construct Miniconf MQTT state and a configured caller-owned MQTT session.
-    pub fn new<'buf, IO: Io>(
+    pub fn new<'buf>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
-    ) -> Result<(Self, Session<'buf, IO>), ConfigError> {
+    ) -> Result<(Self, Session<'buf>), ConfigError> {
         let schema = Settings::SCHEMA;
         const { assert!(Settings::SCHEMA.max_depth() <= MAX_DEPTH) }
         if prefix.len() + "/settings".len() + schema.max_length("/") > MAX_TOPIC_LENGTH {
@@ -332,15 +335,14 @@ where
     /// while bootstrapping and is not the bounded/cancel-safe API.
     pub async fn startup<IO>(
         &mut self,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
-        event: ConnectEvent,
     ) -> Result<(), Error<IO::Error>>
     where
         IO: Io,
     {
-        let mut startup = Startup::new(self, event);
-        startup.run(self, session, settings).await
+        let mut startup = Startup::new(self, connection.connect_event());
+        startup.run(self, connection, settings).await
     }
 
     fn route(&mut self, settings: &mut Settings, inbound: &InboundPublish<'_>) -> Route {
@@ -356,7 +358,7 @@ where
     ///
     /// This callback is the ownership boundary for the borrowed MQTT receive buffer. Returning
     /// `InboundPublish<'_>` directly from this unbounded helper would make the same async loop both
-    /// return a borrow from `session` and reborrow `session` to complete protocol follow-up work.
+    /// return a borrow from `connection` and reborrow `connection` to complete protocol follow-up work.
     ///
     /// For async application work, copy or extract the needed data in `on_unhandled`, return it
     /// through `Event::Unhandled`, and await after `serve()` returns.
@@ -368,7 +370,7 @@ where
     /// - use [`Service`] when you need bounded stepwise control
     pub async fn serve<IO, T>(
         &mut self,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
         on_unhandled: impl FnOnce(&InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
@@ -379,7 +381,7 @@ where
         // follow-up before polling another request, so `Busy` is not reachable in normal use.
         let mut service = Service::<1>::new();
         loop {
-            let inbound = session.poll().await?;
+            let inbound = connection.poll().await?;
             let Some(inbound) = inbound else {
                 continue;
             };
@@ -388,13 +390,13 @@ where
                     return Ok(Event::Unhandled(on_unhandled(&inbound)));
                 }
                 ServiceEvent::Idle | ServiceEvent::Busy => {
-                    while !service.step(self, session, settings).await? {
-                        let _ = session.poll().await?;
+                    while !service.step(self, connection, settings).await? {
+                        let _ = connection.poll().await?;
                     }
                 }
                 ServiceEvent::Changed(changed) => {
-                    while !service.step(self, session, settings).await? {
-                        let _ = session.poll().await?;
+                    while !service.step(self, connection, settings).await? {
+                        let _ = connection.poll().await?;
                     }
                     return Ok(Event::Changed(changed));
                 }
@@ -418,7 +420,7 @@ where
 
     pub(crate) async fn publish_current<IO>(
         &mut self,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
         state: &[usize],
     ) -> Result<Option<Op>, Error<IO::Error>>
@@ -442,7 +444,7 @@ where
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
-        match session.publish(publication).await {
+        match connection.publish(publication).await {
             Ok(op) => Ok(op),
             Err(PubError::Payload((
                 _no_space,
@@ -459,7 +461,7 @@ where
                     .properties(&props)
                     .qos(QoS::AtLeastOnce)
                     .retain();
-                let op = session
+                let op = connection
                     .publish(publication)
                     .await
                     .map_err(simple_pub_error)?;
@@ -526,15 +528,15 @@ impl Startup {
     pub async fn run<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        while !self.step(miniconf, session, settings).await? {
-            let _ = session.poll().await?;
+        while !self.step(miniconf, connection, settings).await? {
+            let _ = connection.poll().await?;
         }
         Ok(())
     }
@@ -543,21 +545,21 @@ impl Startup {
     ///
     /// `Ok(true)` means startup is complete.
     ///
-    /// `Ok(false)` means no more immediate startup progress is possible. Wait for later session
+    /// `Ok(false)` means no more immediate startup progress is possible. Wait for later connection
     /// progress, then call `step()` again.
     ///
-    /// Connected-session startup may discard surfaced inbound publishes while bootstrapping.
+    /// Connected-connection startup may discard surfaced inbound publishes while bootstrapping.
     pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.phase.step(miniconf, session, settings).await
+        self.phase.step(miniconf, connection, settings).await
     }
 }
 
@@ -583,14 +585,14 @@ impl LoadRetained {
     pub async fn run<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<(), Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        while !self.step(miniconf, session, settings).await? {}
+        while !self.step(miniconf, connection, settings).await? {}
         Ok(())
     }
 
@@ -603,14 +605,14 @@ impl LoadRetained {
     pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.phase.step(miniconf, session, settings).await
+        self.phase.step(miniconf, connection, settings).await
     }
 }
 
@@ -642,20 +644,20 @@ impl Publisher {
     /// Run retained subtree publication to completion.
     ///
     /// This is the simple unbounded helper. It may discard unrelated inbound publishes while
-    /// waiting for MQTT session progress. Use [`Publisher::step`] when those publishes must be
+    /// waiting for MQTT connection progress. Use [`Publisher::step`] when those publishes must be
     /// routed elsewhere.
     pub async fn run<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        while !self.step(miniconf, session, settings).await? {
-            let _ = session.poll().await?;
+        while !self.step(miniconf, connection, settings).await? {
+            let _ = connection.poll().await?;
         }
         Ok(())
     }
@@ -665,20 +667,20 @@ impl Publisher {
     /// `Ok(true)` means publication is complete.
     ///
     /// `Ok(false)` means no more immediate publication progress is possible. Wait for later
-    /// session progress, then call `step()` again.
+    /// connection progress, then call `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
     pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        sync::step_publisher(self, miniconf, session, settings).await
+        sync::step_publisher(self, miniconf, connection, settings).await
     }
 }
 
@@ -771,14 +773,14 @@ impl<const N: usize> Service<N> {
     ///
     /// `Ok(true)` means no queued protocol follow-up work remains after this step.
     ///
-    /// `Ok(false)` means queued work remains and later session progress is needed before calling
+    /// `Ok(false)` means queued work remains and later connection progress is needed before calling
     /// `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
     pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -795,7 +797,7 @@ impl<const N: usize> Service<N> {
                 N
             );
 
-            if follow_up.step(miniconf, session, settings).await? {
+            if follow_up.step(miniconf, connection, settings).await? {
                 debug!(
                     "Completed MM2 follow-up queued_remaining={=usize} capacity={=usize}",
                     self.follow_ups.len(),

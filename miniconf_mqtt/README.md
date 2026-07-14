@@ -2,7 +2,8 @@
 
 `miniconf_mqtt` exposes a [`miniconf`](../miniconf/README.md) tree over MQTT using
 [`minimq`](../../minimq/README.md).
-It owns Miniconf MQTT protocol state; the caller owns both the MQTT session and the settings tree.
+It owns Miniconf MQTT protocol state; the caller owns the MQTT session, live connection, and
+settings tree.
 
 ## Quick start
 
@@ -10,8 +11,8 @@ See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).
 
 For simple services, `miniconf_mqtt` provides two complete unbounded helpers on top:
 
-- `miniconf.startup(&mut session, &settings, connect_event)`
-- `miniconf.serve(&mut session, &mut settings, on_unhandled)`
+- `miniconf.startup(&mut connection, &settings)`
+- `miniconf.serve(&mut connection, &mut settings, on_unhandled)`
 
 They are the easiest way to serve a Miniconf tree over MQTT when you do not need stepwise control,
 bounded queued follow-up, or exact control over unrelated inbound traffic during protocol work.
@@ -28,9 +29,9 @@ For precise control, `miniconf_mqtt` exposes four explicit building blocks:
 Typical flow:
 
 1. construct Miniconf MQTT state and session with `Miniconf::new(prefix, config)`
-2. call `let event = session.connect(io).await?`
-3. call `miniconf.startup(&mut session, &settings, event)`
-4. in steady state, call `miniconf.serve(&mut session, &mut settings, on_unhandled)`
+2. call `let mut connection = session.connect(io).await?`
+3. call `miniconf.startup(&mut connection, &settings)`
+4. in steady state, call `miniconf.serve(&mut connection, &mut settings, on_unhandled)`
 5. use `Publisher::root(Settings::SCHEMA)` or `Publisher::by_key(Settings::SCHEMA, key)` for explicit app-side retained
    republish
 
@@ -40,10 +41,10 @@ Retained settings recovery is a cold-boot step:
 
 ```rust
 let mut load = miniconf_mqtt::LoadRetained::new();
-load.run(&mut miniconf, &mut session, &mut settings).await?;
+load.run(&mut miniconf, &mut connection, &mut settings).await?;
 
 let mut startup = miniconf_mqtt::Startup::connected(&mut miniconf);
-startup.run(&mut miniconf, &mut session, &settings).await?;
+startup.run(&mut miniconf, &mut connection, &settings).await?;
 ```
 
 `LoadRetained` applies only retained `settings/<leaf>` publications with `auth=""`, waits for
@@ -53,7 +54,7 @@ retained pruning remains a client/tooling operation.
 
 Use it only before the first Miniconf MQTT startup of a device process. On a device reconnect or
 network glitch, keep the live settings in RAM authoritative and call
-`miniconf.startup(..., connect_event)`:
+`miniconf.startup(...)`; it reads the connect event from the live connection:
 
 - `ConnectEvent::Connected`: the broker did not resume the MQTT session, so Miniconf republishes
   schema, settings, `set/#`, and `alive`
@@ -103,8 +104,8 @@ Stepwise APIs:
 
 Practical boundary:
 
-- use `Session::poll()` to wait for any later session progress
-- use `Session::recv()` when you specifically want the next inbound publish
+- use `Connection::poll()` to wait for any later session progress
+- use `Connection::recv()` when you specifically want the next inbound publish
 - `Startup::step()` may consume and discard inbound publishes while bootstrapping
 - `Publisher::step()` must not consume unrelated inbound publishes
 - `Service::step()` must not consume unrelated inbound publishes
@@ -118,9 +119,9 @@ Bounded cooperative serving:
 let mut service = Service::<4>::new();
 
 loop {
-    let _empty = service.step(&mut miniconf, &mut session, &settings).await?;
+    let _empty = service.step(&mut miniconf, &mut connection, &settings).await?;
 
-    if let Some(inbound) = session.poll().await? {
+    if let Some(inbound) = connection.poll().await? {
         match service.handle(&mut miniconf, &mut settings, &inbound) {
             ServiceEvent::Unhandled => { /* app traffic */ }
             ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}

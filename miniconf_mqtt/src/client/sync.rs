@@ -1,8 +1,8 @@
 use embassy_time::{Duration, Instant, with_deadline};
 use miniconf::{SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize};
 use minimq::{
-    Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS, ResourceError,
-    RetainHandling, Session, SubscriptionOptions, TopicFilter,
+    Connection, Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS,
+    ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
 };
 
 use super::poll_op;
@@ -45,7 +45,7 @@ impl LoadRetainedPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -56,17 +56,17 @@ impl LoadRetainedPhase {
         // generic code here is only monomorphized by callers that actually construct LoadRetained.
         // It is a cold-boot recovery step, not reconnect handling: after a running device loses the
         // network, the live settings in RAM remain authoritative and Startup::connected republishes
-        // them if the broker session was lost.
+        // them if the broker connection was lost.
         loop {
             match self {
                 Self::Subscribe { start, op } => {
                     if let Some(current) = *op {
-                        if session.is_pending(&current) {
-                            if let Some(inbound) = session.poll().await? {
+                        if connection.is_pending(&current) {
+                            if let Some(inbound) = connection.poll().await? {
                                 apply_retained(mm2.prefix.as_str(), settings, &inbound);
                             }
                             return Ok(false);
-                        } else if session.is_complete(&current) {
+                        } else if connection.is_complete(&current) {
                             let now = Instant::now();
                             let suback_rtt = now.saturating_duration_since(*start);
                             let quiet = retained_quiet_window(suback_rtt);
@@ -82,26 +82,26 @@ impl LoadRetainedPhase {
                             };
                             continue;
                         } else {
-                            debug_assert!(session.is_invalidated(&current));
+                            debug_assert!(connection.is_invalidated(&current));
                             return Err(Error::Mqtt(MqttError::Disconnected));
                         }
                     }
 
-                    match subscribe_settings(&mm2.prefix, session).await {
+                    match subscribe_settings(&mm2.prefix, connection).await {
                         Ok(next) => {
                             *start = Instant::now();
                             *op = Some(next);
                             return Ok(false);
                         }
                         Err(err) if is_retryable_startup_error(&err) => {
-                            let _ = session.poll().await?;
+                            let _ = connection.poll().await?;
                             return Ok(false);
                         }
                         Err(err) => return Err(err),
                     }
                 }
                 Self::Drain { deadline, quiet } => {
-                    match with_deadline(*deadline, session.poll()).await {
+                    match with_deadline(*deadline, connection.poll()).await {
                         Ok(Ok(Some(inbound))) => {
                             if apply_retained(mm2.prefix.as_str(), settings, &inbound) {
                                 // Retained storage has no commit marker. Resetting to the last accepted
@@ -118,9 +118,9 @@ impl LoadRetainedPhase {
                         }
                     }
                 }
-                Self::Unsubscribe(op) => match poll_op(session, op)? {
+                Self::Unsubscribe(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => {
-                        let _ = session.poll().await?;
+                        let _ = connection.poll().await?;
                         return Ok(false);
                     }
                     PendingOp::Complete => {
@@ -128,13 +128,13 @@ impl LoadRetainedPhase {
                         *self = Self::Done;
                         return Ok(true);
                     }
-                    PendingOp::Idle => match unsubscribe_settings(&mm2.prefix, session).await {
+                    PendingOp::Idle => match unsubscribe_settings(&mm2.prefix, connection).await {
                         Ok(next) => {
                             *op = Some(next);
                             return Ok(false);
                         }
                         Err(err) if is_retryable_startup_error(&err) => {
-                            let _ = session.poll().await?;
+                            let _ = connection.poll().await?;
                             return Ok(false);
                         }
                         Err(err) => return Err(err),
@@ -238,7 +238,7 @@ impl StartupPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -248,7 +248,7 @@ impl StartupPhase {
         loop {
             match self {
                 Self::Schema { sync, op } => {
-                    if step_schema::<Settings, _>(&mm2.prefix, session, sync, op).await? {
+                    if step_schema::<Settings, _>(&mm2.prefix, connection, sync, op).await? {
                         mm2.manifest.schema_pages = sync.page;
                         mm2.manifest.schema_rev = sync.hash;
                         debug!(
@@ -261,21 +261,21 @@ impl StartupPhase {
                     return Ok(false);
                 }
                 Self::Settings(publisher) => {
-                    if publisher.step(mm2, session, settings).await? {
+                    if publisher.step(mm2, connection, settings).await? {
                         debug!("Settings startup phase complete");
                         *self = Self::SubscribeSet(None);
                         continue;
                     }
                     return Ok(false);
                 }
-                Self::SubscribeSet(op) => match poll_op(session, op)? {
+                Self::SubscribeSet(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
                         debug!("Subscribed MM2 request ingress");
                         *self = Self::Alive(None);
                         continue;
                     }
-                    PendingOp::Idle => match subscribe_set(&mm2.prefix, session).await {
+                    PendingOp::Idle => match subscribe_set(&mm2.prefix, connection).await {
                         Ok(next) => {
                             *op = Some(next);
                             return Ok(false);
@@ -284,7 +284,7 @@ impl StartupPhase {
                         Err(err) => return Err(err),
                     },
                 },
-                Self::Alive(op) => match poll_op(session, op)? {
+                Self::Alive(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
                         info!(
@@ -295,8 +295,12 @@ impl StartupPhase {
                         return Ok(true);
                     }
                     PendingOp::Idle => {
-                        match publish_alive_once::<Settings, _>(&mm2.prefix, &mm2.manifest, session)
-                            .await
+                        match publish_alive_once::<Settings, _>(
+                            &mm2.prefix,
+                            &mm2.manifest,
+                            connection,
+                        )
+                        .await
                         {
                             Ok(next) => {
                                 *op = next;
@@ -315,7 +319,7 @@ impl StartupPhase {
 
 async fn step_schema<Settings, IO>(
     prefix: &TopicString,
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
     sync: &mut SchemaSync,
     op: &mut Option<Op>,
 ) -> Result<bool, Error<IO::Error>>
@@ -323,7 +327,7 @@ where
     Settings: TreeSerialize,
     IO: Io,
 {
-    match poll_op(session, op)? {
+    match poll_op(connection, op)? {
         PendingOp::Pending => return Ok(false),
         PendingOp::Complete | PendingOp::Idle => {}
     }
@@ -356,7 +360,7 @@ where
     .properties(RETAINED_TEXT_PROPERTIES)
     .qos(QoS::AtLeastOnce)
     .retain();
-    match session.publish(publication).await {
+    match connection.publish(publication).await {
         Ok(next_op) => {
             let Some((count, hash)) = advanced else {
                 return Err(Error::Mqtt(ResourceError::BufferTooSmall.into()));
@@ -386,7 +390,7 @@ where
 pub(crate) async fn step_publisher<Settings, IO>(
     publisher: &mut Publisher,
     mm2: &mut Miniconf<Settings>,
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
     settings: &Settings,
 ) -> Result<bool, Error<IO::Error>>
 where
@@ -429,7 +433,7 @@ where
             }
         };
 
-        match poll_op(session, &mut publisher.op)? {
+        match poll_op(connection, &mut publisher.op)? {
             PendingOp::Pending => return Ok(false),
             PendingOp::Complete => {
                 debug!(
@@ -442,11 +446,14 @@ where
             PendingOp::Idle => {}
         }
 
-        if !session.can_publish(QoS::AtLeastOnce) {
+        if !connection.can_publish(QoS::AtLeastOnce) {
             return Ok(false);
         }
 
-        match mm2.publish_current(session, settings, state.as_ref()).await {
+        match mm2
+            .publish_current(connection, settings, state.as_ref())
+            .await
+        {
             Ok(op) => {
                 publisher.op = op;
                 return Ok(false);
@@ -462,7 +469,7 @@ where
 
 async fn subscribe_set<IO>(
     prefix: &TopicString,
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
 ) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
@@ -480,12 +487,12 @@ where
             .maximum_qos(QoS::AtLeastOnce)
             .ignore_local_messages(),
     )];
-    session.subscribe(&topics, &[]).await.map_err(Into::into)
+    connection.subscribe(&topics, &[]).await.map_err(Into::into)
 }
 
 async fn subscribe_settings<IO>(
     prefix: &TopicString,
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
 ) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
@@ -502,12 +509,12 @@ where
             .retain_as_published()
             .ignore_local_messages(),
     )];
-    session.subscribe(&topics, &[]).await.map_err(Into::into)
+    connection.subscribe(&topics, &[]).await.map_err(Into::into)
 }
 
 async fn unsubscribe_settings<IO>(
     prefix: &TopicString,
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
 ) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
@@ -520,7 +527,7 @@ where
         "Unsubscribing retained settings topic={=str}",
         topic.as_str()
     );
-    session
+    connection
         .unsubscribe(&[topic.as_str()], &[])
         .await
         .map_err(Into::into)
