@@ -23,17 +23,16 @@
 //!
 //! async fn serve<IO>(
 //!     miniconf: &mut Miniconf<Settings>,
-//!     session: &mut minimq::Session<'_, IO>,
+//!     connection: &mut minimq::Connection<'_, '_, IO>,
 //!     settings: &mut Settings,
-//!     event: minimq::ConnectEvent,
 //! ) -> Result<(), Error<IO::Error>>
 //! where
 //!     IO: minimq::Io,
 //! {
-//!     miniconf.startup(session, settings, event).await?;
+//!     miniconf.startup(connection, settings).await?;
 //!
 //!     loop {
-//!         match miniconf.serve(session, settings, |_| ()).await? {
+//!         match miniconf.serve(connection, settings, |_| ()).await? {
 //!             Event::Changed(path) => {
 //!                 // `path` is the changed leaf's index path.
 //!                 let _ = path;

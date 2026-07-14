@@ -34,12 +34,15 @@ async fn main() -> Result<(), Box<dyn core::error::Error>> {
     loop {
         defmt::info!("connecting to mqtt://{=str}", broker.as_str());
         let io = tokio::net::TcpStream::connect(&broker).await?;
-        let event = session.connect(FromTokio::new(io)).await?;
-        miniconf.startup(&mut session, &settings, event).await?;
-        defmt::info!("mqtt session ready event={}", defmt::Debug2Format(&event));
+        let mut connection = session.connect(FromTokio::new(io)).await?;
+        miniconf.startup(&mut connection, &settings).await?;
+        defmt::info!(
+            "mqtt session ready event={}",
+            defmt::Debug2Format(&connection.connect_event())
+        );
 
         loop {
-            match miniconf.serve(&mut session, &mut settings, |_| ()).await {
+            match miniconf.serve(&mut connection, &mut settings, |_| ()).await {
                 Ok(Event::Unhandled(())) => {}
                 Ok(Event::Changed(idx)) => {
                     defmt::info!("settings updated key={}", idx);

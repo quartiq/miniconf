@@ -1,14 +1,12 @@
 extern crate std;
 
 use crate::{MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, Miniconf};
-use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf::{
     Tree, TreeSchema,
     compact_schema::{SchemaDefs, serialize_schema_page},
 };
 use minimq::{ConfigBuilder, ConfigError};
 use std::sync::OnceLock;
-use tokio::net::TcpStream;
 
 #[derive(Tree)]
 struct Tiny {
@@ -41,7 +39,7 @@ fn constructor_rejects_long_prefix() {
     init_host_logging();
     let prefix = "x".repeat(MAX_TOPIC_LENGTH);
     let mut buffer = [0u8; 1024];
-    let client = Miniconf::<Tiny>::new::<FromTokio<TcpStream>>(
+    let client = Miniconf::<Tiny>::new(
         &prefix,
         ConfigBuilder::from_buffer(&mut buffer, 1024).unwrap(),
     );

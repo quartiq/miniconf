@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.21.0...HEAD) - DATE
 
+### Changed
+
+* MQTT network operations now take caller-owned `minimq::Connection` handles. `Miniconf::new()`
+  still returns the durable `minimq::Session` used to establish each connection, and
+  `Miniconf::startup()` reads the connect event directly from the handle.
+
 ## [0.21.0](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.20.0...miniconf_mqtt-v0.21.0) - 2026-06-10
 
 ### Changed

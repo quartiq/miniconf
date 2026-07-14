@@ -6,7 +6,9 @@ use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
 };
-use minimq::{Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError, Session};
+use minimq::{
+    Connection, Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError,
+};
 use serde_json_core::de::Error as JsonDeError;
 
 use super::poll_op;
@@ -330,7 +332,7 @@ impl FollowUp {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
         mm2: &mut Miniconf<Settings>,
-        session: &mut Session<'_, IO>,
+        connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
@@ -340,7 +342,7 @@ impl FollowUp {
         loop {
             match self {
                 Self::Publish { state, reply, op } => {
-                    match poll_op(session, op)? {
+                    match poll_op(connection, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             if let Some(target) = reply.take() {
@@ -360,7 +362,10 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match mm2.publish_current(session, settings, state.as_ref()).await {
+                    match mm2
+                        .publish_current(connection, settings, state.as_ref())
+                        .await
+                    {
                         Ok(next) => {
                             *op = next;
                             if op.is_none() {
@@ -397,7 +402,7 @@ impl FollowUp {
                     message,
                     op,
                 } => {
-                    match poll_op(session, op)? {
+                    match poll_op(connection, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
@@ -411,7 +416,7 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match reply_message(session, target, message).await {
+                    match reply_message(connection, target, message).await {
                         Ok(next) => {
                             *op = next;
                             if op.is_none() {
@@ -429,7 +434,7 @@ impl FollowUp {
                     }
                 }
                 Self::ReplyOk { target, op } => {
-                    match poll_op(session, op)? {
+                    match poll_op(connection, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
@@ -441,7 +446,7 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match reply_text(session, target, ResponseCode::Ok, b"").await {
+                    match reply_text(connection, target, ResponseCode::Ok, b"").await {
                         Ok(next) => {
                             *op = next;
                             if op.is_none() {
@@ -464,7 +469,7 @@ impl FollowUp {
                     payload,
                     op,
                 } => {
-                    match poll_op(session, op)? {
+                    match poll_op(connection, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
@@ -476,7 +481,7 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match reply_publish_error(session, target, error, payload.as_bytes()).await {
+                    match reply_publish_error(connection, target, error, payload.as_bytes()).await {
                         Ok(next) => {
                             *op = next;
                             if op.is_none() {
@@ -567,7 +572,7 @@ fn push_transient_text_props(props: &mut VecView<Property<'_>>) {
 }
 
 async fn reply_message<IO>(
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
     message: &ReplyMessage,
 ) -> Result<Option<Op>, Error<IO::Error>>
@@ -586,11 +591,11 @@ where
         message.error.as_str(),
         depth,
     );
-    reply_bytes(session, target, &props, message.payload.as_bytes()).await
+    reply_bytes(connection, target, &props, message.payload.as_bytes()).await
 }
 
 async fn reply_publish_error<IO>(
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
     error: &str,
     payload: &[u8],
@@ -599,11 +604,11 @@ where
     IO: Io,
 {
     let props = error_props(ResponseCode::Error, "publish", "Error", error, None);
-    reply_bytes(session, target, &props, payload).await
+    reply_bytes(connection, target, &props, payload).await
 }
 
 async fn reply_text<IO>(
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
     code: ResponseCode,
     text: &[u8],
@@ -614,11 +619,11 @@ where
     let mut props = Vec::<_, 3>::new();
     push_transient_text_props(&mut props);
     props.push(code.into()).ok();
-    reply_bytes(session, target, &props, text).await
+    reply_bytes(connection, target, &props, text).await
 }
 
 async fn reply_bytes<IO>(
-    session: &mut Session<'_, IO>,
+    connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
     props: &[Property<'_>],
     payload: &[u8],
@@ -626,7 +631,7 @@ async fn reply_bytes<IO>(
 where
     IO: Io,
 {
-    session
+    connection
         .publish(
             target
                 .publication(payload)
