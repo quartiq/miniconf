@@ -41,3 +41,6 @@ packages = ["miniconf"]
 [tool.ruff]
 target-version = "py311"
 src = ["miniconf"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
