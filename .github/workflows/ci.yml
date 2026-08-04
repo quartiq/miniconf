@@ -20,7 +20,7 @@ jobs:
   style:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -53,12 +53,24 @@ jobs:
   documentation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+
+  semver:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # Development stays at the latest published version. Intentional breaking
+      # work must select a minor release and document its migration.
+      - uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: miniconf
+          feature-group: all-features
+          release-type: patch
 
   compile:
     runs-on: ubuntu-latest
@@ -68,7 +80,7 @@ jobs:
           - stable
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
@@ -94,7 +106,7 @@ jobs:
           - cargo test --no-default-features
           - cargo test -p miniconf --no-default-features
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Start Broker
         run: |
           sudo apt-get update
@@ -110,7 +122,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v4
         with:
           python-version: "3.11"
@@ -126,7 +138,7 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -148,7 +160,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@nightly
         with:
           target: thumbv7m-none-eabi
@@ -173,7 +185,7 @@ jobs:
         example:
           - mqtt
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Start Broker
         run: |
           sudo apt-get install mosquitto mosquitto-clients

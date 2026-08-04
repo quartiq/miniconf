@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.0...HEAD) - DATE
 
+### Added
+
+* Documented the SemVer policy and added automated API compatibility checks.
+
 ## [0.21.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...miniconf-v0.21.0) - 2026-06-10
 
 ### Changed

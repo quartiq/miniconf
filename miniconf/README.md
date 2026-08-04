@@ -151,3 +151,12 @@ routed get/set overhead and reflection data can be judged independently.
 - `trace`, `schema`: serde-reflection tracing and JSON Schema generation.
 - `heapless`, `heapless-09`, `alloc`, `std`: support for the corresponding
   storage and platform layers.
+
+## Stability
+
+`miniconf` follows [Cargo's SemVer compatibility guidelines][cargo-semver],
+including [Rust's policy for trait implementations][trait-impls]. For `0.y.z`
+releases, breaking changes bump `y`; compatible changes bump `z`.
+
+[cargo-semver]: https://doc.rust-lang.org/cargo/reference/semver.html
+[trait-impls]: https://rust-lang.github.io/rfcs/1105-api-evolution.html#trait-implementations
