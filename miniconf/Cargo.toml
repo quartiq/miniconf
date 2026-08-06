@@ -22,7 +22,7 @@ miniconf_derive = { path = "../miniconf_derive", version = "0.21.0", optional = 
 serde-json-core = { version = "0.6.0", optional = true }
 postcard = { version = "1.0.8", optional = true }
 defmt = { version = "1.0.1", optional = true }
-serde-reflection = { version = "0.5.2", optional = true }
+serde-reflection = { version = "0.6", optional = true }
 schemars = { version = "1.0.4", optional = true, default-features = false }
 serde_json = { version = "1.0.133", features = [
     "preserve_order",
@@ -67,7 +67,7 @@ heapless-09 = { package = "heapless", version = "0.9.0" }
 strum = { version = "0.28", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
-jsonschema = { version = "0.46.0", default-features = false }
+jsonschema = { version = "0.49.0", default-features = false }
 
 [[test]]
 name = "arrays"
