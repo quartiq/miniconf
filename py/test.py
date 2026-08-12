@@ -21,7 +21,7 @@ from miniconf.render import render_schema_tree, render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "testdata" / "compact-schema" / "fixture.ndjson"
+FIXTURE = ROOT / "fixtures" / "compact-schema.ndjson"
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"

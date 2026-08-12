@@ -58,7 +58,7 @@ fn schema_pages_match_golden_fixture() {
         .replace(r#"{"s":{"ty":"u8"}}"#, "{}");
     assert_eq!(
         normalized,
-        include_str!("../../testdata/compact-schema/fixture.ndjson")
+        include_str!("../../fixtures/compact-schema.ndjson")
     );
 }
 

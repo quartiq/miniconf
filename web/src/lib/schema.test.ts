@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { formatSchemaMetadata, Schema, type CompactDef } from "./schema";
 
 function fixtureSchema(): Schema {
-  const fixture = resolve("../testdata/compact-schema/fixture.ndjson");
+  const fixture = resolve("../fixtures/compact-schema.ndjson");
   const defs = readFileSync(fixture, "utf8")
     .split(/\r?\n/)
     .filter(Boolean)
