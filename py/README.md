@@ -71,6 +71,8 @@ Command suffixes:
 - `PATH=VALUE` writes one JSON value with ACK/NACK by default.
 - `PATH?` renders schema; `PATH??` prints compact schema NDJSON.
 - `PATH!` renders retained subtree values; `PATH!!` prints raw `/path=value` lines.
+- The root path is empty: use the quoted command `'?'` for root schema. `'/?'` addresses the
+  empty-name child below root; `/` is not an alias for root.
 - `--raw` disables schema, subtree tracking, `?`, and `!`.
 - `--prune PATH` clears stale retained schema/settings below `PATH`.
 - `--force-prune` clears all retained Miniconf MQTT topics below the resolved prefix.

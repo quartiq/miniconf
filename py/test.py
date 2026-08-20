@@ -238,6 +238,8 @@ async def main() -> None:
     await test_listener_close_tolerates_released_subscription()
 
     assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
+    assert _normalize_command_path("/", "") == ("/", "/")
+    assert _normalize_command_path("value", "/") == ("//value", "/")
     assert _normalize_command_path("/channel/0/demodulate", "") == (
         "/channel/0/demodulate",
         "/channel/0/demodulate",
@@ -305,6 +307,33 @@ async def main() -> None:
     assert quoted_meta == [
         '└─ node [edge doc="Outer doc"] [node typename="InnerType"]'
     ], quoted_meta
+
+    empty_name_schema = Schema.from_defs(
+        [
+            {"s": {"ty": "i32"}},
+            {"i": {"k": "n", "c": {"value": 0}}},
+            {"i": {"k": "n", "c": {"": 1, "value": 0}}},
+        ],
+        1,
+    )
+    assert empty_name_schema.path("") == ""
+    assert empty_name_schema.path("/") == "/"
+    assert empty_name_schema.path("//value") == "//value"
+    assert render_schema_tree(empty_name_schema, "/").splitlines() == [
+        '""',
+        "└─ value [sem ty=i32]",
+    ]
+    assert render_schema_tree(empty_name_schema).splitlines() == [
+        '├─ ""',
+        "│  └─ value [sem ty=i32]",
+        "└─ value [sem ty=i32]",
+    ]
+    empty_values = {"//value": 1, "/value": 2}
+    assert render_value_tree(empty_name_schema, empty_values).splitlines() == [
+        '├─ ""',
+        "│  └─ value = 1",
+        "└─ value = 2",
+    ]
 
     alive = TopicWatcher(f"{PREFIX}/+/alive")
     settings = TopicWatcher(f"{PREFIX}/+/settings/#")
