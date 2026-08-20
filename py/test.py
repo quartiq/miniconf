@@ -404,6 +404,16 @@ async def main() -> None:
                 '└─ mode = "Run"',
             ]
 
+            stale_setting_topic = f"{TARGET}/settings/obsolete"
+            await client.publish(
+                stale_setting_topic,
+                payload=b"not-json",
+                qos=1,
+                retain=True,
+                properties={"user_property": [("auth", "")]},
+            )
+            assert "/obsolete" not in await mc.snapshot("")
+
             await mc.set(ENABLED, True)
             assert await mc.get(ENABLED) is True
             settings.drain()
@@ -504,9 +514,7 @@ async def main() -> None:
         assert "RawMode:" in raw_invalid.stdout, raw_invalid.stdout
 
         stale_schema_topic = f"{TARGET}/schema/99"
-        stale_setting_topic = f"{TARGET}/settings/obsolete"
         schema_topics.client.publish(stale_schema_topic, b'{"bad":true}', retain=True)
-        settings.client.publish(stale_setting_topic, b"1", retain=True)
         time.sleep(0.2)
         prune_out = subprocess.run(
             [
@@ -525,6 +533,7 @@ async def main() -> None:
             text=True,
         ).stdout.splitlines()
         assert "schema/99" in prune_out, prune_out
+        assert "/obsolete" in prune_out, prune_out
         force_prune_out = subprocess.run(
             [
                 sys.executable,
@@ -540,7 +549,7 @@ async def main() -> None:
             capture_output=True,
             text=True,
         ).stdout.splitlines()
-        assert "settings/obsolete" in force_prune_out, force_prune_out
+        assert "settings/obsolete" not in force_prune_out, force_prune_out
 
     finally:
         if mc is not None:

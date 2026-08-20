@@ -113,7 +113,8 @@ async def _collect_retained_settings(
     rel_timeout: float = 3.0,
     abs_timeout: float = 0.1,
 ) -> dict[str, Any]:
-    root = (await interface.schema(timeout=timeout)).path(path)
+    schema = await interface.schema(timeout=timeout)
+    root = schema.path(path)
     start = asyncio.get_running_loop().time()
     retained: dict[str, Any] = {}
     (topic_filter,) = settings_topics(interface.prefix, root)
@@ -136,7 +137,7 @@ async def _collect_retained_settings(
                 continue
             if not is_retained(message):
                 continue
-            event = interface._setting_event(message, root)
+            event = interface._setting_event(message, root, schema)
             if event is None:
                 continue
             if not event.present:
@@ -238,13 +239,19 @@ async def _prune_settings(
 
     schema = await interface.schema(timeout=timeout)
     path = schema.path(path)
-    retained = await _collect_retained_settings(interface, path, timeout=timeout)
+    (topic_filter,) = settings_topics(interface.prefix, path)
+    topics = await _collect_retained_topics(interface, topic_filter, timeout=timeout)
     stale = []
-    for cache_path in retained:
+    prefix = f"{interface.prefix}/settings"
+    for topic in topics:
+        cache_path = topic.removeprefix(prefix)
         try:
-            schema.path(cache_path)
+            node = schema.node(cache_path)
         except MiniconfException:
             stale.append(cache_path)
+        else:
+            if node.kind != "leaf":
+                stale.append(cache_path)
     stale.sort()
     for cache_path in stale:
         await interface.client.publish(
