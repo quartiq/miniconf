@@ -7,6 +7,7 @@
   type Props = {
     node: ViewNode | undefined;
     editor?: string;
+    editorStale?: boolean;
     updateEditor: (value: string) => void;
     submit: () => void;
     resetEditor: () => void;
@@ -16,6 +17,7 @@
   let {
     node,
     editor = "null",
+    editorStale = false,
     updateEditor,
     submit,
     resetEditor,
@@ -79,6 +81,7 @@
           type="button"
           onclick={resetEditor}
         >Reset</button>
+        {#if editorStale}<span class="stale">Changed remotely</span>{/if}
       </div>
     {:else}
       <p>No leaf selected.</p>
@@ -152,6 +155,11 @@
     display: flex;
     flex-direction: column;
     gap: var(--space);
+  }
+
+  .stale {
+    color: var(--warn);
+    font-size: var(--text-small);
   }
 
   @media (max-width: 760px) {

@@ -15,6 +15,7 @@ describe("browse model", () => {
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 3]]),
       changed: new Set(["/leaf"]),
+      activity: new Set(),
       rev: "42",
     }).state;
 
@@ -37,6 +38,7 @@ describe("browse model", () => {
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 1]]),
       changed: new Set(["/leaf"]),
+      activity: new Set(),
     }).state;
     state = browse.loadSelected(state, "/leaf");
     state = browse.updateEditor(state, "123");
@@ -44,14 +46,18 @@ describe("browse model", () => {
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 2]]),
       changed: new Set(["/leaf"]),
+      activity: new Set(["/leaf"]),
     }).state;
 
     expect(state.editor).toBe("123");
     expect(browse.selected(state)?.value).toBe(2);
+    expect(state.editorDirty).toBe(true);
+    expect(state.editorStale).toBe(true);
 
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 3]]),
       changed: new Set(["/leaf"]),
+      activity: new Set(["/leaf"]),
     }).state;
 
     expect(state.editor).toBe("123");
@@ -59,6 +65,38 @@ describe("browse model", () => {
 
     state = browse.loadEditor(state);
     expect(state.editor).toBe("3");
+    expect(state.editorDirty).toBe(false);
+    expect(state.editorStale).toBe(false);
+  });
+
+  it("refreshes untouched editors and accepts equivalent authoritative echoes", () => {
+    const schema = new Schema([
+      { s: "value" },
+      { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
+    ], 7);
+    let state = browse.loadSchema(browse.emptyState(), schema, "");
+    state = browse.commitSettings(state, {
+      settings: new Map([["/leaf", { a: 1, b: 2 }]]),
+      changed: new Set(["/leaf"]),
+      activity: new Set(),
+    }).state;
+    state = browse.loadSelected(state, "/leaf");
+
+    state = browse.commitSettings(state, {
+      settings: new Map([["/leaf", { a: 2 }]]),
+      changed: new Set(["/leaf"]),
+      activity: new Set(["/leaf"]),
+    }).state;
+    expect(state.editor).toBe('{\n  "a": 2\n}');
+
+    state = browse.updateEditor(state, '{"b":2,"a":3}');
+    state = browse.commitSettings(state, {
+      settings: new Map([["/leaf", { a: 3, b: 2 }]]),
+      changed: new Set(["/leaf"]),
+      activity: new Set(["/leaf"]),
+    }).state;
+    expect(state.editorDirty).toBe(false);
+    expect(state.editorStale).toBe(false);
   });
 
   it("loads editor text only when selection is explicitly loaded", () => {
@@ -72,6 +110,7 @@ describe("browse model", () => {
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 4]]),
       changed: new Set(["/leaf"]),
+      activity: new Set(),
     }).state;
 
     state = browse.select(state, "/leaf");

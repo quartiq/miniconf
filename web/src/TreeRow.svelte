@@ -49,7 +49,8 @@
   function flash(node: HTMLElement, initial?: TreeActivity) {
     let animation: Animation | undefined;
     const run = (next?: TreeActivity) => {
-      if (!next || performance.now() - next.at > 1000) {
+      const age = next ? Date.now() - next.at : -1;
+      if (!next || age < 0 || age > 1000) {
         return;
       }
       animation?.cancel();

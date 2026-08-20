@@ -16,7 +16,12 @@ describe("SettingsMirror", () => {
       expect(commits).toHaveLength(1);
       expect(commits[0].settings.get("/a")).toBe(2);
       expect([...commits[0].changed]).toEqual(["/a"]);
+      expect([...commits[0].activity]).toEqual([]);
       expect(commits[0].rev).toBe("13");
+
+      mirror.ingest("/a", 3, true);
+      vi.advanceTimersByTime(100);
+      expect([...commits[1].activity]).toEqual(["/a"]);
     } finally {
       vi.useRealTimers();
     }
@@ -56,6 +61,11 @@ describe("SettingsMirror", () => {
 
       expect([...commits.at(-1)!.settings]).toEqual([]);
       expect([...commits.at(-1)!.changed].sort()).toEqual(["/a", "/b"]);
+      expect([...commits.at(-1)!.activity]).toEqual([]);
+
+      mirror.ingest("/a", 3, true);
+      vi.runAllTimers();
+      expect([...commits.at(-1)!.activity]).toEqual([]);
     } finally {
       vi.useRealTimers();
     }

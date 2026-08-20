@@ -6,6 +6,7 @@ export type Settings = Map<string, unknown>;
 export type SettingsCommit = {
   settings: Settings;
   changed: Set<string>;
+  activity: Set<string>;
   rev?: string;
 };
 
@@ -13,6 +14,7 @@ export class SettingsMirror {
   private changed = new Set<string>();
   private rev: string | undefined;
   private shadow: Settings = new Map();
+  private baseline = true;
   private timer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   constructor(
@@ -26,8 +28,9 @@ export class SettingsMirror {
     this.changed = new Set();
     this.rev = undefined;
     this.shadow = new Map();
+    this.baseline = true;
     if (changed.size) {
-      this.onCommit({ settings: new Map(), changed });
+      this.onCommit({ settings: new Map(), changed, activity: new Set() });
     }
   }
 
@@ -59,7 +62,9 @@ export class SettingsMirror {
   private commit(): void {
     const changed = new Set(this.changed);
     this.changed = new Set();
-    this.onCommit({ settings: new Map(this.shadow), changed, rev: this.rev });
+    const activity = this.baseline ? new Set<string>() : changed;
+    this.baseline = false;
+    this.onCommit({ settings: new Map(this.shadow), changed, activity, rev: this.rev });
   }
 
   private cancel(): void {

@@ -23,6 +23,8 @@
     expanded: Set<string>;
     treeRoot: string;
     editor: string;
+    editorDirty: boolean;
+    editorStale: boolean;
     logOpen?: boolean;
     logLines: string[];
     treeActions: TreeActions;
@@ -48,6 +50,8 @@
     expanded,
     treeRoot,
     editor,
+    editorDirty,
+    editorStale,
     logOpen = $bindable(false),
     logLines,
     treeActions,
@@ -96,7 +100,7 @@
       {/if}
     </section>
 
-    <SelectedPanel node={selected} {editor} {updateEditor} {submit} {resetEditor} {focusTree} />
+    <SelectedPanel node={selected} {editor} {editorDirty} {editorStale} {updateEditor} {submit} {resetEditor} {focusTree} />
   </div>
 
   <StatusLog {status} {error} bind:open={logOpen} {logLines} />
@@ -121,7 +125,7 @@
 
   .back {
     color: inherit;
-    font-size: 1.25rem;
+    line-height: var(--line);
     text-decoration: none;
   }
 

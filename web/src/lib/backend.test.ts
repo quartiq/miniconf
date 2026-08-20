@@ -1,341 +1,192 @@
-import { describe, expect, it, vi } from "vitest";
-import { PrefixSession, type PrefixSessionCallbacks } from "./backend";
-import { type SettingsChange } from "./miniconf-mqtt-client";
-import { type MqttConnectionEvent } from "./mqtt-bus";
-import { Schema } from "./schema";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DiscoverySession,
+  PrefixSession,
+  type PrefixSessionCallbacks,
+} from "./backend";
+import { FakeMqttClient } from "./mqtt-test-fixture";
 
-class FakeResponseChannel {
-  constructor(
-    private readonly calls: string[],
-    private readonly prefix: string,
-  ) {}
+const connectMock = vi.hoisted(() => vi.fn());
 
-  async set(path: string, value: unknown) {
-    this.calls.push(`set ${this.prefix} ${path} ${JSON.stringify(value)}`);
-    return { path, ok: true, code: "Ok", message: "" };
+vi.mock("mqtt", () => ({
+  default: { connect: connectMock },
+}));
+
+const schemaText = [
+  '{"s":"value"}\n',
+  '{"i":{"k":"n","c":{"leaf":0}},"m":{"typename":"App"}}\n',
+];
+
+function hash(...pages: string[]): number {
+  let value = 0x811c9dc5;
+  for (const byte of new TextEncoder().encode(pages.join(""))) {
+    value = Math.imul(value ^ byte, 0x01000193) >>> 0;
   }
-
-  close() {
-    this.calls.push(`stopResponses ${this.prefix}`);
-  }
+  return value;
 }
 
-class FakeClient {
-  readonly calls: string[] = [];
-  readonly schemaValue = new Schema([
-    { s: "value" },
-    { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
-  ], 7);
-  private connectionListener: ((event: MqttConnectionEvent) => void) | undefined;
-  private settingsListener: ((change: SettingsChange) => void) | undefined;
-  private aliveListener: ((alive: { proto: number; epoch: number; schema_rev: number; pages: number } | undefined) => void) | undefined;
-  private aliveResult = { proto: 1, epoch: 1, schema_rev: 7, pages: 1 };
-  private aliveReady: Promise<void> = Promise.resolve();
-  private replayAlive = true;
-  private settingsReady: Promise<void> = Promise.resolve();
-  private settingsResult: Map<string, unknown> = new Map([["/leaf", 1]]);
-
-  async schema(prefix: string) {
-    this.calls.push(`schema ${prefix}`);
-    return this.schemaValue;
-  }
-
-  async openResponseChannel(prefix: string) {
-    this.calls.push(`watchResponses ${prefix}`);
-    return new FakeResponseChannel(this.calls, prefix);
-  }
-
-  watchConnection(listener: (event: MqttConnectionEvent) => void) {
-    this.calls.push("watchConnection");
-    this.connectionListener = listener;
-    return () => this.calls.push("stopConnection");
-  }
-
-  watchAlive(
-    prefix: string,
-    listener: (alive: { proto: number; epoch: number; schema_rev: number; pages: number } | undefined) => void,
-  ) {
-    this.calls.push(`watchAlive ${prefix}`);
-    this.aliveListener = listener;
-    if (this.replayAlive) {
-      queueMicrotask(() => listener(this.aliveResult));
-    }
-    return {
-      ready: this.aliveReady,
-      close: () => this.calls.push(`stopAlive ${prefix}`),
-    };
-  }
-
-  watchSettings(prefix: string, root: string, listener: (change: SettingsChange) => void) {
-    this.calls.push(`watchSettings ${prefix} ${root}`);
-    this.settingsListener = listener;
-    queueMicrotask(() => this.replaySettings());
-    return {
-      ready: this.settingsReady,
-      close: () => this.calls.push(`stopSettings ${prefix} ${root}`),
-    };
-  }
-
-  publishSetting(change: SettingsChange) {
-    this.settingsListener?.(change);
-  }
-
-  publishAlive(alive: { proto: number; epoch: number; schema_rev: number; pages: number }) {
-    this.aliveResult = alive;
-    this.settingsResult = new Map([["/leaf", alive.schema_rev]]);
-    this.aliveListener?.(alive);
-  }
-
-  setSettings(settings: Map<string, unknown>) {
-    this.settingsResult = settings;
-  }
-
-  setReplayAlive(replay: boolean) {
-    this.replayAlive = replay;
-  }
-
-  failAliveSubscription(error: Error) {
-    this.aliveReady = Promise.reject(error);
-  }
-
-  failSettingsSubscription(error: Error) {
-    this.settingsReady = Promise.reject(error);
-  }
-
-  reconnect() {
-    this.connectionListener?.({ state: "connected" });
-    this.connectionListener?.({ state: "subscriptions-restored" });
-    queueMicrotask(() => this.replaySettings());
-  }
-
-  clearAlive() {
-    this.aliveListener?.(undefined);
-  }
-
-  connectionError(error: string, transient = false) {
-    this.connectionListener?.({ state: "error", error, transient });
-  }
-
-  private replaySettings() {
-    for (const [path, value] of this.settingsResult) {
-      this.settingsListener?.({ path, present: true, value });
-    }
-  }
+function callbacks(overrides: Partial<PrefixSessionCallbacks> = {}): PrefixSessionCallbacks {
+  return {
+    error: () => {},
+    alive: () => {},
+    response: () => {},
+    schema: () => {},
+    settings: () => {},
+    status: () => {},
+    ...overrides,
+  };
 }
+
+async function connectPrefix(
+  mqtt: FakeMqttClient,
+  nextCallbacks = callbacks(),
+  subtree = "",
+): Promise<PrefixSession> {
+  connectMock.mockReturnValueOnce(mqtt);
+  const connecting = PrefixSession.connect("ws://mqtt:8083", "dt/device", subtree, nextCallbacks);
+  mqtt.options = connectMock.mock.calls.at(-1)![1];
+  mqtt.connect();
+  return await connecting;
+}
+
+afterEach(() => {
+  connectMock.mockReset();
+  vi.useRealTimers();
+});
+
+describe("DiscoverySession", () => {
+  it("uses one fixed subscription and replaces retained discovery state after reconnect", async () => {
+    const mqtt = new FakeMqttClient();
+    const updates: string[][] = [];
+    connectMock.mockReturnValueOnce(mqtt);
+    const connecting = DiscoverySession.connect("ws://mqtt:8083", "dt/+", {
+      prefixes: (prefixes) => updates.push(prefixes.map(({ prefix }) => prefix)),
+      error: () => {},
+      status: () => {},
+    });
+    mqtt.options = connectMock.mock.calls[0][1];
+    mqtt.connect();
+    const session = await connecting;
+
+    expect(mqtt.subscriptions).toEqual([{ "dt/+/alive": { qos: 1, rap: true, rh: 0 } }]);
+    mqtt.message("dt/device/alive", '{"proto":1,"epoch":1,"schema_rev":2,"pages":1}');
+    expect(updates.at(-1)).toEqual(["dt/device"]);
+
+    mqtt.disconnect();
+    mqtt.connect();
+    await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
+    expect(updates.at(-1)).toEqual([]);
+    session.close();
+  });
+
+  it("rejects discovery filters that consume the alive suffix", async () => {
+    await expect(DiscoverySession.connect("ws://mqtt:8083", "dt/#", {
+      prefixes: () => {}, error: () => {}, status: () => {},
+    })).rejects.toThrow("cannot contain #");
+    expect(connectMock).not.toHaveBeenCalled();
+  });
+});
 
 describe("PrefixSession", () => {
-  it("owns active prefix protocol flow behind callback events", async () => {
+  it("assembles verified schema pages and streams only authoritative retained settings", async () => {
     vi.useFakeTimers();
-    try {
-      const client = new FakeClient();
-      const commits: string[] = [];
-      const statuses: string[] = [];
-      const callbacks: PrefixSessionCallbacks = {
-        error: (message) => statuses.push(`error ${message}`),
-        alive: (alive) => statuses.push(`alive ${alive?.epoch ?? "none"}`),
-        response: (response) => statuses.push(`response ${response.code} ${response.path}`),
-        schema: (_schema, root) => statuses.push(`schema ${root || "/"}`),
-        settings: (commit) => commits.push(`${commit.changed.size}`),
-        status: (status) => statuses.push(status),
-      };
-      const session = new PrefixSession(client as never, "dt/device", "", callbacks);
+    const mqtt = new FakeMqttClient();
+    const roots: string[] = [];
+    const commits: Array<Map<string, unknown>> = [];
+    const session = await connectPrefix(mqtt, callbacks({
+      schema: (_schema, root) => roots.push(root),
+      settings: (commit) => commits.push(commit.settings),
+    }));
 
-      await session.open();
-      await vi.advanceTimersByTimeAsync(100);
-      expect(client.calls).toEqual([
-        "watchConnection",
-        "watchResponses dt/device",
-        "watchAlive dt/device",
-        "schema dt/device",
-        "watchSettings dt/device ",
-      ]);
-      expect(statuses).toContain("Loading schema rev 7 (1 page)");
-      expect(statuses).toContain("Watching settings");
-      expect(commits).toEqual(["1"]);
+    const response = Object.keys(mqtt.subscriptions[0]).find((topic) => topic.includes("/response/"));
+    expect(Object.keys(mqtt.subscriptions[0])).toEqual([
+      "dt/device/alive",
+      "dt/device/schema/#",
+      "dt/device/settings/#",
+      response,
+    ]);
+    mqtt.message("dt/device/alive", JSON.stringify({
+      proto: 1, epoch: 1, schema_rev: hash(...schemaText), pages: 2,
+    }));
+    mqtt.message("dt/device/schema/1", schemaText[1]);
+    mqtt.message("dt/device/schema/0", schemaText[0]);
+    expect(roots).toEqual([""]);
 
-      client.publishSetting({ path: "/leaf", present: true, value: 2 });
-      await vi.advanceTimersByTimeAsync(100);
-      expect(commits).toEqual(["1", "1"]);
-
-      await session.set("/leaf", 3);
-      session.close();
-      expect(client.calls.slice(-5)).toEqual([
-        "set dt/device /leaf 3",
-        "stopConnection",
-        "stopSettings dt/device ",
-        "stopAlive dt/device",
-        "stopResponses dt/device",
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("restarts the settings stream after schema reload", async () => {
-    vi.useFakeTimers();
-    try {
-      const client = new FakeClient();
-      const session = new PrefixSession(client as never, "dt/device", "", {
-        error: () => {},
-        alive: () => {},
-        response: () => {},
-        schema: () => {},
-        settings: () => {},
-        status: () => {},
-      });
-
-      await session.open();
-      client.publishAlive({ proto: 1, epoch: 2, schema_rev: 8, pages: 1 });
-      await Promise.resolve();
-      await Promise.resolve();
-      await Promise.resolve();
-
-      expect(client.calls).toEqual([
-        "watchConnection",
-        "watchResponses dt/device",
-        "watchAlive dt/device",
-        "schema dt/device",
-        "watchSettings dt/device ",
-        "schema dt/device",
-        "stopSettings dt/device ",
-        "watchSettings dt/device ",
-      ]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("clears and streams settings again after broker reconnect", async () => {
-    vi.useFakeTimers();
-    try {
-      const client = new FakeClient();
-      const commits: SettingsChange[][] = [];
-      const session = new PrefixSession(client as never, "dt/device", "", {
-        error: () => {},
-        alive: () => {},
-        response: () => {},
-        schema: () => {},
-        settings: (commit) => {
-          commits.push([...commit.settings].map(([path, value]) => ({
-            path,
-            present: true,
-            value,
-          })));
-        },
-        status: () => {},
-      });
-
-      await session.open();
-      await vi.advanceTimersByTimeAsync(100);
-      expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 1 }]);
-
-      client.setSettings(new Map([["/leaf", 2]]));
-      client.reconnect();
-      await vi.advanceTimersByTimeAsync(100);
-
-      expect(commits.at(-1)).toEqual([{ path: "/leaf", present: true, value: 2 }]);
-      expect(client.calls).not.toContain("stopSettings dt/device ");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("cancels the initial alive wait when the session closes", async () => {
-    const client = new FakeClient();
-    client.setReplayAlive(false);
-    const session = new PrefixSession(client as never, "dt/device", "", {
-      error: () => {},
-      alive: () => {},
-      response: () => {},
-      schema: () => {},
-      settings: () => {},
-      status: () => {},
-    });
-
-    const opened = session.open();
-    await Promise.resolve();
-    session.close();
-
-    await expect(opened).rejects.toThrow("Prefix session closed");
-    expect(client.calls).toContain("stopAlive dt/device");
-    expect(client.calls).toContain("stopResponses dt/device");
-  });
-
-  it("fails opening when the alive subscription is rejected", async () => {
-    const client = new FakeClient();
-    client.failAliveSubscription(new Error("alive subscribe failed"));
-    const session = new PrefixSession(client as never, "dt/device", "", {
-      error: () => {},
-      alive: () => {},
-      response: () => {},
-      schema: () => {},
-      settings: () => {},
-      status: () => {},
-    });
-
-    await expect(session.open()).rejects.toThrow("alive subscribe failed");
+    mqtt.message("dt/device/settings/leaf", "1");
+    mqtt.message("dt/device/settings/leaf", "2", true, { auth: "bad" });
+    mqtt.message("dt/device/settings/leaf", "3", true, { auth: ["", ""] });
+    mqtt.message("dt/device/settings/leaf", "4", true, { auth: "", rev: "9" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", 4]]);
     session.close();
   });
 
-  it("fails opening when the settings subscription is rejected", async () => {
-    const client = new FakeClient();
-    client.failSettingsSubscription(new Error("settings subscribe failed"));
-    const session = new PrefixSession(client as never, "dt/device", "", {
-      error: () => {},
-      alive: () => {},
-      response: () => {},
-      schema: () => {},
-      settings: () => {},
-      status: () => {},
-    });
+  it("keeps a verified schema but clears settings before retained replay on reconnect", async () => {
+    vi.useFakeTimers();
+    const mqtt = new FakeMqttClient();
+    const schemas: number[] = [];
+    const commits: Array<Map<string, unknown>> = [];
+    const revision = hash(...schemaText);
+    const session = await connectPrefix(mqtt, callbacks({
+      schema: (schema) => schemas.push(schema.rev),
+      settings: (commit) => commits.push(commit.settings),
+    }));
+    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }));
+    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+    mqtt.message("dt/device/settings/leaf", "1", true, { auth: "" });
+    await vi.advanceTimersByTimeAsync(100);
 
-    await expect(session.open()).rejects.toThrow("settings subscribe failed");
+    mqtt.disconnect();
+    mqtt.connect();
+    expect([...commits.at(-1)!]).toEqual([]);
+    await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
+    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 2, schema_rev: revision, pages: 2 }));
+    mqtt.message("dt/device/settings/leaf", "2", true, { auth: "" });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(schemas).toEqual([revision]);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", 2]]);
     session.close();
   });
 
-  it("does not surface transient reconnect timeouts as app errors", async () => {
-    const client = new FakeClient();
+  it("matches concurrent set responses and makes pending outcomes unknown on disconnect", async () => {
+    const mqtt = new FakeMqttClient();
+    const revision = hash(...schemaText);
+    const session = await connectPrefix(mqtt);
+    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }));
+    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+
+    const first = session.set("/leaf", 1);
+    const second = session.set("/leaf", 2);
+    await vi.waitFor(() => expect(mqtt.publications).toHaveLength(2));
+    mqtt.respond(1, "Ok");
+    mqtt.respond(0, "BadRequest", "invalid");
+    await expect(second).resolves.toMatchObject({ ok: true });
+    await expect(first).resolves.toMatchObject({ ok: false, message: "invalid" });
+
+    const unknown = session.set("/leaf", 3);
+    await vi.waitFor(() => expect(mqtt.publications).toHaveLength(3));
+    mqtt.disconnect();
+    await expect(unknown).rejects.toThrow("outcome unknown");
+    await expect(session.set("/leaf", 4)).rejects.toThrow("not ready");
+    session.close();
+  });
+
+  it("requires an empty-or-slash subtree before opening MQTT", async () => {
+    await expect(PrefixSession.connect("ws://mqtt:8083", "dt/device", "sub", callbacks()))
+      .rejects.toThrow("Subtree path must be empty or start with");
+    expect(connectMock).not.toHaveBeenCalled();
+  });
+
+  it("reports complete schema pages that do not match the manifest revision", async () => {
+    vi.useFakeTimers();
+    const mqtt = new FakeMqttClient();
     const errors: string[] = [];
-    const statuses: string[] = [];
-    const session = new PrefixSession(client as never, "dt/device", "", {
-      error: (error) => errors.push(error),
-      alive: () => {},
-      response: () => {},
-      schema: () => {},
-      settings: () => {},
-      status: (status) => statuses.push(status),
-    });
-
-    await session.open();
-    client.connectionError("connack timeout", true);
-    client.connectionError("bad credentials", false);
-
-    expect(statuses).toContain("Broker reconnecting");
-    expect(errors).toEqual(["bad credentials"]);
-  });
-
-  it("reports retained-empty alive as offline while opening", async () => {
-    const client = new FakeClient();
-    client.setReplayAlive(false);
-    const statuses: string[] = [];
-    const alive: string[] = [];
-    const session = new PrefixSession(client as never, "dt/device", "", {
-      error: () => {},
-      alive: (next) => alive.push(String(next?.epoch ?? "none")),
-      response: () => {},
-      schema: () => {},
-      settings: () => {},
-      status: (status) => statuses.push(status),
-    });
-
-    const opened = session.open();
-    await Promise.resolve();
-    client.clearAlive();
-
-    expect(statuses).toContain("Prefix offline; waiting for alive");
-    expect(alive).toContain("none");
-
+    const session = await connectPrefix(mqtt, callbacks({ error: (error) => errors.push(error) }));
+    mqtt.message("dt/device/alive", '{"proto":1,"epoch":1,"schema_rev":1,"pages":2}');
+    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(errors).toEqual(["Schema pages do not match revision 1"]);
     session.close();
-    await expect(opened).rejects.toThrow("Prefix session closed");
   });
 });
