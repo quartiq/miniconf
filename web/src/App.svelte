@@ -34,9 +34,11 @@
   let status = $state("Idle");
   let settingsRevision = $state("");
   let error = $state("");
+  let browseRetryable = $state(false);
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
   let routeSerial = 0;
+  const browseMemory = new Map<string, browse.BrowseMemory>();
   // Row flashes are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
   let treeActivity = $state.raw(new Map<string, TreeActivity>());
@@ -150,7 +152,10 @@
   }
 
   function loadSchema(nextSchema: Schema, root: string) {
-    browseState = browse.loadSchema(browseState, nextSchema, root);
+    const memory = browseState.schema
+      ? browseState
+      : browseMemory.get(JSON.stringify([broker, activePrefix, root]));
+    browseState = browse.loadSchema(browseState, nextSchema, root, memory);
     subtreePath = browseState.root;
     syncUrl();
   }
@@ -167,7 +172,11 @@
   }
 
   function discover() {
-    navigate(discoveryPath(broker, discoveryPattern));
+    try {
+      navigate(discoveryPath(broker, discoveryPattern));
+    } catch (err) {
+      setStatus("Invalid broker", err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function startDiscovery(serial: number) {
@@ -274,6 +283,7 @@
         return;
       }
       error = err instanceof Error ? err.message : String(err);
+      browseRetryable = true;
       setStatus("Error", error);
       log("error", error);
     }
@@ -303,9 +313,17 @@
 
   function applyRoute() {
     const next = readRoute(location);
+    if (browseState.schema && activePrefix) {
+      browseMemory.set(JSON.stringify([broker, activePrefix, browseState.root]), {
+        expanded: new Set(browseState.expanded),
+        selectedPath: browseState.selectedPath,
+        userClosed: new Set(browseState.userClosed),
+      });
+    }
     // Route changes cancel the old session; the serial also rejects callbacks
     // from an initial connection that completed after navigation.
     const serial = ++routeSerial;
+    browseRetryable = false;
     broker = next.broker;
     discoveryPattern = next.discoveryPattern;
     activePrefix = next.activePrefix;
@@ -355,6 +373,7 @@
       {settingsRevision}
       {status}
       {error}
+      retryable={browseRetryable}
       treeNodes={browseState.tree.nodeViews}
       selectedPath={browseState.selectedPath}
       selected={selected}
@@ -378,6 +397,7 @@
       resetEditor={() => {
         browseState = browse.loadEditor(browseState);
       }}
+      retry={applyRoute}
     />
   {/if}
 </main>

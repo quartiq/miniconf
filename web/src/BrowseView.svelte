@@ -16,6 +16,7 @@
     settingsRevision: string;
     status: string;
     error: string;
+    retryable: boolean;
     treeNodes: Map<string, TreeNodeView>;
     selectedPath: string;
     selected: ViewNode | undefined;
@@ -32,6 +33,7 @@
     submit: () => void;
     resetEditor: () => void;
     focusTree: () => void;
+    retry: () => void;
   };
 
   let {
@@ -43,6 +45,7 @@
     settingsRevision,
     status,
     error,
+    retryable,
     treeNodes,
     selectedPath,
     selected,
@@ -59,12 +62,13 @@
     submit,
     resetEditor,
     focusTree,
+    retry,
   }: Props = $props();
 </script>
 
 <section class="browse">
   <header class="app-header panel">
-    <a class="back" href={discoverHref} aria-label="Change connection" title="Change connection">←</a>
+    <a class="back" href={discoverHref}>← Connection</a>
     <div class="context">
       <h1 title={activePrefix}>{activePrefix}</h1>
       <div class="meta">
@@ -77,9 +81,14 @@
         {#if settingsRevision}<span>rev {settingsRevision}</span>{/if}
       </div>
     </div>
-    <div class="connection-state" role="status" title={error || status}>
-      <span>{status}</span>
-      {#if error}<strong>{error}</strong>{/if}
+    <div class="connection-state">
+      <div role="status" title={error || status}>
+        <span>{status}</span>
+        {#if error}<strong>{error}</strong>{/if}
+      </div>
+      {#if retryable}
+        <button type="button" onclick={retry}>Retry</button>
+      {/if}
     </div>
   </header>
 

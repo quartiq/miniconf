@@ -40,7 +40,7 @@ export function treeSnapshot(
   return {
     nodes,
     flatNodes: flatTreeNodes(nodes),
-    nodeViews: treeViewNodes(nodes, root),
+    nodeViews: treeViewNodes(nodes),
     nodeByPath: new Map(nodes.map((node) => [node.path, node])),
   };
 }
@@ -83,19 +83,13 @@ export function flatTreeNodes(nodes: ViewNode[]): Map<string, FlatTreeNode> {
   }));
 }
 
-export function treeViewNodes(
-  nodes: ViewNode[],
-  root: string,
-): Map<string, TreeNodeView> {
+export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
   const children = childrenByParent(nodes);
   return new Map(nodes.map((node) => [
     node.path,
     {
       path: node.path,
-      // The selected subtree root is the empty path label in the UI, not a
-      // synthetic "/settings" or "Root" name. The caret already communicates
-      // that it is foldable.
-      label: formatSchemaName(node, node.path === root ? "" : undefined),
+      label: node.path ? formatSchemaName(node) : "(root)",
       value: formatLeafValue(node),
       children: (children.get(node.path) ?? []).map((child) => child.path),
     },

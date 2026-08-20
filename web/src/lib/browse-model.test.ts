@@ -120,4 +120,38 @@ describe("browse model", () => {
     state = browse.loadSelected(state, "/leaf");
     expect(state.editor).toBe("4");
   });
+
+  it("restores only fold and selection paths present in the next schema", () => {
+    const schema = new Schema([
+      { s: "value" },
+      { i: { k: "n", c: { keep: 0 } } },
+      { i: { k: "n", c: { group: 1, leaf: 0 } } },
+    ], 1);
+    let state = browse.loadSchema(browse.emptyState(), schema, "");
+    state = browse.setExpanded(state, "", true);
+    state = browse.setExpanded(state, "/group", true);
+    state = browse.loadSelected(state, "/group/keep");
+
+    const restored = browse.loadSchema(browse.emptyState(), schema, "", state);
+    expect(restored.expanded).toEqual(new Set(["", "/group"]));
+    expect(restored.selectedPath).toBe("/group/keep");
+
+    const closed = browse.setExpanded(restored, "/group", false);
+    let reloaded = browse.loadSchema(browse.emptyState(), schema, "", closed);
+    reloaded = browse.commitSettings(reloaded, {
+      settings: new Map([["/group/keep", 1]]),
+      changed: new Set(["/group/keep"]),
+      activity: new Set(),
+    }).state;
+    expect(reloaded.userClosed).toContain("/group");
+    expect(reloaded.expanded).not.toContain("/group");
+
+    const changed = new Schema([
+      { s: "value" },
+      { i: { k: "n", c: { leaf: 0 } } },
+    ], 2);
+    const pruned = browse.loadSchema(browse.emptyState(), changed, "", state);
+    expect(pruned.expanded).toEqual(new Set([""]));
+    expect(pruned.selectedPath).toBe("");
+  });
 });

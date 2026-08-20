@@ -35,6 +35,8 @@ export type BrowseCommit = {
   rev?: string;
 };
 
+export type BrowseMemory = Pick<BrowseState, "expanded" | "selectedPath" | "userClosed">;
+
 type BrowseSettings = {
   settings: Settings;
   changed: Set<string>;
@@ -61,17 +63,30 @@ export function selected(state: BrowseState): ViewNode | undefined {
   return state.tree.nodeByPath.get(state.selectedPath);
 }
 
-export function loadSchema(state: BrowseState, schema: Schema, subtreePath: string): BrowseState {
+export function loadSchema(
+  state: BrowseState,
+  schema: Schema,
+  subtreePath: string,
+  memory: BrowseMemory = state,
+): BrowseState {
   const root = schema.path(subtreePath);
-  return rebuild({
+  const next = rebuild({
     ...state,
     schema,
     settings: state.settings,
     root,
     expanded: new Set(),
-    selectedPath: "",
+    selectedPath: memory.selectedPath,
     userClosed: new Set(),
   });
+  const branches = new Set(
+    [...next.tree.flatNodes.values()].filter(({ children }) => children.length).map(({ path }) => path),
+  );
+  return {
+    ...next,
+    expanded: new Set([...memory.expanded].filter((path) => branches.has(path))),
+    userClosed: new Set([...memory.userClosed].filter((path) => branches.has(path))),
+  };
 }
 
 export function commitSettings(state: BrowseState, { settings, changed, activity, rev }: BrowseSettings): BrowseCommit {

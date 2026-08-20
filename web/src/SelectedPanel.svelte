@@ -1,13 +1,14 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { formatSchemaMetadata } from "./lib/schema";
+  import { displayPath, formatSchemaMetadata } from "./lib/schema";
   import type { ViewNode } from "./lib/tree-state";
 
   type Props = {
     node: ViewNode | undefined;
-    editor?: string;
-    editorStale?: boolean;
+    editor: string;
+    editorDirty: boolean;
+    editorStale: boolean;
     updateEditor: (value: string) => void;
     submit: () => void;
     resetEditor: () => void;
@@ -16,8 +17,9 @@
 
   let {
     node,
-    editor = "null",
-    editorStale = false,
+    editor,
+    editorDirty,
+    editorStale,
     updateEditor,
     submit,
     resetEditor,
@@ -48,7 +50,7 @@
   <details class="schema" bind:open={schemaOpen}>
     <summary>
       <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
-      <span>{node?.path || "Schema"}</span>
+      <span>{node ? displayPath(node.path) : "Schema"}</span>
     </summary>
     <div class="schema-body">
       {#if metadata}
@@ -77,11 +79,16 @@
         >Set</button>
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
+          disabled={!editorDirty}
           title="Reset the draft to the current value"
           type="button"
           onclick={resetEditor}
         >Reset</button>
-        {#if editorStale}<span class="stale">Changed remotely</span>{/if}
+        {#if editorStale}
+          <span class="stale">Changed remotely</span>
+        {:else if editorDirty}
+          <span class="draft">Edited</span>
+        {/if}
       </div>
     {:else}
       <p>No leaf selected.</p>
@@ -157,9 +164,17 @@
     gap: var(--space);
   }
 
+  .draft,
+  .stale {
+    font-size: var(--text-small);
+  }
+
+  .draft {
+    color: var(--muted);
+  }
+
   .stale {
     color: var(--warn);
-    font-size: var(--text-small);
   }
 
   @media (max-width: 760px) {

@@ -68,9 +68,12 @@ describe("tree state", () => {
     ]);
   });
 
-  it("renders root as an empty fold row", () => {
-    expect(treeViewNodes([
+  it("distinguishes the root from an empty-name child", () => {
+    const views = treeViewNodes([
       { path: "", kind: "named", children: [], present: false },
-    ], "").get("")?.label).toBe("");
+      { path: "/", kind: "leaf", children: [], present: false },
+    ]);
+    expect(views.get("")?.label).toBe("(root)");
+    expect(views.get("/")?.label).toBe('\"\"');
   });
 });
