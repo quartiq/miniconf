@@ -19,8 +19,12 @@ export type MqttMessage = {
 type Listener = (message: MqttMessage) => void;
 
 type Subscription = {
-  durable: boolean;
   options: IClientSubscribeOptions;
+};
+
+export type MqttWatch = {
+  ready: Promise<void>;
+  close: () => void;
 };
 
 export type MqttAuth = {
@@ -29,7 +33,7 @@ export type MqttAuth = {
 };
 
 export type MqttConnectionEvent = {
-  state: "connected" | "retained-replay-ready" | "reconnecting" | "offline" | "closed" | "error";
+  state: "connected" | "subscriptions-restored" | "reconnecting" | "offline" | "closed" | "error";
   error?: string;
   transient?: boolean;
 };
@@ -60,6 +64,7 @@ export function topicMatches(filter: string, topic: string): boolean {
 export class MqttBus {
   private readonly client: MqttClient;
   private closing = false;
+  private generation = 0;
   private connectionListeners = new Set<(event: MqttConnectionEvent) => void>();
   private listeners = new Set<Listener>();
   private subscriptions = new Map<string, Subscription>();
@@ -72,10 +77,14 @@ export class MqttBus {
         listener(message);
       }
     });
-    this.client.on("connect", () => this.handleConnect());
+    this.client.on("connect", () => this.handleConnect(++this.generation));
     this.client.on("reconnect", () => this.notifyConnection({ state: "reconnecting" }));
-    this.client.on("offline", () => this.notifyConnection({ state: "offline" }));
+    this.client.on("offline", () => {
+      this.generation += 1;
+      this.notifyConnection({ state: "offline" });
+    });
     this.client.on("close", () => {
+      this.generation += 1;
       if (!this.closing) {
         this.notifyConnection({ state: "closed" });
       }
@@ -134,6 +143,7 @@ export class MqttBus {
 
   close(): void {
     this.closing = true;
+    this.generation += 1;
     this.connectionListeners.clear();
     this.listeners.clear();
     this.subscriptions.clear();
@@ -151,40 +161,26 @@ export class MqttBus {
     filter: string,
     options: IClientSubscribeOptions,
     onMessage: (message: MqttMessage) => void,
-  ): () => void {
-    this.reserveSubscription(filter, options, true, false);
+  ): MqttWatch {
+    this.reserveSubscription(filter, options);
     const stop = this.listen(filter, onMessage);
-    void this.subscribeReserved(filter, options).catch(() => {
-      this.subscriptions.delete(filter);
-      stop();
-    });
-    return () => {
+    let closed = false;
+    const close = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
       stop();
       void this.unsubscribe(filter).catch(() => {});
     };
-  }
-
-  async subscribe(
-    filter: string,
-    options: IClientSubscribeOptions,
-    onMessage: (message: MqttMessage) => void,
-  ): Promise<() => void> {
-    this.reserveSubscription(filter, options, true, true);
-    const stop = this.listen(filter, onMessage);
-    try {
-      await this.subscribeReserved(filter, options);
-    } catch (error) {
-      this.subscriptions.delete(filter);
-      stop();
+    const ready = this.subscribeReserved(filter, options).catch((error) => {
+      close();
       throw error;
-    }
-    return () => {
-      stop();
-      void this.unsubscribe(filter).catch(() => {});
-    };
+    });
+    return { ready, close };
   }
 
-  listen(filter: string, onMessage: (message: MqttMessage) => void): () => void {
+  private listen(filter: string, onMessage: (message: MqttMessage) => void): () => void {
     const listener = (message: MqttMessage) => {
       if (topicMatches(filter, message.topic)) {
         onMessage(message);
@@ -210,16 +206,11 @@ export class MqttBus {
   private reserveSubscription(
     topic: string,
     options: IClientSubscribeOptions,
-    durable: boolean,
-    requireConnected: boolean,
   ): void {
     if (this.subscriptions.has(topic)) {
       throw new Error(`MQTT topic filter already subscribed: ${topic}`);
     }
-    if (requireConnected && !this.client.connected) {
-      throw new Error("MQTT broker disconnected");
-    }
-    this.subscriptions.set(topic, { durable, options });
+    this.subscriptions.set(topic, { options });
   }
 
   private async subscribeReserved(
@@ -227,9 +218,12 @@ export class MqttBus {
     options: IClientSubscribeOptions,
   ): Promise<void> {
     if (!this.client.connected) {
-      return;
+      throw new Error("MQTT broker disconnected");
     }
-    await this.client.subscribeAsync(topic, options);
+    const grants = await this.client.subscribeAsync(topic, options);
+    if (grants.some(({ qos }) => qos === 128)) {
+      throw new Error(`MQTT subscription rejected: ${topic}`);
+    }
   }
 
   private async unsubscribe(topic: string): Promise<void> {
@@ -239,30 +233,28 @@ export class MqttBus {
     await this.client.unsubscribeAsync(topic);
   }
 
-  private handleConnect(): void {
+  private handleConnect(generation: number): void {
     this.notifyConnection({ state: "connected" });
-    void this.restoreDurableSubscriptions();
+    void this.restoreSubscriptions(generation);
   }
 
-  private async restoreDurableSubscriptions(): Promise<void> {
+  private async restoreSubscriptions(generation: number): Promise<void> {
     for (const [topic, subscription] of this.subscriptions) {
-      if (subscription.durable) {
-        try {
-          await this.subscribeReserved(topic, subscription.options);
-        } catch (error) {
-          if (this.client.connected && !this.closing) {
-            this.notifyConnection({
-              state: "error",
-              error: error instanceof Error ? error.message : String(error),
-              transient: false,
-            });
-          }
-          return;
+      try {
+        await this.subscribeReserved(topic, subscription.options);
+      } catch (error) {
+        if (generation === this.generation && this.client.connected && !this.closing) {
+          this.notifyConnection({
+            state: "error",
+            error: error instanceof Error ? error.message : String(error),
+            transient: false,
+          });
         }
+        return;
       }
     }
-    if (this.client.connected && !this.closing) {
-      this.notifyConnection({ state: "retained-replay-ready" });
+    if (generation === this.generation && this.client.connected && !this.closing) {
+      this.notifyConnection({ state: "subscriptions-restored" });
     }
   }
 

@@ -15,7 +15,7 @@ describe.skipIf(!broker)("Miniconf WebSocket broker", () => {
           stop?.();
           reject(new Error("Timed out waiting for discovery"));
         }, 3_000);
-        stop = client.watchDiscovery(discoveryPattern, (next) => {
+        const watch = client.watchDiscovery(discoveryPattern, (next) => {
           if (!next.length) {
             return;
           }
@@ -23,6 +23,8 @@ describe.skipIf(!broker)("Miniconf WebSocket broker", () => {
           stop?.();
           resolve(next);
         });
+        stop = watch.close;
+        void watch.ready.catch(reject);
       });
       expect(prefixes.length).toBeGreaterThan(0);
 

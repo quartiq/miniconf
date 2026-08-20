@@ -1,10 +1,10 @@
 import { type IClientSubscribeOptions, type Packet } from "mqtt";
-import { nanoid } from "nanoid";
 import {
   MqttBus,
   type MqttAuth,
   type MqttConnectionEvent,
   type MqttMessage,
+  type MqttWatch,
 } from "./mqtt-bus";
 import { Schema, type CompactDef, subtreeMatch } from "./schema";
 
@@ -55,7 +55,6 @@ export type MiniconfMqttTransport = Pick<
   MqttBus,
   | "close"
   | "publish"
-  | "subscribe"
   | "watch"
   | "watchConnection"
 >;
@@ -170,7 +169,7 @@ export class MiniconfMqttClient {
     return this.bus.watchConnection(onChange);
   }
 
-  watchDiscovery(prefixFilter: string, onChange: (prefixes: DiscoveredPrefix[]) => void): () => void {
+  watchDiscovery(prefixFilter: string, onChange: (prefixes: DiscoveredPrefix[]) => void): MqttWatch {
     const topic = `${prefixFilter}/alive`;
     const suffix = "/alive";
     const found = new Map<string, AliveManifest>();
@@ -183,7 +182,7 @@ export class MiniconfMqttClient {
         emit();
       }
     });
-    const stopDiscovery = this.bus.watch(topic, RETAINED_SUBSCRIBE, (message) => {
+    const discovery = this.bus.watch(topic, RETAINED_SUBSCRIBE, (message) => {
       const prefix = message.topic.slice(0, -suffix.length);
       if (!message.payload.byteLength) {
         found.delete(prefix);
@@ -197,10 +196,20 @@ export class MiniconfMqttClient {
         // Discovery ignores invalid alive payloads.
       }
     });
-    return () => {
+    let closed = false;
+    const close = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
       stopConnection();
-      stopDiscovery();
+      discovery.close();
     };
+    const ready = discovery.ready.catch((error) => {
+      close();
+      throw error;
+    });
+    return { ready, close };
   }
 
   async schema(prefix: string, alive: AliveManifest, signal?: AbortSignal): Promise<Schema> {
@@ -214,7 +223,7 @@ export class MiniconfMqttClient {
         reject(new Error("Schema load cancelled"));
         return;
       }
-      let stop: (() => void) | undefined;
+      let watch: MqttWatch | undefined;
       let settled = false;
       const settle = (complete: () => void) => {
         if (settled) {
@@ -222,7 +231,7 @@ export class MiniconfMqttClient {
         }
         settled = true;
         signal?.removeEventListener("abort", onAbort);
-        stop?.();
+        watch?.close();
         complete();
       };
       const onAbort = () => {
@@ -236,7 +245,7 @@ export class MiniconfMqttClient {
         finish();
         return;
       }
-      stop = this.bus.watch(topic, RETAINED_SUBSCRIBE, (message) => {
+      watch = this.bus.watch(topic, RETAINED_SUBSCRIBE, (message) => {
         const suffix = message.topic.slice(`${prefix}/schema/`.length);
         const page = Number.parseInt(suffix, 10);
         if (Number.isInteger(page) && page >= 0 && page < pages.length) {
@@ -245,6 +254,9 @@ export class MiniconfMqttClient {
         if (pages.every((page) => page !== undefined)) {
           finish();
         }
+      });
+      void watch.ready.catch((error: unknown) => {
+        settle(() => reject(error));
       });
     });
     const defs = pages.flatMap((page) =>
@@ -256,7 +268,7 @@ export class MiniconfMqttClient {
     return new Schema(defs, alive.schema_rev);
   }
 
-  watchAlive(prefix: string, onChange: (alive: AliveManifest | undefined) => void): () => void {
+  watchAlive(prefix: string, onChange: (alive: AliveManifest | undefined) => void): MqttWatch {
     const topic = `${prefix}/alive`;
     return this.bus.watch(topic, RETAINED_SUBSCRIBE, (message) => {
       if (!message.payload.byteLength) {
@@ -271,7 +283,7 @@ export class MiniconfMqttClient {
     });
   }
 
-  watchSettings(prefix: string, root: string, onChange: (change: SettingsChange) => void): () => void {
+  watchSettings(prefix: string, root: string, onChange: (change: SettingsChange) => void): MqttWatch {
     const settingsRoot = miniconfPath(root, "Settings root");
     const filter = settingsFilter(prefix, settingsRoot);
     return this.bus.watch(filter, RETAINED_SUBSCRIBE, (message) => {
@@ -284,12 +296,13 @@ export class MiniconfMqttClient {
   }
 
   async openResponseChannel(prefix: string): Promise<SetResponseChannel> {
-    const topic = `${prefix}/response/${nanoid()}`;
+    const topic = `${prefix}/response/${crypto.randomUUID()}`;
     let channel: SetResponseChannel | undefined;
-    const stop = await this.bus.subscribe(topic, SUBSCRIBE, (message) => {
+    const watch = this.bus.watch(topic, SUBSCRIBE, (message) => {
       channel?.handle(message);
     });
-    channel = new SetResponseChannel(this.bus, prefix, topic, stop);
+    await watch.ready;
+    channel = new SetResponseChannel(this.bus, prefix, topic, watch.close);
     return channel;
   }
 }

@@ -9,7 +9,7 @@ describe("MiniconfMqttClient subscriptions", () => {
     const client = new MiniconfMqttClient(new MqttBus(mqtt as never));
     const updates: string[][] = [];
 
-    const stop = client.watchDiscovery("dt/+", (prefixes) => {
+    const watch = client.watchDiscovery("dt/+", (prefixes) => {
       updates.push(prefixes.map((discovered) => discovered.prefix));
     });
     await Promise.resolve();
@@ -24,7 +24,7 @@ describe("MiniconfMqttClient subscriptions", () => {
     mqtt.emit("connect");
     expect(updates.at(-1)).toEqual([]);
 
-    stop();
+    watch.close();
   });
 
   it("streams only retained authoritative settings", async () => {

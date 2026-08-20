@@ -41,7 +41,7 @@
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
   let stopConnection: (() => void) | undefined;
-  let stopDiscovery: (() => void) | undefined;
+  let discoveryWatch: ReturnType<MiniconfBackend["watchDiscovery"]> | undefined;
   let routeSerial = 0;
   // Row flashes are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
@@ -144,10 +144,10 @@
 
   function resetBrowseState() {
     stopConnection?.();
-    stopDiscovery?.();
+    discoveryWatch?.close();
     prefixSession?.close();
     stopConnection = undefined;
-    stopDiscovery = undefined;
+    discoveryWatch = undefined;
     prefixSession = undefined;
     aliveManifest = undefined;
     settingsRevision = "";
@@ -214,7 +214,6 @@
       if (!nextBackend) {
         return;
       }
-      setStatus("Watching discovery");
       stopConnection = nextBackend.watchConnection((event) => {
         if (serial !== routeSerial) {
           return;
@@ -223,7 +222,7 @@
           case "connected":
             setStatus("Broker reconnected; restoring discovery subscription");
             break;
-          case "retained-replay-ready":
+          case "subscriptions-restored":
             setStatus("Watching discovery");
             break;
           case "reconnecting":
@@ -234,22 +233,34 @@
             setStatus("Broker disconnected");
             break;
           case "error":
-            setStatus("Broker connection error");
-            error = event.error ?? "";
-            if (error) {
+            setStatus(event.transient ? "Broker reconnecting" : "Broker connection error");
+            if (!event.transient) {
+              error = event.error ?? "";
+            }
+            if (error && !event.transient) {
               log("error", error);
             }
             break;
         }
       });
-      stopDiscovery = nextBackend.watchDiscovery(discoveryPattern, (next) => {
+      const watch = nextBackend.watchDiscovery(discoveryPattern, (next) => {
         if (serial !== routeSerial) {
           return;
         }
         discoveredPrefixes = next;
         setStatus(`${discoveredPrefixes.length} matching prefix${discoveredPrefixes.length === 1 ? "" : "es"}`);
       });
+      discoveryWatch = watch;
+      await watch.ready;
+      if (serial !== routeSerial || discoveryWatch !== watch) {
+        watch.close();
+        return;
+      }
+      setStatus("Watching discovery");
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
       setStatus("Error");
       log("error", error);
@@ -310,6 +321,9 @@
       });
       await prefixSession.open();
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
       setStatus("Error");
       log("error", error);
@@ -366,7 +380,7 @@
     return () => {
       removeEventListener("hashchange", applyRoute);
       stopConnection?.();
-      stopDiscovery?.();
+      discoveryWatch?.close();
       prefixSession?.close();
       treeFlash.reset();
       eventLog.dispose();

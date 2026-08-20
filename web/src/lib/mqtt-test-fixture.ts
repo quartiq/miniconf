@@ -18,7 +18,7 @@ export class FakeMqttClient extends EventEmitter {
 
   async subscribeAsync(topic: string) {
     this.subscriptions.push(topic);
-    return undefined;
+    return [{ topic, qos: 0 }];
   }
 
   async unsubscribeAsync(topic: string) {
@@ -49,7 +49,7 @@ export class ResponseMqttClient extends EventEmitter {
 
   async subscribeAsync(topic: string, _options: unknown) {
     this.subscriptions.push(topic);
-    return undefined;
+    return [{ topic, qos: 0 }];
   }
 
   async unsubscribeAsync(topic: string) {

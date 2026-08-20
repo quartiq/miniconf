@@ -30,7 +30,9 @@ class FakeClient {
   private settingsListener: ((change: SettingsChange) => void) | undefined;
   private aliveListener: ((alive: { proto: number; epoch: number; schema_rev: number; pages: number } | undefined) => void) | undefined;
   private aliveResult = { proto: 1, epoch: 1, schema_rev: 7, pages: 1 };
+  private aliveReady: Promise<void> = Promise.resolve();
   private replayAlive = true;
+  private settingsReady: Promise<void> = Promise.resolve();
   private settingsResult: Map<string, unknown> = new Map([["/leaf", 1]]);
 
   async schema(prefix: string) {
@@ -58,14 +60,20 @@ class FakeClient {
     if (this.replayAlive) {
       queueMicrotask(() => listener(this.aliveResult));
     }
-    return () => this.calls.push(`stopAlive ${prefix}`);
+    return {
+      ready: this.aliveReady,
+      close: () => this.calls.push(`stopAlive ${prefix}`),
+    };
   }
 
   watchSettings(prefix: string, root: string, listener: (change: SettingsChange) => void) {
     this.calls.push(`watchSettings ${prefix} ${root}`);
     this.settingsListener = listener;
     queueMicrotask(() => this.replaySettings());
-    return () => this.calls.push(`stopSettings ${prefix} ${root}`);
+    return {
+      ready: this.settingsReady,
+      close: () => this.calls.push(`stopSettings ${prefix} ${root}`),
+    };
   }
 
   publishSetting(change: SettingsChange) {
@@ -86,9 +94,17 @@ class FakeClient {
     this.replayAlive = replay;
   }
 
+  failAliveSubscription(error: Error) {
+    this.aliveReady = Promise.reject(error);
+  }
+
+  failSettingsSubscription(error: Error) {
+    this.settingsReady = Promise.reject(error);
+  }
+
   reconnect() {
     this.connectionListener?.({ state: "connected" });
-    this.connectionListener?.({ state: "retained-replay-ready" });
+    this.connectionListener?.({ state: "subscriptions-restored" });
     queueMicrotask(() => this.replaySettings());
   }
 
@@ -243,6 +259,38 @@ describe("PrefixSession", () => {
     await expect(opened).rejects.toThrow("Prefix session closed");
     expect(client.calls).toContain("stopAlive dt/device");
     expect(client.calls).toContain("stopResponses dt/device");
+  });
+
+  it("fails opening when the alive subscription is rejected", async () => {
+    const client = new FakeClient();
+    client.failAliveSubscription(new Error("alive subscribe failed"));
+    const session = new PrefixSession(client as never, "dt/device", "", {
+      error: () => {},
+      alive: () => {},
+      response: () => {},
+      schema: () => {},
+      settings: () => {},
+      status: () => {},
+    });
+
+    await expect(session.open()).rejects.toThrow("alive subscribe failed");
+    session.close();
+  });
+
+  it("fails opening when the settings subscription is rejected", async () => {
+    const client = new FakeClient();
+    client.failSettingsSubscription(new Error("settings subscribe failed"));
+    const session = new PrefixSession(client as never, "dt/device", "", {
+      error: () => {},
+      alive: () => {},
+      response: () => {},
+      schema: () => {},
+      settings: () => {},
+      status: () => {},
+    });
+
+    await expect(session.open()).rejects.toThrow("settings subscribe failed");
+    session.close();
   });
 
   it("does not surface transient reconnect timeouts as app errors", async () => {

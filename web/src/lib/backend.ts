@@ -7,7 +7,7 @@ import {
   type SetResponseChannel,
   type SettingsChange,
 } from "./miniconf-mqtt-client";
-import type { MqttAuth, MqttConnectionEvent } from "./mqtt-bus";
+import type { MqttAuth, MqttConnectionEvent, MqttWatch } from "./mqtt-bus";
 import { SettingsMirror, type SettingsCommit } from "./settings-mirror";
 
 // Session orchestration between raw protocol calls and Svelte state. Prefix
@@ -37,7 +37,7 @@ export class MiniconfBackend {
     return new MiniconfBackend(await MiniconfMqttClient.connect(broker, auth));
   }
 
-  watchDiscovery(prefixFilter: string, onChange: (prefixes: DiscoveredPrefix[]) => void): () => void {
+  watchDiscovery(prefixFilter: string, onChange: (prefixes: DiscoveredPrefix[]) => void): MqttWatch {
     return this.client.watchDiscovery(prefixFilter, onChange);
   }
 
@@ -59,8 +59,8 @@ export class PrefixSession {
   private state: SessionState = "closed";
   private load: Load | undefined;
   private stopConnection: (() => void) | undefined;
-  private stopAlive: (() => void) | undefined;
-  private stopSettings: (() => void) | undefined;
+  private aliveWatch: MqttWatch | undefined;
+  private settingsWatch: MqttWatch | undefined;
   private responseChannel: SetResponseChannel | undefined;
   private readonly mirror: SettingsMirror;
 
@@ -108,12 +108,12 @@ export class PrefixSession {
     this.manifestKey = "";
     this.cancelLoad();
     this.stopConnection?.();
-    this.stopSettings?.();
-    this.stopAlive?.();
+    this.settingsWatch?.close();
+    this.aliveWatch?.close();
     this.responseChannel?.close();
     this.stopConnection = undefined;
-    this.stopSettings = undefined;
-    this.stopAlive = undefined;
+    this.settingsWatch = undefined;
+    this.aliveWatch = undefined;
     this.responseChannel = undefined;
     this.mirror.dispose();
   }
@@ -133,12 +133,14 @@ export class PrefixSession {
     const root = schema.path(this.subtreePath);
     this.mirror.clear();
     this.callbacks.schema(schema, root);
-    this.restartSettings(root);
+    await this.restartSettings(root, load);
   }
 
   private waitInitialAlive(load: Load): Promise<AliveManifest> {
     return new Promise((resolve, reject) => {
       let resolved = false;
+      let ready = false;
+      let pendingAlive: AliveManifest | undefined;
       let settled = false;
       const onAbort = () => {
         finish(() => reject(new Error("Prefix session closed")));
@@ -151,8 +153,12 @@ export class PrefixSession {
         load.abort.signal.removeEventListener("abort", onAbort);
         complete();
       };
+      const accept = (alive: AliveManifest) => {
+        resolved = true;
+        finish(() => resolve(alive));
+      };
       load.abort.signal.addEventListener("abort", onAbort, { once: true });
-      this.stopAlive = this.client.watchAlive(this.prefix, (next) => {
+      this.aliveWatch = this.client.watchAlive(this.prefix, (next) => {
         if (!next) {
           this.manifestKey = "";
           this.callbacks.alive(undefined);
@@ -167,26 +173,51 @@ export class PrefixSession {
           return;
         }
         if (!resolved) {
-          resolved = true;
-          finish(() => resolve(next));
+          pendingAlive = next;
+          if (ready) {
+            accept(next);
+          }
           return;
         }
         if (this.state === "opening") {
           return;
         }
         if (this.state === "offline" || this.manifestKey !== manifestKey(next)) {
-          void this.reload(next);
+          void this.reload(next).catch((error: unknown) => {
+            if (this.state !== "closed") {
+              this.callbacks.status("Schema reload failed");
+              this.callbacks.error(error instanceof Error ? error.message : String(error));
+            }
+          });
         }
       });
+      void this.aliveWatch.ready.then(
+        () => {
+          ready = true;
+          if (!resolved && pendingAlive) {
+            accept(pendingAlive);
+          }
+        },
+        (error: unknown) => {
+          finish(() => reject(error));
+        },
+      );
     });
   }
 
-  private restartSettings(root: string): void {
-    this.stopSettings?.();
-    this.callbacks.status("Watching settings");
-    this.stopSettings = this.client.watchSettings(this.prefix, root, (change) => {
+  private async restartSettings(root: string, load: Load): Promise<void> {
+    this.settingsWatch?.close();
+    this.callbacks.status("Subscribing to settings");
+    const watch = this.client.watchSettings(this.prefix, root, (change) => {
       this.noteSettingsChange(change);
     });
+    this.settingsWatch = watch;
+    await watch.ready;
+    if (!this.active(load) || this.settingsWatch !== watch) {
+      watch.close();
+      return;
+    }
+    this.callbacks.status("Watching settings");
   }
 
   private watchConnection(): void {
@@ -201,7 +232,7 @@ export class PrefixSession {
             this.callbacks.status("Broker reconnected; restoring subscriptions");
           }
           break;
-        case "retained-replay-ready":
+        case "subscriptions-restored":
           if (this.state === "active") {
             this.callbacks.status("Watching settings");
           }
