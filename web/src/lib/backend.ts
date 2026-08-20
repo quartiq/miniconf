@@ -102,6 +102,7 @@ export class DiscoverySession {
   }
 
   private handle(message: MqttMessage): void {
+    if (!message.packet.retain) return;
     const suffix = "/alive";
     if (!message.topic.endsWith(suffix)) return;
     const prefix = message.topic.slice(0, -suffix.length);
@@ -111,7 +112,7 @@ export class DiscoverySession {
       try {
         this.found.set(prefix, aliveManifest(jsonParse(message.payload)));
       } catch {
-        return;
+        this.found.delete(prefix);
       }
     }
     this.callbacks.prefixes(
@@ -172,7 +173,7 @@ export class PrefixSession {
       subscriptions,
       {
         message: (message) => session.handle(message),
-        reset: () => session.resetRetained(),
+        reset: () => session.clearRetained(),
         status: (status) => session.noteStatus(status),
       },
       auth,
@@ -230,7 +231,7 @@ export class PrefixSession {
 
   private handle(message: MqttMessage): void {
     if (message.topic === `${this.prefix}/alive`) {
-      this.handleAlive(message.payload);
+      this.handleAlive(message);
     } else if (message.topic.startsWith(`${this.prefix}/schema/`)) {
       this.handleSchemaPage(message);
     } else if (message.topic.startsWith(`${this.prefix}/settings`)) {
@@ -240,24 +241,26 @@ export class PrefixSession {
     }
   }
 
-  private handleAlive(payload: Uint8Array): void {
-    if (!payload.byteLength) {
-      this.alive = undefined;
-      this.pages.clear();
-      this.clearSchemaTimer();
-      this.mirror.clear();
-      this.rejectPending(new Error("Connection lost; setting outcome unknown. Check the current value."));
-      this.callbacks.alive(undefined);
+  private handleAlive(message: MqttMessage): void {
+    if (!message.packet.retain) return;
+    if (!message.payload.byteLength) {
+      this.clearRetained();
       this.callbacks.status("Prefix offline; waiting for alive");
       return;
     }
     let next: AliveManifest;
     try {
-      next = aliveManifest(jsonParse(payload));
-    } catch {
+      next = aliveManifest(jsonParse(message.payload));
+    } catch (error) {
+      this.clearRetained(new Error("Invalid alive manifest; setting outcome unknown. Check the current value."));
+      this.callbacks.status("Invalid alive manifest");
+      this.callbacks.error(error instanceof Error ? error.message : String(error));
       return;
     }
     this.alive = next;
+    for (const page of this.pages.keys()) {
+      if (page >= next.pages) this.pages.delete(page);
+    }
     this.callbacks.alive(next);
     if (this.schema?.rev !== next.schema_rev) this.startSchemaTimer();
     this.trySchema();
@@ -265,15 +268,19 @@ export class PrefixSession {
   }
 
   private handleSchemaPage(message: MqttMessage): void {
+    if (!message.packet.retain) return;
     const suffix = message.topic.slice(`${this.prefix}/schema/`.length);
     if (!/^\d+$/.test(suffix)) return;
-    this.pages.set(Number(suffix), new Uint8Array(message.payload));
+    const page = Number(suffix);
+    if (!Number.isSafeInteger(page) || (this.alive && page >= this.alive.pages)) return;
+    this.pages.set(page, new Uint8Array(message.payload));
     this.trySchema();
   }
 
   private trySchema(): void {
     const alive = this.alive;
     if (!alive || this.schema?.rev === alive.schema_rev) return;
+    if (this.pages.size < alive.pages) return;
     const pages = Array.from({ length: alive.pages }, (_unused, index) => this.pages.get(index));
     if (pages.some((page) => page === undefined)) return;
     const complete = pages as Uint8Array[];
@@ -321,12 +328,14 @@ export class PrefixSession {
     this.callbacks.response(response);
   }
 
-  private resetRetained(): void {
+  private clearRetained(
+    pendingError = new Error("Connection lost; setting outcome unknown. Check the current value."),
+  ): void {
     this.alive = undefined;
     this.pages.clear();
     this.clearSchemaTimer();
     this.mirror.clear();
-    this.rejectPending(new Error("Connection lost; setting outcome unknown. Check the current value."));
+    this.rejectPending(pendingError);
     this.callbacks.alive(undefined);
   }
 
@@ -365,12 +374,11 @@ export class PrefixSession {
       this.schemaTimer = undefined;
       const alive = this.alive;
       if (!alive || this.schema?.rev === alive.schema_rev) return;
-      const missing = Array.from({ length: alive.pages }, (_unused, index) => index)
-        .filter((index) => !this.pages.has(index));
+      const missing = alive.pages - this.pages.size;
       this.callbacks.status("Schema load failed");
       this.callbacks.error(
-        missing.length
-          ? `Timed out waiting for schema page${missing.length === 1 ? "" : "s"} ${missing.join(", ")}`
+        missing
+          ? `Timed out waiting for ${missing} of ${alive.pages} schema pages`
           : `Schema pages do not match revision ${alive.schema_rev}`,
       );
     }, SCHEMA_TIMEOUT_MS);
@@ -401,11 +409,11 @@ function miniconfPath(path: string, label = "Path"): string {
 function aliveManifest(value: unknown): AliveManifest {
   if (!value || typeof value !== "object") throw new Error("Invalid alive manifest");
   const alive = value as Partial<AliveManifest>;
+  if (alive.proto !== MINICONF_MQTT_PROTO) throw new Error("Unsupported alive manifest");
   if (
-    alive.proto !== MINICONF_MQTT_PROTO ||
     !Number.isInteger(alive.epoch) ||
     !Number.isInteger(alive.schema_rev) ||
-    !Number.isInteger(alive.pages) ||
+    !Number.isSafeInteger(alive.pages) ||
     alive.pages! < 0
   ) throw new Error("Invalid alive manifest");
   return alive as AliveManifest;

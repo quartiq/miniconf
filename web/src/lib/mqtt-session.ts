@@ -37,7 +37,7 @@ function clientOptions(auth?: Partial<MqttAuth>): IClientOptions {
     queueQoSZero: false,
     reconnectPeriod: 0,
     resubscribe: false,
-    ...(auth?.username ? { username: auth.username } : {}),
+    ...(auth ? { username: auth.username ?? "" } : {}),
     ...(auth?.password ? { password: auth.password } : {}),
   };
 }
@@ -84,7 +84,11 @@ export class MqttSession {
     callbacks: MqttSessionCallbacks,
     auth?: Partial<MqttAuth>,
   ): Promise<MqttSession> {
-    if (globalThis.location?.protocol === "https:" && new URL(broker).protocol === "ws:") {
+    const url = new URL(broker);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+      throw new Error("Broker URL must start with ws:// or wss://");
+    }
+    if (globalThis.location?.protocol === "https:" && url.protocol === "ws:") {
       throw new Error("HTTPS pages cannot connect to ws:// brokers; open the app over HTTP or use a wss:// broker.");
     }
     const client = mqtt.connect(broker, clientOptions(auth));
@@ -162,6 +166,9 @@ export class MqttSession {
       await this.subscribe();
     } catch (error) {
       if (generation === this.generation && this.client.connected && !this.closing) {
+        this.closing = true;
+        this.subscribed = false;
+        this.client.end(true);
         this.callbacks.status({
           state: "error",
           error: error instanceof Error ? error.message : String(error),

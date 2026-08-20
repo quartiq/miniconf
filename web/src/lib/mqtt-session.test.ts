@@ -63,6 +63,22 @@ describe("MqttSession", () => {
     session.close();
   });
 
+  it("passes an empty username explicitly for password-only credentials", async () => {
+    const mqtt = new FakeMqttClient();
+    connectMock.mockReturnValueOnce(mqtt);
+    const connecting = MqttSession.connect(
+      "ws://mqtt:8083",
+      {},
+      callbacks(),
+      { username: "", password: "secret" },
+    );
+    expect(connectMock.mock.calls[0][1]).toMatchObject({ username: "", password: "secret" });
+    mqtt.options = connectMock.mock.calls[0][1];
+    mqtt.connect();
+    const session = await connecting;
+    session.close();
+  });
+
   it("restores the same subscription map once on reconnect", async () => {
     const mqtt = new FakeMqttClient();
     const statuses: MqttSessionStatus[] = [];
@@ -92,6 +108,30 @@ describe("MqttSession", () => {
       { state: "connected" },
     ]);
     session.close();
+  });
+
+  it("closes a connection whose restored subscriptions are rejected", async () => {
+    const mqtt = new FakeMqttClient();
+    const statuses: MqttSessionStatus[] = [];
+    connectMock.mockReturnValueOnce(mqtt);
+    const subscriptions = { "dt/device/alive": { qos: 1 as const } };
+    const connecting = MqttSession.connect(
+      "ws://mqtt:8083", subscriptions, callbacks(statuses),
+    );
+    mqtt.options = connectMock.mock.calls[0][1];
+    mqtt.connect();
+    const session = await connecting;
+
+    mqtt.rejectedTopic = "dt/device/alive";
+    mqtt.disconnect();
+    mqtt.connect();
+    await vi.waitFor(() => expect(mqtt.ended).toBe(true));
+
+    expect(session.ready).toBe(false);
+    expect(statuses.at(-1)).toEqual({
+      state: "error",
+      error: "MQTT subscription rejected: dt/device/alive",
+    });
   });
 
   it("fails a one-shot initial close without entering a reconnect loop", async () => {

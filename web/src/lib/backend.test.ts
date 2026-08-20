@@ -71,6 +71,10 @@ describe("DiscoverySession", () => {
     expect(mqtt.subscriptions).toEqual([{ "dt/+/alive": { qos: 1, rap: true, rh: 0 } }]);
     mqtt.message("dt/device/alive", '{"proto":1,"epoch":1,"schema_rev":2,"pages":1}');
     expect(updates.at(-1)).toEqual(["dt/device"]);
+    mqtt.message("dt/device/alive", "", false);
+    expect(updates.at(-1)).toEqual(["dt/device"]);
+    mqtt.message("dt/device/alive", "not json");
+    expect(updates.at(-1)).toEqual([]);
 
     mqtt.disconnect();
     mqtt.connect();
@@ -108,7 +112,9 @@ describe("PrefixSession", () => {
     mqtt.message("dt/device/alive", JSON.stringify({
       proto: 1, epoch: 1, schema_rev: hash(...schemaText), pages: 2,
     }));
+    mqtt.message("dt/device/schema/0", schemaText[0], false);
     mqtt.message("dt/device/schema/1", schemaText[1]);
+    expect(roots).toEqual([]);
     mqtt.message("dt/device/schema/0", schemaText[0]);
     expect(roots).toEqual([""]);
 
@@ -118,6 +124,41 @@ describe("PrefixSession", () => {
     mqtt.message("dt/device/settings/leaf", "4", true, { auth: "", rev: "9" });
     await vi.advanceTimersByTimeAsync(100);
     expect([...commits.at(-1)!]).toEqual([["/leaf", 4]]);
+    session.close();
+  });
+
+  it("invalidates writable state when retained alive becomes malformed", async () => {
+    const mqtt = new FakeMqttClient();
+    const errors: string[] = [];
+    const alive: Array<number | undefined> = [];
+    const revision = hash(...schemaText);
+    const session = await connectPrefix(mqtt, callbacks({
+      alive: (manifest) => alive.push(manifest?.epoch),
+      error: (error) => errors.push(error),
+    }));
+    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }));
+    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+    const setting = session.set("/leaf", 1);
+    await vi.waitFor(() => expect(mqtt.publications).toHaveLength(1));
+
+    mqtt.message("dt/device/alive", "not json");
+
+    await expect(setting).rejects.toThrow("Invalid alive manifest");
+    expect(alive.at(-1)).toBeUndefined();
+    expect(errors.at(-1)).toBeTruthy();
+    await expect(session.set("/leaf", 2)).rejects.toThrow("not ready");
+    session.close();
+  });
+
+  it("does not allocate the declared schema range before pages arrive", async () => {
+    const mqtt = new FakeMqttClient();
+    const session = await connectPrefix(mqtt);
+    expect(() => mqtt.message("dt/device/alive", JSON.stringify({
+      proto: 1,
+      epoch: 1,
+      schema_rev: 1,
+      pages: Number.MAX_SAFE_INTEGER,
+    }))).not.toThrow();
     session.close();
   });
 
