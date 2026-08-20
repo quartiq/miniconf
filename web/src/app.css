@@ -166,7 +166,7 @@ pre {
 }
 
 .log-body {
-  block-size: calc(4 * var(--line));
+  block-size: calc(10 * var(--line));
   margin-top: var(--space-tight);
   overflow: auto;
 }

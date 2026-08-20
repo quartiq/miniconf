@@ -129,7 +129,7 @@
       </label>
       <button type="submit">Discover</button>
     </form>
-    <StatusLog {status} {error} bind:open={logOpen} {logLines} />
+    <StatusLog {status} {error} bind:open={logOpen} {logLines} live />
   </section>
 
   {#if discoveredPrefixes.length}
