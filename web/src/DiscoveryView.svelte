@@ -113,7 +113,14 @@
     <form autocomplete="on" onsubmit={submit}>
       <label class="broker">
         Broker
-        <input autocomplete="url" bind:value={broker} name="broker" type="url" />
+        <input
+          autocomplete="url"
+          bind:value={broker}
+          name="broker"
+          placeholder="wss://broker.example:443/path/to/socket"
+          required
+          type="url"
+        />
       </label>
       <label class="pattern">
         Discovery filter

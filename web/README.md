@@ -27,11 +27,14 @@ HTML, and open the saved file in the browser.
 
 - `#/discover/{broker}/{wildcard}` discovers device prefixes.
 - `#/browse/{broker}/{prefix}` opens an active prefix.
-- `?path=` selects a subtree. The default is the empty root path.
-- `?log=1` opens the log from startup.
+- Hash query `endpoint=` preserves an optional WebSocket path and query.
+- Hash query `path=` selects a subtree. The default is the empty root path.
+- Document query `log=1` opens the log from startup, for example `?log=1#/discover/...`.
 
 `{broker}` is the WebSocket broker authority. `mqtt:8083` means `ws://mqtt:8083`;
 `wss+broker.example:8084` means `wss://broker.example:8084`.
+The connection form itself accepts full `ws://` and `wss://` URLs such as
+`wss://mqtt.quartiq.de:1239/path/to/socket` and starts empty rather than guessing a broker.
 
 ## Browser/Broker Matrix
 
@@ -52,6 +55,7 @@ updates.
 
 Leaf values are edited as JSON and submitted through `/set`. `/set` responses report request
 acceptance; `/settings` publications remain the authoritative applied values.
+The empty Miniconf path is the schema root; `/` is its empty-name child.
 
 Optional MQTT credentials are never placed in route URLs or application-managed storage. The
 connection form uses standard browser autocomplete so a password manager can remember them when
@@ -67,7 +71,7 @@ npm test
 Live broker smoke test:
 
 ```sh
-MINICONF_WEB_BROKER=ws://mqtt:8083 \
+MINICONF_WEB_BROKER=wss://mqtt.quartiq.de \
 MINICONF_WEB_FILTER='dt/sinara/+/+' \
 npm test
 ```
