@@ -2,39 +2,16 @@ import { describe, expect, it } from "vitest";
 import * as browse from "./browse-model";
 import { Schema } from "./schema";
 
+const leafSchema = new Schema([
+  { s: "value" },
+  { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
+], 7);
+
 describe("browse model", () => {
-  it("keeps browse tree, editor, and settings commits together", () => {
-    let state = browse.emptyState();
-    const schema = new Schema([
-      { s: "value" },
-      { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
-    ], 7);
-
-    state = browse.loadSchema(state, schema, "");
-    expect(state.root).toBe("");
-    state = browse.commitSettings(state, {
-      settings: new Map([["/leaf", 3]]),
-      changed: new Set(["/leaf"]),
-      activity: new Set(),
-      rev: "42",
-    }).state;
-
-    expect(state.tree.nodeByPath.get(state.root)?.path).toBe("");
-    expect(state.selectedPath).toBe("");
-
-    state = browse.loadSelected(state, "/leaf");
-    expect(state.editor).toBe("3");
-    expect(browse.parseEditor(state)).toBe(3);
-  });
-
   it("does not rewrite an open editor when settings updates arrive", () => {
     let state = browse.emptyState();
-    const schema = new Schema([
-      { s: "value" },
-      { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
-    ], 7);
 
-    state = browse.loadSchema(state, schema, "");
+    state = browse.loadSchema(state, leafSchema, "");
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 1]]),
       changed: new Set(["/leaf"]),
@@ -70,11 +47,7 @@ describe("browse model", () => {
   });
 
   it("refreshes untouched editors and accepts equivalent authoritative echoes", () => {
-    const schema = new Schema([
-      { s: "value" },
-      { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
-    ], 7);
-    let state = browse.loadSchema(browse.emptyState(), schema, "");
+    let state = browse.loadSchema(browse.emptyState(), leafSchema, "");
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", { a: 1, b: 2 }]]),
       changed: new Set(["/leaf"]),
@@ -101,12 +74,8 @@ describe("browse model", () => {
 
   it("loads editor text only when selection is explicitly loaded", () => {
     let state = browse.emptyState();
-    const schema = new Schema([
-      { s: "value" },
-      { i: { k: "n", c: { leaf: 0 } }, m: { typename: "App" } },
-    ], 7);
 
-    state = browse.loadSchema(state, schema, "");
+    state = browse.loadSchema(state, leafSchema, "");
     state = browse.commitSettings(state, {
       settings: new Map([["/leaf", 4]]),
       changed: new Set(["/leaf"]),

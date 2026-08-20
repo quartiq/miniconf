@@ -17,14 +17,6 @@ describe("semantic routes", () => {
     );
   });
 
-  it("round-trips secure broker authorities", () => {
-    const path = discoveryPath("wss://broker.example:8084", "dt/sinara/+/+");
-    expect(readRoute({ hash: path })).toMatchObject({
-      broker: "wss://broker.example:8084",
-      discoveryPattern: "dt/sinara/+/+",
-    });
-  });
-
   it("round-trips WebSocket endpoint paths and queries", () => {
     const broker = "wss://mqtt.quartiq.de:1239/path/to/socket?token=a%2Fb";
     const path = discoveryPath(broker, "dt/sinara/+/+");

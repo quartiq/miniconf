@@ -38,20 +38,27 @@ describe("MqttSession", () => {
     expect(connectMock).not.toHaveBeenCalled();
   });
 
-  it("starts one-shot, subscribes the complete map, then enables reconnect", async () => {
+  it("starts one-shot with explicit options, then enables reconnect", async () => {
     const mqtt = new FakeMqttClient();
     connectMock.mockReturnValueOnce(mqtt);
     const subscriptions = {
       "dt/device/alive": { qos: 1 as const },
       "dt/device/settings/#": { qos: 1 as const },
     };
-    const connecting = MqttSession.connect("ws://mqtt:8083", subscriptions, callbacks());
+    const connecting = MqttSession.connect(
+      "ws://mqtt:8083",
+      subscriptions,
+      callbacks(),
+      { username: "", password: "secret" },
+    );
     expect(connectMock.mock.calls[0][1]).toMatchObject({
       clean: true,
       protocolVersion: 5,
       queueQoSZero: false,
       reconnectPeriod: 0,
       resubscribe: false,
+      username: "",
+      password: "secret",
     });
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
@@ -60,22 +67,6 @@ describe("MqttSession", () => {
     expect(mqtt.subscriptions).toEqual([subscriptions]);
     expect(mqtt.options.reconnectPeriod).toBe(1000);
     expect(session.ready).toBe(true);
-    session.close();
-  });
-
-  it("passes an empty username explicitly for password-only credentials", async () => {
-    const mqtt = new FakeMqttClient();
-    connectMock.mockReturnValueOnce(mqtt);
-    const connecting = MqttSession.connect(
-      "ws://mqtt:8083",
-      {},
-      callbacks(),
-      { username: "", password: "secret" },
-    );
-    expect(connectMock.mock.calls[0][1]).toMatchObject({ username: "", password: "secret" });
-    mqtt.options = connectMock.mock.calls[0][1];
-    mqtt.connect();
-    const session = await connecting;
     session.close();
   });
 

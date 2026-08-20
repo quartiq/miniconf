@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --exclude src/lib/backend.integration.test.ts",
+    "test:integration": "vitest run src/lib/backend.integration.test.ts"
   },
   "dependencies": {
     "mqtt": "^5.15.2",

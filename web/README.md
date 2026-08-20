@@ -73,5 +73,5 @@ Live broker smoke test:
 ```sh
 MINICONF_WEB_BROKER=wss://mqtt.quartiq.de \
 MINICONF_WEB_FILTER='dt/sinara/+/+' \
-npm test
+npm run test:integration
 ```
