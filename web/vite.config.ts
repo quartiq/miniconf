@@ -8,6 +8,5 @@ export default defineConfig(({ command }) => ({
     modulePreload: { polyfill: false },
     target: "baseline-widely-available",
   },
-  server: { allowedHosts: true },
   plugins: [svelte(), ...(command === "build" ? [viteSingleFile()] : [])],
 }));
