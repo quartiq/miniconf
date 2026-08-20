@@ -9,6 +9,7 @@
     visibleTreePaths,
     type NavDirection,
   } from "./lib/tree-navigation";
+  import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
 
   type Props = {
@@ -17,6 +18,10 @@
     username?: string;
     password?: string;
     discoveredPrefixes: { prefix: string }[];
+    status: string;
+    error: string;
+    logOpen?: boolean;
+    logLines: string[];
     discover: () => void;
     browseHref: (prefix: string) => string;
   };
@@ -27,6 +32,10 @@
     username = $bindable(""),
     password = $bindable(""),
     discoveredPrefixes,
+    status,
+    error,
+    logOpen = $bindable(false),
+    logLines,
     discover,
     browseHref,
   }: Props = $props();
@@ -95,38 +104,100 @@
   }
 </script>
 
-<header>
-  <h1>Discover Prefixes</h1>
-  <form autocomplete="on" onsubmit={submit}>
-    <label>
-      Broker
-      <input autocomplete="url" bind:value={broker} name="broker" type="url" />
-    </label>
-    <label>
-      Pattern
-      <input bind:value={discoveryPattern} name="discovery-pattern" />
-    </label>
-    <label>
-      Username
-      <input autocomplete="username" bind:value={username} name="username" />
-    </label>
-    <label>
-      Password
-      <input autocomplete="current-password" bind:value={password} name="password" type="password" />
-    </label>
-    <button type="submit">Discover</button>
-  </form>
-</header>
-
-{#if discoveredPrefixes.length}
-  <section>
-    <h2>Prefixes</h2>
-    <TreeView
-      root=""
-      nodes={treeNodes}
-      {selectedPath}
-      {expanded}
-      actions={treeActions}
-    />
+<section class="discovery">
+  <section class="connection panel" aria-labelledby="connect-title">
+    <header>
+      <h1 id="connect-title">Miniconf Browser</h1>
+      <p>Connect to a broker and discover device prefixes.</p>
+    </header>
+    <form autocomplete="on" onsubmit={submit}>
+      <label class="broker">
+        Broker
+        <input autocomplete="url" bind:value={broker} name="broker" type="url" />
+      </label>
+      <label class="pattern">
+        Discovery filter
+        <input bind:value={discoveryPattern} name="discovery-pattern" />
+      </label>
+      <label>
+        Username
+        <input autocomplete="username" bind:value={username} name="username" />
+      </label>
+      <label>
+        Password
+        <input autocomplete="current-password" bind:value={password} name="password" type="password" />
+      </label>
+      <button type="submit">Discover</button>
+    </form>
+    <StatusLog {status} {error} bind:open={logOpen} {logLines} />
   </section>
-{/if}
+
+  {#if discoveredPrefixes.length}
+    <section class="prefixes panel" aria-labelledby="prefix-title">
+      <header class="section-heading">
+        <h2 id="prefix-title">Prefixes</h2>
+        <span class="meta">{discoveredPrefixes.length} found</span>
+      </header>
+      <TreeView
+        root=""
+        nodes={treeNodes}
+        {selectedPath}
+        {expanded}
+        actions={treeActions}
+      />
+    </section>
+  {/if}
+</section>
+
+<style>
+  .discovery {
+    display: grid;
+    gap: var(--space);
+    margin: clamp(1rem, 8svh, 5rem) auto 0;
+    max-width: 58rem;
+    width: 100%;
+  }
+
+  .connection {
+    display: grid;
+    gap: var(--space);
+  }
+
+  header p {
+    color: var(--muted);
+  }
+
+  form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  input {
+    width: 100%;
+  }
+
+  button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+
+  .section-heading {
+    align-items: baseline;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 760px) {
+    .discovery {
+      margin-top: 0;
+    }
+
+    form {
+      grid-template-columns: 1fr;
+    }
+
+    button {
+      justify-self: stretch;
+    }
+  }
+</style>

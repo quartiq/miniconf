@@ -5,7 +5,6 @@
   import { displayPath, type Schema } from "./lib/schema";
   import BrowseView from "./BrowseView.svelte";
   import DiscoveryView from "./DiscoveryView.svelte";
-  import StatusLog from "./StatusLog.svelte";
   import {
     MiniconfBackend,
     type PrefixSession,
@@ -381,12 +380,16 @@
       bind:username
       bind:password
       {discoveredPrefixes}
+      {status}
+      {error}
+      bind:logOpen
+      {logLines}
       {discover}
       {browseHref}
     />
-    <StatusLog {status} {error} bind:open={logOpen} {logLines} />
   {:else}
     <BrowseView
+      {broker}
       {activePrefix}
       discoverHref={discoveryPath(broker, discoveryPattern)}
       {subtreePath}

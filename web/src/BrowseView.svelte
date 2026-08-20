@@ -8,6 +8,7 @@
   import TreeView from "./TreeView.svelte";
 
   type Props = {
+    broker: string;
     activePrefix: string;
     discoverHref: string;
     subtreePath: string;
@@ -32,6 +33,7 @@
   };
 
   let {
+    broker,
     activePrefix,
     discoverHref,
     subtreePath,
@@ -57,27 +59,29 @@
 </script>
 
 <section class="browse">
-  <div class="top">
-    <header>
-      <h1><a href={discoverHref}>{activePrefix}</a></h1>
-      {#if subtreePath}
-        <p>Subtree {subtreePath}</p>
-      {/if}
-    </header>
-
-    {#if aliveManifest || settingsRevision}
-      <section class="meta" aria-label="Static protocol metadata">
+  <header class="app-header panel">
+    <a class="back" href={discoverHref} aria-label="Change connection" title="Change connection">←</a>
+    <div class="context">
+      <h1 title={activePrefix}>{activePrefix}</h1>
+      <div class="meta">
+        <span title={broker}>{broker}</span>
+        {#if subtreePath}<span>subtree {subtreePath}</span>{/if}
         {#if aliveManifest}
           <span>epoch {aliveManifest.epoch}</span>
           <span>schema {aliveManifest.schema_rev}</span>
         {/if}
-        {#if settingsRevision}
-          <span>rev {settingsRevision}</span>
-        {/if}
-      </section>
-    {/if}
+        {#if settingsRevision}<span>rev {settingsRevision}</span>{/if}
+      </div>
+    </div>
+    <div class="connection-state" role="status" title={error || status}>
+      <span>{status}</span>
+      {#if error}<strong>{error}</strong>{/if}
+    </div>
+  </header>
 
-    <div class="tree" aria-label="Schema tree">
+  <div class="workspace">
+    <section class="tree panel" aria-labelledby="settings-title">
+      <h2 id="settings-title">Settings</h2>
       {#if treeNodes.has(treeRoot)}
         <TreeView
           root={treeRoot}
@@ -90,57 +94,102 @@
       {:else}
         <p>No schema loaded.</p>
       {/if}
-    </div>
+    </section>
+
+    <SelectedPanel node={selected} {editor} {updateEditor} {submit} {resetEditor} {focusTree} />
   </div>
 
-  <div class="bottom">
-    <SelectedPanel node={selected} {editor} {updateEditor} {submit} {resetEditor} {focusTree} />
-    <StatusLog {status} {error} bind:open={logOpen} {logLines} />
-  </div>
+  <StatusLog {status} {error} bind:open={logOpen} {logLines} />
 </section>
 
 <style>
   .browse {
     display: grid;
     gap: var(--space);
-    /* Keep one scrollable browse region above a stable selected/log panel. */
-    grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     height: calc(100svh - 2 * var(--space));
     min-width: 0;
   }
 
-  .top {
-    min-height: 0;
+  .app-header {
+    align-items: center;
+    display: grid;
+    gap: var(--space);
+    grid-template-columns: auto minmax(0, 1fr) auto;
     min-width: 0;
-    overflow: auto;
   }
 
-  h1 {
+  .back {
+    color: inherit;
+    font-size: 1.25rem;
+    text-decoration: none;
+  }
+
+  .context,
+  .connection-state {
+    min-width: 0;
+  }
+
+  h1,
+  .connection-state span,
+  .connection-state strong {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  h1 a {
-    color: inherit;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.15em;
+  .connection-state {
+    color: var(--muted);
+    max-width: 30vw;
+    text-align: right;
   }
 
-  .bottom {
+  .connection-state strong {
+    color: var(--error);
+  }
+
+  .workspace {
     display: grid;
-    gap: var(--space-tight);
+    gap: var(--space);
+    grid-template-columns: minmax(0, 3fr) minmax(18rem, 2fr);
     min-height: 0;
     min-width: 0;
   }
 
   .tree {
+    min-height: 0;
     min-width: 0;
-    overflow: hidden;
+    overflow: auto;
   }
+
   @media (min-width: 761px) {
     .browse {
       height: calc(100dvh - 2 * var(--space));
+    }
+  }
+
+  @media (max-width: 760px) {
+    .browse {
+      height: auto;
+    }
+
+    .app-header {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .workspace {
+      grid-template-columns: 1fr;
+    }
+
+    .connection-state {
+      grid-column: 2;
+      max-width: none;
+      text-align: left;
+    }
+
+    .tree {
+      max-height: 52svh;
     }
   }
 </style>

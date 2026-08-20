@@ -17,7 +17,7 @@
 </script>
 
 <details class="log" bind:open>
-  <summary>
+  <summary aria-live="polite">
     <span aria-hidden="true" class="caret">{open ? "▾" : "▸"}</span>
     <span>{status}</span>
     {#if error}

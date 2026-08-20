@@ -22,7 +22,7 @@
     focusTree,
   }: Props = $props();
 
-  let schemaOpen = $state(true);
+  let schemaOpen = $state(false);
   let metadata = $derived(node ? formatSchemaMetadata(node) : "");
   let leaf = $derived(node?.kind === "leaf");
 
@@ -41,11 +41,12 @@
   }
 </script>
 
-<section class="selected" aria-label="Selected item">
+<section class="selected panel" aria-label="Selected item">
+  <h2>Value</h2>
   <details class="schema" bind:open={schemaOpen}>
     <summary>
       <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
-      <span>{node?.path ?? ""}</span>
+      <span>{node?.path || "Schema"}</span>
     </summary>
     <div class="schema-body">
       {#if metadata}
@@ -87,11 +88,11 @@
 
 <style>
   .selected {
-    border-block: 1px solid var(--border);
     display: grid;
     gap: 0;
     min-width: 0;
-    padding-block: var(--space-tight);
+    align-content: start;
+    overflow: auto;
   }
 
   .schema summary {
