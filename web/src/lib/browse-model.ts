@@ -21,7 +21,6 @@ export type BrowseState = {
   settings: Settings;
   root: string;
   editor: string;
-  flashed: Set<string>;
   expanded: Set<string>;
   selectedPath: string;
   userClosed: Set<string>;
@@ -46,7 +45,6 @@ export function emptyState(): BrowseState {
     settings: new Map(),
     root: "",
     editor: "null",
-    flashed: new Set(),
     expanded: new Set(),
     selectedPath: "",
     userClosed: new Set(),
@@ -125,10 +123,6 @@ export function loadEditor(state: BrowseState): BrowseState {
     ...state,
     editor: node?.kind === "leaf" && node.present ? JSON.stringify(node.value, null, 2) : "null",
   };
-}
-
-export function setFlashed(state: BrowseState, flashed: Set<string>): BrowseState {
-  return { ...state, flashed };
 }
 
 export function parseEditor(state: BrowseState): unknown {

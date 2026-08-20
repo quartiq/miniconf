@@ -5,7 +5,7 @@ import mqtt, {
   type MqttClient,
   type Packet,
 } from "mqtt";
-import { nanoid } from "nanoid";
+import { randomId } from "./random-id";
 
 // MQTT.js owns the WebSocket transport. This wrapper keeps browser sessions
 // clean/ephemeral, centralizes topic filtering, and owns durable resubscribe
@@ -104,7 +104,7 @@ export class MqttBus {
     }
     const options: IClientOptions = {
       clean: true,
-      clientId: `miniconf-web-${nanoid()}`,
+      clientId: `miniconf-web-${randomId()}`,
       connectTimeout: 5000,
       protocolVersion: 5,
       queueQoSZero: false,

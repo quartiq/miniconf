@@ -1,6 +1,8 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import type { TreeActivity } from "./lib/tree-view";
+
   type Props = {
     path: string;
     label: string;
@@ -13,7 +15,7 @@
     setsize?: number;
     value?: string;
     href?: string;
-    flashed?: boolean;
+    activity?: TreeActivity;
     title?: string;
     select: () => void;
     toggle: () => void;
@@ -32,7 +34,7 @@
     setsize = 1,
     value = "",
     href = undefined,
-    flashed = false,
+    activity = undefined,
     title = "",
     select,
     toggle,
@@ -44,10 +46,10 @@
     { background: "var(--flash-end)" },
   ];
 
-  function flash(node: HTMLElement, active: boolean) {
+  function flash(node: HTMLElement, initial?: TreeActivity) {
     let animation: Animation | undefined;
-    const run = (next: boolean) => {
-      if (!next) {
+    const run = (next?: TreeActivity) => {
+      if (!next || performance.now() - next.at > 1000) {
         return;
       }
       animation?.cancel();
@@ -56,7 +58,7 @@
         easing: "ease-out",
       });
     };
-    run(active);
+    run(initial);
     return {
       update: run,
       destroy() {
@@ -82,7 +84,6 @@
     aria-posinset={posinset}
     aria-selected={selected}
     aria-setsize={setsize}
-    class:flash={flashed}
     class:selected
     data-tree-path={path}
     {href}
@@ -90,7 +91,7 @@
     style:padding-left={`${depth}rem`}
     tabindex={selected ? 0 : -1}
     {title}
-    use:flash={flashed}
+    use:flash={activity}
     onclick={select}
     onkeydown={keydown}
   >
@@ -108,14 +109,13 @@
     aria-posinset={posinset}
     aria-selected={selected}
     aria-setsize={setsize}
-    class:flash={flashed}
     class:selected
     data-tree-path={path}
     role="treeitem"
     style:padding-left={`${depth}rem`}
     tabindex={selected ? 0 : -1}
     {title}
-    use:flash={flashed}
+    use:flash={activity}
     onclick={select}
     onkeydown={keydown}
   >

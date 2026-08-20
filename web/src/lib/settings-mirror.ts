@@ -20,13 +20,6 @@ export class SettingsMirror {
     private readonly commitDelayMs = 100,
   ) {}
 
-  reset(): void {
-    this.cancel();
-    this.changed = new Set();
-    this.rev = undefined;
-    this.shadow = new Map();
-  }
-
   clear(): void {
     this.cancel();
     const changed = new Set(this.shadow.keys());

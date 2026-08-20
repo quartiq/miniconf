@@ -12,23 +12,20 @@
     type DiscoveredPrefix,
     type AliveManifest,
   } from "./lib/backend";
-  import { loadAuth, saveAuth } from "./lib/auth-store";
   import * as browse from "./lib/browse-model";
   import { EventLog } from "./lib/event-log";
-  import { FlashSet } from "./lib/flash-set";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
   import { type SettingsCommit } from "./lib/settings-mirror";
   import { type NavDirection } from "./lib/tree-navigation";
+  import { type TreeActivity } from "./lib/tree-view";
 
   const route = readRoute(location);
   let broker = $state(route.broker);
   let discoveryPattern = $state(route.discoveryPattern);
   let activePrefix = $state(route.activePrefix);
   let subtreePath = $state(route.subtreePath);
-  const initialAuth = loadAuth(route.broker);
-  let username = $state(initialAuth.username);
-  let password = $state(initialAuth.password);
-  let authBroker = $state(route.broker);
+  let username = $state("");
+  let password = $state("");
 
   let backend: MiniconfBackend | undefined;
   let prefixSession: PrefixSession | undefined;
@@ -45,23 +42,13 @@
   let routeSerial = 0;
   // Row flashes are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
-  const treeFlash = new FlashSet((paths) => {
-    browseState = browse.setFlashed(browseState, paths);
-  });
+  let treeActivity = $state.raw(new Map<string, TreeActivity>());
   const eventLog = new EventLog(() => {
     logLines = eventLog.lines;
   });
 
   let selected = $derived(browse.selected(browseState));
   let mode = $derived(activePrefix ? "browse" : "discover");
-
-  $effect(() => {
-    if (broker === authBroker) {
-      return;
-    }
-    authBroker = broker;
-    ({ username, password } = loadAuth(broker));
-  });
 
   $effect(() => {
     eventLog.clearHidden(logOpen);
@@ -136,7 +123,11 @@
     const commit = browse.commitSettings(browseState, { settings: nextSettings, changed });
     browseState = commit.state;
     settingsRevision = commit.rev ?? settingsRevision;
-    treeFlash.add(commit.cues);
+    const at = performance.now();
+    treeActivity = new Map([
+      ...treeActivity,
+      ...[...commit.cues].map((path) => [path, { at }] as const),
+    ]);
     if (changed.size) {
       log("commit", `${changed.size} changed`);
     }
@@ -152,7 +143,7 @@
     aliveManifest = undefined;
     settingsRevision = "";
     browseState = browse.emptyState();
-    treeFlash.reset();
+    treeActivity = new Map();
   }
 
   function showDiscoveryIdle() {
@@ -161,10 +152,6 @@
     activePrefix = "";
     discoveredPrefixes = [];
     setStatus("Idle");
-  }
-
-  function storeAuth() {
-    saveAuth(broker, { username, password });
   }
 
   async function connectBackend(serial: number): Promise<MiniconfBackend | undefined> {
@@ -198,7 +185,6 @@
   }
 
   function discover() {
-    storeAuth();
     navigate(discoveryPath(broker, discoveryPattern));
   }
 
@@ -382,8 +368,6 @@
       stopConnection?.();
       discoveryWatch?.close();
       prefixSession?.close();
-      treeFlash.reset();
-      eventLog.dispose();
       backend?.close();
     };
   });
@@ -413,7 +397,7 @@
       treeNodes={browseState.tree.nodeViews}
       selectedPath={browseState.selectedPath}
       selected={selected}
-      flashed={browseState.flashed}
+      activity={treeActivity}
       expanded={browseState.expanded}
       editor={browseState.editor}
       bind:logOpen

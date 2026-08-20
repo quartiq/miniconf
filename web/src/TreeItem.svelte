@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TreeActions, TreeNodeView } from "./lib/tree-view";
+  import type { TreeActions, TreeActivity, TreeNodeView } from "./lib/tree-view";
   import TreeItem from "./TreeItem.svelte";
   import TreeRow from "./TreeRow.svelte";
 
@@ -9,7 +9,7 @@
     node: TreeNodeView;
     nodes: Map<string, TreeNodeView>;
     selectedPath: string;
-    flashed?: Set<string>;
+    activity?: Map<string, TreeActivity>;
     expanded: Set<string>;
     actions: TreeActions;
     depth?: number;
@@ -21,7 +21,7 @@
     node,
     nodes,
     selectedPath,
-    flashed = new Set(),
+    activity = new Map(),
     expanded,
     actions,
     depth = 0,
@@ -32,7 +32,7 @@
   let selected = $derived(node.path === selectedPath);
   let internal = $derived(node.children.length > 0);
   let open = $derived(expanded.has(node.path));
-  let flashedRow = $derived(flashed.has(node.path));
+  let rowActivity = $derived(activity.get(node.path));
   let title = $derived(node.href
     ? internal
       ? "Enter opens. Space toggles. Arrows/Home/End/Page navigate."
@@ -141,7 +141,7 @@
     posinset={index}
     setsize={size}
     href={node.href}
-    flashed={flashedRow}
+    activity={rowActivity}
     {title}
     {select}
     {toggle}
@@ -157,7 +157,7 @@
             node={child}
             {nodes}
             {selectedPath}
-            {flashed}
+            {activity}
             {expanded}
             {actions}
             depth={depth + 1}

@@ -6,6 +6,7 @@ import {
   type MqttMessage,
   type MqttWatch,
 } from "./mqtt-bus";
+import { randomId } from "./random-id";
 import { Schema, type CompactDef, subtreeMatch } from "./schema";
 
 // Miniconf MQTT protocol operations. This layer speaks topics/properties and
@@ -296,7 +297,7 @@ export class MiniconfMqttClient {
   }
 
   async openResponseChannel(prefix: string): Promise<SetResponseChannel> {
-    const topic = `${prefix}/response/${crypto.randomUUID()}`;
+    const topic = `${prefix}/response/${randomId()}`;
     let channel: SetResponseChannel | undefined;
     const watch = this.bus.watch(topic, SUBSCRIBE, (message) => {
       channel?.handle(message);

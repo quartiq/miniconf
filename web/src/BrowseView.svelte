@@ -18,7 +18,7 @@
     treeNodes: Map<string, TreeNodeView>;
     selectedPath: string;
     selected: ViewNode | undefined;
-    flashed: Set<string>;
+    activity: Map<string, import("./lib/tree-view").TreeActivity>;
     expanded: Set<string>;
     treeRoot: string;
     editor: string;
@@ -42,7 +42,7 @@
     treeNodes,
     selectedPath,
     selected,
-    flashed,
+    activity,
     expanded,
     treeRoot,
     editor,
@@ -83,7 +83,7 @@
           root={treeRoot}
           nodes={treeNodes}
           {selectedPath}
-          {flashed}
+          {activity}
           {expanded}
           actions={treeActions}
         />

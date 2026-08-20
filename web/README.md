@@ -53,8 +53,9 @@ updates.
 Leaf values are edited as JSON and submitted through `/set`. `/set` responses report request
 acceptance; `/settings` publications remain the authoritative applied values.
 
-Optional MQTT username/password values are stored in `sessionStorage` per broker and are never
-placed in route URLs.
+Optional MQTT credentials are never placed in route URLs or application-managed storage. The
+connection form uses standard browser autocomplete so a password manager can remember them when
+the user chooses.
 
 ## Test
 

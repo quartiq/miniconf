@@ -97,22 +97,22 @@
 
 <header>
   <h1>Discover Prefixes</h1>
-  <form onsubmit={submit}>
+  <form autocomplete="on" onsubmit={submit}>
     <label>
       Broker
-      <input bind:value={broker} />
+      <input autocomplete="url" bind:value={broker} name="broker" type="url" />
     </label>
     <label>
       Pattern
-      <input bind:value={discoveryPattern} />
+      <input bind:value={discoveryPattern} name="discovery-pattern" />
     </label>
     <label>
       Username
-      <input autocomplete="username" bind:value={username} />
+      <input autocomplete="username" bind:value={username} name="username" />
     </label>
     <label>
       Password
-      <input autocomplete="current-password" bind:value={password} type="password" />
+      <input autocomplete="current-password" bind:value={password} name="password" type="password" />
     </label>
     <button type="submit">Discover</button>
   </form>

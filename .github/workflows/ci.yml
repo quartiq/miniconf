@@ -144,7 +144,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
         working-directory: web
       - run: npm test
         working-directory: web
