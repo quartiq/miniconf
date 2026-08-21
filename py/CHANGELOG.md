@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the MM2
   retained schema/settings protocol with an async-first CLI and client library.
+* Human-readable trees label empty-name path segments as `""`, distinguishing the `/` child from
+  the empty root path.
 
 ### Added
 

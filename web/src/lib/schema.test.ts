@@ -13,104 +13,12 @@ function fixtureSchema(): Schema {
   return new Schema(defs, 1);
 }
 
-function mpllSchema(): Schema {
-  return new Schema(
-    [
-      {},
-      { i: { k: "h", l: 2, c: 0 } },
-      { s: { ty: "str" } },
-      { s: { ty: "f32" } },
-      {
-        m: {
-          doc: "Floating point BA coefficients before quantization",
-          typename: "Ba",
-        },
-        i: {
-          k: "n",
-          c: {
-            ba: {
-              r: 0,
-              m: { doc: "Coefficient array: [[b0, b1, b2], [a0, a1, a2]]" },
-            },
-            u: { r: 3, m: { doc: "Summing junction offset" } },
-            min: { r: 3, m: { doc: "Output lower limit" } },
-            max: { r: 3, m: { doc: "Output upper limit" } },
-          },
-        },
-      },
-      { i: { k: "n", c: { i2: 3, i: 3, p: 3, d: 3, d2: 3 } } },
-      {
-        m: { doc: "PID Controller parameters", typename: "Pid" },
-        i: {
-          k: "n",
-          c: {
-            order: { r: 0, m: { doc: "Feedback term order" } },
-            gain: { r: 5, m: { doc: "Gain" } },
-            limit: { r: 5, m: { doc: "Gain limit" } },
-            setpoint: { r: 3, m: { doc: "Setpoint" } },
-            min: { r: 3, m: { doc: "Output lower limit" } },
-            max: { r: 3, m: { doc: "Output upper limit" } },
-          },
-        },
-      },
-      {
-        m: { doc: "Standard biquad parametrizations", typename: "FilterRepr" },
-        i: {
-          k: "n",
-          c: {
-            typ: { r: 0, m: { doc: "Filter style" } },
-            frequency: { r: 3, m: { doc: "Relative critical frequency" } },
-            gain_db: { r: 3, m: { doc: "Passband gain in dB" } },
-            shelf_db: { r: 3, m: { doc: "Shelf gain in dB" } },
-            shape: { r: 0, m: { doc: "Q/Bandwidth/Slope" } },
-            offset: { r: 3, m: { doc: "Summing junction offset" } },
-            min: { r: 3, m: { doc: "Lower output limit" } },
-            max: { r: 3, m: { doc: "Upper output limit" } },
-          },
-        },
-      },
-      {
-        m: { doc: "Representation of a biquad", typename: "BiquadRepr" },
-        s: { oneof: true },
-        i: { k: "n", c: { Ba: 4, Raw: 0, Pid: 6, Filter: 7 } },
-      },
-      { i: { k: "h", l: 2, c: 3 } },
-      {
-        m: { typename: "MpllConfig" },
-        i: {
-          k: "n",
-          c: {
-            lp: { r: 0, m: { doc: "Lowpass filter coefficients" } },
-            repr: { r: 2, m: { doc: "Filter representation" } },
-            iir: { r: 8, m: { doc: "Phase-to-frequency filter" } },
-            amplitude: { r: 9, m: { doc: "Output amplitude" } },
-          },
-        },
-      },
-      { s: { ty: "bool" } },
-      {
-        m: { typename: "App" },
-        i: {
-          k: "n",
-          c: {
-            afe: { r: 1, m: { doc: "AFE gain." } },
-            mpll: { r: 10, m: { doc: "MPLL DSP configuration." } },
-            telemetry_period: {
-              r: 3,
-              m: { doc: "Specifies the telemetry output period in seconds." },
-            },
-            stream: { r: 0, m: { doc: "Specifies the target for data streaming." } },
-            activate: {
-              r: 11,
-              m: { doc: "Activate settings immediately on change." },
-            },
-          },
-        },
-      },
-    ],
-    2341646775,
-  );
-}
+const indexedSchema = new Schema([
+  { s: { ty: "f32" } },
+  { i: { k: "h", l: 2, c: 0 }, m: { typename: "Vector" } },
+  { i: { k: "d", c: [0, 1] } },
+  { i: { k: "n", c: { values: { r: 1, m: { doc: "Values" } }, tuple: 2 } } },
+], 1);
 
 describe("Schema", () => {
   it("matches the compact schema fixture paths", () => {
@@ -132,20 +40,22 @@ describe("Schema", () => {
     expect(() => schema.path("/")).toThrow("Unknown schema path");
   });
 
-  it("resolves numbered homogeneous paths from the live MPLL schema shape", () => {
-    const schema = mpllSchema();
-
-    expect(schema.node("/afe/0").kind).toBe("leaf");
-    expect(schema.node("/mpll/amplitude/1").sem).toEqual({ ty: "f32" });
-    expect(schema.node("/mpll/iir/Ba").node).toMatchObject({ typename: "Ba" });
-    expect(schema.children("/mpll/amplitude").map((node) => node.path)).toEqual([
-      "/mpll/amplitude/0",
-      "/mpll/amplitude/1",
+  it("resolves numbered and homogeneous paths", () => {
+    expect(indexedSchema.node("/tuple").kind).toBe("numbered");
+    expect(indexedSchema.node("/tuple/1/0").sem).toEqual({ ty: "f32" });
+    expect(indexedSchema.node("/values/1").sem).toEqual({ ty: "f32" });
+    expect(indexedSchema.node("/values")).toMatchObject({
+      edge: { doc: "Values" },
+      node: { typename: "Vector" },
+    });
+    expect(indexedSchema.children("/values").map((node) => node.path)).toEqual([
+      "/values/0",
+      "/values/1",
     ]);
   });
 
   it("formats schema metadata for selected rows", () => {
-    const node = mpllSchema().node("/mpll/amplitude/1");
+    const node = indexedSchema.node("/values/1");
 
     expect(formatSchemaMetadata(node)).toBe("kind leaf\nsem ty=f32");
   });

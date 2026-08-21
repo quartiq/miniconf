@@ -10,6 +10,10 @@ export type TreeNodeView = {
   children: string[];
 };
 
+export type TreeActivity = {
+  at: number;
+};
+
 export type TreeActions = {
   activate?: (node: TreeNodeView, internal: boolean, open: boolean) => void;
   key: (node: TreeNodeView, direction: NavDirection, step?: number) => string;

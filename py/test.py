@@ -238,6 +238,8 @@ async def main() -> None:
     await test_listener_close_tolerates_released_subscription()
 
     assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
+    assert _normalize_command_path("/", "") == ("/", "/")
+    assert _normalize_command_path("value", "/") == ("//value", "/")
     assert _normalize_command_path("/channel/0/demodulate", "") == (
         "/channel/0/demodulate",
         "/channel/0/demodulate",
@@ -305,6 +307,33 @@ async def main() -> None:
     assert quoted_meta == [
         '└─ node [edge doc="Outer doc"] [node typename="InnerType"]'
     ], quoted_meta
+
+    empty_name_schema = Schema.from_defs(
+        [
+            {"s": {"ty": "i32"}},
+            {"i": {"k": "n", "c": {"value": 0}}},
+            {"i": {"k": "n", "c": {"": 1, "value": 0}}},
+        ],
+        1,
+    )
+    assert empty_name_schema.path("") == ""
+    assert empty_name_schema.path("/") == "/"
+    assert empty_name_schema.path("//value") == "//value"
+    assert render_schema_tree(empty_name_schema, "/").splitlines() == [
+        '""',
+        "└─ value [sem ty=i32]",
+    ]
+    assert render_schema_tree(empty_name_schema).splitlines() == [
+        '├─ ""',
+        "│  └─ value [sem ty=i32]",
+        "└─ value [sem ty=i32]",
+    ]
+    empty_values = {"//value": 1, "/value": 2}
+    assert render_value_tree(empty_name_schema, empty_values).splitlines() == [
+        '├─ ""',
+        "│  └─ value = 1",
+        "└─ value = 2",
+    ]
 
     alive = TopicWatcher(f"{PREFIX}/+/alive")
     settings = TopicWatcher(f"{PREFIX}/+/settings/#")
@@ -403,6 +432,16 @@ async def main() -> None:
                 "├─ enabled = true",
                 '└─ mode = "Run"',
             ]
+
+            stale_setting_topic = f"{TARGET}/settings/obsolete"
+            await client.publish(
+                stale_setting_topic,
+                payload=b"not-json",
+                qos=1,
+                retain=True,
+                properties={"user_property": [("auth", "")]},
+            )
+            assert "/obsolete" not in await mc.snapshot("")
 
             await mc.set(ENABLED, True)
             assert await mc.get(ENABLED) is True
@@ -504,9 +543,7 @@ async def main() -> None:
         assert "RawMode:" in raw_invalid.stdout, raw_invalid.stdout
 
         stale_schema_topic = f"{TARGET}/schema/99"
-        stale_setting_topic = f"{TARGET}/settings/obsolete"
         schema_topics.client.publish(stale_schema_topic, b'{"bad":true}', retain=True)
-        settings.client.publish(stale_setting_topic, b"1", retain=True)
         time.sleep(0.2)
         prune_out = subprocess.run(
             [
@@ -525,6 +562,7 @@ async def main() -> None:
             text=True,
         ).stdout.splitlines()
         assert "schema/99" in prune_out, prune_out
+        assert "/obsolete" in prune_out, prune_out
         force_prune_out = subprocess.run(
             [
                 sys.executable,
@@ -540,7 +578,7 @@ async def main() -> None:
             capture_output=True,
             text=True,
         ).stdout.splitlines()
-        assert "settings/obsolete" in force_prune_out, force_prune_out
+        assert "settings/obsolete" not in force_prune_out, force_prune_out
 
     finally:
         if mc is not None:

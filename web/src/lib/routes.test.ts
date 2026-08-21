@@ -17,12 +17,25 @@ describe("semantic routes", () => {
     );
   });
 
-  it("round-trips secure broker authorities", () => {
-    const path = discoveryPath("wss://broker.example:8084", "dt/sinara/+/+");
-    expect(readRoute({ hash: path })).toMatchObject({
-      broker: "wss://broker.example:8084",
-      discoveryPattern: "dt/sinara/+/+",
+  it("round-trips WebSocket endpoint paths and queries", () => {
+    const broker = "wss://mqtt.quartiq.de:1239/path/to/socket?token=a%2Fb";
+    const path = discoveryPath(broker, "dt/sinara/+/+");
+    expect(path).toBe(
+      "#/discover/wss+mqtt.quartiq.de:1239/dt/sinara/+/+?endpoint=%2Fpath%2Fto%2Fsocket%3Ftoken%3Da%252Fb",
+    );
+    expect(readRoute({ hash: path }).broker).toBe(broker);
+    expect(readRoute({ hash: browsePath(broker, "dt/device", "/pid", "dt/+") })).toMatchObject({
+      broker,
+      activePrefix: "dt/device",
+      subtreePath: "/pid",
+      discoveryPattern: "dt/+",
     });
+  });
+
+  it("rejects route endpoints that could replace the broker authority", () => {
+    expect(readRoute({
+      hash: "#/discover/wss+mqtt.quartiq.de/dt/+?endpoint=%40evil.example",
+    })).toMatchObject({ page: "landing", broker: "" });
   });
 
   it("parses hash routes", () => {
@@ -47,31 +60,38 @@ describe("semantic routes", () => {
   });
 
   it("keeps the landing route idle", () => {
-    expect(readRoute({ hash: "", protocol: "http:" })).toEqual({
+    expect(readRoute({ hash: "" })).toEqual({
       page: "landing",
-      broker: "ws://mqtt:8083",
+      broker: "",
       discoveryPattern: "dt/sinara/+/+",
       activePrefix: "",
       subtreePath: "",
     });
   });
 
-  it("uses a secure default broker on HTTPS pages", () => {
-    expect(readRoute({ hash: "", protocol: "https:" })).toMatchObject({
-      broker: "wss://mqtt:8084",
+  it("does not start a hidden browse session for an empty prefix", () => {
+    expect(readRoute({ hash: "#/browse/mqtt:8083/" })).toMatchObject({
+      page: "landing",
+      broker: "",
+      activePrefix: "",
     });
   });
 
-  it("lands idle instead of throwing on malformed route input", () => {
-    expect(readRoute({ hash: "#/discover/%zz/dt/sinara/+/+", protocol: "https:" })).toEqual({
+  it("lands idle instead of inventing a broker for malformed route input", () => {
+    expect(readRoute({ hash: "#/discover/%zz/dt/sinara/+/+" })).toEqual({
       page: "landing",
-      broker: "wss://mqtt:8084",
+      broker: "",
       discoveryPattern: "dt/sinara/+/+",
       activePrefix: "",
       subtreePath: "",
     });
-    expect(discoveryPath("http://[", "dt/sinara/+/+")).toBe(
-      "#/discover/mqtt:8083/dt/sinara/+/+",
+    expect(() => discoveryPath("http://[", "dt/sinara/+/+")).toThrow();
+  });
+
+  it("accepts only browser MQTT transports and keeps credentials out of routes", () => {
+    expect(() => discoveryPath("mqtt://broker.example", "dt/+")).toThrow("ws:// or wss://");
+    expect(() => discoveryPath("wss://user:secret@broker.example", "dt/+")).toThrow(
+      "username and password fields",
     );
   });
 });

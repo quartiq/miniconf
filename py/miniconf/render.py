@@ -8,8 +8,13 @@ from .common import json_dumps
 from .schema import Schema, SchemaNode
 
 
-def _segment(path: str) -> str:
-    return path.rsplit("/", 1)[-1] if path else ""
+def _segment_label(path: str) -> str:
+    """Render an empty-name child distinctly from the root."""
+
+    if not path:
+        return ""
+    segment = path.rsplit("/", 1)[-1]
+    return json_dumps(segment) if not segment else segment
 
 
 def _format_scalar(value: Any, *, quote_strings: bool = False) -> str:
@@ -57,7 +62,7 @@ def format_schema_label(
     name: str | None = None,
     compressed_homogeneous: bool = False,
 ) -> str:
-    label = name if name is not None else (_segment(node.path) if node.path else "")
+    label = name if name is not None else _segment_label(node.path)
     tags = _annotations(node, compressed_homogeneous=compressed_homogeneous)
     return " ".join([label, *tags]).strip()
 
@@ -69,7 +74,7 @@ def format_value_label(
     present: bool = False,
     value: Any = None,
 ) -> str:
-    label = name if name is not None else (_segment(node.path) if node.path else "")
+    label = name if name is not None else _segment_label(node.path)
     if node.kind == "leaf":
         return f"{label} = {json_dumps(value) if present else '<absent>'}"
     return label

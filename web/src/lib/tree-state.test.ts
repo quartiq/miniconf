@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toggleExpansion } from "./tree-navigation";
-import { cuePaths, flatTreeNodes, formatLeafValue, parentPath, revealPresentSettings, treeViewNodes } from "./tree-state";
+import { cuePaths, flatTreeNodes, parentPath, revealPresentSettings, treeViewNodes } from "./tree-state";
 
 describe("tree state", () => {
   it("derives parent paths", () => {
@@ -42,22 +42,6 @@ describe("tree state", () => {
     expect([...cuePaths(["/a/b"], "")].sort()).toEqual(["", "/a", "/a/b"]);
   });
 
-  it("formats present leaf values for inline display", () => {
-    expect(formatLeafValue({
-      path: "/a",
-      kind: "leaf",
-      children: [],
-      present: true,
-      value: { x: 1 },
-    })).toBe('{"x":1}');
-    expect(formatLeafValue({
-      path: "/b",
-      kind: "leaf",
-      children: [],
-      present: false,
-    })).toBe("");
-  });
-
   it("flattens schema rows for keyboard navigation", () => {
     expect([...flatTreeNodes([
       { path: "", kind: "named", children: [], present: false },
@@ -68,9 +52,12 @@ describe("tree state", () => {
     ]);
   });
 
-  it("renders root as an empty fold row", () => {
-    expect(treeViewNodes([
+  it("distinguishes the root from an empty-name child", () => {
+    const views = treeViewNodes([
       { path: "", kind: "named", children: [], present: false },
-    ], "").get("")?.label).toBe("");
+      { path: "/", kind: "leaf", children: [], present: false },
+    ]);
+    expect(views.get("")?.label).toBe("(root)");
+    expect(views.get("/")?.label).toBe('\"\"');
   });
 });

@@ -59,7 +59,12 @@ class SettingEvent:
     rev: str | None = None
 
 
-def _setting_event(message: Message, prefix: str, root: str) -> SettingEvent | None:
+def _setting_event(
+    message: Message,
+    prefix: str,
+    root: str,
+    schema: Schema | None = None,
+) -> SettingEvent | None:
     properties = _properties(message)
     if not is_retained(message) or not is_authoritative(properties):
         return None
@@ -71,6 +76,15 @@ def _setting_event(message: Message, prefix: str, root: str) -> SettingEvent | N
         return None
     if not subtree_match(path, root):
         return None
+    if schema is not None:
+        try:
+            node = schema.node(path)
+        except MiniconfException:
+            LOGGER.debug("Ignoring setting outside the schema: %s", path)
+            return None
+        if node.kind != "leaf":
+            LOGGER.debug("Ignoring setting for non-leaf schema path: %s", path)
+            return None
     rev = _user_property(properties, "rev")
     if not message.payload:
         return SettingEvent(path, False, rev=rev)
@@ -248,8 +262,10 @@ class _BaseClient:
                 if event is not None:
                     yield event
 
-    def _setting_event(self, message: Message, root: str) -> SettingEvent | None:
-        return _setting_event(message, self.prefix, root)
+    def _setting_event(
+        self, message: Message, root: str, schema: Schema | None = None
+    ) -> SettingEvent | None:
+        return _setting_event(message, self.prefix, root, schema)
 
     @asynccontextmanager
     async def _settings_queue(self, root: str) -> AsyncIterator[asyncio.Queue[Message]]:
@@ -434,8 +450,14 @@ class Miniconf(_BaseClient):
         """Yield authoritative settings updates below one subtree without waiting for quiescence."""
 
         root = (await self.schema(timeout=timeout)).path(path)
-        async for event in self._watch_settings(root):
-            yield event
+        async with self._settings_queue(root) as queue:
+            while True:
+                message = await queue.get()
+                schema = await self.schema(timeout=timeout)
+                schema.path(root)
+                event = self._setting_event(message, root, schema)
+                if event is not None:
+                    yield event
 
     async def schema(self, *, timeout: float = 3.0) -> Schema:
         """Load and cache the retained paged schema."""

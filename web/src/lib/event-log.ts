@@ -26,6 +26,4 @@ export class EventLog {
     this.lines = [];
     this.sync();
   }
-
-  dispose(): void {}
 }

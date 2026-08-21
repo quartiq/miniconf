@@ -579,6 +579,60 @@ async fn startup_with_large_schema_waits_on_session_progress() {
 }
 
 #[tokio::test]
+async fn startup_resumes_after_step_cancellation() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+
+    let prefix = unique("startup-cancel");
+    let (mut mm2, mut session) =
+        Miniconf::<common::Settings>::new(&prefix, compact_config()).unwrap();
+    let settings = common::Settings::new();
+    let mut connection = timeout(
+        Duration::from_secs(5),
+        session.connect(connect_addr(addr).await.unwrap()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut startup = miniconf_mqtt::Startup::new(&mut mm2, ConnectEvent::Connected);
+
+    let mut cancelled = false;
+    for _ in 0..64 {
+        match timeout(
+            Duration::ZERO,
+            startup.step(&mut mm2, &mut connection, &settings),
+        )
+        .await
+        {
+            Err(_) => {
+                cancelled = true;
+                break;
+            }
+            Ok(Ok(false)) => {}
+            Ok(Ok(true)) => panic!("startup completed before yielding"),
+            Ok(Err(error)) => panic!("startup failed: {error:?}"),
+        }
+    }
+    assert!(cancelled, "startup step never yielded for cancellation");
+
+    timeout(Duration::from_secs(5), async {
+        while !startup
+            .step(&mut mm2, &mut connection, &settings)
+            .await
+            .unwrap()
+        {
+            let _ = connection.poll().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(connection.session().is_publish_quiescent());
+}
+
+#[tokio::test]
 async fn service_accepts_later_sets_while_earlier_response_is_pending() {
     init_host_logging();
     let Some(addr) = broker_addr() else {

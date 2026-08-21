@@ -21,7 +21,8 @@ export type BrowseState = {
   settings: Settings;
   root: string;
   editor: string;
-  flashed: Set<string>;
+  editorDirty: boolean;
+  editorStale: boolean;
   expanded: Set<string>;
   selectedPath: string;
   userClosed: Set<string>;
@@ -34,9 +35,12 @@ export type BrowseCommit = {
   rev?: string;
 };
 
+export type BrowseMemory = Pick<BrowseState, "expanded" | "selectedPath" | "userClosed">;
+
 type BrowseSettings = {
   settings: Settings;
   changed: Set<string>;
+  activity: Set<string>;
   rev?: string;
 };
 
@@ -46,7 +50,8 @@ export function emptyState(): BrowseState {
     settings: new Map(),
     root: "",
     editor: "null",
-    flashed: new Set(),
+    editorDirty: false,
+    editorStale: false,
     expanded: new Set(),
     selectedPath: "",
     userClosed: new Set(),
@@ -58,21 +63,41 @@ export function selected(state: BrowseState): ViewNode | undefined {
   return state.tree.nodeByPath.get(state.selectedPath);
 }
 
-export function loadSchema(state: BrowseState, schema: Schema, subtreePath: string): BrowseState {
+export function loadSchema(
+  state: BrowseState,
+  schema: Schema,
+  subtreePath: string,
+  memory: BrowseMemory = state,
+): BrowseState {
   const root = schema.path(subtreePath);
-  return rebuild({
+  const next = rebuild({
     ...state,
     schema,
-    settings: new Map(),
+    settings: state.settings,
     root,
     expanded: new Set(),
-    selectedPath: "",
+    selectedPath: memory.selectedPath,
     userClosed: new Set(),
   });
+  const branches = new Set(
+    [...next.tree.flatNodes.values()].filter(({ children }) => children.length).map(({ path }) => path),
+  );
+  return {
+    ...next,
+    expanded: new Set([...memory.expanded].filter((path) => branches.has(path))),
+    userClosed: new Set([...memory.userClosed].filter((path) => branches.has(path))),
+  };
 }
 
-export function commitSettings(state: BrowseState, { settings, changed, rev }: BrowseSettings): BrowseCommit {
-  const rebuilt = rebuild({ ...state, settings }, false);
+export function commitSettings(state: BrowseState, { settings, changed, activity, rev }: BrowseSettings): BrowseCommit {
+  let rebuilt = rebuild({ ...state, settings }, false);
+  if (changed.has(rebuilt.selectedPath)) {
+    if (!state.editorDirty || draftMatches(state.editor, selected(rebuilt))) {
+      rebuilt = loadEditor(rebuilt);
+    } else {
+      rebuilt = { ...rebuilt, editorStale: true };
+    }
+  }
   return {
     state: {
       ...rebuilt,
@@ -84,7 +109,7 @@ export function commitSettings(state: BrowseState, { settings, changed, rev }: B
         rebuilt.root,
       ),
     },
-    cues: cuePaths(changed, rebuilt.root),
+    cues: cuePaths(activity, rebuilt.root),
     rev: changed.size ? rev : undefined,
   };
 }
@@ -116,7 +141,7 @@ export function navigate(
 }
 
 export function updateEditor(state: BrowseState, editor: string): BrowseState {
-  return { ...state, editor };
+  return { ...state, editor, editorDirty: true };
 }
 
 export function loadEditor(state: BrowseState): BrowseState {
@@ -124,11 +149,34 @@ export function loadEditor(state: BrowseState): BrowseState {
   return {
     ...state,
     editor: node?.kind === "leaf" && node.present ? JSON.stringify(node.value, null, 2) : "null",
+    editorDirty: false,
+    editorStale: false,
   };
 }
 
-export function setFlashed(state: BrowseState, flashed: Set<string>): BrowseState {
-  return { ...state, flashed };
+function draftMatches(editor: string, node: ViewNode | undefined): boolean {
+  if (node?.kind !== "leaf" || !node.present) {
+    return editor.trim() === "null";
+  }
+  try {
+    return jsonEqual(JSON.parse(editor), node.value);
+  } catch {
+    return false;
+  }
+}
+
+function jsonEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) &&
+      left.length === right.length && left.every((value, index) => jsonEqual(value, right[index]));
+  }
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  const leftObject = left as Record<string, unknown>;
+  const rightObject = right as Record<string, unknown>;
+  const keys = Object.keys(leftObject);
+  return keys.length === Object.keys(rightObject).length &&
+    keys.every((key) => Object.hasOwn(rightObject, key) && jsonEqual(leftObject[key], rightObject[key]));
 }
 
 export function parseEditor(state: BrowseState): unknown {

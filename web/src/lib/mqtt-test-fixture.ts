@@ -1,95 +1,71 @@
 import { EventEmitter } from "node:events";
+import type { IClientOptions, IClientPublishOptions, ISubscriptionMap } from "mqtt";
 
 export class FakeMqttClient extends EventEmitter {
-  options: { reconnectPeriod?: number } = {};
-  connected = true;
+  options: IClientOptions = {};
+  connected = false;
   ended = false;
-  publications: string[] = [];
-  subscriptions: string[] = [];
-  unsubscriptions: string[] = [];
-
-  end() {
-    this.ended = true;
-  }
-
-  async publishAsync(topic: string) {
-    this.publications.push(topic);
-  }
-
-  async subscribeAsync(topic: string) {
-    this.subscriptions.push(topic);
-    return undefined;
-  }
-
-  async unsubscribeAsync(topic: string) {
-    this.unsubscriptions.push(topic);
-  }
-
-  completeSubscribe(): void {
-    // Compatibility hook for tests that want to mark the subscribe point.
-  }
-
-  publishRetained(topic: string, payload: string, userProperties?: Record<string, string | string[]>): void {
-    this.emit("message", topic, new TextEncoder().encode(payload), {
-      retain: true,
-      properties: { userProperties },
-    });
-  }
-}
-
-export class ResponseMqttClient extends EventEmitter {
-  readonly connected = true;
-  readonly subscriptions: string[] = [];
-  readonly unsubscriptions: string[] = [];
-  readonly publications: {
+  readonly subscriptions: ISubscriptionMap[] = [];
+  readonly publications: Array<{
     topic: string;
     payload: string;
-    properties: { correlationData?: unknown; responseTopic?: string };
-  }[] = [];
+    options: IClientPublishOptions;
+  }> = [];
+  subscribeError: Error | undefined;
+  rejectedTopic = "";
 
-  async subscribeAsync(topic: string, _options: unknown) {
-    this.subscriptions.push(topic);
-    return undefined;
+  connect(): void {
+    this.connected = true;
+    this.emit("connect");
   }
 
-  async unsubscribeAsync(topic: string) {
-    this.unsubscriptions.push(topic);
-    return undefined;
+  disconnect(): void {
+    this.connected = false;
+    this.emit("offline");
+    this.emit("close");
   }
 
-  async publishAsync(
+  end(): this {
+    this.connected = false;
+    this.ended = true;
+    return this;
+  }
+
+  async subscribeAsync(subscriptions: ISubscriptionMap) {
+    this.subscriptions.push(subscriptions);
+    if (this.subscribeError) throw this.subscribeError;
+    return Object.keys(subscriptions).map((topic) => ({
+      topic,
+      qos: topic === this.rejectedTopic ? 128 as const : subscriptions[topic].qos ?? 0,
+    }));
+  }
+
+  async publishAsync(topic: string, payload: string, options: IClientPublishOptions) {
+    this.publications.push({ topic, payload, options });
+  }
+
+  message(
     topic: string,
     payload: string,
-    options: { properties?: { correlationData?: unknown; responseTopic?: string } },
-  ) {
-    this.publications.push({
-      topic,
-      payload,
-      properties: options.properties ?? {},
+    retain = true,
+    userProperties?: Record<string, string | string[]>,
+    correlationData?: Uint8Array,
+  ): void {
+    this.emit("message", topic, new TextEncoder().encode(payload), {
+      cmd: "publish",
+      retain,
+      properties: { userProperties, correlationData },
     });
   }
 
   respond(index: number, code: string, payload = ""): void {
-    this.emit(
-      "message",
-      this.publications[index].properties.responseTopic,
-      new TextEncoder().encode(payload),
-      {
-        properties: {
-          correlationData: this.publications[index].properties.correlationData,
-          userProperties: { code },
-        },
-      },
+    const publication = this.publications[index];
+    this.message(
+      publication.options.properties?.responseTopic ?? "",
+      payload,
+      false,
+      { code },
+      publication.options.properties?.correlationData as Uint8Array,
     );
   }
-
-  respondToSet(path: string, code: string, payload = ""): void {
-    const index = this.publications.findIndex((publication) => publication.topic.endsWith(path));
-    if (index < 0) {
-      throw new Error(`No publication for ${path}`);
-    }
-    this.respond(index, code, payload);
-  }
-
-  end() {}
 }

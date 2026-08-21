@@ -6,13 +6,7 @@ export type AppRoute = {
   subtreePath: string;
 };
 
-export const DEFAULT_BROKER = "ws://mqtt:8083";
-export const DEFAULT_SECURE_BROKER = "wss://mqtt:8084";
 export const DEFAULT_FILTER = "dt/sinara/+/+";
-
-function defaultBroker(protocol = globalThis.location?.protocol): string {
-  return protocol === "https:" ? DEFAULT_SECURE_BROKER : DEFAULT_BROKER;
-}
 
 function topicPath(value: string): string {
   return value.split("/").map((segment) => encodeURIComponent(segment).replace(/%2B/gi, "+")).join("/");
@@ -22,29 +16,40 @@ function topicFromSegments(segments: string[]): string {
   return segments.map(decodeURIComponent).join("/");
 }
 
-function brokerToken(broker: string): string {
-  const normalized = broker.includes("://") ? broker : `ws://${broker}`;
-  const url = safeUrl(normalized) ?? new URL(defaultBroker());
-  return url.protocol === "wss:" ? `wss+${url.host}` : url.host;
-}
-
-function brokerFromToken(token: string): string | undefined {
-  if (token.startsWith("wss+")) {
-    return safeBroker(`wss://${token.slice(4)}`);
+function brokerRoute(broker: string): { token: string; endpoint: string } {
+  const url = brokerUrl(broker);
+  if (url.username || url.password) {
+    throw new Error("Enter broker credentials in the username and password fields");
   }
-  return safeBroker(`ws://${token}`);
+  return {
+    token: url.protocol === "wss:" ? `wss+${url.host}` : url.host,
+    endpoint: url.pathname === "/" && !url.search && !url.hash
+      ? ""
+      : `${url.pathname}${url.search}${url.hash}`,
+  };
 }
 
-function safeBroker(broker: string): string | undefined {
-  return safeUrl(broker) ? broker : undefined;
-}
-
-function safeUrl(url: string): URL | undefined {
+function brokerFromRoute(token: string, endpoint: string): string | undefined {
+  if (endpoint && !endpoint.startsWith("/")) return undefined;
   try {
-    return new URL(url);
+    const url = brokerUrl(
+      `${token.startsWith("wss+") ? `wss://${token.slice(4)}` : `ws://${token}`}${endpoint}`,
+    );
+    if (url.username || url.password) return undefined;
+    return url.pathname === "/" && !url.search && !url.hash
+      ? `${url.protocol}//${url.host}`
+      : url.href;
   } catch {
     return undefined;
   }
+}
+
+function brokerUrl(broker: string): URL {
+  const url = new URL(broker);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("Broker URL must start with ws:// or wss://");
+  }
+  return url;
 }
 
 function hashRoute(location: Pick<Location, "hash">): { path: string; search: string } {
@@ -53,38 +58,38 @@ function hashRoute(location: Pick<Location, "hash">): { path: string; search: st
   return { path: path || "/", search: search ? `?${search}` : "" };
 }
 
-export function readRoute(location: Pick<Location, "hash"> & Partial<Pick<Location, "protocol">>): AppRoute {
-  const defaultBrokerUrl = defaultBroker(location.protocol);
+export function readRoute(location: Pick<Location, "hash">): AppRoute {
   try {
     const route = hashRoute(location);
     const params = new URLSearchParams(route.search);
     const parts = route.path.split("/").filter(Boolean);
     if (parts.length >= 2 && (parts[0] === "discover" || parts[0] === "browse")) {
       const [action, broker, ...topic] = parts;
-      const routeBroker = brokerFromToken(broker);
-      if (!routeBroker) {
-        return landingRoute(defaultBrokerUrl);
+      const routeBroker = brokerFromRoute(broker, params.get("endpoint") ?? "");
+      const routeTopic = topicFromSegments(topic);
+      if (!routeBroker || (action === "browse" && !routeTopic)) {
+        return landingRoute();
       }
       return {
         page: action,
         broker: routeBroker,
         discoveryPattern: action === "discover"
-          ? topicFromSegments(topic) || DEFAULT_FILTER
+          ? routeTopic || DEFAULT_FILTER
           : params.get("discover") || DEFAULT_FILTER,
-        activePrefix: action === "browse" ? topicFromSegments(topic) : "",
+        activePrefix: action === "browse" ? routeTopic : "",
         subtreePath: params.get("path") ?? "",
       };
     }
   } catch {
     // Malformed hashes should not break the static app shell.
   }
-  return landingRoute(defaultBrokerUrl);
+  return landingRoute();
 }
 
-function landingRoute(broker: string): AppRoute {
+function landingRoute(): AppRoute {
   return {
     page: "landing",
-    broker,
+    broker: "",
     discoveryPattern: DEFAULT_FILTER,
     activePrefix: "",
     subtreePath: "",
@@ -92,7 +97,9 @@ function landingRoute(broker: string): AppRoute {
 }
 
 export function discoveryPath(broker: string, discoveryPattern: string): string {
-  return `#/discover/${brokerToken(broker)}/${topicPath(discoveryPattern)}`;
+  const { token, endpoint } = brokerRoute(broker);
+  const query = endpoint ? `?${new URLSearchParams({ endpoint })}` : "";
+  return `#/discover/${token}/${topicPath(discoveryPattern)}${query}`;
 }
 
 export function browsePath(
@@ -101,7 +108,11 @@ export function browsePath(
   subtreePath = "",
   discoveryPattern = DEFAULT_FILTER,
 ): string {
+  const { token, endpoint } = brokerRoute(broker);
   const params = new URLSearchParams();
+  if (endpoint) {
+    params.set("endpoint", endpoint);
+  }
   if (subtreePath) {
     params.set("path", subtreePath);
   }
@@ -109,5 +120,5 @@ export function browsePath(
     params.set("discover", discoveryPattern);
   }
   const query = params.toString();
-  return `#/browse/${brokerToken(broker)}/${topicPath(prefix)}${query ? `?${query}` : ""}`;
+  return `#/browse/${token}/${topicPath(prefix)}${query ? `?${query}` : ""}`;
 }

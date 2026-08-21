@@ -5,32 +5,28 @@
   import { displayPath, type Schema } from "./lib/schema";
   import BrowseView from "./BrowseView.svelte";
   import DiscoveryView from "./DiscoveryView.svelte";
-  import StatusLog from "./StatusLog.svelte";
   import {
-    MiniconfBackend,
-    type PrefixSession,
+    DiscoverySession,
+    PrefixSession,
     type DiscoveredPrefix,
     type AliveManifest,
   } from "./lib/backend";
-  import { loadAuth, saveAuth } from "./lib/auth-store";
   import * as browse from "./lib/browse-model";
   import { EventLog } from "./lib/event-log";
-  import { FlashSet } from "./lib/flash-set";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
   import { type SettingsCommit } from "./lib/settings-mirror";
   import { type NavDirection } from "./lib/tree-navigation";
+  import { type TreeActivity } from "./lib/tree-view";
 
   const route = readRoute(location);
   let broker = $state(route.broker);
   let discoveryPattern = $state(route.discoveryPattern);
   let activePrefix = $state(route.activePrefix);
   let subtreePath = $state(route.subtreePath);
-  const initialAuth = loadAuth(route.broker);
-  let username = $state(initialAuth.username);
-  let password = $state(initialAuth.password);
-  let authBroker = $state(route.broker);
+  let username = $state("");
+  let password = $state("");
 
-  let backend: MiniconfBackend | undefined;
+  let discoverySession: DiscoverySession | undefined;
   let prefixSession: PrefixSession | undefined;
   let discoveredPrefixes = $state<DiscoveredPrefix[]>([]);
   let aliveManifest = $state<AliveManifest | undefined>();
@@ -38,30 +34,20 @@
   let status = $state("Idle");
   let settingsRevision = $state("");
   let error = $state("");
+  let browseRetryable = $state(false);
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
-  let stopConnection: (() => void) | undefined;
-  let stopDiscovery: (() => void) | undefined;
   let routeSerial = 0;
+  const browseMemory = new Map<string, browse.BrowseMemory>();
   // Row flashes are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
-  const treeFlash = new FlashSet((paths) => {
-    browseState = browse.setFlashed(browseState, paths);
-  });
+  let treeActivity = $state.raw(new Map<string, TreeActivity>());
   const eventLog = new EventLog(() => {
     logLines = eventLog.lines;
   });
 
   let selected = $derived(browse.selected(browseState));
   let mode = $derived(activePrefix ? "browse" : "discover");
-
-  $effect(() => {
-    if (broker === authBroker) {
-      return;
-    }
-    authBroker = broker;
-    ({ username, password } = loadAuth(broker));
-  });
 
   $effect(() => {
     eventLog.clearHidden(logOpen);
@@ -132,27 +118,29 @@
     return next.path;
   }
 
-  function commitSettings({ settings: nextSettings, changed }: SettingsCommit) {
-    const commit = browse.commitSettings(browseState, { settings: nextSettings, changed });
+  function commitSettings({ settings: nextSettings, changed, activity, rev }: SettingsCommit) {
+    const commit = browse.commitSettings(browseState, { settings: nextSettings, changed, activity, rev });
     browseState = commit.state;
     settingsRevision = commit.rev ?? settingsRevision;
-    treeFlash.add(commit.cues);
+    const at = Date.now();
+    treeActivity = new Map([
+      ...treeActivity,
+      ...[...commit.cues].map((path) => [path, { at }] as const),
+    ]);
     if (changed.size) {
       log("commit", `${changed.size} changed`);
     }
   }
 
   function resetBrowseState() {
-    stopConnection?.();
-    stopDiscovery?.();
+    discoverySession?.close();
     prefixSession?.close();
-    stopConnection = undefined;
-    stopDiscovery = undefined;
+    discoverySession = undefined;
     prefixSession = undefined;
     aliveManifest = undefined;
     settingsRevision = "";
     browseState = browse.emptyState();
-    treeFlash.reset();
+    treeActivity = new Map();
   }
 
   function showDiscoveryIdle() {
@@ -163,24 +151,11 @@
     setStatus("Idle");
   }
 
-  function storeAuth() {
-    saveAuth(broker, { username, password });
-  }
-
-  async function connectBackend(serial: number): Promise<MiniconfBackend | undefined> {
-    backend?.close();
-    const auth = username || password ? { username, password } : undefined;
-    const next = await MiniconfBackend.connect(broker, auth);
-    if (serial !== routeSerial) {
-      next.close();
-      return undefined;
-    }
-    backend = next;
-    return next;
-  }
-
   function loadSchema(nextSchema: Schema, root: string) {
-    browseState = browse.loadSchema(browseState, nextSchema, root);
+    const memory = browseState.schema
+      ? browseState
+      : browseMemory.get(JSON.stringify([broker, activePrefix, root]));
+    browseState = browse.loadSchema(browseState, nextSchema, root, memory);
     subtreePath = browseState.root;
     syncUrl();
   }
@@ -189,17 +164,19 @@
     eventLog.add(logOpen, event, detail);
   }
 
-  function setStatus(next: string) {
-    if (next === status) {
-      return;
-    }
+  function setStatus(next: string, nextError = "") {
+    error = nextError;
+    if (next === status) return;
     status = next;
     log("status", next);
   }
 
   function discover() {
-    storeAuth();
-    navigate(discoveryPath(broker, discoveryPattern));
+    try {
+      navigate(discoveryPath(broker, discoveryPattern));
+    } catch (err) {
+      setStatus("Invalid broker", err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function startDiscovery(serial: number) {
@@ -210,48 +187,37 @@
     discoveredPrefixes = [];
     syncUrl();
     try {
-      const nextBackend = await connectBackend(serial);
-      if (!nextBackend) {
+      const next = await DiscoverySession.connect(
+        broker,
+        discoveryPattern,
+        {
+          prefixes: (prefixes) => {
+            if (serial !== routeSerial) return;
+            discoveredPrefixes = prefixes;
+            setStatus(`${prefixes.length} matching prefix${prefixes.length === 1 ? "" : "es"}`);
+          },
+          error: (message) => {
+            if (serial !== routeSerial) return;
+            error = message;
+            log("error", message);
+          },
+          status: (nextStatus) => {
+            if (serial === routeSerial) setStatus(nextStatus);
+          },
+        },
+        username || password ? { username, password } : undefined,
+      );
+      if (serial !== routeSerial) {
+        next.close();
         return;
       }
-      setStatus("Watching discovery");
-      stopConnection = nextBackend.watchConnection((event) => {
-        if (serial !== routeSerial) {
-          return;
-        }
-        switch (event.state) {
-          case "connected":
-            setStatus("Broker reconnected; restoring discovery subscription");
-            break;
-          case "retained-replay-ready":
-            setStatus("Watching discovery");
-            break;
-          case "reconnecting":
-            setStatus("Broker reconnecting");
-            break;
-          case "offline":
-          case "closed":
-            setStatus("Broker disconnected");
-            break;
-          case "error":
-            setStatus("Broker connection error");
-            error = event.error ?? "";
-            if (error) {
-              log("error", error);
-            }
-            break;
-        }
-      });
-      stopDiscovery = nextBackend.watchDiscovery(discoveryPattern, (next) => {
-        if (serial !== routeSerial) {
-          return;
-        }
-        discoveredPrefixes = next;
-        setStatus(`${discoveredPrefixes.length} matching prefix${discoveredPrefixes.length === 1 ? "" : "es"}`);
-      });
+      discoverySession = next;
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
-      setStatus("Error");
+      setStatus("Error", error);
       log("error", error);
     }
   }
@@ -261,11 +227,7 @@
     setStatus("Connecting");
     resetBrowseState();
     try {
-      const nextBackend = await connectBackend(serial);
-      if (!nextBackend) {
-        return;
-      }
-      prefixSession = nextBackend.openPrefix(activePrefix, subtreePath, {
+      const next = await PrefixSession.connect(broker, activePrefix, subtreePath, {
         error: (message) => {
           if (serial !== routeSerial) {
             return;
@@ -285,10 +247,13 @@
           }
           // ACK/NAK is request feedback only. Do not mirror values here; wait
           // for the authoritative /settings publication handled below.
-          error = response.ok ? "" : `${response.code}: ${response.message}`;
-          setStatus(response.ok
-            ? `Set accepted for ${displayPath(response.path)}`
-            : `Set rejected for ${displayPath(response.path)}`);
+          const responseError = response.ok ? "" : `${response.code}: ${response.message}`;
+          setStatus(
+            response.ok
+              ? `Set accepted for ${displayPath(response.path)}`
+              : `Set rejected for ${displayPath(response.path)}`,
+            responseError,
+          );
           log("response", `${response.code} ${displayPath(response.path)}`);
         },
         schema: (nextSchema, root) => {
@@ -307,11 +272,19 @@
           }
           setStatus(next);
         },
-      });
-      await prefixSession.open();
+      }, username || password ? { username, password } : undefined);
+      if (serial !== routeSerial) {
+        next.close();
+        return;
+      }
+      prefixSession = next;
     } catch (err) {
+      if (serial !== routeSerial) {
+        return;
+      }
       error = err instanceof Error ? err.message : String(err);
-      setStatus("Error");
+      browseRetryable = true;
+      setStatus("Error", error);
       log("error", error);
     }
   }
@@ -330,23 +303,27 @@
     }
     error = "";
     try {
-      const response = await prefixSession.set(selected.path, value);
-      if (!response.ok) {
-        error = `${response.code}: ${response.message}`;
-      }
+      await prefixSession.set(selected.path, value);
     } catch (err) {
       error = err instanceof Error ? err.message : String(err);
-      setStatus("Set failed");
+      setStatus("Set failed", error);
       log("error", error);
     }
   }
 
   function applyRoute() {
     const next = readRoute(location);
-    // Route changes are the app-level cancellation boundary. Backend sessions
-    // also serialize their own retained refreshes, but stale callbacks can still
-    // arrive at this shell while navigation is in progress.
+    if (browseState.schema && activePrefix) {
+      browseMemory.set(JSON.stringify([broker, activePrefix, browseState.root]), {
+        expanded: new Set(browseState.expanded),
+        selectedPath: browseState.selectedPath,
+        userClosed: new Set(browseState.userClosed),
+      });
+    }
+    // Route changes cancel the old session; the serial also rejects callbacks
+    // from an initial connection that completed after navigation.
     const serial = ++routeSerial;
+    browseRetryable = false;
     broker = next.broker;
     discoveryPattern = next.discoveryPattern;
     activePrefix = next.activePrefix;
@@ -365,12 +342,8 @@
     applyRoute();
     return () => {
       removeEventListener("hashchange", applyRoute);
-      stopConnection?.();
-      stopDiscovery?.();
+      discoverySession?.close();
       prefixSession?.close();
-      treeFlash.reset();
-      eventLog.dispose();
-      backend?.close();
     };
   });
 </script>
@@ -383,12 +356,16 @@
       bind:username
       bind:password
       {discoveredPrefixes}
+      {status}
+      {error}
+      bind:logOpen
+      {logLines}
       {discover}
       {browseHref}
     />
-    <StatusLog {status} {error} bind:open={logOpen} {logLines} />
   {:else}
     <BrowseView
+      {broker}
       {activePrefix}
       discoverHref={discoveryPath(broker, discoveryPattern)}
       {subtreePath}
@@ -396,12 +373,15 @@
       {settingsRevision}
       {status}
       {error}
+      retryable={browseRetryable}
       treeNodes={browseState.tree.nodeViews}
       selectedPath={browseState.selectedPath}
       selected={selected}
-      flashed={browseState.flashed}
+      activity={treeActivity}
       expanded={browseState.expanded}
       editor={browseState.editor}
+      editorDirty={browseState.editorDirty}
+      editorStale={browseState.editorStale}
       bind:logOpen
       {logLines}
       treeRoot={browseState.root}
@@ -417,6 +397,7 @@
       resetEditor={() => {
         browseState = browse.loadEditor(browseState);
       }}
+      retry={applyRoute}
     />
   {/if}
 </main>

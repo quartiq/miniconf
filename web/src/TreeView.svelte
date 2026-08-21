@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TreeActions, TreeNodeView } from "./lib/tree-view";
+  import type { TreeActions, TreeActivity, TreeNodeView } from "./lib/tree-view";
   import type { NavDirection } from "./lib/tree-navigation";
   import TreeItem from "./TreeItem.svelte";
 
@@ -10,7 +10,7 @@
     nodes: Map<string, TreeNodeView>;
     selectedPath: string;
     expanded: Set<string>;
-    flashed?: Set<string>;
+    activity?: Map<string, TreeActivity>;
     actions: TreeActions;
   };
 
@@ -19,7 +19,7 @@
     nodes,
     selectedPath,
     expanded,
-    flashed = new Set(),
+    activity = new Map(),
     actions,
   }: Props = $props();
 
@@ -52,7 +52,7 @@
       node={rootNode}
       {nodes}
       {selectedPath}
-      {flashed}
+      {activity}
       {expanded}
       actions={treeActions}
     />

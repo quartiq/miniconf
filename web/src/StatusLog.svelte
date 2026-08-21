@@ -6,6 +6,7 @@
     error?: string;
     logLines?: string[];
     open?: boolean;
+    live?: boolean;
   };
 
   let {
@@ -13,11 +14,12 @@
     error = "",
     logLines = [],
     open = $bindable(false),
+    live = false,
   }: Props = $props();
 </script>
 
 <details class="log" bind:open>
-  <summary>
+  <summary aria-live={live ? "polite" : undefined}>
     <span aria-hidden="true" class="caret">{open ? "▾" : "▸"}</span>
     <span>{status}</span>
     {#if error}

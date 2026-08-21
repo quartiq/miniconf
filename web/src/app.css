@@ -44,6 +44,13 @@ main {
     max(var(--space), env(safe-area-inset-left));
 }
 
+.panel {
+  background: color-mix(in srgb, CanvasText 2%, Canvas);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+}
+
 h1,
 h2,
 p {
@@ -159,7 +166,7 @@ pre {
 }
 
 .log-body {
-  block-size: calc(4 * var(--line));
+  block-size: calc(10 * var(--line));
   margin-top: var(--space-tight);
   overflow: auto;
 }

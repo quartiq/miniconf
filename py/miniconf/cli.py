@@ -99,6 +99,8 @@ def _cli() -> argparse.ArgumentParser:
         %(prog)s -d app/+ /path??     # show machine-readable compact defs below PATH
         %(prog)s -d app/+ /path!      # show human-readable values below PATH
         %(prog)s -d app/+ /path!!     # dump raw /path=value values below PATH
+        %(prog)s app/id '?'           # show schema from the root (empty path)
+        %(prog)s app/id '/?'          # show schema below the empty-name child
         %(prog)s --raw app/id /path   # exact retained GET without schema tracking
         %(prog)s --raw -d app/+ /path=value # discover one prefix, then exact SET
 """,
@@ -156,6 +158,7 @@ def _cli() -> argparse.ArgumentParser:
         "to show or dump retained subtree values ('PATH!' or 'PATH!!'). "
         "Use sufficient shell quoting/escaping. "
         "Absolute PATHs are empty or start with a '/'. "
+        "The root PATH is empty; '/' addresses its empty-name child. "
         "All other PATHs are relative to the current base. "
         "Absolute subtree commands set the base to PATH; absolute leaf reads and SETs "
         "set it to PATH's parent.",

@@ -166,11 +166,12 @@ export function subtreeMatch(path: string, root: string): boolean {
 }
 
 export function displayPath(path: string): string {
-  return path || "/";
+  return path || "(root)";
 }
 
 function segment(path: string): string {
-  return path ? (path.split("/").at(-1) ?? "") : "";
+  if (!path) return "";
+  return path.split("/").at(-1) || '\"\"';
 }
 
 function formatMetadataValue(value: unknown): string {
@@ -197,8 +198,8 @@ function metadataLines(prefix: string, value: unknown): string[] {
   return lines.length ? lines : [prefix];
 }
 
-export function formatSchemaName(node: SchemaNode, name?: string): string {
-  return name ?? segment(node.path);
+export function formatSchemaName(node: SchemaNode): string {
+  return segment(node.path);
 }
 
 export function formatSchemaMetadata(node: SchemaNode): string {
