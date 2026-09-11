@@ -1,10 +1,14 @@
 use embedded_io_adapters::tokio_1::FromTokio;
-use miniconf::Tree;
+use miniconf::{
+    Tree, TreeSchema,
+    compact_schema::{SchemaDefs, serialize_schema_page},
+};
 use miniconf_mqtt::{Event, LoadRetained, Miniconf, Service, ServiceEvent};
 use minimq::{
     ConfigBuilder, ConnectEvent, Connection, InboundPublish, Op, Property, Publication, QoS,
     RetainHandling, Session, SubscriptionOptions, TopicFilter,
 };
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::{
     net::SocketAddr,
@@ -580,6 +584,15 @@ async fn startup_with_large_schema_waits_on_session_progress() {
 
 #[tokio::test]
 async fn startup_resumes_after_step_cancellation() {
+    use std::{
+        cell::Cell,
+        future::{Future, poll_fn},
+        io,
+        pin::{Pin, pin},
+        rc::Rc,
+        task::{Context, Poll},
+    };
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -590,33 +603,57 @@ async fn startup_resumes_after_step_cancellation() {
     let (mut mm2, mut session) =
         Miniconf::<common::Settings>::new(&prefix, compact_config()).unwrap();
     let settings = common::Settings::new();
-    let mut connection = timeout(
-        Duration::from_secs(5),
-        session.connect(connect_addr(addr).await.unwrap()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    let mut startup = miniconf_mqtt::Startup::new(&mut mm2, ConnectEvent::Connected);
-
-    let mut cancelled = false;
-    for _ in 0..64 {
-        match timeout(
-            Duration::ZERO,
-            startup.step(&mut mm2, &mut connection, &settings),
-        )
-        .await
-        {
-            Err(_) => {
-                cancelled = true;
-                break;
-            }
-            Ok(Ok(false)) => {}
-            Ok(Ok(true)) => panic!("startup completed before yielding"),
-            Ok(Err(error)) => panic!("startup failed: {error:?}"),
+    // Gate the transport flush so cancellation does not depend on broker timing.
+    struct PausedFlush {
+        stream: TcpStream,
+        paused: Rc<Cell<bool>>,
+    }
+    impl AsyncRead for PausedFlush {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.stream).poll_read(cx, buf)
         }
     }
-    assert!(cancelled, "startup step never yielded for cancellation");
+    impl AsyncWrite for PausedFlush {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.stream).poll_write(cx, buf)
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            if self.paused.get() {
+                return Poll::Pending;
+            }
+            Pin::new(&mut self.stream).poll_flush(cx)
+        }
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.stream).poll_shutdown(cx)
+        }
+    }
+    let paused = Rc::new(Cell::new(false));
+    let io = FromTokio::new(PausedFlush {
+        stream: TcpStream::connect(addr).await.unwrap(),
+        paused: paused.clone(),
+    });
+    let mut connection = timeout(Duration::from_secs(5), session.connect(io))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut startup = miniconf_mqtt::Startup::new(&mut mm2, ConnectEvent::Connected);
+
+    paused.set(true);
+    {
+        let mut step = pin!(startup.step(&mut mm2, &mut connection, &settings));
+        let pending = poll_fn(|cx| Poll::Ready(step.as_mut().poll(cx).is_pending())).await;
+        assert!(pending, "startup did not reach the paused flush");
+    }
+    // The cancelled future is gone; the replacement explicitly polls the unpaused IO.
+    paused.set(false);
 
     timeout(Duration::from_secs(5), async {
         while !startup
@@ -772,4 +809,188 @@ async fn service_rejects_overflow_without_mutating() {
 
     assert_eq!(settings.value, 9);
     assert_eq!(settings.nested.leaf, 0);
+}
+
+#[tokio::test]
+async fn interrupted_startup_restarts_before_using_the_resume_path() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+    timeout(Duration::from_secs(10), async {
+        for (cut, tx_bytes) in [
+            ("schema/", 576),
+            ("schema/", 512),
+            ("schema/", 640),
+            ("settings/", 512),
+        ] {
+            let prefix = unique("interrupted-startup");
+            let mut observer_session = Session::new(config());
+            let mut observer =
+                wait_session(&mut observer_session, connect_addr(addr).await.unwrap()).await;
+            let filter = format!("{prefix}/#");
+            let op = observer
+                .subscribe(&[TopicFilter::new(&filter)], &[])
+                .await
+                .unwrap();
+            wait_op(&mut observer, op).await;
+
+            let (mut mm2, mut session) = Miniconf::<common::Settings>::new(
+                &prefix,
+                ConfigBuilder::from_buffer(
+                    Box::leak(vec![0; 128 + tx_bytes].into_boxed_slice()),
+                    128,
+                )
+                .unwrap()
+                .session_expiry_interval(60),
+            )
+            .unwrap();
+            let mut settings = common::Settings::new();
+            let mut connection = session
+                .connect(connect_addr(addr).await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(connection.connect_event(), ConnectEvent::Connected);
+            let mut startup = miniconf_mqtt::Startup::new(&mut mm2, connection.connect_event());
+            let cut_topic = format!("{prefix}/{cut}");
+            'publishing: loop {
+                assert!(
+                    !startup
+                        .step(&mut mm2, &mut connection, &settings)
+                        .await
+                        .unwrap()
+                );
+                // Observe publications before accepting their ACKs at the device.
+                loop {
+                    let Some(inbound) = observer.poll().await.unwrap() else {
+                        continue;
+                    };
+                    if inbound.topic().starts_with(&cut_topic) {
+                        break 'publishing;
+                    }
+                    if inbound.topic().starts_with(&format!("{prefix}/schema/")) {
+                        while !connection.session().is_publish_quiescent() {
+                            let _ = connection.poll().await.unwrap();
+                        }
+                        break;
+                    }
+                }
+            }
+            assert!(!connection.session().is_publish_quiescent());
+            drop(connection);
+            settings.control.enabled = false;
+            settings.output.dac[1] = 73;
+
+            let mut connection = session
+                .connect(connect_addr(addr).await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(connection.connect_event(), ConnectEvent::Reconnected);
+            mm2.startup(&mut connection, &settings)
+                .await
+                .unwrap_or_else(|err| panic!("restart after {cut}, TX={tx_bytes}: {err:?}"));
+            let alive_topic = format!("{prefix}/alive");
+            let mut schema_pages = BTreeMap::new();
+            let mut mirror = BTreeMap::new();
+            #[derive(serde::Deserialize)]
+            struct Alive {
+                proto: u8,
+                epoch: u32,
+                schema_rev: u32,
+                pages: usize,
+            }
+            loop {
+                let Some(inbound) = observer.poll().await.unwrap() else {
+                    continue;
+                };
+                if let Some(page) = inbound.topic().strip_prefix(&format!("{prefix}/schema/")) {
+                    schema_pages.insert(page.parse::<usize>().unwrap(), inbound.payload().to_vec());
+                }
+                if let Some(path) = inbound.topic().strip_prefix(&format!("{prefix}/settings")) {
+                    mirror.insert(path.to_owned(), inbound.payload().to_vec());
+                }
+                if inbound.topic() == alive_topic && !inbound.payload().is_empty() {
+                    let (alive, used) =
+                        serde_json_core::from_slice::<Alive>(inbound.payload()).unwrap();
+                    assert_eq!(used, inbound.payload().len());
+                    assert_eq!(alive.proto, 1);
+                    assert_eq!(alive.epoch, 2);
+                    // Replayed pages may precede the restart; the latest page at each index wins.
+                    let schema: Vec<u8> = (0..alive.pages)
+                        .flat_map(|page| schema_pages.remove(&page).expect("missing schema page"))
+                        .collect();
+                    let defs = SchemaDefs::<128>::new(common::Settings::SCHEMA).unwrap();
+                    let mut expected = [0; 8192];
+                    let page = serialize_schema_page(&defs, 0, &mut expected).unwrap();
+                    assert_eq!(page.count, defs.len());
+                    assert_eq!(schema, expected[..page.len]);
+                    assert_eq!(
+                        alive.schema_rev,
+                        yafnv::Fnv::fnv1a(
+                            <u32 as yafnv::Fnv>::OFFSET_BASIS,
+                            schema.iter().copied()
+                        )
+                    );
+                    let expected = BTreeMap::from([
+                        ("/serial", b"4660".as_slice()),
+                        ("/control/enabled", b"false"),
+                        ("/control/mode", b"\"Run\""),
+                        ("/output/dac/0", b"1024"),
+                        ("/output/dac/1", b"73"),
+                        ("/output/attenuation/0", b"0"),
+                        ("/output/attenuation/1", b"0"),
+                        ("/calibration/offset", b"-3"),
+                        ("/calibration/slope", b"12"),
+                        ("/temp", b""),
+                    ]);
+                    assert_eq!(mirror.len(), expected.len());
+                    for (path, payload) in expected {
+                        assert_eq!(mirror.get(path).map(Vec::as_slice), Some(payload), "{path}");
+                    }
+                    break;
+                }
+            }
+            // Leave unrelated reliable traffic unacknowledged across a completed-session resume.
+            let pending = connection
+                .publish(
+                    Publication::new("test/pending", |buffer: &mut [u8]| {
+                        buffer.fill(b'x');
+                        Ok::<_, ()>(buffer.len() - 32)
+                    })
+                    .qos(QoS::AtLeastOnce),
+                )
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(connection.is_pending(&pending));
+            drop(connection);
+
+            // A completed MM2 startup keeps the cheap resumed-session path.
+            let mut connection = session
+                .connect(connect_addr(addr).await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(connection.connect_event(), ConnectEvent::Reconnected);
+            mm2.startup(&mut connection, &settings)
+                .await
+                .unwrap_or_else(|err| panic!("restart after {cut}, TX={tx_bytes}: {err:?}"));
+            loop {
+                let Some(inbound) = observer.poll().await.unwrap() else {
+                    continue;
+                };
+                if inbound.payload().is_empty() {
+                    continue;
+                }
+                assert_eq!(
+                    inbound.topic(),
+                    alive_topic,
+                    "completed startup was republished"
+                );
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
 }

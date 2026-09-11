@@ -208,6 +208,7 @@ enum Route {
 pub struct Miniconf<Settings> {
     pub(crate) prefix: TopicString,
     pub(crate) manifest: Manifest,
+    pub(crate) startup_complete: bool,
     _settings: PhantomData<Settings>,
 }
 
@@ -319,6 +320,7 @@ where
             Self {
                 prefix,
                 manifest: Manifest::default(),
+                startup_complete: false,
                 _settings: PhantomData,
             },
             session,
@@ -328,8 +330,8 @@ where
     /// Run Miniconf MQTT startup to completion after one MQTT connect event.
     ///
     /// `ConnectEvent::Connected` republishes schema/settings, subscribes `set/#`, and publishes
-    /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` because the MQTT session kept
-    /// subscriptions and queued QoS state.
+    /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` if startup previously
+    /// completed; otherwise it restarts synchronization from the current settings.
     ///
     /// This is the simple unbounded startup path. Fresh startup may discard inbound publishes
     /// while bootstrapping and is not the bounded/cancel-safe API.
@@ -479,8 +481,7 @@ impl Startup {
         Settings: TreeSchema,
     {
         match event {
-            ConnectEvent::Connected => Self::connected(miniconf),
-            ConnectEvent::Reconnected => {
+            ConnectEvent::Reconnected if miniconf.startup_complete => {
                 info!(
                     "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32}",
                     miniconf.prefix.as_str(),
@@ -489,6 +490,7 @@ impl Startup {
                 );
                 Self::reconnected()
             }
+            _ => Self::connected(miniconf),
         }
     }
 
@@ -500,6 +502,7 @@ impl Startup {
     where
         Settings: TreeSchema,
     {
+        miniconf.startup_complete = false;
         miniconf.manifest.epoch = miniconf.manifest.epoch.wrapping_add(1);
         miniconf.manifest.schema_rev = 0;
         miniconf.manifest.schema_pages = 0;

@@ -58,8 +58,9 @@ network glitch, keep the live settings in RAM authoritative and call
 
 - `ConnectEvent::Connected`: the broker did not resume the MQTT session, so Miniconf republishes
   schema, settings, `set/#`, and `alive`
-- `ConnectEvent::Reconnected`: the broker resumed the MQTT session, so Miniconf republishes only
-  `alive`
+- `ConnectEvent::Reconnected`: the broker resumed the MQTT session. If MM2 startup previously completed,
+  Miniconf republishes only `alive`; otherwise it restarts schema/settings synchronization
+  from current settings
 
 ## Protocol details
 
@@ -247,8 +248,8 @@ Success replies carry only `code=Ok`.
   authoritative device publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.
-- `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait
-  for broker ACKs or `SUBACK`.
+- `Startup::step() -> Ok(true)` means startup completed, including schema/settings ACKs,
+  `SUBACK`, and the final `alive` ACK.
 - `LoadRetained` is a quiescence heuristic, not a retained storage transaction. Applying retained
   pubs can still trigger normal setter side effects.
 - `Publisher` prunes only leaves in the currently traversed schema subtree. It does not discover

@@ -245,6 +245,10 @@ impl StartupPhase {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
+        // Replayed traffic must release its storage before startup uses the publish budget.
+        if !matches!(self, Self::Done) && !connection.session().is_publish_quiescent() {
+            return Ok(false);
+        }
         loop {
             match self {
                 Self::Schema { sync, op } => {
@@ -291,6 +295,7 @@ impl StartupPhase {
                             "Completed MM2 startup epoch={=u32} schema_rev={=u32}",
                             mm2.manifest.epoch, mm2.manifest.schema_rev
                         );
+                        mm2.startup_complete = true;
                         *self = Self::Done;
                         return Ok(true);
                     }

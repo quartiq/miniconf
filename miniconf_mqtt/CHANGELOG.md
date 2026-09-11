@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.22.0...HEAD) - DATE
 
+### Fixed
+
+* Restart interrupted MM2 startup when MQTT resumes a session, and drain in-flight traffic
+  before synchronization. Require MiniMQ 0.13.3 for reconnect-safe payload budgeting.
+
 ## [0.22.0](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.21.0...miniconf_mqtt-v0.22.0) - 2026-07-14
 
 ### Changed
