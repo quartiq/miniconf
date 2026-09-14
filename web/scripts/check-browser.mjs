@@ -33,6 +33,10 @@ const writes = [];
 let rejectSubscriptions = false;
 let holdResponse = false;
 let respond;
+let holdClear = false;
+let acknowledgeClear;
+let clearAcks = 0;
+let rejectClearAt = 0;
 function seed() {
   retained.clear();
   retained.set(`${prefix}/alive`, {
@@ -126,10 +130,19 @@ broker.on("connection", (socket) => {
         }
     } else if (message.cmd === "publish") {
       writes.push(message);
-      if (message.retain && message.payload.length === 0)
-        publish(message.topic, "", message.properties);
-      if (message.qos === 1)
-        reply({ cmd: "puback", messageId: message.messageId, reasonCode: 0 });
+      const clearing = message.retain && message.payload.length === 0;
+      const rejected = clearing && ++clearAcks === rejectClearAt;
+      if (clearing && !rejected) publish(message.topic, "", message.properties);
+      if (message.qos === 1) {
+        const acknowledge = () =>
+          reply({
+            cmd: "puback",
+            messageId: message.messageId,
+            reasonCode: rejected ? 135 : 0,
+          });
+        if (clearing && holdClear) acknowledgeClear = acknowledge;
+        else acknowledge();
+      }
       if (message.topic === `${prefix}/set/leaf` && message.payload.length) {
         respond = () => {
           publish(`${prefix}/settings/leaf`, message.payload.toString());
@@ -194,6 +207,17 @@ async function until(expression) {
 }
 async function click(selector) {
   await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  await evaluate(
+    "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+  );
+}
+async function clickButton(label, scope = "body") {
+  await evaluate(`(() => {
+    const button = [...document.querySelector(${JSON.stringify(scope)}).querySelectorAll('button')]
+      .find(button => button.textContent.trim() === ${JSON.stringify(label)});
+    if (!button || button.disabled) throw new Error('Button unavailable: ' + ${JSON.stringify(label)});
+    button.click();
+  })()`);
   await evaluate(
     "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
   );
@@ -298,6 +322,7 @@ try {
   ].filter(Boolean)) {
     seed();
     writes.length = 0;
+    console.log(`Connection identity and editor ownership: ${base}`);
     await viewport(1200, 850);
     await command("Page.navigate", { url: base });
     await until("document.querySelector('input[name=broker]')");
@@ -349,7 +374,18 @@ try {
         "document.querySelector('[data-tree-path=\"\"]').tabIndex === 0",
       ),
     );
-    await click('[data-tree-path=""] button');
+    await evaluate(
+      "document.querySelector('textarea').focus(); document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))",
+    );
+    await until("document.activeElement.dataset.treePath === ''");
+    await evaluate(
+      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))",
+    );
+    await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "-9007199254740993",
+    );
     await evaluate(
       "document.querySelector('[data-tree-path=\"/leaf\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
     );
@@ -357,7 +393,7 @@ try {
     await click('[data-tree-path="/leaf"]');
     await fill("textarea", "-9007199254740993");
     holdResponse = true;
-    await click(".actions button");
+    await clickButton("Set");
     await until("document.querySelector('.actions button').disabled");
     await fill("textarea", "123");
     const before = writes.length;
@@ -382,20 +418,57 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "123",
     );
-    await click(".actions button:nth-child(2)");
+    await clickButton("Use device value");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "456",
     );
+    // Returning to an old baseline must still expose the differing device value.
+    await fill("textarea", "457");
+    publish(`${prefix}/settings/leaf`, "458");
+    await until(
+      "document.querySelector('.device-value')?.textContent === '458'",
+    );
+    await fill("textarea", "456");
+    await until(
+      "document.querySelector('.device-value')?.textContent === '458'",
+    );
+    await clickButton("Use device value");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "458",
+    );
+
+    console.log(`Pruning observation, editing and partial failures: ${base}`);
+    seed();
+    writes.length = 0;
+    clearAcks = 0;
+    await command("Page.navigate", { url: href });
+    await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    await click('[data-tree-path="/leaf"]');
     await click("details.pruning summary");
-    await click("details.pruning button");
     await until(
       "document.querySelector('details.pruning pre')?.innerText.includes('/response/obsolete')",
     );
     assert.equal(writes.filter((m) => m.retain).length, 0);
-    await click("details.pruning button:last-child");
+    holdClear = true;
+    await clickButton("Clear 3 retained topics");
     await until(
-      "document.querySelector('details.pruning').innerText.includes('Cleared 3')",
+      "document.querySelector('details.pruning').innerText.includes('Clearing')",
+    );
+    await fill("textarea", "123");
+    await clickButton("Set");
+    await until("document.body.innerText.includes('Request accepted')");
+    assert(
+      await evaluate(
+        "document.querySelector('details.pruning').innerText.includes('Clearing')",
+      ),
+    );
+    await click("details.pruning summary");
+    holdClear = false;
+    acknowledgeClear();
+    await until(
+      "document.querySelector('details.pruning').textContent.includes('Cleared 3')",
     );
     assert.deepEqual(
       writes
@@ -407,7 +480,38 @@ try {
         .sort(),
     );
     assert(retained.has(`${prefix}/settings/leaf`));
+    // Reopening observes again; rejected clears retain their partial-result feedback.
     await click("details.pruning summary");
+    for (const name of ["a", "b", "c"])
+      publish(`${prefix}/settings/${name}`, "1");
+    await until(
+      "document.querySelector('details.pruning pre')?.textContent.includes('/settings/c')",
+    );
+    rejectClearAt = clearAcks + 2;
+    await clickButton("Clear 3 retained topics");
+    await until(
+      "document.querySelector('details.pruning').textContent.includes('Cleared 1;')",
+    );
+    assert(
+      retained.has(`${prefix}/settings/b`) &&
+        retained.has(`${prefix}/settings/c`),
+    );
+    rejectClearAt = 0;
+    await clickButton("Retry", "details.pruning");
+    await until(
+      "document.querySelector('details.pruning pre')?.textContent.includes('/settings/c')",
+    );
+    await clickButton("Clear 2 retained topics");
+    await until(
+      "document.querySelector('details.pruning').textContent.includes('Cleared 2')",
+    );
+    await click("details.pruning summary");
+
+    console.log(`Connection recovery and responsive layout: ${base}`);
+    seed();
+    await command("Page.navigate", { url: href });
+    await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    await click('[data-tree-path="/leaf"]');
     // A terminal reconnect failure must offer a usable retry.
     rejectSubscriptions = true;
     for (const socket of broker.clients) socket.terminate();
@@ -418,7 +522,7 @@ try {
       await evaluate("document.querySelector('.actions button').disabled"),
     );
     rejectSubscriptions = false;
-    await click(".connection-state button");
+    await clickButton("Retry", ".connection-state");
     await until(
       "document.querySelector('.connection-state').innerText.includes('Watching settings')",
     );
@@ -461,9 +565,6 @@ try {
         );
       }
     }
-    await command("Emulation.setEmulatedMedia", {
-      features: [{ name: "prefers-color-scheme", value: "dark" }],
-    });
     console.log(
       `Checked exact editing, broker identity, pruning, recovery and keyboard guards: ${base}`,
     );

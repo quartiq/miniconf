@@ -62,7 +62,7 @@ disabled while disconnected; use Retry if automatic recovery stops.
 
 ## Retained-topic cleanup
 
-For an alive device, open **Prune stale retained topics**, review the list, then Clear.
+For an alive device, open **Prune stale retained topics** to see the list, then Clear.
 This removes stale broker storage across the device prefix, even when browsing a subtree;
 valid settings are kept. Browsing works without pruning. Review again after an interrupted
 clear, which may have partly completed. Whole-prefix cleanup stays in the Python client.

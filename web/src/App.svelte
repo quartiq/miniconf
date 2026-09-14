@@ -17,7 +17,11 @@
   import { EventLog } from "./lib/event-log";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
   import { type SettingsCommit } from "./lib/settings-mirror";
-  import { type NavDirection } from "./lib/tree-navigation";
+  import {
+    treeTabStop,
+    visibleTreePaths,
+    type NavDirection,
+  } from "./lib/tree-navigation";
   import { type TreeActivity } from "./lib/tree-view";
 
   const route = readRoute(location);
@@ -76,12 +80,11 @@
     browseState.editor !== (browseState.editorBaseline ?? ""),
   );
   let editorStale = $derived(
-    editorDirty &&
-      selected?.value !== browseState.editorBaseline &&
+    selected?.value !== browseState.editorBaseline &&
       selected?.value !== browseState.editor,
   );
   let canSet = $derived(
-    connection.state === "watching" &&
+    connection.state !== "failed" &&
       !!prefixSession?.ready &&
       selected?.kind === "leaf" &&
       !request?.pending,
@@ -129,6 +132,14 @@
   }
 
   function focusTreeItem(path: string) {
+    path = treeTabStop(
+      path,
+      visibleTreePaths(
+        browseState.root,
+        browseState.tree.flatNodes,
+        browseState.expanded,
+      ),
+    );
     requestAnimationFrame(() => {
       document
         .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
@@ -145,11 +156,11 @@
   }
 
   function activateBrowseTree(path: string, internal: boolean, open: boolean) {
-    select(path);
     if (internal) {
       setExpanded(path, !open);
       return;
     }
+    select(path);
     if (browse.selected(browseState)?.kind === "leaf") {
       focusEditor();
     }
@@ -499,9 +510,7 @@
             {broker}
             prefix={activePrefix}
             session={prefixSession}
-            enabled={connection.state === "watching" &&
-              !!prefixSession?.ready &&
-              !request?.pending}
+            enabled={connection.state !== "failed" && !!prefixSession?.ready}
             auth={credentials}
           />
         {/key}

@@ -342,12 +342,20 @@ describe("exact settings and generation boundaries", () => {
     expect([...commits.at(-1)!]).toEqual([["/leaf", text]]);
     const setting = session.set("/leaf", text);
     expect(mqtt.publications.at(-1)?.payload).toBe(text);
+    const publication = mqtt.publications.at(-1)!;
+    mqtt.message(
+      publication.options.properties!.responseTopic!,
+      "stale response",
+      true,
+      { code: "Error" },
+      publication.options.properties!.correlationData as Uint8Array,
+    );
     mqtt.respond(0, "Ok");
     await expect(setting).resolves.toMatchObject({ ok: true });
     session.close();
   });
 
-  it("refreshes a live generation without carrying obsolete settings into the new schema", async () => {
+  it("replays the latest schema and settings across overlapping generation refreshes", async () => {
     vi.useFakeTimers();
     const mqtt = new FakeMqttClient();
     const commits: Array<Map<string, string>> = [];
@@ -367,16 +375,34 @@ describe("exact settings and generation boundaries", () => {
     );
     mqtt.message("dt/device/settings/leaf", "1", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
+    let release!: () => void;
+    mqtt.subscribeWait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
     expect(session.ready).toBe(false);
     expect([...commits.at(-1)!]).toEqual([]);
     await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
     mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
-    mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
-    mqtt.message("dt/device/settings/leaf", "2", true, { auth: "" });
+    const replacement = '{"s":"value"}\n{"i":{"k":"n","c":{"new":0}}}\n';
+    const latest = {
+      proto: 1,
+      epoch: 3,
+      schema_rev: hash(replacement),
+      pages: 1,
+    };
+    mqtt.message("dt/device/alive", JSON.stringify(latest));
+    mqtt.subscribeWait = undefined;
+    release();
+    await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(3));
+    mqtt.message("dt/device/alive", JSON.stringify(latest));
+    mqtt.message("dt/device/schema/0", replacement);
+    mqtt.message("dt/device/settings/leaf", "99", true, { auth: "" });
+    mqtt.message("dt/device/settings/new", "2", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
-    expect(mqtt.subscriptions).toHaveLength(2);
-    expect([...commits.at(-1)!]).toEqual([["/leaf", "2"]]);
+    expect(session.ready).toBe(true);
+    expect(session.pruningContext.alive).toEqual(latest);
+    expect([...commits.at(-1)!]).toEqual([["/new", "2"]]);
     session.close();
   });
 });

@@ -51,13 +51,6 @@ export function treeSnapshot(
   };
 }
 
-export function formatLeafValue(node: ViewNode): string {
-  if (node.kind !== "leaf" || !node.present) {
-    return "";
-  }
-  return node.value ?? "";
-}
-
 export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
   const children = new Map<string, ViewNode[]>();
   for (const node of nodes) {
@@ -99,7 +92,7 @@ export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
       {
         path: node.path,
         label: node.path ? formatSchemaName(node) : "(root)",
-        value: formatLeafValue(node),
+        value: node.kind === "leaf" ? (node.value ?? "") : "",
         children: (children.get(node.path) ?? []).map((child) => child.path),
       },
     ]),

@@ -122,4 +122,54 @@ describe("retained-topic pruning", () => {
     expect(states.at(-1)?.ready).toBe(false);
     expect(states.at(-1)?.message).toContain("outcome unknown");
   });
+
+  it.each(["rejected", "timeout"])(
+    "preserves partial progress after a %s publish",
+    async (failure) => {
+      vi.useFakeTimers();
+      try {
+        const mqtt = new FakeMqttClient();
+        connectMock.mockReturnValueOnce(mqtt);
+        const states: PruneState[] = [];
+        const pending = RetainedPruner.connect(
+          "ws://mqtt:8083",
+          "p",
+          { schema, alive },
+          (state) => states.push(state),
+        );
+        mqtt.connect();
+        const pruner = await pending;
+        mqtt.message("p/alive", JSON.stringify(alive));
+        for (const name of ["a", "b", "c"])
+          mqtt.message(`p/settings/${name}`, "1");
+        vi.spyOn(mqtt, "publishAsync")
+          .mockImplementationOnce(async (topic, payload, options) => {
+            mqtt.publications.push({ topic, payload, options });
+          })
+          .mockImplementationOnce(async (topic, payload, options) => {
+            mqtt.publications.push({ topic, payload, options });
+            if (failure === "rejected") throw new Error("Not authorized");
+            await new Promise(() => {});
+          });
+        const clearing = pruner.clear(states.at(-1)!.topics);
+        const rejected = expect(clearing).rejects.toThrow(
+          failure === "rejected" ? "Not authorized" : "timed out",
+        );
+        await vi.advanceTimersByTimeAsync(10_000);
+        await rejected;
+        expect(mqtt.publications.map((p) => p.topic)).toEqual([
+          "p/settings/a",
+          "p/settings/b",
+        ]);
+        expect(states.at(-1)).toMatchObject({
+          ready: false,
+          topics: ["p/settings/b", "p/settings/c"],
+        });
+        expect(states.at(-1)!.message).toContain("Cleared 1;");
+        expect(mqtt.ended).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });

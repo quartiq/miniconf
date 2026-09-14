@@ -35,6 +35,7 @@
   let schemaOpen = $state(false);
   let metadata = $derived(node ? formatSchemaMetadata(node) : "");
   let leaf = $derived(node?.kind === "leaf");
+  let differs = $derived(editor !== (node?.value ?? ""));
 
   function edit(event: Event) {
     updateEditor((event.currentTarget as HTMLTextAreaElement).value);
@@ -69,7 +70,7 @@
   <section class="editor" aria-label="Leaf editor">
     {#if leaf || editorDirty}
       <div class="value-editor">
-        {#if editorDirty || requestMessage || !node?.present}
+        {#if differs || requestMessage || !node?.present}
           <span class="meta">Device value</span>
           <pre class="device-value">{node?.value ?? "No value observed"}</pre>
         {/if}
@@ -94,7 +95,7 @@
         >
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
-          disabled={!editorDirty}
+          disabled={!differs}
           title="Reset the draft to the current value"
           type="button"
           onclick={resetEditor}

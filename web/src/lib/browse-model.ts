@@ -1,5 +1,5 @@
 import { type Schema } from "./schema";
-import type { Settings } from "./settings-mirror";
+import type { Settings, SettingsCommit } from "./settings-mirror";
 import {
   cuePaths,
   revealPresentSettings,
@@ -38,13 +38,6 @@ export type BrowseMemory = Pick<
   BrowseState,
   "expanded" | "selectedPath" | "userClosed"
 >;
-
-type BrowseSettings = {
-  settings: Settings;
-  touched: Set<string>;
-  activity: Set<string>;
-  rev?: string;
-};
 
 export function emptyState(): BrowseState {
   return {
@@ -100,7 +93,7 @@ export function loadSchema(
 
 export function commitSettings(
   state: BrowseState,
-  { settings, touched, activity, rev }: BrowseSettings,
+  { settings, touched, activity, rev }: SettingsCommit,
 ): BrowseCommit {
   let rebuilt = rebuild({ ...state, settings });
   if (
