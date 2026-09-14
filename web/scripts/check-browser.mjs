@@ -23,7 +23,12 @@ const server = createServer((_request, response) => {
 });
 const broker = new WebSocketServer({ server });
 const prefix = "dt/test/device";
-const schema = '{"s":"value"}\n{"i":{"k":"n","c":{"leaf":0,"other":0}}}\n';
+const schema = `${JSON.stringify({
+  s: "value",
+  m: {
+    doc: "Signed digital mixer step in 1/16 of the ADC sample rate.\n\nPositive advances the complex oscillator as exp(+j*phase) and shifts the sampled spectrum upward. Reconstructing the analog input therefore subtracts this frequency from the demodulation DDS carrier. The step aliases modulo 16 into the principal interval [-8, 7].",
+  },
+})}\n{"i":{"k":"n","c":{"leaf":0,"other":0}}}\n`;
 let revision = 0x811c9dc5;
 for (const byte of new TextEncoder().encode(schema))
   revision = Math.imul(revision ^ byte, 0x01000193) >>> 0;
@@ -672,8 +677,26 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "789",
     );
-    for (const width of [390, 1200]) {
+    await click(".schema summary");
+    await click('[data-tree-path="/other"]');
+    await click('[data-tree-path="/leaf"]');
+    assert(
+      await evaluate("document.querySelector('.schema').open"),
+      "Schema disclosure follows user intent across selection",
+    );
+    for (const width of [320, 390, 761, 1200]) {
       await viewport(width, 850);
+      assert(
+        await evaluate(`(() => {
+        const schema = document.querySelector('.schema-body');
+        const editor = document.querySelector('textarea').getBoundingClientRect();
+        const actions = document.querySelector('.actions').getBoundingClientRect();
+        const parent = document.querySelector('.value-editor').getBoundingClientRect();
+        return schema.clientHeight >= schema.scrollHeight - 1 &&
+          actions.top >= editor.bottom && Math.abs(editor.width - parent.width) < 1 && editor.width > 240;
+      })()`),
+        "Schema is readable in the containing pane and actions leave full editor width",
+      );
       assert(
         await evaluate("document.documentElement.scrollWidth <= innerWidth"),
       );
@@ -692,6 +715,14 @@ try {
         );
       }
     }
+    await viewport(1024, 400);
+    await click(".log summary");
+    assert(
+      await evaluate(
+        "document.querySelector('.workspace').getBoundingClientRect().height >= 240",
+      ),
+      "Open diagnostics leave a usable workspace in short windows",
+    );
     console.log(
       `Checked exact editing, broker identity, pruning, recovery and keyboard guards: ${base}`,
     );

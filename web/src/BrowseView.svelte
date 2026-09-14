@@ -224,6 +224,7 @@
   @media (min-width: 761px) {
     .browse {
       height: calc(100dvh - 2 * var(--space));
+      grid-template-rows: auto minmax(calc(12 * var(--line)), 1fr) auto;
     }
   }
 

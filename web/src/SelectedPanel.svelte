@@ -101,12 +101,12 @@
           onclick={resetEditor}
           >{node?.present ? "Use device value" : "Clear draft"}</button
         >
-        {#if editorStale}
-          <span class="stale">Device value updated</span>
-        {:else if editorDirty}
-          <span class="draft">Edited</span>
-        {/if}
       </div>
+      {#if editorStale}
+        <span class="stale">Device value updated</span>
+      {:else if editorDirty}
+        <span class="draft">Edited</span>
+      {/if}
       {#if requestMessage}<p class="request" role="status">
           {requestMessage}
         </p>{/if}
@@ -125,8 +125,8 @@
     overflow: auto;
     margin: 0 0 var(--space-tight);
   }
-  .request {
-    grid-column: 1 / -1;
+  h2 {
+    overflow-wrap: anywhere;
   }
 
   .selected {
@@ -158,9 +158,7 @@
   }
 
   .schema-body {
-    block-size: calc(4 * var(--line));
     margin-top: var(--space-tight);
-    overflow: auto;
   }
 
   .schema-body p {
@@ -180,7 +178,7 @@
     align-items: start;
     display: grid;
     gap: var(--space-tight);
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     min-block-size: calc(4 * var(--line));
   }
 
@@ -192,8 +190,13 @@
   .actions {
     align-items: baseline;
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: var(--space);
+  }
+
+  .actions button {
+    width: auto;
+    white-space: nowrap;
   }
 
   .draft,
@@ -210,17 +213,8 @@
   }
 
   @media (max-width: 760px) {
-    .editor {
-      grid-template-columns: 1fr;
-    }
-
-    .actions {
-      flex-direction: row;
-    }
-
-    .actions button {
-      flex: 1 1 0;
-      width: auto;
+    .selected {
+      overflow: visible;
     }
   }
 </style>
