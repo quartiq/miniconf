@@ -409,6 +409,67 @@ try {
     await evaluate(
       "document.querySelector('[data-tree-path=\"/leaf\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
     );
+    // Keyboard navigation reveals only the target, even when the target is unchanged.
+    const historyBefore = await command("Page.getNavigationHistory");
+    await evaluate(
+      "document.querySelector('.tree').style.height = '60px'; document.querySelector('[data-tree-path=\"\"]').focus()",
+    );
+    await evaluate(
+      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
+    );
+    await until(
+      "document.activeElement.dataset.treePath === '/other' && document.querySelector('.tree').scrollTop > 0",
+    );
+    await evaluate(
+      "document.querySelector('.tree').scrollTop = 0; document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
+    );
+    await until("document.querySelector('.tree').scrollTop > 0");
+    const treeScroll = await evaluate(
+      "document.querySelector('.tree').scrollTop",
+    );
+    await evaluate(
+      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))",
+    );
+    await until("document.activeElement.matches('textarea')");
+    await fill("textarea", "77");
+    publish(`${prefix}/settings/other`, "1234");
+    await until(
+      "document.querySelector('[data-tree-path=\"/other\"] .value').textContent === '1234'",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('.tree').scrollTop"),
+      treeScroll,
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "77",
+    );
+    await evaluate(
+      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))",
+    );
+    await until("document.activeElement.dataset.treePath === '/other'");
+    assert.equal(
+      await evaluate("document.querySelector('.tree').scrollTop"),
+      treeScroll,
+    );
+    await click(".schema summary");
+    assert.equal(
+      await evaluate("document.querySelector('.tree').scrollTop"),
+      treeScroll,
+    );
+    await click(".schema summary");
+    assert.equal(
+      (await command("Page.getNavigationHistory")).entries.length,
+      historyBefore.entries.length,
+    );
+    await evaluate("document.querySelector('.tree').style.height = ''");
+    await click(".back");
+    await until("!!document.querySelector('input[name=broker]')");
+    await evaluate("history.back()");
+    await until(
+      "document.querySelector('[data-tree-path=\"/other\"]')?.getAttribute('aria-selected') === 'true'",
+    );
+
     // Return to the exact leaf for submission; selecting another leaf is deliberate.
     await click('[data-tree-path="/leaf"]');
     await fill("textarea", "-9007199254740993");

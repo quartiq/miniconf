@@ -124,7 +124,9 @@
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
           disabled={!differs}
-          title="Reset the draft to the current value"
+          title={node?.present
+            ? "Discard your draft and use the latest received value"
+            : "Discard your draft"}
           type="button"
           onclick={resetEditor}
           >{node?.present ? "Use device value" : "Clear draft"}</button

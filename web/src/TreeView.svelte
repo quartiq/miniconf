@@ -27,27 +27,20 @@
     treeTabStop(selectedPath, visibleTreePaths(root, nodes, expanded)),
   );
   let rootNode = $derived(nodes.get(root));
-  let focusPath = $state<string | undefined>();
   let treeActions = $derived({
     ...actions,
     key(node: TreeNodeView, direction: NavDirection, step?: number) {
       const next = actions.key(node, direction, step);
-      focusPath = next;
+      requestAnimationFrame(() => {
+        const row = document.querySelector<HTMLElement>(
+          `[data-tree-path="${CSS.escape(next)}"]`,
+        );
+        row?.focus({ preventScroll: true });
+        row?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
       return next;
     },
   } satisfies TreeActions);
-
-  $effect(() => {
-    if (focusPath === undefined) {
-      return;
-    }
-    const path = focusPath;
-    requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
-        ?.focus();
-    });
-  });
 </script>
 
 <ul role="tree" aria-label={label}>

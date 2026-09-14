@@ -145,9 +145,11 @@
       ),
     );
     requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
-        ?.focus();
+      const row = document.querySelector<HTMLElement>(
+        `[data-tree-path="${CSS.escape(path)}"]`,
+      );
+      row?.focus({ preventScroll: true });
+      row?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   }
 
