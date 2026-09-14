@@ -179,7 +179,7 @@
   .app-header {
     align-items: center;
     display: grid;
-    gap: var(--space);
+    gap: var(--space-tight) var(--space);
     grid-template-columns: auto minmax(0, 1fr);
     min-width: 0;
   }
@@ -282,6 +282,15 @@
   }
 
   @media (min-width: 761px) {
+    .app-header {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+
+    .connection-state {
+      grid-column: auto;
+      max-width: 50vw;
+    }
+
     .browse {
       height: calc(100dvh - 2 * var(--space));
       grid-template-rows: auto minmax(calc(12 * var(--line)), 1fr) auto;
