@@ -1,5 +1,9 @@
 <script lang="ts">
-  let { label, value }: { label: string; value: unknown } = $props();
+  let {
+    label,
+    value,
+    heading = true,
+  }: { label: string; value: unknown; heading?: boolean } = $props();
   let entries = $derived(
     value !== null &&
       typeof value === "object" &&
@@ -11,7 +15,7 @@
 </script>
 
 <section aria-label={label}>
-  <h3>{label}</h3>
+  {#if heading}<h3>{label}</h3>{/if}
   <dl>
     {#each entries as [key, item]}
       <div>

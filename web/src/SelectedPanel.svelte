@@ -12,6 +12,7 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
+    editorError: string;
     updateEditor: (value: string) => void;
     submit: () => void;
     resetEditor: () => void;
@@ -25,6 +26,7 @@
     requestMessage,
     editor,
     editorDirty,
+    editorError,
     updateEditor,
     submit,
     resetEditor,
@@ -55,6 +57,7 @@
     {#if node}<div class="meta">Kind: {node.kind}</div>{/if}
     {#if node?.sem !== undefined}<Metadata
         label="Semantics"
+        heading={false}
         value={node.sem}
       />{/if}
     {#if node?.edge !== undefined}<Metadata
@@ -73,19 +76,19 @@
 {/snippet}
 
 <section class="selected panel" aria-label="Selected item">
-  <h2>{displayPath(path)}</h2>
   {#if node && !leaf}
+    <h2>{displayPath(path)}</h2>
     <section class="schema" aria-label="Schema">
-      <h3>Schema</h3>
       {@render schemaDetails()}
     </section>
   {:else}
     <details class="schema" bind:open={schemaOpen}>
       <summary>
         <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
-        <span
-          >Schema{!schemaOpen && node ? ` · ${schemaSummary(node)}` : ""}</span
-        >
+        <h2>{displayPath(path)}</h2>
+        {#if !schemaOpen && node}<span class="schema-hint"
+            >{schemaSummary(node)}</span
+          >{/if}
       </summary>
       {@render schemaDetails()}
     </details>
@@ -93,18 +96,22 @@
   {#if leaf || editorDirty}
     <section class="editor" aria-label="Leaf editor">
       <div class="value-editor">
-        <span class="meta">Device value</span>
-        <pre class="device-value">{node?.value ?? "No value observed"}</pre>
+        {#if leaf && !node?.present}<p>No value observed</p>{/if}
         {#if !leaf}<p>Leaf unavailable</p>{/if}
         <label for="leaf-editor">Draft</label>
         <textarea
           id="leaf-editor"
           aria-keyshortcuts="Control+Enter Meta+Enter Escape"
           data-leaf-editor
+          aria-invalid={!!editorError}
+          aria-describedby={editorError ? "editor-error" : undefined}
           title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
           value={editor}
           oninput={edit}
           onkeydown={maybeSubmit}></textarea>
+        {#if editorError}<p id="editor-error" role="alert">
+            {editorError}
+          </p>{/if}
       </div>
       <div class="actions">
         <button
@@ -134,19 +141,8 @@
   .value-editor {
     min-width: 0;
   }
-  .device-value {
-    max-height: calc(4 * var(--line));
-    overflow: auto;
-    margin: 0 0 var(--space-tight);
-  }
   h2 {
     overflow-wrap: anywhere;
-  }
-  h3 {
-    font-size: var(--text);
-    font-weight: 600;
-    margin: 0;
-    line-height: var(--line);
   }
 
   .selected {
@@ -165,6 +161,16 @@
     line-height: var(--line);
     list-style: none;
     min-height: var(--line);
+    flex-wrap: wrap;
+  }
+  .schema summary h2 {
+    min-width: 0;
+    margin: 0;
+  }
+  .schema-hint {
+    color: var(--muted);
+    font-size: var(--text-small);
+    margin-left: var(--space);
   }
 
   .schema summary::-webkit-details-marker {

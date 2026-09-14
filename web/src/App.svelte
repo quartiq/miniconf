@@ -47,6 +47,12 @@
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
   let connection = $state<SessionStatus>({ state: "idle" });
+  let pruning = $state<PruningState>({
+    count: 0,
+    pending: false,
+    message: "",
+    coverageWarning: "",
+  });
   let status = $derived(
     {
       idle: "Not connected",
@@ -57,20 +63,17 @@
       offline: "Disconnected — last observed values",
       waiting: "Waiting for device announcement",
       loading: "Loading schema",
-      watching: activePrefix ? "Ready" : "Watching discovery",
+      watching: activePrefix
+        ? pruning.message || "Ready"
+        : "Watching discovery",
       error: "Connection error",
       failed: "Connection failed",
       "device-error": "Device unavailable",
     }[connection.state],
   );
   let request = $state<{ path: string; pending: boolean; message: string }>();
+  let editorError = $state<{ path: string; text: string; message: string }>();
   let settingsRevision = $state("");
-  let pruning = $state<PruningState>({
-    count: 0,
-    pending: false,
-    message: "",
-    coverageWarning: "",
-  });
   let error = $state("");
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
@@ -220,6 +223,7 @@
         }).state
       : browse.emptyState();
     request = undefined;
+    editorError = undefined;
     treeActivity = new Map();
   }
 
@@ -370,10 +374,10 @@
     try {
       JSON.parse(browseState.editor);
     } catch (err) {
-      request = {
+      editorError = {
         path,
-        pending: false,
-        message: err instanceof Error ? err.message : String(err),
+        text: browseState.editor,
+        message: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
       };
       return;
     }
@@ -490,6 +494,10 @@
       expanded={browseState.expanded}
       editor={browseState.editor}
       {editorDirty}
+      editorError={editorError?.path === browseState.selectedPath &&
+      editorError.text === browseState.editor
+        ? editorError.message
+        : ""}
       {canSet}
       requestMessage={request?.path === browseState.selectedPath
         ? request.message

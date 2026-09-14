@@ -489,7 +489,7 @@ export class PrefixSession {
         // arriving before this acknowledgment. PUBACK only confirms progress.
         cleared++;
       }
-      this.pruneMessage = `Cleared ${cleared} retained topics.`;
+      this.pruneMessage = `Cleared ${cleared}`;
     } catch (error) {
       this.pruneMessage = `Cleared ${cleared}; pruning interrupted, remaining outcome unknown. ${error instanceof Error ? error.message : String(error)}`;
     } finally {

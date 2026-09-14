@@ -126,7 +126,7 @@ describe("retained-topic pruning", () => {
     release();
     await clearing;
     expect(states.at(-1)?.count).toBe(1);
-    expect(states.at(-1)?.message).toBe("Cleared 1 retained topics.");
+    expect(states.at(-1)?.message).toBe("Cleared 1");
     session.close();
   });
 

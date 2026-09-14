@@ -432,9 +432,20 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "123",
     );
+    const acceptedWrites = writes.length;
+    await fill("textarea", "{");
+    await clickButton("Set");
+    assert(
+      await evaluate(
+        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.request').textContent.includes('Last Set: succeeded')",
+      ),
+    );
+    assert.equal(writes.length, acceptedWrites);
+    await fill("textarea", "123");
+    assert(await evaluate("!document.querySelector('#editor-error')"));
     publish(`${prefix}/settings/leaf`, "456");
     await until(
-      "document.querySelector('.device-value').textContent === '456'",
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value').textContent === '456'",
     );
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
@@ -449,11 +460,11 @@ try {
     await fill("textarea", "457");
     publish(`${prefix}/settings/leaf`, "458");
     await until(
-      "document.querySelector('.device-value')?.textContent === '458'",
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '458'",
     );
     await fill("textarea", "456");
     await until(
-      "document.querySelector('.device-value')?.textContent === '458'",
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '458'",
     );
     await clickButton("Use device value");
     assert.equal(
@@ -500,9 +511,7 @@ try {
     await until("document.body?.innerText.includes('Last Set: succeeded')");
     holdClear = false;
     acknowledgeClear();
-    await until(
-      "document.body?.innerText.includes('Cleared 3 retained topics.')",
-    );
+    await until("document.body?.innerText.includes('Cleared 3')");
     assert.deepEqual(
       writes
         .filter((m) => m.retain)
@@ -525,11 +534,7 @@ try {
       headerHeight,
       "Prune progress and button disappearance preserve header height",
     );
-    assert(
-      await evaluate(
-        "document.body?.innerText.includes('Cleared 1 retained topics.')",
-      ),
-    );
+    assert(await evaluate("document.body?.innerText.includes('Cleared 1')"));
 
     for (const name of ["a", "b", "c"])
       publish(`${prefix}/settings/${name}`, "1");
@@ -561,9 +566,7 @@ try {
     for (const socket of broker.clients) socket.terminate();
     holdClear = false;
     await until("document.body?.innerText.includes('pruning interrupted')");
-    await until(
-      "document.querySelector('.connection-state').innerText.includes('Ready')",
-    );
+    await until("!document.querySelector('.actions button').disabled");
     assert.equal(
       writes.filter((message) => message.retain).length,
       clearsBeforeReconnect,
@@ -599,18 +602,14 @@ try {
       "document.querySelector('.prune')?.textContent.trim() === 'Prune (1)'",
     );
     await clickButton("Prune (1)");
-    await until(
-      "document.body?.innerText.includes('Cleared 1 retained topics.')",
-    );
+    await until("document.body?.innerText.includes('Cleared 1')");
     assert(!retained.has(`${prefix}/settings/partial`));
     await click('[data-tree-path="/leaf"]');
     await fill("textarea", "789");
     await clickButton("Set");
     await until("document.body?.innerText.includes('Last Set: succeeded')");
     assert(
-      await evaluate(
-        "document.querySelector('.connection-state').innerText.includes('Ready')",
-      ),
+      await evaluate("!document.querySelector('.actions button').disabled"),
     );
     rejectCleanup = false;
 
@@ -631,9 +630,7 @@ try {
     );
     rejectSubscriptions = false;
     await clickButton("Retry", ".connection-state");
-    await until(
-      "document.querySelector('.connection-state').innerText.includes('Ready')",
-    );
+    await until("!document.querySelector('.actions button').disabled");
     await until("!document.querySelector('.actions button').disabled");
     await fill("textarea", "789");
     // Live epoch refresh keeps the editor, replays state and resumes readiness.
@@ -664,9 +661,7 @@ try {
     for (const socket of broker.clients) socket.terminate();
     await until("document.body?.innerText.includes('outcome unknown')");
     holdSetAck = holdResponse = false;
-    await until(
-      "document.querySelector('.connection-state').innerText.includes('Ready')",
-    );
+    await until("!document.querySelector('.actions button').disabled");
     assert.equal(writes.length, writesBeforeDisconnect);
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
@@ -723,7 +718,7 @@ try {
     assert(
       await evaluate(`(() => {
       const text = label => document.querySelector('[aria-label="'+label+'"]').textContent;
-      return document.querySelector('.schema summary span:last-child').textContent === 'Schema' &&
+      return !document.querySelector('.schema-hint') && document.querySelector('.schema summary h2').textContent === '/leaf' &&
         text('Edge metadata').includes('edge note') &&
         text('Node metadata').includes('first line\\nsecond line') &&
         text('Node metadata').includes('false') && text('Node metadata').includes('null') &&
@@ -772,7 +767,7 @@ try {
     await click(".identity summary");
     assert(
       await evaluate(
-        `document.querySelector('.identity-details').textContent.includes('${prefix}')`,
+        `document.querySelector('.context h1').textContent === '${prefix}' && !document.querySelector('.identity-details').textContent.includes('${prefix}') && document.querySelectorAll('.broker-label').length === 1`,
       ),
     );
     await click(".identity summary");

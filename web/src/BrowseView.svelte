@@ -31,6 +31,7 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
+    editorError: string;
     logOpen?: boolean;
     logLines: string[];
     treeActions: TreeActions;
@@ -64,6 +65,7 @@
     requestMessage,
     editor,
     editorDirty,
+    editorError,
     logOpen = $bindable(false),
     logLines,
     treeActions,
@@ -74,11 +76,10 @@
     retry,
   }: Props = $props();
   let identityOpen = $state(false);
-  let brokerLabel = $derived(new URL(broker).host);
 </script>
 
 <section class="browse">
-  <header class="app-header panel">
+  <header class="app-header panel" class:expanded={identityOpen}>
     <a
       class="back"
       href={discoverHref}
@@ -92,8 +93,6 @@
           <h1>{activePrefix}</h1></summary
         >
         <div class="identity-details">
-          <div>{activePrefix}</div>
-          <div>{broker}</div>
           {#if aliveManifest}<div>
               epoch {aliveManifest.epoch} · schema {aliveManifest.schema_rev}
             </div>{/if}
@@ -105,14 +104,7 @@
       {#if subtreePath}<div class="subtree">subtree {subtreePath}</div>{/if}
     </div>
     <div class="connection-state">
-      {#if pruning.message}
-        <details class="prune-result">
-          <summary title={pruning.message}>{pruning.message}</summary>
-          <p>{pruning.message}</p>
-        </details>
-      {:else}
-        <span class="broker-label" title={broker}>{brokerLabel}</span>
-      {/if}
+      <span class="broker-label" title={broker}>{broker}</span>
       <div class="prune-action">
         {#if pruning.count}
           <button
@@ -125,17 +117,17 @@
           >
         {/if}
       </div>
-      <div role="status">
-        <span>{status}</span>
-        {#if error}<strong>{error}</strong>{/if}
+      <div class="status">
+        <div role="status">
+          <span>{status}</span>
+          {#if error}<strong>{error}</strong>{/if}
+        </div>
+        {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
       </div>
       {#if pruning.coverageWarning}<span
           class="meta coverage"
           title={pruning.coverageWarning}>Partial pruning coverage</span
         >{/if}
-      {#if retryable}
-        <button type="button" onclick={retry}>Retry</button>
-      {/if}
     </div>
   </header>
 
@@ -164,6 +156,7 @@
       {requestMessage}
       {editor}
       {editorDirty}
+      {editorError}
       {updateEditor}
       {submit}
       {resetEditor}
@@ -230,18 +223,14 @@
     height: 100%;
     white-space: nowrap;
   }
-  .prune-result {
-    min-width: 0;
+  .status {
+    min-width: 10ch;
+    max-width: 50vw;
   }
-  .prune-result summary {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-  .prune-result p {
+  .expanded h1,
+  .expanded .broker-label {
+    white-space: normal;
     overflow-wrap: anywhere;
-    margin: var(--space-tight) 0 0;
   }
   .coverage {
     grid-column: 1 / -1;
