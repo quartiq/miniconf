@@ -50,6 +50,28 @@ export class FakeMqttClient extends EventEmitter {
     }));
   }
 
+  subscribe(
+    subscriptions: ISubscriptionMap,
+    callback: (
+      error: Error | null,
+      grants?: unknown,
+      packet?: { granted: number[] },
+    ) => void,
+  ): this {
+    void this.subscribeAsync(subscriptions).then(
+      (grants) =>
+        callback(
+          grants.some((g) => g.qos >= 128)
+            ? new Error("Subscribe error")
+            : null,
+          grants,
+          { granted: grants.map((g) => g.qos) },
+        ),
+      (error) => callback(error),
+    );
+    return this;
+  }
+
   async publishAsync(
     topic: string,
     payload: string,

@@ -17,6 +17,7 @@
     value?: string;
     href?: string;
     activity?: TreeActivity;
+    showActivity?: boolean;
     title?: string;
     select: () => void;
     toggle: () => void;
@@ -37,35 +38,29 @@
     value = "",
     href = undefined,
     activity = undefined,
+    showActivity = false,
     title = "",
     select,
     toggle,
     keydown,
   }: Props = $props();
 
-  const flashFrames = [
-    { background: "var(--flash)" },
-    { background: "var(--flash-end)" },
-  ];
-
-  function flash(node: HTMLElement, initial?: TreeActivity) {
-    let animation: Animation | undefined;
+  function indicateActivity(node: HTMLElement, initial?: TreeActivity) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const run = (next?: TreeActivity) => {
-      const age = next ? Date.now() - next.at : -1;
-      if (!next || age < 0 || age > 1000) {
-        return;
-      }
-      animation?.cancel();
-      animation = node.animate(flashFrames, {
-        duration: 1000,
-        easing: "ease-out",
-      });
+      clearTimeout(timer);
+      const remaining = next ? 1000 - (Date.now() - next.at) : 0;
+      node.style.opacity = remaining > 0 ? "1" : "0";
+      if (remaining > 0)
+        timer = setTimeout(() => {
+          node.style.opacity = "0";
+        }, remaining);
     };
     run(initial);
     return {
       update: run,
       destroy() {
-        animation?.cancel();
+        clearTimeout(timer);
       },
     };
   }
@@ -94,11 +89,17 @@
     style:padding-left={`${depth}rem`}
     tabindex={tabbable ? 0 : -1}
     {title}
-    use:flash={activity}
     onclick={select}
     onkeydown={keydown}
   >
     <span aria-hidden="true" class="spacer"></span>
+    {#if showActivity}<span
+        aria-hidden="true"
+        class="activity-slot"
+        title="Recent settings publication"
+        ><span class="activity-dot" use:indicateActivity={activity}
+        ></span></span
+      >{/if}
     <span class="label">{label}</span>
     {#if value}
       <span class="separator">{" = "}</span>
@@ -118,7 +119,6 @@
     style:padding-left={`${depth}rem`}
     tabindex={tabbable ? 0 : -1}
     {title}
-    use:flash={activity}
     onclick={select}
     onkeydown={keydown}
   >
@@ -133,6 +133,13 @@
     {:else}
       <span aria-hidden="true" class="spacer"></span>
     {/if}
+    {#if showActivity}<span
+        aria-hidden="true"
+        class="activity-slot"
+        title="Recent settings publication"
+        ><span class="activity-dot" use:indicateActivity={activity}
+        ></span></span
+      >{/if}
     {#if href}
       <a class="label" {href} tabindex="-1" onclick={stopAndSelect}>{label}</a>
     {:else}
@@ -161,7 +168,6 @@
     text-align: left;
     text-decoration: none;
     width: 100%;
-    --flash-end: transparent;
   }
 
   div[role="treeitem"] {
@@ -196,7 +202,6 @@
   .selected {
     background: var(--selected);
     box-shadow: inset 2px 0 0 var(--selected-mark);
-    --flash-end: var(--selected);
   }
 
   .label {
@@ -205,6 +210,22 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .activity-slot {
+    align-items: center;
+    align-self: stretch;
+    display: flex;
+    flex: 0 0 var(--caret);
+    justify-content: center;
+  }
+
+  .activity-dot {
+    background: currentColor;
+    border-radius: 50%;
+    height: var(--activity-size);
+    width: var(--activity-size);
+    opacity: 0;
   }
 
   a.label {

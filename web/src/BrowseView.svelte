@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import type { PruningState } from "./lib/backend";
   import type { ViewNode } from "./lib/tree-state";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import SelectedPanel from "./SelectedPanel.svelte";
@@ -9,7 +9,9 @@
   import TreeView from "./TreeView.svelte";
 
   type Props = {
-    pruning: Snippet;
+    pruning: PruningState;
+    canPrune: boolean;
+    prune: () => void;
     broker: string;
     activePrefix: string;
     discoverHref: string;
@@ -42,6 +44,8 @@
 
   let {
     pruning,
+    canPrune,
+    prune,
     broker,
     activePrefix,
     discoverHref,
@@ -91,6 +95,25 @@
       </div>
     </div>
     <div class="connection-state">
+      {#if pruning.count}
+        <button
+          class="prune"
+          type="button"
+          disabled={!canPrune}
+          onclick={prune}
+          title={pruning.unavailable ||
+            `Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
+          >Prune ({pruning.count})</button
+        >
+      {/if}
+      {#if pruning.message}<span
+          class="meta"
+          role="status"
+          title={pruning.message}>{pruning.message}</span
+        >{/if}
+      {#if pruning.unavailable}<span class="meta" title={pruning.unavailable}
+          >Pruning unavailable</span
+        >{/if}
       <div role="status" title={error || status}>
         <span>{status}</span>
         {#if error}<strong>{error}</strong>{/if}
@@ -134,7 +157,6 @@
     />
   </div>
 
-  {@render pruning()}
   <StatusLog status="Log" bind:open={logOpen} {logLines} />
 </section>
 
@@ -142,7 +164,7 @@
   .browse {
     display: grid;
     gap: var(--space);
-    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     height: calc(100svh - 2 * var(--space));
     min-width: 0;
   }

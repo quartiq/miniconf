@@ -15,7 +15,7 @@ import {
 } from "./tree-navigation";
 
 // Browse UI state. The editor draft is user-owned after selection/opening;
-// incoming settings rebuild row values and flashes but must not overwrite it.
+// incoming settings rebuild row values and activity but must not overwrite it.
 export type BrowseState = {
   schema: Schema | undefined;
   settings: Settings;

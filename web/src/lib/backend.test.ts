@@ -118,13 +118,15 @@ describe("PrefixSession", () => {
       }),
     );
 
-    const response = Object.keys(mqtt.subscriptions[0]).find((topic) =>
-      topic.includes("/response/"),
+    const response = Object.keys(mqtt.subscriptions[0]).find(
+      (topic) => topic.includes("/response/") && !topic.endsWith("/#"),
     );
     expect(Object.keys(mqtt.subscriptions[0])).toEqual([
+      "dt/device/settings/#",
+      "dt/device/set/#",
+      "dt/device/response/#",
       "dt/device/alive",
       "dt/device/schema/#",
-      "dt/device/settings/#",
       response,
     ]);
     mqtt.message(
@@ -401,7 +403,6 @@ describe("exact settings and generation boundaries", () => {
     mqtt.message("dt/device/settings/new", "2", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
     expect(session.ready).toBe(true);
-    expect(session.pruningContext.alive).toEqual(latest);
     expect([...commits.at(-1)!]).toEqual([["/new", "2"]]);
     session.close();
   });

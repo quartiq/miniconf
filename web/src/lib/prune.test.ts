@@ -1,15 +1,46 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { RetainedPruner, staleTopic, type PruneState } from "./prune";
+import { PrefixSession, type PruningState } from "./backend";
+import { staleTopic } from "./prune";
 import { Schema } from "./schema";
 import { FakeMqttClient } from "./mqtt-test-fixture";
+
 const connectMock = vi.hoisted(() => vi.fn());
 vi.mock("mqtt", () => ({ default: { connect: connectMock } }));
-afterEach(() => connectMock.mockReset());
-const schema = new Schema(
-  [{ s: "value" }, { i: { k: "n", c: { leaf: 0, "": 0 } } }],
-  7,
-);
-const alive = { proto: 1, epoch: 1, schema_rev: 7, pages: 1 };
+afterEach(() => {
+  connectMock.mockReset();
+  vi.useRealTimers();
+});
+const defs = [
+  { s: "value" },
+  { i: { k: "n" as const, c: { leaf: 0, "": 0 } } },
+];
+const text = defs.map((def) => JSON.stringify(def)).join("\n") + "\n";
+let revision = 0x811c9dc5;
+for (const byte of new TextEncoder().encode(text))
+  revision = Math.imul(revision ^ byte, 0x01000193) >>> 0;
+const schema = new Schema(defs, revision);
+const alive = { proto: 1, epoch: 1, schema_rev: revision, pages: 1 };
+
+async function connect(rejectedTopic = "", root = "") {
+  const mqtt = new FakeMqttClient();
+  mqtt.rejectedTopic = rejectedTopic;
+  connectMock.mockReturnValueOnce(mqtt);
+  const states: PruningState[] = [];
+  const pending = PrefixSession.connect("ws://mqtt:8083", "p", root, {
+    alive: () => {},
+    schema: () => {},
+    settings: () => {},
+    status: () => {},
+    pruning: (state) => states.push(state),
+  });
+  mqtt.connect();
+  const session = await pending;
+  return { mqtt, session, states };
+}
+function announce(mqtt: FakeMqttClient) {
+  mqtt.message("p/alive", JSON.stringify(alive));
+  mqtt.message("p/schema/0", text);
+}
 
 describe("retained-topic pruning", () => {
   it("classifies exact namespace boundaries and schema leaves", () => {
@@ -21,9 +52,8 @@ describe("retained-topic pruning", () => {
       "p/schema/9",
       "p/settingsX/old",
       "other/settings/old",
-    ]) {
+    ])
       expect(staleTopic("p", schema, topic), topic).toBe(false);
-    }
     for (const topic of [
       "p/settings/old",
       "p/set/old",
@@ -31,38 +61,39 @@ describe("retained-topic pruning", () => {
       "p/set",
       "p/response",
       "p/response/leaf",
-      "p/response/random",
-    ]) {
+    ])
       expect(staleTopic("p", schema, topic), topic).toBe(true);
-    }
-    const rootLeaf = new Schema([{ s: "value" }], 2);
-    expect(staleTopic("p", rootLeaf, "p/settings")).toBe(false);
+    expect(staleTopic("p", new Schema([{ s: "value" }], 2), "p/settings")).toBe(
+      false,
+    );
   });
 
-  it("previews without writing and clears only the approved retained topics", async () => {
-    const mqtt = new FakeMqttClient();
-    const states: PruneState[] = [];
-    connectMock.mockReturnValueOnce(mqtt);
-    const pending = RetainedPruner.connect(
-      "ws://mqtt:8083",
-      "p",
-      { schema, alive },
-      (state) => states.push(state),
-    );
-    mqtt.connect();
-    const pruner = await pending;
-    mqtt.message("p/alive", JSON.stringify(alive));
+  it("observes before payload validation and clears only candidates captured at the click", async () => {
+    const { mqtt, session, states } = await connect();
     mqtt.message("p/settings/leaf", "1");
-    mqtt.message("p/settings/old", "2");
-    mqtt.message("p/set/old", "3");
-    mqtt.message("p/response/old", "4");
-    mqtt.message("p/settings/live", "5", false);
+    mqtt.message("p/settings/old", new Uint8Array([255]));
+    mqtt.message("p/set/old", "not JSON");
+    mqtt.message("p/response/old", "reply");
+    mqtt.message("p/settings/live", "1", false);
+    expect(states.at(-1)?.count).toBe(0);
+    announce(mqtt);
+    expect(states.at(-1)?.count).toBe(3);
+    expect(connectMock).toHaveBeenCalledTimes(1);
     expect(mqtt.publications).toEqual([]);
-    const approved = states.at(-1)!.topics;
-    expect(approved).toEqual(["p/response/old", "p/set/old", "p/settings/old"]);
-    mqtt.message("p/settings/later", "6");
-    await pruner.clear(approved);
-    expect(mqtt.publications.map(({ topic }) => topic)).toEqual(approved);
+    let release!: () => void;
+    mqtt.publishWait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const clearing = session.prune();
+    mqtt.message("p/settings/later", "1");
+    mqtt.publishWait = undefined;
+    release();
+    await clearing;
+    expect(mqtt.publications.map((p) => p.topic)).toEqual([
+      "p/settings/old",
+      "p/set/old",
+      "p/response/old",
+    ]);
     for (const publication of mqtt.publications) {
       expect(publication.payload).toBe("");
       expect(publication.options).toEqual({
@@ -71,105 +102,75 @@ describe("retained-topic pruning", () => {
         properties: { payloadFormatIndicator: true },
       });
     }
-    expect(states.at(-1)!.topics).toEqual(["p/settings/later"]);
-    pruner.close();
+    expect(states.at(-1)?.count).toBe(1);
+    mqtt.message("p/settings/later", "");
+    expect(states.at(-1)?.count).toBe(0);
+    session.close();
   });
 
-  it("refuses clearing after alive changes or disappears", async () => {
-    for (const manifest of ["", JSON.stringify({ ...alive, epoch: 2 })]) {
-      const mqtt = new FakeMqttClient();
-      connectMock.mockReturnValueOnce(mqtt);
-      const pending = RetainedPruner.connect(
-        "ws://mqtt:8083",
-        "p",
-        { schema, alive },
-        () => {},
-      );
-      mqtt.connect();
-      const pruner = await pending;
-      mqtt.message("p/alive", JSON.stringify(alive));
-      mqtt.message("p/settings/old", "2");
-      mqtt.message("p/alive", manifest);
-      await expect(pruner.clear(["p/settings/old"])).rejects.toThrow(
-        "no longer ready",
-      );
-      expect(mqtt.publications).toEqual([]);
-      expect(mqtt.ended).toBe(true);
-    }
+  it("keeps subtree browsing writable when optional cleanup subscriptions are rejected", async () => {
+    const { mqtt, session, states } = await connect("p/settings/#", "/leaf");
+    announce(mqtt);
+    expect(session.ready).toBe(true);
+    expect(states.at(-1)?.unavailable).toContain("p/settings/#");
+    mqtt.message("p/set/old", "1");
+    await session.prune();
+    expect(mqtt.publications).toEqual([]);
+    const setting = session.set("/leaf", "2");
+    mqtt.respond(0, "Ok");
+    await expect(setting).resolves.toMatchObject({ ok: true });
+    expect(mqtt.ended).toBe(false);
+    session.close();
   });
 
-  it("stops a clear in flight when the device changes", async () => {
-    const mqtt = new FakeMqttClient();
-    connectMock.mockReturnValueOnce(mqtt);
-    const states: PruneState[] = [];
-    const pending = RetainedPruner.connect(
-      "ws://mqtt:8083",
-      "p",
-      { schema, alive },
-      (state) => states.push(state),
-    );
-    mqtt.connect();
-    const pruner = await pending;
-    mqtt.message("p/alive", JSON.stringify(alive));
-    mqtt.message("p/settings/old", "1");
-    mqtt.message("p/set/old", "2");
-    mqtt.publishWait = new Promise(() => {});
-    const clearing = pruner.clear(states.at(-1)!.topics);
-    const rejected = expect(clearing).rejects.toThrow("cancelled");
-    mqtt.message("p/alive", JSON.stringify({ ...alive, epoch: 2 }));
-    await rejected;
-    expect(mqtt.publications).toHaveLength(1);
-    expect(states.at(-1)?.ready).toBe(false);
-    expect(states.at(-1)?.message).toContain("outcome unknown");
-  });
+  it.each(["offline", "epoch", "close"])(
+    "stops an in-flight clear on %s without sending the next topic",
+    async (reason) => {
+      const { mqtt, session, states } = await connect();
+      announce(mqtt);
+      mqtt.message("p/settings/a", "1");
+      mqtt.message("p/settings/b", "2");
+      mqtt.publishWait = new Promise(() => {});
+      const clearing = session.prune();
+      if (reason === "offline") mqtt.disconnect();
+      else if (reason === "close") session.close();
+      else mqtt.message("p/alive", JSON.stringify({ ...alive, epoch: 2 }));
+      await clearing;
+      expect(mqtt.publications).toHaveLength(1);
+      expect(states.at(-1)?.pending).toBe(false);
+      expect(states.at(-1)?.message).toContain("outcome unknown");
+      session.close();
+    },
+  );
 
   it.each(["rejected", "timeout"])(
-    "preserves partial progress after a %s publish",
+    "reports partial progress after a %s publish without closing browsing",
     async (failure) => {
       vi.useFakeTimers();
-      try {
-        const mqtt = new FakeMqttClient();
-        connectMock.mockReturnValueOnce(mqtt);
-        const states: PruneState[] = [];
-        const pending = RetainedPruner.connect(
-          "ws://mqtt:8083",
-          "p",
-          { schema, alive },
-          (state) => states.push(state),
-        );
-        mqtt.connect();
-        const pruner = await pending;
-        mqtt.message("p/alive", JSON.stringify(alive));
-        for (const name of ["a", "b", "c"])
-          mqtt.message(`p/settings/${name}`, "1");
-        vi.spyOn(mqtt, "publishAsync")
-          .mockImplementationOnce(async (topic, payload, options) => {
-            mqtt.publications.push({ topic, payload, options });
-          })
-          .mockImplementationOnce(async (topic, payload, options) => {
-            mqtt.publications.push({ topic, payload, options });
-            if (failure === "rejected") throw new Error("Not authorized");
-            await new Promise(() => {});
-          });
-        const clearing = pruner.clear(states.at(-1)!.topics);
-        const rejected = expect(clearing).rejects.toThrow(
-          failure === "rejected" ? "Not authorized" : "timed out",
-        );
-        await vi.advanceTimersByTimeAsync(10_000);
-        await rejected;
-        expect(mqtt.publications.map((p) => p.topic)).toEqual([
-          "p/settings/a",
-          "p/settings/b",
-        ]);
-        expect(states.at(-1)).toMatchObject({
-          ready: false,
-          topics: ["p/settings/b", "p/settings/c"],
+      const { mqtt, session, states } = await connect();
+      announce(mqtt);
+      for (const name of ["a", "b", "c"])
+        mqtt.message(`p/settings/${name}`, "1");
+      vi.spyOn(mqtt, "publishAsync")
+        .mockImplementationOnce(async (topic, payload, options) => {
+          mqtt.publications.push({ topic, payload, options });
+        })
+        .mockImplementationOnce(async (topic, payload, options) => {
+          mqtt.publications.push({ topic, payload, options });
+          if (failure === "rejected") throw new Error("Not authorized");
+          await new Promise(() => {});
         });
-        expect(states.at(-1)!.message).toContain("Cleared 1;");
-        expect(mqtt.ended).toBe(true);
-      } finally {
-        vi.useRealTimers();
-      }
+      const clearing = session.prune();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await clearing;
+      expect(mqtt.publications.map((p) => p.topic)).toEqual([
+        "p/settings/a",
+        "p/settings/b",
+      ]);
+      expect(states.at(-1)).toMatchObject({ count: 2, pending: false });
+      expect(states.at(-1)?.message).toContain("Cleared 1;");
+      expect(session.ready).toBe(true);
+      session.close();
     },
   );
 });

@@ -10,6 +10,7 @@ import {
   type MqttSessionStatus,
 } from "./mqtt-session";
 import { randomId } from "./random-id";
+import { staleTopic } from "./prune";
 import { Schema, subtreeMatch, type CompactDef } from "./schema";
 import { SettingsMirror, type SettingsCommit } from "./settings-mirror";
 
@@ -17,7 +18,8 @@ const MINICONF_MQTT_PROTO = 1;
 const SCHEMA_TIMEOUT_MS = 10_000;
 const SET_TIMEOUT_MS = 3000;
 const RETAINED = { qos: 1, rap: true, rh: 0 } as const;
-const LIVE = { qos: 1, rap: false, rh: 2 } as const;
+// Preserve retain even on the exact reply filter: it overlaps cleanup observation.
+const LIVE = { qos: 1, rap: true, rh: 2 } as const;
 
 export type AliveManifest = {
   proto: number;
@@ -53,6 +55,14 @@ export type PrefixSessionCallbacks = {
   schema: (schema: Schema, root: string) => void;
   settings: (commit: SettingsCommit) => void;
   status: (status: SessionStatus) => void;
+  pruning?: (state: PruningState) => void;
+};
+
+export type PruningState = {
+  count: number;
+  pending: boolean;
+  message: string;
+  unavailable: string;
 };
 
 type PendingResponse = {
@@ -147,6 +157,11 @@ export class DiscoverySession {
 }
 
 export class PrefixSession {
+  private readonly stale = new Set<string>();
+  private pruneAbort = new AbortController();
+  private pruning = false;
+  private pruneMessage = "";
+  private pruneUnavailable = "";
   private mqtt: MqttSession | undefined;
   private alive: AliveManifest | undefined;
   private schema: Schema | undefined;
@@ -192,8 +207,21 @@ export class PrefixSession {
         message: (message) => session.handle(message),
         reset: () => session.clearRetained(),
         status: (status) => session.noteStatus(status),
+        subscriptions: (rejected) => {
+          session.pruneUnavailable = rejected.length
+            ? `Cleanup subscriptions rejected: ${rejected.join(", ")}`
+            : "";
+          session.reportPruning();
+        },
       },
-      options,
+      {
+        ...options,
+        optionalSubscriptions: {
+          [`${prefix}/settings/#`]: RETAINED,
+          [`${prefix}/set/#`]: RETAINED,
+          [`${prefix}/response/#`]: RETAINED,
+        },
+      },
     ).catch((error) => {
       session.close();
       throw error;
@@ -247,6 +275,7 @@ export class PrefixSession {
   }
 
   close(): void {
+    this.pruneAbort.abort();
     this.mqtt?.close();
     this.mqtt = undefined;
     this.clearSchemaTimer();
@@ -264,6 +293,20 @@ export class PrefixSession {
   }
 
   private handle(message: MqttMessage): void {
+    if (
+      message.packet.retain &&
+      staleTopic(this.prefix, undefined, message.topic)
+    ) {
+      const schema =
+        this.alive?.schema_rev === this.schema?.rev ? this.schema : undefined;
+      if (
+        message.payload.byteLength &&
+        staleTopic(this.prefix, schema, message.topic)
+      )
+        this.stale.add(message.topic);
+      else this.stale.delete(message.topic);
+      this.reportPruning();
+    }
     if (message.topic === `${this.prefix}/alive`) {
       this.handleAlive(message);
     } else if (message.topic.startsWith(`${this.prefix}/schema/`)) {
@@ -309,6 +352,7 @@ export class PrefixSession {
       return;
     }
     this.alive = next;
+    if (this.schema?.rev === next.schema_rev) this.classifyStale();
     for (const page of this.pages.keys()) {
       if (page >= next.pages) this.pages.delete(page);
     }
@@ -350,6 +394,7 @@ export class PrefixSession {
       const schema = new Schema(defs, alive.schema_rev);
       const root = schema.path(this.subtreePath);
       this.schema = schema;
+      this.classifyStale();
       this.schemaError = undefined;
       this.clearSchemaTimer();
       this.callbacks.schema(schema, root);
@@ -386,9 +431,58 @@ export class PrefixSession {
     this.waitingSettings.clear();
   }
 
-  get pruningContext(): { schema: Schema; alive: AliveManifest } {
-    if (!this.ready) throw new Error("Device is not ready");
-    return { schema: this.schema!, alive: this.alive! };
+  private classifyStale(): void {
+    for (const topic of this.stale)
+      if (!staleTopic(this.prefix, this.schema, topic))
+        this.stale.delete(topic);
+    this.reportPruning();
+  }
+
+  private reportPruning(): void {
+    this.callbacks.pruning?.({
+      count:
+        this.alive && this.schema?.rev === this.alive.schema_rev
+          ? this.stale.size
+          : 0,
+      pending: this.pruning,
+      message: this.pruneMessage,
+      unavailable: this.pruneUnavailable,
+    });
+  }
+
+  async prune(): Promise<void> {
+    if (!this.ready || this.pruning || this.pruneUnavailable) return;
+    const topics = [...this.stale];
+    const signal = this.pruneAbort.signal;
+    this.pruning = true;
+    this.pruneMessage = "Pruning…";
+    this.reportPruning();
+    let cleared = 0;
+    try {
+      for (const topic of topics) {
+        signal.throwIfAborted();
+        if (!this.stale.has(topic)) continue;
+        await this.mqtt!.publish(
+          topic,
+          "",
+          {
+            qos: 1,
+            retain: true,
+            properties: { payloadFormatIndicator: true },
+          },
+          signal,
+        );
+        signal.throwIfAborted();
+        this.stale.delete(topic);
+        cleared++;
+      }
+      this.pruneMessage = `Cleared ${cleared} retained topics.`;
+    } catch (error) {
+      this.pruneMessage = `Cleared ${cleared}; pruning interrupted, remaining outcome unknown. ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      this.pruning = false;
+      this.reportPruning();
+    }
   }
 
   private handleResponse(message: MqttMessage): void {
@@ -414,6 +508,9 @@ export class PrefixSession {
       "Connection lost; setting outcome unknown. Check the current value.",
     ),
   ): void {
+    this.pruneAbort.abort();
+    this.pruneAbort = new AbortController();
+    this.stale.clear();
     this.alive = undefined;
     this.schemaError = undefined;
     this.pages.clear();
@@ -422,6 +519,7 @@ export class PrefixSession {
     this.mirror.clear();
     this.rejectPending(pendingError);
     this.callbacks.alive(undefined);
+    this.reportPruning();
   }
 
   private noteStatus(status: MqttSessionStatus): void {
@@ -430,6 +528,7 @@ export class PrefixSession {
       return;
     }
     if (status.state === "offline" || status.state === "failed") {
+      this.pruneAbort.abort();
       this.rejectPending(
         new Error(
           "Connection lost; setting outcome unknown. Check the current value.",

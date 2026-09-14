@@ -19,9 +19,14 @@ export type MqttSessionCallbacks = {
   message: (message: MqttMessage) => void;
   reset: () => void;
   status: (status: MqttSessionStatus) => void;
+  subscriptions?: (rejectedOptional: string[]) => void;
 };
 export type MqttAuth = { username: string; password: string };
-export type ConnectOptions = { auth?: Partial<MqttAuth>; signal?: AbortSignal };
+export type ConnectOptions = {
+  auth?: Partial<MqttAuth>;
+  signal?: AbortSignal;
+  optionalSubscriptions?: ISubscriptionMap;
+};
 
 function clientOptions(auth?: Partial<MqttAuth>): IClientOptions {
   return {
@@ -50,6 +55,7 @@ export class MqttSession {
     private readonly client: MqttClient,
     private readonly subscriptions: ISubscriptionMap,
     private readonly callbacks: MqttSessionCallbacks,
+    private readonly optionalSubscriptions: ISubscriptionMap,
   ) {
     client.on("message", (topic, payload, packet) => {
       if (!this.lifetime.signal.aborted)
@@ -82,7 +88,7 @@ export class MqttSession {
     broker: string,
     subscriptions: ISubscriptionMap,
     callbacks: MqttSessionCallbacks,
-    { auth, signal }: ConnectOptions = {},
+    { auth, signal, optionalSubscriptions = {} }: ConnectOptions = {},
   ): Promise<MqttSession> {
     signal?.throwIfAborted();
     const url = new URL(broker);
@@ -118,7 +124,12 @@ export class MqttSession {
       client.once("error", failed);
       signal?.addEventListener("abort", aborted, { once: true });
     });
-    const session = new MqttSession(client, subscriptions, callbacks);
+    const session = new MqttSession(
+      client,
+      subscriptions,
+      callbacks,
+      optionalSubscriptions,
+    );
     const abort = () => session.close();
     signal?.addEventListener("abort", abort, { once: true });
     session.removeAbortListener = () =>
@@ -143,9 +154,14 @@ export class MqttSession {
     topic: string,
     payload: string,
     options: IClientPublishOptions,
+    signal?: AbortSignal,
   ): Promise<void> {
     if (!this.ready) throw new Error("MQTT session is not ready");
-    await this.acknowledged(this.client.publishAsync(topic, payload, options));
+    signal?.throwIfAborted();
+    await this.acknowledged(
+      this.client.publishAsync(topic, payload, options),
+      signal,
+    );
   }
 
   // One fixed subscription owner. A generation arriving during SUBACK requests
@@ -204,21 +220,43 @@ export class MqttSession {
   }
 
   private async subscribe(): Promise<void> {
+    const generation = this.generation;
+    const subscriptions = {
+      ...this.optionalSubscriptions,
+      ...this.subscriptions,
+    };
+    const topics = Object.keys(subscriptions);
+    // MQTT.js rejects subscribeAsync on *any* denied filter. The SUBACK packet
+    // still tells us which required and optional subscriptions were granted.
     const grants = await this.acknowledged(
-      this.client.subscribeAsync(this.subscriptions),
+      new Promise<number[]>((resolve, reject) => {
+        this.client.subscribe(subscriptions, (error, _grants, packet) => {
+          if (!packet || packet.granted.length !== topics.length) {
+            reject(
+              error ?? new Error("Incomplete subscription acknowledgment"),
+            );
+          } else resolve(packet.granted as number[]);
+        });
+      }),
     );
-    const rejected = grants
-      .filter(({ qos }) => qos >= 128)
-      .map(({ topic }) => topic);
-    if (grants.length !== Object.keys(this.subscriptions).length)
-      throw new Error("Incomplete subscription acknowledgment");
-    if (rejected.length)
-      throw new Error(`MQTT subscription rejected: ${rejected.join(", ")}`);
+    const rejected = topics.filter((_topic, index) => grants[index] >= 128);
+    const required = rejected.filter((topic) =>
+      Object.hasOwn(this.subscriptions, topic),
+    );
+    if (required.length)
+      throw new Error(`MQTT subscription rejected: ${required.join(", ")}`);
+    if (generation === this.generation && !this.lifetime.signal.aborted)
+      this.callbacks.subscriptions?.(rejected);
   }
 
-  private async acknowledged<T>(operation: Promise<T>): Promise<T> {
-    const signal = this.lifetime.signal;
-    signal.throwIfAborted();
+  private async acknowledged<T>(
+    operation: Promise<T>,
+    operationSignal?: AbortSignal,
+  ): Promise<T> {
+    const signals = operationSignal
+      ? [this.lifetime.signal, operationSignal]
+      : [this.lifetime.signal];
+    for (const signal of signals) signal.throwIfAborted();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let abort: () => void = () => {};
     try {
@@ -226,7 +264,8 @@ export class MqttSession {
         operation,
         new Promise<never>((_resolve, reject) => {
           abort = () => reject(new Error("Connection cancelled"));
-          signal.addEventListener("abort", abort, { once: true });
+          for (const signal of signals)
+            signal.addEventListener("abort", abort, { once: true });
           timer = setTimeout(
             () => reject(new Error("MQTT acknowledgment timed out")),
             10_000,
@@ -235,7 +274,7 @@ export class MqttSession {
       ]);
     } finally {
       clearTimeout(timer);
-      signal.removeEventListener("abort", abort);
+      for (const signal of signals) signal.removeEventListener("abort", abort);
     }
   }
 }

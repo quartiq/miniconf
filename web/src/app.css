@@ -14,7 +14,7 @@ body {
   --border: color-mix(in srgb, CanvasText 22%, Canvas);
   --selected: color-mix(in srgb, Highlight 8%, transparent);
   --selected-mark: Highlight;
-  --flash: color-mix(in srgb, Mark 70%, transparent);
+  --activity-size: 0.4rem;
   --focus: Highlight;
   --ok: color-mix(in srgb, green 72%, CanvasText);
   --warn: color-mix(in srgb, orange 78%, CanvasText);

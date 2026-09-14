@@ -3,7 +3,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { displayPath, type Schema } from "./lib/schema";
-  import PrunePanel from "./PrunePanel.svelte";
   import BrowseView from "./BrowseView.svelte";
   import DiscoveryView from "./DiscoveryView.svelte";
   import {
@@ -12,6 +11,7 @@
     type DiscoveredPrefix,
     type AliveManifest,
     type SessionStatus,
+    type PruningState,
   } from "./lib/backend";
   import * as browse from "./lib/browse-model";
   import { EventLog } from "./lib/event-log";
@@ -63,12 +63,18 @@
   );
   let request = $state<{ path: string; pending: boolean; message: string }>();
   let settingsRevision = $state("");
+  let pruning = $state<PruningState>({
+    count: 0,
+    pending: false,
+    message: "",
+    unavailable: "",
+  });
   let error = $state("");
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
   let routeSerial = $state(0);
   const browseMemory = new Map<string, browse.BrowseMemory>();
-  // Row flashes are UI cues for /settings echoes only. /set responses update
+  // Activity dots are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
   let treeActivity = $state.raw(new Map<string, TreeActivity>());
   const eventLog = new EventLog(() => {
@@ -209,6 +215,7 @@
     prefixSession = undefined;
     aliveManifest = undefined;
     settingsRevision = "";
+    pruning = { count: 0, pending: false, message: "", unavailable: "" };
     browseState = preserve
       ? browse.commitSettings(browseState, {
           settings: new Map(),
@@ -328,6 +335,12 @@
             if (serial === routeSerial) {
               commitSettings(commit);
             }
+          },
+          pruning: (next) => {
+            if (serial !== routeSerial) return;
+            if (next.message && next.message !== pruning.message)
+              log("prune", next.message);
+            pruning = next;
           },
           status: (next) => {
             if (serial !== routeSerial) {
@@ -503,18 +516,12 @@
         browseState = browse.loadEditor(browseState);
       }}
       retry={applyRoute}
-    >
-      {#snippet pruning()}
-        {#key routeSerial}
-          <PrunePanel
-            {broker}
-            prefix={activePrefix}
-            session={prefixSession}
-            enabled={connection.state !== "failed" && !!prefixSession?.ready}
-            auth={credentials}
-          />
-        {/key}
-      {/snippet}
-    </BrowseView>
+      {pruning}
+      canPrune={connection.state !== "failed" &&
+        !!prefixSession?.ready &&
+        !pruning.pending &&
+        !pruning.unavailable}
+      prune={() => void prefixSession?.prune()}
+    />
   {/if}
 </main>

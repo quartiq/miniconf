@@ -31,6 +31,8 @@ let epoch = 1;
 const retained = new Map();
 const writes = [];
 let rejectSubscriptions = false;
+let rejectCleanup = false;
+let connections = 0;
 let holdResponse = false;
 let respond;
 let holdClear = false;
@@ -99,6 +101,7 @@ function publish(topic, text, properties = { userProperties: { auth: "" } }) {
   }
 }
 broker.on("connection", (socket) => {
+  connections++;
   socket.subscriptions = [];
   const parser = packet.parser({ protocolVersion: 5 });
   socket.on("error", () => {});
@@ -117,13 +120,18 @@ broker.on("connection", (socket) => {
         });
         return;
       }
-      socket.subscriptions = message.subscriptions;
+      const granted = message.subscriptions.map((sub) =>
+        rejectCleanup && sub.topic === `${prefix}/set/#` ? 135 : 1,
+      );
+      socket.subscriptions = message.subscriptions.filter(
+        (_sub, index) => granted[index] < 128,
+      );
       reply({
         cmd: "suback",
         messageId: message.messageId,
-        granted: message.subscriptions.map(() => 1),
+        granted,
       });
-      for (const sub of message.subscriptions)
+      for (const sub of socket.subscriptions)
         if (sub.rh !== 2) {
           for (const [topic, entry] of retained)
             if (matches(sub.topic, topic)) send(socket, topic, entry, true);
@@ -203,7 +211,9 @@ async function until(expression) {
     if (await evaluate(expression)) return;
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  throw new Error(`Browser condition timed out: ${expression}`);
+  throw new Error(
+    `Browser condition timed out: ${expression}\n${await evaluate("document.body?.innerText")}`,
+  );
 }
 async function click(selector) {
   await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
@@ -355,7 +365,7 @@ try {
     );
     assert(
       await evaluate(
-        "!document.body.innerText.includes('999') && !document.querySelector('[data-tree-path=\"/obsolete\"]')",
+        "!document.body?.innerText.includes('999') && !document.querySelector('[data-tree-path=\"/obsolete\"]')",
       ),
     );
     await fill("textarea", "-9007199254740993");
@@ -407,13 +417,13 @@ try {
     );
     holdResponse = false;
     respond();
-    await until("document.body.innerText.includes('Request accepted')");
+    await until("document.body?.innerText.includes('Request accepted')");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "123",
     );
     publish(`${prefix}/settings/leaf`, "456");
-    await until("document.body.innerText.includes('Device value updated')");
+    await until("document.body?.innerText.includes('Device value updated')");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "123",
@@ -439,36 +449,37 @@ try {
       "458",
     );
 
-    console.log(`Pruning observation, editing and partial failures: ${base}`);
+    console.log(
+      `Pruning counts, captured candidates and optional permissions: ${base}`,
+    );
     seed();
     writes.length = 0;
     clearAcks = 0;
+    const beforePruning = connections;
+    await command("Page.navigate", { url: "about:blank" });
     await command("Page.navigate", { url: href });
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
     await click('[data-tree-path="/leaf"]');
-    await click("details.pruning summary");
     await until(
-      "document.querySelector('details.pruning pre')?.innerText.includes('/response/obsolete')",
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (3)'",
     );
     assert.equal(writes.filter((m) => m.retain).length, 0);
-    holdClear = true;
-    await clickButton("Clear 3 retained topics");
-    await until(
-      "document.querySelector('details.pruning').innerText.includes('Clearing')",
-    );
-    await fill("textarea", "123");
-    await clickButton("Set");
-    await until("document.body.innerText.includes('Request accepted')");
     assert(
       await evaluate(
-        "document.querySelector('details.pruning').innerText.includes('Clearing')",
+        "document.querySelector('.prune').title.includes('entire device prefix')",
       ),
     );
-    await click("details.pruning summary");
+    assert.equal(connections - beforePruning, 1);
+    holdClear = true;
+    await clickButton("Prune (3)");
+    publish(`${prefix}/settings/later`, "not JSON");
+    await fill("textarea", "123");
+    await clickButton("Set");
+    await until("document.body?.innerText.includes('Request accepted')");
     holdClear = false;
     acknowledgeClear();
     await until(
-      "document.querySelector('details.pruning').textContent.includes('Cleared 3')",
+      "document.body?.innerText.includes('Cleared 3 retained topics.')",
     );
     assert.deepEqual(
       writes
@@ -480,35 +491,70 @@ try {
         .sort(),
     );
     assert(retained.has(`${prefix}/settings/leaf`));
-    // Reopening observes again; rejected clears retain their partial-result feedback.
-    await click("details.pruning summary");
+    await until(
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (1)'",
+    );
+    await clickButton("Prune (1)");
+    await until("!document.querySelector('.prune')");
+    assert(
+      await evaluate(
+        "document.body?.innerText.includes('Cleared 1 retained topics.')",
+      ),
+    );
+
     for (const name of ["a", "b", "c"])
       publish(`${prefix}/settings/${name}`, "1");
     await until(
-      "document.querySelector('details.pruning pre')?.textContent.includes('/settings/c')",
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (3)'",
     );
     rejectClearAt = clearAcks + 2;
-    await clickButton("Clear 3 retained topics");
-    await until(
-      "document.querySelector('details.pruning').textContent.includes('Cleared 1;')",
-    );
+    await clickButton("Prune (3)");
+    await until("document.body?.innerText.includes('Cleared 1;')");
     assert(
       retained.has(`${prefix}/settings/b`) &&
         retained.has(`${prefix}/settings/c`),
     );
     rejectClearAt = 0;
-    await clickButton("Retry", "details.pruning");
-    await until(
-      "document.querySelector('details.pruning pre')?.textContent.includes('/settings/c')",
+    await clickButton("Prune (2)");
+    await until("!document.querySelector('.prune')");
+
+    // Activity changes its own dot, leaving selection and row geometry alone.
+    const rowStyle = await evaluate(
+      "getComputedStyle(document.querySelector('[data-tree-path=\"/leaf\"]')).backgroundColor",
     );
-    await clickButton("Clear 2 retained topics");
+    publish(`${prefix}/settings/leaf`, "456");
     await until(
-      "document.querySelector('details.pruning').textContent.includes('Cleared 2')",
+      "document.querySelector('[data-tree-path=\"/leaf\"] .activity-dot')?.style.opacity === '1'",
     );
-    await click("details.pruning summary");
+    assert.equal(
+      await evaluate(
+        "getComputedStyle(document.querySelector('[data-tree-path=\"/leaf\"]')).backgroundColor",
+      ),
+      rowStyle,
+    );
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .activity-dot')?.style.opacity === '0'",
+    );
+
+    rejectCleanup = true;
+    await command("Page.navigate", { url: "about:blank" });
+    await command("Page.navigate", { url: href });
+    await until("document.body?.innerText.includes('Pruning unavailable')");
+    await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    await click('[data-tree-path="/leaf"]');
+    await fill("textarea", "789");
+    await clickButton("Set");
+    await until("document.body?.innerText.includes('Request accepted')");
+    assert(
+      await evaluate(
+        "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+      ),
+    );
+    rejectCleanup = false;
 
     console.log(`Connection recovery and responsive layout: ${base}`);
     seed();
+    await command("Page.navigate", { url: "about:blank" });
     await command("Page.navigate", { url: href });
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
     await click('[data-tree-path="/leaf"]');
@@ -516,7 +562,7 @@ try {
     rejectSubscriptions = true;
     for (const socket of broker.clients) socket.terminate();
     await until(
-      "document.querySelector('.connection-state button')?.innerText === 'Retry'",
+      "[...document.querySelectorAll('.connection-state button')].some(button => button.textContent.trim() === 'Retry')",
     );
     assert(
       await evaluate("document.querySelector('.actions button').disabled"),
@@ -544,6 +590,9 @@ try {
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "789",
+    );
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '9007199254740993'",
     );
     for (const width of [390, 1200]) {
       await viewport(width, 850);

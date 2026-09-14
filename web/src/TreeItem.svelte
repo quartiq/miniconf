@@ -15,6 +15,7 @@
     selectedPath: string;
     tabStop: string;
     activity?: Map<string, TreeActivity>;
+    showActivity?: boolean;
     expanded: Set<string>;
     actions: TreeActions;
     depth?: number;
@@ -28,6 +29,7 @@
     selectedPath,
     tabStop,
     activity = new Map(),
+    showActivity = false,
     expanded,
     actions,
     depth = 0,
@@ -151,6 +153,7 @@
     setsize={size}
     href={node.href}
     activity={rowActivity}
+    {showActivity}
     {title}
     {select}
     {toggle}
@@ -168,6 +171,7 @@
             {selectedPath}
             {tabStop}
             {activity}
+            {showActivity}
             {expanded}
             {actions}
             depth={depth + 1}

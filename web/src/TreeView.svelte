@@ -20,15 +20,8 @@
     actions: TreeActions;
   };
 
-  let {
-    label,
-    root,
-    nodes,
-    selectedPath,
-    expanded,
-    activity = new Map(),
-    actions,
-  }: Props = $props();
+  let { label, root, nodes, selectedPath, expanded, activity, actions }: Props =
+    $props();
 
   let tabStop = $derived(
     treeTabStop(selectedPath, visibleTreePaths(root, nodes, expanded)),
@@ -65,6 +58,7 @@
       {selectedPath}
       {tabStop}
       {activity}
+      showActivity={activity !== undefined}
       {expanded}
       actions={treeActions}
     />
