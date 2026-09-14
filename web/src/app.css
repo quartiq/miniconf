@@ -37,8 +37,7 @@ main {
   gap: var(--space);
   margin: 0 auto;
   max-width: 80rem;
-  padding:
-    max(var(--space), env(safe-area-inset-top))
+  padding: max(var(--space), env(safe-area-inset-top))
     max(var(--space), env(safe-area-inset-right))
     max(var(--space), env(safe-area-inset-bottom))
     max(var(--space), env(safe-area-inset-left));
@@ -96,7 +95,9 @@ button {
 pre {
   border-left: 2px solid var(--border);
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, "SFMono-Regular", "Cascadia Mono", "Liberation Mono",
+    monospace;
   font-size: var(--text-small);
   margin: 0;
   overflow-wrap: anywhere;

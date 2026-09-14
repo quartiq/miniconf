@@ -9,7 +9,10 @@ export type AppRoute = {
 export const DEFAULT_FILTER = "dt/sinara/+/+";
 
 function topicPath(value: string): string {
-  return value.split("/").map((segment) => encodeURIComponent(segment).replace(/%2B/gi, "+")).join("/");
+  return value
+    .split("/")
+    .map((segment) => encodeURIComponent(segment).replace(/%2B/gi, "+"))
+    .join("/");
 }
 
 function topicFromSegments(segments: string[]): string {
@@ -19,13 +22,16 @@ function topicFromSegments(segments: string[]): string {
 function brokerRoute(broker: string): { token: string; endpoint: string } {
   const url = brokerUrl(broker);
   if (url.username || url.password) {
-    throw new Error("Enter broker credentials in the username and password fields");
+    throw new Error(
+      "Enter broker credentials in the username and password fields",
+    );
   }
   return {
     token: url.protocol === "wss:" ? `wss+${url.host}` : url.host,
-    endpoint: url.pathname === "/" && !url.search && !url.hash
-      ? ""
-      : `${url.pathname}${url.search}${url.hash}`,
+    endpoint:
+      url.pathname === "/" && !url.search && !url.hash
+        ? ""
+        : `${url.pathname}${url.search}${url.hash}`,
   };
 }
 
@@ -52,8 +58,13 @@ function brokerUrl(broker: string): URL {
   return url;
 }
 
-function hashRoute(location: Pick<Location, "hash">): { path: string; search: string } {
-  const hash = location.hash.startsWith("#") ? location.hash.slice(1) : location.hash;
+function hashRoute(location: Pick<Location, "hash">): {
+  path: string;
+  search: string;
+} {
+  const hash = location.hash.startsWith("#")
+    ? location.hash.slice(1)
+    : location.hash;
   const [path, search = ""] = hash.split("?");
   return { path: path || "/", search: search ? `?${search}` : "" };
 }
@@ -63,7 +74,10 @@ export function readRoute(location: Pick<Location, "hash">): AppRoute {
     const route = hashRoute(location);
     const params = new URLSearchParams(route.search);
     const parts = route.path.split("/").filter(Boolean);
-    if (parts.length >= 2 && (parts[0] === "discover" || parts[0] === "browse")) {
+    if (
+      parts.length >= 2 &&
+      (parts[0] === "discover" || parts[0] === "browse")
+    ) {
       const [action, broker, ...topic] = parts;
       const routeBroker = brokerFromRoute(broker, params.get("endpoint") ?? "");
       const routeTopic = topicFromSegments(topic);
@@ -73,9 +87,10 @@ export function readRoute(location: Pick<Location, "hash">): AppRoute {
       return {
         page: action,
         broker: routeBroker,
-        discoveryPattern: action === "discover"
-          ? routeTopic || DEFAULT_FILTER
-          : params.get("discover") || DEFAULT_FILTER,
+        discoveryPattern:
+          action === "discover"
+            ? routeTopic || DEFAULT_FILTER
+            : params.get("discover") || DEFAULT_FILTER,
         activePrefix: action === "browse" ? routeTopic : "",
         subtreePath: params.get("path") ?? "",
       };
@@ -96,7 +111,10 @@ function landingRoute(): AppRoute {
   };
 }
 
-export function discoveryPath(broker: string, discoveryPattern: string): string {
+export function discoveryPath(
+  broker: string,
+  discoveryPattern: string,
+): string {
   const { token, endpoint } = brokerRoute(broker);
   const query = endpoint ? `?${new URLSearchParams({ endpoint })}` : "";
   return `#/discover/${token}/${topicPath(discoveryPattern)}${query}`;

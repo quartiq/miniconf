@@ -1,0 +1,487 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const requireMqtt = createRequire(import.meta.resolve("mqtt"));
+const { WebSocketServer } = requireMqtt("ws");
+const packet = requireMqtt("mqtt-packet");
+const html = readFileSync("dist/index.html");
+const server = createServer((_request, response) => {
+  response.setHeader("Content-Type", "text/html");
+  response.end(html);
+});
+const broker = new WebSocketServer({ server });
+const prefix = "dt/test/device";
+const schema = '{"s":"value"}\n{"i":{"k":"n","c":{"leaf":0,"other":0}}}\n';
+let revision = 0x811c9dc5;
+for (const byte of new TextEncoder().encode(schema))
+  revision = Math.imul(revision ^ byte, 0x01000193) >>> 0;
+let epoch = 1;
+const retained = new Map();
+const writes = [];
+let rejectSubscriptions = false;
+let holdResponse = false;
+let respond;
+function seed() {
+  retained.clear();
+  retained.set(`${prefix}/alive`, {
+    text: JSON.stringify({ proto: 1, epoch, schema_rev: revision, pages: 1 }),
+  });
+  retained.set(`${prefix}/schema/0`, { text: schema });
+  retained.set(`${prefix}/settings/leaf`, {
+    text: "9007199254740993",
+    properties: { userProperties: { auth: "", rev: "1" } },
+  });
+  retained.set(`${prefix}/settings/other`, {
+    text: "null",
+    properties: { userProperties: { auth: "" } },
+  });
+  for (const ns of ["settings", "set", "response"])
+    retained.set(`${prefix}/${ns}/obsolete`, {
+      text: "7",
+      properties: { userProperties: { auth: "", rev: "999" } },
+    });
+}
+function matches(filter, topic) {
+  const levels = filter.split("/");
+  const parts = topic.split("/");
+  return (
+    levels.every(
+      (level, i) =>
+        level === "#" ||
+        (parts[i] !== undefined && (level === "+" || level === parts[i])),
+    ) &&
+    (levels.at(-1) === "#" || levels.length === parts.length)
+  );
+}
+function send(socket, topic, entry, retain) {
+  if (socket.readyState !== 1) return;
+  socket.send(
+    packet.generate(
+      {
+        cmd: "publish",
+        qos: 0,
+        topic,
+        payload: entry.text,
+        retain,
+        properties: entry.properties,
+      },
+      { protocolVersion: 5 },
+    ),
+  );
+}
+function publish(topic, text, properties = { userProperties: { auth: "" } }) {
+  const entry = { text, properties };
+  if (text) retained.set(topic, entry);
+  else retained.delete(topic);
+  for (const socket of broker.clients) {
+    for (const sub of socket.subscriptions ?? []) {
+      if (matches(sub.topic, topic)) {
+        send(socket, topic, entry, !!sub.rap);
+        break;
+      }
+    }
+  }
+}
+broker.on("connection", (socket) => {
+  socket.subscriptions = [];
+  const parser = packet.parser({ protocolVersion: 5 });
+  socket.on("error", () => {});
+  socket.on("message", (bytes) => parser.parse(bytes));
+  parser.on("packet", (message) => {
+    const reply = (value) =>
+      socket.send(packet.generate(value, { protocolVersion: 5 }));
+    if (message.cmd === "connect")
+      reply({ cmd: "connack", reasonCode: 0, sessionPresent: false });
+    else if (message.cmd === "subscribe") {
+      if (rejectSubscriptions) {
+        reply({
+          cmd: "suback",
+          messageId: message.messageId,
+          granted: message.subscriptions.map(() => 128),
+        });
+        return;
+      }
+      socket.subscriptions = message.subscriptions;
+      reply({
+        cmd: "suback",
+        messageId: message.messageId,
+        granted: message.subscriptions.map(() => 1),
+      });
+      for (const sub of message.subscriptions)
+        if (sub.rh !== 2) {
+          for (const [topic, entry] of retained)
+            if (matches(sub.topic, topic)) send(socket, topic, entry, true);
+        }
+    } else if (message.cmd === "publish") {
+      writes.push(message);
+      if (message.retain && message.payload.length === 0)
+        publish(message.topic, "", message.properties);
+      if (message.qos === 1)
+        reply({ cmd: "puback", messageId: message.messageId, reasonCode: 0 });
+      if (message.topic === `${prefix}/set/leaf` && message.payload.length) {
+        respond = () => {
+          publish(`${prefix}/settings/leaf`, message.payload.toString());
+          send(
+            socket,
+            message.properties.responseTopic,
+            {
+              text: "",
+              properties: {
+                correlationData: message.properties.correlationData,
+                userProperties: { code: "Ok" },
+              },
+            },
+            false,
+          );
+        };
+        if (!holdResponse) respond();
+      }
+    } else if (message.cmd === "pingreq") reply({ cmd: "pingresp" });
+  });
+});
+mkdirSync(".codex", { recursive: true });
+const profile = mkdtempSync(resolve(".codex/browser-check-"));
+let chrome;
+const pending = new Map();
+const errors = [];
+let sequence = 0;
+let sessionId;
+function command(method, params = {}, session = sessionId) {
+  const id = ++sequence;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`Browser command timed out: ${method}`));
+    }, 10_000);
+    pending.set(id, { resolve, reject, timer });
+    chrome.stdio[3].write(
+      JSON.stringify({
+        id,
+        method,
+        params,
+        ...(session ? { sessionId: session } : {}),
+      }) + "\0",
+    );
+  });
+}
+async function evaluate(expression) {
+  const response = await command("Runtime.evaluate", {
+    expression,
+    returnByValue: true,
+    awaitPromise: true,
+  });
+  assert(!response.exceptionDetails, JSON.stringify(response.exceptionDetails));
+  return response.result.value;
+}
+async function until(expression) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (await evaluate(expression)) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Browser condition timed out: ${expression}`);
+}
+async function click(selector) {
+  await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  await evaluate(
+    "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+  );
+}
+async function viewport(width, height) {
+  await command("Emulation.setDeviceMetricsOverride", {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+}
+async function fill(selector, value) {
+  await evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    element.value = ${JSON.stringify(value)};
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+}
+try {
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const port = server.address().port;
+  for (const executable of [
+    process.env.CHROME_BIN,
+    "google-chrome",
+    "chromium",
+  ].filter(Boolean)) {
+    chrome = spawn(
+      executable,
+      [
+        "--headless=new",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--remote-debugging-pipe",
+        `--user-data-dir=${profile}`,
+        "about:blank",
+      ],
+      { stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"] },
+    );
+    try {
+      await once(chrome, "spawn");
+      break;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      chrome = undefined;
+    }
+  }
+  assert(
+    chrome,
+    "Set CHROME_BIN to an installed Chrome or Chromium executable.",
+  );
+  let stderr = "";
+  chrome.stderr.on("data", (data) => {
+    stderr += data;
+  });
+  chrome.on("exit", () => {
+    for (const { reject, timer } of pending.values()) {
+      clearTimeout(timer);
+      reject(new Error(`Browser exited: ${stderr}`));
+    }
+    pending.clear();
+  });
+  let buffer = "";
+  chrome.stdio[4].on("data", (data) => {
+    buffer += data;
+    let end;
+    while ((end = buffer.indexOf("\0")) !== -1) {
+      const message = JSON.parse(buffer.slice(0, end));
+      buffer = buffer.slice(end + 1);
+      const request = pending.get(message.id);
+      if (request) {
+        pending.delete(message.id);
+        clearTimeout(request.timer);
+        if (message.error)
+          request.reject(new Error(JSON.stringify(message.error)));
+        else request.resolve(message.result);
+      } else if (message.method === "Runtime.exceptionThrown") {
+        errors.push(message.params.exceptionDetails);
+      } else if (
+        message.method === "Runtime.consoleAPICalled" &&
+        message.params.type === "error"
+      ) {
+        errors.push(message.params.args);
+      }
+    }
+  });
+  const { targetId } = await command("Target.createTarget", {
+    url: "about:blank",
+  });
+  ({ sessionId } = await command("Target.attachToTarget", {
+    targetId,
+    flatten: true,
+  }));
+  await command("Runtime.enable");
+  await command("Page.enable");
+
+  for (const base of [
+    `http://127.0.0.1:${port}/`,
+    pathToFileURL(resolve("dist/index.html")).href,
+    process.env.MINICONF_WEB_DEV_URL,
+  ].filter(Boolean)) {
+    seed();
+    writes.length = 0;
+    await viewport(1200, 850);
+    await command("Page.navigate", { url: base });
+    await until("document.querySelector('input[name=broker]')");
+    await fill("input[name=broker]", `ws://127.0.0.1:${port}`);
+    await fill("input[name=discovery-pattern]", "dt/test/+");
+    await click("button[type=submit]");
+    await until(
+      "document.querySelector('a[data-tree-path=\"dt/test/device\"]')",
+    );
+    const href = await evaluate(
+      "document.querySelector('a[data-tree-path=\"dt/test/device\"]').href",
+    );
+    await fill("input[name=broker]", "ws://different.invalid:99");
+    assert.equal(
+      await evaluate(
+        "document.querySelector('a[data-tree-path=\"dt/test/device\"]').href",
+      ),
+      href,
+    );
+    await click('a[data-tree-path="dt/test/device"]');
+    await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    await click('[data-tree-path="/leaf"]');
+    await until(
+      "document.querySelector('textarea')?.value === '9007199254740993'",
+    );
+    assert(
+      await evaluate(
+        "document.querySelector('[data-tree-path=\"/leaf\"]').textContent.includes(' = ')",
+      ),
+    );
+    assert(
+      await evaluate(
+        "!document.body.innerText.includes('999') && !document.querySelector('[data-tree-path=\"/obsolete\"]')",
+      ),
+    );
+    await fill("textarea", "-9007199254740993");
+    await click('[data-tree-path="/leaf"]');
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "-9007199254740993",
+    );
+    await click('[data-tree-path=""] button');
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "-9007199254740993",
+    );
+    assert(
+      await evaluate(
+        "document.querySelector('[data-tree-path=\"\"]').tabIndex === 0",
+      ),
+    );
+    await click('[data-tree-path=""] button');
+    await evaluate(
+      "document.querySelector('[data-tree-path=\"/leaf\"]').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
+    );
+    // Return to the exact leaf for submission; selecting another leaf is deliberate.
+    await click('[data-tree-path="/leaf"]');
+    await fill("textarea", "-9007199254740993");
+    holdResponse = true;
+    await click(".actions button");
+    await until("document.querySelector('.actions button').disabled");
+    await fill("textarea", "123");
+    const before = writes.length;
+    await evaluate(
+      "document.querySelector('textarea').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',ctrlKey:true,bubbles:true}))",
+    );
+    assert.equal(writes.length, before);
+    assert.equal(
+      writes.find((m) => m.topic.endsWith("/set/leaf")).payload.toString(),
+      "-9007199254740993",
+    );
+    holdResponse = false;
+    respond();
+    await until("document.body.innerText.includes('Request accepted')");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "123",
+    );
+    publish(`${prefix}/settings/leaf`, "456");
+    await until("document.body.innerText.includes('Device value updated')");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "123",
+    );
+    await click(".actions button:nth-child(2)");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "456",
+    );
+    await click("details.pruning summary");
+    await click("details.pruning button");
+    await until(
+      "document.querySelector('details.pruning pre')?.innerText.includes('/response/obsolete')",
+    );
+    assert.equal(writes.filter((m) => m.retain).length, 0);
+    await click("details.pruning button:last-child");
+    await until(
+      "document.querySelector('details.pruning').innerText.includes('Cleared 3')",
+    );
+    assert.deepEqual(
+      writes
+        .filter((m) => m.retain)
+        .map((m) => m.topic)
+        .sort(),
+      ["response", "set", "settings"]
+        .map((ns) => `${prefix}/${ns}/obsolete`)
+        .sort(),
+    );
+    assert(retained.has(`${prefix}/settings/leaf`));
+    await click("details.pruning summary");
+    // A terminal reconnect failure must offer a usable retry.
+    rejectSubscriptions = true;
+    for (const socket of broker.clients) socket.terminate();
+    await until(
+      "document.querySelector('.connection-state button')?.innerText === 'Retry'",
+    );
+    assert(
+      await evaluate("document.querySelector('.actions button').disabled"),
+    );
+    rejectSubscriptions = false;
+    await click(".connection-state button");
+    await until(
+      "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+    );
+    await until("!document.querySelector('.actions button').disabled");
+    await fill("textarea", "789");
+    // Live epoch refresh keeps the editor, replays state and resumes readiness.
+    epoch += 1;
+    publish(
+      `${prefix}/alive`,
+      JSON.stringify({ proto: 1, epoch, schema_rev: revision, pages: 1 }),
+      undefined,
+    );
+    await until(
+      "document.querySelector('.context').innerText.includes('epoch '+" +
+        epoch +
+        ")",
+    );
+    await until("!document.querySelector('.actions button').disabled");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "789",
+    );
+    for (const width of [390, 1200]) {
+      await viewport(width, 850);
+      assert(
+        await evaluate("document.documentElement.scrollWidth <= innerWidth"),
+      );
+      assert(
+        await evaluate(
+          "document.querySelector('label[for=leaf-editor]') && document.querySelector('[role=tree][aria-label]') && document.querySelector('[role=treeitem][tabindex=\"0\"]')",
+        ),
+      );
+      if (process.env.MINICONF_WEB_SCREENSHOTS) {
+        const { data } = await command("Page.captureScreenshot", {
+          format: "png",
+        });
+        writeFileSync(
+          `.codex/browse-${width}.png`,
+          Buffer.from(data, "base64"),
+        );
+      }
+    }
+    await command("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-color-scheme", value: "dark" }],
+    });
+    console.log(
+      `Checked exact editing, broker identity, pruning, recovery and keyboard guards: ${base}`,
+    );
+  }
+  assert.deepEqual(errors, [], "Browser console errors");
+} finally {
+  for (const socket of broker.clients) socket.terminate();
+  broker.close();
+  server.close();
+  if (chrome && chrome.exitCode === null) {
+    const exited = once(chrome, "exit");
+    await command("Browser.close", {}, null).catch(() => chrome.kill());
+    await exited;
+  }
+  rmSync(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 100,
+  });
+}

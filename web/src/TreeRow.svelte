@@ -7,6 +7,7 @@
     path: string;
     label: string;
     selected: boolean;
+    tabbable: boolean;
     internal?: boolean;
     open?: boolean;
     depth?: number;
@@ -26,6 +27,7 @@
     path,
     label,
     selected,
+    tabbable,
     internal = false,
     open = false,
     depth = 0,
@@ -90,7 +92,7 @@
     {href}
     role="treeitem"
     style:padding-left={`${depth}rem`}
-    tabindex={selected ? 0 : -1}
+    tabindex={tabbable ? 0 : -1}
     {title}
     use:flash={activity}
     onclick={select}
@@ -99,7 +101,7 @@
     <span aria-hidden="true" class="spacer"></span>
     <span class="label">{label}</span>
     {#if value}
-      <span class="separator"> = </span>
+      <span class="separator">{" = "}</span>
       <span class="value">{value}</span>
     {/if}
   </a>
@@ -114,7 +116,7 @@
     data-tree-path={path}
     role="treeitem"
     style:padding-left={`${depth}rem`}
-    tabindex={selected ? 0 : -1}
+    tabindex={tabbable ? 0 : -1}
     {title}
     use:flash={activity}
     onclick={select}
@@ -126,8 +128,8 @@
         class="toggle"
         tabindex="-1"
         type="button"
-        onclick={stopAndToggle}
-      >{open ? "▾" : "▸"}</button>
+        onclick={stopAndToggle}>{open ? "▾" : "▸"}</button
+      >
     {:else}
       <span aria-hidden="true" class="spacer"></span>
     {/if}
@@ -137,7 +139,7 @@
       <span class="label">{label}</span>
     {/if}
     {#if value}
-      <span class="separator"> = </span>
+      <span class="separator">{" = "}</span>
       <span class="value">{value}</span>
     {/if}
   </div>
@@ -225,5 +227,4 @@
     color: var(--muted);
     white-space: pre;
   }
-
 </style>

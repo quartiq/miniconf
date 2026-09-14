@@ -1,5 +1,9 @@
 import { EventEmitter } from "node:events";
-import type { IClientOptions, IClientPublishOptions, ISubscriptionMap } from "mqtt";
+import type {
+  IClientOptions,
+  IClientPublishOptions,
+  ISubscriptionMap,
+} from "mqtt";
 
 export class FakeMqttClient extends EventEmitter {
   options: IClientOptions = {};
@@ -12,6 +16,8 @@ export class FakeMqttClient extends EventEmitter {
     options: IClientPublishOptions;
   }> = [];
   subscribeError: Error | undefined;
+  subscribeWait: Promise<void> | undefined;
+  publishWait: Promise<void> | undefined;
   rejectedTopic = "";
 
   connect(): void {
@@ -33,29 +39,43 @@ export class FakeMqttClient extends EventEmitter {
 
   async subscribeAsync(subscriptions: ISubscriptionMap) {
     this.subscriptions.push(subscriptions);
+    await this.subscribeWait;
     if (this.subscribeError) throw this.subscribeError;
     return Object.keys(subscriptions).map((topic) => ({
       topic,
-      qos: topic === this.rejectedTopic ? 128 as const : subscriptions[topic].qos ?? 0,
+      qos:
+        topic === this.rejectedTopic
+          ? (128 as const)
+          : (subscriptions[topic].qos ?? 0),
     }));
   }
 
-  async publishAsync(topic: string, payload: string, options: IClientPublishOptions) {
+  async publishAsync(
+    topic: string,
+    payload: string,
+    options: IClientPublishOptions,
+  ) {
     this.publications.push({ topic, payload, options });
+    await this.publishWait;
   }
 
   message(
     topic: string,
-    payload: string,
+    payload: string | Uint8Array,
     retain = true,
     userProperties?: Record<string, string | string[]>,
     correlationData?: Uint8Array,
   ): void {
-    this.emit("message", topic, new TextEncoder().encode(payload), {
-      cmd: "publish",
-      retain,
-      properties: { userProperties, correlationData },
-    });
+    this.emit(
+      "message",
+      topic,
+      typeof payload === "string" ? new TextEncoder().encode(payload) : payload,
+      {
+        cmd: "publish",
+        retain,
+        properties: { userProperties, correlationData },
+      },
+    );
   }
 
   respond(index: number, code: string, payload = ""): void {

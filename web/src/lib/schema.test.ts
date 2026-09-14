@@ -13,12 +13,15 @@ function fixtureSchema(): Schema {
   return new Schema(defs, 1);
 }
 
-const indexedSchema = new Schema([
-  { s: { ty: "f32" } },
-  { i: { k: "h", l: 2, c: 0 }, m: { typename: "Vector" } },
-  { i: { k: "d", c: [0, 1] } },
-  { i: { k: "n", c: { values: { r: 1, m: { doc: "Values" } }, tuple: 2 } } },
-], 1);
+const indexedSchema = new Schema(
+  [
+    { s: { ty: "f32" } },
+    { i: { k: "h", l: 2, c: 0 }, m: { typename: "Vector" } },
+    { i: { k: "d", c: [0, 1] } },
+    { i: { k: "n", c: { values: { r: 1, m: { doc: "Values" } }, tuple: 2 } } },
+  ],
+  1,
+);
 
 describe("Schema", () => {
   it("matches the compact schema fixture paths", () => {
@@ -61,13 +64,19 @@ describe("Schema", () => {
   });
 
   it("renders unicode and multiline schema metadata literally", () => {
-    const schema = new Schema([
-      { s: { ty: "f32", unit: "Hz²" } },
-      {
-        i: { k: "n", c: { leaf: { r: 0, m: { doc: "edge line 1\nedge line 2" } } } },
-        m: { doc: "node line 1\nnode line 2", typename: "Root" },
-      },
-    ], 1);
+    const schema = new Schema(
+      [
+        { s: { ty: "f32", unit: "Hz²" } },
+        {
+          i: {
+            k: "n",
+            c: { leaf: { r: 0, m: { doc: "edge line 1\nedge line 2" } } },
+          },
+          m: { doc: "node line 1\nnode line 2", typename: "Root" },
+        },
+      ],
+      1,
+    );
 
     expect(formatSchemaMetadata(schema.node("/leaf"))).toBe(
       "kind leaf\nsem ty=f32\nsem unit=Hz²\nedge doc:\n  edge line 1\n  edge line 2",

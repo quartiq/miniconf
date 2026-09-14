@@ -3,6 +3,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { displayPath, type Schema } from "./lib/schema";
+  import PrunePanel from "./PrunePanel.svelte";
   import BrowseView from "./BrowseView.svelte";
   import DiscoveryView from "./DiscoveryView.svelte";
   import {
@@ -10,6 +11,7 @@
     PrefixSession,
     type DiscoveredPrefix,
     type AliveManifest,
+    type SessionStatus,
   } from "./lib/backend";
   import * as browse from "./lib/browse-model";
   import { EventLog } from "./lib/event-log";
@@ -23,21 +25,44 @@
   let discoveryPattern = $state(route.discoveryPattern);
   let activePrefix = $state(route.activePrefix);
   let subtreePath = $state(route.subtreePath);
+  let formBroker = $state(route.broker);
+  let formPattern = $state(route.discoveryPattern);
+  let credentials = $state<{
+    broker: string;
+    username: string;
+    password: string;
+  }>();
+  let connectionAbort = new AbortController();
   let username = $state("");
   let password = $state("");
 
   let discoverySession: DiscoverySession | undefined;
-  let prefixSession: PrefixSession | undefined;
+  let prefixSession = $state.raw<PrefixSession>();
   let discoveredPrefixes = $state<DiscoveredPrefix[]>([]);
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
-  let status = $state("Idle");
+  let connection = $state<SessionStatus>({ state: "idle" });
+  let status = $derived(
+    {
+      idle: "Not connected",
+      connecting: "Connecting",
+      connected: "Connected",
+      restoring: "Restoring subscriptions",
+      reconnecting: "Reconnecting",
+      offline: "Disconnected — last observed values",
+      waiting: "Waiting for device announcement",
+      loading: "Loading schema",
+      watching: activePrefix ? "Watching settings" : "Watching discovery",
+      error: "Connection error",
+      failed: "Connection failed",
+    }[connection.state],
+  );
+  let request = $state<{ path: string; pending: boolean; message: string }>();
   let settingsRevision = $state("");
   let error = $state("");
-  let browseRetryable = $state(false);
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
-  let routeSerial = 0;
+  let routeSerial = $state(0);
   const browseMemory = new Map<string, browse.BrowseMemory>();
   // Row flashes are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
@@ -47,6 +72,20 @@
   });
 
   let selected = $derived(browse.selected(browseState));
+  let editorDirty = $derived(
+    browseState.editor !== (browseState.editorBaseline ?? ""),
+  );
+  let editorStale = $derived(
+    editorDirty &&
+      selected?.value !== browseState.editorBaseline &&
+      selected?.value !== browseState.editor,
+  );
+  let canSet = $derived(
+    connection.state === "watching" &&
+      !!prefixSession?.ready &&
+      selected?.kind === "leaf" &&
+      !request?.pending,
+  );
   let mode = $derived(activePrefix ? "browse" : "discover");
 
   $effect(() => {
@@ -84,6 +123,8 @@
   }
 
   function select(path: string) {
+    if (path !== browseState.selectedPath && !request?.pending)
+      request = undefined;
     browseState = browse.loadSelected(browseState, path);
   }
 
@@ -97,7 +138,9 @@
 
   function focusEditor() {
     requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>("[data-leaf-editor]")?.focus();
+      document
+        .querySelector<HTMLTextAreaElement>("[data-leaf-editor]")
+        ?.focus();
     });
   }
 
@@ -112,14 +155,28 @@
     }
   }
 
-  function navigateBrowseTree(path: string, direction: NavDirection, step?: number): string {
+  function navigateBrowseTree(
+    path: string,
+    direction: NavDirection,
+    step?: number,
+  ): string {
     const next = browse.navigate(browseState, path, direction, step);
     browseState = next.state;
     return next.path;
   }
 
-  function commitSettings({ settings: nextSettings, changed, activity, rev }: SettingsCommit) {
-    const commit = browse.commitSettings(browseState, { settings: nextSettings, changed, activity, rev });
+  function commitSettings({
+    settings: nextSettings,
+    touched,
+    activity,
+    rev,
+  }: SettingsCommit) {
+    const commit = browse.commitSettings(browseState, {
+      settings: nextSettings,
+      touched,
+      activity,
+      rev,
+    });
     browseState = commit.state;
     settingsRevision = commit.rev ?? settingsRevision;
     const at = Date.now();
@@ -127,28 +184,36 @@
       ...treeActivity,
       ...[...commit.cues].map((path) => [path, { at }] as const),
     ]);
-    if (changed.size) {
-      log("commit", `${changed.size} changed`);
+    if (touched.size) {
+      log("commit", `${touched.size} touched`);
     }
   }
 
-  function resetBrowseState() {
+  function resetBrowseState(preserve = false) {
+    connectionAbort.abort();
+    connectionAbort = new AbortController();
     discoverySession?.close();
     prefixSession?.close();
     discoverySession = undefined;
     prefixSession = undefined;
     aliveManifest = undefined;
     settingsRevision = "";
-    browseState = browse.emptyState();
+    browseState = preserve
+      ? browse.commitSettings(browseState, {
+          settings: new Map(),
+          touched: new Set(browseState.settings.keys()),
+          activity: new Set(),
+        }).state
+      : browse.emptyState();
+    request = undefined;
     treeActivity = new Map();
   }
 
   function showDiscoveryIdle() {
     error = "";
-    resetBrowseState();
     activePrefix = "";
     discoveredPrefixes = [];
-    setStatus("Idle");
+    setStatus({ state: "idle" });
   }
 
   function loadSchema(nextSchema: Schema, root: string) {
@@ -164,25 +229,36 @@
     eventLog.add(logOpen, event, detail);
   }
 
-  function setStatus(next: string, nextError = "") {
-    error = nextError;
-    if (next === status) return;
-    status = next;
-    log("status", next);
+  function setStatus(next: SessionStatus) {
+    if (
+      connection.state === next.state &&
+      (!("error" in next) ||
+        ("error" in connection && connection.error === next.error))
+    )
+      return;
+    connection = next;
+    if (next.state === "error" || next.state === "failed") error = next.error;
+    else if (next.state === "watching") error = "";
+    log("status", next.state);
   }
 
   function discover() {
     try {
-      navigate(discoveryPath(broker, discoveryPattern));
+      const path = discoveryPath(formBroker.trim(), formPattern);
+      credentials = {
+        broker: readRoute({ hash: path }).broker,
+        username,
+        password,
+      };
+      navigate(path);
     } catch (err) {
-      setStatus("Invalid broker", err instanceof Error ? err.message : String(err));
+      error = err instanceof Error ? err.message : String(err);
     }
   }
 
   async function startDiscovery(serial: number) {
     error = "";
-    setStatus("Connecting");
-    resetBrowseState();
+    setStatus({ state: "connecting" });
     activePrefix = "";
     discoveredPrefixes = [];
     syncUrl();
@@ -194,18 +270,12 @@
           prefixes: (prefixes) => {
             if (serial !== routeSerial) return;
             discoveredPrefixes = prefixes;
-            setStatus(`${prefixes.length} matching prefix${prefixes.length === 1 ? "" : "es"}`);
-          },
-          error: (message) => {
-            if (serial !== routeSerial) return;
-            error = message;
-            log("error", message);
           },
           status: (nextStatus) => {
             if (serial === routeSerial) setStatus(nextStatus);
           },
         },
-        username || password ? { username, password } : undefined,
+        { auth: credentials, signal: connectionAbort.signal },
       );
       if (serial !== routeSerial) {
         next.close();
@@ -217,62 +287,46 @@
         return;
       }
       error = err instanceof Error ? err.message : String(err);
-      setStatus("Error", error);
+      setStatus({ state: "failed", error });
       log("error", error);
     }
   }
 
   async function startBrowse(serial: number) {
     error = "";
-    setStatus("Connecting");
-    resetBrowseState();
+    setStatus({ state: "connecting" });
     try {
-      const next = await PrefixSession.connect(broker, activePrefix, subtreePath, {
-        error: (message) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          error = message;
-          log("error", message);
+      const next = await PrefixSession.connect(
+        broker,
+        activePrefix,
+        subtreePath,
+        {
+          alive: (next) => {
+            if (serial !== routeSerial) {
+              return;
+            }
+            aliveManifest = next;
+            if (!next) settingsRevision = "";
+          },
+          schema: (nextSchema, root) => {
+            if (serial === routeSerial) {
+              loadSchema(nextSchema, root);
+            }
+          },
+          settings: (commit) => {
+            if (serial === routeSerial) {
+              commitSettings(commit);
+            }
+          },
+          status: (next) => {
+            if (serial !== routeSerial) {
+              return;
+            }
+            setStatus(next);
+          },
         },
-        alive: (next) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          aliveManifest = next;
-        },
-        response: (response) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          // ACK/NAK is request feedback only. Do not mirror values here; wait
-          // for the authoritative /settings publication handled below.
-          const responseError = response.ok ? "" : `${response.code}: ${response.message}`;
-          setStatus(
-            response.ok
-              ? `Set accepted for ${displayPath(response.path)}`
-              : `Set rejected for ${displayPath(response.path)}`,
-            responseError,
-          );
-          log("response", `${response.code} ${displayPath(response.path)}`);
-        },
-        schema: (nextSchema, root) => {
-          if (serial === routeSerial) {
-            loadSchema(nextSchema, root);
-          }
-        },
-        settings: (commit) => {
-          if (serial === routeSerial) {
-            commitSettings(commit);
-          }
-        },
-        status: (next) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          setStatus(next);
-        },
-      }, username || password ? { username, password } : undefined);
+        { auth: credentials, signal: connectionAbort.signal },
+      );
       if (serial !== routeSerial) {
         next.close();
         return;
@@ -283,47 +337,78 @@
         return;
       }
       error = err instanceof Error ? err.message : String(err);
-      browseRetryable = true;
-      setStatus("Error", error);
+      setStatus({ state: "failed", error });
       log("error", error);
     }
   }
 
   async function submit() {
-    if (!prefixSession || !selected || selected.kind !== "leaf") {
+    if (!canSet || !prefixSession || !selected) return;
+    const current = prefixSession;
+    const serial = routeSerial;
+    const path = selected.path;
+    try {
+      JSON.parse(browseState.editor);
+    } catch (err) {
+      request = {
+        path,
+        pending: false,
+        message: err instanceof Error ? err.message : String(err),
+      };
       return;
     }
-    let value: unknown;
+    request = { path, pending: true, message: "Setting…" };
     try {
-      value = browse.parseEditor(browseState);
+      const response = await current.set(path, browseState.editor);
+      if (serial !== routeSerial || current !== prefixSession) return;
+      request = {
+        path,
+        pending: false,
+        message: response.ok
+          ? "Request accepted"
+          : response.kind === "publish"
+            ? `Result publication failed; setting may have changed. ${response.message}`
+            : `Device error: ${response.message || response.code}`,
+      };
     } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      log("error", error);
-      return;
+      if (serial !== routeSerial || current !== prefixSession) return;
+      request = {
+        path,
+        pending: false,
+        message: err instanceof Error ? err.message : String(err),
+      };
     }
-    error = "";
-    try {
-      await prefixSession.set(selected.path, value);
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      setStatus("Set failed", error);
-      log("error", error);
-    }
+    if (request) log("request", `${displayPath(path)}: ${request.message}`);
   }
 
   function applyRoute() {
     const next = readRoute(location);
     if (browseState.schema && activePrefix) {
-      browseMemory.set(JSON.stringify([broker, activePrefix, browseState.root]), {
-        expanded: new Set(browseState.expanded),
-        selectedPath: browseState.selectedPath,
-        userClosed: new Set(browseState.userClosed),
-      });
+      browseMemory.set(
+        JSON.stringify([broker, activePrefix, browseState.root]),
+        {
+          expanded: new Set(browseState.expanded),
+          selectedPath: browseState.selectedPath,
+          userClosed: new Set(browseState.userClosed),
+        },
+      );
     }
     // Route changes cancel the old session; the serial also rejects callbacks
     // from an initial connection that completed after navigation.
     const serial = ++routeSerial;
-    browseRetryable = false;
+    const preserve =
+      next.page === "browse" &&
+      next.broker === broker &&
+      next.activePrefix === activePrefix &&
+      next.subtreePath === subtreePath;
+    resetBrowseState(preserve);
+    if (credentials?.broker !== next.broker) {
+      credentials = undefined;
+      username = "";
+      password = "";
+    }
+    formBroker = next.broker;
+    formPattern = next.discoveryPattern;
     broker = next.broker;
     discoveryPattern = next.discoveryPattern;
     activePrefix = next.activePrefix;
@@ -342,6 +427,8 @@
     applyRoute();
     return () => {
       removeEventListener("hashchange", applyRoute);
+      routeSerial += 1;
+      connectionAbort.abort();
       discoverySession?.close();
       prefixSession?.close();
     };
@@ -351,11 +438,12 @@
 <main>
   {#if mode === "discover"}
     <DiscoveryView
-      bind:broker
-      bind:discoveryPattern
+      bind:broker={formBroker}
+      bind:discoveryPattern={formPattern}
       bind:username
       bind:password
       {discoveredPrefixes}
+      watching={connection.state === "watching"}
       {status}
       {error}
       bind:logOpen
@@ -373,21 +461,27 @@
       {settingsRevision}
       {status}
       {error}
-      retryable={browseRetryable}
+      retryable={connection.state === "failed"}
       treeNodes={browseState.tree.nodeViews}
       selectedPath={browseState.selectedPath}
-      selected={selected}
+      {selected}
       activity={treeActivity}
       expanded={browseState.expanded}
       editor={browseState.editor}
-      editorDirty={browseState.editorDirty}
-      editorStale={browseState.editorStale}
+      {editorDirty}
+      {editorStale}
+      {canSet}
+      requestMessage={request?.path === browseState.selectedPath
+        ? request.message
+        : ""}
       bind:logOpen
       {logLines}
       treeRoot={browseState.root}
       treeActions={{
-        activate: (node, internal, open) => activateBrowseTree(node.path, internal, open),
-        key: (node, direction, step) => navigateBrowseTree(node.path, direction, step),
+        activate: (node, internal, open) =>
+          activateBrowseTree(node.path, internal, open),
+        key: (node, direction, step) =>
+          navigateBrowseTree(node.path, direction, step),
         open: setExpanded,
         select: (path) => select(path),
       }}
@@ -398,6 +492,20 @@
         browseState = browse.loadEditor(browseState);
       }}
       retry={applyRoute}
-    />
+    >
+      {#snippet pruning()}
+        {#key routeSerial}
+          <PrunePanel
+            {broker}
+            prefix={activePrefix}
+            session={prefixSession}
+            enabled={connection.state === "watching" &&
+              !!prefixSession?.ready &&
+              !request?.pending}
+            auth={credentials}
+          />
+        {/key}
+      {/snippet}
+    </BrowseView>
   {/if}
 </main>

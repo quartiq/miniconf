@@ -9,18 +9,18 @@ describe("SettingsMirror", () => {
     const commits: SettingsCommit[] = [];
     const mirror = new SettingsMirror((commit) => commits.push(commit), 100);
 
-    mirror.ingest("/a", 1, true);
-    mirror.ingest("/a", 2, true, "13");
+    mirror.ingest("/a", "1");
+    mirror.ingest("/a", "2", "13");
     expect(commits).toHaveLength(0);
 
     vi.advanceTimersByTime(100);
     expect(commits).toHaveLength(1);
-    expect(commits[0].settings.get("/a")).toBe(2);
-    expect([...commits[0].changed]).toEqual(["/a"]);
+    expect(commits[0].settings.get("/a")).toBe("2");
+    expect([...commits[0].touched]).toEqual(["/a"]);
     expect([...commits[0].activity]).toEqual([]);
     expect(commits[0].rev).toBe("13");
 
-    mirror.ingest("/a", 3, true);
+    mirror.ingest("/a", "3");
     vi.advanceTimersByTime(100);
     expect([...commits[1].activity]).toEqual(["/a"]);
   });
@@ -29,32 +29,32 @@ describe("SettingsMirror", () => {
     const commits: SettingsCommit[] = [];
     const mirror = new SettingsMirror((commit) => commits.push(commit));
 
-    mirror.ingest("/a", 1, true);
-    mirror.ingest("/b", 2, true);
+    mirror.ingest("/a", "1");
+    mirror.ingest("/b", "2");
     vi.runAllTimers();
 
-    mirror.ingest("/a", undefined, false);
+    mirror.ingest("/a", undefined);
     vi.runAllTimers();
 
-    expect([...commits.at(-1)!.settings]).toEqual([["/b", 2]]);
-    expect([...commits.at(-1)!.changed]).toEqual(["/a"]);
+    expect([...commits.at(-1)!.settings]).toEqual([["/b", "2"]]);
+    expect([...commits.at(-1)!.touched]).toEqual(["/a"]);
   });
 
   it("clears current settings explicitly on reload", () => {
     const commits: SettingsCommit[] = [];
     const mirror = new SettingsMirror((commit) => commits.push(commit));
 
-    mirror.ingest("/a", 1, true);
-    mirror.ingest("/b", 2, true);
+    mirror.ingest("/a", "1");
+    mirror.ingest("/b", "2");
     vi.runAllTimers();
 
     mirror.clear();
 
     expect([...commits.at(-1)!.settings]).toEqual([]);
-    expect([...commits.at(-1)!.changed].sort()).toEqual(["/a", "/b"]);
+    expect([...commits.at(-1)!.touched].sort()).toEqual(["/a", "/b"]);
     expect([...commits.at(-1)!.activity]).toEqual([]);
 
-    mirror.ingest("/a", 3, true);
+    mirror.ingest("/a", "3");
     vi.runAllTimers();
     expect([...commits.at(-1)!.activity]).toEqual([]);
   });

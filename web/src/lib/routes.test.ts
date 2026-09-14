@@ -9,9 +9,9 @@ describe("semantic routes", () => {
     expect(browsePath("ws://mqtt:8083", "dt/sinara/thermostat-eem/host")).toBe(
       "#/browse/mqtt:8083/dt/sinara/thermostat-eem/host",
     );
-    expect(browsePath("ws://mqtt:8083", "dt/sinara/thermostat-eem/host", "/pid")).toBe(
-      "#/browse/mqtt:8083/dt/sinara/thermostat-eem/host?path=%2Fpid",
-    );
+    expect(
+      browsePath("ws://mqtt:8083", "dt/sinara/thermostat-eem/host", "/pid"),
+    ).toBe("#/browse/mqtt:8083/dt/sinara/thermostat-eem/host?path=%2Fpid");
     expect(browsePath("ws://mqtt:8083", "lab/a/b", "", "lab/+/+")).toBe(
       "#/browse/mqtt:8083/lab/a/b?discover=lab%2F%2B%2F%2B",
     );
@@ -24,7 +24,9 @@ describe("semantic routes", () => {
       "#/discover/wss+mqtt.quartiq.de:1239/dt/sinara/+/+?endpoint=%2Fpath%2Fto%2Fsocket%3Ftoken%3Da%252Fb",
     );
     expect(readRoute({ hash: path }).broker).toBe(broker);
-    expect(readRoute({ hash: browsePath(broker, "dt/device", "/pid", "dt/+") })).toMatchObject({
+    expect(
+      readRoute({ hash: browsePath(broker, "dt/device", "/pid", "dt/+") }),
+    ).toMatchObject({
       broker,
       activePrefix: "dt/device",
       subtreePath: "/pid",
@@ -33,9 +35,11 @@ describe("semantic routes", () => {
   });
 
   it("rejects route endpoints that could replace the broker authority", () => {
-    expect(readRoute({
-      hash: "#/discover/wss+mqtt.quartiq.de/dt/+?endpoint=%40evil.example",
-    })).toMatchObject({ page: "landing", broker: "" });
+    expect(
+      readRoute({
+        hash: "#/discover/wss+mqtt.quartiq.de/dt/+?endpoint=%40evil.example",
+      }),
+    ).toMatchObject({ page: "landing", broker: "" });
   });
 
   it("parses hash routes", () => {
@@ -89,9 +93,11 @@ describe("semantic routes", () => {
   });
 
   it("accepts only browser MQTT transports and keeps credentials out of routes", () => {
-    expect(() => discoveryPath("mqtt://broker.example", "dt/+")).toThrow("ws:// or wss://");
-    expect(() => discoveryPath("wss://user:secret@broker.example", "dt/+")).toThrow(
-      "username and password fields",
+    expect(() => discoveryPath("mqtt://broker.example", "dt/+")).toThrow(
+      "ws:// or wss://",
     );
+    expect(() =>
+      discoveryPath("wss://user:secret@broker.example", "dt/+"),
+    ).toThrow("username and password fields");
   });
 });

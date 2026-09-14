@@ -68,7 +68,9 @@ export function movePath(
       return visible[Math.max(index - 1, 0)];
     case "parent": {
       const parent = nodes.get(current)?.parent;
-      return parent !== undefined && visible.includes(parent) ? parent : current;
+      return parent !== undefined && visible.includes(parent)
+        ? parent
+        : current;
     }
   }
 }
@@ -89,4 +91,14 @@ export function toggleExpansion(
     nextUserClosed.add(path);
   }
   return { expanded: nextExpanded, userClosed: nextUserClosed };
+}
+
+// Keyboard entry stays available when semantic selection is hidden or removed.
+export function treeTabStop(selected: string, visible: string[]): string {
+  let path = selected;
+  while (!visible.includes(path)) {
+    if (!path) return visible[0] ?? "";
+    path = path.slice(0, Math.max(0, path.lastIndexOf("/")));
+  }
+  return path;
 }

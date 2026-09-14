@@ -1,11 +1,17 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TreeActions, TreeActivity, TreeNodeView } from "./lib/tree-view";
+  import type {
+    TreeActions,
+    TreeActivity,
+    TreeNodeView,
+  } from "./lib/tree-view";
+  import { treeTabStop, visibleTreePaths } from "./lib/tree-navigation";
   import type { NavDirection } from "./lib/tree-navigation";
   import TreeItem from "./TreeItem.svelte";
 
   type Props = {
+    label: string;
     root: string;
     nodes: Map<string, TreeNodeView>;
     selectedPath: string;
@@ -15,6 +21,7 @@
   };
 
   let {
+    label,
     root,
     nodes,
     selectedPath,
@@ -23,6 +30,9 @@
     actions,
   }: Props = $props();
 
+  let tabStop = $derived(
+    treeTabStop(selectedPath, visibleTreePaths(root, nodes, expanded)),
+  );
   let rootNode = $derived(nodes.get(root));
   let focusPath = $state<string | undefined>();
   let treeActions = $derived({
@@ -38,20 +48,22 @@
     if (focusPath === undefined) {
       return;
     }
+    const path = focusPath;
     requestAnimationFrame(() => {
       document
-        .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(focusPath)}"]`)
+        .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
         ?.focus();
     });
   });
 </script>
 
-<ul role="tree">
+<ul role="tree" aria-label={label}>
   {#if rootNode}
     <TreeItem
       node={rootNode}
       {nodes}
       {selectedPath}
+      {tabStop}
       {activity}
       {expanded}
       actions={treeActions}

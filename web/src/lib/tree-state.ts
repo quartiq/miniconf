@@ -4,7 +4,7 @@ import type { FlatTreeNode } from "./tree-navigation";
 import type { TreeNodeView } from "./tree-view";
 
 export type ViewNode = SchemaNode & {
-  value?: unknown;
+  value?: string;
   present: boolean;
 };
 
@@ -23,18 +23,24 @@ export function parentPath(path: string): string | undefined {
   return index <= 0 ? "" : path.slice(0, index);
 }
 
-export function viewNodes(schema: Schema | undefined, root: string, settings: Map<string, unknown>): ViewNode[] {
-  return schema?.walk(root).map((node) => ({
-    ...node,
-    value: settings.get(node.path),
-    present: settings.has(node.path),
-  })) ?? [];
+export function viewNodes(
+  schema: Schema | undefined,
+  root: string,
+  settings: Map<string, string>,
+): ViewNode[] {
+  return (
+    schema?.walk(root).map((node) => ({
+      ...node,
+      value: settings.get(node.path),
+      present: settings.has(node.path),
+    })) ?? []
+  );
 }
 
 export function treeSnapshot(
   schema: Schema | undefined,
   root: string,
-  settings: Map<string, unknown>,
+  settings: Map<string, string>,
 ): TreeSnapshot {
   const nodes = viewNodes(schema, root, settings);
   return {
@@ -49,7 +55,7 @@ export function formatLeafValue(node: ViewNode): string {
   if (node.kind !== "leaf" || !node.present) {
     return "";
   }
-  return JSON.stringify(node.value) ?? String(node.value);
+  return node.value ?? "";
 }
 
 export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
@@ -70,37 +76,41 @@ export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
 
 export function flatTreeNodes(nodes: ViewNode[]): Map<string, FlatTreeNode> {
   const children = childrenByParent(nodes);
-  return new Map(nodes.map((node) => {
-    const parent = parentPath(node.path);
-    return [
-      node.path,
-      {
-        path: node.path,
-        ...(parent === undefined ? {} : { parent }),
-        children: (children.get(node.path) ?? []).map((child) => child.path),
-      },
-    ];
-  }));
+  return new Map(
+    nodes.map((node) => {
+      const parent = parentPath(node.path);
+      return [
+        node.path,
+        {
+          path: node.path,
+          ...(parent === undefined ? {} : { parent }),
+          children: (children.get(node.path) ?? []).map((child) => child.path),
+        },
+      ];
+    }),
+  );
 }
 
 export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
   const children = childrenByParent(nodes);
-  return new Map(nodes.map((node) => [
-    node.path,
-    {
-      path: node.path,
-      label: node.path ? formatSchemaName(node) : "(root)",
-      value: formatLeafValue(node),
-      children: (children.get(node.path) ?? []).map((child) => child.path),
-    },
-  ]));
+  return new Map(
+    nodes.map((node) => [
+      node.path,
+      {
+        path: node.path,
+        label: node.path ? formatSchemaName(node) : "(root)",
+        value: formatLeafValue(node),
+        children: (children.get(node.path) ?? []).map((child) => child.path),
+      },
+    ]),
+  );
 }
 
 export function revealPresentSettings(
   expanded: Set<string>,
   userClosed: Set<string>,
   changed: Iterable<string>,
-  settings: Map<string, unknown>,
+  settings: Map<string, string>,
   root: string,
 ): Set<string> {
   const next = new Set(expanded);

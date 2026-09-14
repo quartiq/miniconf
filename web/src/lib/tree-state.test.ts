@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { toggleExpansion } from "./tree-navigation";
-import { cuePaths, flatTreeNodes, parentPath, revealPresentSettings, treeViewNodes } from "./tree-state";
+import {
+  cuePaths,
+  flatTreeNodes,
+  parentPath,
+  revealPresentSettings,
+  treeViewNodes,
+} from "./tree-state";
 
 describe("tree state", () => {
   it("derives parent paths", () => {
@@ -16,8 +22,8 @@ describe("tree state", () => {
       userClosed,
       ["/a/b/c", "/d/e"],
       new Map([
-        ["/a/b/c", 1],
-        ["/d/e", 2],
+        ["/a/b/c", "1"],
+        ["/d/e", "2"],
       ]),
       "",
     );
@@ -33,20 +39,27 @@ describe("tree state", () => {
     expect(closed.expanded.has("/a")).toBe(false);
     expect(closed.userClosed.has("/a")).toBe(true);
 
-    const opened = toggleExpansion(closed.expanded, closed.userClosed, "/a", true);
+    const opened = toggleExpansion(
+      closed.expanded,
+      closed.userClosed,
+      "/a",
+      true,
+    );
     expect(opened.expanded.has("/a")).toBe(true);
     expect(opened.userClosed.has("/a")).toBe(false);
   });
 
-  it("cues changed paths and ancestors", () => {
+  it("cues touched paths and ancestors", () => {
     expect([...cuePaths(["/a/b"], "")].sort()).toEqual(["", "/a", "/a/b"]);
   });
 
   it("flattens schema rows for keyboard navigation", () => {
-    expect([...flatTreeNodes([
-      { path: "", kind: "named", children: [], present: false },
-      { path: "/a", kind: "leaf", children: [], present: true, value: 1 },
-    ]).values()]).toEqual([
+    expect([
+      ...flatTreeNodes([
+        { path: "", kind: "named", children: [], present: false },
+        { path: "/a", kind: "leaf", children: [], present: true, value: "1" },
+      ]).values(),
+    ]).toEqual([
       { path: "", children: ["/a"] },
       { path: "/a", parent: "", children: [] },
     ]);

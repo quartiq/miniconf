@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MqttSession, type MqttSessionStatus } from "./mqtt-session";
 import { FakeMqttClient } from "./mqtt-test-fixture";
 
-const originalLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+const originalLocation = Object.getOwnPropertyDescriptor(
+  globalThis,
+  "location",
+);
 const connectMock = vi.hoisted(() => vi.fn());
 
 vi.mock("mqtt", () => ({
@@ -32,9 +35,9 @@ describe("MqttSession", () => {
       configurable: true,
       value: { protocol: "https:" },
     });
-    await expect(MqttSession.connect("ws://mqtt:8083", {}, callbacks())).rejects.toThrow(
-      "HTTPS pages cannot connect to ws:// brokers",
-    );
+    await expect(
+      MqttSession.connect("ws://mqtt:8083", {}, callbacks()),
+    ).rejects.toThrow("HTTPS pages cannot connect to ws:// brokers");
     expect(connectMock).not.toHaveBeenCalled();
   });
 
@@ -49,7 +52,7 @@ describe("MqttSession", () => {
       "ws://mqtt:8083",
       subscriptions,
       callbacks(),
-      { username: "", password: "secret" },
+      { auth: { username: "", password: "secret" } },
     );
     expect(connectMock.mock.calls[0][1]).toMatchObject({
       clean: true,
@@ -77,7 +80,9 @@ describe("MqttSession", () => {
     connectMock.mockReturnValueOnce(mqtt);
     const subscriptions = { "dt/device/#": { qos: 1 as const } };
     const connecting = MqttSession.connect(
-      "ws://mqtt:8083", subscriptions, callbacks(statuses, resets),
+      "ws://mqtt:8083",
+      subscriptions,
+      callbacks(statuses, resets),
     );
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
@@ -107,7 +112,9 @@ describe("MqttSession", () => {
     connectMock.mockReturnValueOnce(mqtt);
     const subscriptions = { "dt/device/alive": { qos: 1 as const } };
     const connecting = MqttSession.connect(
-      "ws://mqtt:8083", subscriptions, callbacks(statuses),
+      "ws://mqtt:8083",
+      subscriptions,
+      callbacks(statuses),
     );
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
@@ -120,7 +127,7 @@ describe("MqttSession", () => {
 
     expect(session.ready).toBe(false);
     expect(statuses.at(-1)).toEqual({
-      state: "error",
+      state: "failed",
       error: "MQTT subscription rejected: dt/device/alive",
     });
   });
@@ -130,7 +137,9 @@ describe("MqttSession", () => {
     connectMock.mockReturnValueOnce(mqtt);
     const connecting = MqttSession.connect("ws://mqtt:8083", {}, callbacks());
     mqtt.emit("close");
-    await expect(connecting).rejects.toThrow("Could not connect to ws://mqtt:8083");
+    await expect(connecting).rejects.toThrow(
+      "Could not connect to ws://mqtt:8083",
+    );
     expect(mqtt.ended).toBe(true);
     expect(connectMock.mock.calls[0][1].reconnectPeriod).toBe(0);
   });
@@ -140,11 +149,91 @@ describe("MqttSession", () => {
     mqtt.rejectedTopic = "dt/device/alive";
     connectMock.mockReturnValueOnce(mqtt);
     const connecting = MqttSession.connect(
-      "ws://mqtt:8083", { "dt/device/alive": { qos: 1 } }, callbacks(),
+      "ws://mqtt:8083",
+      { "dt/device/alive": { qos: 1 } },
+      callbacks(),
     );
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
-    await expect(connecting).rejects.toThrow("MQTT subscription rejected: dt/device/alive");
+    await expect(connecting).rejects.toThrow(
+      "MQTT subscription rejected: dt/device/alive",
+    );
     expect(mqtt.ended).toBe(true);
   });
+});
+
+it("cancels initial connection and pending subscriptions", async () => {
+  for (const connected of [false, true]) {
+    const mqtt = new FakeMqttClient();
+    mqtt.subscribeWait = new Promise(() => {});
+    const controller = new AbortController();
+    connectMock.mockReturnValueOnce(mqtt);
+    const pending = MqttSession.connect(
+      "ws://mqtt:8083",
+      { "a/#": { qos: 1 } },
+      callbacks(),
+      { signal: controller.signal },
+    );
+    if (connected) {
+      mqtt.connect();
+      await Promise.resolve();
+    }
+    controller.abort();
+    await expect(pending).rejects.toThrow(/cancelled|aborted/);
+    expect(mqtt.ended).toBe(true);
+  }
+});
+
+it("bounds SUBACK waits and ignores a delayed result after failure", async () => {
+  vi.useFakeTimers();
+  try {
+    const mqtt = new FakeMqttClient();
+    let release!: () => void;
+    mqtt.subscribeWait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    connectMock.mockReturnValueOnce(mqtt);
+    const pending = MqttSession.connect(
+      "ws://mqtt:8083",
+      { "a/#": { qos: 1 } },
+      callbacks(),
+    );
+    const rejected = expect(pending).rejects.toThrow(
+      "acknowledgment timed out",
+    );
+    mqtt.connect();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await rejected;
+    release();
+    await Promise.resolve();
+    expect(mqtt.ended).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("coalesces refresh requests without losing a generation during SUBACK", async () => {
+  const mqtt = new FakeMqttClient();
+  connectMock.mockReturnValueOnce(mqtt);
+  const connecting = MqttSession.connect(
+    "ws://mqtt:8083",
+    { "a/#": { qos: 1 } },
+    callbacks(),
+  );
+  mqtt.connect();
+  const session = await connecting;
+  let release!: () => void;
+  mqtt.subscribeWait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const first = session.refresh();
+  const second = session.refresh();
+  expect(first).toBe(second);
+  expect(session.ready).toBe(false);
+  mqtt.subscribeWait = undefined;
+  release();
+  await second;
+  expect(mqtt.subscriptions).toHaveLength(3);
+  expect(session.ready).toBe(true);
+  session.close();
 });

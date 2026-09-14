@@ -1,17 +1,17 @@
 // Coalesces authoritative /settings publications into the visible settings map.
 // Absence is not inferred: empty settings payloads delete exact leaves, while
 // reconnect/schema reload clears the map before retained replay.
-export type Settings = Map<string, unknown>;
+export type Settings = Map<string, string>;
 
 export type SettingsCommit = {
   settings: Settings;
-  changed: Set<string>;
+  touched: Set<string>;
   activity: Set<string>;
   rev?: string;
 };
 
 export class SettingsMirror {
-  private changed = new Set<string>();
+  private touched = new Set<string>();
   private rev: string | undefined;
   private shadow: Settings = new Map();
   private baseline = true;
@@ -24,24 +24,22 @@ export class SettingsMirror {
 
   clear(): void {
     this.cancel();
-    const changed = new Set(this.shadow.keys());
-    this.changed = new Set();
+    const touched = new Set(this.shadow.keys());
+    this.touched = new Set();
     this.rev = undefined;
     this.shadow = new Map();
     this.baseline = true;
-    if (changed.size) {
-      this.onCommit({ settings: new Map(), changed, activity: new Set() });
-    }
+    this.onCommit({ settings: new Map(), touched, activity: new Set() });
   }
 
-  ingest(path: string, value: unknown, present: boolean, rev?: string): void {
+  ingest(path: string, text: string | undefined, rev?: string): void {
     this.rev = rev ?? this.rev;
-    if (present) {
-      this.shadow.set(path, value);
+    if (text !== undefined) {
+      this.shadow.set(path, text);
     } else {
       this.shadow.delete(path);
     }
-    this.changed.add(path);
+    this.touched.add(path);
     this.schedule();
   }
 
@@ -60,11 +58,16 @@ export class SettingsMirror {
   }
 
   private commit(): void {
-    const changed = new Set(this.changed);
-    this.changed = new Set();
-    const activity = this.baseline ? new Set<string>() : changed;
+    const touched = new Set(this.touched);
+    this.touched = new Set();
+    const activity = this.baseline ? new Set<string>() : touched;
     this.baseline = false;
-    this.onCommit({ settings: new Map(this.shadow), changed, activity, rev: this.rev });
+    this.onCommit({
+      settings: new Map(this.shadow),
+      touched,
+      activity,
+      rev: this.rev,
+    });
   }
 
   private cancel(): void {

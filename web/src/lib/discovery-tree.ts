@@ -13,7 +13,9 @@ export type DiscoveryNode = {
   children: string[];
 };
 
-export function discoveryTree(prefixes: PrefixEntry[]): Map<string, DiscoveryNode> {
+export function discoveryTree(
+  prefixes: PrefixEntry[],
+): Map<string, DiscoveryNode> {
   const nodes = new Map<string, DiscoveryNode>([
     ["", { path: "", label: "prefixes", children: [] }],
   ]);
@@ -21,7 +23,12 @@ export function discoveryTree(prefixes: PrefixEntry[]): Map<string, DiscoveryNod
   function ensure(path: string, label: string, parent?: string): DiscoveryNode {
     let node = nodes.get(path);
     if (!node) {
-      node = { path, label, ...(parent === undefined ? {} : { parent }), children: [] };
+      node = {
+        path,
+        label,
+        ...(parent === undefined ? {} : { parent }),
+        children: [],
+      };
       nodes.set(path, node);
     }
     return node;
@@ -32,7 +39,10 @@ export function discoveryTree(prefixes: PrefixEntry[]): Map<string, DiscoveryNod
     for (const segment of discovered.prefix.split("/")) {
       const path = parent ? `${parent}/${segment}` : segment;
       const node = ensure(path, segment, parent);
-      const parentNode = ensure(parent, parent ? parent.split("/").at(-1)! : "prefixes");
+      const parentNode = ensure(
+        parent,
+        parent ? parent.split("/").at(-1)! : "prefixes",
+      );
       if (!parentNode.children.includes(path)) {
         parentNode.children.push(path);
       }
@@ -44,28 +54,34 @@ export function discoveryTree(prefixes: PrefixEntry[]): Map<string, DiscoveryNod
   return nodes;
 }
 
-export function flatDiscoveryNodes(nodes: Map<string, DiscoveryNode>): Map<string, FlatTreeNode> {
-  return new Map([...nodes].map(([path, node]) => [
-    path,
-    {
+export function flatDiscoveryNodes(
+  nodes: Map<string, DiscoveryNode>,
+): Map<string, FlatTreeNode> {
+  return new Map(
+    [...nodes].map(([path, node]) => [
       path,
-      ...(node.parent === undefined ? {} : { parent: node.parent }),
-      children: node.children,
-    },
-  ]));
+      {
+        path,
+        ...(node.parent === undefined ? {} : { parent: node.parent }),
+        children: node.children,
+      },
+    ]),
+  );
 }
 
 export function discoveryTreeView(
   nodes: Map<string, DiscoveryNode>,
   browseHref: (prefix: string) => string,
 ): Map<string, TreeNodeView> {
-  return new Map([...nodes].map(([path, node]) => [
-    path,
-    {
+  return new Map(
+    [...nodes].map(([path, node]) => [
       path,
-      label: node.label,
-      href: node.prefix ? browseHref(node.prefix) : undefined,
-      children: node.children,
-    },
-  ]));
+      {
+        path,
+        label: node.label,
+        href: node.prefix ? browseHref(node.prefix) : undefined,
+        children: node.children,
+      },
+    ]),
+  );
 }

@@ -1,7 +1,11 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { discoveryTree, discoveryTreeView, flatDiscoveryNodes } from "./lib/discovery-tree";
+  import {
+    discoveryTree,
+    discoveryTreeView,
+    flatDiscoveryNodes,
+  } from "./lib/discovery-tree";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import {
     movePath,
@@ -19,6 +23,7 @@
     password?: string;
     discoveredPrefixes: { prefix: string }[];
     status: string;
+    watching: boolean;
     error: string;
     logOpen?: boolean;
     logLines: string[];
@@ -33,6 +38,7 @@
     password = $bindable(""),
     discoveredPrefixes,
     status,
+    watching,
     error,
     logOpen = $bindable(false),
     logLines,
@@ -48,7 +54,12 @@
   let treeNodes = $derived(discoveryTreeView(nodes, browseHref));
   let flatNodes = $derived(flatDiscoveryNodes(nodes));
   let visiblePaths = $derived(visibleTreePaths("", flatNodes, expanded));
-  let nextPrefixKey = $derived(discoveredPrefixes.map((prefix) => prefix.prefix).sort().join("\n"));
+  let nextPrefixKey = $derived(
+    discoveredPrefixes
+      .map((prefix) => prefix.prefix)
+      .sort()
+      .join("\n"),
+  );
 
   $effect(() => {
     if (nextPrefixKey === prefixKey) {
@@ -74,10 +85,19 @@
   }
 
   function setExpanded(path: string, open: boolean) {
-    ({ expanded, userClosed } = toggleExpansion(expanded, userClosed, path, open));
+    ({ expanded, userClosed } = toggleExpansion(
+      expanded,
+      userClosed,
+      path,
+      open,
+    ));
   }
 
-  function navigateTree(path: string, direction: NavDirection, step?: number): string {
+  function navigateTree(
+    path: string,
+    direction: NavDirection,
+    step?: number,
+  ): string {
     const next = movePath(visiblePaths, path, direction, flatNodes, step);
     selectedPath = next;
     return next;
@@ -108,7 +128,7 @@
   <section class="connection panel" aria-labelledby="connect-title">
     <header>
       <h1 id="connect-title">Miniconf Browser</h1>
-      <p>Connect to a broker and discover device prefixes.</p>
+      <p>Discover and inspect Miniconf devices on an MQTT broker.</p>
     </header>
     <form autocomplete="on" onsubmit={submit}>
       <label class="broker">
@@ -124,7 +144,15 @@
       </label>
       <label class="pattern">
         Discovery filter
-        <input bind:value={discoveryPattern} name="discovery-pattern" />
+        <input
+          bind:value={discoveryPattern}
+          name="discovery-pattern"
+          aria-describedby="filter-help"
+        />
+        <span id="filter-help" class="meta"
+          >Prefix filter; /alive is appended. Use + for one level; # is
+          unsupported.</span
+        >
       </label>
       <label>
         Username
@@ -132,26 +160,35 @@
       </label>
       <label>
         Password
-        <input autocomplete="current-password" bind:value={password} name="password" type="password" />
+        <input
+          autocomplete="current-password"
+          bind:value={password}
+          name="password"
+          type="password"
+        />
       </label>
       <button type="submit">Discover</button>
     </form>
     <StatusLog {status} {error} bind:open={logOpen} {logLines} live />
   </section>
 
-  {#if discoveredPrefixes.length}
+  {#if discoveredPrefixes.length || watching}
     <section class="prefixes panel" aria-labelledby="prefix-title">
       <header class="section-heading">
-        <h2 id="prefix-title">Prefixes</h2>
+        <h2 id="prefix-title">Devices</h2>
         <span class="meta">{discoveredPrefixes.length} found</span>
       </header>
       <TreeView
+        label="Devices"
         root=""
         nodes={treeNodes}
         {selectedPath}
         {expanded}
         actions={treeActions}
       />
+      {#if !discoveredPrefixes.length}
+        <p class="meta">No matching devices announced.</p>
+      {/if}
     </section>
   {/if}
 </section>

@@ -6,6 +6,9 @@
 
   type Props = {
     node: ViewNode | undefined;
+    path: string;
+    canSet: boolean;
+    requestMessage: string;
     editor: string;
     editorDirty: boolean;
     editorStale: boolean;
@@ -17,6 +20,9 @@
 
   let {
     node,
+    path,
+    canSet,
+    requestMessage,
     editor,
     editorDirty,
     editorStale,
@@ -37,7 +43,7 @@
   function maybeSubmit(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
-      submit();
+      if (canSet) submit();
     } else if (event.key === "Escape") {
       event.preventDefault();
       focusTree();
@@ -46,11 +52,11 @@
 </script>
 
 <section class="selected panel" aria-label="Selected item">
-  <h2>Value</h2>
+  <h2>{displayPath(path)}</h2>
   <details class="schema" bind:open={schemaOpen}>
     <summary>
       <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
-      <span>{node ? displayPath(node.path) : "Schema"}</span>
+      <span>Schema</span>
     </summary>
     <div class="schema-body">
       {#if metadata}
@@ -61,35 +67,48 @@
     </div>
   </details>
   <section class="editor" aria-label="Leaf editor">
-    {#if leaf}
-      <textarea
-        aria-keyshortcuts="Control+Enter Meta+Enter Escape"
-        data-leaf-editor
-        title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
-        value={editor}
-        oninput={edit}
-        onkeydown={maybeSubmit}
-      ></textarea>
+    {#if leaf || editorDirty}
+      <div class="value-editor">
+        {#if editorDirty || requestMessage || !node?.present}
+          <span class="meta">Device value</span>
+          <pre class="device-value">{node?.value ?? "No value observed"}</pre>
+        {/if}
+        {#if !leaf}<p>Leaf unavailable</p>{/if}
+        <label for="leaf-editor">Draft</label>
+        <textarea
+          id="leaf-editor"
+          aria-keyshortcuts="Control+Enter Meta+Enter Escape"
+          data-leaf-editor
+          title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
+          value={editor}
+          oninput={edit}
+          onkeydown={maybeSubmit}></textarea>
+      </div>
       <div class="actions">
         <button
           aria-keyshortcuts="Control+Enter Meta+Enter"
           title="Ctrl/Cmd+Enter"
           type="button"
-          onclick={submit}
-        >Set</button>
+          disabled={!canSet}
+          onclick={submit}>Set</button
+        >
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
           disabled={!editorDirty}
           title="Reset the draft to the current value"
           type="button"
           onclick={resetEditor}
-        >Reset</button>
+          >{node?.present ? "Use device value" : "Clear draft"}</button
+        >
         {#if editorStale}
-          <span class="stale">Changed remotely</span>
+          <span class="stale">Device value updated</span>
         {:else if editorDirty}
           <span class="draft">Edited</span>
         {/if}
       </div>
+      {#if requestMessage}<p class="request" role="status">
+          {requestMessage}
+        </p>{/if}
     {:else}
       <p>No leaf selected.</p>
     {/if}
@@ -97,6 +116,18 @@
 </section>
 
 <style>
+  .value-editor {
+    min-width: 0;
+  }
+  .device-value {
+    max-height: calc(4 * var(--line));
+    overflow: auto;
+    margin: 0 0 var(--space-tight);
+  }
+  .request {
+    grid-column: 1 / -1;
+  }
+
   .selected {
     display: grid;
     gap: 0;

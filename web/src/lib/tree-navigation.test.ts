@@ -47,13 +47,13 @@ describe("tree navigation", () => {
       { prefix: "dt/sinara/b/host" },
     ]);
 
-    expect(visibleTreePaths("", flatDiscoveryNodes(nodes), new Set(["", "dt", "dt/sinara"]))).toEqual([
-      "",
-      "dt",
-      "dt/sinara",
-      "dt/sinara/a",
-      "dt/sinara/b",
-    ]);
+    expect(
+      visibleTreePaths(
+        "",
+        flatDiscoveryNodes(nodes),
+        new Set(["", "dt", "dt/sinara"]),
+      ),
+    ).toEqual(["", "dt", "dt/sinara", "dt/sinara/a", "dt/sinara/b"]);
     expect(nodes.get("dt/sinara/a/host")?.prefix).toBe("dt/sinara/a/host");
   });
 });

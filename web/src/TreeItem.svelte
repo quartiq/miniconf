@@ -1,7 +1,11 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TreeActions, TreeActivity, TreeNodeView } from "./lib/tree-view";
+  import type {
+    TreeActions,
+    TreeActivity,
+    TreeNodeView,
+  } from "./lib/tree-view";
   import TreeItem from "./TreeItem.svelte";
   import TreeRow from "./TreeRow.svelte";
 
@@ -9,6 +13,7 @@
     node: TreeNodeView;
     nodes: Map<string, TreeNodeView>;
     selectedPath: string;
+    tabStop: string;
     activity?: Map<string, TreeActivity>;
     expanded: Set<string>;
     actions: TreeActions;
@@ -21,6 +26,7 @@
     node,
     nodes,
     selectedPath,
+    tabStop,
     activity = new Map(),
     expanded,
     actions,
@@ -33,13 +39,15 @@
   let internal = $derived(node.children.length > 0);
   let open = $derived(expanded.has(node.path));
   let rowActivity = $derived(activity.get(node.path));
-  let title = $derived(node.href
-    ? internal
-      ? "Enter opens. Space toggles. Arrows/Home/End/Page navigate."
-      : "Enter opens. Ctrl-click opens a new tab. Arrows/Home/End/Page navigate."
-    : internal
-      ? "Enter or Space toggles. Arrows/Home/End/Page navigate."
-      : "Enter edits. Arrows/Home/End/Page navigate.");
+  let title = $derived(
+    node.href
+      ? internal
+        ? "Enter opens. Space toggles. Arrows/Home/End/Page navigate."
+        : "Enter opens. Ctrl-click opens a new tab. Arrows/Home/End/Page navigate."
+      : internal
+        ? "Enter or Space toggles. Arrows/Home/End/Page navigate."
+        : "Enter edits. Arrows/Home/End/Page navigate.",
+  );
 
   function select() {
     actions.select(node.path);
@@ -134,6 +142,7 @@
     label={node.label}
     value={node.value ?? ""}
     {selected}
+    tabbable={node.path === tabStop}
     {internal}
     {open}
     {depth}
@@ -145,7 +154,7 @@
     {title}
     {select}
     {toggle}
-    keydown={keydown}
+    {keydown}
   />
 
   {#if internal && open}
@@ -157,6 +166,7 @@
             node={child}
             {nodes}
             {selectedPath}
+            {tabStop}
             {activity}
             {expanded}
             {actions}

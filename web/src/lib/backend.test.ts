@@ -25,11 +25,11 @@ function hash(...pages: string[]): number {
   return value;
 }
 
-function callbacks(overrides: Partial<PrefixSessionCallbacks> = {}): PrefixSessionCallbacks {
+function callbacks(
+  overrides: Partial<PrefixSessionCallbacks> = {},
+): PrefixSessionCallbacks {
   return {
-    error: () => {},
     alive: () => {},
-    response: () => {},
     schema: () => {},
     settings: () => {},
     status: () => {},
@@ -43,7 +43,12 @@ async function connectPrefix(
   subtree = "",
 ): Promise<PrefixSession> {
   connectMock.mockReturnValueOnce(mqtt);
-  const connecting = PrefixSession.connect("ws://mqtt:8083", "dt/device", subtree, nextCallbacks);
+  const connecting = PrefixSession.connect(
+    "ws://mqtt:8083",
+    "dt/device",
+    subtree,
+    nextCallbacks,
+  );
   mqtt.options = connectMock.mock.calls.at(-1)![1];
   mqtt.connect();
   return await connecting;
@@ -60,16 +65,21 @@ describe("DiscoverySession", () => {
     const updates: string[][] = [];
     connectMock.mockReturnValueOnce(mqtt);
     const connecting = DiscoverySession.connect("ws://mqtt:8083", "dt/+", {
-      prefixes: (prefixes) => updates.push(prefixes.map(({ prefix }) => prefix)),
-      error: () => {},
+      prefixes: (prefixes) =>
+        updates.push(prefixes.map(({ prefix }) => prefix)),
       status: () => {},
     });
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
     const session = await connecting;
 
-    expect(mqtt.subscriptions).toEqual([{ "dt/+/alive": { qos: 1, rap: true, rh: 0 } }]);
-    mqtt.message("dt/device/alive", '{"proto":1,"epoch":1,"schema_rev":2,"pages":1}');
+    expect(mqtt.subscriptions).toEqual([
+      { "dt/+/alive": { qos: 1, rap: true, rh: 0 } },
+    ]);
+    mqtt.message(
+      "dt/device/alive",
+      '{"proto":1,"epoch":1,"schema_rev":2,"pages":1}',
+    );
     expect(updates.at(-1)).toEqual(["dt/device"]);
     mqtt.message("dt/device/alive", "", false);
     expect(updates.at(-1)).toEqual(["dt/device"]);
@@ -84,9 +94,12 @@ describe("DiscoverySession", () => {
   });
 
   it("rejects discovery filters that consume the alive suffix", async () => {
-    await expect(DiscoverySession.connect("ws://mqtt:8083", "dt/#", {
-      prefixes: () => {}, error: () => {}, status: () => {},
-    })).rejects.toThrow("cannot contain #");
+    await expect(
+      DiscoverySession.connect("ws://mqtt:8083", "dt/#", {
+        prefixes: () => {},
+        status: () => {},
+      }),
+    ).rejects.toThrow("cannot contain #");
     expect(connectMock).not.toHaveBeenCalled();
   });
 });
@@ -97,21 +110,32 @@ describe("PrefixSession", () => {
     const mqtt = new FakeMqttClient();
     const roots: string[] = [];
     const commits: Array<Map<string, unknown>> = [];
-    const session = await connectPrefix(mqtt, callbacks({
-      schema: (_schema, root) => roots.push(root),
-      settings: (commit) => commits.push(commit.settings),
-    }));
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({
+        schema: (_schema, root) => roots.push(root),
+        settings: (commit) => commits.push(commit.settings),
+      }),
+    );
 
-    const response = Object.keys(mqtt.subscriptions[0]).find((topic) => topic.includes("/response/"));
+    const response = Object.keys(mqtt.subscriptions[0]).find((topic) =>
+      topic.includes("/response/"),
+    );
     expect(Object.keys(mqtt.subscriptions[0])).toEqual([
       "dt/device/alive",
       "dt/device/schema/#",
       "dt/device/settings/#",
       response,
     ]);
-    mqtt.message("dt/device/alive", JSON.stringify({
-      proto: 1, epoch: 1, schema_rev: hash(...schemaText), pages: 2,
-    }));
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({
+        proto: 1,
+        epoch: 1,
+        schema_rev: hash(...schemaText),
+        pages: 2,
+      }),
+    );
     mqtt.message("dt/device/schema/0", schemaText[0], false);
     mqtt.message("dt/device/schema/1", schemaText[1]);
     expect(roots).toEqual([]);
@@ -123,7 +147,7 @@ describe("PrefixSession", () => {
     mqtt.message("dt/device/settings/leaf", "3", true, { auth: ["", ""] });
     mqtt.message("dt/device/settings/leaf", "4", true, { auth: "", rev: "9" });
     await vi.advanceTimersByTimeAsync(100);
-    expect([...commits.at(-1)!]).toEqual([["/leaf", 4]]);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", "4"]]);
     session.close();
   });
 
@@ -132,13 +156,23 @@ describe("PrefixSession", () => {
     const errors: string[] = [];
     const alive: Array<number | undefined> = [];
     const revision = hash(...schemaText);
-    const session = await connectPrefix(mqtt, callbacks({
-      alive: (manifest) => alive.push(manifest?.epoch),
-      error: (error) => errors.push(error),
-    }));
-    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }));
-    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
-    const setting = session.set("/leaf", 1);
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({
+        alive: (manifest) => alive.push(manifest?.epoch),
+        status: (status) => {
+          if ("error" in status) errors.push(status.error);
+        },
+      }),
+    );
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }),
+    );
+    schemaText.forEach((page, index) =>
+      mqtt.message(`dt/device/schema/${index}`, page),
+    );
+    const setting = session.set("/leaf", "1");
     await vi.waitFor(() => expect(mqtt.publications).toHaveLength(1));
 
     mqtt.message("dt/device/alive", "not json");
@@ -146,19 +180,24 @@ describe("PrefixSession", () => {
     await expect(setting).rejects.toThrow("Invalid alive manifest");
     expect(alive.at(-1)).toBeUndefined();
     expect(errors.at(-1)).toBeTruthy();
-    await expect(session.set("/leaf", 2)).rejects.toThrow("not ready");
+    await expect(session.set("/leaf", "2")).rejects.toThrow("not ready");
     session.close();
   });
 
   it("does not allocate the declared schema range before pages arrive", async () => {
     const mqtt = new FakeMqttClient();
     const session = await connectPrefix(mqtt);
-    expect(() => mqtt.message("dt/device/alive", JSON.stringify({
-      proto: 1,
-      epoch: 1,
-      schema_rev: 1,
-      pages: Number.MAX_SAFE_INTEGER,
-    }))).not.toThrow();
+    expect(() =>
+      mqtt.message(
+        "dt/device/alive",
+        JSON.stringify({
+          proto: 1,
+          epoch: 1,
+          schema_rev: 1,
+          pages: Number.MAX_SAFE_INTEGER,
+        }),
+      ),
+    ).not.toThrow();
     session.close();
   });
 
@@ -168,12 +207,20 @@ describe("PrefixSession", () => {
     const schemas: number[] = [];
     const commits: Array<Map<string, unknown>> = [];
     const revision = hash(...schemaText);
-    const session = await connectPrefix(mqtt, callbacks({
-      schema: (schema) => schemas.push(schema.rev),
-      settings: (commit) => commits.push(commit.settings),
-    }));
-    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }));
-    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({
+        schema: (schema) => schemas.push(schema.rev),
+        settings: (commit) => commits.push(commit.settings),
+      }),
+    );
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }),
+    );
+    schemaText.forEach((page, index) =>
+      mqtt.message(`dt/device/schema/${index}`, page),
+    );
     mqtt.message("dt/device/settings/leaf", "1", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
 
@@ -181,12 +228,15 @@ describe("PrefixSession", () => {
     mqtt.connect();
     expect([...commits.at(-1)!]).toEqual([]);
     await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
-    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 2, schema_rev: revision, pages: 2 }));
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({ proto: 1, epoch: 2, schema_rev: revision, pages: 2 }),
+    );
     mqtt.message("dt/device/settings/leaf", "2", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
 
     expect(schemas).toEqual([revision]);
-    expect([...commits.at(-1)!]).toEqual([["/leaf", 2]]);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", "2"]]);
     session.close();
   });
 
@@ -194,28 +244,37 @@ describe("PrefixSession", () => {
     const mqtt = new FakeMqttClient();
     const revision = hash(...schemaText);
     const session = await connectPrefix(mqtt);
-    mqtt.message("dt/device/alive", JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }));
-    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }),
+    );
+    schemaText.forEach((page, index) =>
+      mqtt.message(`dt/device/schema/${index}`, page),
+    );
 
-    const first = session.set("/leaf", 1);
-    const second = session.set("/leaf", 2);
+    const first = session.set("/leaf", "1");
+    const second = session.set("/leaf", "2");
     await vi.waitFor(() => expect(mqtt.publications).toHaveLength(2));
     mqtt.respond(1, "Ok");
     mqtt.respond(0, "BadRequest", "invalid");
     await expect(second).resolves.toMatchObject({ ok: true });
-    await expect(first).resolves.toMatchObject({ ok: false, message: "invalid" });
+    await expect(first).resolves.toMatchObject({
+      ok: false,
+      message: "invalid",
+    });
 
-    const unknown = session.set("/leaf", 3);
+    const unknown = session.set("/leaf", "3");
     await vi.waitFor(() => expect(mqtt.publications).toHaveLength(3));
     mqtt.disconnect();
     await expect(unknown).rejects.toThrow("outcome unknown");
-    await expect(session.set("/leaf", 4)).rejects.toThrow("not ready");
+    await expect(session.set("/leaf", "4")).rejects.toThrow("not ready");
     session.close();
   });
 
   it("requires an empty-or-slash subtree before opening MQTT", async () => {
-    await expect(PrefixSession.connect("ws://mqtt:8083", "dt/device", "sub", callbacks()))
-      .rejects.toThrow("Subtree path must be empty or start with");
+    await expect(
+      PrefixSession.connect("ws://mqtt:8083", "dt/device", "sub", callbacks()),
+    ).rejects.toThrow("Subtree path must be empty or start with");
     expect(connectMock).not.toHaveBeenCalled();
   });
 
@@ -223,11 +282,101 @@ describe("PrefixSession", () => {
     vi.useFakeTimers();
     const mqtt = new FakeMqttClient();
     const errors: string[] = [];
-    const session = await connectPrefix(mqtt, callbacks({ error: (error) => errors.push(error) }));
-    mqtt.message("dt/device/alive", '{"proto":1,"epoch":1,"schema_rev":1,"pages":2}');
-    schemaText.forEach((page, index) => mqtt.message(`dt/device/schema/${index}`, page));
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({
+        status: (status) => {
+          if ("error" in status) errors.push(status.error);
+        },
+      }),
+    );
+    mqtt.message(
+      "dt/device/alive",
+      '{"proto":1,"epoch":1,"schema_rev":1,"pages":2}',
+    );
+    schemaText.forEach((page, index) =>
+      mqtt.message(`dt/device/schema/${index}`, page),
+    );
     await vi.advanceTimersByTimeAsync(10_000);
     expect(errors).toEqual(["Schema pages do not match revision 1"]);
+    session.close();
+  });
+});
+
+describe("exact settings and generation boundaries", () => {
+  it("ignores obsolete paths, malformed UTF-8 and retained responses", async () => {
+    vi.useFakeTimers();
+    const mqtt = new FakeMqttClient();
+    const commits: Array<Map<string, string>> = [];
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({ settings: (c) => commits.push(c.settings) }),
+    );
+    const text = '{"n":9007199254740993,"e":1e400}';
+    mqtt.message("dt/device/settings/leaf", text, true, { auth: "" });
+    mqtt.message("dt/device/settings/obsolete", "1", true, {
+      auth: "",
+      rev: "999",
+    });
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({
+        proto: 1,
+        epoch: 1,
+        schema_rev: hash(...schemaText),
+        pages: 2,
+      }),
+    );
+    schemaText.forEach((page, i) =>
+      mqtt.message(`dt/device/schema/${i}`, page),
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", text]]);
+    mqtt.message(
+      "dt/device/settings/leaf",
+      new Uint8Array([34, 255, 34]),
+      true,
+      { auth: "" },
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", text]]);
+    const setting = session.set("/leaf", text);
+    expect(mqtt.publications.at(-1)?.payload).toBe(text);
+    mqtt.respond(0, "Ok");
+    await expect(setting).resolves.toMatchObject({ ok: true });
+    session.close();
+  });
+
+  it("refreshes a live generation without carrying obsolete settings into the new schema", async () => {
+    vi.useFakeTimers();
+    const mqtt = new FakeMqttClient();
+    const commits: Array<Map<string, string>> = [];
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({ settings: (c) => commits.push(c.settings) }),
+    );
+    const alive = {
+      proto: 1,
+      epoch: 1,
+      schema_rev: hash(...schemaText),
+      pages: 2,
+    };
+    mqtt.message("dt/device/alive", JSON.stringify(alive));
+    schemaText.forEach((page, i) =>
+      mqtt.message(`dt/device/schema/${i}`, page),
+    );
+    mqtt.message("dt/device/settings/leaf", "1", true, { auth: "" });
+    await vi.advanceTimersByTimeAsync(100);
+    mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
+    expect(session.ready).toBe(false);
+    expect([...commits.at(-1)!]).toEqual([]);
+    await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
+    mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
+    mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
+    mqtt.message("dt/device/settings/leaf", "2", true, { auth: "" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(mqtt.subscriptions).toHaveLength(2);
+    expect([...commits.at(-1)!]).toEqual([["/leaf", "2"]]);
     session.close();
   });
 });

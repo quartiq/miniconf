@@ -1,6 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import type { ViewNode } from "./lib/tree-state";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import SelectedPanel from "./SelectedPanel.svelte";
@@ -8,6 +9,7 @@
   import TreeView from "./TreeView.svelte";
 
   type Props = {
+    pruning: Snippet;
     broker: string;
     activePrefix: string;
     discoverHref: string;
@@ -23,6 +25,8 @@
     activity: Map<string, import("./lib/tree-view").TreeActivity>;
     expanded: Set<string>;
     treeRoot: string;
+    canSet: boolean;
+    requestMessage: string;
     editor: string;
     editorDirty: boolean;
     editorStale: boolean;
@@ -37,6 +41,7 @@
   };
 
   let {
+    pruning,
     broker,
     activePrefix,
     discoverHref,
@@ -52,6 +57,8 @@
     activity,
     expanded,
     treeRoot,
+    canSet,
+    requestMessage,
     editor,
     editorDirty,
     editorStale,
@@ -68,7 +75,7 @@
 
 <section class="browse">
   <header class="app-header panel">
-    <a class="back" href={discoverHref}>← Connection</a>
+    <a class="back" href={discoverHref}>← Devices</a>
     <div class="context">
       <h1 title={activePrefix}>{activePrefix}</h1>
       <div class="meta">
@@ -78,7 +85,9 @@
           <span>epoch {aliveManifest.epoch}</span>
           <span>schema {aliveManifest.schema_rev}</span>
         {/if}
-        {#if settingsRevision}<span>rev {settingsRevision}</span>{/if}
+        {#if settingsRevision}<span
+            >last publication rev {settingsRevision}</span
+          >{/if}
       </div>
     </div>
     <div class="connection-state">
@@ -97,6 +106,7 @@
       <h2 id="settings-title">Settings</h2>
       {#if treeNodes.has(treeRoot)}
         <TreeView
+          label="Settings"
           root={treeRoot}
           nodes={treeNodes}
           {selectedPath}
@@ -109,17 +119,30 @@
       {/if}
     </section>
 
-    <SelectedPanel node={selected} {editor} {editorDirty} {editorStale} {updateEditor} {submit} {resetEditor} {focusTree} />
+    <SelectedPanel
+      node={selected}
+      path={selectedPath}
+      {canSet}
+      {requestMessage}
+      {editor}
+      {editorDirty}
+      {editorStale}
+      {updateEditor}
+      {submit}
+      {resetEditor}
+      {focusTree}
+    />
   </div>
 
-  <StatusLog {status} {error} bind:open={logOpen} {logLines} />
+  {@render pruning()}
+  <StatusLog status="Log" bind:open={logOpen} {logLines} />
 </section>
 
 <style>
   .browse {
     display: grid;
     gap: var(--space);
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
     height: calc(100svh - 2 * var(--space));
     min-width: 0;
   }

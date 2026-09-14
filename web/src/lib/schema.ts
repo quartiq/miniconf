@@ -119,7 +119,10 @@ export class Schema {
     return { id, childRef };
   }
 
-  private childEntries(_path: string, id: number): { name: string; ref: CompactRef }[] {
+  private childEntries(
+    _path: string,
+    id: number,
+  ): { name: string; ref: CompactRef }[] {
     const internal = this.defs[id].i;
     if (!internal) {
       return [];
@@ -192,7 +195,9 @@ function metadataLines(prefix: string, value: unknown): string[] {
       lines.push(`${prefix} ${key}:`);
       lines.push(...text.split(/\r?\n/).map((line) => `  ${line}`));
     } else {
-      lines.push(item === true ? `${prefix} ${key}` : `${prefix} ${key}=${text}`);
+      lines.push(
+        item === true ? `${prefix} ${key}` : `${prefix} ${key}=${text}`,
+      );
     }
   }
   return lines.length ? lines : [prefix];
