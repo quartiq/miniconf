@@ -43,6 +43,7 @@ export type SetResponse = {
 
 export type SessionStatus =
   | MqttSessionStatus
+  | { state: "device-error"; error: string }
   | { state: "idle" | "connecting" | "waiting" | "loading" | "watching" };
 
 export type DiscoverySessionCallbacks = {
@@ -54,7 +55,7 @@ export type PrefixSessionCallbacks = {
   alive: (alive: AliveManifest | undefined) => void;
   schema: (schema: Schema, root: string) => void;
   settings: (commit: SettingsCommit) => void;
-  status: (status: SessionStatus) => void;
+  status: (status: SessionStatus, ready: boolean) => void;
   pruning?: (state: PruningState) => void;
 };
 
@@ -62,10 +63,11 @@ export type PruningState = {
   count: number;
   pending: boolean;
   message: string;
-  unavailable: string;
+  coverageWarning: string;
 };
 
 type PendingResponse = {
+  abort: AbortController;
   path: string;
   resolve: (response: SetResponse) => void;
   reject: (error: Error) => void;
@@ -161,11 +163,11 @@ export class PrefixSession {
   private pruneAbort = new AbortController();
   private pruning = false;
   private pruneMessage = "";
-  private pruneUnavailable = "";
+  private pruneCoverageWarning = "";
   private mqtt: MqttSession | undefined;
   private alive: AliveManifest | undefined;
   private schema: Schema | undefined;
-  private schemaError: string | undefined;
+  private deviceError: string | undefined;
   private readonly waitingSettings = new Map<
     string,
     { text: string | undefined; rev?: string }
@@ -208,8 +210,8 @@ export class PrefixSession {
         reset: () => session.clearRetained(),
         status: (status) => session.noteStatus(status),
         subscriptions: (rejected) => {
-          session.pruneUnavailable = rejected.length
-            ? `Cleanup subscriptions rejected: ${rejected.join(", ")}`
+          session.pruneCoverageWarning = rejected.length
+            ? `Some topic namespaces could not be observed: ${rejected.join(", ")}`
             : "";
           session.reportPruning();
         },
@@ -249,7 +251,13 @@ export class PrefixSession {
           new Error("Set response timed out; outcome unknown"),
         );
       }, timeout);
-      const pending = { path: settingsPath, resolve, reject, timer };
+      const pending = {
+        path: settingsPath,
+        resolve,
+        reject,
+        timer,
+        abort: new AbortController(),
+      };
       this.pending.set(key, pending);
       const options: IClientPublishOptions = {
         qos: 1,
@@ -264,6 +272,7 @@ export class PrefixSession {
         `${this.prefix}/set${settingsPath}`,
         payload,
         options,
+        pending.abort.signal,
       ).catch((error) => {
         this.reject(
           key,
@@ -275,17 +284,19 @@ export class PrefixSession {
   }
 
   close(): void {
-    this.pruneAbort.abort();
+    this.cancelOperations(
+      new Error("Prefix session closed; setting outcome unknown"),
+    );
     this.mqtt?.close();
     this.mqtt = undefined;
     this.clearSchemaTimer();
-    this.rejectPending(new Error("Prefix session closed"));
     this.mirror.dispose();
   }
 
   get ready(): boolean {
     return Boolean(
       this.mqtt?.ready &&
+      !this.deviceError &&
       this.alive &&
       this.schema &&
       this.schema.rev === this.alive.schema_rev,
@@ -322,7 +333,7 @@ export class PrefixSession {
     if (!message.packet.retain) return;
     if (!message.payload.byteLength) {
       this.clearRetained();
-      this.callbacks.status({ state: "waiting" });
+      this.showProgress();
       return;
     }
     let next: AliveManifest;
@@ -334,23 +345,24 @@ export class PrefixSession {
           "Invalid alive manifest; setting outcome unknown. Check the current value.",
         ),
       );
-      this.callbacks.status({
-        state: "failed",
-        error: error instanceof Error ? error.message : String(error),
-      });
+      this.deviceError = error instanceof Error ? error.message : String(error);
+      this.showProgress();
       return;
     }
     if (
       this.mqtt &&
-      this.alive &&
-      (this.alive.epoch !== next.epoch ||
-        this.alive.schema_rev !== next.schema_rev)
+      ((!this.alive && this.deviceError) ||
+        (this.alive &&
+          (this.alive.epoch !== next.epoch ||
+            this.alive.schema_rev !== next.schema_rev)))
     ) {
-      // The new generation's values may have preceded its alive commit marker.
+      // Recovery or a new generation needs the observations cleared earlier.
+      // Its values may have preceded the alive commit marker.
       // Clear and replay through the existing fixed subscription owner.
       void this.mqtt?.refresh();
       return;
     }
+    if (!this.alive) this.deviceError = undefined;
     this.alive = next;
     if (this.schema?.rev === next.schema_rev) this.classifyStale();
     for (const page of this.pages.keys()) {
@@ -395,14 +407,14 @@ export class PrefixSession {
       const root = schema.path(this.subtreePath);
       this.schema = schema;
       this.classifyStale();
-      this.schemaError = undefined;
+      this.deviceError = undefined;
       this.clearSchemaTimer();
       this.callbacks.schema(schema, root);
       this.flushSettings();
       this.showProgress();
     } catch (error) {
       this.clearSchemaTimer();
-      this.schemaError = error instanceof Error ? error.message : String(error);
+      this.deviceError = error instanceof Error ? error.message : String(error);
       this.showProgress();
     }
   }
@@ -446,12 +458,12 @@ export class PrefixSession {
           : 0,
       pending: this.pruning,
       message: this.pruneMessage,
-      unavailable: this.pruneUnavailable,
+      coverageWarning: this.pruneCoverageWarning,
     });
   }
 
   async prune(): Promise<void> {
-    if (!this.ready || this.pruning || this.pruneUnavailable) return;
+    if (!this.ready || this.pruning) return;
     const topics = [...this.stale];
     const signal = this.pruneAbort.signal;
     this.pruning = true;
@@ -493,6 +505,7 @@ export class PrefixSession {
     if (!pending) return;
     this.pending.delete(key);
     globalThis.clearTimeout(pending.timer);
+    pending.abort.abort();
     const code = userProperty(message.packet, "code") || "Error";
     const response = {
       path: pending.path,
@@ -509,16 +522,15 @@ export class PrefixSession {
       "Connection lost; setting outcome unknown. Check the current value.",
     ),
   ): void {
-    this.pruneAbort.abort();
+    this.cancelOperations(pendingError);
     this.pruneAbort = new AbortController();
     this.stale.clear();
     this.alive = undefined;
-    this.schemaError = undefined;
+    this.deviceError = undefined;
     this.pages.clear();
     this.waitingSettings.clear();
     this.clearSchemaTimer();
     this.mirror.clear();
-    this.rejectPending(pendingError);
     this.callbacks.alive(undefined);
     this.reportPruning();
   }
@@ -529,21 +541,20 @@ export class PrefixSession {
       return;
     }
     if (status.state === "offline" || status.state === "failed") {
-      this.pruneAbort.abort();
-      this.rejectPending(
+      this.cancelOperations(
         new Error(
           "Connection lost; setting outcome unknown. Check the current value.",
         ),
       );
     }
-    this.callbacks.status(status);
+    this.callbacks.status(status, this.ready);
   }
 
   private showProgress(): void {
     if (!this.mqtt?.ready) return;
     this.callbacks.status(
-      this.schemaError
-        ? { state: "failed", error: this.schemaError }
+      this.deviceError
+        ? { state: "device-error", error: this.deviceError }
         : {
             state: !this.alive
               ? "waiting"
@@ -551,6 +562,7 @@ export class PrefixSession {
                 ? "loading"
                 : "watching",
           },
+      this.ready,
     );
   }
 
@@ -561,7 +573,7 @@ export class PrefixSession {
       const alive = this.alive;
       if (!alive || this.schema?.rev === alive.schema_rev) return;
       const missing = alive.pages - this.pages.size;
-      this.schemaError = missing
+      this.deviceError = missing
         ? `Timed out waiting for ${missing} of ${alive.pages} schema pages`
         : `Schema pages do not match revision ${alive.schema_rev}`;
       this.showProgress();
@@ -577,10 +589,12 @@ export class PrefixSession {
   private reject(key: string, pending: PendingResponse, error: Error): void {
     if (!this.pending.delete(key)) return;
     globalThis.clearTimeout(pending.timer);
+    pending.abort.abort();
     pending.reject(error);
   }
 
-  private rejectPending(error: Error): void {
+  private cancelOperations(error: Error): void {
+    this.pruneAbort.abort();
     for (const [key, pending] of this.pending) this.reject(key, pending, error);
   }
 }

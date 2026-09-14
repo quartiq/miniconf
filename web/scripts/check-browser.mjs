@@ -34,6 +34,7 @@ let rejectSubscriptions = false;
 let rejectCleanup = false;
 let connections = 0;
 let holdResponse = false;
+let holdSetAck = false;
 let respond;
 let holdClear = false;
 let acknowledgeClear;
@@ -149,7 +150,7 @@ broker.on("connection", (socket) => {
             reasonCode: rejected ? 135 : 0,
           });
         if (clearing && holdClear) acknowledgeClear = acknowledge;
-        else acknowledge();
+        else if (!holdSetAck || clearing) acknowledge();
       }
       if (message.topic === `${prefix}/set/leaf` && message.payload.length) {
         respond = () => {
@@ -561,8 +562,19 @@ try {
     rejectCleanup = true;
     await command("Page.navigate", { url: "about:blank" });
     await command("Page.navigate", { url: href });
-    await until("document.body?.innerText.includes('Pruning unavailable')");
+    await until(
+      "document.body?.innerText.includes('Partial pruning coverage')",
+    );
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    publish(`${prefix}/settings/partial`, "1");
+    await until(
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (1)'",
+    );
+    await clickButton("Prune (1)");
+    await until(
+      "document.body?.innerText.includes('Cleared 1 retained topics.')",
+    );
+    assert(!retained.has(`${prefix}/settings/partial`));
     await click('[data-tree-path="/leaf"]');
     await fill("textarea", "789");
     await clickButton("Set");
@@ -615,6 +627,50 @@ try {
     );
     await until(
       "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '9007199254740993'",
+    );
+    // A pending Set is scoped to the current connection, including its MQTT store entry.
+    holdSetAck = holdResponse = true;
+    await clickButton("Set");
+    await until("document.body?.innerText.includes('Setting…')");
+    const writesBeforeDisconnect = writes.length;
+    for (const socket of broker.clients) socket.terminate();
+    await until("document.body?.innerText.includes('outcome unknown')");
+    holdSetAck = holdResponse = false;
+    await until(
+      "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+    );
+    assert.equal(writes.length, writesBeforeDisconnect);
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "789",
+    );
+
+    // A malformed device announcement leaves MQTT connected and the draft intact.
+    const connectionsBeforeDeviceError = connections;
+    publish(`${prefix}/alive`, "{}");
+    await until(
+      "document.querySelector('.connection-state').innerText.includes('Device unavailable')",
+    );
+    assert(
+      await evaluate("document.querySelector('.actions button').disabled"),
+    );
+    assert(
+      await evaluate(
+        "[...document.querySelectorAll('.connection-state button')].some(button => button.textContent.trim() === 'Retry')",
+      ),
+    );
+    publish(
+      `${prefix}/alive`,
+      JSON.stringify({ proto: 1, epoch, schema_rev: revision, pages: 1 }),
+    );
+    await until("!document.querySelector('.actions button').disabled");
+    assert.equal(connections, connectionsBeforeDeviceError);
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '9007199254740993'",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "789",
     );
     for (const width of [390, 1200]) {
       await viewport(width, 850);

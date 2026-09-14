@@ -306,6 +306,88 @@ describe("PrefixSession", () => {
 });
 
 describe("exact settings and generation boundaries", () => {
+  it("reports device failure independently of the socket and recovers on repaired schema", async () => {
+    const mqtt = new FakeMqttClient();
+    const states: Array<{ state: string; ready: boolean }> = [];
+    const session = await connectPrefix(
+      mqtt,
+      callbacks({
+        status: (status, ready) => states.push({ state: status.state, ready }),
+      }),
+    );
+    const broken = "not JSON";
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({
+        proto: 1,
+        epoch: 1,
+        schema_rev: hash(broken),
+        pages: 1,
+      }),
+    );
+    mqtt.message("dt/device/schema/0", broken);
+    expect(states.at(-1)).toEqual({ state: "device-error", ready: false });
+    expect(mqtt.ended).toBe(false);
+    await expect(session.set("/leaf", "1")).rejects.toThrow("not ready");
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({
+        proto: 1,
+        epoch: 2,
+        schema_rev: hash(...schemaText),
+        pages: 2,
+      }),
+    );
+    await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
+    mqtt.message(
+      "dt/device/alive",
+      JSON.stringify({
+        proto: 1,
+        epoch: 2,
+        schema_rev: hash(...schemaText),
+        pages: 2,
+      }),
+    );
+    schemaText.forEach((page, i) =>
+      mqtt.message(`dt/device/schema/${i}`, page),
+    );
+    await vi.waitFor(() =>
+      expect(states.at(-1)).toEqual({ state: "watching", ready: true }),
+    );
+    expect(session.ready).toBe(true);
+    session.close();
+  });
+
+  it.each(["timeout", "offline", "epoch", "close"])(
+    "cancels outstanding Set delivery on %s",
+    async (reason) => {
+      vi.useFakeTimers();
+      const mqtt = new FakeMqttClient();
+      const session = await connectPrefix(mqtt);
+      const alive = {
+        proto: 1,
+        epoch: 1,
+        schema_rev: hash(...schemaText),
+        pages: 2,
+      };
+      mqtt.message("dt/device/alive", JSON.stringify(alive));
+      schemaText.forEach((page, i) =>
+        mqtt.message(`dt/device/schema/${i}`, page),
+      );
+      mqtt.publishWait = new Promise(() => {});
+      const setting = session.set("/leaf", "1");
+      const rejected = expect(setting).rejects.toThrow("outcome unknown");
+      if (reason === "timeout") await vi.advanceTimersByTimeAsync(3000);
+      else if (reason === "offline") mqtt.disconnect();
+      else if (reason === "close") session.close();
+      else
+        mqtt.message("dt/device/alive", JSON.stringify({ ...alive, epoch: 2 }));
+      await rejected;
+      expect(mqtt.removedPublications).toEqual([1]);
+      session.close();
+    },
+  );
+
   it("ignores obsolete paths, malformed UTF-8 and retained responses", async () => {
     vi.useFakeTimers();
     const mqtt = new FakeMqttClient();

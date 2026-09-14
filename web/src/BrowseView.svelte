@@ -101,8 +101,7 @@
           type="button"
           disabled={!canPrune}
           onclick={prune}
-          title={pruning.unavailable ||
-            `Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
+          title={`Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
           >Prune ({pruning.count})</button
         >
       {/if}
@@ -111,8 +110,9 @@
           role="status"
           title={pruning.message}>{pruning.message}</span
         >{/if}
-      {#if pruning.unavailable}<span class="meta" title={pruning.unavailable}
-          >Pruning unavailable</span
+      {#if pruning.coverageWarning}<span
+          class="meta"
+          title={pruning.coverageWarning}>Partial pruning coverage</span
         >{/if}
       <div role="status" title={error || status}>
         <span>{status}</span>

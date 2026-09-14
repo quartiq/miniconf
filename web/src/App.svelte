@@ -42,6 +42,7 @@
 
   let discoverySession: DiscoverySession | undefined;
   let prefixSession = $state.raw<PrefixSession>();
+  let deviceReady = $state(false);
   let discoveredPrefixes = $state<DiscoveredPrefix[]>([]);
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
@@ -59,6 +60,7 @@
       watching: activePrefix ? "Watching settings" : "Watching discovery",
       error: "Connection error",
       failed: "Connection failed",
+      "device-error": "Device unavailable",
     }[connection.state],
   );
   let request = $state<{ path: string; pending: boolean; message: string }>();
@@ -67,7 +69,7 @@
     count: 0,
     pending: false,
     message: "",
-    unavailable: "",
+    coverageWarning: "",
   });
   let error = $state("");
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
@@ -90,10 +92,7 @@
       selected?.value !== browseState.editor,
   );
   let canSet = $derived(
-    connection.state !== "failed" &&
-      !!prefixSession?.ready &&
-      selected?.kind === "leaf" &&
-      !request?.pending,
+    deviceReady && selected?.kind === "leaf" && !request?.pending,
   );
   let mode = $derived(activePrefix ? "browse" : "discover");
 
@@ -213,9 +212,10 @@
     prefixSession?.close();
     discoverySession = undefined;
     prefixSession = undefined;
+    deviceReady = false;
     aliveManifest = undefined;
     settingsRevision = "";
-    pruning = { count: 0, pending: false, message: "", unavailable: "" };
+    pruning = { count: 0, pending: false, message: "", coverageWarning: "" };
     browseState = preserve
       ? browse.commitSettings(browseState, {
           settings: new Map(),
@@ -255,8 +255,7 @@
     )
       return;
     connection = next;
-    if (next.state === "error" || next.state === "failed") error = next.error;
-    else if (next.state === "watching") error = "";
+    error = "error" in next ? next.error : "";
     log("status", next.state);
   }
 
@@ -342,10 +341,11 @@
               log("prune", next.message);
             pruning = next;
           },
-          status: (next) => {
+          status: (next, ready) => {
             if (serial !== routeSerial) {
               return;
             }
+            deviceReady = ready;
             setStatus(next);
           },
         },
@@ -485,7 +485,8 @@
       {settingsRevision}
       {status}
       {error}
-      retryable={connection.state === "failed"}
+      retryable={connection.state === "failed" ||
+        connection.state === "device-error"}
       treeNodes={browseState.tree.nodeViews}
       selectedPath={browseState.selectedPath}
       {selected}
@@ -517,10 +518,7 @@
       }}
       retry={applyRoute}
       {pruning}
-      canPrune={connection.state !== "failed" &&
-        !!prefixSession?.ready &&
-        !pruning.pending &&
-        !pruning.unavailable}
+      canPrune={deviceReady && !pruning.pending}
       prune={() => void prefixSession?.prune()}
     />
   {/if}

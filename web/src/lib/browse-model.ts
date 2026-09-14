@@ -64,7 +64,7 @@ export function loadSchema(
   memory: BrowseMemory = state,
 ): BrowseState {
   const root = schema.path(subtreePath);
-  const next = rebuild({
+  let next = rebuild({
     ...state,
     schema,
     settings: state.settings,
@@ -73,6 +73,12 @@ export function loadSchema(
     selectedPath: memory.selectedPath,
     userClosed: new Set(),
   });
+  if (
+    state.editor === (state.editorBaseline ?? "") &&
+    !next.tree.nodeByPath.has(next.selectedPath)
+  ) {
+    next = { ...next, selectedPath: next.tree.nodes[0]?.path ?? "" };
+  }
   const branches = new Set(
     [...next.tree.flatNodes.values()]
       .filter(({ children }) => children.length)
@@ -170,13 +176,10 @@ function visiblePaths(state: BrowseState): string[] {
 }
 
 function rebuild(state: BrowseState): BrowseState {
-  const tree = treeSnapshot(state.schema, state.root, state.settings);
-  const selectedPath =
-    state.editor !== (state.editorBaseline ?? "") ||
-    tree.nodes.some((node) => node.path === state.selectedPath)
-      ? state.selectedPath
-      : (tree.nodes[0]?.path ?? "");
-  return { ...state, tree, selectedPath };
+  return {
+    ...state,
+    tree: treeSnapshot(state.schema, state.root, state.settings),
+  };
 }
 
 function emptyTree(): TreeSnapshot {

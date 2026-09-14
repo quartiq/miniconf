@@ -134,12 +134,14 @@ describe("retained-topic pruning", () => {
     const { mqtt, session, states } = await connect("p/settings/#", "/leaf");
     announce(mqtt);
     expect(session.ready).toBe(true);
-    expect(states.at(-1)?.unavailable).toContain("p/settings/#");
+    expect(states.at(-1)?.coverageWarning).toContain("p/settings/#");
     mqtt.message("p/set/old", "1");
     await session.prune();
-    expect(mqtt.publications).toEqual([]);
+    expect(mqtt.publications).toMatchObject([
+      { topic: "p/set/old", payload: "" },
+    ]);
     const setting = session.set("/leaf", "2");
-    mqtt.respond(0, "Ok");
+    mqtt.respond(1, "Ok");
     await expect(setting).resolves.toMatchObject({ ok: true });
     expect(mqtt.ended).toBe(false);
     session.close();
