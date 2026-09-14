@@ -518,6 +518,28 @@ try {
     await clickButton("Prune (2)");
     await until("!document.querySelector('.prune')");
 
+    // An unacknowledged clear must not be replayed by MQTT.js after reconnect.
+    publish(`${prefix}/settings/interrupted`, "1");
+    await until(
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (1)'",
+    );
+    holdClear = true;
+    await clickButton("Prune (1)");
+    await until("!document.querySelector('.prune')");
+    const clearsBeforeReconnect = writes.filter(
+      (message) => message.retain,
+    ).length;
+    for (const socket of broker.clients) socket.terminate();
+    holdClear = false;
+    await until("document.body?.innerText.includes('pruning interrupted')");
+    await until(
+      "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+    );
+    assert.equal(
+      writes.filter((message) => message.retain).length,
+      clearsBeforeReconnect,
+    );
+
     // Activity changes its own dot, leaving selection and row geometry alone.
     const rowStyle = await evaluate(
       "getComputedStyle(document.querySelector('[data-tree-path=\"/leaf\"]')).backgroundColor",

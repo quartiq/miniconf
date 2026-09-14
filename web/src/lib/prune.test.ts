@@ -102,9 +102,31 @@ describe("retained-topic pruning", () => {
         properties: { payloadFormatIndicator: true },
       });
     }
+    // Broker echoes, not publish acknowledgments, remove observed topics.
+    expect(states.at(-1)?.count).toBe(4);
+    for (const publication of mqtt.publications)
+      mqtt.message(publication.topic, "");
     expect(states.at(-1)?.count).toBe(1);
     mqtt.message("p/settings/later", "");
     expect(states.at(-1)?.count).toBe(0);
+    session.close();
+  });
+
+  it("retains a replacement observed before the original clear PUBACK", async () => {
+    const { mqtt, session, states } = await connect();
+    announce(mqtt);
+    mqtt.message("p/settings/old", "1");
+    let release!: () => void;
+    mqtt.publishWait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const clearing = session.prune();
+    mqtt.message("p/settings/old", "");
+    mqtt.message("p/settings/old", "replacement");
+    release();
+    await clearing;
+    expect(states.at(-1)?.count).toBe(1);
+    expect(states.at(-1)?.message).toBe("Cleared 1 retained topics.");
     session.close();
   });
 
@@ -137,6 +159,7 @@ describe("retained-topic pruning", () => {
       else mqtt.message("p/alive", JSON.stringify({ ...alive, epoch: 2 }));
       await clearing;
       expect(mqtt.publications).toHaveLength(1);
+      expect(mqtt.removedPublications).toEqual([1]);
       expect(states.at(-1)?.pending).toBe(false);
       expect(states.at(-1)?.message).toContain("outcome unknown");
       session.close();
@@ -154,6 +177,7 @@ describe("retained-topic pruning", () => {
       vi.spyOn(mqtt, "publishAsync")
         .mockImplementationOnce(async (topic, payload, options) => {
           mqtt.publications.push({ topic, payload, options });
+          mqtt.message(topic, "");
         })
         .mockImplementationOnce(async (topic, payload, options) => {
           mqtt.publications.push({ topic, payload, options });

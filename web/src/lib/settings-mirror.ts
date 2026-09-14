@@ -14,7 +14,6 @@ export class SettingsMirror {
   private touched = new Set<string>();
   private rev: string | undefined;
   private shadow: Settings = new Map();
-  private baseline = true;
   private timer: ReturnType<typeof globalThis.setTimeout> | undefined;
 
   constructor(
@@ -28,7 +27,6 @@ export class SettingsMirror {
     this.touched = new Set();
     this.rev = undefined;
     this.shadow = new Map();
-    this.baseline = true;
     this.onCommit({ settings: new Map(), touched, activity: new Set() });
   }
 
@@ -60,12 +58,10 @@ export class SettingsMirror {
   private commit(): void {
     const touched = new Set(this.touched);
     this.touched = new Set();
-    const activity = this.baseline ? new Set<string>() : touched;
-    this.baseline = false;
     this.onCommit({
       settings: new Map(this.shadow),
       touched,
-      activity,
+      activity: touched,
       rev: this.rev,
     });
   }

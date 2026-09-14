@@ -237,3 +237,35 @@ it("coalesces refresh requests without losing a generation during SUBACK", async
   expect(session.ready).toBe(true);
   session.close();
 });
+
+it("removes only the cancelled publication from the MQTT outgoing store", async () => {
+  const mqtt = new FakeMqttClient();
+  connectMock.mockReturnValueOnce(mqtt);
+  const connecting = MqttSession.connect(
+    "ws://mqtt:8083",
+    { "p/#": { qos: 1 } },
+    callbacks(),
+  );
+  mqtt.connect();
+  const session = await connecting;
+  let release!: () => void;
+  mqtt.publishWait = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const controller = new AbortController();
+  const first = session.publish(
+    "p/settings/old",
+    "",
+    { qos: 1, retain: true },
+    controller.signal,
+  );
+  const rejected = expect(first).rejects.toThrow("cancelled");
+  const second = session.publish("p/set/leaf", "2", { qos: 1 });
+  controller.abort();
+  await rejected;
+  expect(mqtt.removedPublications).toEqual([1]);
+  expect(mqtt.ended).toBe(false);
+  release();
+  await second;
+  session.close();
+});

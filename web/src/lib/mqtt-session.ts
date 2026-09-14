@@ -158,10 +158,17 @@ export class MqttSession {
   ): Promise<void> {
     if (!this.ready) throw new Error("MQTT session is not ready");
     signal?.throwIfAborted();
-    await this.acknowledged(
-      this.client.publishAsync(topic, payload, options),
-      signal,
-    );
+    // With the default in-memory store, a ready client allocates the publish ID
+    // synchronously. Restored subscriptions are ready only after store replay.
+    const publication = this.client.publishAsync(topic, payload, options);
+    const messageId = this.client.getLastMessageId();
+    try {
+      await this.acknowledged(publication, signal);
+    } catch (error) {
+      // Cancelling a wait alone leaves QoS publications queued for reconnect.
+      if (options.qos) this.client.removeOutgoingMessage(messageId);
+      throw error;
+    }
   }
 
   // One fixed subscription owner. A generation arriving during SUBACK requests

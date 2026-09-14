@@ -73,7 +73,7 @@ export function readRoute(location: Pick<Location, "hash">): AppRoute {
   try {
     const route = hashRoute(location);
     const params = new URLSearchParams(route.search);
-    const parts = route.path.split("/").filter(Boolean);
+    const parts = route.path.replace(/^\//, "").split("/");
     if (
       parts.length >= 2 &&
       (parts[0] === "discover" || parts[0] === "browse")

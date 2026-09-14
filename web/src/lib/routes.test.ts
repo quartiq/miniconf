@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { browsePath, discoveryPath, readRoute } from "./routes";
 
 describe("semantic routes", () => {
+  it.each(["a//b", "/a", "a/", "/", "a///b", "a/%/b"])(
+    "preserves exact MQTT identity %s in browse and discovery routes",
+    (prefix) => {
+      expect(
+        readRoute({ hash: browsePath("ws://mqtt:8083", prefix) }).activePrefix,
+      ).toBe(prefix);
+      expect(
+        readRoute({ hash: discoveryPath("ws://mqtt:8083", prefix) })
+          .discoveryPattern,
+      ).toBe(prefix);
+    },
+  );
   it("builds readable discovery and browse paths", () => {
     expect(discoveryPath("ws://mqtt:8083", "dt/sinara/+/+")).toBe(
       "#/discover/mqtt:8083/dt/sinara/+/+",

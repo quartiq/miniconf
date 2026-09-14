@@ -473,7 +473,8 @@ export class PrefixSession {
           signal,
         );
         signal.throwIfAborted();
-        this.stale.delete(topic);
+        // The retained stream owns candidate membership, including replacements
+        // arriving before this acknowledgment. PUBACK only confirms progress.
         cleared++;
       }
       this.pruneMessage = `Cleared ${cleared} retained topics.`;

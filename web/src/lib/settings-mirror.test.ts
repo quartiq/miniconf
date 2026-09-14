@@ -17,7 +17,7 @@ describe("SettingsMirror", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0].settings.get("/a")).toBe("2");
     expect([...commits[0].touched]).toEqual(["/a"]);
-    expect([...commits[0].activity]).toEqual([]);
+    expect([...commits[0].activity]).toEqual(["/a"]);
     expect(commits[0].rev).toBe("13");
 
     mirror.ingest("/a", "3");
@@ -56,6 +56,6 @@ describe("SettingsMirror", () => {
 
     mirror.ingest("/a", "3");
     vi.runAllTimers();
-    expect([...commits.at(-1)!.activity]).toEqual([]);
+    expect([...commits.at(-1)!.activity]).toEqual(["/a"]);
   });
 });

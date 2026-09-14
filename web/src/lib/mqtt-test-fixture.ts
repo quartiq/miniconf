@@ -15,6 +15,16 @@ export class FakeMqttClient extends EventEmitter {
     payload: string;
     options: IClientPublishOptions;
   }> = [];
+  readonly removedPublications: number[] = [];
+
+  getLastMessageId(): number {
+    return this.publications.length;
+  }
+
+  removeOutgoingMessage(id: number): this {
+    this.removedPublications.push(id);
+    return this;
+  }
   subscribeError: Error | undefined;
   subscribeWait: Promise<void> | undefined;
   publishWait: Promise<void> | undefined;
