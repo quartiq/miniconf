@@ -24,11 +24,15 @@ const server = createServer((_request, response) => {
 const broker = new WebSocketServer({ server });
 const prefix = "dt/test/device";
 const schema = `${JSON.stringify({
-  s: "value",
+  s: { ty: "i32", future: ["opaque"] },
   m: {
+    note: "first line\nsecond line",
+    flag: false,
+    empty: null,
+    nested: { a: [1, 2] },
     doc: "Signed digital mixer step in 1/16 of the ADC sample rate.\n\nPositive advances the complex oscillator as exp(+j*phase) and shifts the sampled spectrum upward. Reconstructing the analog input therefore subtracts this frequency from the demodulation DDS carrier. The step aliases modulo 16 into the principal interval [-8, 7].",
   },
-})}\n{"i":{"k":"n","c":{"leaf":0,"other":0}}}\n`;
+})}\n{"i":{"k":"n","c":{"leaf":{"r":0,"m":{"note":"edge note"}},"other":0}}}\n`;
 let revision = 0x811c9dc5;
 for (const byte of new TextEncoder().encode(schema))
   revision = Math.imul(revision ^ byte, 0x01000193) >>> 0;
@@ -423,13 +427,15 @@ try {
     );
     holdResponse = false;
     respond();
-    await until("document.body?.innerText.includes('Request accepted')");
+    await until("document.body?.innerText.includes('Last Set: succeeded')");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "123",
     );
     publish(`${prefix}/settings/leaf`, "456");
-    await until("document.body?.innerText.includes('Device value updated')");
+    await until(
+      "document.querySelector('.device-value').textContent === '456'",
+    );
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "123",
@@ -476,12 +482,22 @@ try {
       ),
     );
     assert.equal(connections - beforePruning, 1);
+    await viewport(390, 850);
+    const headerHeight = await evaluate(
+      "document.querySelector('.app-header').getBoundingClientRect().height",
+    );
     holdClear = true;
     await clickButton("Prune (3)");
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.app-header').getBoundingClientRect().height",
+      ),
+      headerHeight,
+    );
     publish(`${prefix}/settings/later`, "not JSON");
     await fill("textarea", "123");
     await clickButton("Set");
-    await until("document.body?.innerText.includes('Request accepted')");
+    await until("document.body?.innerText.includes('Last Set: succeeded')");
     holdClear = false;
     acknowledgeClear();
     await until(
@@ -502,6 +518,13 @@ try {
     );
     await clickButton("Prune (1)");
     await until("!document.querySelector('.prune')");
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.app-header').getBoundingClientRect().height",
+      ),
+      headerHeight,
+      "Prune progress and button disappearance preserve header height",
+    );
     assert(
       await evaluate(
         "document.body?.innerText.includes('Cleared 1 retained topics.')",
@@ -539,7 +562,7 @@ try {
     holdClear = false;
     await until("document.body?.innerText.includes('pruning interrupted')");
     await until(
-      "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+      "document.querySelector('.connection-state').innerText.includes('Ready')",
     );
     assert.equal(
       writes.filter((message) => message.retain).length,
@@ -583,10 +606,10 @@ try {
     await click('[data-tree-path="/leaf"]');
     await fill("textarea", "789");
     await clickButton("Set");
-    await until("document.body?.innerText.includes('Request accepted')");
+    await until("document.body?.innerText.includes('Last Set: succeeded')");
     assert(
       await evaluate(
-        "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+        "document.querySelector('.connection-state').innerText.includes('Ready')",
       ),
     );
     rejectCleanup = false;
@@ -609,7 +632,7 @@ try {
     rejectSubscriptions = false;
     await clickButton("Retry", ".connection-state");
     await until(
-      "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+      "document.querySelector('.connection-state').innerText.includes('Ready')",
     );
     await until("!document.querySelector('.actions button').disabled");
     await fill("textarea", "789");
@@ -621,7 +644,7 @@ try {
       undefined,
     );
     await until(
-      "document.querySelector('.context').innerText.includes('epoch '+" +
+      "document.querySelector('.context').textContent.includes('epoch '+" +
         epoch +
         ")",
     );
@@ -642,7 +665,7 @@ try {
     await until("document.body?.innerText.includes('outcome unknown')");
     holdSetAck = holdResponse = false;
     await until(
-      "document.querySelector('.connection-state').innerText.includes('Watching settings')",
+      "document.querySelector('.connection-state').innerText.includes('Ready')",
     );
     assert.equal(writes.length, writesBeforeDisconnect);
     assert.equal(
@@ -677,6 +700,19 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "789",
     );
+    assert(
+      await evaluate(
+        "document.querySelector('.schema summary').textContent.includes('leaf · i32')",
+      ),
+    );
+    await click('[data-tree-path=""]');
+    assert(
+      await evaluate(
+        "!document.querySelector('.schema summary') && !!document.querySelector('.schema-body') && !document.querySelector('textarea')",
+      ),
+      "Internal nodes show schema without an editor or disclosure",
+    );
+    await click('[data-tree-path="/leaf"]');
     await click(".schema summary");
     await click('[data-tree-path="/other"]');
     await click('[data-tree-path="/leaf"]');
@@ -684,8 +720,25 @@ try {
       await evaluate("document.querySelector('.schema').open"),
       "Schema disclosure follows user intent across selection",
     );
+    assert(
+      await evaluate(`(() => {
+      const text = label => document.querySelector('[aria-label="'+label+'"]').textContent;
+      return document.querySelector('.schema summary span:last-child').textContent === 'Schema' &&
+        text('Edge metadata').includes('edge note') &&
+        text('Node metadata').includes('first line\\nsecond line') &&
+        text('Node metadata').includes('false') && text('Node metadata').includes('null') &&
+        text('Semantics').includes('opaque');
+    })()`),
+      "Arbitrary metadata retains values and provenance without interpretation",
+    );
     for (const width of [320, 390, 761, 1200]) {
       await viewport(width, 850);
+      assert(
+        await evaluate(
+          "document.querySelector('.app-header').getBoundingClientRect().height < 90",
+        ),
+        "Normal mobile identity fits a compact header",
+      );
       assert(
         await evaluate(`(() => {
         const schema = document.querySelector('.schema-body');
@@ -716,6 +769,13 @@ try {
       }
     }
     await viewport(1024, 400);
+    await click(".identity summary");
+    assert(
+      await evaluate(
+        `document.querySelector('.identity-details').textContent.includes('${prefix}')`,
+      ),
+    );
+    await click(".identity summary");
     await click(".log summary");
     assert(
       await evaluate(

@@ -57,7 +57,7 @@
       offline: "Disconnected — last observed values",
       waiting: "Waiting for device announcement",
       loading: "Loading schema",
-      watching: activePrefix ? "Watching settings" : "Watching discovery",
+      watching: activePrefix ? "Ready" : "Watching discovery",
       error: "Connection error",
       failed: "Connection failed",
       "device-error": "Device unavailable",
@@ -86,10 +86,6 @@
   let selected = $derived(browse.selected(browseState));
   let editorDirty = $derived(
     browseState.editor !== (browseState.editorBaseline ?? ""),
-  );
-  let editorStale = $derived(
-    selected?.value !== browseState.editorBaseline &&
-      selected?.value !== browseState.editor,
   );
   let canSet = $derived(
     deviceReady && selected?.kind === "leaf" && !request?.pending,
@@ -389,17 +385,17 @@
         path,
         pending: false,
         message: response.ok
-          ? "Request accepted"
+          ? "Last Set: succeeded"
           : response.kind === "publish"
-            ? `Result publication failed; setting may have changed. ${response.message}`
-            : `Device error: ${response.message || response.code}`,
+            ? `Last Set: value may have changed — publication failed. ${response.message}`
+            : `Last Set: failed — ${response.message || response.code}`,
       };
     } catch (err) {
       if (serial !== routeSerial || current !== prefixSession) return;
       request = {
         path,
         pending: false,
-        message: err instanceof Error ? err.message : String(err),
+        message: `Last Set: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
     if (request) log("request", `${displayPath(path)}: ${request.message}`);
@@ -494,7 +490,6 @@
       expanded={browseState.expanded}
       editor={browseState.editor}
       {editorDirty}
-      {editorStale}
       {canSet}
       requestMessage={request?.path === browseState.selectedPath
         ? request.message

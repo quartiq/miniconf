@@ -1,7 +1,8 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { displayPath, formatSchemaMetadata } from "./lib/schema";
+  import { displayPath, schemaSummary } from "./lib/schema";
+  import Metadata from "./Metadata.svelte";
   import type { ViewNode } from "./lib/tree-state";
 
   type Props = {
@@ -11,7 +12,6 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
-    editorStale: boolean;
     updateEditor: (value: string) => void;
     submit: () => void;
     resetEditor: () => void;
@@ -25,7 +25,6 @@
     requestMessage,
     editor,
     editorDirty,
-    editorStale,
     updateEditor,
     submit,
     resetEditor,
@@ -33,7 +32,6 @@
   }: Props = $props();
 
   let schemaOpen = $state(false);
-  let metadata = $derived(node ? formatSchemaMetadata(node) : "");
   let leaf = $derived(node?.kind === "leaf");
   let differs = $derived(editor !== (node?.value ?? ""));
 
@@ -52,28 +50,51 @@
   }
 </script>
 
+{#snippet schemaDetails()}
+  <div class="schema-body">
+    {#if node}<div class="meta">Kind: {node.kind}</div>{/if}
+    {#if node?.sem !== undefined}<Metadata
+        label="Semantics"
+        value={node.sem}
+      />{/if}
+    {#if node?.edge !== undefined}<Metadata
+        label="Edge metadata"
+        value={node.edge}
+      />{/if}
+    {#if node?.node !== undefined}<Metadata
+        label="Node metadata"
+        value={node.node}
+      />{/if}
+    {#if node?.sem === undefined && node?.edge === undefined && node?.node === undefined}<p
+      >
+        No schema metadata.
+      </p>{/if}
+  </div>
+{/snippet}
+
 <section class="selected panel" aria-label="Selected item">
   <h2>{displayPath(path)}</h2>
-  <details class="schema" bind:open={schemaOpen}>
-    <summary>
-      <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
-      <span>Schema</span>
-    </summary>
-    <div class="schema-body">
-      {#if metadata}
-        <pre>{metadata}</pre>
-      {:else}
-        <p>No schema metadata.</p>
-      {/if}
-    </div>
-  </details>
-  <section class="editor" aria-label="Leaf editor">
-    {#if leaf || editorDirty}
+  {#if node && !leaf}
+    <section class="schema" aria-label="Schema">
+      <h3>Schema</h3>
+      {@render schemaDetails()}
+    </section>
+  {:else}
+    <details class="schema" bind:open={schemaOpen}>
+      <summary>
+        <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
+        <span
+          >Schema{!schemaOpen && node ? ` · ${schemaSummary(node)}` : ""}</span
+        >
+      </summary>
+      {@render schemaDetails()}
+    </details>
+  {/if}
+  {#if leaf || editorDirty}
+    <section class="editor" aria-label="Leaf editor">
       <div class="value-editor">
-        {#if differs || requestMessage || !node?.present}
-          <span class="meta">Device value</span>
-          <pre class="device-value">{node?.value ?? "No value observed"}</pre>
-        {/if}
+        <span class="meta">Device value</span>
+        <pre class="device-value">{node?.value ?? "No value observed"}</pre>
         {#if !leaf}<p>Leaf unavailable</p>{/if}
         <label for="leaf-editor">Draft</label>
         <textarea
@@ -102,18 +123,11 @@
           >{node?.present ? "Use device value" : "Clear draft"}</button
         >
       </div>
-      {#if editorStale}
-        <span class="stale">Device value updated</span>
-      {:else if editorDirty}
-        <span class="draft">Edited</span>
-      {/if}
       {#if requestMessage}<p class="request" role="status">
           {requestMessage}
         </p>{/if}
-    {:else}
-      <p>No leaf selected.</p>
-    {/if}
-  </section>
+    </section>
+  {/if}
 </section>
 
 <style>
@@ -127,6 +141,12 @@
   }
   h2 {
     overflow-wrap: anywhere;
+  }
+  h3 {
+    font-size: var(--text);
+    font-weight: 600;
+    margin: 0;
+    line-height: var(--line);
   }
 
   .selected {
@@ -197,19 +217,6 @@
   .actions button {
     width: auto;
     white-space: nowrap;
-  }
-
-  .draft,
-  .stale {
-    font-size: var(--text-small);
-  }
-
-  .draft {
-    color: var(--muted);
-  }
-
-  .stale {
-    color: var(--warn);
   }
 
   @media (max-width: 760px) {

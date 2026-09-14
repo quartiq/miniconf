@@ -177,41 +177,22 @@ function segment(path: string): string {
   return path.split("/").at(-1) || '\"\"';
 }
 
-function formatMetadataValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  return JSON.stringify(value) ?? String(value);
-}
-
-function metadataLines(prefix: string, value: unknown): string[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [`${prefix} ${formatMetadataValue(value)}`];
-  }
-  const lines: string[] = [];
-  for (const [key, item] of Object.entries(value)) {
-    const text = formatMetadataValue(item);
-    if (text.includes("\n")) {
-      lines.push(`${prefix} ${key}:`);
-      lines.push(...text.split(/\r?\n/).map((line) => `  ${line}`));
-    } else {
-      lines.push(
-        item === true ? `${prefix} ${key}` : `${prefix} ${key}=${text}`,
-      );
-    }
-  }
-  return lines.length ? lines : [prefix];
-}
-
 export function formatSchemaName(node: SchemaNode): string {
   return segment(node.path);
 }
 
-export function formatSchemaMetadata(node: SchemaNode): string {
-  return [
-    ...metadataLines("kind", node.kind),
-    ...(node.sem === undefined ? [] : metadataLines("sem", node.sem)),
-    ...(node.edge === undefined ? [] : metadataLines("edge", node.edge)),
-    ...(node.node === undefined ? [] : metadataLines("node", node.node)),
-  ].join("\n");
+export function schemaSummary(node: SchemaNode): string {
+  const parts: string[] = [node.kind];
+  // Only Sem fields defined by Rust carry portable meaning. Other metadata is opaque.
+  if (node.sem && typeof node.sem === "object" && !Array.isArray(node.sem)) {
+    const sem = node.sem as Record<string, unknown>;
+    if (
+      typeof sem.ty === "string" &&
+      /^(bool|[iu](8|16|32|64|128|size)|f(32|64)|str)$/.test(sem.ty)
+    )
+      parts.push(sem.ty);
+    if (sem.oneof === true) parts.push("mutually exclusive children");
+    if (sem.maybe_absent === true) parts.push("may be absent");
+  }
+  return parts.join(" · ");
 }

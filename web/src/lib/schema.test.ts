@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { formatSchemaMetadata, Schema, type CompactDef } from "./schema";
+import { schemaSummary, Schema, type CompactDef } from "./schema";
 
 function fixtureSchema(): Schema {
   const fixture = resolve("../fixtures/compact-schema.ndjson");
@@ -60,7 +60,7 @@ describe("Schema", () => {
   it("formats schema metadata for selected rows", () => {
     const node = indexedSchema.node("/values/1");
 
-    expect(formatSchemaMetadata(node)).toBe("kind leaf\nsem ty=f32");
+    expect(schemaSummary(node)).toBe("leaf · f32");
   });
 
   it("renders unicode and multiline schema metadata literally", () => {
@@ -78,11 +78,31 @@ describe("Schema", () => {
       1,
     );
 
-    expect(formatSchemaMetadata(schema.node("/leaf"))).toBe(
-      "kind leaf\nsem ty=f32\nsem unit=Hz²\nedge doc:\n  edge line 1\n  edge line 2",
+    expect(schema.node("/leaf")).toMatchObject({
+      sem: { ty: "f32", unit: "Hz²" },
+      edge: { doc: "edge line 1\nedge line 2" },
+    });
+    expect(schema.node("").node).toEqual({
+      doc: "node line 1\nnode line 2",
+      typename: "Root",
+    });
+    expect(schemaSummary(schema.node("/leaf"))).toBe("leaf · f32");
+    expect(schemaSummary(schema.node(""))).toBe("named");
+  });
+  it("interprets only recognized semantic fields and preserves future semantics", () => {
+    const schema = new Schema(
+      [
+        {
+          s: { ty: "future", oneof: true, maybe_absent: true, extra: 7 },
+          m: { ty: "i32", oneof: false },
+        },
+      ],
+      1,
     );
-    expect(formatSchemaMetadata(schema.node(""))).toBe(
-      "kind named\nnode doc:\n  node line 1\n  node line 2\nnode typename=Root",
+    expect(schemaSummary(schema.node(""))).toBe(
+      "leaf · mutually exclusive children · may be absent",
     );
+    expect(schema.node("").sem).toMatchObject({ ty: "future", extra: 7 });
+    expect(schemaSummary(new Schema([{}], 1).node(""))).toBe("leaf");
   });
 });

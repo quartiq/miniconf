@@ -31,7 +31,6 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
-    editorStale: boolean;
     logOpen?: boolean;
     logLines: string[];
     treeActions: TreeActions;
@@ -65,7 +64,6 @@
     requestMessage,
     editor,
     editorDirty,
-    editorStale,
     logOpen = $bindable(false),
     logLines,
     treeActions,
@@ -75,49 +73,66 @@
     focusTree,
     retry,
   }: Props = $props();
+  let identityOpen = $state(false);
+  let brokerLabel = $derived(new URL(broker).host);
 </script>
 
 <section class="browse">
   <header class="app-header panel">
-    <a class="back" href={discoverHref}>← Devices</a>
+    <a
+      class="back"
+      href={discoverHref}
+      aria-label="Back to devices"
+      title="Back to devices">←</a
+    >
     <div class="context">
-      <h1 title={activePrefix}>{activePrefix}</h1>
-      <div class="meta">
-        <span title={broker}>{broker}</span>
-        {#if subtreePath}<span>subtree {subtreePath}</span>{/if}
-        {#if aliveManifest}
-          <span>epoch {aliveManifest.epoch}</span>
-          <span>schema {aliveManifest.schema_rev}</span>
-        {/if}
-        {#if settingsRevision}<span
-            >last publication rev {settingsRevision}</span
-          >{/if}
-      </div>
+      <details class="identity" bind:open={identityOpen}>
+        <summary title="Show full device and connection details"
+          ><span aria-hidden="true">{identityOpen ? "▾" : "▸"}</span>
+          <h1>{activePrefix}</h1></summary
+        >
+        <div class="identity-details">
+          <div>{activePrefix}</div>
+          <div>{broker}</div>
+          {#if aliveManifest}<div>
+              epoch {aliveManifest.epoch} · schema {aliveManifest.schema_rev}
+            </div>{/if}
+          {#if settingsRevision}<div>
+              last publication rev {settingsRevision}
+            </div>{/if}
+        </div>
+      </details>
+      {#if subtreePath}<div class="subtree">subtree {subtreePath}</div>{/if}
     </div>
     <div class="connection-state">
-      {#if pruning.count}
-        <button
-          class="prune"
-          type="button"
-          disabled={!canPrune}
-          onclick={prune}
-          title={`Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
-          >Prune ({pruning.count})</button
-        >
+      {#if pruning.message}
+        <details class="prune-result">
+          <summary title={pruning.message}>{pruning.message}</summary>
+          <p>{pruning.message}</p>
+        </details>
+      {:else}
+        <span class="broker-label" title={broker}>{brokerLabel}</span>
       {/if}
-      {#if pruning.message}<span
-          class="meta"
-          role="status"
-          title={pruning.message}>{pruning.message}</span
-        >{/if}
-      {#if pruning.coverageWarning}<span
-          class="meta"
-          title={pruning.coverageWarning}>Partial pruning coverage</span
-        >{/if}
-      <div role="status" title={error || status}>
+      <div class="prune-action">
+        {#if pruning.count}
+          <button
+            class="prune"
+            type="button"
+            disabled={!canPrune}
+            onclick={prune}
+            title={`Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
+            >Prune ({pruning.count})</button
+          >
+        {/if}
+      </div>
+      <div role="status">
         <span>{status}</span>
         {#if error}<strong>{error}</strong>{/if}
       </div>
+      {#if pruning.coverageWarning}<span
+          class="meta coverage"
+          title={pruning.coverageWarning}>Partial pruning coverage</span
+        >{/if}
       {#if retryable}
         <button type="button" onclick={retry}>Retry</button>
       {/if}
@@ -149,7 +164,6 @@
       {requestMessage}
       {editor}
       {editorDirty}
-      {editorStale}
       {updateEditor}
       {submit}
       {resetEditor}
@@ -173,7 +187,7 @@
     align-items: center;
     display: grid;
     gap: var(--space);
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     min-width: 0;
   }
 
@@ -188,9 +202,7 @@
     min-width: 0;
   }
 
-  h1,
-  .connection-state span,
-  .connection-state strong {
+  h1 {
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -199,8 +211,67 @@
 
   .connection-state {
     color: var(--muted);
-    max-width: 30vw;
-    text-align: right;
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: start;
+    gap: var(--space-tight) var(--space);
+    overflow-wrap: anywhere;
+  }
+  .connection-state button {
+    width: auto;
+  }
+  .prune-action {
+    min-width: 9ch;
+    height: calc(var(--line) + var(--space-tight));
+  }
+  .prune-action button {
+    width: 100%;
+    height: 100%;
+    white-space: nowrap;
+  }
+  .prune-result {
+    min-width: 0;
+  }
+  .prune-result summary {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .prune-result p {
+    overflow-wrap: anywhere;
+    margin: var(--space-tight) 0 0;
+  }
+  .coverage {
+    grid-column: 1 / -1;
+  }
+  .connection-state strong {
+    display: block;
+  }
+  .broker-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .identity summary {
+    display: flex;
+    gap: var(--space-tight);
+    cursor: pointer;
+    list-style: none;
+    align-items: baseline;
+  }
+  .identity summary::-webkit-details-marker {
+    display: none;
+  }
+  .identity h1 {
+    margin: 0;
+  }
+  .identity-details,
+  .subtree {
+    overflow-wrap: anywhere;
+    font-size: var(--text-small);
   }
 
   .connection-state strong {
@@ -233,18 +304,8 @@
       height: auto;
     }
 
-    .app-header {
-      grid-template-columns: auto minmax(0, 1fr);
-    }
-
     .workspace {
       grid-template-columns: 1fr;
-    }
-
-    .connection-state {
-      grid-column: 2;
-      max-width: none;
-      text-align: left;
     }
 
     .tree {
