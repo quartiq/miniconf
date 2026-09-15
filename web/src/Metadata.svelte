@@ -18,13 +18,15 @@
   {#if heading}<h3>{label}</h3>{/if}
   <dl>
     {#each entries as [key, item]}
+      {@const text =
+        typeof item === "string" ? item : JSON.stringify(item, null, 2)}
       <div>
         {#if key !== null}<dt>{key || '""'}</dt>{/if}
         <dd
           class:json={typeof item !== "string"}
-          class:multiline={typeof item === "string" && item.includes("\n")}
+          class:multiline={text?.includes("\n")}
         >
-          {typeof item === "string" ? item : JSON.stringify(item, null, 2)}
+          {text}
         </dd>
       </div>
     {/each}
@@ -61,7 +63,7 @@
     overflow-wrap: anywhere;
   }
   .json {
-    font-family: ui-monospace, monospace;
+    font-family: var(--mono);
     font-size: var(--text-small);
   }
   .multiline,

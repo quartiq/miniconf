@@ -181,7 +181,9 @@
   }
 
   form {
+    align-items: start;
     display: grid;
+    gap: var(--space);
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

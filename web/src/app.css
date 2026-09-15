@@ -26,6 +26,9 @@ body {
   --radius: 0.2rem;
   --text: 1rem;
   --text-small: 0.9rem;
+  --mono:
+    ui-monospace, "SFMono-Regular", "Cascadia Mono", "Liberation Mono",
+    monospace;
   background: var(--bg);
   color: var(--fg);
   font-size: var(--text);
@@ -56,21 +59,10 @@ p {
   margin-block: 0 var(--space-tight);
 }
 
-h1 {
-  font-size: var(--text);
-  font-weight: 600;
-}
-
+h1,
 h2 {
   font-size: var(--text);
   font-weight: 600;
-}
-
-form {
-  align-items: end;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space);
 }
 
 label {
@@ -84,39 +76,27 @@ textarea {
   font: inherit;
 }
 
-input {
-  min-width: min(22rem, 100%);
-}
-
+input,
 button {
   min-height: var(--line);
 }
 
-pre {
-  border-left: 2px solid var(--border);
-  color: var(--muted);
-  font-family:
-    ui-monospace, "SFMono-Regular", "Cascadia Mono", "Liberation Mono",
-    monospace;
-  font-size: var(--text-small);
+.log pre {
+  font: inherit;
   margin: 0;
   overflow-wrap: anywhere;
-  padding-left: var(--space);
   white-space: pre-wrap;
 }
 
 .meta {
-  align-items: baseline;
   color: var(--muted);
-  display: flex;
-  flex-wrap: wrap;
   font-size: var(--text-small);
-  gap: var(--space-tight) var(--space);
-  min-height: var(--line);
 }
 
 .log summary {
-  border-block: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  list-style: none;
   align-items: baseline;
   display: flex;
   gap: 0;
@@ -145,11 +125,6 @@ pre {
   min-width: 0;
 }
 
-.log summary {
-  cursor: pointer;
-  list-style: none;
-}
-
 .log summary::-webkit-details-marker {
   display: none;
 }
@@ -161,26 +136,16 @@ pre {
   text-align: left;
 }
 
-.log pre {
-  block-size: 100%;
-  overflow: auto;
-}
-
 .log-body {
-  block-size: calc(10 * var(--line));
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-small);
+  line-height: 1.4;
+  block-size: 10lh;
   margin-top: var(--space-tight);
   overflow: auto;
 }
 
 .log-body p {
   margin: 0;
-}
-
-@media (max-width: 760px) {
-  form,
-  label,
-  input,
-  button {
-    width: 100%;
-  }
 }

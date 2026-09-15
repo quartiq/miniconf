@@ -196,10 +196,6 @@
     flex-shrink: 0;
   }
 
-  .connection-state {
-    min-width: 0;
-  }
-
   h1 {
     margin: 0;
     line-height: var(--line);
@@ -210,6 +206,7 @@
   }
 
   .connection-state {
+    min-width: 0;
     flex: 1 0 22ch;
     max-width: 100%;
     display: grid;
@@ -218,12 +215,9 @@
     gap: var(--space-tight) var(--space);
     overflow-wrap: anywhere;
   }
-  .connection-state button {
-    width: auto;
-  }
   .prune-action {
     min-width: 9ch;
-    height: calc(var(--line) + var(--space-tight));
+    height: var(--line);
   }
   .prune-action button {
     width: 100%;

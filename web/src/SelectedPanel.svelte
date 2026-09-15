@@ -114,6 +114,8 @@
 
 <style>
   .value-editor {
+    display: grid;
+    gap: var(--space-tight);
     min-width: 0;
   }
   h2 {
@@ -140,7 +142,6 @@
   textarea {
     block-size: calc(4 * var(--line));
     display: block;
-    font: inherit;
     overflow: auto;
     resize: vertical;
     width: 100%;
@@ -158,6 +159,14 @@
     margin: 0;
   }
 
+  .editor [role="alert"] {
+    color: var(--error);
+  }
+
+  textarea[aria-invalid="true"] {
+    border-color: var(--error);
+  }
+
   .actions {
     align-items: baseline;
     display: flex;
@@ -166,7 +175,6 @@
   }
 
   .actions button {
-    width: auto;
     white-space: nowrap;
   }
 

@@ -206,7 +206,6 @@
   .value {
     flex: 1 1 auto;
     min-width: 0;
-    color: var(--muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

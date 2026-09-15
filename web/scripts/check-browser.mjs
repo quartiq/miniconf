@@ -411,6 +411,16 @@ try {
     await until("document.querySelector('input[name=broker]')");
     await fill("input[name=broker]", `ws://127.0.0.1:${port}`);
     await fill("input[name=discovery-pattern]", "dt/test/+");
+    for (const width of [1200, 761]) {
+      await viewport(width, 850);
+      assert(
+        await evaluate(
+          `Math.abs(document.querySelector('input[name=broker]').getBoundingClientRect().top - document.querySelector('input[name=discovery-pattern]').getBoundingClientRect().top) < 1`,
+        ),
+        "Discovery fields align even when filter help wraps",
+      );
+    }
+    await viewport(1200, 850);
     await click("button[type=submit]");
     await until(
       "document.querySelector('a[data-tree-path=\"/dt/test/device\"]')",
@@ -476,6 +486,13 @@ try {
     );
     await click(".log summary");
     assert(await evaluate("!document.querySelector('.log pre')"));
+    assert(
+      await evaluate(`(() => {
+        const body = document.querySelector('.log-body');
+        return Math.abs(body.clientHeight - 10 * parseFloat(getComputedStyle(body).lineHeight)) < 1;
+      })()`),
+      "Open log reserves ten text lines, including when empty",
+    );
     publish(`${prefix}/settings/leaf`, "9007199254740993");
     publish(`${prefix}/settings/leaf`, "9007199254740993");
     await until(
