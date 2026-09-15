@@ -583,7 +583,7 @@ async fn startup_with_large_schema_waits_on_session_progress() {
 }
 
 #[tokio::test]
-async fn startup_resumes_after_step_cancellation() {
+async fn startup_and_service_resume_after_step_cancellation() {
     use std::{
         cell::Cell,
         future::{Future, poll_fn},
@@ -600,8 +600,7 @@ async fn startup_resumes_after_step_cancellation() {
     };
 
     let prefix = unique("startup-cancel");
-    let (mut miniconf, mut session) =
-        Miniconf::<common::Settings>::new(&prefix, compact_config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
     let settings = common::Settings::new();
     // Gate the transport flush so cancellation does not depend on broker timing.
     struct PausedFlush {
@@ -667,6 +666,73 @@ async fn startup_resumes_after_step_cancellation() {
     .await
     .unwrap();
     assert!(connection.session().is_publish_quiescent());
+
+    let mut requester_session = Session::new(config());
+    let mut requester = requester_session
+        .connect(connect_addr(addr).await.unwrap())
+        .await
+        .unwrap();
+    let filter = format!("{prefix}/#");
+    let op = requester
+        .subscribe(
+            &[TopicFilter::new(&filter)
+                .options(SubscriptionOptions::default().retain_behavior(RetainHandling::Never))],
+            &[],
+        )
+        .await
+        .unwrap();
+    wait_op(&mut requester, op).await;
+    let reply = format!("{prefix}/reply");
+    requester
+        .publish(
+            Publication::bytes(&format!("{prefix}/set/control/enabled"), b"false")
+                .properties(&[Property::ResponseTopic(&reply)]),
+        )
+        .await
+        .unwrap();
+    let mut service = Service::<1>::new();
+    let mut settings = settings;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let Some(inbound) = connection.poll().await.unwrap() else {
+                continue;
+            };
+            assert!(matches!(
+                service.handle(&mut miniconf, &mut settings, &inbound),
+                ServiceEvent::Changed(_)
+            ));
+            break;
+        }
+        paused.set(true);
+        {
+            let mut step = pin!(service.step(&mut miniconf, &mut connection, &settings));
+            assert!(poll_fn(|cx| Poll::Ready(step.as_mut().poll(cx).is_pending())).await);
+        }
+        assert_eq!(service.len(), 1, "cancellation lost the follow-up");
+        paused.set(false);
+        while !service
+            .step(&mut miniconf, &mut connection, &settings)
+            .await
+            .unwrap()
+        {
+            let _ = connection.poll().await.unwrap();
+        }
+        let mut saw_setting = false;
+        loop {
+            let Some(inbound) = requester.poll().await.unwrap() else {
+                continue;
+            };
+            saw_setting |= inbound.topic() == format!("{prefix}/settings/control/enabled")
+                && inbound.payload() == b"false";
+            if inbound.topic() == reply {
+                assert!(saw_setting);
+                assert_eq!(user_property(&inbound, "code"), Some("Ok"));
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

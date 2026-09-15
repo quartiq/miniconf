@@ -261,7 +261,7 @@ pub(crate) async fn publish_alive_once<Settings, IO>(
     prefix: &TopicString,
     manifest: &Manifest,
     connection: &mut Connection<'_, '_, IO>,
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     Settings: TreeSerialize,
     IO: Io,
@@ -284,7 +284,8 @@ where
     connection
         .publish(publication)
         .await
-        .map_err(simple_pub_error)
+        .map_err(simple_pub_error)?
+        .ok_or(Error::Mqtt(MqttError::InvalidRequest))
 }
 
 impl<Settings> Miniconf<Settings>
@@ -292,6 +293,9 @@ where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
     /// Construct Miniconf MQTT state and a configured caller-owned MQTT session.
+    ///
+    /// The broker must support QoS 1. Do not enable automatic QoS downgrade on `config`:
+    /// startup and service completion depend on publication acknowledgements.
     pub fn new<'buf>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
@@ -313,7 +317,7 @@ where
         let will = Will::new(will_topic.as_str(), b"", RETAINED_TEXT_PROPERTIES)?
             .retained()
             .qos(QoS::AtLeastOnce);
-        let config = config.autodowngrade_qos().will(will)?;
+        let config = config.will(will)?;
         let session = Session::new(config);
 
         Ok((
@@ -425,7 +429,7 @@ where
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
         state: &[usize],
-    ) -> Result<Option<Op>, Error<IO::Error>>
+    ) -> Result<Op, Error<IO::Error>>
     where
         IO: Io,
     {
@@ -447,7 +451,7 @@ where
             .qos(QoS::AtLeastOnce)
             .retain();
         match connection.publish(publication).await {
-            Ok(op) => Ok(op),
+            Ok(op) => op.ok_or(Error::Mqtt(MqttError::InvalidRequest)),
             Err(PubError::Payload((
                 _no_space,
                 PayloadError::Leaf(DepthError {
@@ -467,7 +471,7 @@ where
                     .publish(publication)
                     .await
                     .map_err(simple_pub_error)?;
-                Ok(op)
+                op.ok_or(Error::Mqtt(MqttError::InvalidRequest))
             }
             Err(err) => Err(simple_pub_error(err)),
         }
@@ -777,6 +781,8 @@ impl<const N: usize> Service<N> {
     /// `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
+    /// Cancelling it retains the current follow-up for the next call. Transport cancellation
+    /// safety still depends on the underlying I/O. An error discards the failed follow-up.
     pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
@@ -788,16 +794,19 @@ impl<const N: usize> Service<N> {
         IO: Io,
     {
         loop {
-            let Some(mut follow_up) = self.follow_ups.pop_front() else {
+            let queued = self.follow_ups.len();
+            let Some(follow_up) = self.follow_ups.front_mut() else {
                 return Ok(true);
             };
             debug!(
                 "Driving Miniconf follow-up queued_before={=usize} capacity={=usize}",
-                self.follow_ups.len() + 1,
-                N
+                queued, N
             );
 
-            if follow_up.step(miniconf, connection, settings).await? {
+            let result = follow_up.step(miniconf, connection, settings).await;
+            if !matches!(result, Ok(false)) {
+                self.follow_ups.pop_front();
+                result?;
                 debug!(
                     "Completed Miniconf follow-up queued_remaining={=usize} capacity={=usize}",
                     self.follow_ups.len(),
@@ -805,7 +814,6 @@ impl<const N: usize> Service<N> {
                 );
                 continue;
             }
-            let _ = self.follow_ups.push_front(follow_up);
             debug!(
                 "Miniconf follow-up pending queued_remaining={=usize} capacity={=usize}",
                 self.follow_ups.len(),

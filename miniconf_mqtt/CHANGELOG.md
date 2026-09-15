@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Preserve queued service work when a step is cancelled during transport I/O.
+* Stop enabling automatic QoS downgrade; startup and replies require QoS 1 acknowledgements.
 * Restart interrupted Miniconf MQTT startup when MQTT resumes a session, and drain in-flight traffic
   before synchronization. Require MiniMQ 0.13.3 for reconnect-safe payload budgeting.
 

@@ -310,7 +310,7 @@ impl StartupPhase {
                         .await
                         {
                             Ok(next) => {
-                                *op = next;
+                                *op = Some(next);
                                 return Ok(false);
                             }
                             Err(err) if is_retryable_startup_error(&err) => return Ok(false),
@@ -368,16 +368,17 @@ where
     .qos(QoS::AtLeastOnce)
     .retain();
     match connection.publish(publication).await {
-        Ok(next_op) => {
+        Ok(Some(next_op)) => {
             let Some((count, hash)) = advanced else {
                 return Err(Error::Mqtt(ResourceError::BufferTooSmall.into()));
             };
             sync.next += count;
             sync.page += 1;
             sync.hash = hash;
-            *op = next_op;
+            *op = Some(next_op);
             Ok(false)
         }
+        Ok(None) => Err(Error::Mqtt(MqttError::InvalidRequest)),
         Err(PubError::Session(MqttError::NotReady))
         | Err(PubError::Session(MqttError::Resource(ResourceError::InflightExhausted))) => {
             Ok(false)
@@ -458,7 +459,7 @@ where
             .await
         {
             Ok(op) => {
-                publisher.op = op;
+                publisher.op = Some(op);
                 return Ok(false);
             }
             Err(Error::Mqtt(MqttError::NotReady))

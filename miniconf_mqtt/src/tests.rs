@@ -68,3 +68,73 @@ fn schema_defs_keep_root_last() {
     let defs = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA).unwrap();
     assert_eq!(defs.root(), Some(Settings::SCHEMA));
 }
+
+#[tokio::test]
+async fn startup_rejects_a_qos_zero_broker() {
+    use core::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    use embedded_io_adapters::tokio_1::FromTokio;
+    use std::io;
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+    // A successful MQTT v5 CONNACK advertising Maximum QoS = 0.
+    struct Broker(&'static [u8]);
+    impl AsyncRead for Broker {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            if self.0.is_empty() {
+                return Poll::Pending;
+            }
+            let count = buf.remaining().min(self.0.len());
+            buf.put_slice(&self.0[..count]);
+            self.0 = &self.0[count..];
+            Poll::Ready(Ok(()))
+        }
+    }
+    impl AsyncWrite for Broker {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(buf.len()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+    init_host_logging();
+    for downgrade in [false, true] {
+        let mut buffer = [0; 1024];
+        let config = ConfigBuilder::from_buffer(&mut buffer, 128)
+            .unwrap()
+            .client_id("qos-test")
+            .unwrap();
+        let config = if downgrade {
+            config.autodowngrade_qos()
+        } else {
+            config
+        };
+        let (mut miniconf, mut session) = Miniconf::<Tiny>::new("test/qos", config).unwrap();
+        let mut connection = session
+            .connect(FromTokio::new(Broker(&[0x20, 5, 0, 0, 2, 0x24, 0])))
+            .await
+            .unwrap();
+        let mut startup = crate::Startup::new(&mut miniconf, connection.connect_event());
+        assert!(matches!(
+            startup
+                .step(&mut miniconf, &mut connection, &Tiny { value: 0 })
+                .await,
+            Err(crate::Error::Mqtt(minimq::Error::InvalidRequest))
+        ));
+        assert!(!miniconf.startup_complete);
+    }
+}

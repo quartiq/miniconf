@@ -244,6 +244,8 @@ Success replies carry only `code=Ok`.
 
 ## Limitations
 
+- The broker must support QoS 1. Leave MiniMQ's automatic QoS downgrade disabled: startup
+  and service completion depend on publication acknowledgements.
 - One MQTT prefix is assumed to have one authoritative device publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.

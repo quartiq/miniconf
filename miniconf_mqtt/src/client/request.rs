@@ -367,10 +367,7 @@ impl FollowUp {
                         .await
                     {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                continue;
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -418,11 +415,7 @@ impl FollowUp {
                     }
                     match reply_message(connection, target, message).await {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                *self = Self::Done;
-                                return Ok(true);
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -448,11 +441,7 @@ impl FollowUp {
                     }
                     match reply_text(connection, target, ResponseCode::Ok, b"").await {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                *self = Self::Done;
-                                return Ok(true);
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -483,11 +472,7 @@ impl FollowUp {
                     }
                     match reply_publish_error(connection, target, error, payload.as_bytes()).await {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                *self = Self::Done;
-                                return Ok(true);
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -575,7 +560,7 @@ async fn reply_message<IO>(
     connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
     message: &ReplyMessage,
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -599,7 +584,7 @@ async fn reply_publish_error<IO>(
     target: &ReplyTarget,
     error: &str,
     payload: &[u8],
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -612,7 +597,7 @@ async fn reply_text<IO>(
     target: &ReplyTarget,
     code: ResponseCode,
     text: &[u8],
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -627,7 +612,7 @@ async fn reply_bytes<IO>(
     target: &ReplyTarget,
     props: &[Property<'_>],
     payload: &[u8],
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -639,5 +624,6 @@ where
                 .qos(QoS::AtLeastOnce),
         )
         .await
-        .map_err(simple_pub_error)
+        .map_err(simple_pub_error)?
+        .ok_or(Error::Mqtt(MqttError::InvalidRequest))
 }
