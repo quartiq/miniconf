@@ -6,7 +6,9 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.0...HEAD) - DATE
+## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.1...HEAD) - DATE
+
+## [0.21.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.0...miniconf-v0.21.1) - 2026-09-15
 
 ### Fixed
 
