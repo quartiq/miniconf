@@ -1,9 +1,29 @@
 import type { Schema, SchemaNode } from "./schema";
 import { formatSchemaName, schemaSummary, schemaTooltip } from "./schema";
-import type { TreeNodeView } from "./tree-view";
+import {
+  ACTIVITY_DURATION_MS,
+  type TreeActivity,
+  type TreeNodeView,
+} from "./tree-view";
 
 export type ViewNode = TreeNodeView &
   Pick<SchemaNode, "kind" | "node" | "edge" | "sem">;
+
+export function updateActivity(
+  previous: Map<string, TreeActivity>,
+  cues: Iterable<string>,
+  tree: Map<string, ViewNode>,
+  at = Date.now(),
+): Map<string, TreeActivity> {
+  const next = new Map<string, TreeActivity>();
+  for (const [path, activity] of previous) {
+    if (tree.has(path) && at - activity.at < ACTIVITY_DURATION_MS)
+      next.set(path, activity);
+  }
+  const activity = { at };
+  for (const path of cues) if (tree.has(path)) next.set(path, activity);
+  return next;
+}
 
 export function parentPath(path: string): string | undefined {
   if (!path) {

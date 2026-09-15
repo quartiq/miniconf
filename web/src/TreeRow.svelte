@@ -1,7 +1,11 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TreeActivity, TreeNodeView } from "./lib/tree-view";
+  import {
+    ACTIVITY_DURATION_MS,
+    type TreeActivity,
+    type TreeNodeView,
+  } from "./lib/tree-view";
 
   type Props = {
     node: TreeNodeView;
@@ -39,7 +43,9 @@
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = (next?: TreeActivity) => {
       clearTimeout(timer);
-      const remaining = next ? 1000 - (Date.now() - next.at) : 0;
+      const remaining = next
+        ? ACTIVITY_DURATION_MS - (Date.now() - next.at)
+        : 0;
       node.style.opacity = remaining > 0 ? "1" : "0";
       if (remaining > 0)
         timer = setTimeout(() => {

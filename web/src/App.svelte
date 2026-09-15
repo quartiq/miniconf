@@ -23,6 +23,7 @@
     type NavDirection,
   } from "./lib/tree-navigation";
   import { type TreeActivity } from "./lib/tree-view";
+  import { updateActivity } from "./lib/tree-state";
 
   type Action = "Set" | "Prune";
   type ActionResult = { text: string; failed: boolean; responseMs?: number };
@@ -218,11 +219,7 @@
     });
     browseState = commit.state;
     settingsRevision = commit.rev ?? settingsRevision;
-    const at = Date.now();
-    treeActivity = new Map([
-      ...treeActivity,
-      ...[...commit.cues].map((path) => [path, { at }] as const),
-    ]);
+    treeActivity = updateActivity(treeActivity, commit.cues, browseState.tree);
   }
 
   function resetBrowseState(preserve = false) {
@@ -262,6 +259,7 @@
       ? browseState
       : browseMemory.get(JSON.stringify([broker, activePrefix, root]));
     browseState = browse.loadSchema(browseState, nextSchema, root, memory);
+    treeActivity = updateActivity(treeActivity, [], browseState.tree);
     subtreePath = browseState.root;
     syncUrl();
   }
@@ -463,13 +461,10 @@
   function applyRoute() {
     const next = readRoute(location);
     if (browseState.schema && activePrefix) {
-      browseMemory.set(
+      browse.rememberRoute(
+        browseMemory,
         JSON.stringify([broker, activePrefix, browseState.root]),
-        {
-          expanded: new Set(browseState.expanded),
-          selectedPath: browseState.selectedPath,
-          userClosed: new Set(browseState.userClosed),
-        },
+        browseState,
       );
     }
     const preserve =

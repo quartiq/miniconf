@@ -14,6 +14,8 @@ export type TreeActivity = {
   at: number;
 };
 
+export const ACTIVITY_DURATION_MS = 1000;
+
 export type TreeActions = {
   activate?: (node: TreeNodeView, internal: boolean, open: boolean) => void;
   key: (node: TreeNodeView, direction: NavDirection, step?: number) => string;

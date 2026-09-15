@@ -20,6 +20,22 @@ function update(state: browse.BrowseState, text?: string) {
 }
 
 describe("leaf editor ownership", () => {
+  it("remembers only the 32 most recently saved routes with independent folds", () => {
+    const memory = new Map<string, browse.BrowseMemory>();
+    const state = loaded();
+    for (let i = 0; i < 32; i++) browse.rememberRoute(memory, String(i), state);
+    browse.rememberRoute(memory, "0", state);
+    browse.rememberRoute(memory, "32", state);
+    expect(memory.size).toBe(32);
+    expect(memory.has("0")).toBe(true);
+    expect(memory.has("1")).toBe(false);
+    expect(memory.get("0")?.selectedPath).toBe("/leaf");
+    state.expanded.clear();
+    state.userClosed.add("");
+    expect(memory.get("0")?.expanded).toEqual(new Set([""]));
+    expect(memory.get("0")?.userClosed.size).toBe(0);
+  });
+
   it("reuses schema rows while preserving snapshots and repeated-observation cues", () => {
     const state = loaded();
     const leaf = state.tree.get("/leaf")!;

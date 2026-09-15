@@ -6,9 +6,32 @@ import {
   parentPath,
   revealPresentSettings,
   treeSnapshot,
+  updateActivity,
 } from "./tree-state";
 
 describe("tree state", () => {
+  it("expires activity and drops obsolete paths without losing unrelated live cues", () => {
+    const tree = treeSnapshot(
+      new Schema([{}, { i: { k: "n", c: { a: 0, b: 0 } } }], 1),
+      "",
+      new Map(),
+    );
+    const previous = new Map([
+      ["", { at: 0 }],
+      ["/a", { at: 1 }],
+      ["/gone", { at: 999 }],
+    ]);
+    const kept = updateActivity(previous, [], tree, 1000);
+    expect([...kept.keys()]).toEqual(["/a"]);
+    expect(kept.get("/a")).toBe(previous.get("/a"));
+    const next = updateActivity(kept, ["", "/b"], tree, 1000);
+    expect([...next.keys()]).toEqual(["/a", "", "/b"]);
+    expect(next.get("")).toBe(next.get("/b"));
+    expect(updateActivity(next, [], tree, 2000).size).toBe(0);
+    expect(previous.size).toBe(3);
+    expect(kept.size).toBe(1);
+  });
+
   it("shows portable semantics inline and preserves opaque metadata in tooltips", () => {
     const schema = new Schema(
       [

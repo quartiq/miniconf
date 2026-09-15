@@ -37,6 +37,21 @@ export type BrowseMemory = Pick<
   "expanded" | "selectedPath" | "userClosed"
 >;
 
+// Remember recent routes without retaining every device/subtree visited in a tab.
+export function rememberRoute(
+  memory: Map<string, BrowseMemory>,
+  key: string,
+  state: BrowseMemory,
+): void {
+  memory.delete(key);
+  memory.set(key, {
+    expanded: new Set(state.expanded),
+    selectedPath: state.selectedPath,
+    userClosed: new Set(state.userClosed),
+  });
+  if (memory.size > 32) memory.delete(memory.keys().next().value!);
+}
+
 export function emptyState(): BrowseState {
   return {
     schema: undefined,
