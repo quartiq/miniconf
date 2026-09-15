@@ -43,6 +43,43 @@ function announce(mqtt: FakeMqttClient) {
 }
 
 describe("retained-topic pruning", () => {
+  it.each(["death", "generation"])(
+    "replays %s observed during the initial subscription",
+    async (event) => {
+      const mqtt = new FakeMqttClient();
+      let release!: () => void;
+      mqtt.subscribeWait = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      connectMock.mockReturnValueOnce(mqtt);
+      const states: PruningState[] = [];
+      const connecting = PrefixSession.connect("ws://mqtt:8083", "p", "", {
+        alive: () => {},
+        schema: () => {},
+        settings: () => {},
+        status: () => {},
+        pruning: (state) => states.push(state),
+      });
+      mqtt.connect();
+      await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(1));
+      announce(mqtt);
+      mqtt.message("p/settings/old", "1");
+      if (event === "death") mqtt.message("p/alive", "");
+      const nextAlive = JSON.stringify({ ...alive, epoch: 2 });
+      mqtt.message("p/alive", nextAlive);
+      mqtt.subscribeWait = undefined;
+      release();
+      const session = await connecting;
+      await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
+      mqtt.message("p/settings/old", "1");
+      mqtt.message("p/alive", nextAlive);
+      await vi.waitFor(() => expect(session.ready).toBe(true));
+      expect(states.at(-1)?.count).toBe(1);
+      expect(mqtt.subscriptions).toHaveLength(2);
+      session.close();
+    },
+  );
+
   it("classifies exact namespace boundaries and schema leaves", () => {
     for (const topic of [
       "p/settings/leaf",

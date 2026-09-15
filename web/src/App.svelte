@@ -103,7 +103,9 @@
 
   let selected = $derived(browse.selected(browseState));
   let editor = $derived(browse.editor(browseState));
-  let editorDirty = $derived(browseState.draft !== undefined);
+  let editorDirty = $derived(
+    browseState.draft !== undefined && browseState.draft !== selected?.value,
+  );
   let canSet = $derived(
     deviceReady && selected?.kind === "leaf" && !actions.pending.has("Set"),
   );

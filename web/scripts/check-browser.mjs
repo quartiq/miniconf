@@ -636,6 +636,26 @@ try {
       "458",
     );
 
+    // Matching an unsolicited value disables Revert but does not release a draft.
+    await fill("textarea", "3");
+    publish(`${prefix}/settings/leaf`, "3");
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '3' && document.querySelector('.actions button:last-child').disabled",
+    );
+    publish(`${prefix}/settings/leaf`, "4");
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '4'",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "3",
+    );
+    assert(
+      await evaluate(
+        "!document.querySelector('.actions button:last-child').disabled",
+      ),
+    );
+
     // Device formatting wins on success, with either publication/reply arrival order.
     for (const [input, value, echoFirst] of [
       ["20", "20.0", true],
@@ -744,7 +764,14 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "2",
     );
+    await until(
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (3)'",
+    );
     await fill("textarea", "99");
+    publish(`${prefix}/alive`, "");
+    await until(
+      "document.querySelector('.status').textContent.includes('Waiting for device')",
+    );
     const nextSchema = schema.replace('"leaf":', '"replacement":');
     let nextRevision = 0x811c9dc5;
     for (const byte of new TextEncoder().encode(nextSchema))
@@ -767,7 +794,12 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "99",
     );
+    await until(
+      "document.querySelector('.prune')?.textContent.trim() === 'Prune (4)'",
+    );
+    const previousDocument = await evaluate("performance.timeOrigin");
     await command("Page.reload");
+    await until(`performance.timeOrigin !== ${previousDocument}`);
     await until(
       "document.querySelector('[data-tree-path=\"/replacement\"] .value')?.textContent === '3'",
     );

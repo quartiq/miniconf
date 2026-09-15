@@ -43,7 +43,7 @@ describe("leaf editor ownership", () => {
     expect(browse.editor(missing)).toBe("99");
     expect(browse.selected(missing)).toBeUndefined();
   });
-  it("preserves edits until reverted or matched by the device", () => {
+  it("preserves edits until reverted, including across matching device updates", () => {
     let state = browse.updateEditor(loaded(), "99");
     state = update(state, "1");
     expect(browse.editor(state)).toBe("99");
@@ -51,10 +51,12 @@ describe("leaf editor ownership", () => {
     expect(browse.editor(state)).toBe("99");
     state = browse.loadEditor(state);
     expect(browse.editor(state)).toBe("2");
-    state = browse.updateEditor(state, "3");
-    state = update(state, "3");
-    state = update(state, "4");
-    expect(browse.editor(state)).toBe("4");
+    const draft = browse.updateEditor(state, "3");
+    // Separate UI batches and a coalesced burst have the same ownership result.
+    for (const next of [update(update(draft, "3"), "4"), update(draft, "4")]) {
+      expect(browse.editor(next)).toBe("3");
+      expect(browse.editor(browse.loadEditor(next))).toBe("4");
+    }
   });
   it("distinguishes JSON null, absent values and empty drafts", () => {
     let state = loaded("null");

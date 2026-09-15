@@ -66,8 +66,9 @@ disabled while disconnected; use Retry if automatic recovery stops.
 
 **Prune (N)** appears when stale retained topics are observed for an alive device.
 Click it to clear those topics.
-This removes stale broker storage across the device prefix, even when browsing a subtree;
-valid settings are kept. An interrupted clear may have partly completed.
+This clears stale retained messages under `/settings`, `/set`, and `/response` across the
+device prefix, even when browsing a subtree; valid settings are kept.
+An interrupted clear may have partly completed.
 Whole-prefix cleanup stays in the Python client.
 
 ## Test

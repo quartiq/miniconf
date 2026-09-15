@@ -163,6 +163,8 @@ export class PrefixSession {
   private pruneCoverageWarning = "";
   private mqtt: MqttSession | undefined;
   private alive: AliveManifest | undefined;
+  // Initial subscription callbacks can invalidate observations before mqtt is assigned.
+  private deferredReplay = false;
   private schema: Schema | undefined;
   private deviceError: string | undefined;
   private readonly waitingSettings = new Map<
@@ -225,7 +227,10 @@ export class PrefixSession {
       session.close();
       throw error;
     });
-    session.showProgress();
+    if (session.deferredReplay) {
+      session.deferredReplay = false;
+      void session.mqtt.refresh();
+    } else session.showProgress();
     return session;
   }
 
@@ -329,11 +334,7 @@ export class PrefixSession {
   private handleAlive(message: MqttMessage): void {
     if (!message.packet.retain) return;
     if (!message.payload.byteLength) {
-      this.clearRetained(
-        new Error(
-          "Device unavailable; Set outcome unknown. Check the current value.",
-        ),
-      );
+      this.requestReplay();
       this.showProgress();
       return;
     }
@@ -351,16 +352,15 @@ export class PrefixSession {
       return;
     }
     if (
-      this.mqtt &&
-      ((!this.alive && this.deviceError) ||
-        (this.alive &&
-          (this.alive.epoch !== next.epoch ||
-            this.alive.schema_rev !== next.schema_rev)))
+      (!this.alive && this.deviceError) ||
+      (this.alive &&
+        (this.alive.epoch !== next.epoch ||
+          this.alive.schema_rev !== next.schema_rev))
     ) {
       // Recovery or a new generation needs the observations cleared earlier.
       // Its values may have preceded the alive commit marker.
       // Clear and replay through the existing fixed subscription owner.
-      void this.mqtt?.refresh();
+      this.requestReplay();
       return;
     }
     if (!this.alive) this.deviceError = undefined;
@@ -534,6 +534,15 @@ export class PrefixSession {
     this.mirror.clear();
     this.callbacks.alive(undefined);
     this.reportPruning();
+  }
+
+  private requestReplay(): void {
+    if (this.mqtt) {
+      void this.mqtt.refresh();
+    } else {
+      this.clearRetained();
+      this.deferredReplay = true;
+    }
   }
 
   private noteStatus(status: MqttSessionStatus): void {

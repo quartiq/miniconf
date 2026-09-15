@@ -94,17 +94,11 @@ export function commitSettings(
   state: BrowseState,
   { settings, touched, activity, rev }: SettingsCommit,
 ): BrowseCommit {
-  let rebuilt = {
+  const rebuilt = {
     ...state,
     settings,
     tree: treeSnapshot(state.schema, state.root, settings),
   };
-  if (
-    touched.has(state.selectedPath) &&
-    state.draft === selected(rebuilt)?.value
-  ) {
-    rebuilt = loadEditor(rebuilt);
-  }
   return {
     state: {
       ...rebuilt,
