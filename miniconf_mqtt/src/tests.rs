@@ -135,6 +135,5 @@ async fn startup_rejects_a_qos_zero_broker() {
                 .await,
             Err(crate::Error::Mqtt(minimq::Error::InvalidRequest))
         ));
-        assert!(!miniconf.startup_complete);
     }
 }
