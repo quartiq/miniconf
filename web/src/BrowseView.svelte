@@ -77,36 +77,38 @@
     focusTree,
     retry,
   }: Props = $props();
-  let identityOpen = $state(false);
 </script>
 
 <section class="browse">
-  <header class="app-header panel" class:expanded={identityOpen}>
-    <a
-      class="back"
-      href={discoverHref}
-      aria-label="Back to devices"
-      title="Back to devices">←</a
+  <header class="app-header panel">
+    <a class="back" href={discoverHref} title={`Show devices on ${broker}`}
+      >{broker}</a
     >
-    <div class="context">
-      <details class="identity" bind:open={identityOpen}>
-        <summary title="Show full device and connection details"
-          ><span aria-hidden="true">{identityOpen ? "▾" : "▸"}</span>
-          <h1>{activePrefix}</h1></summary
-        >
-        <div class="identity-details">
-          {#if aliveManifest}<div>
-              epoch {aliveManifest.epoch} · schema {aliveManifest.schema_rev}
-            </div>{/if}
-          {#if settingsRevision}<div>
-              last publication rev {settingsRevision}
-            </div>{/if}
-        </div>
-      </details>
-      {#if subtreePath}<div class="subtree">subtree {subtreePath}</div>{/if}
-    </div>
+    <details class="context">
+      <summary title="Show full device details">
+        <h1>{activePrefix}</h1>
+        {#if aliveManifest}<span class="identity-details"
+            >schema {aliveManifest.schema_rev}</span
+          >{/if}
+        {#if subtreePath}<span class="identity-details"
+            >subtree {subtreePath}</span
+          >{/if}
+      </summary>
+      <div class="identity-details">
+        {#if aliveManifest}epoch {aliveManifest.epoch}{/if}
+        {#if settingsRevision}
+          · last publication rev {settingsRevision}{/if}
+      </div>
+    </details>
     <div class="connection-state">
-      <span class="broker-label" title={broker}>{broker}</span>
+      <div class="status">
+        <div role="status" title={error || status}>
+          {#if error}<strong>{status}: {error}</strong>{:else}<span
+              >{status}</span
+            >{/if}
+        </div>
+        {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
+      </div>
       <div class="prune-action">
         {#if pruning.count}
           <button
@@ -118,13 +120,6 @@
             >Prune ({pruning.count})</button
           >
         {/if}
-      </div>
-      <div class="status">
-        <div role="status">
-          <span>{status}</span>
-          {#if error}<strong>{error}</strong>{/if}
-        </div>
-        {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
       </div>
       {#if pruning.coverageWarning}<span
           class="meta coverage"
@@ -181,9 +176,8 @@
 
   .app-header {
     align-items: center;
-    display: grid;
+    display: flex;
     gap: var(--space-tight) var(--space);
-    grid-template-columns: auto minmax(0, 1fr);
     min-width: 0;
   }
 
@@ -191,6 +185,12 @@
     color: inherit;
     line-height: var(--line);
     text-decoration: none;
+    max-width: 25%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
   }
 
   .context,
@@ -199,6 +199,9 @@
   }
 
   h1 {
+    margin: 0;
+    flex-shrink: 0;
+    max-width: 100%;
     display: block;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -206,11 +209,10 @@
   }
 
   .connection-state {
-    color: var(--muted);
-    grid-column: 1 / -1;
+    flex: 1;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: start;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: var(--space-tight) var(--space);
     overflow-wrap: anywhere;
   }
@@ -227,47 +229,56 @@
     white-space: nowrap;
   }
   .status {
-    min-width: 10ch;
-    max-width: 50vw;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space);
+    line-height: var(--line);
   }
-  .expanded h1,
-  .expanded .broker-label {
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-  .coverage {
-    grid-column: 1 / -1;
-  }
-  .connection-state strong {
-    display: block;
-  }
-  .broker-label {
+  .status [role="status"] {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .identity summary {
+  .coverage {
+    grid-column: 1 / -1;
+  }
+  .context {
+    max-width: 45%;
+    overflow: hidden;
+    line-height: var(--line);
+  }
+  .context summary {
     display: flex;
-    gap: var(--space-tight);
+    align-items: baseline;
+    gap: var(--space);
     cursor: pointer;
     list-style: none;
-    align-items: baseline;
   }
-  .identity summary::-webkit-details-marker {
+  .context summary::-webkit-details-marker {
     display: none;
   }
-  .identity h1 {
-    margin: 0;
+  .context[open] summary {
+    flex-wrap: wrap;
   }
-  .identity-details,
-  .subtree {
+  .context[open] h1,
+  .context[open] .identity-details {
+    white-space: normal;
     overflow-wrap: anywhere;
+  }
+  .identity-details {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
     font-size: var(--text-small);
+    min-width: 0;
   }
 
   .connection-state strong {
     color: var(--error);
+    white-space: normal;
   }
 
   .workspace {
@@ -285,15 +296,6 @@
   }
 
   @media (min-width: 761px) {
-    .app-header {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-    }
-
-    .connection-state {
-      grid-column: auto;
-      max-width: 50vw;
-    }
-
     .browse {
       height: calc(100dvh - 2 * var(--space));
       grid-template-rows: auto minmax(calc(12 * var(--line)), 1fr) auto;
@@ -301,6 +303,17 @@
   }
 
   @media (max-width: 760px) {
+    .app-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    }
+    .back,
+    .context {
+      max-width: none;
+    }
+    .connection-state {
+      grid-column: 1 / -1;
+    }
     .browse {
       height: auto;
     }

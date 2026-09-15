@@ -47,6 +47,8 @@
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
   let connection = $state<SessionStatus>({ state: "idle" });
+  let latestAction = $state("");
+  let request = $state<{ path: string; pending: boolean; message: string }>();
   let pruning = $state<PruningState>({
     count: 0,
     pending: false,
@@ -64,14 +66,15 @@
       waiting: "Waiting for device announcement",
       loading: "Loading schema",
       watching: activePrefix
-        ? pruning.message || "Ready"
+        ? request?.pending
+          ? "Setting…"
+          : latestAction || "Ready"
         : "Watching discovery",
       error: "Connection error",
       failed: "Connection failed",
       "device-error": "Device unavailable",
     }[connection.state],
   );
-  let request = $state<{ path: string; pending: boolean; message: string }>();
   let editorError = $state<{ path: string; text: string; message: string }>();
   let settingsRevision = $state("");
   let error = $state("");
@@ -225,6 +228,7 @@
         }).state
       : browse.emptyState();
     request = undefined;
+    latestAction = "";
     editorError = undefined;
     treeActivity = new Map();
   }
@@ -246,6 +250,7 @@
   }
 
   function log(event: string, detail: string) {
+    if (event === "request" || event === "prune") latestAction = detail;
     eventLog.add(logOpen, event, detail);
   }
 

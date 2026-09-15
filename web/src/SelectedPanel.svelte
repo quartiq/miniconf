@@ -100,9 +100,9 @@
       <div class="value-editor">
         {#if leaf && !node?.present}<p>No value observed</p>{/if}
         {#if !leaf}<p>Leaf unavailable</p>{/if}
-        <label for="leaf-editor">Draft</label>
         <textarea
           id="leaf-editor"
+          aria-label="Setting value"
           aria-keyshortcuts="Control+Enter Meta+Enter Escape"
           data-leaf-editor
           aria-invalid={!!editorError}
@@ -127,7 +127,9 @@
         <button
           disabled={!differs}
           title={node?.present
-            ? "Discard your draft and use the latest received value"
+            ? valueUpdated
+              ? "Device value changed. Replace your edits with the latest received value; nothing is sent."
+              : "Replace your edits with the latest received value; nothing is sent."
             : "Discard your draft"}
           type="button"
           onclick={resetEditor}

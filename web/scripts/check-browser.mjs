@@ -539,6 +539,11 @@ try {
     holdResponse = false;
     respond();
     await until("document.body?.innerText.includes('Last Set: succeeded')");
+    assert(
+      await evaluate(
+        "document.querySelector('.status').textContent.includes('Last Set: succeeded')",
+      ),
+    );
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "123",
@@ -839,6 +844,16 @@ try {
     );
     for (const width of [320, 390, 761, 1200]) {
       await viewport(width, 850);
+      assert(
+        await evaluate(`(() => {
+        const broker = document.querySelector('.back').getBoundingClientRect();
+        const prefix = document.querySelector('.context h1').getBoundingClientRect();
+        const status = document.querySelector('.status').getBoundingClientRect();
+        return broker.right <= prefix.left && Math.abs(broker.top - prefix.top) < 2 &&
+          (innerWidth > 760 ? prefix.right <= status.left && Math.abs(broker.top - status.top) < 2 : status.top >= broker.bottom);
+      })()`),
+        "Header keeps identity aligned and moves status to the second row on mobile",
+      );
       if (width === 390) {
         const draft = await evaluate(
           "document.querySelector('textarea').value",
@@ -878,7 +893,7 @@ try {
       );
       assert(
         await evaluate(
-          "document.querySelector('label[for=leaf-editor]') && document.querySelector('[role=tree][aria-label]') && document.querySelector('[role=treeitem][tabindex=\"0\"]')",
+          "document.querySelector('textarea[aria-label]') && !document.querySelector('label[for=leaf-editor]') && document.querySelector('[role=tree][aria-label]') && document.querySelector('[role=treeitem][tabindex=\"0\"]')",
         ),
       );
       if (process.env.MINICONF_WEB_SCREENSHOTS) {
@@ -892,13 +907,14 @@ try {
       }
     }
     await viewport(1024, 400);
-    await click(".identity summary");
+    await click(".context summary");
+    assert(await evaluate("document.querySelector('.context').open"));
     assert(
       await evaluate(
-        `document.querySelector('.context h1').textContent === '${prefix}' && !document.querySelector('.identity-details').textContent.includes('${prefix}') && document.querySelectorAll('.broker-label').length === 1`,
+        `document.querySelector('.context h1').textContent === '${prefix}' && document.querySelector('.back').textContent === 'ws://127.0.0.1:${port}' && document.querySelector('.identity-details').textContent.includes('${revision}')`,
       ),
     );
-    await click(".identity summary");
+    await click(".context summary");
     await click(".log summary");
     assert(
       await evaluate(
