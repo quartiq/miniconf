@@ -10,17 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the Miniconf MQTT
-  retained schema/settings protocol with an async-first CLI and client library.
+* The CLI and client library now use the Miniconf MQTT retained schema/settings protocol and async API.
 * Human-readable trees label empty-name path segments as `""`, distinguishing the `/` child from
   the empty root path.
 
 ### Added
 
-* Miniconf MQTT schema parsing/rendering helpers and one-shot retained-state operations such as `read()`,
-  `dump()`, `prune()`, and `force_prune()`.
+* Schema rendering, retained settings snapshots and watches, and stale retained-state pruning.
 
 ### Removed
 
-* The Python synchronous client surface (`miniconf.sync`) and the old package layout under
-  `py/miniconf-mqtt`.
+* The synchronous client API (`miniconf.sync`).

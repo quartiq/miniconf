@@ -8,10 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.0...HEAD) - DATE
 
-### Added
-
-* Documented the SemVer policy and added automated API compatibility checks.
-
 ### Fixed
 
 * Propagate custom key finalization errors from schema lookup.
