@@ -49,7 +49,8 @@ Notes:
   schema when `schema_rev` changes.
 - Exact reads and open watches do not wait for subtree quiescence.
 - Finite retained subtree snapshots use a quiescence window because MQTT retained replay has no
-  end-of-set marker.
+  end-of-set marker. If the timeout expires before quiescence, snapshots and pruning raise
+  `TimeoutError` instead of accepting partial results.
 - Retained `/settings` messages without `auth=""` are ignored as non-authoritative settings
   traffic.
 - Retained burst quiescence uses the same rule as the Rust client:
@@ -75,4 +76,4 @@ Command suffixes:
   empty-name child below root; `/` is not an alias for root.
 - `--raw` disables schema, subtree tracking, `?`, and `!`.
 - `--prune PATH` clears stale retained schema/settings below `PATH`.
-- `--force-prune` clears all retained Miniconf MQTT topics below the resolved prefix.
+- `--force-prune` clears all retained topics under the resolved prefix.

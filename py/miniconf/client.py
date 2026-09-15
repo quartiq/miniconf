@@ -560,7 +560,11 @@ class RawMiniconf(_BaseClient):
             end = asyncio.get_running_loop().time() + timeout
             while True:
                 now = asyncio.get_running_loop().time()
-                if now >= burst.deadline or now >= end:
+                if now >= min(burst.deadline, end):
+                    if end < burst.deadline:
+                        raise TimeoutError(
+                            "Timed out waiting for retained settings quiescence"
+                        )
                     return retained
                 try:
                     message = await asyncio.wait_for(

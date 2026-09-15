@@ -142,7 +142,7 @@ def _cli() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force-prune",
         action="store_true",
-        help="Clear all retained Miniconf MQTT topics below the resolved prefix",
+        help="Clear all retained topics under the resolved prefix",
     )
     parser.add_argument(
         "prefix",

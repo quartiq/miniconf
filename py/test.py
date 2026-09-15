@@ -190,6 +190,15 @@ async def test_listener_close_tolerates_released_subscription() -> None:
     await client.close()
 
 
+async def test_snapshot_deadline(interface) -> None:
+    try:
+        await interface.snapshot(CONTROL, timeout=0.02, abs_timeout=10.0)
+    except TimeoutError as err:
+        assert "quiescence" in str(err), err
+    else:
+        raise AssertionError("snapshot accepted a deadline as quiescence")
+
+
 async def close_client(client: Client, timeout: float = 1.0) -> None:
     """Bound MQTT teardown so the harness cannot hang on disconnect."""
 
@@ -417,6 +426,7 @@ async def main() -> None:
             snapshot = await mc.snapshot(CONTROL)
             assert snapshot[ENABLED] is True
             assert snapshot[MODE] == "Run"
+            await test_snapshot_deadline(mc)
             try:
                 await mc.get(CONTROL)
             except MiniconfException as err:
@@ -476,6 +486,7 @@ async def main() -> None:
             assert await raw.get(ENABLED) is False
             assert await raw.get(DAC0) == 2048
             assert (await raw.snapshot(ENABLED))[ENABLED] is False
+            await test_snapshot_deadline(raw)
             null_path = "/raw-null"
             events = raw.watch(null_path)
             try:

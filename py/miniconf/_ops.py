@@ -124,9 +124,11 @@ async def _collect_retained_settings(
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
-            if now >= burst.deadline:
-                return retained
-            if now >= end:
+            if now >= min(burst.deadline, end):
+                if end < burst.deadline:
+                    raise TimeoutError(
+                        "Timed out waiting for retained settings quiescence"
+                    )
                 return retained
             try:
                 message = await asyncio.wait_for(
@@ -163,9 +165,11 @@ async def _collect_retained_topics(
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
-            if now >= burst.deadline:
-                return sorted(seen)
-            if now >= end:
+            if now >= min(burst.deadline, end):
+                if end < burst.deadline:
+                    raise TimeoutError(
+                        "Timed out waiting for retained topics quiescence"
+                    )
                 return sorted(seen)
             try:
                 message = await asyncio.wait_for(
@@ -202,16 +206,16 @@ async def _prune_schema(
         end = now + timeout
         while True:
             now = asyncio.get_running_loop().time()
-            if now >= burst.deadline:
+            if now >= min(burst.deadline, end):
+                if end < burst.deadline:
+                    raise TimeoutError("Timed out waiting for schema pages quiescence")
                 break
-            if now >= end:
-                raise TimeoutError("Timed out waiting for schema pages")
             try:
                 message = await asyncio.wait_for(
                     queue.get(), min(burst.deadline, end) - now
                 )
             except TimeoutError:
-                break
+                continue
             if not is_retained(message):
                 continue
             suffix = message.topic.removeprefix(f"{interface.prefix}/schema/")
@@ -275,7 +279,7 @@ async def prune(
 
 
 async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]:
-    """Clear all retained Miniconf MQTT topics below the current prefix."""
+    """Clear all retained topics under the current prefix."""
 
     topics = await _collect_retained_topics(
         interface, f"{interface.prefix}/#", timeout=timeout
