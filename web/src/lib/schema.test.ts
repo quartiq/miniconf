@@ -24,6 +24,102 @@ const indexedSchema = new Schema(
 );
 
 describe("Schema", () => {
+  it("walks shared definitions in preorder with path-specific edge metadata", () => {
+    const schema = new Schema(
+      [
+        { s: { ty: "f32" }, m: { doc: "shared" } },
+        { i: { k: "h", l: 2, c: { r: 0, m: "element" } } },
+        { i: { k: "d", c: [0, { r: 1, m: "vector" }] } },
+        {
+          i: {
+            k: "n",
+            c: { "": { r: 2, m: "empty" }, other: { r: 2, m: "other" } },
+          },
+        },
+      ],
+      1,
+    );
+    const paths = [
+      "",
+      "/",
+      "//0",
+      "//1",
+      "//1/0",
+      "//1/1",
+      "/other",
+      "/other/0",
+      "/other/1",
+      "/other/1/0",
+      "/other/1/1",
+    ];
+    expect(schema.walk()).toEqual(paths.map((path) => schema.node(path)));
+    expect(schema.walk("/other")).toEqual(
+      paths.slice(6).map((path) => schema.node(path)),
+    );
+    expect(schema.walk("//0")).toEqual([schema.node("//0")]);
+    expect(new Schema([{}], 1).walk()).toEqual([new Schema([{}], 1).node()]);
+    const invalid = new Schema([{ i: { k: "n", c: { bad: 9 } } }], 1);
+    expect(() => invalid.walk()).toThrow("Invalid schema reference 9 in /bad");
+    expect(() => invalid.node("/bad")).toThrow(
+      "Invalid schema reference 9 in /bad",
+    );
+  });
+
+  it("preserves literal named segments and canonical array indices", () => {
+    const names = JSON.parse('{"":0,"__proto__":0,"constructor":0,"01":0}');
+    const schema = new Schema([{}, { i: { k: "n", c: names } }], 1);
+    for (const name of Object.keys(names))
+      expect(schema.node(`/${name}`).kind).toBe("leaf");
+    expect(() => schema.node("/toString")).toThrow("Unknown schema path");
+    for (const path of [
+      "values/0",
+      "/values/",
+      "/values/00",
+      "/values/+0",
+      "/values/-0",
+      "/values/1.0",
+      "/values/1e0",
+      "/values/ 1",
+      "/values/-1",
+      "/values/2",
+      "/tuple/2",
+      "/tuple/01",
+    ]) {
+      expect(() => indexedSchema.node(path), path).toThrow();
+    }
+  });
+
+  it("reads homogeneous definitions linearly when walking and directly when resolving", () => {
+    let reads = 0;
+    let refs = 0;
+    const schema = new Schema(
+      [
+        {},
+        {
+          get i() {
+            reads++;
+            return {
+              k: "h" as const,
+              l: 512,
+              get c() {
+                refs++;
+                return 0;
+              },
+            };
+          },
+        },
+      ],
+      1,
+    );
+    expect(schema.walk()).toHaveLength(513);
+    expect(reads).toBeLessThan(10);
+    reads = 0;
+    refs = 0;
+    expect(schema.node("/511").kind).toBe("leaf");
+    expect(reads).toBe(1);
+    expect(refs).toBe(1);
+  });
+
   it("matches the compact schema fixture paths", () => {
     const schema = fixtureSchema();
 

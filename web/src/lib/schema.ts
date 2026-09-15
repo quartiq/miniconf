@@ -66,20 +66,27 @@ export class Schema {
 
   node(path = ""): SchemaNode {
     const normalized = validatePath(path);
-    const { id, childRef } = this.resolve(normalized);
+    const ref = this.resolve(normalized);
+    return this.nodeFrom(normalized, ref, this.childEntries(refId(ref)));
+  }
+
+  private nodeFrom(
+    path: string,
+    ref: CompactRef,
+    entries: { name: string; ref: CompactRef }[],
+  ): SchemaNode {
+    const id = refId(ref);
     const def = this.defs[id];
-    const children = this.childEntries(id).map(({ name, ref }) => ({
+    const children = entries.map(({ name, ref }) => ({
       name,
-      path: normalized ? `${normalized}/${name}` : `/${name}`,
+      path: `${path}/${name}`,
       ...(refMeta(ref) === undefined ? {} : { edge: refMeta(ref) }),
     }));
     return {
-      path: normalized,
+      path,
       kind: this.kindFor(def),
       ...(def.m === undefined ? {} : { node: def.m }),
-      ...(childRef === undefined || refMeta(childRef) === undefined
-        ? {}
-        : { edge: refMeta(childRef) }),
+      ...(refMeta(ref) === undefined ? {} : { edge: refMeta(ref) }),
       ...(def.s === undefined ? {} : { sem: def.s }),
       children,
     };
@@ -90,29 +97,52 @@ export class Schema {
   }
 
   walk(path = ""): SchemaNode[] {
-    const root = this.node(path);
-    return [root, ...root.children.flatMap((child) => this.walk(child.path))];
+    const nodes: SchemaNode[] = [];
+    const visit = (path: string, ref: CompactRef) => {
+      const id = refId(ref);
+      if (id < 0 || id >= this.defs.length) {
+        throw new Error(`Invalid schema reference ${id} in ${path}`);
+      }
+      const entries = this.childEntries(id);
+      const node = this.nodeFrom(path, ref, entries);
+      nodes.push(node);
+      entries.forEach(({ ref }, index) =>
+        visit(node.children[index].path, ref),
+      );
+    };
+    visit(validatePath(path), this.resolve(path));
+    return nodes;
   }
 
-  private resolve(path: string): { id: number; childRef?: CompactRef } {
+  private resolve(path: string): CompactRef {
     let id = this.root;
-    let childRef: CompactRef | undefined;
-    if (!path) {
-      return { id };
-    }
+    let ref: CompactRef = id;
+    if (!path) return ref;
     for (const part of path.slice(1).split("/")) {
-      const entries = this.childEntries(id);
-      const entry = entries.find((candidate) => candidate.name === part);
-      if (!entry) {
+      const internal = this.defs[id].i;
+      let child: CompactRef | undefined;
+      if (internal?.k === "n") {
+        if (Object.hasOwn(internal.c, part)) child = internal.c[part];
+      } else if (internal) {
+        if (internal.k !== "d" && internal.k !== "h") {
+          throw new Error("Unknown schema kind");
+        }
+        const index = Number(part);
+        if (Number.isInteger(index) && index >= 0 && String(index) === part) {
+          if (internal.k === "d") child = internal.c[index];
+          else if (internal.k === "h" && index < internal.l) child = internal.c;
+        }
+      }
+      if (child === undefined) {
         throw new Error(`Unknown schema path: ${path}`);
       }
-      childRef = entry.ref;
-      id = refId(entry.ref);
+      ref = child;
+      id = refId(ref);
       if (id < 0 || id >= this.defs.length) {
         throw new Error(`Invalid schema reference ${id} in ${path}`);
       }
     }
-    return { id, childRef };
+    return ref;
   }
 
   private childEntries(id: number): { name: string; ref: CompactRef }[] {
