@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Self
 
 from . import _ops
 from .common import (
@@ -18,14 +18,13 @@ from .common import (
     RETAINED_SUBSCRIPTION,
     AliveManifest,
     SubscriptionKey,
-    BurstState,
+    _RetainedBurst,
     MiniconfException,
     alive_manifest,
     is_authoritative,
     is_retained,
     json_dumps,
     message_expiry,
-    settings_topics,
     subtree_match,
     validate_path,
 )
@@ -33,19 +32,11 @@ from ._mqtt import Client, Message, MQTTError, topic_matches_sub
 from .schema import Schema
 
 
-def _properties(message: Message) -> dict[str, Any]:
-    return message.properties
-
-
 def _response_code(properties: dict[str, Any]) -> str:
     try:
         return dict(properties["user_property"])["code"]
     except KeyError as exc:
         raise MiniconfException("Protocol", "Missing response code") from exc
-
-
-def _response_cd(properties: dict[str, Any]) -> bytes | None:
-    return properties.get("correlation_data")
 
 
 @dataclass(frozen=True)
@@ -59,45 +50,6 @@ class SettingEvent:
     rev: str | None = None
 
 
-def _setting_event(
-    message: Message,
-    prefix: str,
-    root: str,
-    schema: Schema | None = None,
-) -> SettingEvent | None:
-    properties = _properties(message)
-    if not is_retained(message) or not is_authoritative(properties):
-        return None
-    topic = message.topic
-    if not topic.startswith(f"{prefix}/settings"):
-        return None
-    path = topic.removeprefix(f"{prefix}/settings")
-    if path and not path.startswith("/"):
-        return None
-    if not subtree_match(path, root):
-        return None
-    if schema is not None:
-        try:
-            node = schema.node(path)
-        except MiniconfException:
-            LOGGER.debug("Ignoring setting outside the schema: %s", path)
-            return None
-        if node.kind != "leaf":
-            LOGGER.debug("Ignoring setting for non-leaf schema path: %s", path)
-            return None
-    rev = _user_property(properties, "rev")
-    if not message.payload:
-        return SettingEvent(path, False, rev=rev)
-    return SettingEvent(path, True, value=json.loads(message.payload), rev=rev)
-
-
-def _user_property(properties: dict[str, Any], name: str) -> str | None:
-    try:
-        return dict(properties.get("user_property", ())).get(name)
-    except (TypeError, ValueError):
-        return None
-
-
 class _BaseClient:
     def __init__(self, client: Client, prefix: str):
         self.client = client
@@ -108,6 +60,15 @@ class _BaseClient:
         self._subscriptions: dict[str, tuple[int, SubscriptionKey]] = {}
         self._listener = asyncio.create_task(self._listen())
         self._subscribed = asyncio.Event()
+
+    @classmethod
+    @asynccontextmanager
+    async def connect(
+        cls, broker: str, prefix: str, **client_kwargs: Any
+    ) -> AsyncIterator[Self]:
+        async with Client(broker, **client_kwargs) as client:
+            async with cls(client, prefix) as interface:
+                yield interface
 
     def _listen_topics(self) -> tuple[str, ...]:
         return (self.response_topic,)
@@ -156,7 +117,7 @@ class _BaseClient:
 
     def _dispatch(self, message: Message):
         topic = message.topic
-        properties = _properties(message)
+        properties = message.properties
         LOGGER.debug("Received %s: %s [%s]", topic, message.payload, properties)
 
         for topic_filter, queues in tuple(self._watchers.items()):
@@ -170,7 +131,7 @@ class _BaseClient:
         self._handle_message(message, topic, properties)
 
     def _handle_response(self, properties: dict[str, Any], payload: bytes):
-        cd = _response_cd(properties)
+        cd = properties.get("correlation_data")
         if cd is None:
             LOGGER.debug("Discarding response without correlation_data")
             return
@@ -181,11 +142,14 @@ class _BaseClient:
         if fut.done():
             LOGGER.debug("Discarding late response: %s", cd.hex())
             return
-        code = _response_code(properties)
-        if code == "Ok":
-            fut.set_result(None)
-            return
-        fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
+        try:
+            code = _response_code(properties)
+            if code == "Ok":
+                fut.set_result(None)
+            else:
+                fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
+        except (MiniconfException, UnicodeDecodeError) as exc:
+            fut.set_exception(exc)
 
     def _handle_message(
         self, _message: Message, _topic: str, _properties: dict[str, Any]
@@ -239,39 +203,72 @@ class _BaseClient:
         queue: asyncio.Queue[Message] = asyncio.Queue()
         watchers = self._watchers[topic_filter]
         watchers.append(queue)
+        subscribed = False
         try:
             await self._subscribe(topic_filter, subscription)
-        except Exception:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            raise
-        try:
+            subscribed = True
             yield queue
         finally:
             watchers.remove(queue)
             if not watchers:
                 del self._watchers[topic_filter]
-            await self._unsubscribe(topic_filter)
-
-    async def _watch_settings(self, root: str) -> AsyncIterator[SettingEvent]:
-        async with self._settings_queue(root) as queue:
-            while True:
-                message = await queue.get()
-                event = self._setting_event(message, root)
-                if event is not None:
-                    yield event
+            if subscribed:
+                await self._unsubscribe(topic_filter)
 
     def _setting_event(
-        self, message: Message, root: str, schema: Schema | None = None
+        self,
+        message: Message,
+        root: str,
+        schema: Schema | None = None,
     ) -> SettingEvent | None:
-        return _setting_event(message, self.prefix, root, schema)
+        properties = message.properties
+        if not is_retained(message) or not is_authoritative(properties):
+            return None
+        topic = message.topic
+        if not topic.startswith(f"{self.prefix}/settings"):
+            return None
+        path = topic.removeprefix(f"{self.prefix}/settings")
+        if path and not path.startswith("/"):
+            return None
+        if not subtree_match(path, root):
+            return None
+        if schema is not None:
+            try:
+                node = schema.node(path)
+            except MiniconfException:
+                LOGGER.debug("Ignoring setting outside the schema: %s", path)
+                return None
+            if node.kind != "leaf":
+                LOGGER.debug("Ignoring setting for non-leaf schema path: %s", path)
+                return None
+        rev = dict(properties.get("user_property", ())).get("rev")
+        if not message.payload:
+            return SettingEvent(path, False, rev=rev)
+        return SettingEvent(path, True, value=json.loads(message.payload), rev=rev)
 
-    @asynccontextmanager
-    async def _settings_queue(self, root: str) -> AsyncIterator[asyncio.Queue[Message]]:
-        (topic_filter,) = settings_topics(self.prefix, root)
-        async with self._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
-            yield queue
+    async def _snapshot(self, root, schema, *, timeout, rel_timeout, abs_timeout):
+        start = asyncio.get_running_loop().time()
+        retained: dict[str, Any] = {}
+        async with self._watch(
+            f"{self.prefix}/settings{root}/#", RETAINED_SUBSCRIPTION
+        ) as queue:
+            burst = _RetainedBurst(
+                start,
+                asyncio.get_running_loop().time(),
+                timeout,
+                rel_timeout,
+                abs_timeout,
+            )
+            while (message := await burst.receive(queue)) is not None:
+                event = self._setting_event(message, root, schema)
+                if event is None:
+                    continue
+                if event.present:
+                    retained[event.path] = event.value
+                else:
+                    retained.pop(event.path, None)
+                burst.reset()
+        return retained
 
     async def _publish_set(
         self, path: str, payload: str, *, response: bool, timeout: float | None = None
@@ -292,13 +289,14 @@ class _BaseClient:
 
         topic = f"{self.prefix}/set{path}"
         LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
-        await self.client.publish(topic, payload=payload, qos=1, properties=props)
-
-        if fut is not None:
-            try:
+        try:
+            await self.client.publish(topic, payload=payload, qos=1, properties=props)
+            if fut is not None:
                 await asyncio.wait_for(fut, timeout)
-            finally:
+        finally:
+            if fut is not None:
                 self._inflight.pop(cd, None)
+                fut.cancel()
 
 
 async def _read_retained_json(
@@ -319,7 +317,7 @@ async def _read_retained_json(
             message = await asyncio.wait_for(queue.get(), remaining)
             if not is_retained(message):
                 continue
-            if not is_authoritative(_properties(message)):
+            if not is_authoritative(message.properties):
                 continue
             if not message.payload:
                 raise MiniconfException("NotFound", path)
@@ -344,15 +342,6 @@ class Miniconf(_BaseClient):
         self._manifest: AliveManifest | None = None
         super().__init__(client, prefix)
 
-    @classmethod
-    @asynccontextmanager
-    async def connect(
-        cls, broker: str, prefix: str, **client_kwargs: Any
-    ) -> AsyncIterator[Miniconf]:
-        async with Client(broker, **client_kwargs) as client:
-            async with cls(client, prefix) as interface:
-                yield interface
-
     def _listen_topics(self) -> tuple[str, ...]:
         return self.response_topic, self.alive_topic
 
@@ -373,20 +362,13 @@ class Miniconf(_BaseClient):
             LOGGER.debug("Ignoring invalid alive manifest: %r", manifest)
             return
         self._manifest = next_manifest
-        if prev is None:
-            prev_schema_rev = None
-        else:
-            prev_schema_rev = prev.schema_rev
-        if prev_schema_rev != next_manifest.schema_rev:
+        if prev is None or prev.schema_rev != next_manifest.schema_rev:
             self._schema = None
-
-    def _note_device_gone(self):
-        self._manifest = None
-        self._schema = None
 
     def _note_manifest_payload(self, payload: bytes):
         if not payload:
-            self._note_device_gone()
+            self._manifest = None
+            self._schema = None
             return
         try:
             manifest = json.loads(payload)
@@ -436,9 +418,10 @@ class Miniconf(_BaseClient):
     ) -> dict[str, Any]:
         """Return a finite retained settings snapshot below one subtree."""
 
-        return await _ops._collect_retained_settings(
-            self,
-            path,
+        schema = await self.schema(timeout=timeout)
+        return await self._snapshot(
+            schema.path(path),
+            schema,
             timeout=timeout,
             rel_timeout=rel_timeout,
             abs_timeout=abs_timeout,
@@ -450,7 +433,9 @@ class Miniconf(_BaseClient):
         """Yield authoritative settings updates below one subtree without waiting for quiescence."""
 
         root = (await self.schema(timeout=timeout)).path(path)
-        async with self._settings_queue(root) as queue:
+        async with self._watch(
+            f"{self.prefix}/settings{root}/#", RETAINED_SUBSCRIPTION
+        ) as queue:
             while True:
                 message = await queue.get()
                 schema = await self.schema(timeout=timeout)
@@ -499,18 +484,6 @@ class Miniconf(_BaseClient):
 class RawMiniconf(_BaseClient):
     """Schema-less Miniconf client for exact-path GET and SET operations."""
 
-    def __init__(self, client: Client, prefix: str):
-        super().__init__(client, prefix)
-
-    @classmethod
-    @asynccontextmanager
-    async def connect(
-        cls, broker: str, prefix: str, **client_kwargs: Any
-    ) -> AsyncIterator[RawMiniconf]:
-        async with Client(broker, **client_kwargs) as client:
-            async with cls(client, prefix) as interface:
-                yield interface
-
     async def set(
         self,
         path: str,
@@ -547,39 +520,23 @@ class RawMiniconf(_BaseClient):
     ) -> dict[str, Any]:
         """Return a finite retained settings snapshot below one exact subtree."""
 
-        root = validate_path(path)
-        start = asyncio.get_running_loop().time()
-        retained: dict[str, Any] = {}
-        async with self._settings_queue(root) as queue:
-            burst = BurstState.from_roundtrip(
-                start,
-                asyncio.get_running_loop().time(),
-                rel_timeout,
-                abs_timeout,
-            )
-            end = asyncio.get_running_loop().time() + timeout
-            while True:
-                now = asyncio.get_running_loop().time()
-                if now >= burst.deadline or now >= end:
-                    return retained
-                try:
-                    message = await asyncio.wait_for(
-                        queue.get(), min(burst.deadline, end) - now
-                    )
-                except TimeoutError:
-                    continue
-                event = self._setting_event(message, root)
-                if event is None:
-                    continue
-                if not event.present:
-                    retained.pop(event.path, None)
-                else:
-                    retained[event.path] = event.value
-                burst.reset(asyncio.get_running_loop().time())
+        return await self._snapshot(
+            validate_path(path),
+            None,
+            timeout=timeout,
+            rel_timeout=rel_timeout,
+            abs_timeout=abs_timeout,
+        )
 
     async def watch(self, path: str = "") -> AsyncIterator[SettingEvent]:
         """Yield authoritative settings updates below one exact subtree."""
 
         root = validate_path(path)
-        async for event in self._watch_settings(root):
-            yield event
+        async with self._watch(
+            f"{self.prefix}/settings{root}/#", RETAINED_SUBSCRIPTION
+        ) as queue:
+            while True:
+                message = await queue.get()
+                event = self._setting_event(message, root)
+                if event is not None:
+                    yield event

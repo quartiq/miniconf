@@ -10,12 +10,11 @@ from .common import (
     RETAINED_SUBSCRIPTION,
     AliveManifest,
     LOGGER,
-    BurstState,
+    _RetainedBurst,
     MiniconfException,
     is_retained,
     alive_manifest,
     quiet_window,
-    settings_topics,
 )
 from ._mqtt import Client
 
@@ -105,48 +104,6 @@ async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> AliveManife
                 return interface._manifest
 
 
-async def _collect_retained_settings(
-    interface: Miniconf,
-    path: str,
-    *,
-    timeout: float,
-    rel_timeout: float = 3.0,
-    abs_timeout: float = 0.1,
-) -> dict[str, Any]:
-    schema = await interface.schema(timeout=timeout)
-    root = schema.path(path)
-    start = asyncio.get_running_loop().time()
-    retained: dict[str, Any] = {}
-    (topic_filter,) = settings_topics(interface.prefix, root)
-    async with interface._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
-        now = asyncio.get_running_loop().time()
-        burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
-        end = now + timeout
-        while True:
-            now = asyncio.get_running_loop().time()
-            if now >= burst.deadline:
-                return retained
-            if now >= end:
-                return retained
-            try:
-                message = await asyncio.wait_for(
-                    queue.get(),
-                    min(burst.deadline, end) - now,
-                )
-            except TimeoutError:
-                continue
-            if not is_retained(message):
-                continue
-            event = interface._setting_event(message, root, schema)
-            if event is None:
-                continue
-            if not event.present:
-                retained.pop(event.path, None)
-            else:
-                retained[event.path] = event.value
-            burst.reset(asyncio.get_running_loop().time())
-
-
 async def _collect_retained_topics(
     interface: Miniconf,
     topic_filter: str,
@@ -159,26 +116,14 @@ async def _collect_retained_topics(
     seen: set[str] = set()
     async with interface._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
         now = asyncio.get_running_loop().time()
-        burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
-        end = now + timeout
-        while True:
-            now = asyncio.get_running_loop().time()
-            if now >= burst.deadline:
-                return sorted(seen)
-            if now >= end:
-                return sorted(seen)
-            try:
-                message = await asyncio.wait_for(
-                    queue.get(),
-                    min(burst.deadline, end) - now,
-                )
-            except TimeoutError:
-                continue
+        burst = _RetainedBurst(start, now, timeout, rel_timeout, abs_timeout)
+        while (message := await burst.receive(queue)) is not None:
             if not is_retained(message):
                 continue
             if message.payload:
                 seen.add(message.topic)
-            burst.reset(asyncio.get_running_loop().time())
+            burst.reset()
+    return sorted(seen)
 
 
 async def _prune_schema(
@@ -198,20 +143,8 @@ async def _prune_schema(
         f"{interface.prefix}/schema/#", RETAINED_SUBSCRIPTION
     ) as queue:
         now = asyncio.get_running_loop().time()
-        burst = BurstState.from_roundtrip(start, now, rel_timeout, abs_timeout)
-        end = now + timeout
-        while True:
-            now = asyncio.get_running_loop().time()
-            if now >= burst.deadline:
-                break
-            if now >= end:
-                raise TimeoutError("Timed out waiting for schema pages")
-            try:
-                message = await asyncio.wait_for(
-                    queue.get(), min(burst.deadline, end) - now
-                )
-            except TimeoutError:
-                break
+        burst = _RetainedBurst(start, now, timeout, rel_timeout, abs_timeout)
+        while (message := await burst.receive(queue)) is not None:
             if not is_retained(message):
                 continue
             suffix = message.topic.removeprefix(f"{interface.prefix}/schema/")
@@ -219,7 +152,7 @@ async def _prune_schema(
                 seen.add(int(suffix))
             except ValueError:
                 continue
-            burst.reset(asyncio.get_running_loop().time())
+            burst.reset()
 
     stale = sorted(page for page in seen if page >= pages)
     for page in stale:
@@ -239,8 +172,9 @@ async def _prune_settings(
 
     schema = await interface.schema(timeout=timeout)
     path = schema.path(path)
-    (topic_filter,) = settings_topics(interface.prefix, path)
-    topics = await _collect_retained_topics(interface, topic_filter, timeout=timeout)
+    topics = await _collect_retained_topics(
+        interface, f"{interface.prefix}/settings{path}/#", timeout=timeout
+    )
     stale = []
     prefix = f"{interface.prefix}/settings"
     for topic in topics:
@@ -275,7 +209,7 @@ async def prune(
 
 
 async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]:
-    """Clear all retained Miniconf MQTT topics below the current prefix."""
+    """Clear all retained topics under the current prefix."""
 
     topics = await _collect_retained_topics(
         interface, f"{interface.prefix}/#", timeout=timeout

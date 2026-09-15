@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...HEAD) - DATE
 
+### Fixed
+
+* Clean up failed or cancelled requests and subscriptions; malformed replies fail only their request.
+* Snapshots and pruning report timeout failure when retained traffic has not reached quiescence.
+
 ### Changed
 
 * The CLI and client library now use the Miniconf MQTT retained schema/settings protocol and async API.
