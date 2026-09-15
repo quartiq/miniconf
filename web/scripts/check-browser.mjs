@@ -470,9 +470,11 @@ try {
       ),
       "active-user",
     );
-    await fill("input[name=username]", "active-user");
-    await click("button[type=submit]");
+    const rejectedOrigin = await evaluate("performance.timeOrigin");
+    await command("Page.reload");
+    await until(`performance.timeOrigin !== ${rejectedOrigin}`);
     await until("document.querySelector('.prefixes a')");
+    assert.equal(lastConnect.username, "active-user");
     await fill("input[name=password]", "unsubmitted-secret");
     await click('[data-tree-path="/dt/test"] .toggle');
     publish("dt/test/another/alive", retained.get(`${prefix}/alive`).text);
@@ -1372,6 +1374,35 @@ try {
       "Storage.prototype.setItem = window.restoreStorageSet; delete window.restoreStorageSet",
     );
     assert.equal(await evaluate("location.href"), resumeUrl);
+    // Endpoint changes forget credentials; history must not borrow another endpoint's login.
+    await click(".back");
+    await until("document.querySelector('input[name=broker]')");
+    await fill("input[name=broker]", `ws://127.0.0.1:${port}/other`);
+    await fill("input[name=username]", "other-user");
+    await fill("input[name=password]", "other-secret");
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
+    assert.equal(lastConnect.username, "other-user");
+    const beforeBack = connections;
+    await evaluate("history.back()");
+    await until(
+      "document.querySelector('.log summary')?.textContent.includes('Enter credentials to reconnect')",
+    );
+    assert.equal(connections, beforeBack);
+    assert(
+      await evaluate(
+        "document.querySelector('input[name=password]').value === '' && sessionStorage.getItem('miniconf-web.connection') === null",
+      ),
+    );
+    await evaluate("history.forward()");
+    await until(
+      `document.querySelector('input[name=broker]')?.value === 'ws://127.0.0.1:${port}/other'`,
+    );
+    assert.equal(connections, beforeBack);
+    await fill("input[name=username]", "other-user");
+    await fill("input[name=password]", "other-secret");
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
     await evaluate("location.hash = ''");
     await until("document.querySelector('input[name=broker]')");
     assert(

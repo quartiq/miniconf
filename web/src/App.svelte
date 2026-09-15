@@ -48,7 +48,6 @@
   let connectionAbort = new AbortController();
   let username = $state(initialAuth?.username ?? "");
   let password = $state(initialAuth?.password ?? "");
-  let connectionPrompt = $state(false);
   let connectionNotice = $state("");
 
   let session = $state.raw<DiscoverySession | PrefixSession>();
@@ -57,6 +56,10 @@
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
   let connection = $state<SessionStatus>({ state: "idle" });
+  let connectionPrompt = $derived(
+    connection.state === "credentials" ||
+      (connection.state === "failed" && !session),
+  );
   let actions = $state<{ pending: Set<Action>; result?: ActionResult }>({
     pending: new Set(),
   });
@@ -389,7 +392,6 @@
         return;
       }
       error = err instanceof Error ? err.message : String(err);
-      connectionPrompt = true;
       setStatus({ state: "failed", error });
       log("error", error);
     }
@@ -488,7 +490,6 @@
   function applyRoute() {
     const next = readRoute(location);
     if (broker !== next.broker) rememberAuth();
-    connectionPrompt = false;
     connectionNotice = "";
     if (browseState.schema && activePrefix) {
       browse.rememberRoute(
@@ -517,7 +518,6 @@
     if (next.page === "landing") {
       showDiscoveryIdle();
     } else if (!credentials && history.state?.credentialBroker === broker) {
-      connectionPrompt = true;
       setStatus({ state: "credentials" });
     } else {
       void connectRoute();
