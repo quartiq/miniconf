@@ -468,6 +468,29 @@ try {
         "!document.body?.innerText.includes('999') && !document.querySelector('[data-tree-path=\"/obsolete\"]')",
       ),
     );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.identity-details').textContent.trim()",
+      ),
+      "2 settings",
+    );
+    await click(".log summary");
+    assert(await evaluate("!document.querySelector('.log pre')"));
+    publish(`${prefix}/settings/leaf`, "9007199254740993");
+    publish(`${prefix}/settings/leaf`, "9007199254740993");
+    await until(
+      "document.querySelector('.log pre')?.textContent.includes('settings: 0 changed · 1 observed')",
+    );
+    publish(`${prefix}/settings/leaf`, "20");
+    publish(`${prefix}/settings/leaf`, "20.0");
+    await until(
+      "document.querySelector('.log pre')?.textContent.includes('settings: 1 changed · 1 observed') && document.querySelector('textarea').value === '20.0'",
+    );
+    publish(`${prefix}/settings/leaf`, "9007199254740993");
+    await until(
+      "document.querySelector('textarea').value === '9007199254740993'",
+    );
+    await click(".log summary");
     await fill("textarea", "-9007199254740993");
     await click('[data-tree-path="/leaf"]');
     assert.equal(
@@ -573,6 +596,7 @@ try {
 
     // Return to the exact leaf for submission; selecting another leaf is deliberate.
     await click('[data-tree-path="/leaf"]');
+    await click(".log summary");
     await fill("textarea", "-9007199254740993");
     holdResponse = true;
     await clickButton("Set");
@@ -604,6 +628,11 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "-9007199254740993",
     );
+    assert.match(
+      await evaluate("document.querySelector('.log pre').textContent"),
+      /set: \/leaf: Set succeeded · \d+ ms/,
+    );
+    await click(".log summary");
     const acceptedWrites = writes.length;
     await fill("textarea", "{");
     await clickButton("Set");
@@ -1008,7 +1037,7 @@ try {
       undefined,
     );
     await until(
-      "document.querySelector('.context').textContent.includes('epoch '+" +
+      "document.querySelector('.context h1').title.includes('Epoch '+" +
         epoch +
         ")",
     );
@@ -1159,7 +1188,7 @@ try {
     await viewport(1024, 400);
     assert(
       await evaluate(
-        `document.querySelector('.context h1').textContent === '${prefix}' && document.querySelector('.back').textContent === 'ws://127.0.0.1:${port}' && document.querySelector('.identity-details').textContent.includes('${revision}')`,
+        `document.querySelector('.context h1').textContent === '${prefix}' && document.querySelector('.back').textContent === 'ws://127.0.0.1:${port}' && document.querySelector('.identity-details').textContent.trim() === '2 settings' && document.querySelector('.context h1').title.includes('${revision}')`,
       ),
     );
     await click(".log summary");
@@ -1222,6 +1251,15 @@ try {
       await evaluate("!document.querySelector('.actions button').disabled"),
     );
     assert.equal(await evaluate("performance.timeOrigin"), timeOrigin);
+    const deviceHash = new URL(href).hash;
+    const subtreeHash = `${deviceHash}${deviceHash.includes("?") ? "&" : "?"}path=%2Fother`;
+    await evaluate(`location.hash = ${JSON.stringify(subtreeHash)}`);
+    await until(
+      "document.querySelector('.identity-details')?.textContent.trim() === '1 setting in subtree' && document.querySelector('.selected h2').textContent === '/other'",
+    );
+    await until(
+      "document.querySelector('textarea')?.value === 'null' && document.querySelector('.log pre')?.textContent.split('\\n')[0].includes('settings: 0 changed · 1 observed')",
+    );
     console.log(
       `Checked exact editing, broker identity, pruning, recovery and keyboard guards: ${base}`,
     );

@@ -3,7 +3,7 @@
 <script lang="ts">
   import type { PruningState } from "./lib/backend";
   import type { ViewNode } from "./lib/tree-state";
-  import type { TreeActions, TreeNodeView } from "./lib/tree-view";
+  import type { TreeActions } from "./lib/tree-view";
   import SelectedPanel from "./SelectedPanel.svelte";
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
@@ -20,7 +20,7 @@
     settingsRevision: string;
     status: { text: string; failed: boolean };
     retryable: boolean;
-    treeNodes: Map<string, TreeNodeView>;
+    treeNodes: Map<string, ViewNode>;
     selectedPath: string;
     selected: ViewNode | undefined;
     activity: Map<string, import("./lib/tree-view").TreeActivity>;
@@ -71,6 +71,25 @@
     focusTree,
     retry,
   }: Props = $props();
+
+  let settingCount = $derived.by(() => {
+    let count = 0;
+    for (const node of treeNodes.values()) if (node.kind === "leaf") count++;
+    return count;
+  });
+  let diagnostics = $derived(
+    [
+      ...(aliveManifest
+        ? [
+            `Announced schema ${aliveManifest.schema_rev}`,
+            `Epoch ${aliveManifest.epoch}`,
+          ]
+        : []),
+      ...(settingsRevision
+        ? [`Last publication revision ${settingsRevision}`]
+        : []),
+    ].join("\n"),
+  );
 </script>
 
 <section class="browse">
@@ -79,18 +98,15 @@
       >{broker}</a
     >
     <div class="context">
-      <h1>{activePrefix}</h1>
-      {#if aliveManifest}<span class="identity-details"
-          >schema {aliveManifest.schema_rev}</span
+      <h1 title={diagnostics}>{activePrefix}</h1>
+      {#if treeNodes.has(treeRoot)}<span
+          class="identity-details"
+          title="Number of settings in the displayed schema; includes leaves whose values have not been observed."
+          >{`${settingCount} ${settingCount === 1 ? "setting" : "settings"}${subtreePath ? " in subtree" : ""}`}</span
         >{/if}
       {#if subtreePath}<span class="identity-details"
           >subtree {subtreePath}</span
         >{/if}
-      <div class="identity-details">
-        {#if aliveManifest}epoch {aliveManifest.epoch}{/if}
-        {#if settingsRevision}
-          · last publication rev {settingsRevision}{/if}
-      </div>
     </div>
     <div class="connection-state">
       <div class="status">

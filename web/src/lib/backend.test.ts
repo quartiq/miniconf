@@ -70,6 +70,7 @@ async function connectPrefix(
 
 afterEach(() => {
   connectMock.mockReset();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -255,15 +256,22 @@ describe("PrefixSession", () => {
     const session = await connectPrefix(mqtt);
     announce(mqtt);
 
+    const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+    // Device responses, not PUBACK or wall-clock time, terminate each measurement.
+    mqtt.publishWait = new Promise(() => {});
     const first = session.set("/leaf", "1");
+    clock.mockReturnValue(110);
     const second = session.set("/leaf", "2");
     await vi.waitFor(() => expect(mqtt.publications).toHaveLength(2));
+    clock.mockReturnValue(150);
     mqtt.respond(1, "Ok");
+    clock.mockReturnValue(175);
     mqtt.respond(0, "BadRequest", "invalid");
-    await expect(second).resolves.toMatchObject({ ok: true });
+    await expect(second).resolves.toMatchObject({ ok: true, responseMs: 40 });
     await expect(first).resolves.toMatchObject({
       ok: false,
       message: "invalid",
+      responseMs: 75,
     });
 
     const unknown = session.set("/leaf", "3");

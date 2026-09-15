@@ -25,7 +25,7 @@
   import { type TreeActivity } from "./lib/tree-view";
 
   type Action = "Set" | "Prune";
-  type ActionResult = { text: string; failed: boolean };
+  type ActionResult = { text: string; failed: boolean; responseMs?: number };
 
   const route = readRoute(location);
   let broker = $state(route.broker);
@@ -201,6 +201,15 @@
     activity,
     rev,
   }: SettingsCommit) {
+    if (logOpen && activity.size) {
+      // First observations establish a value; they do not demonstrate a change.
+      const changed = [...activity].filter(
+        (path) =>
+          browseState.settings.has(path) &&
+          browseState.settings.get(path) !== nextSettings.get(path),
+      ).length;
+      log("settings", `${changed} changed · ${activity.size} observed`);
+    }
     const commit = browse.commitSettings(browseState, {
       settings: nextSettings,
       touched,
@@ -214,9 +223,6 @@
       ...treeActivity,
       ...[...commit.cues].map((path) => [path, { at }] as const),
     ]);
-    if (touched.size) {
-      log("commit", `${touched.size} touched`);
-    }
   }
 
   function resetBrowseState(preserve = false) {
@@ -395,7 +401,12 @@
     if (!actions.result?.failed || result.failed) actions.result = result;
     log(
       action.toLowerCase(),
-      path === undefined ? result.text : `${displayPath(path)}: ${result.text}`,
+      (path === undefined
+        ? result.text
+        : `${displayPath(path)}: ${result.text}`) +
+        (result.responseMs === undefined
+          ? ""
+          : ` · ${Math.round(result.responseMs)} ms`),
     );
     return !result.failed;
   }
@@ -420,6 +431,7 @@
         const response = await session.set(path, editor);
         return {
           failed: !response.ok,
+          responseMs: response.responseMs,
           text: response.ok
             ? "Set succeeded"
             : response.kind === "publish"

@@ -39,6 +39,8 @@ export type SetResponse = {
   code: string;
   kind?: string;
   message: string;
+  // Submission to the correlated device response, measured with a monotonic clock.
+  responseMs: number;
 };
 
 export type SessionStatus =
@@ -67,6 +69,7 @@ export type PruningState = {
 type PendingResponse = {
   abort: AbortController;
   path: string;
+  startedAt: number;
   resolve: (response: SetResponse) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof globalThis.setTimeout>;
@@ -255,6 +258,7 @@ export class PrefixSession {
       }, timeout);
       const pending = {
         path: settingsPath,
+        startedAt: performance.now(),
         resolve,
         reject,
         timer,
@@ -502,6 +506,7 @@ export class PrefixSession {
     const key = bytesKey(properties(message.packet).correlationData);
     const pending = this.pending.get(key);
     if (!pending) return;
+    const responseMs = performance.now() - pending.startedAt;
     this.pending.delete(key);
     globalThis.clearTimeout(pending.timer);
     pending.abort.abort();
@@ -510,6 +515,7 @@ export class PrefixSession {
     if (code === "Ok") this.mirror.flush();
     const response = {
       path: pending.path,
+      responseMs,
       ok: code === "Ok",
       code,
       kind: userProperty(message.packet, "kind"),
