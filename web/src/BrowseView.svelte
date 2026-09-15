@@ -31,6 +31,7 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
+    valueUpdated: boolean;
     editorError: string;
     logOpen?: boolean;
     logLines: string[];
@@ -65,6 +66,7 @@
     requestMessage,
     editor,
     editorDirty,
+    valueUpdated,
     editorError,
     logOpen = $bindable(false),
     logLines,
@@ -156,6 +158,7 @@
       {requestMessage}
       {editor}
       {editorDirty}
+      {valueUpdated}
       {editorError}
       {updateEditor}
       {submit}

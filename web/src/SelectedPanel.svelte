@@ -12,6 +12,7 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
+    valueUpdated: boolean;
     editorError: string;
     updateEditor: (value: string) => void;
     submit: () => void;
@@ -26,6 +27,7 @@
     requestMessage,
     editor,
     editorDirty,
+    valueUpdated,
     editorError,
     updateEditor,
     submit,
@@ -129,7 +131,11 @@
             : "Discard your draft"}
           type="button"
           onclick={resetEditor}
-          >{node?.present ? "Use device value" : "Clear draft"}</button
+          >{node?.present
+            ? valueUpdated
+              ? "Use updated value"
+              : "Use device value"
+            : "Clear draft"}</button
         >
       </div>
       {#if requestMessage}<p class="request" role="status">

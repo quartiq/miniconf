@@ -496,6 +496,9 @@
       expanded={browseState.expanded}
       editor={browseState.editor}
       {editorDirty}
+      valueUpdated={editorDirty &&
+        selected?.value !== browseState.editorBaseline &&
+        selected?.value !== browseState.editor}
       editorError={editorError?.path === browseState.selectedPath &&
       editorError.text === browseState.editor
         ? editorError.message

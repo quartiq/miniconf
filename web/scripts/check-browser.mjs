@@ -225,11 +225,46 @@ async function until(expression) {
     `Browser condition timed out: ${expression}\n${await evaluate("document.body?.innerText")}`,
   );
 }
+let touch = false;
 async function click(selector) {
-  await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const { x, y } = await evaluate(`(() => {
+    const element = document.querySelector(${JSON.stringify(selector)});
+    element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const rect = element.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  })()`);
+  if (touch) {
+    await command("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y }],
+    });
+    await command("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+  } else {
+    await command("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y,
+      button: "left",
+      clickCount: 1,
+    });
+    await command("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y,
+      button: "left",
+      clickCount: 1,
+    });
+  }
   await evaluate(
     "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
   );
+}
+async function press(key) {
+  await command("Input.dispatchKeyEvent", { type: "keyDown", key });
+  await command("Input.dispatchKeyEvent", { type: "keyUp", key });
 }
 async function clickButton(label, scope = "body") {
   await evaluate(`(() => {
@@ -243,12 +278,14 @@ async function clickButton(label, scope = "body") {
   );
 }
 async function viewport(width, height) {
+  touch = width <= 760;
   await command("Emulation.setDeviceMetricsOverride", {
     width,
     height,
     deviceScaleFactor: 1,
-    mobile: false,
+    mobile: touch,
   });
+  await command("Emulation.setTouchEmulationEnabled", { enabled: touch });
 }
 async function fill(selector, value) {
   await evaluate(`(() => {
@@ -414,27 +451,32 @@ try {
     await evaluate(
       "document.querySelector('.tree').style.height = '60px'; document.querySelector('[data-tree-path=\"\"]').focus()",
     );
-    await evaluate(
-      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
-    );
+    await press("End");
     await until(
       "document.activeElement.dataset.treePath === '/other' && document.querySelector('.tree').scrollTop > 0",
     );
-    await evaluate(
-      "document.querySelector('.tree').scrollTop = 0; document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))",
-    );
+    await evaluate("document.querySelector('.tree').scrollTop = 0");
+    await press("End");
     await until("document.querySelector('.tree').scrollTop > 0");
     const treeScroll = await evaluate(
       "document.querySelector('.tree').scrollTop",
     );
-    await evaluate(
-      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))",
-    );
+    await press("Enter");
     await until("document.activeElement.matches('textarea')");
     await fill("textarea", "77");
+    assert(
+      !(await evaluate(
+        "document.querySelector('.actions').textContent.includes('Use updated value')",
+      )),
+    );
     publish(`${prefix}/settings/other`, "1234");
     await until(
       "document.querySelector('[data-tree-path=\"/other\"] .value').textContent === '1234'",
+    );
+    assert(
+      await evaluate(
+        "document.querySelector('.actions').textContent.includes('Use updated value')",
+      ),
     );
     assert.equal(
       await evaluate("document.querySelector('.tree').scrollTop"),
@@ -444,15 +486,23 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "77",
     );
-    await evaluate(
-      "document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))",
-    );
+    await press("Escape");
     await until("document.activeElement.dataset.treePath === '/other'");
     assert.equal(
       await evaluate("document.querySelector('.tree').scrollTop"),
       treeScroll,
     );
     await click(".schema summary");
+    await click(".actions button:last-child");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "1234",
+    );
+    assert(
+      !(await evaluate(
+        "document.querySelector('.actions').textContent.includes('Use updated value')",
+      )),
+    );
     assert.equal(
       await evaluate("document.querySelector('.tree').scrollTop"),
       treeScroll,
@@ -512,7 +562,7 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "123",
     );
-    await clickButton("Use device value");
+    await clickButton("Use updated value");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "456",
@@ -789,6 +839,23 @@ try {
     );
     for (const width of [320, 390, 761, 1200]) {
       await viewport(width, 850);
+      if (width === 390) {
+        const draft = await evaluate(
+          "document.querySelector('textarea').value",
+        );
+        await click('[data-tree-path=""] button');
+        assert(
+          await evaluate(
+            "!document.querySelector('[data-tree-path=\"/leaf\"]')",
+          ),
+        );
+        assert.equal(
+          await evaluate("document.querySelector('textarea').value"),
+          draft,
+        );
+        await click('[data-tree-path=""] button');
+        await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+      }
       assert(
         await evaluate(
           "document.querySelector('.app-header').getBoundingClientRect().height < 90",
