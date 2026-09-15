@@ -776,11 +776,10 @@ impl Schema {
 
         match keys.finalize() {
             Ok(()) => Ok(Lookup { depth, schema }),
-            Err(KeyError::TooLong) => Err(ResolveError {
-                error: KeyError::TooLong.into(),
+            Err(err) => Err(ResolveError {
+                error: err.into(),
                 lookup: Lookup { depth, schema },
             }),
-            Err(err) => unreachable!("unexpected finalize error: {err:?}"),
         }
     }
 

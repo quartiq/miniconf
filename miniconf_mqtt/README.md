@@ -58,12 +58,13 @@ network glitch, keep the live settings in RAM authoritative and call
 
 - `ConnectEvent::Connected`: the broker did not resume the MQTT session, so Miniconf republishes
   schema, settings, `set/#`, and `alive`
-- `ConnectEvent::Reconnected`: the broker resumed the MQTT session, so Miniconf republishes only
-  `alive`
+- `ConnectEvent::Reconnected`: the broker resumed the MQTT session. If startup previously completed,
+  Miniconf republishes only `alive`; otherwise it restarts schema/settings synchronization
+  from current settings
 
 ## Protocol details
 
-The MQTT wire protocol is MM2 version 1:
+The Miniconf MQTT protocol version is 1:
 
 - retained `/<prefix>/alive` publishes a compact device manifest
 - retained `/<prefix>/schema/<n>` publishes paged compact schemata
@@ -155,7 +156,7 @@ The retained `alive` payload is JSON:
 {"proto":1,"epoch":1,"schema_rev":12345678,"pages":7}
 ```
 
-- `proto` is the MM2 protocol version; clients should reject unsupported values
+- `proto` is the Miniconf MQTT protocol version; clients should reject unsupported values
 - `epoch` identifies the current retained publication generation
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
@@ -243,12 +244,13 @@ Success replies carry only `code=Ok`.
 
 ## Limitations
 
-- The MM2 wire protocol is small and opinionated. One MQTT prefix is assumed to have one
-  authoritative device publisher.
+- The broker must support QoS 1. Leave MiniMQ's automatic QoS downgrade disabled: startup
+  and service completion depend on publication acknowledgements.
+- One MQTT prefix is assumed to have one authoritative device publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.
-- `Startup::step() -> Ok(true)` means no more immediate startup work remains. It does not wait
-  for broker ACKs or `SUBACK`.
+- `Startup::step() -> Ok(true)` means startup completed, including schema/settings ACKs,
+  `SUBACK`, and the final `alive` ACK.
 - `LoadRetained` is a quiescence heuristic, not a retained storage transaction. Applying retained
   pubs can still trigger normal setter side effects.
 - `Publisher` prunes only leaves in the currently traversed schema subtree. It does not discover

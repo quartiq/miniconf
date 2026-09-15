@@ -254,3 +254,34 @@ fn builtin_ty_sem() {
     assert_eq!(u32::SCHEMA.sem().unwrap().ty(), Some(Ty::U32));
     assert_eq!(str_leaf::SCHEMA.sem().unwrap().ty(), Some(Ty::Str));
 }
+
+#[test]
+fn lookup_preserves_finalize_errors() {
+    use miniconf::{IntoKeys, Keys};
+
+    struct Cursor(KeyError);
+    impl Keys for Cursor {
+        fn next(&mut self, _: &Internal) -> Result<usize, KeyError> {
+            Ok(0)
+        }
+        fn finalize(&mut self) -> Result<(), KeyError> {
+            Err(self.0)
+        }
+    }
+    impl IntoKeys for Cursor {
+        type IntoKeys = Self;
+        fn into_keys(self) -> Self {
+            self
+        }
+    }
+    for error in [KeyError::NotFound, KeyError::TooShort, KeyError::TooLong] {
+        let schema = <[u8; 1]>::SCHEMA;
+        assert_eq!(schema.get(Cursor(error)), Err(error));
+        let mut state = [usize::MAX];
+        let failure = schema.resolve_into(Cursor(error), &mut state).unwrap_err();
+        assert_eq!(failure.error, DescendError::Key(error));
+        assert_eq!(failure.lookup.depth, 1);
+        assert!(failure.lookup.schema.is_leaf());
+        assert_eq!(state, [0]);
+    }
+}

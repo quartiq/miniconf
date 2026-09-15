@@ -10,14 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the MM2
+* The Python package was restructured from `py/miniconf-mqtt` to `py/` and now targets the Miniconf MQTT
   retained schema/settings protocol with an async-first CLI and client library.
 * Human-readable trees label empty-name path segments as `""`, distinguishing the `/` child from
   the empty root path.
 
 ### Added
 
-* MM2 schema parsing/rendering helpers and one-shot retained-state operations such as `read()`,
+* Miniconf MQTT schema parsing/rendering helpers and one-shot retained-state operations such as `read()`,
   `dump()`, `prune()`, and `force_prune()`.
 
 ### Removed

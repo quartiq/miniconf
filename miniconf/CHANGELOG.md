@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * Documented the SemVer policy and added automated API compatibility checks.
 
+### Fixed
+
+* Propagate custom key finalization errors from schema lookup.
+* Report conflicting JSON Schema type names as errors instead of panicking.
+
 ## [0.21.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...miniconf-v0.21.0) - 2026-06-10
 
 ### Changed

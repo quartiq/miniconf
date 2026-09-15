@@ -331,7 +331,7 @@ where
 impl FollowUp {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -347,7 +347,7 @@ impl FollowUp {
                         PendingOp::Complete => {
                             if let Some(target) = reply.take() {
                                 debug!(
-                                    "Published authoritative setting; sending MM2 success reply reply_topic={=str}",
+                                    "Published authoritative setting; sending Miniconf success reply reply_topic={=str}",
                                     target.topic()
                                 );
                                 *self = Self::ReplyOk { target, op: None };
@@ -362,15 +362,12 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match mm2
+                    match miniconf
                         .publish_current(connection, settings, state.as_ref())
                         .await
                     {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                continue;
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -381,7 +378,7 @@ impl FollowUp {
                         Err(err) => {
                             if let Some(target) = reply.take() {
                                 warn!(
-                                    "Authoritative setting publish failed; replying with MM2 error reply_topic={=str}",
+                                    "Authoritative setting publish failed; replying with Miniconf error reply_topic={=str}",
                                     target.topic()
                                 );
                                 let (error, payload) = publish_error_text(&err);
@@ -406,7 +403,7 @@ impl FollowUp {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed MM2 error reply reply_topic={=str} kind={=str} depth={=?}",
+                                "Completed Miniconf error reply reply_topic={=str} kind={=str} depth={=?}",
                                 target.topic(),
                                 message.kind,
                                 message.depth
@@ -418,11 +415,7 @@ impl FollowUp {
                     }
                     match reply_message(connection, target, message).await {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                *self = Self::Done;
-                                return Ok(true);
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -438,7 +431,7 @@ impl FollowUp {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed MM2 success reply reply_topic={=str}",
+                                "Completed Miniconf success reply reply_topic={=str}",
                                 target.topic()
                             );
                             *self = Self::Done;
@@ -448,11 +441,7 @@ impl FollowUp {
                     }
                     match reply_text(connection, target, ResponseCode::Ok, b"").await {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                *self = Self::Done;
-                                return Ok(true);
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -473,7 +462,7 @@ impl FollowUp {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed MM2 publish-error reply reply_topic={=str}",
+                                "Completed Miniconf publish-error reply reply_topic={=str}",
                                 target.topic()
                             );
                             *self = Self::Done;
@@ -483,11 +472,7 @@ impl FollowUp {
                     }
                     match reply_publish_error(connection, target, error, payload.as_bytes()).await {
                         Ok(next) => {
-                            *op = next;
-                            if op.is_none() {
-                                *self = Self::Done;
-                                return Ok(true);
-                            }
+                            *op = Some(next);
                             return Ok(false);
                         }
                         Err(Error::Mqtt(MqttError::NotReady))
@@ -575,7 +560,7 @@ async fn reply_message<IO>(
     connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
     message: &ReplyMessage,
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -599,7 +584,7 @@ async fn reply_publish_error<IO>(
     target: &ReplyTarget,
     error: &str,
     payload: &[u8],
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -612,7 +597,7 @@ async fn reply_text<IO>(
     target: &ReplyTarget,
     code: ResponseCode,
     text: &[u8],
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -627,7 +612,7 @@ async fn reply_bytes<IO>(
     target: &ReplyTarget,
     props: &[Property<'_>],
     payload: &[u8],
-) -> Result<Option<Op>, Error<IO::Error>>
+) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
@@ -639,5 +624,6 @@ where
                 .qos(QoS::AtLeastOnce),
         )
         .await
-        .map_err(simple_pub_error)
+        .map_err(simple_pub_error)?
+        .ok_or(Error::Mqtt(MqttError::InvalidRequest))
 }

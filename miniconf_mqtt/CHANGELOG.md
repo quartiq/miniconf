@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.22.0...HEAD) - DATE
 
+### Fixed
+
+* Preserve queued service work when a step is cancelled during transport I/O.
+* Stop enabling automatic QoS downgrade; startup and replies require QoS 1 acknowledgements.
+* Restart interrupted Miniconf MQTT startup when MQTT resumes a session, and drain in-flight traffic
+  before synchronization. Require MiniMQ 0.13.3 for reconnect-safe payload budgeting.
+
 ## [0.22.0](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.21.0...miniconf_mqtt-v0.22.0) - 2026-07-14
 
 ### Changed
@@ -23,10 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * `miniconf_mqtt` is now async-first on caller-owned `minimq::Session`. The old `update()` loop
   was replaced by `Miniconf::{startup,serve}` plus the stepwise `LoadRetained`, `Startup`,
   `Service`, and `Publisher` APIs.
-* MM2 now publishes retained manifest, paged schema, and authoritative retained settings.
+* Miniconf MQTT now publishes retained manifest, paged schema, and authoritative retained settings.
   Compatibility with direct `settings/#` writes is available when applications explicitly
   subscribe to and route those publications through `Service`.
-* MM2 manifests now publish `epoch` and `schema_rev`. Long-lived clients use `schema_rev` to
+* Miniconf MQTT manifests now publish `epoch` and `schema_rev`. Long-lived clients use `schema_rev` to
   invalidate cached schema.
 
 ### Added

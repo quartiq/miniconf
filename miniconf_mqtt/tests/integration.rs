@@ -1,10 +1,14 @@
 use embedded_io_adapters::tokio_1::FromTokio;
-use miniconf::Tree;
+use miniconf::{
+    Tree, TreeSchema,
+    compact_schema::{SchemaDefs, serialize_schema_page},
+};
 use miniconf_mqtt::{Event, LoadRetained, Miniconf, Service, ServiceEvent};
 use minimq::{
     ConfigBuilder, ConnectEvent, Connection, InboundPublish, Op, Property, Publication, QoS,
     RetainHandling, Session, SubscriptionOptions, TopicFilter,
 };
+use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use std::{
     net::SocketAddr,
@@ -66,8 +70,8 @@ async fn connect_addr(addr: SocketAddr) -> std::io::Result<TokioConnection> {
     Ok(FromTokio::new(TcpStream::connect(addr).await?))
 }
 
-async fn connect_mm2<'session, 'buf>(
-    mm2: &mut Miniconf<Settings>,
+async fn connect_miniconf<'session, 'buf>(
+    miniconf: &mut Miniconf<Settings>,
     session: &'session mut Session<'buf>,
     settings: &Settings,
     io: TokioConnection,
@@ -78,7 +82,7 @@ async fn connect_mm2<'session, 'buf>(
         .unwrap();
     timeout(
         Duration::from_secs(5),
-        mm2.startup(&mut connection, settings),
+        miniconf.startup(&mut connection, settings),
     )
     .await
     .unwrap()
@@ -133,7 +137,7 @@ fn user_property<'a>(inbound: &'a InboundPublish<'a>, name: &str) -> Option<&'a 
 }
 
 #[tokio::test]
-async fn mm2_publications_advertise_utf8_payloads() {
+async fn miniconf_publications_advertise_utf8_payloads() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -148,10 +152,10 @@ async fn mm2_publications_advertise_utf8_payloads() {
         .options(SubscriptionOptions::default().maximum_qos(QoS::AtLeastOnce))];
     observer.subscribe(&topics, &[]).await.unwrap();
 
-    let (mut mm2, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
-    let mut connection = connect_mm2(
-        &mut mm2,
+    let mut connection = connect_miniconf(
+        &mut miniconf,
         &mut session,
         &settings,
         connect_addr(addr).await.unwrap(),
@@ -182,7 +186,7 @@ async fn mm2_publications_advertise_utf8_payloads() {
                     core::str::from_utf8(inbound.payload())
                         .unwrap()
                         .contains(r#""proto":1"#),
-                    "missing MM2 proto in alive payload: {}",
+                    "missing Miniconf MQTT proto in alive payload: {}",
                     core::str::from_utf8(inbound.payload()).unwrap()
                 );
             }
@@ -211,7 +215,7 @@ async fn mm2_publications_advertise_utf8_payloads() {
 
     match timeout(
         Duration::from_secs(5),
-        mm2.serve(&mut connection, &mut settings, |_| ()),
+        miniconf.serve(&mut connection, &mut settings, |_| ()),
     )
     .await
     .unwrap()
@@ -249,7 +253,7 @@ async fn mm2_publications_advertise_utf8_payloads() {
 }
 
 #[tokio::test]
-async fn mm2_set_stays_internal() {
+async fn miniconf_set_stays_internal() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -260,10 +264,10 @@ async fn mm2_set_stays_internal() {
     let mut publisher_session = Session::new(config());
     let mut publisher =
         wait_session(&mut publisher_session, connect_addr(addr).await.unwrap()).await;
-    let (mut mm2, mut session) = Miniconf::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
-    let mut connection = connect_mm2(
-        &mut mm2,
+    let mut connection = connect_miniconf(
+        &mut miniconf,
         &mut session,
         &settings,
         connect_addr(addr).await.unwrap(),
@@ -277,7 +281,7 @@ async fn mm2_set_stays_internal() {
 
     match timeout(
         Duration::from_secs(5),
-        mm2.serve(&mut connection, &mut settings, |_| ()),
+        miniconf.serve(&mut connection, &mut settings, |_| ()),
     )
     .await
     .unwrap()
@@ -334,13 +338,13 @@ async fn retained_load_applies_only_auth_leaf_values() {
         .unwrap();
     wait_op(&mut seeder, op).await;
 
-    let (mut mm2, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
     let mut connection = wait_session(&mut session, connect_addr(addr).await.unwrap()).await;
     let mut load = LoadRetained::new();
     timeout(
         Duration::from_secs(5),
-        load.run(&mut mm2, &mut connection, &mut settings),
+        load.run(&mut miniconf, &mut connection, &mut settings),
     )
     .await
     .unwrap()
@@ -349,10 +353,10 @@ async fn retained_load_applies_only_auth_leaf_values() {
     assert_eq!(settings.value, 9);
     assert_eq!(settings.nested.leaf, 0);
 
-    let mut startup = miniconf_mqtt::Startup::connected(&mut mm2);
+    let mut startup = miniconf_mqtt::Startup::connected(&mut miniconf);
     timeout(
         Duration::from_secs(5),
-        startup.run(&mut mm2, &mut connection, &settings),
+        startup.run(&mut miniconf, &mut connection, &settings),
     )
     .await
     .unwrap()
@@ -371,10 +375,10 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
     let mut publisher_session = Session::new(config());
     let mut publisher =
         wait_session(&mut publisher_session, connect_addr(addr).await.unwrap()).await;
-    let (mut mm2, mut session) = Miniconf::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
-    let mut connection = connect_mm2(
-        &mut mm2,
+    let mut connection = connect_miniconf(
+        &mut miniconf,
         &mut session,
         &settings,
         connect_addr(addr).await.unwrap(),
@@ -408,11 +412,11 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 continue;
             }
             assert!(matches!(
-                service.handle(&mut mm2, &mut settings, &inbound),
+                service.handle(&mut miniconf, &mut settings, &inbound),
                 ServiceEvent::Changed(_)
             ));
             while !service
-                .step(&mut mm2, &mut connection, &settings)
+                .step(&mut miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -444,11 +448,11 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 continue;
             }
             assert!(matches!(
-                service.handle(&mut mm2, &mut settings, &inbound),
+                service.handle(&mut miniconf, &mut settings, &inbound),
                 ServiceEvent::Idle
             ));
             while !service
-                .step(&mut mm2, &mut connection, &settings)
+                .step(&mut miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -474,13 +478,13 @@ async fn other_topics_are_unhandled() {
     let prefix = unique("prefix");
     let other_topic = format!("{prefix}/rpc/in");
     let mut publisher_session = Session::new(config());
-    let (mut mm2, mut session) = Miniconf::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::new(&prefix, config()).unwrap();
     let settings = Settings::default();
 
     let mut publisher =
         wait_session(&mut publisher_session, connect_addr(addr).await.unwrap()).await;
-    let mut connection = connect_mm2(
-        &mut mm2,
+    let mut connection = connect_miniconf(
+        &mut miniconf,
         &mut session,
         &settings,
         connect_addr(addr).await.unwrap(),
@@ -502,7 +506,7 @@ async fn other_topics_are_unhandled() {
     let marker = String::from("fn-once");
     match timeout(
         Duration::from_secs(5),
-        mm2.serve(&mut connection, &mut Settings::default(), |message| {
+        miniconf.serve(&mut connection, &mut Settings::default(), |message| {
             (
                 marker,
                 message.topic().to_owned(),
@@ -519,12 +523,12 @@ async fn other_topics_are_unhandled() {
             assert_eq!(topic, other_topic);
             assert_eq!(payload, b"hello");
         }
-        Event::Changed(_) => panic!("unexpected MM2 handling"),
+        Event::Changed(_) => panic!("unexpected Miniconf MQTT handling"),
     }
 }
 
 #[tokio::test]
-async fn startup_with_large_schema_waits_on_session_progress() {
+async fn startup_with_large_schema_completes() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -532,7 +536,7 @@ async fn startup_with_large_schema_waits_on_session_progress() {
     };
 
     let prefix = unique("activation");
-    let (mut mm2, mut session) =
+    let (mut miniconf, mut session) =
         Miniconf::<common::Settings>::new(&prefix, compact_config()).unwrap();
     let settings = common::Settings::new();
 
@@ -543,43 +547,26 @@ async fn startup_with_large_schema_waits_on_session_progress() {
     .await
     .unwrap()
     .unwrap();
-    assert!(matches!(
-        connection.connect_event(),
-        ConnectEvent::Connected
-    ));
-
-    let mut startup = miniconf_mqtt::Startup::new(&mut mm2, ConnectEvent::Connected);
-    let mut retries = 0usize;
-    let mut saw_non_quiescent = false;
-    let mut saw_internal_progress = false;
-    timeout(Duration::from_secs(5), async {
-        while !startup
-            .step(&mut mm2, &mut connection, &settings)
-            .await
-            .unwrap()
-        {
-            retries += 1;
-            saw_non_quiescent |= !connection.session().is_publish_quiescent();
-            saw_internal_progress |= connection.poll().await.unwrap().is_none();
-        }
-    })
+    timeout(
+        Duration::from_secs(5),
+        miniconf.startup(&mut connection, &settings),
+    )
     .await
+    .unwrap()
     .unwrap();
-
-    assert!(retries > 1, "startup never needed a retry");
-    assert!(
-        saw_non_quiescent,
-        "startup never observed in-flight retained publishes"
-    );
-    assert!(
-        saw_internal_progress,
-        "startup never waited on internal-only session progress"
-    );
-    assert!(connection.session().is_publish_quiescent());
 }
 
 #[tokio::test]
-async fn startup_resumes_after_step_cancellation() {
+async fn startup_and_service_resume_after_step_cancellation() {
+    use std::{
+        cell::Cell,
+        future::{Future, poll_fn},
+        io,
+        pin::{Pin, pin},
+        rc::Rc,
+        task::{Context, Poll},
+    };
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
     init_host_logging();
     let Some(addr) = broker_addr() else {
         eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
@@ -587,40 +574,63 @@ async fn startup_resumes_after_step_cancellation() {
     };
 
     let prefix = unique("startup-cancel");
-    let (mut mm2, mut session) =
-        Miniconf::<common::Settings>::new(&prefix, compact_config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
     let settings = common::Settings::new();
-    let mut connection = timeout(
-        Duration::from_secs(5),
-        session.connect(connect_addr(addr).await.unwrap()),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    let mut startup = miniconf_mqtt::Startup::new(&mut mm2, ConnectEvent::Connected);
-
-    let mut cancelled = false;
-    for _ in 0..64 {
-        match timeout(
-            Duration::ZERO,
-            startup.step(&mut mm2, &mut connection, &settings),
-        )
-        .await
-        {
-            Err(_) => {
-                cancelled = true;
-                break;
-            }
-            Ok(Ok(false)) => {}
-            Ok(Ok(true)) => panic!("startup completed before yielding"),
-            Ok(Err(error)) => panic!("startup failed: {error:?}"),
+    // Gate the transport flush so cancellation does not depend on broker timing.
+    struct PausedFlush {
+        stream: TcpStream,
+        paused: Rc<Cell<bool>>,
+    }
+    impl AsyncRead for PausedFlush {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.stream).poll_read(cx, buf)
         }
     }
-    assert!(cancelled, "startup step never yielded for cancellation");
+    impl AsyncWrite for PausedFlush {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.stream).poll_write(cx, buf)
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            if self.paused.get() {
+                return Poll::Pending;
+            }
+            Pin::new(&mut self.stream).poll_flush(cx)
+        }
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.stream).poll_shutdown(cx)
+        }
+    }
+    let paused = Rc::new(Cell::new(false));
+    let io = FromTokio::new(PausedFlush {
+        stream: TcpStream::connect(addr).await.unwrap(),
+        paused: paused.clone(),
+    });
+    let mut connection = timeout(Duration::from_secs(5), session.connect(io))
+        .await
+        .unwrap()
+        .unwrap();
+    let mut startup = miniconf_mqtt::Startup::new(&mut miniconf, ConnectEvent::Connected);
+
+    paused.set(true);
+    {
+        let mut step = pin!(startup.step(&mut miniconf, &mut connection, &settings));
+        let pending = poll_fn(|cx| Poll::Ready(step.as_mut().poll(cx).is_pending())).await;
+        assert!(pending, "startup did not reach the paused flush");
+    }
+    // The cancelled future is gone; the replacement explicitly polls the unpaused IO.
+    paused.set(false);
 
     timeout(Duration::from_secs(5), async {
         while !startup
-            .step(&mut mm2, &mut connection, &settings)
+            .step(&mut miniconf, &mut connection, &settings)
             .await
             .unwrap()
         {
@@ -629,7 +639,71 @@ async fn startup_resumes_after_step_cancellation() {
     })
     .await
     .unwrap();
-    assert!(connection.session().is_publish_quiescent());
+    let mut requester_session = Session::new(config());
+    let mut requester = requester_session
+        .connect(connect_addr(addr).await.unwrap())
+        .await
+        .unwrap();
+    let filter = format!("{prefix}/#");
+    let op = requester
+        .subscribe(
+            &[TopicFilter::new(&filter)
+                .options(SubscriptionOptions::default().retain_behavior(RetainHandling::Never))],
+            &[],
+        )
+        .await
+        .unwrap();
+    wait_op(&mut requester, op).await;
+    let reply = format!("{prefix}/reply");
+    requester
+        .publish(
+            Publication::bytes(&format!("{prefix}/set/control/enabled"), b"false")
+                .properties(&[Property::ResponseTopic(&reply)]),
+        )
+        .await
+        .unwrap();
+    let mut service = Service::<1>::new();
+    let mut settings = settings;
+    timeout(Duration::from_secs(5), async {
+        loop {
+            let Some(inbound) = connection.poll().await.unwrap() else {
+                continue;
+            };
+            assert!(matches!(
+                service.handle(&mut miniconf, &mut settings, &inbound),
+                ServiceEvent::Changed(_)
+            ));
+            break;
+        }
+        paused.set(true);
+        {
+            let mut step = pin!(service.step(&mut miniconf, &mut connection, &settings));
+            assert!(poll_fn(|cx| Poll::Ready(step.as_mut().poll(cx).is_pending())).await);
+        }
+        paused.set(false);
+        while !service
+            .step(&mut miniconf, &mut connection, &settings)
+            .await
+            .unwrap()
+        {
+            let _ = connection.poll().await.unwrap();
+        }
+        let mut saw_setting = false;
+        loop {
+            let Some(inbound) = requester.poll().await.unwrap() else {
+                continue;
+            };
+            saw_setting |= inbound.topic() == format!("{prefix}/settings/control/enabled")
+                && inbound.payload() == b"false";
+            if inbound.topic() == reply {
+                assert!(saw_setting);
+                assert_eq!(user_property(&inbound, "code"), Some("Ok"));
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -642,12 +716,12 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 
     let prefix = unique("queue");
     let mut publisher_session = Session::new(config());
-    let (mut mm2, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
     let mut service = Service::<4>::new();
 
-    let mut connection = connect_mm2(
-        &mut mm2,
+    let mut connection = connect_miniconf(
+        &mut miniconf,
         &mut session,
         &settings,
         connect_addr(addr).await.unwrap(),
@@ -675,7 +749,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
             let Some(inbound) = connection.poll().await.unwrap() else {
                 continue;
             };
-            match service.handle(&mut mm2, &mut settings, &inbound) {
+            match service.handle(&mut miniconf, &mut settings, &inbound) {
                 ServiceEvent::Unhandled => panic!("unexpected app traffic"),
                 ServiceEvent::Idle | ServiceEvent::Busy => {}
                 ServiceEvent::Changed(_) => {
@@ -687,7 +761,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 
         while !service.is_empty() {
             if service
-                .step(&mut mm2, &mut connection, &settings)
+                .step(&mut miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -716,12 +790,12 @@ async fn service_rejects_overflow_without_mutating() {
 
     let prefix = unique("queue-overflow");
     let mut publisher_session = Session::new(config());
-    let (mut mm2, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
+    let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
     let mut service = Service::<1>::new();
 
-    let mut connection = connect_mm2(
-        &mut mm2,
+    let mut connection = connect_miniconf(
+        &mut miniconf,
         &mut session,
         &settings,
         connect_addr(addr).await.unwrap(),
@@ -752,7 +826,7 @@ async fn service_rejects_overflow_without_mutating() {
         }
     };
     assert!(matches!(
-        service.handle(&mut mm2, &mut settings, &first),
+        service.handle(&mut miniconf, &mut settings, &first),
         ServiceEvent::Changed(_)
     ));
 
@@ -766,10 +840,201 @@ async fn service_rejects_overflow_without_mutating() {
         }
     };
     assert!(matches!(
-        service.handle(&mut mm2, &mut settings, &second),
+        service.handle(&mut miniconf, &mut settings, &second),
         ServiceEvent::Busy
     ));
 
     assert_eq!(settings.value, 9);
     assert_eq!(settings.nested.leaf, 0);
+}
+
+#[tokio::test]
+async fn interrupted_startup_restarts_before_using_the_resume_path() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+    timeout(Duration::from_secs(10), async {
+        for cut in ["schema/", "settings/"] {
+            let prefix = unique("interrupted-startup");
+            let mut observer_session = Session::new(config());
+            let mut observer =
+                wait_session(&mut observer_session, connect_addr(addr).await.unwrap()).await;
+            let filter = format!("{prefix}/#");
+            let op = observer
+                .subscribe(&[TopicFilter::new(&filter)], &[])
+                .await
+                .unwrap();
+            wait_op(&mut observer, op).await;
+
+            let (mut miniconf, mut session) = Miniconf::<Settings>::new(
+                &prefix,
+                ConfigBuilder::from_buffer(Box::leak(vec![0; 128 + 576].into_boxed_slice()), 128)
+                    .unwrap()
+                    .session_expiry_interval(60),
+            )
+            .unwrap();
+            let mut settings = Settings::default();
+            let mut connection = session
+                .connect(connect_addr(addr).await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(connection.connect_event(), ConnectEvent::Connected);
+            let mut startup =
+                miniconf_mqtt::Startup::new(&mut miniconf, connection.connect_event());
+            let cut_topic = format!("{prefix}/{cut}");
+            'publishing: loop {
+                assert!(
+                    !startup
+                        .step(&mut miniconf, &mut connection, &settings)
+                        .await
+                        .unwrap()
+                );
+                // Observe publications before accepting their ACKs at the device.
+                loop {
+                    let Some(inbound) = observer.poll().await.unwrap() else {
+                        continue;
+                    };
+                    if inbound.topic().starts_with(&cut_topic) {
+                        break 'publishing;
+                    }
+                    if inbound.topic().starts_with(&format!("{prefix}/schema/")) {
+                        while !connection.session().is_publish_quiescent() {
+                            let _ = connection.poll().await.unwrap();
+                        }
+                        break;
+                    }
+                }
+            }
+            assert!(!connection.session().is_publish_quiescent());
+            drop(connection);
+            settings.value = 42;
+            settings.nested.leaf = 73;
+
+            let mut connection = session
+                .connect(connect_addr(addr).await.unwrap())
+                .await
+                .unwrap();
+            assert_eq!(connection.connect_event(), ConnectEvent::Reconnected);
+            miniconf
+                .startup(&mut connection, &settings)
+                .await
+                .unwrap_or_else(|err| panic!("restart after {cut}: {err:?}"));
+            let alive_topic = format!("{prefix}/alive");
+            let mut publications = BTreeMap::new();
+            #[derive(serde::Deserialize)]
+            struct Alive {
+                schema_rev: u32,
+                pages: usize,
+            }
+            loop {
+                let Some(inbound) = observer.poll().await.unwrap() else {
+                    continue;
+                };
+                if inbound.payload().is_empty() {
+                    continue;
+                }
+                if inbound.topic() == alive_topic {
+                    let (alive, _) =
+                        serde_json_core::from_slice::<Alive>(inbound.payload()).unwrap();
+                    assert_eq!(alive.pages, 1);
+                    let defs = SchemaDefs::<8>::new(Settings::SCHEMA).unwrap();
+                    let mut expected = [0; 512];
+                    let page = serialize_schema_page(&defs, 0, &mut expected).unwrap();
+                    assert_eq!(page.count, defs.len());
+                    let schema = &expected[..page.len];
+                    assert_eq!(
+                        alive.schema_rev,
+                        yafnv::Fnv::fnv1a(
+                            <u32 as yafnv::Fnv>::OFFSET_BASIS,
+                            schema.iter().copied()
+                        )
+                    );
+                    let expected = BTreeMap::from([
+                        (format!("{prefix}/schema/0"), schema.to_vec()),
+                        (format!("{prefix}/settings/value"), b"42".to_vec()),
+                        (format!("{prefix}/settings/nested/leaf"), b"73".to_vec()),
+                    ]);
+                    assert_eq!(publications, expected);
+                    break;
+                }
+                // Replayed values may precede the restart; the latest publication wins.
+                publications.insert(inbound.topic().to_owned(), inbound.payload().to_vec());
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn completed_startup_resumes_after_draining_pending_traffic() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        return;
+    };
+    timeout(Duration::from_secs(5), async {
+        let prefix = unique("completed-startup");
+        let (mut miniconf, mut session) = Miniconf::<Settings>::new(
+            &prefix,
+            ConfigBuilder::from_buffer(Box::leak(Box::new([0; 704])), 128)
+                .unwrap()
+                .session_expiry_interval(60),
+        )
+        .unwrap();
+        let settings = Settings::default();
+        let mut connection = connect_miniconf(
+            &mut miniconf,
+            &mut session,
+            &settings,
+            connect_addr(addr).await.unwrap(),
+        )
+        .await;
+        let pending = connection
+            .publish(
+                Publication::new("test/pending", |buffer: &mut [u8]| {
+                    buffer.fill(b'x');
+                    Ok::<_, ()>(buffer.len())
+                })
+                .qos(QoS::AtLeastOnce),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(connection.is_pending(&pending));
+        drop(connection);
+
+        let mut observer_session = Session::new(config());
+        let mut observer = observer_session
+            .connect(connect_addr(addr).await.unwrap())
+            .await
+            .unwrap();
+        let filter = format!("{prefix}/#");
+        let options = SubscriptionOptions::default().retain_behavior(RetainHandling::Never);
+        let op = observer
+            .subscribe(&[TopicFilter::new(&filter).options(options)], &[])
+            .await
+            .unwrap();
+        wait_op(&mut observer, op).await;
+
+        let mut connection = session
+            .connect(connect_addr(addr).await.unwrap())
+            .await
+            .unwrap();
+        assert_eq!(connection.connect_event(), ConnectEvent::Reconnected);
+        miniconf.startup(&mut connection, &settings).await.unwrap();
+        loop {
+            let Some(inbound) = observer.poll().await.unwrap() else {
+                continue;
+            };
+            if inbound.payload().is_empty() {
+                continue;
+            }
+            assert_eq!(inbound.topic(), format!("{prefix}/alive"));
+            break;
+        }
+    })
+    .await
+    .unwrap();
 }

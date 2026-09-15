@@ -16,7 +16,7 @@ use schemars::{
 };
 use serde_json::{Map, Value};
 use serde_reflection::{
-    ContainerFormat, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
+    ContainerFormat, Error, Format, Named, Samples, Tracer, TracerConfig, VariantFormat,
 };
 
 use crate::{
@@ -268,13 +268,21 @@ struct TreeProjector<'a> {
 
 impl TreeProjector<'_> {
     // Project the Miniconf tree first, then apply node decorations in one place.
-    fn node(&mut self, node: &TraceNode, sample: Option<&Value>) -> Option<schemars::Schema> {
+    fn node(
+        &mut self,
+        node: &TraceNode,
+        sample: Option<&Value>,
+    ) -> Result<schemars::Schema, Error> {
         let schema = if let Some(internal) = node.data.0.internal() {
             self.internal(node, internal, sample)?
         } else {
-            format_schema(node.data.1.as_ref()?, self.generator)?
+            node.data
+                .1
+                .as_ref()
+                .and_then(|format| format_schema(format, self.generator))
+                .ok_or_else(|| Error::UnknownFormatInContainer("reflection incomplete".into()))?
         };
-        Some(self.finish_node(node, schema))
+        self.finish_node(node, schema)
     }
 
     fn internal(
@@ -282,8 +290,8 @@ impl TreeProjector<'_> {
         node: &TraceNode,
         internal: &Internal,
         sample: Option<&Value>,
-    ) -> Option<schemars::Schema> {
-        Some(match internal {
+    ) -> Result<schemars::Schema, Error> {
+        Ok(match internal {
             Internal::Named(nameds) => {
                 let sample = sample.and_then(Value::as_object);
                 if node.data.0.sem().is_some_and(Sem::oneof)
@@ -301,7 +309,7 @@ impl TreeProjector<'_> {
             }
             Internal::Numbered(numbereds) => {
                 let sample = sample.and_then(Value::as_array);
-                let items: Option<Vec<_>> = numbereds
+                let items: Result<Vec<_>, Error> = numbereds
                     .iter()
                     .zip(&node.children)
                     .enumerate()
@@ -339,8 +347,8 @@ impl TreeProjector<'_> {
         nameds: &[SchemaNamed],
         children: &[TraceNode],
         sample: Option<&Map<String, Value>>,
-    ) -> Option<schemars::Schema> {
-        let variants: Option<Vec<_>> = nameds
+    ) -> Result<schemars::Schema, Error> {
+        let variants: Result<Vec<_>, Error> = nameds
             .iter()
             .zip(children)
             .map(|(named, child)| {
@@ -349,14 +357,14 @@ impl TreeProjector<'_> {
                     sample.and_then(|sample| sample.get(named.name())),
                     named.edge_meta(),
                 )?;
-                Some(strict_named_variant(
+                Ok(strict_named_variant(
                     named.name(),
                     sch,
                     !maybe_absent(child),
                 ))
             })
             .collect();
-        Some(json_schema!({"oneOf": variants?}))
+        Ok(json_schema!({"oneOf": variants?}))
     }
 
     fn named_object(
@@ -364,9 +372,9 @@ impl TreeProjector<'_> {
         nameds: &[SchemaNamed],
         children: &[TraceNode],
         sample: Option<&Map<String, Value>>,
-    ) -> Option<schemars::Schema> {
+    ) -> Result<schemars::Schema, Error> {
         let mut required = Vec::new();
-        let items: Option<Map<_, _>> = nameds
+        let items: Result<Map<_, _>, Error> = nameds
             .iter()
             .zip(children)
             .map(|(named, child)| {
@@ -378,10 +386,10 @@ impl TreeProjector<'_> {
                 if required_named_child(sample, child, named.name()) {
                     required.push(named.name());
                 }
-                Some((named.name().to_string(), sch.into()))
+                Ok((named.name().to_string(), sch.into()))
             })
             .collect();
-        Some(strict_object(items?, required))
+        Ok(strict_object(items?, required))
     }
 
     fn edge_child(
@@ -389,16 +397,20 @@ impl TreeProjector<'_> {
         child: &TraceNode,
         sample: Option<&Value>,
         edge_meta: &Meta,
-    ) -> Option<schemars::Schema> {
+    ) -> Result<schemars::Schema, Error> {
         let mut schema = self.node(child, sample)?;
         if edge_meta.get(META_NULLABLE) == Some("true") {
             schema = nullable_schema(schema);
         }
         push_meta(&mut schema, TREE_EDGE_META, edge_meta);
-        Some(schema)
+        Ok(schema)
     }
 
-    fn finish_node(&mut self, node: &TraceNode, mut schema: schemars::Schema) -> schemars::Schema {
+    fn finish_node(
+        &mut self,
+        node: &TraceNode,
+        mut schema: schemars::Schema,
+    ) -> Result<schemars::Schema, Error> {
         let maybe_absent = maybe_absent(node);
         let is_leaf = node.data.0.internal().is_none();
         push_tree_leaf(&mut schema, is_leaf);
@@ -414,7 +426,7 @@ impl TreeProjector<'_> {
         if maybe_absent {
             schema.insert(TREE_MAYBE_ABSENT.to_string(), true.into());
         }
-        schema
+        Ok(schema)
     }
 
     fn finish_reference(
@@ -423,10 +435,14 @@ impl TreeProjector<'_> {
         schema: schemars::Schema,
         name: String,
         maybe_absent: bool,
-    ) -> schemars::Schema {
+    ) -> Result<schemars::Schema, Error> {
         let def = schema.clone();
         if let Some(existing) = self.generator.definitions().get(&name) {
-            assert_eq!(existing, def.as_value()); // typename not unique
+            if existing != def.as_value() {
+                return Err(Error::Custom(format!(
+                    "Conflicting schema definitions for {name}"
+                )));
+            }
         } else {
             self.generator
                 .definitions_mut()
@@ -440,7 +456,7 @@ impl TreeProjector<'_> {
         if maybe_absent {
             reference.insert(TREE_MAYBE_ABSENT.to_string(), true.into());
         }
-        reference
+        Ok(reference)
     }
 }
 
@@ -493,11 +509,11 @@ pub struct TreeJsonSchema<T> {
 
 impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
     /// Convert a Tree into a JSON Schema
-    pub fn new(value: Option<&T>) -> Result<Self, serde_reflection::Error> {
+    pub fn new(value: Option<&T>) -> Result<Self, Error> {
         let sample = value
             .map(json::to_json_value)
             .transpose()
-            .map_err(|e| serde_reflection::Error::Custom(e.to_string()))?;
+            .map_err(|e| Error::Custom(e.to_string()))?;
         let mut types: Types<T> = Default::default();
         let mut tracer = Tracer::new(
             TracerConfig::default()
@@ -534,10 +550,7 @@ impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
         let mut root = TreeProjector {
             generator: &mut generator,
         }
-        .node(types.root(), sample.as_ref())
-        .ok_or(serde_reflection::Error::UnknownFormatInContainer(
-            "reflection incomplete".to_string(),
-        ))?;
+        .node(types.root(), sample.as_ref())?;
         root.insert("$defs".to_string(), generator.definitions().clone().into());
         if let Some(meta_schema) = generator.settings().meta_schema.as_deref() {
             root.insert("$schema".to_string(), meta_schema.into());

@@ -45,8 +45,8 @@ Schema helpers:
 
 Notes:
 
-- The client accepts the MM2 wire protocol `proto=1`, keeps `/alive` subscribed, and reloads schema
-  when `schema_rev` changes.
+- The client accepts Miniconf MQTT protocol `proto=1`, keeps `/alive` subscribed, and reloads
+  schema when `schema_rev` changes.
 - Exact reads and open watches do not wait for subtree quiescence.
 - Finite retained subtree snapshots use a quiescence window because MQTT retained replay has no
   end-of-set marker.

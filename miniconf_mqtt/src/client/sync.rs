@@ -44,7 +44,7 @@ impl LoadRetainedPhase {
 
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -63,7 +63,7 @@ impl LoadRetainedPhase {
                     if let Some(current) = *op {
                         if connection.is_pending(&current) {
                             if let Some(inbound) = connection.poll().await? {
-                                apply_retained(mm2.prefix.as_str(), settings, &inbound);
+                                apply_retained(miniconf.prefix.as_str(), settings, &inbound);
                             }
                             return Ok(false);
                         } else if connection.is_complete(&current) {
@@ -72,7 +72,7 @@ impl LoadRetainedPhase {
                             let quiet = retained_quiet_window(suback_rtt);
                             debug!(
                                 "Subscribed retained settings topic={=str}/settings/# suback_rtt_ms={=u64} quiet_ms={=u64}",
-                                mm2.prefix.as_str(),
+                                miniconf.prefix.as_str(),
                                 suback_rtt.as_millis(),
                                 quiet.as_millis()
                             );
@@ -87,7 +87,7 @@ impl LoadRetainedPhase {
                         }
                     }
 
-                    match subscribe_settings(&mm2.prefix, connection).await {
+                    match subscribe_settings(&miniconf.prefix, connection).await {
                         Ok(next) => {
                             *start = Instant::now();
                             *op = Some(next);
@@ -103,7 +103,7 @@ impl LoadRetainedPhase {
                 Self::Drain { deadline, quiet } => {
                     match with_deadline(*deadline, connection.poll()).await {
                         Ok(Ok(Some(inbound))) => {
-                            if apply_retained(mm2.prefix.as_str(), settings, &inbound) {
+                            if apply_retained(miniconf.prefix.as_str(), settings, &inbound) {
                                 // Retained storage has no commit marker. Resetting to the last accepted
                                 // retained publish keeps the heuristic simple and deterministic.
                                 *deadline = Instant::now().saturating_add(*quiet);
@@ -128,17 +128,19 @@ impl LoadRetainedPhase {
                         *self = Self::Done;
                         return Ok(true);
                     }
-                    PendingOp::Idle => match unsubscribe_settings(&mm2.prefix, connection).await {
-                        Ok(next) => {
-                            *op = Some(next);
-                            return Ok(false);
+                    PendingOp::Idle => {
+                        match unsubscribe_settings(&miniconf.prefix, connection).await {
+                            Ok(next) => {
+                                *op = Some(next);
+                                return Ok(false);
+                            }
+                            Err(err) if is_retryable_startup_error(&err) => {
+                                let _ = connection.poll().await?;
+                                return Ok(false);
+                            }
+                            Err(err) => return Err(err),
                         }
-                        Err(err) if is_retryable_startup_error(&err) => {
-                            let _ = connection.poll().await?;
-                            return Ok(false);
-                        }
-                        Err(err) => return Err(err),
-                    },
+                    }
                 },
                 Self::Done => return Ok(true),
             }
@@ -237,7 +239,7 @@ fn is_retryable_startup_error<E>(err: &Error<E>) -> bool {
 impl StartupPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -245,15 +247,19 @@ impl StartupPhase {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
+        // Replayed traffic must release its storage before startup uses the publish budget.
+        if !matches!(self, Self::Done) && !connection.session().is_publish_quiescent() {
+            return Ok(false);
+        }
         loop {
             match self {
                 Self::Schema { sync, op } => {
-                    if step_schema::<Settings, _>(&mm2.prefix, connection, sync, op).await? {
-                        mm2.manifest.schema_pages = sync.page;
-                        mm2.manifest.schema_rev = sync.hash;
+                    if step_schema::<Settings, _>(&miniconf.prefix, connection, sync, op).await? {
+                        miniconf.manifest.schema_pages = sync.page;
+                        miniconf.manifest.schema_rev = sync.hash;
                         debug!(
                             "Schema startup phase complete pages={=usize} rev={=u32}",
-                            mm2.manifest.schema_pages, mm2.manifest.schema_rev
+                            miniconf.manifest.schema_pages, miniconf.manifest.schema_rev
                         );
                         *self = Self::Settings(Publisher::root(Settings::SCHEMA));
                         continue;
@@ -261,7 +267,7 @@ impl StartupPhase {
                     return Ok(false);
                 }
                 Self::Settings(publisher) => {
-                    if publisher.step(mm2, connection, settings).await? {
+                    if publisher.step(miniconf, connection, settings).await? {
                         debug!("Settings startup phase complete");
                         *self = Self::SubscribeSet(None);
                         continue;
@@ -271,11 +277,11 @@ impl StartupPhase {
                 Self::SubscribeSet(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
-                        debug!("Subscribed MM2 request ingress");
+                        debug!("Subscribed Miniconf request ingress");
                         *self = Self::Alive(None);
                         continue;
                     }
-                    PendingOp::Idle => match subscribe_set(&mm2.prefix, connection).await {
+                    PendingOp::Idle => match subscribe_set(&miniconf.prefix, connection).await {
                         Ok(next) => {
                             *op = Some(next);
                             return Ok(false);
@@ -288,22 +294,23 @@ impl StartupPhase {
                     PendingOp::Pending => return Ok(false),
                     PendingOp::Complete => {
                         info!(
-                            "Completed MM2 startup epoch={=u32} schema_rev={=u32}",
-                            mm2.manifest.epoch, mm2.manifest.schema_rev
+                            "Completed Miniconf startup epoch={=u32} schema_rev={=u32}",
+                            miniconf.manifest.epoch, miniconf.manifest.schema_rev
                         );
+                        miniconf.startup_complete = true;
                         *self = Self::Done;
                         return Ok(true);
                     }
                     PendingOp::Idle => {
                         match publish_alive_once::<Settings, _>(
-                            &mm2.prefix,
-                            &mm2.manifest,
+                            &miniconf.prefix,
+                            &miniconf.manifest,
                             connection,
                         )
                         .await
                         {
                             Ok(next) => {
-                                *op = next;
+                                *op = Some(next);
                                 return Ok(false);
                             }
                             Err(err) if is_retryable_startup_error(&err) => return Ok(false),
@@ -361,16 +368,17 @@ where
     .qos(QoS::AtLeastOnce)
     .retain();
     match connection.publish(publication).await {
-        Ok(next_op) => {
+        Ok(Some(next_op)) => {
             let Some((count, hash)) = advanced else {
                 return Err(Error::Mqtt(ResourceError::BufferTooSmall.into()));
             };
             sync.next += count;
             sync.page += 1;
             sync.hash = hash;
-            *op = next_op;
+            *op = Some(next_op);
             Ok(false)
         }
+        Ok(None) => Err(Error::Mqtt(MqttError::InvalidRequest)),
         Err(PubError::Session(MqttError::NotReady))
         | Err(PubError::Session(MqttError::Resource(ResourceError::InflightExhausted))) => {
             Ok(false)
@@ -389,7 +397,7 @@ where
 
 pub(crate) async fn step_publisher<Settings, IO>(
     publisher: &mut Publisher,
-    mm2: &mut Miniconf<Settings>,
+    miniconf: &mut Miniconf<Settings>,
     connection: &mut Connection<'_, '_, IO>,
     settings: &Settings,
 ) -> Result<bool, Error<IO::Error>>
@@ -446,16 +454,12 @@ where
             PendingOp::Idle => {}
         }
 
-        if !connection.can_publish(QoS::AtLeastOnce) {
-            return Ok(false);
-        }
-
-        match mm2
+        match miniconf
             .publish_current(connection, settings, state.as_ref())
             .await
         {
             Ok(op) => {
-                publisher.op = op;
+                publisher.op = Some(op);
                 return Ok(false);
             }
             Err(Error::Mqtt(MqttError::NotReady))
@@ -479,7 +483,7 @@ where
         .push_str("/set/#")
         .map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
     debug!(
-        "Subscribing MM2 request ingress topic={=str}",
+        "Subscribing Miniconf request ingress topic={=str}",
         topic.as_str()
     );
     let topics = [TopicFilter::new(&topic).options(

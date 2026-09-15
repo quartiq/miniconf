@@ -76,7 +76,7 @@ pub(crate) type TopicString = heapless::String<MAX_TOPIC_LENGTH>;
 pub(crate) const RESPONSE_CORRELATION_LENGTH: usize = 32;
 pub(crate) const RESPONSE_TEXT_LENGTH: usize = 96;
 pub(crate) const MAX_SCHEMA_DEFS: usize = 64;
-pub(crate) const MM2_PROTO: u8 = 1;
+pub(crate) const PROTOCOL_VERSION: u8 = 1;
 // Expire transient request/reply traffic. Retained alive/schema/settings publications are storage.
 pub(crate) const TRANSIENT_EXPIRY_SECS: u32 = 30;
 pub(crate) const RETAINED_TEXT_PROPERTIES: &[minimq::Property<'static>] =
