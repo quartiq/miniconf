@@ -43,6 +43,22 @@ function announce(mqtt: FakeMqttClient) {
 }
 
 describe("retained-topic pruning", () => {
+  it("reports retained-topic count changes without repeating unchanged state", async () => {
+    const { mqtt, session, states } = await connect();
+    announce(mqtt);
+    states.length = 0;
+    mqtt.message("p/settings/leaf", "1");
+    mqtt.message("p/settings/leaf", "2");
+    mqtt.message("p/set/leaf", "2");
+    expect(states).toEqual([]);
+    mqtt.message("p/settings/old", "1");
+    mqtt.message("p/settings/old", "2");
+    mqtt.message("p/settings/old", "");
+    mqtt.message("p/settings/old", "");
+    expect(states.map((state) => state.count)).toEqual([1, 0]);
+    session.close();
+  });
+
   it.each(["death", "generation"])(
     "replays %s observed during the initial subscription",
     async (event) => {

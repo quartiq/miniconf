@@ -20,6 +20,37 @@ function update(state: browse.BrowseState, text?: string) {
 }
 
 describe("leaf editor ownership", () => {
+  it("reuses schema rows while preserving snapshots and repeated-observation cues", () => {
+    const state = loaded();
+    const leaf = state.tree.get("/leaf")!;
+    const repeated = browse.commitSettings(state, {
+      settings: new Map(state.settings),
+      touched: new Set(["/leaf"]),
+      activity: new Set(["/leaf"]),
+      rev: "2",
+    });
+    expect(repeated.state.tree).toBe(state.tree);
+    expect(repeated.state.expanded).toBe(state.expanded);
+    expect(repeated.cues).toEqual(new Set(["/leaf", ""]));
+    expect(repeated.rev).toBe("2");
+    const changed = update(state, "2");
+    expect(state.tree.get("/leaf")?.value).toBe("1");
+    expect(changed.tree.get("/leaf")).toEqual({ ...leaf, value: "2" });
+    expect(changed.tree.get("")).toBe(state.tree.get(""));
+    expect(changed.tree.get("/leaf")?.children).toBe(leaf.children);
+    expect(changed.expanded).toBe(state.expanded);
+    const cleared = update(changed);
+    expect(cleared.tree.get("/leaf")?.value).toBeUndefined();
+    expect(changed.tree.get("/leaf")?.value).toBe("2");
+    const replaced = browse.loadSchema(
+      changed,
+      new Schema([{ s: "new" }], 8),
+      "",
+    );
+    expect([...replaced.tree.keys()]).toEqual([""]);
+    expect(replaced.tree.get("")?.sem).toBe("new");
+  });
+
   it("preserves exact JSON through loading and clean updates", () => {
     const text = '{"n":9007199254740993,"small":1.0000000000000001,"e":1e400}';
     let state = loaded(text);

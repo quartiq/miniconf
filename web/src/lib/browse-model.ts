@@ -93,10 +93,18 @@ export function commitSettings(
   state: BrowseState,
   { settings, touched, activity, rev }: SettingsCommit,
 ): BrowseCommit {
+  let tree = state.tree;
+  for (const path of touched) {
+    const node = tree.get(path);
+    const value = settings.get(path);
+    if (node?.kind !== "leaf" || node.value === value) continue;
+    if (tree === state.tree) tree = new Map(tree);
+    tree.set(path, { ...node, value });
+  }
   const rebuilt = {
     ...state,
     settings,
-    tree: treeSnapshot(state.schema, state.root, settings),
+    tree,
   };
   return {
     state: {

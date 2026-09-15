@@ -314,6 +314,7 @@ export class PrefixSession {
       message.packet.retain &&
       staleTopic(this.prefix, undefined, message.topic)
     ) {
+      const count = this.stale.size;
       const schema =
         this.alive?.schema_rev === this.schema?.rev ? this.schema : undefined;
       if (
@@ -322,7 +323,7 @@ export class PrefixSession {
       )
         this.stale.add(message.topic);
       else this.stale.delete(message.topic);
-      this.reportPruning();
+      if (this.stale.size !== count) this.reportPruning();
     }
     if (message.topic === `${this.prefix}/alive`) {
       this.handleAlive(message);

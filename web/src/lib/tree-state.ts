@@ -41,7 +41,7 @@ export function revealPresentSettings(
   settings: Map<string, string>,
   root: string,
 ): Set<string> {
-  const next = new Set(expanded);
+  let next = expanded;
   for (const path of changed) {
     if (!settings.has(path)) {
       continue;
@@ -50,7 +50,12 @@ export function revealPresentSettings(
     while (parent !== undefined) {
       // Auto-reveal only for branches the user has not explicitly closed;
       // retained startup bursts must not fight manual folding.
-      if (withinRoot(parent, root) && autoExpandAllowed(parent, userClosed)) {
+      if (
+        !next.has(parent) &&
+        withinRoot(parent, root) &&
+        autoExpandAllowed(parent, userClosed)
+      ) {
+        if (next === expanded) next = new Set(expanded);
         next.add(parent);
       }
       if (parent === root) {

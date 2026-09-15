@@ -44,8 +44,9 @@ describe("tree state", () => {
 
   it("reveals present setting ancestors without reopening user-closed branches", () => {
     const userClosed = new Set(["/a"]);
+    const before = new Set([""]);
     const expanded = revealPresentSettings(
-      new Set([""]),
+      before,
       userClosed,
       ["/a/b/c", "/d/e"],
       new Map([
@@ -59,6 +60,19 @@ describe("tree state", () => {
     expect(expanded.has("/a/b")).toBe(false);
     expect(expanded.has("/d")).toBe(true);
     expect(expanded.has("")).toBe(true);
+    expect(before).toEqual(new Set([""]));
+    expect(
+      revealPresentSettings(
+        expanded,
+        userClosed,
+        ["/a/b/c", "/d/e"],
+        new Map([
+          ["/a/b/c", "3"],
+          ["/d/e", "4"],
+        ]),
+        "",
+      ),
+    ).toBe(expanded);
   });
 
   it("tracks user toggles separately from expansion", () => {
