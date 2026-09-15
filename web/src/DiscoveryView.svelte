@@ -89,6 +89,12 @@
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
+    // Autofill may update visible fields without input events. Submit their values.
+    const data = new FormData(event.currentTarget as HTMLFormElement);
+    broker = data.get("broker") as string;
+    discoveryPattern = data.get("discovery-pattern") as string;
+    username = data.get("username") as string;
+    password = data.get("password") as string;
     discover();
   }
 </script>

@@ -42,6 +42,7 @@ const writes = [];
 let rejectSubscriptions = false;
 let rejectCleanup = false;
 let connections = 0;
+let lastConnect;
 let holdResponse = false;
 let holdSetAck = false;
 let respond;
@@ -135,6 +136,7 @@ broker.on("connection", (socket) => {
         socket.send(packet.generate(value, { protocolVersion: 5 }));
     };
     if (message.cmd === "connect") {
+      lastConnect = message;
       const accept = () =>
         reply({ cmd: "connack", reasonCode: 0, sessionPresent: false });
       if (holdConnect) broker.emit("held-connect", accept);
@@ -428,6 +430,32 @@ try {
     const href = await evaluate(
       "document.querySelector('a[data-tree-path=\"/dt/test/device\"]').href",
     );
+    await fill("input[name=username]", "test-user");
+    await fill("input[name=password]", "first-secret");
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
+    assert.equal(lastConnect.username, "test-user");
+    assert.equal(lastConnect.password?.toString(), "first-secret");
+    // Autofill can change the visible fields without delivering input events.
+    await evaluate(
+      "document.querySelector('input[name=username]').value = 'autofill-user'; document.querySelector('input[name=password]').value = 'replacement-secret'",
+    );
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
+    assert.equal(lastConnect.username, "autofill-user");
+    assert.equal(lastConnect.password?.toString(), "replacement-secret");
+    await evaluate(
+      "document.querySelector('input[name=username]').value = ''; document.querySelector('input[name=password]').value = ''",
+    );
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
+    assert.equal(lastConnect.username ?? "", "");
+    assert.equal(lastConnect.password?.toString() ?? "", "");
+    await fill("input[name=username]", "active-user");
+    await fill("input[name=password]", "active-secret");
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
+    await fill("input[name=password]", "unsubmitted-secret");
     await click('[data-tree-path="/dt/test"] .toggle');
     publish("dt/test/another/alive", retained.get(`${prefix}/alive`).text);
     await until(
@@ -455,6 +483,13 @@ try {
     );
     await click('a[data-tree-path="/dt/test/device"]');
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
+    assert.equal(lastConnect.username, "active-user");
+    assert.equal(lastConnect.password?.toString(), "active-secret");
+    assert(
+      await evaluate(
+        "!location.href.includes('active-secret') && !JSON.stringify(history.state).includes('active-secret') && !JSON.stringify(localStorage).includes('active-secret') && !JSON.stringify(sessionStorage).includes('active-secret')",
+      ),
+    );
     await click('[data-tree-path="/leaf"]');
     await until(
       "document.querySelector('textarea')?.value === '9007199254740993'",
