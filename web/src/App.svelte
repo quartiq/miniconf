@@ -66,13 +66,7 @@
       offline: "Disconnected — last observed values",
       waiting: "Waiting for device",
       loading: "Loading schema",
-      watching: activePrefix
-        ? setPending
-          ? "Setting…"
-          : pruning.pending
-            ? "Pruning…"
-            : latestAction?.text || "Ready"
-        : "Discovering devices",
+      watching: activePrefix ? "Ready" : "Discovering devices",
       error: "Connection error",
       failed: "Connection failed",
       "device-error": "Device unavailable",
@@ -81,6 +75,20 @@
   let editorError = $state<{ path: string; text: string; message: string }>();
   let settingsRevision = $state("");
   let error = $state("");
+  let browseStatus = $derived.by(() => {
+    if (connection.state !== "watching") {
+      return {
+        text: [status, error, latestAction?.failed ? latestAction.text : ""]
+          .filter(Boolean)
+          .join(" · "),
+        failed: !!error || !!latestAction?.failed,
+      };
+    }
+    if (latestAction?.failed) return latestAction;
+    if (setPending) return { text: "Setting…", failed: false };
+    if (pruning.pending) return { text: "Pruning…", failed: false };
+    return latestAction ?? { text: status, failed: false };
+  });
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
   let routeSerial = $state(0);
@@ -93,7 +101,8 @@
   });
 
   let selected = $derived(browse.selected(browseState));
-  let editorDirty = $derived(browseState.editor !== (selected?.value ?? ""));
+  let editor = $derived(browse.editor(browseState));
+  let editorDirty = $derived(browseState.draft !== undefined);
   let canSet = $derived(
     deviceReady && selected?.kind === "leaf" && !setPending,
   );
@@ -258,6 +267,11 @@
     eventLog.add(logOpen, event, detail);
   }
 
+  function finishAction(result: { text: string; failed: boolean }) {
+    // An unrelated operation completing must not dismiss an unseen failure.
+    if (!latestAction?.failed || result.failed) latestAction = result;
+  }
+
   function setStatus(next: SessionStatus) {
     if (
       connection.state === next.state &&
@@ -334,7 +348,10 @@
               return;
             }
             aliveManifest = next;
-            if (!next) settingsRevision = "";
+            if (!next) {
+              settingsRevision = "";
+              if (!latestAction?.failed) latestAction = undefined;
+            }
           },
           schema: (nextSchema, root) => {
             if (serial === routeSerial) {
@@ -348,8 +365,10 @@
           },
           pruning: (next) => {
             if (serial !== routeSerial) return;
+            if (next.pending && !pruning.pending) latestAction = undefined;
             if (next.message && next.message !== pruning.message) {
-              latestAction = { text: next.message, failed: next.failed };
+              if (!next.pending)
+                finishAction({ text: next.message, failed: next.failed });
               log("prune", next.message);
             }
             pruning = next;
@@ -384,26 +403,27 @@
     const current = prefixSession;
     const serial = routeSerial;
     const path = selected.path;
+    latestAction = undefined;
     try {
-      JSON.parse(browseState.editor);
+      JSON.parse(editor);
     } catch (err) {
       editorError = {
         path,
-        text: browseState.editor,
+        text: editor,
         message: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
       };
       return;
     }
     setPending = true;
-    latestAction = undefined;
+    let result: { text: string; failed: boolean };
     try {
-      const response = await current.set(path, browseState.editor);
+      const response = await current.set(path, editor);
       if (serial !== routeSerial || current !== prefixSession) return;
       if (response.ok && browseState.selectedPath === path) {
         browseState = browse.loadEditor(browseState);
         editorError = undefined;
       }
-      latestAction = {
+      result = {
         failed: !response.ok,
         text: response.ok
           ? "Set succeeded"
@@ -413,13 +433,14 @@
       };
     } catch (err) {
       if (serial !== routeSerial || current !== prefixSession) return;
-      latestAction = {
+      result = {
         failed: true,
         text: `Set: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
     setPending = false;
-    log("request", `${displayPath(path)}: ${latestAction.text}`);
+    finishAction(result);
+    log("request", `${displayPath(path)}: ${result.text}`);
   }
 
   function applyRoute() {
@@ -500,15 +521,7 @@
       {subtreePath}
       {aliveManifest}
       {settingsRevision}
-      status={{
-        text: error ? `${status}: ${error}` : status,
-        failed:
-          !!error ||
-          (connection.state === "watching" &&
-            !setPending &&
-            !pruning.pending &&
-            !!latestAction?.failed),
-      }}
+      status={browseStatus}
       retryable={connection.state === "failed" ||
         connection.state === "device-error"}
       treeNodes={browseState.tree.nodeViews}
@@ -516,10 +529,10 @@
       {selected}
       activity={treeActivity}
       expanded={browseState.expanded}
-      editor={browseState.editor}
+      {editor}
       {editorDirty}
       editorError={editorError?.path === browseState.selectedPath &&
-      editorError.text === browseState.editor
+      editorError.text === editor
         ? editorError.message
         : ""}
       {canSet}

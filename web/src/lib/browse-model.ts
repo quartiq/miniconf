@@ -14,13 +14,13 @@ import {
   type NavDirection,
 } from "./tree-navigation";
 
-// The editor follows the device while equal to its last observed value.
-// Differing text is a local edit; selection, Revert and successful Set replace it.
+// Undefined follows the device; any string (including empty) is a local edit.
+// Selection, Revert and successful Set return to following the device.
 export type BrowseState = {
   schema: Schema | undefined;
   settings: Settings;
   root: string;
-  editor: string;
+  draft: string | undefined;
   expanded: Set<string>;
   selectedPath: string;
   userClosed: Set<string>;
@@ -43,7 +43,7 @@ export function emptyState(): BrowseState {
     schema: undefined,
     settings: new Map(),
     root: "",
-    editor: "",
+    draft: undefined,
     expanded: new Set(),
     selectedPath: "",
     userClosed: new Set(),
@@ -53,6 +53,10 @@ export function emptyState(): BrowseState {
 
 export function selected(state: BrowseState): ViewNode | undefined {
   return state.tree.nodeByPath.get(state.selectedPath);
+}
+
+export function editor(state: BrowseState): string {
+  return state.draft ?? selected(state)?.value ?? "";
 }
 
 export function loadSchema(
@@ -65,14 +69,13 @@ export function loadSchema(
   let next = rebuild({
     ...state,
     schema,
-    settings: state.settings,
     root,
     expanded: new Set(),
     selectedPath: memory.selectedPath,
     userClosed: new Set(),
   });
   if (
-    state.editor === (selected(state)?.value ?? "") &&
+    state.draft === undefined &&
     !next.tree.nodeByPath.has(next.selectedPath)
   ) {
     next = { ...next, selectedPath: next.tree.nodes[0]?.path ?? "" };
@@ -83,9 +86,7 @@ export function loadSchema(
       .map(({ path }) => path),
   );
   return {
-    ...(state.editor !== (selected(state)?.value ?? "")
-      ? next
-      : loadEditor(next)),
+    ...next,
     expanded: new Set(
       [...memory.expanded].filter((path) => branches.has(path)),
     ),
@@ -102,7 +103,7 @@ export function commitSettings(
   let rebuilt = rebuild({ ...state, settings });
   if (
     touched.has(state.selectedPath) &&
-    state.editor === (selected(state)?.value ?? "")
+    state.draft === selected(rebuilt)?.value
   ) {
     rebuilt = loadEditor(rebuilt);
   }
@@ -160,13 +161,14 @@ export function navigate(
 }
 
 export function updateEditor(state: BrowseState, editor: string): BrowseState {
-  return { ...state, editor };
+  return {
+    ...state,
+    draft: editor === selected(state)?.value ? undefined : editor,
+  };
 }
 
 export function loadEditor(state: BrowseState): BrowseState {
-  const node = selected(state);
-  const text = node?.kind === "leaf" ? node.value : undefined;
-  return { ...state, editor: text ?? "" };
+  return { ...state, draft: undefined };
 }
 
 function visiblePaths(state: BrowseState): string[] {

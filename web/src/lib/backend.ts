@@ -334,7 +334,11 @@ export class PrefixSession {
   private handleAlive(message: MqttMessage): void {
     if (!message.packet.retain) return;
     if (!message.payload.byteLength) {
-      this.clearRetained();
+      this.clearRetained(
+        new Error(
+          "Device unavailable; Set outcome unknown. Check the current value.",
+        ),
+      );
       this.showProgress();
       return;
     }
@@ -526,7 +530,7 @@ export class PrefixSession {
 
   private clearRetained(
     pendingError = new Error(
-      "Connection lost; setting outcome unknown. Check the current value.",
+      "Device session changed; Set outcome unknown. Check the current value.",
     ),
   ): void {
     this.cancelOperations(pendingError);

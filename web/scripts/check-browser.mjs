@@ -583,7 +583,7 @@ try {
     await clickButton("Set");
     assert(
       await evaluate(
-        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.status').textContent.includes('Set succeeded') && !document.querySelector('.selected [role=status]')",
+        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.status').textContent.trim() === 'Ready' && !document.querySelector('.selected [role=status]')",
       ),
     );
     assert.equal(writes.length, acceptedWrites);
@@ -679,6 +679,94 @@ try {
     assert(await evaluate("!document.querySelector('.status .failed')"));
 
     console.log(
+      `Device loss, reboot, schema replacement and tab reload: ${base}`,
+    );
+    await command("Page.navigate", { url: "about:blank" });
+    resetFixture();
+    await viewport(1200, 850);
+    await command("Page.navigate", { url: href });
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '9007199254740993'",
+    );
+    await click('[data-tree-path="/leaf"]');
+    await fill("textarea", "");
+    publish(`${prefix}/alive`, "");
+    await until(
+      "document.querySelector('.status').textContent.includes('Waiting for device') && document.querySelector('.actions button').disabled",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "",
+    );
+    assert(
+      await evaluate(
+        "!document.querySelector('.actions button:last-child').disabled",
+      ),
+    );
+    // Startup publications may precede the new alive commit marker.
+    publish(`${prefix}/settings/leaf`, "2");
+    publish(
+      `${prefix}/alive`,
+      JSON.stringify({
+        proto: 1,
+        epoch: ++epoch,
+        schema_rev: revision,
+        pages: 1,
+      }),
+    );
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '2' && !document.querySelector('.actions button').disabled",
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "",
+    );
+    await clickButton("Revert");
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "2",
+    );
+    await fill("textarea", "99");
+    const nextSchema = schema.replace('"leaf":', '"replacement":');
+    let nextRevision = 0x811c9dc5;
+    for (const byte of new TextEncoder().encode(nextSchema))
+      nextRevision = Math.imul(nextRevision ^ byte, 0x01000193) >>> 0;
+    publish(`${prefix}/schema/0`, nextSchema);
+    publish(`${prefix}/settings/replacement`, "3");
+    publish(
+      `${prefix}/alive`,
+      JSON.stringify({ proto: 1, epoch, schema_rev: nextRevision, pages: 1 }),
+    );
+    await until(
+      "document.querySelector('[data-tree-path=\"/replacement\"] .value')?.textContent === '3'",
+    );
+    assert(
+      await evaluate(
+        "!document.querySelector('[data-tree-path=\"/leaf\"]') && document.querySelector('.selected').textContent.includes('Leaf unavailable') && document.querySelector('.actions button').disabled",
+      ),
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "99",
+    );
+    await command("Page.reload");
+    await until(
+      "document.querySelector('[data-tree-path=\"/replacement\"] .value')?.textContent === '3'",
+    );
+    assert.equal(await evaluate("location.href"), href);
+    assert(await evaluate("!document.querySelector('textarea')"));
+    await click('[data-tree-path="/replacement"]');
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "3",
+    );
+    assert.equal(
+      writes.length,
+      0,
+      "Lifecycle recovery and reload never send edits or prune automatically",
+    );
+
+    console.log(
       `Pruning counts, captured candidates and optional permissions: ${base}`,
     );
     const beforePruning = connections;
@@ -711,19 +799,29 @@ try {
     );
     publish(`${prefix}/settings/later`, "not JSON");
     await fill("textarea", "123");
+    holdResponse = true;
     await clickButton("Set");
+    await until("document.querySelector('.actions button').disabled");
+    respond("Rejected during pruning", true, "Error");
+    holdResponse = false;
+    await until("!document.querySelector('.actions button').disabled");
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.status [role=status]').textContent.trim()",
+      ),
+      "Set failed: Rejected during pruning",
+    );
+    holdClear = false;
+    acknowledgeClear();
     await until(
-      "document.querySelector('[data-tree-path=\"/leaf\"] .value').textContent === '123' && !document.querySelector('.actions button').disabled",
+      "document.querySelector('.prune') && !document.querySelector('.prune').disabled",
     );
     assert.equal(
       await evaluate(
         "document.querySelector('.status [role=status]').textContent.trim()",
       ),
-      "Pruning…",
+      "Set failed: Rejected during pruning",
     );
-    holdClear = false;
-    acknowledgeClear();
-    await until("document.body?.innerText.includes('Cleared 3')");
     assert.deepEqual(
       writes
         .filter((m) => m.retain)
