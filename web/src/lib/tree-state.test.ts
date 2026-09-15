@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { toggleExpansion } from "./tree-navigation";
+import { Schema } from "./schema";
 import {
   cuePaths,
   parentPath,
   revealPresentSettings,
   treeViewNodes,
+  treeSnapshot,
 } from "./tree-state";
 
 describe("tree state", () => {
@@ -79,23 +81,19 @@ describe("tree state", () => {
   });
 
   it("includes keyboard navigation structure in displayed rows", () => {
-    expect([
-      ...treeViewNodes([
-        { path: "", kind: "named", children: [], present: false },
-        { path: "/a", kind: "leaf", children: [], present: true, value: "1" },
-      ]).values(),
-    ]).toMatchObject([
+    const schema = new Schema([{ s: {} }, { i: { k: "n", c: { a: 0 } } }], 1);
+    const tree = treeSnapshot(schema, "", new Map([["/a", "1"]]));
+    expect([...tree.nodeViews.values()]).toMatchObject([
       { path: "", children: ["/a"] },
       { path: "/a", parent: "", children: [] },
     ]);
   });
 
   it("distinguishes the root from an empty-name child", () => {
-    const views = treeViewNodes([
-      { path: "", kind: "named", children: [], present: false },
-      { path: "/", kind: "leaf", children: [], present: false },
-    ]);
+    const schema = new Schema([{ s: {} }, { i: { k: "n", c: { "": 0 } } }], 1);
+    const { nodeViews: views } = treeSnapshot(schema, "", new Map());
     expect(views.get("")?.label).toBe("(root)");
+    expect(views.get("")?.children).toEqual(["/"]);
     expect(views.get("/")?.label).toBe('\"\"');
   });
 });

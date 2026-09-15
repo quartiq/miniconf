@@ -175,7 +175,6 @@ function visiblePaths(state: BrowseState): string[] {
 
 function emptyTree(): TreeSnapshot {
   return {
-    nodes: [],
     nodeViews: new Map(),
     nodeByPath: new Map(),
   };

@@ -8,7 +8,6 @@ export type ViewNode = SchemaNode & {
 };
 
 export type TreeSnapshot = {
-  nodes: ViewNode[];
   nodeViews: Map<string, TreeNodeView>;
   nodeByPath: Map<string, ViewNode>;
 };
@@ -21,51 +20,24 @@ export function parentPath(path: string): string | undefined {
   return index <= 0 ? "" : path.slice(0, index);
 }
 
-export function viewNodes(
-  schema: Schema | undefined,
-  root: string,
-  settings: Map<string, string>,
-): ViewNode[] {
-  return (
-    schema?.walk(root).map((node) => ({
-      ...node,
-      value: settings.get(node.path),
-      present: settings.has(node.path),
-    })) ?? []
-  );
-}
-
 export function treeSnapshot(
   schema: Schema | undefined,
   root: string,
   settings: Map<string, string>,
 ): TreeSnapshot {
-  const nodes = viewNodes(schema, root, settings);
+  const nodes =
+    schema?.walk(root).map((node) => ({
+      ...node,
+      value: settings.get(node.path),
+      present: settings.has(node.path),
+    })) ?? [];
   return {
-    nodes,
     nodeViews: treeViewNodes(nodes),
     nodeByPath: new Map(nodes.map((node) => [node.path, node])),
   };
 }
 
-export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
-  const children = new Map<string, ViewNode[]>();
-  for (const node of nodes) {
-    const parent = parentPath(node.path);
-    if (parent !== undefined) {
-      const siblings = children.get(parent);
-      if (siblings) {
-        siblings.push(node);
-      } else {
-        children.set(parent, [node]);
-      }
-    }
-  }
-  return children;
-}
-
 export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
-  const children = childrenByParent(nodes);
   return new Map(
     nodes.map((node) => [
       node.path,
@@ -76,7 +48,7 @@ export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
         summary: schemaSummary(node),
         title: schemaTooltip(node),
         value: node.kind === "leaf" ? (node.value ?? "") : "",
-        children: (children.get(node.path) ?? []).map((child) => child.path),
+        children: node.children.map((child) => child.path),
       },
     ]),
   );

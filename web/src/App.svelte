@@ -43,8 +43,7 @@
   let username = $state("");
   let password = $state("");
 
-  let discoverySession: DiscoverySession | undefined;
-  let prefixSession = $state.raw<PrefixSession>();
+  let session = $state.raw<DiscoverySession | PrefixSession>();
   let deviceReady = $state(false);
   let discoveredPrefixes = $state<DiscoveredPrefix[]>([]);
   let aliveManifest = $state<AliveManifest | undefined>();
@@ -222,10 +221,8 @@
   function resetBrowseState(preserve = false) {
     connectionAbort.abort();
     connectionAbort = new AbortController();
-    discoverySession?.close();
-    prefixSession?.close();
-    discoverySession = undefined;
-    prefixSession = undefined;
+    session?.close();
+    session = undefined;
     deviceReady = false;
     aliveManifest = undefined;
     settingsRevision = "";
@@ -287,89 +284,73 @@
     }
   }
 
-  async function startDiscovery(serial: number) {
+  async function connectRoute(serial: number) {
     error = "";
     setStatus({ state: "connecting" });
-    activePrefix = "";
     discoveredPrefixes = [];
     syncUrl();
+    const options = { auth: credentials, signal: connectionAbort.signal };
     try {
-      const next = await DiscoverySession.connect(
-        broker,
-        discoveryPattern,
-        {
-          prefixes: (prefixes) => {
-            if (serial !== routeSerial) return;
-            discoveredPrefixes = prefixes;
+      let next: DiscoverySession | PrefixSession;
+      if (activePrefix) {
+        next = await PrefixSession.connect(
+          broker,
+          activePrefix,
+          subtreePath,
+          {
+            alive: (next) => {
+              if (serial !== routeSerial) {
+                return;
+              }
+              aliveManifest = next;
+              if (!next) {
+                settingsRevision = "";
+                if (!actions.result?.failed) actions.result = undefined;
+              }
+            },
+            schema: (nextSchema, root) => {
+              if (serial === routeSerial) {
+                loadSchema(nextSchema, root);
+              }
+            },
+            settings: (commit) => {
+              if (serial === routeSerial) {
+                commitSettings(commit);
+              }
+            },
+            pruning: (next) => {
+              if (serial === routeSerial) pruning = next;
+            },
+            status: (next, ready) => {
+              if (serial !== routeSerial) {
+                return;
+              }
+              deviceReady = ready;
+              setStatus(next);
+            },
           },
-          status: (nextStatus) => {
-            if (serial === routeSerial) setStatus(nextStatus);
+          options,
+        );
+      } else {
+        next = await DiscoverySession.connect(
+          broker,
+          discoveryPattern,
+          {
+            prefixes: (prefixes) => {
+              if (serial === routeSerial) discoveredPrefixes = prefixes;
+            },
+            status: (next) => {
+              if (serial === routeSerial) setStatus(next);
+            },
           },
-        },
-        { auth: credentials, signal: connectionAbort.signal },
-      );
+          options,
+        );
+      }
       if (serial !== routeSerial) {
         next.close();
         return;
       }
-      discoverySession = next;
-    } catch (err) {
-      if (serial !== routeSerial) {
-        return;
-      }
-      error = err instanceof Error ? err.message : String(err);
-      setStatus({ state: "failed", error });
-      log("error", error);
-    }
-  }
-
-  async function startBrowse(serial: number) {
-    error = "";
-    setStatus({ state: "connecting" });
-    try {
-      const next = await PrefixSession.connect(
-        broker,
-        activePrefix,
-        subtreePath,
-        {
-          alive: (next) => {
-            if (serial !== routeSerial) {
-              return;
-            }
-            aliveManifest = next;
-            if (!next) {
-              settingsRevision = "";
-              if (!actions.result?.failed) actions.result = undefined;
-            }
-          },
-          schema: (nextSchema, root) => {
-            if (serial === routeSerial) {
-              loadSchema(nextSchema, root);
-            }
-          },
-          settings: (commit) => {
-            if (serial === routeSerial) {
-              commitSettings(commit);
-            }
-          },
-          pruning: (next) => {
-            if (serial === routeSerial) pruning = next;
-          },
-          status: (next, ready) => {
-            if (serial !== routeSerial) {
-              return;
-            }
-            deviceReady = ready;
-            setStatus(next);
-          },
-        },
-        { auth: credentials, signal: connectionAbort.signal },
-      );
-      if (serial !== routeSerial) {
-        next.close();
-        return;
-      }
-      prefixSession = next;
+      session = next;
     } catch (err) {
       if (serial !== routeSerial) {
         return;
@@ -385,9 +366,13 @@
     operation: (session: PrefixSession) => Promise<ActionResult>,
     path?: string,
   ): Promise<boolean> {
-    if (!prefixSession || !deviceReady || actions.pending.has(action))
+    if (
+      !(session instanceof PrefixSession) ||
+      !deviceReady ||
+      actions.pending.has(action)
+    )
       return false;
-    const current = prefixSession;
+    const current = session;
     const serial = routeSerial;
     actions = { pending: new Set([...actions.pending, action]) };
     let result: ActionResult;
@@ -492,12 +477,10 @@
     discoveryPattern = next.discoveryPattern;
     activePrefix = next.activePrefix;
     subtreePath = next.subtreePath;
-    if (next.page === "browse") {
-      void startBrowse(serial);
-    } else if (next.page === "discover") {
-      void startDiscovery(serial);
-    } else {
+    if (next.page === "landing") {
       showDiscoveryIdle();
+    } else {
+      void connectRoute(serial);
     }
   }
 
@@ -508,8 +491,7 @@
       removeEventListener("hashchange", applyRoute);
       routeSerial += 1;
       connectionAbort.abort();
-      discoverySession?.close();
-      prefixSession?.close();
+      session?.close();
     };
   });
 </script>

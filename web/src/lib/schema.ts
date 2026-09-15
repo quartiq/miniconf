@@ -65,10 +65,10 @@ export class Schema {
   }
 
   node(path = ""): SchemaNode {
-    const normalized = this.path(path);
+    const normalized = validatePath(path);
     const { id, childRef } = this.resolve(normalized);
     const def = this.defs[id];
-    const children = this.childEntries(normalized, id).map(({ name, ref }) => ({
+    const children = this.childEntries(id).map(({ name, ref }) => ({
       name,
       path: normalized ? `${normalized}/${name}` : `/${name}`,
       ...(refMeta(ref) === undefined ? {} : { edge: refMeta(ref) }),
@@ -94,10 +94,6 @@ export class Schema {
     return [root, ...root.children.flatMap((child) => this.walk(child.path))];
   }
 
-  kind(path = ""): SchemaKind {
-    return this.node(path).kind;
-  }
-
   private resolve(path: string): { id: number; childRef?: CompactRef } {
     let id = this.root;
     let childRef: CompactRef | undefined;
@@ -105,7 +101,7 @@ export class Schema {
       return { id };
     }
     for (const part of path.slice(1).split("/")) {
-      const entries = this.childEntries(path, id);
+      const entries = this.childEntries(id);
       const entry = entries.find((candidate) => candidate.name === part);
       if (!entry) {
         throw new Error(`Unknown schema path: ${path}`);
@@ -119,10 +115,7 @@ export class Schema {
     return { id, childRef };
   }
 
-  private childEntries(
-    _path: string,
-    id: number,
-  ): { name: string; ref: CompactRef }[] {
+  private childEntries(id: number): { name: string; ref: CompactRef }[] {
     const internal = this.defs[id].i;
     if (!internal) {
       return [];
@@ -172,13 +165,8 @@ export function displayPath(path: string): string {
   return path || "(root)";
 }
 
-function segment(path: string): string {
-  if (!path) return "";
-  return path.split("/").at(-1) || '\"\"';
-}
-
 export function formatSchemaName(node: SchemaNode): string {
-  return segment(node.path);
+  return node.path.split("/").at(-1) || '\"\"';
 }
 
 export function schemaSummary(node: SchemaNode): string {

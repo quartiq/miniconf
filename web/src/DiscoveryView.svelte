@@ -5,7 +5,6 @@
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import {
     movePath,
-    toggleExpansion,
     visibleTreePaths,
     type NavDirection,
   } from "./lib/tree-navigation";
@@ -42,32 +41,18 @@
     browseHref,
   }: Props = $props();
 
-  let expanded = $state(new Set([""]));
   let selectedPath = $state("");
   let userClosed = $state(new Set<string>());
-  let prefixKey = $state("");
   let nodes = $derived(discoveryTree(discoveredPrefixes));
   let treeNodes = $derived(discoveryTreeView(nodes, browseHref));
-  let visiblePaths = $derived(visibleTreePaths("", treeNodes, expanded));
-  let nextPrefixKey = $derived(
-    discoveredPrefixes
-      .map((prefix) => prefix.prefix)
-      .sort()
-      .join("\n"),
-  );
-
-  $effect(() => {
-    if (nextPrefixKey === prefixKey) {
-      return;
-    }
-    prefixKey = nextPrefixKey;
-    expanded = new Set([
-      ...expanded,
-      ...[...nodes.values()]
+  let expanded = $derived(
+    new Set(
+      [...nodes.values()]
         .filter((node) => node.children.length && !userClosed.has(node.path))
         .map((node) => node.path),
-    ]);
-  });
+    ),
+  );
+  let visiblePaths = $derived(visibleTreePaths("", treeNodes, expanded));
 
   $effect(() => {
     if (!visiblePaths.includes(selectedPath)) {
@@ -80,12 +65,9 @@
   }
 
   function setExpanded(path: string, open: boolean) {
-    ({ expanded, userClosed } = toggleExpansion(
-      expanded,
-      userClosed,
-      path,
-      open,
-    ));
+    userClosed = new Set(userClosed);
+    if (open) userClosed.delete(path);
+    else userClosed.add(path);
   }
 
   function navigateTree(

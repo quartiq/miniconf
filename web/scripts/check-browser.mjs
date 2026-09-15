@@ -410,6 +410,24 @@ try {
     const href = await evaluate(
       "document.querySelector('a[data-tree-path=\"dt/test/device\"]').href",
     );
+    await click('[data-tree-path="dt/test"] .toggle');
+    publish("dt/test/another/alive", retained.get(`${prefix}/alive`).text);
+    await until(
+      "document.querySelector('.prefixes .meta').textContent === '2 found'",
+    );
+    assert(
+      await evaluate(
+        "document.querySelector('[data-tree-path=\"dt/test\"]').getAttribute('aria-expanded') === 'false' && !document.querySelector('[data-tree-path=\"dt/test/another\"]')",
+      ),
+    );
+    await click('[data-tree-path="dt/test"] .toggle');
+    await until(
+      "document.querySelector('[data-tree-path=\"dt/test/another\"]')",
+    );
+    publish("dt/test/another/alive", "");
+    await until(
+      "document.querySelector('.prefixes .meta').textContent === '1 found'",
+    );
     await fill("input[name=broker]", "ws://different.invalid:99");
     assert.equal(
       await evaluate(
