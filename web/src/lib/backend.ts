@@ -61,9 +61,6 @@ export type PrefixSessionCallbacks = {
 
 export type PruningState = {
   count: number;
-  pending: boolean;
-  failed: boolean;
-  message: string;
   coverageWarning: string;
 };
 
@@ -163,8 +160,6 @@ export class PrefixSession {
   private readonly stale = new Set<string>();
   private pruneAbort = new AbortController();
   private pruning = false;
-  private pruneMessage = "";
-  private pruneFailed = false;
   private pruneCoverageWarning = "";
   private mqtt: MqttSession | undefined;
   private alive: AliveManifest | undefined;
@@ -462,21 +457,15 @@ export class PrefixSession {
         this.alive && this.schema?.rev === this.alive.schema_rev
           ? this.stale.size
           : 0,
-      pending: this.pruning,
-      message: this.pruneMessage,
-      failed: this.pruneFailed,
       coverageWarning: this.pruneCoverageWarning,
     });
   }
 
-  async prune(): Promise<void> {
-    if (!this.ready || this.pruning) return;
+  async prune(): Promise<{ cleared: number; error?: string }> {
+    if (!this.ready || this.pruning) throw new Error("Pruning is not ready");
     const topics = [...this.stale];
     const signal = this.pruneAbort.signal;
     this.pruning = true;
-    this.pruneFailed = false;
-    this.pruneMessage = "Pruning…";
-    this.reportPruning();
     let cleared = 0;
     try {
       for (const topic of topics) {
@@ -497,13 +486,14 @@ export class PrefixSession {
         // arriving before this acknowledgment. PUBACK only confirms progress.
         cleared++;
       }
-      this.pruneMessage = `Cleared ${cleared}`;
+      return { cleared };
     } catch (error) {
-      this.pruneMessage = `Cleared ${cleared}; pruning interrupted, remaining outcome unknown. ${error instanceof Error ? error.message : String(error)}`;
-      this.pruneFailed = true;
+      return {
+        cleared,
+        error: error instanceof Error ? error.message : String(error),
+      };
     } finally {
       this.pruning = false;
-      this.reportPruning();
     }
   }
 

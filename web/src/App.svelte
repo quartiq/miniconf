@@ -24,6 +24,9 @@
   } from "./lib/tree-navigation";
   import { type TreeActivity } from "./lib/tree-view";
 
+  type Action = "Set" | "Prune";
+  type ActionResult = { text: string; failed: boolean };
+
   const route = readRoute(location);
   let broker = $state(route.broker);
   let discoveryPattern = $state(route.discoveryPattern);
@@ -47,13 +50,11 @@
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
   let connection = $state<SessionStatus>({ state: "idle" });
-  let latestAction = $state<{ text: string; failed: boolean }>();
-  let setPending = $state(false);
+  let actions = $state<{ pending: Set<Action>; result?: ActionResult }>({
+    pending: new Set(),
+  });
   let pruning = $state<PruningState>({
     count: 0,
-    pending: false,
-    failed: false,
-    message: "",
     coverageWarning: "",
   });
   let status = $derived(
@@ -78,16 +79,17 @@
   let browseStatus = $derived.by(() => {
     if (connection.state !== "watching") {
       return {
-        text: [status, error, latestAction?.failed ? latestAction.text : ""]
+        text: [status, error, actions.result?.failed ? actions.result.text : ""]
           .filter(Boolean)
           .join(" · "),
-        failed: !!error || !!latestAction?.failed,
+        failed: !!error || !!actions.result?.failed,
       };
     }
-    if (latestAction?.failed) return latestAction;
-    if (setPending) return { text: "Setting…", failed: false };
-    if (pruning.pending) return { text: "Pruning…", failed: false };
-    return latestAction ?? { text: status, failed: false };
+    if (actions.result?.failed) return actions.result;
+    if (actions.pending.has("Set")) return { text: "Setting…", failed: false };
+    if (actions.pending.has("Prune"))
+      return { text: "Pruning…", failed: false };
+    return actions.result ?? { text: status, failed: false };
   });
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
@@ -104,7 +106,7 @@
   let editor = $derived(browse.editor(browseState));
   let editorDirty = $derived(browseState.draft !== undefined);
   let canSet = $derived(
-    deviceReady && selected?.kind === "leaf" && !setPending,
+    deviceReady && selected?.kind === "leaf" && !actions.pending.has("Set"),
   );
   let mode = $derived(activePrefix ? "browse" : "discover");
 
@@ -229,9 +231,6 @@
     settingsRevision = "";
     pruning = {
       count: 0,
-      pending: false,
-      failed: false,
-      message: "",
       coverageWarning: "",
     };
     browseState = preserve
@@ -241,8 +240,7 @@
           activity: new Set(),
         }).state
       : browse.emptyState();
-    setPending = false;
-    latestAction = undefined;
+    actions = { pending: new Set() };
     editorError = undefined;
     treeActivity = new Map();
   }
@@ -267,20 +265,11 @@
     eventLog.add(logOpen, event, detail);
   }
 
-  function finishAction(result: { text: string; failed: boolean }) {
-    // An unrelated operation completing must not dismiss an unseen failure.
-    if (!latestAction?.failed || result.failed) latestAction = result;
-  }
-
   function setStatus(next: SessionStatus) {
-    if (
-      connection.state === next.state &&
-      (!("error" in next) ||
-        ("error" in connection && connection.error === next.error))
-    )
-      return;
+    const detail = "error" in next ? next.error : "";
+    if (connection.state === next.state && error === detail) return;
     connection = next;
-    error = "error" in next ? next.error : "";
+    error = detail;
     log("status", next.state);
   }
 
@@ -350,7 +339,7 @@
             aliveManifest = next;
             if (!next) {
               settingsRevision = "";
-              if (!latestAction?.failed) latestAction = undefined;
+              if (!actions.result?.failed) actions.result = undefined;
             }
           },
           schema: (nextSchema, root) => {
@@ -364,14 +353,7 @@
             }
           },
           pruning: (next) => {
-            if (serial !== routeSerial) return;
-            if (next.pending && !pruning.pending) latestAction = undefined;
-            if (next.message && next.message !== pruning.message) {
-              if (!next.pending)
-                finishAction({ text: next.message, failed: next.failed });
-              log("prune", next.message);
-            }
-            pruning = next;
+            if (serial === routeSerial) pruning = next;
           },
           status: (next, ready) => {
             if (serial !== routeSerial) {
@@ -398,12 +380,42 @@
     }
   }
 
-  async function submit() {
-    if (!canSet || !prefixSession || !selected) return;
+  async function perform(
+    action: Action,
+    operation: (session: PrefixSession) => Promise<ActionResult>,
+    path?: string,
+  ): Promise<boolean> {
+    if (!prefixSession || !deviceReady || actions.pending.has(action))
+      return false;
     const current = prefixSession;
     const serial = routeSerial;
+    actions = { pending: new Set([...actions.pending, action]) };
+    let result: ActionResult;
+    try {
+      result = await operation(current);
+    } catch (error) {
+      result = {
+        text: `${action}: ${error instanceof Error ? error.message : String(error)}`,
+        failed: true,
+      };
+    }
+    if (serial !== routeSerial) return false;
+    actions.pending = new Set(
+      [...actions.pending].filter((item) => item !== action),
+    );
+    // An unrelated operation completing must not dismiss an unseen failure.
+    if (!actions.result?.failed || result.failed) actions.result = result;
+    log(
+      action.toLowerCase(),
+      path === undefined ? result.text : `${displayPath(path)}: ${result.text}`,
+    );
+    return !result.failed;
+  }
+
+  async function submit() {
+    if (!canSet || !selected) return;
     const path = selected.path;
-    latestAction = undefined;
+    actions.result = undefined;
     try {
       JSON.parse(editor);
     } catch (err) {
@@ -414,33 +426,38 @@
       };
       return;
     }
-    setPending = true;
-    let result: { text: string; failed: boolean };
-    try {
-      const response = await current.set(path, editor);
-      if (serial !== routeSerial || current !== prefixSession) return;
-      if (response.ok && browseState.selectedPath === path) {
-        browseState = browse.loadEditor(browseState);
-        editorError = undefined;
-      }
-      result = {
-        failed: !response.ok,
-        text: response.ok
-          ? "Set succeeded"
-          : response.kind === "publish"
-            ? `Set: value may have changed — publication failed. ${response.message}`
-            : `Set failed: ${response.message || response.code}`,
-      };
-    } catch (err) {
-      if (serial !== routeSerial || current !== prefixSession) return;
-      result = {
-        failed: true,
-        text: `Set: ${err instanceof Error ? err.message : String(err)}`,
-      };
+    const succeeded = await perform(
+      "Set",
+      async (session) => {
+        const response = await session.set(path, editor);
+        return {
+          failed: !response.ok,
+          text: response.ok
+            ? "Set succeeded"
+            : response.kind === "publish"
+              ? `Set: value may have changed — publication failed. ${response.message}`
+              : `Set failed: ${response.message || response.code}`,
+        };
+      },
+      path,
+    );
+    if (succeeded && browseState.selectedPath === path) {
+      browseState = browse.loadEditor(browseState);
+      editorError = undefined;
     }
-    setPending = false;
-    finishAction(result);
-    log("request", `${displayPath(path)}: ${result.text}`);
+  }
+
+  function prune() {
+    void perform("Prune", async (session) => {
+      const result = await session.prune();
+      return {
+        failed: result.error !== undefined,
+        text:
+          result.error === undefined
+            ? `Cleared ${result.cleared}`
+            : `Cleared ${result.cleared}; pruning interrupted, remaining outcome unknown. ${result.error}`,
+      };
+    });
   }
 
   function applyRoute() {
@@ -555,8 +572,8 @@
       }}
       retry={applyRoute}
       {pruning}
-      canPrune={deviceReady && !pruning.pending}
-      prune={() => void prefixSession?.prune()}
+      canPrune={deviceReady && !actions.pending.has("Prune")}
+      {prune}
     />
   {/if}
 </main>

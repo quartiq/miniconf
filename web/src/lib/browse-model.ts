@@ -66,27 +66,21 @@ export function loadSchema(
   memory: BrowseMemory = state,
 ): BrowseState {
   const root = schema.path(subtreePath);
-  let next = rebuild({
-    ...state,
-    schema,
-    root,
-    expanded: new Set(),
-    selectedPath: memory.selectedPath,
-    userClosed: new Set(),
-  });
-  if (
-    state.draft === undefined &&
-    !next.tree.nodeByPath.has(next.selectedPath)
-  ) {
-    next = { ...next, selectedPath: next.tree.nodes[0]?.path ?? "" };
-  }
+  const tree = treeSnapshot(schema, root, state.settings);
   const branches = new Set(
-    [...next.tree.nodeViews.values()]
+    [...tree.nodeViews.values()]
       .filter(({ children }) => children.length)
       .map(({ path }) => path),
   );
   return {
-    ...next,
+    ...state,
+    schema,
+    root,
+    tree,
+    selectedPath:
+      state.draft !== undefined || tree.nodeByPath.has(memory.selectedPath)
+        ? memory.selectedPath
+        : root,
     expanded: new Set(
       [...memory.expanded].filter((path) => branches.has(path)),
     ),
@@ -100,7 +94,11 @@ export function commitSettings(
   state: BrowseState,
   { settings, touched, activity, rev }: SettingsCommit,
 ): BrowseCommit {
-  let rebuilt = rebuild({ ...state, settings });
+  let rebuilt = {
+    ...state,
+    settings,
+    tree: treeSnapshot(state.schema, state.root, settings),
+  };
   if (
     touched.has(state.selectedPath) &&
     state.draft === selected(rebuilt)?.value
@@ -173,13 +171,6 @@ export function loadEditor(state: BrowseState): BrowseState {
 
 function visiblePaths(state: BrowseState): string[] {
   return visibleTreePaths(state.root, state.tree.nodeViews, state.expanded);
-}
-
-function rebuild(state: BrowseState): BrowseState {
-  return {
-    ...state,
-    tree: treeSnapshot(state.schema, state.root, state.settings),
-  };
 }
 
 function emptyTree(): TreeSnapshot {

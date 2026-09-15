@@ -124,10 +124,8 @@ describe("retained-topic pruning", () => {
     mqtt.message("p/settings/old", "");
     mqtt.message("p/settings/old", "replacement");
     release();
-    await clearing;
+    expect(await clearing).toEqual({ cleared: 1 });
     expect(states.at(-1)?.count).toBe(1);
-    expect(states.at(-1)?.message).toBe("Cleared 1");
-    expect(states.at(-1)?.failed).toBe(false);
     session.close();
   });
 
@@ -151,7 +149,7 @@ describe("retained-topic pruning", () => {
   it.each(["offline", "epoch", "close"])(
     "stops an in-flight clear on %s without sending the next topic",
     async (reason) => {
-      const { mqtt, session, states } = await connect();
+      const { mqtt, session } = await connect();
       announce(mqtt);
       mqtt.message("p/settings/a", "1");
       mqtt.message("p/settings/b", "2");
@@ -160,12 +158,11 @@ describe("retained-topic pruning", () => {
       if (reason === "offline") mqtt.disconnect();
       else if (reason === "close") session.close();
       else mqtt.message("p/alive", JSON.stringify({ ...alive, epoch: 2 }));
-      await clearing;
+      const result = await clearing;
       expect(mqtt.publications).toHaveLength(1);
       expect(mqtt.removedPublications).toEqual([1]);
-      expect(states.at(-1)?.pending).toBe(false);
-      expect(states.at(-1)?.message).toContain("outcome unknown");
-      expect(states.at(-1)?.failed).toBe(true);
+      expect(result.cleared).toBe(0);
+      expect(result.error).toBeDefined();
       session.close();
     },
   );
@@ -190,13 +187,16 @@ describe("retained-topic pruning", () => {
         });
       const clearing = session.prune();
       await vi.advanceTimersByTimeAsync(10_000);
-      await clearing;
+      const result = await clearing;
       expect(mqtt.publications.map((p) => p.topic)).toEqual([
         "p/settings/a",
         "p/settings/b",
       ]);
-      expect(states.at(-1)).toMatchObject({ count: 2, pending: false });
-      expect(states.at(-1)?.message).toContain("Cleared 1;");
+      expect(states.at(-1)?.count).toBe(2);
+      expect(result.cleared).toBe(1);
+      expect(result.error).toContain(
+        failure === "rejected" ? "Not authorized" : "timed out",
+      );
       expect(session.ready).toBe(true);
       session.close();
     },
