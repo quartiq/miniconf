@@ -1,31 +1,35 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import type { PruningState } from "./lib/backend";
   import type { ViewNode } from "./lib/tree-state";
-  import type { TreeActions, TreeNodeView } from "./lib/tree-view";
+  import type { TreeActions } from "./lib/tree-view";
   import SelectedPanel from "./SelectedPanel.svelte";
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
 
   type Props = {
+    pruning: PruningState;
+    canPrune: boolean;
+    prune: () => void;
     broker: string;
     activePrefix: string;
     discoverHref: string;
     subtreePath: string;
     aliveManifest: { epoch: number; schema_rev: number } | undefined;
     settingsRevision: string;
-    status: string;
-    error: string;
+    status: { text: string; failed: boolean };
     retryable: boolean;
-    treeNodes: Map<string, TreeNodeView>;
+    treeNodes: Map<string, ViewNode>;
     selectedPath: string;
     selected: ViewNode | undefined;
     activity: Map<string, import("./lib/tree-view").TreeActivity>;
     expanded: Set<string>;
     treeRoot: string;
+    canSet: boolean;
     editor: string;
     editorDirty: boolean;
-    editorStale: boolean;
+    editorError: string;
     logOpen?: boolean;
     logLines: string[];
     treeActions: TreeActions;
@@ -37,6 +41,9 @@
   };
 
   let {
+    pruning,
+    canPrune,
+    prune,
     broker,
     activePrefix,
     discoverHref,
@@ -44,7 +51,6 @@
     aliveManifest,
     settingsRevision,
     status,
-    error,
     retryable,
     treeNodes,
     selectedPath,
@@ -52,9 +58,10 @@
     activity,
     expanded,
     treeRoot,
+    canSet,
     editor,
     editorDirty,
-    editorStale,
+    editorError,
     logOpen = $bindable(false),
     logLines,
     treeActions,
@@ -64,31 +71,66 @@
     focusTree,
     retry,
   }: Props = $props();
+
+  let settingCount = $derived.by(() => {
+    let count = 0;
+    for (const node of treeNodes.values()) if (node.kind === "leaf") count++;
+    return count;
+  });
+  let diagnostics = $derived(
+    [
+      ...(aliveManifest
+        ? [
+            `Announced schema ${aliveManifest.schema_rev}`,
+            `Epoch ${aliveManifest.epoch}`,
+          ]
+        : []),
+      ...(settingsRevision
+        ? [`Last publication revision ${settingsRevision}`]
+        : []),
+    ].join("\n"),
+  );
 </script>
 
 <section class="browse">
   <header class="app-header panel">
-    <a class="back" href={discoverHref}>← Connection</a>
+    <a class="back" href={discoverHref} title={`Show devices on ${broker}`}
+      >{broker}</a
+    >
     <div class="context">
-      <h1 title={activePrefix}>{activePrefix}</h1>
-      <div class="meta">
-        <span title={broker}>{broker}</span>
-        {#if subtreePath}<span>subtree {subtreePath}</span>{/if}
-        {#if aliveManifest}
-          <span>epoch {aliveManifest.epoch}</span>
-          <span>schema {aliveManifest.schema_rev}</span>
-        {/if}
-        {#if settingsRevision}<span>rev {settingsRevision}</span>{/if}
-      </div>
+      <h1 title={diagnostics}>{activePrefix}</h1>
+      {#if treeNodes.has(treeRoot)}<span
+          class="identity-details"
+          title="Number of settings in the displayed schema; includes leaves whose values have not been observed."
+          >{`${settingCount} ${settingCount === 1 ? "setting" : "settings"}${subtreePath ? " in subtree" : ""}`}</span
+        >{/if}
+      {#if subtreePath}<span class="identity-details"
+          >subtree {subtreePath}</span
+        >{/if}
     </div>
     <div class="connection-state">
-      <div role="status" title={error || status}>
-        <span>{status}</span>
-        {#if error}<strong>{error}</strong>{/if}
+      <div class="status">
+        <div role="status" class:failed={status.failed} title={status.text}>
+          {status.text}
+        </div>
+        {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
       </div>
-      {#if retryable}
-        <button type="button" onclick={retry}>Retry</button>
-      {/if}
+      <div class="prune-action">
+        {#if pruning.count}
+          <button
+            class="prune"
+            type="button"
+            disabled={!canPrune}
+            onclick={prune}
+            title={`Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
+            >Prune ({pruning.count})</button
+          >
+        {/if}
+      </div>
+      {#if pruning.coverageWarning}<span
+          class="meta coverage"
+          title={pruning.coverageWarning}>Partial pruning coverage</span
+        >{/if}
     </div>
   </header>
 
@@ -97,6 +139,7 @@
       <h2 id="settings-title">Settings</h2>
       {#if treeNodes.has(treeRoot)}
         <TreeView
+          label="Settings"
           root={treeRoot}
           nodes={treeNodes}
           {selectedPath}
@@ -109,10 +152,21 @@
       {/if}
     </section>
 
-    <SelectedPanel node={selected} {editor} {editorDirty} {editorStale} {updateEditor} {submit} {resetEditor} {focusTree} />
+    <SelectedPanel
+      node={selected}
+      path={selectedPath}
+      {canSet}
+      {editor}
+      {editorDirty}
+      {editorError}
+      {updateEditor}
+      {submit}
+      {resetEditor}
+      {focusTree}
+    />
   </div>
 
-  <StatusLog {status} {error} bind:open={logOpen} {logLines} />
+  <StatusLog status="Log" bind:open={logOpen} {logLines} />
 </section>
 
 <style>
@@ -126,9 +180,9 @@
 
   .app-header {
     align-items: center;
-    display: grid;
-    gap: var(--space);
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-tight) var(--space);
     min-width: 0;
   }
 
@@ -136,30 +190,69 @@
     color: inherit;
     line-height: var(--line);
     text-decoration: none;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    flex-shrink: 0;
   }
 
-  .context,
+  h1 {
+    margin: 0;
+    line-height: var(--line);
+    flex-shrink: 0;
+    max-width: 100%;
+    display: block;
+    overflow-wrap: anywhere;
+  }
+
   .connection-state {
     min-width: 0;
+    flex: 1 0 22ch;
+    max-width: 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-tight) var(--space);
+    overflow-wrap: anywhere;
   }
-
-  h1,
-  .connection-state span,
-  .connection-state strong {
-    display: block;
+  .prune-action {
+    min-width: 9ch;
+    height: var(--line);
+  }
+  .prune-action button {
+    width: 100%;
+    height: 100%;
+    white-space: nowrap;
+  }
+  .status {
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space);
+    line-height: var(--line);
+  }
+  .status [role="status"] {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  .connection-state {
+  .coverage {
+    grid-column: 1 / -1;
+  }
+  .context {
+    display: contents;
+  }
+  .identity-details {
+    overflow-wrap: anywhere;
     color: var(--muted);
-    max-width: 30vw;
-    text-align: right;
+    font-size: var(--text-small);
+    min-width: 0;
   }
 
-  .connection-state strong {
+  .status [role="status"].failed {
     color: var(--error);
+    white-space: normal;
   }
 
   .workspace {
@@ -179,6 +272,7 @@
   @media (min-width: 761px) {
     .browse {
       height: calc(100dvh - 2 * var(--space));
+      grid-template-rows: auto minmax(calc(12 * var(--line)), 1fr) auto;
     }
   }
 
@@ -187,18 +281,8 @@
       height: auto;
     }
 
-    .app-header {
-      grid-template-columns: auto minmax(0, 1fr);
-    }
-
     .workspace {
       grid-template-columns: 1fr;
-    }
-
-    .connection-state {
-      grid-column: 2;
-      max-width: none;
-      text-align: left;
     }
 
     .tree {

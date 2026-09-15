@@ -1,19 +1,29 @@
 import type { Schema, SchemaNode } from "./schema";
-import { formatSchemaName } from "./schema";
-import type { FlatTreeNode } from "./tree-navigation";
-import type { TreeNodeView } from "./tree-view";
+import { formatSchemaName, schemaSummary, schemaTooltip } from "./schema";
+import {
+  ACTIVITY_DURATION_MS,
+  type TreeActivity,
+  type TreeNodeView,
+} from "./tree-view";
 
-export type ViewNode = SchemaNode & {
-  value?: unknown;
-  present: boolean;
-};
+export type ViewNode = TreeNodeView &
+  Pick<SchemaNode, "kind" | "node" | "edge" | "sem">;
 
-export type TreeSnapshot = {
-  nodes: ViewNode[];
-  flatNodes: Map<string, FlatTreeNode>;
-  nodeViews: Map<string, TreeNodeView>;
-  nodeByPath: Map<string, ViewNode>;
-};
+export function updateActivity(
+  previous: Map<string, TreeActivity>,
+  cues: Iterable<string>,
+  tree: Map<string, ViewNode>,
+  at = Date.now(),
+): Map<string, TreeActivity> {
+  const next = new Map<string, TreeActivity>();
+  for (const [path, activity] of previous) {
+    if (tree.has(path) && at - activity.at < ACTIVITY_DURATION_MS)
+      next.set(path, activity);
+  }
+  const activity = { at };
+  for (const path of cues) if (tree.has(path)) next.set(path, activity);
+  return next;
+}
 
 export function parentPath(path: string): string | undefined {
   if (!path) {
@@ -23,87 +33,35 @@ export function parentPath(path: string): string | undefined {
   return index <= 0 ? "" : path.slice(0, index);
 }
 
-export function viewNodes(schema: Schema | undefined, root: string, settings: Map<string, unknown>): ViewNode[] {
-  return schema?.walk(root).map((node) => ({
-    ...node,
-    value: settings.get(node.path),
-    present: settings.has(node.path),
-  })) ?? [];
-}
-
 export function treeSnapshot(
   schema: Schema | undefined,
   root: string,
-  settings: Map<string, unknown>,
-): TreeSnapshot {
-  const nodes = viewNodes(schema, root, settings);
-  return {
-    nodes,
-    flatNodes: flatTreeNodes(nodes),
-    nodeViews: treeViewNodes(nodes),
-    nodeByPath: new Map(nodes.map((node) => [node.path, node])),
-  };
-}
-
-export function formatLeafValue(node: ViewNode): string {
-  if (node.kind !== "leaf" || !node.present) {
-    return "";
-  }
-  return JSON.stringify(node.value) ?? String(node.value);
-}
-
-export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
-  const children = new Map<string, ViewNode[]>();
-  for (const node of nodes) {
-    const parent = parentPath(node.path);
-    if (parent !== undefined) {
-      const siblings = children.get(parent);
-      if (siblings) {
-        siblings.push(node);
-      } else {
-        children.set(parent, [node]);
-      }
-    }
-  }
-  return children;
-}
-
-export function flatTreeNodes(nodes: ViewNode[]): Map<string, FlatTreeNode> {
-  const children = childrenByParent(nodes);
-  return new Map(nodes.map((node) => {
-    const parent = parentPath(node.path);
-    return [
+  settings: Map<string, string>,
+): Map<string, ViewNode> {
+  return new Map(
+    (schema?.walk(root) ?? []).map((node) => [
       node.path,
       {
-        path: node.path,
-        ...(parent === undefined ? {} : { parent }),
-        children: (children.get(node.path) ?? []).map((child) => child.path),
+        ...node,
+        parent: parentPath(node.path),
+        label: node.path ? formatSchemaName(node) : "(root)",
+        summary: schemaSummary(node),
+        title: schemaTooltip(node),
+        value: node.kind === "leaf" ? settings.get(node.path) : undefined,
+        children: node.children.map((child) => child.path),
       },
-    ];
-  }));
-}
-
-export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
-  const children = childrenByParent(nodes);
-  return new Map(nodes.map((node) => [
-    node.path,
-    {
-      path: node.path,
-      label: node.path ? formatSchemaName(node) : "(root)",
-      value: formatLeafValue(node),
-      children: (children.get(node.path) ?? []).map((child) => child.path),
-    },
-  ]));
+    ]),
+  );
 }
 
 export function revealPresentSettings(
   expanded: Set<string>,
   userClosed: Set<string>,
   changed: Iterable<string>,
-  settings: Map<string, unknown>,
+  settings: Map<string, string>,
   root: string,
 ): Set<string> {
-  const next = new Set(expanded);
+  let next = expanded;
   for (const path of changed) {
     if (!settings.has(path)) {
       continue;
@@ -112,7 +70,12 @@ export function revealPresentSettings(
     while (parent !== undefined) {
       // Auto-reveal only for branches the user has not explicitly closed;
       // retained startup bursts must not fight manual folding.
-      if (withinRoot(parent, root) && autoExpandAllowed(parent, userClosed)) {
+      if (
+        !next.has(parent) &&
+        withinRoot(parent, root) &&
+        autoExpandAllowed(parent, userClosed)
+      ) {
+        if (next === expanded) next = new Set(expanded);
         next.add(parent);
       }
       if (parent === root) {

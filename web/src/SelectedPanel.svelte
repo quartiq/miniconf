@@ -1,14 +1,17 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { displayPath, formatSchemaMetadata } from "./lib/schema";
+  import { displayPath } from "./lib/schema";
+  import Metadata from "./Metadata.svelte";
   import type { ViewNode } from "./lib/tree-state";
 
   type Props = {
     node: ViewNode | undefined;
+    path: string;
+    canSet: boolean;
     editor: string;
     editorDirty: boolean;
-    editorStale: boolean;
+    editorError: string;
     updateEditor: (value: string) => void;
     submit: () => void;
     resetEditor: () => void;
@@ -17,17 +20,17 @@
 
   let {
     node,
+    path,
+    canSet,
     editor,
     editorDirty,
-    editorStale,
+    editorError,
     updateEditor,
     submit,
     resetEditor,
     focusTree,
   }: Props = $props();
 
-  let schemaOpen = $state(false);
-  let metadata = $derived(node ? formatSchemaMetadata(node) : "");
   let leaf = $derived(node?.kind === "leaf");
 
   function edit(event: Event) {
@@ -37,7 +40,7 @@
   function maybeSubmit(event: KeyboardEvent) {
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
-      submit();
+      if (canSet) submit();
     } else if (event.key === "Escape") {
       event.preventDefault();
       focusTree();
@@ -46,89 +49,90 @@
 </script>
 
 <section class="selected panel" aria-label="Selected item">
-  <h2>Value</h2>
-  <details class="schema" bind:open={schemaOpen}>
-    <summary>
-      <span aria-hidden="true" class="caret">{schemaOpen ? "▾" : "▸"}</span>
-      <span>{node ? displayPath(node.path) : "Schema"}</span>
-    </summary>
-    <div class="schema-body">
-      {#if metadata}
-        <pre>{metadata}</pre>
-      {:else}
-        <p>No schema metadata.</p>
-      {/if}
-    </div>
-  </details>
-  <section class="editor" aria-label="Leaf editor">
-    {#if leaf}
-      <textarea
-        aria-keyshortcuts="Control+Enter Meta+Enter Escape"
-        data-leaf-editor
-        title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
-        value={editor}
-        oninput={edit}
-        onkeydown={maybeSubmit}
-      ></textarea>
+  <h2>{displayPath(path)}</h2>
+  {#if leaf || editorDirty}
+    <section class="editor" aria-label="Leaf editor">
+      <div class="value-editor">
+        {#if leaf && node?.value === undefined}<p>No value observed</p>{/if}
+        {#if !leaf}<p>Leaf unavailable</p>{/if}
+        <textarea
+          id="leaf-editor"
+          aria-label="Setting value"
+          aria-keyshortcuts="Control+Enter Meta+Enter Escape"
+          data-leaf-editor
+          aria-invalid={!!editorError}
+          aria-describedby={editorError ? "editor-error" : undefined}
+          title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
+          value={editor}
+          oninput={edit}
+          onkeydown={maybeSubmit}></textarea>
+        {#if editorError}<p id="editor-error" role="alert">
+            {editorError}
+          </p>{/if}
+      </div>
       <div class="actions">
         <button
           aria-keyshortcuts="Control+Enter Meta+Enter"
           title="Ctrl/Cmd+Enter"
           type="button"
-          onclick={submit}
-        >Set</button>
+          disabled={!canSet}
+          onclick={submit}>Set</button
+        >
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
           disabled={!editorDirty}
-          title="Reset the draft to the current value"
+          title={node?.value !== undefined
+            ? "Replace your edits with the latest device value; nothing is sent."
+            : "Discard your edits; no device value has been received."}
           type="button"
-          onclick={resetEditor}
-        >Reset</button>
-        {#if editorStale}
-          <span class="stale">Changed remotely</span>
-        {:else if editorDirty}
-          <span class="draft">Edited</span>
-        {/if}
+          onclick={resetEditor}>Revert</button
+        >
       </div>
-    {:else}
-      <p>No leaf selected.</p>
-    {/if}
+    </section>
+  {/if}
+  <section class="schema-body" aria-label="Schema">
+    {#if node}<div class="meta">Kind: {node.kind}</div>{/if}
+    {#if node?.sem !== undefined}<Metadata
+        label="Semantics"
+        heading={false}
+        value={node.sem}
+      />{/if}
+    {#if node?.edge !== undefined}<Metadata
+        label="Edge metadata"
+        value={node.edge}
+      />{/if}
+    {#if node?.node !== undefined}<Metadata
+        label="Node metadata"
+        value={node.node}
+      />{/if}
+    {#if node?.sem === undefined && node?.edge === undefined && node?.node === undefined}<p
+      >
+        No schema metadata.
+      </p>{/if}
   </section>
 </section>
 
 <style>
+  .value-editor {
+    display: grid;
+    gap: var(--space-tight);
+    min-width: 0;
+  }
+  h2 {
+    overflow-wrap: anywhere;
+  }
+
   .selected {
     display: grid;
+    grid-auto-rows: max-content;
     gap: 0;
     min-width: 0;
     align-content: start;
     overflow: auto;
   }
 
-  .schema summary {
-    align-items: baseline;
-    cursor: pointer;
-    display: flex;
-    gap: 0;
-    line-height: var(--line);
-    list-style: none;
-    min-height: var(--line);
-  }
-
-  .schema summary::-webkit-details-marker {
-    display: none;
-  }
-
-  .caret {
-    display: inline-block;
-    flex: 0 0 var(--caret);
-    line-height: var(--line);
-  }
-
   .schema-body {
-    block-size: calc(4 * var(--line));
-    margin-top: var(--space-tight);
-    overflow: auto;
+    margin-top: var(--space);
   }
 
   .schema-body p {
@@ -138,7 +142,6 @@
   textarea {
     block-size: calc(4 * var(--line));
     display: block;
-    font: inherit;
     overflow: auto;
     resize: vertical;
     width: 100%;
@@ -148,8 +151,7 @@
     align-items: start;
     display: grid;
     gap: var(--space-tight);
-    grid-template-columns: minmax(0, 1fr) auto;
-    min-block-size: calc(4 * var(--line));
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .editor p {
@@ -157,38 +159,28 @@
     margin: 0;
   }
 
+  .editor [role="alert"] {
+    color: var(--error);
+  }
+
+  textarea[aria-invalid="true"] {
+    border-color: var(--error);
+  }
+
   .actions {
     align-items: baseline;
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: var(--space);
   }
 
-  .draft,
-  .stale {
-    font-size: var(--text-small);
-  }
-
-  .draft {
-    color: var(--muted);
-  }
-
-  .stale {
-    color: var(--warn);
+  .actions button {
+    white-space: nowrap;
   }
 
   @media (max-width: 760px) {
-    .editor {
-      grid-template-columns: 1fr;
-    }
-
-    .actions {
-      flex-direction: row;
-    }
-
-    .actions button {
-      flex: 1 1 0;
-      width: auto;
+    .selected {
+      overflow: visible;
     }
   }
 </style>

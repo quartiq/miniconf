@@ -1,6 +1,10 @@
 # Miniconf MQTT Web Browser
 
-Browser UI for `miniconf_mqtt` targets over MQTT v5 WebSockets.
+Inspect and edit Miniconf devices over MQTT v5 WebSockets.
+
+Credentials support browser autofill and are remembered for reload in this tab's
+session storage, when available. They are cleared when switching brokers or
+connecting with empty credentials, and are never included in links.
 
 ## Run
 
@@ -49,24 +53,40 @@ The connection form itself accepts full `ws://` and `wss://` URLs such as
 
 ## Use
 
-Discovery lists matching prefixes. Selecting a prefix loads the retained `/alive` manifest,
-paged schema, retained settings for the selected subtree, and live `/alive` and `/settings`
-updates.
+Enter a full WebSocket broker URL and a discovery filter such as `dt/sinara/+/+`, then press
+Discover. `+` matches one level; `#` is unsupported. Connection-field edits take effect on
+Discover, not while typing. Credentials use browser autocomplete and stay out of saved links.
 
-Leaf values are edited as JSON and submitted through `/set`. `/set` responses report request
-acceptance; `/settings` publications remain the authoritative applied values.
-The empty Miniconf path is the schema root; `/` is its empty-name child.
+Select a leaf, edit its JSON, and press Set or Ctrl/Cmd+Enter. The exact text is sent, without
+rounding large integers. Incoming updates, reconnects and folding preserve your draft;
+selecting another item replaces it. A successful Set adopts the latest device value,
+including any device formatting. Revert discards edits without sending anything.
+Reloading the tab reconnects from the URL and discards unsent edits.
 
-Optional MQTT credentials are never placed in route URLs or application-managed storage. The
-connection form uses standard browser autocomplete so a password manager can remember them when
-the user chooses.
+If a request's outcome is unknown, inspect the device value before sending again. Set is
+disabled while disconnected; use Retry if automatic recovery stops.
+
+## Retained-topic cleanup
+
+**Prune (N)** appears when stale retained topics are observed for an alive device.
+Click it to clear those topics.
+This clears stale retained messages under `/settings`, `/set`, and `/response` across the
+device prefix, even when browsing a subtree; valid settings are kept.
+An interrupted clear may have partly completed.
+Whole-prefix cleanup stays in the Python client.
 
 ## Test
 
 ```sh
 npm run check
 npm test
+npm run format:check
+npm run build
+npm run test:browser
 ```
+
+The browser test needs Chrome/Chromium (`CHROME_BIN` can select it) and uses a local fixture,
+not hardware. It checks both served and `file://` builds.
 
 Live broker smoke test:
 

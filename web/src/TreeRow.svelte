@@ -1,69 +1,62 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { TreeActivity } from "./lib/tree-view";
+  import {
+    ACTIVITY_DURATION_MS,
+    type TreeActivity,
+    type TreeNodeView,
+  } from "./lib/tree-view";
 
   type Props = {
-    path: string;
-    label: string;
+    node: TreeNodeView;
     selected: boolean;
-    internal?: boolean;
+    tabbable: boolean;
     open?: boolean;
     depth?: number;
-    level?: number;
     posinset?: number;
     setsize?: number;
-    value?: string;
-    href?: string;
     activity?: TreeActivity;
-    title?: string;
+    showActivity?: boolean;
     select: () => void;
     toggle: () => void;
     keydown: (event: KeyboardEvent) => void;
   };
 
   let {
-    path,
-    label,
+    node,
     selected,
-    internal = false,
+    tabbable,
     open = false,
     depth = 0,
-    level = 1,
     posinset = 1,
     setsize = 1,
-    value = "",
-    href = undefined,
     activity = undefined,
-    title = "",
+    showActivity = false,
     select,
     toggle,
     keydown,
   }: Props = $props();
 
-  const flashFrames = [
-    { background: "var(--flash)" },
-    { background: "var(--flash-end)" },
-  ];
+  let internal = $derived(node.children.length > 0);
 
-  function flash(node: HTMLElement, initial?: TreeActivity) {
-    let animation: Animation | undefined;
+  function indicateActivity(node: HTMLElement, initial?: TreeActivity) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const run = (next?: TreeActivity) => {
-      const age = next ? Date.now() - next.at : -1;
-      if (!next || age < 0 || age > 1000) {
-        return;
-      }
-      animation?.cancel();
-      animation = node.animate(flashFrames, {
-        duration: 1000,
-        easing: "ease-out",
-      });
+      clearTimeout(timer);
+      const remaining = next
+        ? ACTIVITY_DURATION_MS - (Date.now() - next.at)
+        : 0;
+      node.style.opacity = remaining > 0 ? "1" : "0";
+      if (remaining > 0)
+        timer = setTimeout(() => {
+          node.style.opacity = "0";
+        }, remaining);
     };
     run(initial);
     return {
       update: run,
       destroy() {
-        animation?.cancel();
+        clearTimeout(timer);
       },
     };
   }
@@ -72,51 +65,56 @@
     event.stopPropagation();
     toggle();
   }
-
-  function stopAndSelect(event: MouseEvent) {
-    event.stopPropagation();
-    select();
-  }
 </script>
 
-{#if href && !internal}
+{#snippet contents()}
+  {#if showActivity}<span
+      aria-hidden="true"
+      class="activity-slot"
+      title="Recent settings publication"
+      ><span class="activity-dot" use:indicateActivity={activity}></span></span
+    >{/if}
+  <span class="label">{node.label}</span>
+  {#if node.summary}<span class="summary">{` (${node.summary})`}</span>{/if}
+  {#if node.value}
+    <span class="separator">{" = "}</span>
+    <span class="value">{node.value}</span>
+  {/if}
+{/snippet}
+
+<!-- Discovery uses a fixed-depth filter, so only terminal rows have links. -->
+{#if node.href}
   <a
-    aria-level={level}
+    aria-level={depth + 1}
     aria-posinset={posinset}
     aria-selected={selected}
     aria-setsize={setsize}
     class:selected
-    data-tree-path={path}
-    {href}
+    data-tree-path={node.path}
+    href={node.href}
     role="treeitem"
     style:padding-left={`${depth}rem`}
-    tabindex={selected ? 0 : -1}
-    {title}
-    use:flash={activity}
+    tabindex={tabbable ? 0 : -1}
+    title={node.title ?? node.path}
     onclick={select}
     onkeydown={keydown}
   >
     <span aria-hidden="true" class="spacer"></span>
-    <span class="label">{label}</span>
-    {#if value}
-      <span class="separator"> = </span>
-      <span class="value">{value}</span>
-    {/if}
+    {@render contents()}
   </a>
 {:else}
   <div
     aria-expanded={internal ? open : undefined}
-    aria-level={level}
+    aria-level={depth + 1}
     aria-posinset={posinset}
     aria-selected={selected}
     aria-setsize={setsize}
     class:selected
-    data-tree-path={path}
+    data-tree-path={node.path}
     role="treeitem"
     style:padding-left={`${depth}rem`}
-    tabindex={selected ? 0 : -1}
-    {title}
-    use:flash={activity}
+    tabindex={tabbable ? 0 : -1}
+    title={node.title ?? node.path}
     onclick={select}
     onkeydown={keydown}
   >
@@ -126,20 +124,12 @@
         class="toggle"
         tabindex="-1"
         type="button"
-        onclick={stopAndToggle}
-      >{open ? "▾" : "▸"}</button>
+        onclick={stopAndToggle}>{open ? "▾" : "▸"}</button
+      >
     {:else}
       <span aria-hidden="true" class="spacer"></span>
     {/if}
-    {#if href}
-      <a class="label" {href} tabindex="-1" onclick={stopAndSelect}>{label}</a>
-    {:else}
-      <span class="label">{label}</span>
-    {/if}
-    {#if value}
-      <span class="separator"> = </span>
-      <span class="value">{value}</span>
-    {/if}
+    {@render contents()}
   </div>
 {/if}
 
@@ -159,7 +149,6 @@
     text-align: left;
     text-decoration: none;
     width: 100%;
-    --flash-end: transparent;
   }
 
   div[role="treeitem"] {
@@ -194,7 +183,6 @@
   .selected {
     background: var(--selected);
     box-shadow: inset 2px 0 0 var(--selected-mark);
-    --flash-end: var(--selected);
   }
 
   .label {
@@ -205,19 +193,39 @@
     white-space: nowrap;
   }
 
-  a.label {
-    color: inherit;
-    text-decoration-thickness: 1px;
-    text-underline-offset: 0.15em;
+  .activity-slot {
+    align-items: center;
+    align-self: stretch;
+    display: flex;
+    flex: 0 0 var(--caret);
+    justify-content: center;
+  }
+
+  .activity-dot {
+    background: currentColor;
+    border-radius: 50%;
+    height: var(--activity-size);
+    width: var(--activity-size);
+    opacity: 0;
   }
 
   .value {
     flex: 1 1 auto;
     min-width: 0;
-    color: var(--muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .summary {
+    color: var(--muted);
+    font-size: var(--text-small);
+    flex: 0 2 auto;
+    max-width: 45%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: pre;
   }
 
   .separator {
@@ -225,5 +233,4 @@
     color: var(--muted);
     white-space: pre;
   }
-
 </style>

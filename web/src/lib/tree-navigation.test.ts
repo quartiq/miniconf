@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { discoveryTree, flatDiscoveryNodes } from "./discovery-tree";
+import { discoveryTree } from "./discovery-tree";
+import { browsePath, readRoute } from "./routes";
 import { movePath, visibleTreePaths } from "./tree-navigation";
 
 describe("tree navigation", () => {
@@ -42,18 +43,43 @@ describe("tree navigation", () => {
   });
 
   it("builds a browsable discovery tree from prefixes", () => {
-    const nodes = discoveryTree([
-      { prefix: "dt/sinara/a/host" },
-      { prefix: "dt/sinara/b/host" },
-    ]);
+    const nodes = discoveryTree(
+      [{ prefix: "dt/sinara/a/host" }, { prefix: "dt/sinara/b/host" }],
+      (prefix) => prefix,
+    );
 
-    expect(visibleTreePaths("", flatDiscoveryNodes(nodes), new Set(["", "dt", "dt/sinara"]))).toEqual([
-      "",
-      "dt",
-      "dt/sinara",
-      "dt/sinara/a",
-      "dt/sinara/b",
-    ]);
-    expect(nodes.get("dt/sinara/a/host")?.prefix).toBe("dt/sinara/a/host");
+    expect(
+      visibleTreePaths("", nodes, new Set(["", "/dt", "/dt/sinara"])),
+    ).toEqual(["", "/dt", "/dt/sinara", "/dt/sinara/a", "/dt/sinara/b"]);
+    expect(nodes.get("/dt/sinara/a/host")?.href).toBe("dt/sinara/a/host");
+  });
+
+  it("keeps literal MQTT levels distinct from the synthetic root and route syntax", () => {
+    // Each group can be observed by one fixed-depth discovery subscription.
+    for (const prefixes of [
+      ["/a", "a/", "a/b", "/"],
+      ["a//b", "a/./b", "a/../b", "A/ /b", "a/%/b", "a/é/b"],
+    ]) {
+      const nodes = discoveryTree(
+        prefixes.map((prefix) => ({ prefix })),
+        (prefix) => browsePath("ws://localhost", prefix),
+      );
+      const visible = visibleTreePaths("", nodes, new Set(nodes.keys()));
+      expect(new Set(visible).size).toBe(nodes.size);
+      expect(visible.length).toBe(nodes.size);
+      for (const prefix of prefixes) {
+        const node = nodes.get(`/${prefix}`)!;
+        expect(node.children).toEqual([]);
+        expect(readRoute({ hash: node.href! }).activePrefix).toBe(prefix);
+        expect(node.title).toBe(prefix);
+      }
+      for (const node of nodes.values()) {
+        for (const child of node.children) {
+          expect(child).not.toBe(node.path);
+          expect(nodes.get(child)?.parent).toBe(node.path);
+          expect(movePath(visible, child, "parent", nodes)).toBe(node.path);
+        }
+      }
+    }
   });
 });

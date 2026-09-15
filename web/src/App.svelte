@@ -10,36 +10,107 @@
     PrefixSession,
     type DiscoveredPrefix,
     type AliveManifest,
+    type SessionStatus,
+    type PruningState,
   } from "./lib/backend";
   import * as browse from "./lib/browse-model";
   import { EventLog } from "./lib/event-log";
   import { browsePath, discoveryPath, readRoute } from "./lib/routes";
   import { type SettingsCommit } from "./lib/settings-mirror";
-  import { type NavDirection } from "./lib/tree-navigation";
+  import {
+    treeTabStop,
+    visibleTreePaths,
+    type NavDirection,
+  } from "./lib/tree-navigation";
   import { type TreeActivity } from "./lib/tree-view";
+  import { updateActivity } from "./lib/tree-state";
+  import { rememberAuth, restoreAuth } from "./lib/session-auth";
+
+  type Action = "Set" | "Prune";
+  type ActionResult = { text: string; failed: boolean; responseMs?: number };
 
   const route = readRoute(location);
+  const initialAuth = restoreAuth(route.broker);
   let broker = $state(route.broker);
   let discoveryPattern = $state(route.discoveryPattern);
   let activePrefix = $state(route.activePrefix);
   let subtreePath = $state(route.subtreePath);
-  let username = $state("");
-  let password = $state("");
+  let formBroker = $state(route.broker);
+  let formPattern = $state(route.discoveryPattern);
+  let credentials = $state<
+    | {
+        broker: string;
+        username: string;
+        password: string;
+      }
+    | undefined
+  >(initialAuth ? { broker: route.broker, ...initialAuth } : undefined);
+  let connectionAbort = new AbortController();
+  let username = $state(initialAuth?.username ?? "");
+  let password = $state(initialAuth?.password ?? "");
+  let connectionNotice = $state("");
 
-  let discoverySession: DiscoverySession | undefined;
-  let prefixSession: PrefixSession | undefined;
+  let session = $state.raw<DiscoverySession | PrefixSession>();
+  let deviceReady = $state(false);
   let discoveredPrefixes = $state<DiscoveredPrefix[]>([]);
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
-  let status = $state("Idle");
+  let connection = $state<SessionStatus>({ state: "idle" });
+  let connectionPrompt = $derived(
+    connection.state === "credentials" ||
+      (connection.state === "failed" && !session),
+  );
+  let actions = $state<{ pending: Set<Action>; result?: ActionResult }>({
+    pending: new Set(),
+  });
+  let pruning = $state<PruningState>({
+    count: 0,
+    coverageWarning: "",
+  });
+  let status = $derived(
+    {
+      idle: "Not connected",
+      credentials: "Enter credentials to reconnect",
+      connecting: "Connecting",
+      connected: "Connected",
+      restoring: "Restoring subscriptions",
+      reconnecting: "Reconnecting",
+      offline: "Disconnected — last observed values",
+      waiting: "Waiting for device",
+      loading: "Loading schema",
+      watching: activePrefix ? "Ready" : "Discovering devices",
+      error: "Connection error",
+      failed: "Connection failed",
+      "device-error": "Device unavailable",
+    }[connection.state],
+  );
+  let editorError = $state<{ path: string; text: string; message: string }>();
   let settingsRevision = $state("");
   let error = $state("");
-  let browseRetryable = $state(false);
+  let browseStatus = $derived.by(() => {
+    if (connection.state !== "watching") {
+      return {
+        text: [status, error, actions.result?.failed ? actions.result.text : ""]
+          .filter(Boolean)
+          .join(" · "),
+        failed: !!error || !!actions.result?.failed,
+      };
+    }
+    if (actions.result?.failed) return actions.result;
+    if (actions.pending.has("Set")) return { text: "Setting…", failed: false };
+    if (actions.pending.has("Prune"))
+      return { text: "Pruning…", failed: false };
+    return (
+      actions.result ?? {
+        text: [status, connectionNotice].filter(Boolean).join(" · "),
+        failed: false,
+      }
+    );
+  });
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
-  let routeSerial = 0;
   const browseMemory = new Map<string, browse.BrowseMemory>();
-  // Row flashes are UI cues for /settings echoes only. /set responses update
+  // Activity dots are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
   let treeActivity = $state.raw(new Map<string, TreeActivity>());
   const eventLog = new EventLog(() => {
@@ -47,7 +118,16 @@
   });
 
   let selected = $derived(browse.selected(browseState));
-  let mode = $derived(activePrefix ? "browse" : "discover");
+  let editor = $derived(browse.editor(browseState));
+  let editorDirty = $derived(
+    browseState.draft !== undefined && browseState.draft !== selected?.value,
+  );
+  let canSet = $derived(
+    deviceReady && selected?.kind === "leaf" && !actions.pending.has("Set"),
+  );
+  let mode = $derived(
+    activePrefix && !connectionPrompt ? "browse" : "discover",
+  );
 
   $effect(() => {
     eventLog.clearHidden(logOpen);
@@ -55,7 +135,10 @@
 
   function syncUrl() {
     history.replaceState(
-      null,
+      {
+        credentialBroker:
+          credentials?.username || credentials?.password ? broker : undefined,
+      },
       "",
       activePrefix
         ? browsePath(broker, activePrefix, subtreePath, discoveryPattern)
@@ -88,67 +171,108 @@
   }
 
   function focusTreeItem(path: string) {
+    path = treeTabStop(
+      path,
+      visibleTreePaths(
+        browseState.root,
+        browseState.tree,
+        browseState.expanded,
+      ),
+    );
     requestAnimationFrame(() => {
-      document
-        .querySelector<HTMLElement>(`[data-tree-path="${CSS.escape(path)}"]`)
-        ?.focus();
+      const row = document.querySelector<HTMLElement>(
+        `[data-tree-path="${CSS.escape(path)}"]`,
+      );
+      row?.focus({ preventScroll: true });
+      row?.scrollIntoView({ block: "nearest", inline: "nearest" });
     });
   }
 
   function focusEditor() {
     requestAnimationFrame(() => {
-      document.querySelector<HTMLTextAreaElement>("[data-leaf-editor]")?.focus();
+      document
+        .querySelector<HTMLTextAreaElement>("[data-leaf-editor]")
+        ?.focus();
     });
   }
 
   function activateBrowseTree(path: string, internal: boolean, open: boolean) {
-    select(path);
     if (internal) {
       setExpanded(path, !open);
       return;
     }
+    select(path);
     if (browse.selected(browseState)?.kind === "leaf") {
       focusEditor();
     }
   }
 
-  function navigateBrowseTree(path: string, direction: NavDirection, step?: number): string {
+  function navigateBrowseTree(
+    path: string,
+    direction: NavDirection,
+    step?: number,
+  ): string {
     const next = browse.navigate(browseState, path, direction, step);
     browseState = next.state;
     return next.path;
   }
 
-  function commitSettings({ settings: nextSettings, changed, activity, rev }: SettingsCommit) {
-    const commit = browse.commitSettings(browseState, { settings: nextSettings, changed, activity, rev });
+  function commitSettings({
+    settings: nextSettings,
+    touched,
+    activity,
+    rev,
+  }: SettingsCommit) {
+    if (logOpen && activity.size) {
+      // First observations establish a value; they do not demonstrate a change.
+      const changed = [...activity].filter(
+        (path) =>
+          browseState.settings.has(path) &&
+          browseState.settings.get(path) !== nextSettings.get(path),
+      ).length;
+      log("settings", `${changed} changed · ${activity.size} observed`);
+    }
+    const commit = browse.commitSettings(browseState, {
+      settings: nextSettings,
+      touched,
+      activity,
+      rev,
+    });
     browseState = commit.state;
     settingsRevision = commit.rev ?? settingsRevision;
-    const at = Date.now();
-    treeActivity = new Map([
-      ...treeActivity,
-      ...[...commit.cues].map((path) => [path, { at }] as const),
-    ]);
-    if (changed.size) {
-      log("commit", `${changed.size} changed`);
-    }
+    treeActivity = updateActivity(treeActivity, commit.cues, browseState.tree);
   }
 
-  function resetBrowseState() {
-    discoverySession?.close();
-    prefixSession?.close();
-    discoverySession = undefined;
-    prefixSession = undefined;
+  function resetBrowseState(preserve = false) {
+    // Invalidate captured route signals before closing can invoke callbacks.
+    connectionAbort.abort();
+    connectionAbort = new AbortController();
+    session?.close();
+    session = undefined;
+    deviceReady = false;
     aliveManifest = undefined;
     settingsRevision = "";
-    browseState = browse.emptyState();
+    pruning = {
+      count: 0,
+      coverageWarning: "",
+    };
+    browseState = preserve
+      ? browse.commitSettings(browseState, {
+          settings: new Map(),
+          touched: new Set(browseState.settings.keys()),
+          activity: new Set(),
+        }).state
+      : browse.emptyState();
+    actions = { pending: new Set() };
+    editorError = undefined;
     treeActivity = new Map();
   }
 
   function showDiscoveryIdle() {
     error = "";
-    resetBrowseState();
     activePrefix = "";
     discoveredPrefixes = [];
-    setStatus("Idle");
+    setStatus({ state: "idle" });
   }
 
   function loadSchema(nextSchema: Schema, root: string) {
@@ -156,6 +280,7 @@
       ? browseState
       : browseMemory.get(JSON.stringify([broker, activePrefix, root]));
     browseState = browse.loadSchema(browseState, nextSchema, root, memory);
+    treeActivity = updateActivity(treeActivity, [], browseState.tree);
     subtreePath = browseState.root;
     syncUrl();
   }
@@ -164,176 +289,238 @@
     eventLog.add(logOpen, event, detail);
   }
 
-  function setStatus(next: string, nextError = "") {
-    error = nextError;
-    if (next === status) return;
-    status = next;
-    log("status", next);
+  function setStatus(next: SessionStatus) {
+    const detail = "error" in next ? next.error : "";
+    if (connection.state === next.state && error === detail) return;
+    connection = next;
+    error = detail;
+    log("status", next.state);
   }
 
   function discover() {
     try {
-      navigate(discoveryPath(broker, discoveryPattern));
+      let path = discoveryPath(formBroker.trim(), formPattern);
+      const nextBroker = readRoute({ hash: path }).broker;
+      if (connectionPrompt && activePrefix && nextBroker === broker)
+        path = browsePath(nextBroker, activePrefix, subtreePath, formPattern);
+      credentials = {
+        broker: nextBroker,
+        username,
+        password,
+      };
+      navigate(path);
     } catch (err) {
-      setStatus("Invalid broker", err instanceof Error ? err.message : String(err));
+      error = err instanceof Error ? err.message : String(err);
     }
   }
 
-  async function startDiscovery(serial: number) {
+  async function connectRoute() {
+    const signal = connectionAbort.signal;
+    const auth = credentials;
     error = "";
-    setStatus("Connecting");
-    resetBrowseState();
-    activePrefix = "";
+    connectionNotice = "";
+    setStatus({ state: "connecting" });
     discoveredPrefixes = [];
     syncUrl();
+    const options = { auth, signal };
     try {
-      const next = await DiscoverySession.connect(
-        broker,
-        discoveryPattern,
-        {
-          prefixes: (prefixes) => {
-            if (serial !== routeSerial) return;
-            discoveredPrefixes = prefixes;
-            setStatus(`${prefixes.length} matching prefix${prefixes.length === 1 ? "" : "es"}`);
+      let next: DiscoverySession | PrefixSession;
+      if (activePrefix) {
+        next = await PrefixSession.connect(
+          broker,
+          activePrefix,
+          subtreePath,
+          {
+            alive: (next) => {
+              if (signal.aborted) {
+                return;
+              }
+              aliveManifest = next;
+              if (!next) {
+                settingsRevision = "";
+                if (!actions.result?.failed) actions.result = undefined;
+              }
+            },
+            schema: (nextSchema, root) => {
+              if (!signal.aborted) {
+                loadSchema(nextSchema, root);
+              }
+            },
+            settings: (commit) => {
+              if (!signal.aborted) {
+                commitSettings(commit);
+              }
+            },
+            pruning: (next) => {
+              if (!signal.aborted) pruning = next;
+            },
+            status: (next, ready) => {
+              if (signal.aborted) {
+                return;
+              }
+              deviceReady = ready;
+              setStatus(next);
+            },
           },
-          error: (message) => {
-            if (serial !== routeSerial) return;
-            error = message;
-            log("error", message);
+          options,
+        );
+      } else {
+        next = await DiscoverySession.connect(
+          broker,
+          discoveryPattern,
+          {
+            prefixes: (prefixes) => {
+              if (!signal.aborted) discoveredPrefixes = prefixes;
+            },
+            status: (next) => {
+              if (!signal.aborted) setStatus(next);
+            },
           },
-          status: (nextStatus) => {
-            if (serial === routeSerial) setStatus(nextStatus);
-          },
-        },
-        username || password ? { username, password } : undefined,
-      );
-      if (serial !== routeSerial) {
+          options,
+        );
+      }
+      if (signal.aborted) {
         next.close();
         return;
       }
-      discoverySession = next;
+      session = next;
+      if (!rememberAuth(broker, auth) && (auth?.username || auth?.password))
+        connectionNotice =
+          "Credentials will not survive reload: browser storage unavailable";
     } catch (err) {
-      if (serial !== routeSerial) {
+      if (signal.aborted) {
         return;
       }
       error = err instanceof Error ? err.message : String(err);
-      setStatus("Error", error);
+      setStatus({ state: "failed", error });
       log("error", error);
     }
   }
 
-  async function startBrowse(serial: number) {
-    error = "";
-    setStatus("Connecting");
-    resetBrowseState();
+  async function perform(
+    action: Action,
+    operation: (session: PrefixSession) => Promise<ActionResult>,
+    path?: string,
+  ): Promise<boolean> {
+    if (
+      !(session instanceof PrefixSession) ||
+      !deviceReady ||
+      actions.pending.has(action)
+    )
+      return false;
+    const current = session;
+    const signal = connectionAbort.signal;
+    actions = { pending: new Set([...actions.pending, action]) };
+    let result: ActionResult;
     try {
-      const next = await PrefixSession.connect(broker, activePrefix, subtreePath, {
-        error: (message) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          error = message;
-          log("error", message);
-        },
-        alive: (next) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          aliveManifest = next;
-        },
-        response: (response) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          // ACK/NAK is request feedback only. Do not mirror values here; wait
-          // for the authoritative /settings publication handled below.
-          const responseError = response.ok ? "" : `${response.code}: ${response.message}`;
-          setStatus(
-            response.ok
-              ? `Set accepted for ${displayPath(response.path)}`
-              : `Set rejected for ${displayPath(response.path)}`,
-            responseError,
-          );
-          log("response", `${response.code} ${displayPath(response.path)}`);
-        },
-        schema: (nextSchema, root) => {
-          if (serial === routeSerial) {
-            loadSchema(nextSchema, root);
-          }
-        },
-        settings: (commit) => {
-          if (serial === routeSerial) {
-            commitSettings(commit);
-          }
-        },
-        status: (next) => {
-          if (serial !== routeSerial) {
-            return;
-          }
-          setStatus(next);
-        },
-      }, username || password ? { username, password } : undefined);
-      if (serial !== routeSerial) {
-        next.close();
-        return;
-      }
-      prefixSession = next;
-    } catch (err) {
-      if (serial !== routeSerial) {
-        return;
-      }
-      error = err instanceof Error ? err.message : String(err);
-      browseRetryable = true;
-      setStatus("Error", error);
-      log("error", error);
+      result = await operation(current);
+    } catch (error) {
+      result = {
+        text: `${action}: ${error instanceof Error ? error.message : String(error)}`,
+        failed: true,
+      };
     }
+    if (signal.aborted) return false;
+    actions.pending = new Set(
+      [...actions.pending].filter((item) => item !== action),
+    );
+    // An unrelated operation completing must not dismiss an unseen failure.
+    if (!actions.result?.failed || result.failed) actions.result = result;
+    log(
+      action.toLowerCase(),
+      (path === undefined
+        ? result.text
+        : `${displayPath(path)}: ${result.text}`) +
+        (result.responseMs === undefined
+          ? ""
+          : ` · ${Math.round(result.responseMs)} ms`),
+    );
+    return !result.failed;
   }
 
   async function submit() {
-    if (!prefixSession || !selected || selected.kind !== "leaf") {
+    if (!canSet || !selected) return;
+    const path = selected.path;
+    actions.result = undefined;
+    try {
+      JSON.parse(editor);
+    } catch (err) {
+      editorError = {
+        path,
+        text: editor,
+        message: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      };
       return;
     }
-    let value: unknown;
-    try {
-      value = browse.parseEditor(browseState);
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      log("error", error);
-      return;
+    const succeeded = await perform(
+      "Set",
+      async (session) => {
+        const response = await session.set(path, editor);
+        return {
+          failed: !response.ok,
+          responseMs: response.responseMs,
+          text: response.ok
+            ? "Set succeeded"
+            : response.kind === "publish"
+              ? `Set: value may have changed — publication failed. ${response.message}`
+              : `Set failed: ${response.message || response.code}`,
+        };
+      },
+      path,
+    );
+    if (succeeded && browseState.selectedPath === path) {
+      browseState = browse.loadEditor(browseState);
+      editorError = undefined;
     }
-    error = "";
-    try {
-      await prefixSession.set(selected.path, value);
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err);
-      setStatus("Set failed", error);
-      log("error", error);
-    }
+  }
+
+  function prune() {
+    void perform("Prune", async (session) => {
+      const result = await session.prune();
+      return {
+        failed: result.error !== undefined,
+        text:
+          result.error === undefined
+            ? `Cleared ${result.cleared}`
+            : `Cleared ${result.cleared}; pruning interrupted, remaining outcome unknown. ${result.error}`,
+      };
+    });
   }
 
   function applyRoute() {
     const next = readRoute(location);
+    if (broker !== next.broker) rememberAuth();
+    connectionNotice = "";
     if (browseState.schema && activePrefix) {
-      browseMemory.set(JSON.stringify([broker, activePrefix, browseState.root]), {
-        expanded: new Set(browseState.expanded),
-        selectedPath: browseState.selectedPath,
-        userClosed: new Set(browseState.userClosed),
-      });
+      browse.rememberRoute(
+        browseMemory,
+        JSON.stringify([broker, activePrefix, browseState.root]),
+        browseState,
+      );
     }
-    // Route changes cancel the old session; the serial also rejects callbacks
-    // from an initial connection that completed after navigation.
-    const serial = ++routeSerial;
-    browseRetryable = false;
+    const preserve =
+      next.page === "browse" &&
+      next.broker === broker &&
+      next.activePrefix === activePrefix &&
+      next.subtreePath === subtreePath;
+    resetBrowseState(preserve);
+    if (credentials?.broker !== next.broker) {
+      credentials = undefined;
+      username = "";
+      password = "";
+    }
+    formBroker = next.broker;
+    formPattern = next.discoveryPattern;
     broker = next.broker;
     discoveryPattern = next.discoveryPattern;
     activePrefix = next.activePrefix;
     subtreePath = next.subtreePath;
-    if (next.page === "browse") {
-      void startBrowse(serial);
-    } else if (next.page === "discover") {
-      void startDiscovery(serial);
-    } else {
+    if (next.page === "landing") {
       showDiscoveryIdle();
+    } else if (!credentials && history.state?.credentialBroker === broker) {
+      setStatus({ state: "credentials" });
+    } else {
+      void connectRoute();
     }
   }
 
@@ -342,8 +529,8 @@
     applyRoute();
     return () => {
       removeEventListener("hashchange", applyRoute);
-      discoverySession?.close();
-      prefixSession?.close();
+      connectionAbort.abort();
+      session?.close();
     };
   });
 </script>
@@ -351,16 +538,18 @@
 <main>
   {#if mode === "discover"}
     <DiscoveryView
-      bind:broker
-      bind:discoveryPattern
+      bind:broker={formBroker}
+      bind:discoveryPattern={formPattern}
       bind:username
       bind:password
       {discoveredPrefixes}
-      {status}
+      watching={connection.state === "watching"}
+      status={[status, connectionNotice].filter(Boolean).join(" · ")}
       {error}
       bind:logOpen
       {logLines}
       {discover}
+      submitLabel={connectionPrompt && activePrefix ? "Reconnect" : "Discover"}
       {browseHref}
     />
   {:else}
@@ -371,23 +560,29 @@
       {subtreePath}
       {aliveManifest}
       {settingsRevision}
-      {status}
-      {error}
-      retryable={browseRetryable}
-      treeNodes={browseState.tree.nodeViews}
+      status={browseStatus}
+      retryable={connection.state === "failed" ||
+        connection.state === "device-error"}
+      treeNodes={browseState.tree}
       selectedPath={browseState.selectedPath}
-      selected={selected}
+      {selected}
       activity={treeActivity}
       expanded={browseState.expanded}
-      editor={browseState.editor}
-      editorDirty={browseState.editorDirty}
-      editorStale={browseState.editorStale}
+      {editor}
+      {editorDirty}
+      editorError={editorError?.path === browseState.selectedPath &&
+      editorError.text === editor
+        ? editorError.message
+        : ""}
+      {canSet}
       bind:logOpen
       {logLines}
       treeRoot={browseState.root}
       treeActions={{
-        activate: (node, internal, open) => activateBrowseTree(node.path, internal, open),
-        key: (node, direction, step) => navigateBrowseTree(node.path, direction, step),
+        activate: (node, internal, open) =>
+          activateBrowseTree(node.path, internal, open),
+        key: (node, direction, step) =>
+          navigateBrowseTree(node.path, direction, step),
         open: setExpanded,
         select: (path) => select(path),
       }}
@@ -398,6 +593,9 @@
         browseState = browse.loadEditor(browseState);
       }}
       retry={applyRoute}
+      {pruning}
+      canPrune={deviceReady && !actions.pending.has("Prune")}
+      {prune}
     />
   {/if}
 </main>

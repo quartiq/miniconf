@@ -1,71 +1,39 @@
-import type { FlatTreeNode } from "./tree-navigation";
 import type { TreeNodeView } from "./tree-view";
 
 type PrefixEntry = {
   prefix: string;
 };
 
-export type DiscoveryNode = {
-  path: string;
-  label: string;
-  parent?: string;
-  prefix?: string;
-  children: string[];
-};
-
-export function discoveryTree(prefixes: PrefixEntry[]): Map<string, DiscoveryNode> {
-  const nodes = new Map<string, DiscoveryNode>([
+export function discoveryTree(
+  prefixes: PrefixEntry[],
+  browseHref: (prefix: string) => string,
+): Map<string, TreeNodeView> {
+  const nodes = new Map<string, TreeNodeView>([
     ["", { path: "", label: "prefixes", children: [] }],
   ]);
 
-  function ensure(path: string, label: string, parent?: string): DiscoveryNode {
-    let node = nodes.get(path);
-    if (!node) {
-      node = { path, label, ...(parent === undefined ? {} : { parent }), children: [] };
-      nodes.set(path, node);
-    }
-    return node;
-  }
-
   for (const discovered of prefixes) {
-    let parent = "";
+    let parent = nodes.get("")!;
     for (const segment of discovered.prefix.split("/")) {
-      const path = parent ? `${parent}/${segment}` : segment;
-      const node = ensure(path, segment, parent);
-      const parentNode = ensure(parent, parent ? parent.split("/").at(-1)! : "prefixes");
-      if (!parentNode.children.includes(path)) {
-        parentNode.children.push(path);
+      // Row keys add one slash to the literal MQTT prefix. This distinguishes
+      // the synthetic root from an empty first level; wire topics stay unchanged.
+      const path = `${parent.path}/${segment}`;
+      let node = nodes.get(path);
+      if (!node) {
+        node = {
+          path,
+          label: segment || '""',
+          title: path.slice(1) || '""',
+          parent: parent.path,
+          children: [],
+        };
+        nodes.set(path, node);
+        parent.children.push(path);
       }
-      parent = node.path;
+      parent = node;
     }
-    nodes.get(parent)!.prefix = discovered.prefix;
+    parent.href = browseHref(discovered.prefix);
   }
 
   return nodes;
-}
-
-export function flatDiscoveryNodes(nodes: Map<string, DiscoveryNode>): Map<string, FlatTreeNode> {
-  return new Map([...nodes].map(([path, node]) => [
-    path,
-    {
-      path,
-      ...(node.parent === undefined ? {} : { parent: node.parent }),
-      children: node.children,
-    },
-  ]));
-}
-
-export function discoveryTreeView(
-  nodes: Map<string, DiscoveryNode>,
-  browseHref: (prefix: string) => string,
-): Map<string, TreeNodeView> {
-  return new Map([...nodes].map(([path, node]) => [
-    path,
-    {
-      path,
-      label: node.label,
-      href: node.prefix ? browseHref(node.prefix) : undefined,
-      children: node.children,
-    },
-  ]));
 }

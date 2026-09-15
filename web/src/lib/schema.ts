@@ -65,21 +65,28 @@ export class Schema {
   }
 
   node(path = ""): SchemaNode {
-    const normalized = this.path(path);
-    const { id, childRef } = this.resolve(normalized);
+    const normalized = validatePath(path);
+    const ref = this.resolve(normalized);
+    return this.nodeFrom(normalized, ref, this.childEntries(refId(ref)));
+  }
+
+  private nodeFrom(
+    path: string,
+    ref: CompactRef,
+    entries: { name: string; ref: CompactRef }[],
+  ): SchemaNode {
+    const id = refId(ref);
     const def = this.defs[id];
-    const children = this.childEntries(normalized, id).map(({ name, ref }) => ({
+    const children = entries.map(({ name, ref }) => ({
       name,
-      path: normalized ? `${normalized}/${name}` : `/${name}`,
+      path: `${path}/${name}`,
       ...(refMeta(ref) === undefined ? {} : { edge: refMeta(ref) }),
     }));
     return {
-      path: normalized,
+      path,
       kind: this.kindFor(def),
       ...(def.m === undefined ? {} : { node: def.m }),
-      ...(childRef === undefined || refMeta(childRef) === undefined
-        ? {}
-        : { edge: refMeta(childRef) }),
+      ...(refMeta(ref) === undefined ? {} : { edge: refMeta(ref) }),
       ...(def.s === undefined ? {} : { sem: def.s }),
       children,
     };
@@ -90,36 +97,55 @@ export class Schema {
   }
 
   walk(path = ""): SchemaNode[] {
-    const root = this.node(path);
-    return [root, ...root.children.flatMap((child) => this.walk(child.path))];
+    const nodes: SchemaNode[] = [];
+    const visit = (path: string, ref: CompactRef) => {
+      const id = refId(ref);
+      if (id < 0 || id >= this.defs.length) {
+        throw new Error(`Invalid schema reference ${id} in ${path}`);
+      }
+      const entries = this.childEntries(id);
+      const node = this.nodeFrom(path, ref, entries);
+      nodes.push(node);
+      entries.forEach(({ ref }, index) =>
+        visit(node.children[index].path, ref),
+      );
+    };
+    visit(validatePath(path), this.resolve(path));
+    return nodes;
   }
 
-  kind(path = ""): SchemaKind {
-    return this.node(path).kind;
-  }
-
-  private resolve(path: string): { id: number; childRef?: CompactRef } {
+  private resolve(path: string): CompactRef {
     let id = this.root;
-    let childRef: CompactRef | undefined;
-    if (!path) {
-      return { id };
-    }
+    let ref: CompactRef = id;
+    if (!path) return ref;
     for (const part of path.slice(1).split("/")) {
-      const entries = this.childEntries(path, id);
-      const entry = entries.find((candidate) => candidate.name === part);
-      if (!entry) {
+      const internal = this.defs[id].i;
+      let child: CompactRef | undefined;
+      if (internal?.k === "n") {
+        if (Object.hasOwn(internal.c, part)) child = internal.c[part];
+      } else if (internal) {
+        if (internal.k !== "d" && internal.k !== "h") {
+          throw new Error("Unknown schema kind");
+        }
+        const index = Number(part);
+        if (Number.isInteger(index) && index >= 0 && String(index) === part) {
+          if (internal.k === "d") child = internal.c[index];
+          else if (internal.k === "h" && index < internal.l) child = internal.c;
+        }
+      }
+      if (child === undefined) {
         throw new Error(`Unknown schema path: ${path}`);
       }
-      childRef = entry.ref;
-      id = refId(entry.ref);
+      ref = child;
+      id = refId(ref);
       if (id < 0 || id >= this.defs.length) {
         throw new Error(`Invalid schema reference ${id} in ${path}`);
       }
     }
-    return { id, childRef };
+    return ref;
   }
 
-  private childEntries(_path: string, id: number): { name: string; ref: CompactRef }[] {
+  private childEntries(id: number): { name: string; ref: CompactRef }[] {
     const internal = this.defs[id].i;
     if (!internal) {
       return [];
@@ -169,44 +195,52 @@ export function displayPath(path: string): string {
   return path || "(root)";
 }
 
-function segment(path: string): string {
-  if (!path) return "";
-  return path.split("/").at(-1) || '\"\"';
-}
-
-function formatMetadataValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  return JSON.stringify(value) ?? String(value);
-}
-
-function metadataLines(prefix: string, value: unknown): string[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [`${prefix} ${formatMetadataValue(value)}`];
-  }
-  const lines: string[] = [];
-  for (const [key, item] of Object.entries(value)) {
-    const text = formatMetadataValue(item);
-    if (text.includes("\n")) {
-      lines.push(`${prefix} ${key}:`);
-      lines.push(...text.split(/\r?\n/).map((line) => `  ${line}`));
-    } else {
-      lines.push(item === true ? `${prefix} ${key}` : `${prefix} ${key}=${text}`);
-    }
-  }
-  return lines.length ? lines : [prefix];
-}
-
 export function formatSchemaName(node: SchemaNode): string {
-  return segment(node.path);
+  return node.path.split("/").at(-1) || '\"\"';
 }
 
-export function formatSchemaMetadata(node: SchemaNode): string {
+export function schemaSummary(node: SchemaNode): string {
+  const parts: string[] = node.kind === "leaf" ? [] : [node.kind];
+  // Only Sem fields defined by Rust carry portable meaning. Other metadata is opaque.
+  if (node.sem && typeof node.sem === "object" && !Array.isArray(node.sem)) {
+    const sem = node.sem as Record<string, unknown>;
+    if (
+      typeof sem.ty === "string" &&
+      /^(bool|[iu](8|16|32|64|128|size)|f(32|64)|str)$/.test(sem.ty)
+    )
+      parts.push(sem.ty);
+    if (sem.oneof === true) parts.push("mutually exclusive children");
+    if (sem.maybe_absent === true) parts.push("may be absent");
+  }
+  return parts.join(" · ");
+}
+
+export function schemaTooltip(node: SchemaNode): string {
+  const sections: [string, unknown][] = [
+    ["Semantics", node.sem],
+    ["Edge metadata", node.edge],
+    ["Node metadata", node.node],
+  ];
   return [
-    ...metadataLines("kind", node.kind),
-    ...(node.sem === undefined ? [] : metadataLines("sem", node.sem)),
-    ...(node.edge === undefined ? [] : metadataLines("edge", node.edge)),
-    ...(node.node === undefined ? [] : metadataLines("node", node.node)),
-  ].join("\n");
+    displayPath(node.path),
+    schemaSummary(node),
+    ...sections.flatMap(([label, value]) => {
+      if (value === undefined) return [];
+      const entries =
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.keys(value).length
+          ? Object.entries(value)
+          : [[null, value]];
+      return [
+        `${label}:\n${entries
+          .map(
+            ([key, item]) =>
+              `${key === null ? "" : `${key || '""'}: `}${typeof item === "string" ? item : JSON.stringify(item)}`,
+          )
+          .join("\n")}`,
+      ];
+    }),
+  ].join("\n\n");
 }

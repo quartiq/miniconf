@@ -1,18 +1,20 @@
-import type { NavDirection } from "./tree-navigation";
+import type { FlatTreeNode, NavDirection } from "./tree-navigation";
 
 // Shared tree contract for discovery and browsing. Row clicks select only;
 // caret/keyboard own folding, and view-specific activation is optional.
-export type TreeNodeView = {
-  path: string;
+export type TreeNodeView = FlatTreeNode & {
   label: string;
+  summary?: string;
+  title?: string;
   value?: string;
   href?: string;
-  children: string[];
 };
 
 export type TreeActivity = {
   at: number;
 };
+
+export const ACTIVITY_DURATION_MS = 1000;
 
 export type TreeActions = {
   activate?: (node: TreeNodeView, internal: boolean, open: boolean) => void;

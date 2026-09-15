@@ -1,11 +1,10 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { discoveryTree, discoveryTreeView, flatDiscoveryNodes } from "./lib/discovery-tree";
+  import { discoveryTree } from "./lib/discovery-tree";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import {
     movePath,
-    toggleExpansion,
     visibleTreePaths,
     type NavDirection,
   } from "./lib/tree-navigation";
@@ -19,10 +18,12 @@
     password?: string;
     discoveredPrefixes: { prefix: string }[];
     status: string;
+    watching: boolean;
     error: string;
     logOpen?: boolean;
     logLines: string[];
     discover: () => void;
+    submitLabel?: string;
     browseHref: (prefix: string) => string;
   };
 
@@ -33,35 +34,26 @@
     password = $bindable(""),
     discoveredPrefixes,
     status,
+    watching,
     error,
     logOpen = $bindable(false),
     logLines,
     discover,
+    submitLabel = "Discover",
     browseHref,
   }: Props = $props();
 
-  let expanded = $state(new Set([""]));
   let selectedPath = $state("");
   let userClosed = $state(new Set<string>());
-  let prefixKey = $state("");
-  let nodes = $derived(discoveryTree(discoveredPrefixes));
-  let treeNodes = $derived(discoveryTreeView(nodes, browseHref));
-  let flatNodes = $derived(flatDiscoveryNodes(nodes));
-  let visiblePaths = $derived(visibleTreePaths("", flatNodes, expanded));
-  let nextPrefixKey = $derived(discoveredPrefixes.map((prefix) => prefix.prefix).sort().join("\n"));
-
-  $effect(() => {
-    if (nextPrefixKey === prefixKey) {
-      return;
-    }
-    prefixKey = nextPrefixKey;
-    expanded = new Set([
-      ...expanded,
-      ...[...nodes.values()]
+  let treeNodes = $derived(discoveryTree(discoveredPrefixes, browseHref));
+  let expanded = $derived(
+    new Set(
+      [...treeNodes.values()]
         .filter((node) => node.children.length && !userClosed.has(node.path))
         .map((node) => node.path),
-    ]);
-  });
+    ),
+  );
+  let visiblePaths = $derived(visibleTreePaths("", treeNodes, expanded));
 
   $effect(() => {
     if (!visiblePaths.includes(selectedPath)) {
@@ -74,23 +66,22 @@
   }
 
   function setExpanded(path: string, open: boolean) {
-    ({ expanded, userClosed } = toggleExpansion(expanded, userClosed, path, open));
+    userClosed = new Set(userClosed);
+    if (open) userClosed.delete(path);
+    else userClosed.add(path);
   }
 
-  function navigateTree(path: string, direction: NavDirection, step?: number): string {
-    const next = movePath(visiblePaths, path, direction, flatNodes, step);
+  function navigateTree(
+    path: string,
+    direction: NavDirection,
+    step?: number,
+  ): string {
+    const next = movePath(visiblePaths, path, direction, treeNodes, step);
     selectedPath = next;
     return next;
   }
 
   let treeActions = $derived({
-    activate: (node: TreeNodeView, internal: boolean, open: boolean) => {
-      if (node.href) {
-        location.href = node.href;
-      } else if (internal) {
-        setExpanded(node.path, !open);
-      }
-    },
     key: (node: TreeNodeView, direction: NavDirection, step?: number) => {
       return navigateTree(node.path, direction, step);
     },
@@ -100,6 +91,12 @@
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
+    // Autofill may update visible fields without input events. Submit their values.
+    const data = new FormData(event.currentTarget as HTMLFormElement);
+    broker = data.get("broker") as string;
+    discoveryPattern = data.get("discovery-pattern") as string;
+    username = data.get("username") as string;
+    password = data.get("password") as string;
     discover();
   }
 </script>
@@ -108,7 +105,7 @@
   <section class="connection panel" aria-labelledby="connect-title">
     <header>
       <h1 id="connect-title">Miniconf Browser</h1>
-      <p>Connect to a broker and discover device prefixes.</p>
+      <p>Discover and inspect Miniconf devices on an MQTT broker.</p>
     </header>
     <form autocomplete="on" onsubmit={submit}>
       <label class="broker">
@@ -124,7 +121,15 @@
       </label>
       <label class="pattern">
         Discovery filter
-        <input bind:value={discoveryPattern} name="discovery-pattern" />
+        <input
+          bind:value={discoveryPattern}
+          name="discovery-pattern"
+          aria-describedby="filter-help"
+        />
+        <span id="filter-help" class="meta"
+          >Prefix filter; /alive is appended. Use + for one level; # is
+          unsupported.</span
+        >
       </label>
       <label>
         Username
@@ -132,26 +137,35 @@
       </label>
       <label>
         Password
-        <input autocomplete="current-password" bind:value={password} name="password" type="password" />
+        <input
+          autocomplete="current-password"
+          bind:value={password}
+          name="password"
+          type="password"
+        />
       </label>
-      <button type="submit">Discover</button>
+      <button type="submit">{submitLabel}</button>
     </form>
     <StatusLog {status} {error} bind:open={logOpen} {logLines} live />
   </section>
 
-  {#if discoveredPrefixes.length}
+  {#if discoveredPrefixes.length || watching}
     <section class="prefixes panel" aria-labelledby="prefix-title">
       <header class="section-heading">
-        <h2 id="prefix-title">Prefixes</h2>
+        <h2 id="prefix-title">Devices</h2>
         <span class="meta">{discoveredPrefixes.length} found</span>
       </header>
       <TreeView
+        label="Devices"
         root=""
         nodes={treeNodes}
         {selectedPath}
         {expanded}
         actions={treeActions}
       />
+      {#if !discoveredPrefixes.length}
+        <p class="meta">No matching devices announced.</p>
+      {/if}
     </section>
   {/if}
 </section>
@@ -175,7 +189,9 @@
   }
 
   form {
+    align-items: start;
     display: grid;
+    gap: var(--space);
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

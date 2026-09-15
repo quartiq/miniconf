@@ -1,14 +1,25 @@
-import type { IClientPublishOptions, IPublishPacket, ISubscriptionMap } from "mqtt";
-import { MqttSession, type MqttAuth, type MqttMessage, type MqttSessionStatus } from "./mqtt-session";
+import type {
+  IClientPublishOptions,
+  IPublishPacket,
+  ISubscriptionMap,
+} from "mqtt";
+import {
+  MqttSession,
+  type ConnectOptions,
+  type MqttMessage,
+  type MqttSessionStatus,
+} from "./mqtt-session";
 import { randomId } from "./random-id";
-import { displayPath, Schema, subtreeMatch, type CompactDef } from "./schema";
+import { staleTopic } from "./prune";
+import { Schema, subtreeMatch, type CompactDef } from "./schema";
 import { SettingsMirror, type SettingsCommit } from "./settings-mirror";
 
 const MINICONF_MQTT_PROTO = 1;
 const SCHEMA_TIMEOUT_MS = 10_000;
 const SET_TIMEOUT_MS = 3000;
 const RETAINED = { qos: 1, rap: true, rh: 0 } as const;
-const LIVE = { qos: 1, rap: false, rh: 2 } as const;
+// Preserve retain even on the exact reply filter: it overlaps cleanup observation.
+const LIVE = { qos: 1, rap: true, rh: 2 } as const;
 
 export type AliveManifest = {
   proto: number;
@@ -26,26 +37,47 @@ export type SetResponse = {
   path: string;
   ok: boolean;
   code: string;
+  kind?: string;
   message: string;
+  // Submission to the correlated device response, measured with a monotonic clock.
+  responseMs: number;
 };
+
+export type SessionStatus =
+  | MqttSessionStatus
+  | { state: "device-error"; error: string }
+  | {
+      state:
+        | "idle"
+        | "credentials"
+        | "connecting"
+        | "waiting"
+        | "loading"
+        | "watching";
+    };
 
 export type DiscoverySessionCallbacks = {
   prefixes: (prefixes: DiscoveredPrefix[]) => void;
-  error: (error: string) => void;
-  status: (status: string) => void;
+  status: (status: SessionStatus) => void;
 };
 
 export type PrefixSessionCallbacks = {
-  error: (error: string) => void;
   alive: (alive: AliveManifest | undefined) => void;
-  response: (response: SetResponse) => void;
   schema: (schema: Schema, root: string) => void;
   settings: (commit: SettingsCommit) => void;
-  status: (status: string) => void;
+  status: (status: SessionStatus, ready: boolean) => void;
+  pruning?: (state: PruningState) => void;
+};
+
+export type PruningState = {
+  count: number;
+  coverageWarning: string;
 };
 
 type PendingResponse = {
+  abort: AbortController;
   path: string;
+  startedAt: number;
   resolve: (response: SetResponse) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof globalThis.setTimeout>;
@@ -69,10 +101,12 @@ export class DiscoverySession {
     broker: string,
     pattern: string,
     callbacks: DiscoverySessionCallbacks,
-    auth?: Partial<MqttAuth>,
+    options: ConnectOptions = {},
   ): Promise<DiscoverySession> {
     if (pattern.split("/").includes("#")) {
-      throw new Error("Discovery filter cannot contain #; it must leave room for /alive");
+      throw new Error(
+        "Discovery filter cannot contain #; it must leave room for /alive",
+      );
     }
     const session = new DiscoverySession(pattern, callbacks);
     const filter = `${pattern}/alive`;
@@ -84,9 +118,12 @@ export class DiscoverySession {
         reset: () => session.reset(),
         status: (status) => session.noteStatus(status),
       },
-      auth,
-    );
-    callbacks.status("Watching discovery");
+      options,
+    ).catch((error) => {
+      session.close();
+      throw error;
+    });
+    callbacks.status({ state: "watching" });
     return session;
   }
 
@@ -116,28 +153,35 @@ export class DiscoverySession {
       }
     }
     this.callbacks.prefixes(
-      [...this.found].map(([foundPrefix, alive]) => ({ prefix: foundPrefix, aliveManifest: alive })),
+      [...this.found].map(([foundPrefix, alive]) => ({
+        prefix: foundPrefix,
+        aliveManifest: alive,
+      })),
     );
   }
 
   private noteStatus(status: MqttSessionStatus): void {
-    switch (status.state) {
-      case "connected": this.callbacks.status("Watching discovery"); break;
-      case "restoring": this.callbacks.status("Broker reconnected; restoring discovery"); break;
-      case "reconnecting": this.callbacks.status("Broker reconnecting"); break;
-      case "offline": this.callbacks.status("Broker disconnected"); break;
-      case "error":
-        this.callbacks.status("Broker connection error");
-        this.callbacks.error(status.error);
-        break;
-    }
+    this.callbacks.status(
+      status.state === "connected" ? { state: "watching" } : status,
+    );
   }
 }
 
 export class PrefixSession {
+  private readonly stale = new Set<string>();
+  private pruneAbort = new AbortController();
+  private pruning = false;
+  private pruneCoverageWarning = "";
   private mqtt: MqttSession | undefined;
   private alive: AliveManifest | undefined;
+  // Initial subscription callbacks can invalidate observations before mqtt is assigned.
+  private deferredReplay = false;
   private schema: Schema | undefined;
+  private deviceError: string | undefined;
+  private readonly waitingSettings = new Map<
+    string,
+    { text: string | undefined; rev?: string }
+  >();
   private readonly pages = new Map<number, Uint8Array>();
   private readonly pending = new Map<string, PendingResponse>();
   private schemaTimer: ReturnType<typeof globalThis.setTimeout> | undefined;
@@ -158,7 +202,7 @@ export class PrefixSession {
     prefix: string,
     subtreePath: string,
     callbacks: PrefixSessionCallbacks,
-    auth?: Partial<MqttAuth>,
+    options: ConnectOptions = {},
   ): Promise<PrefixSession> {
     const root = miniconfPath(subtreePath, "Subtree path");
     const session = new PrefixSession(prefix, root, callbacks);
@@ -175,27 +219,59 @@ export class PrefixSession {
         message: (message) => session.handle(message),
         reset: () => session.clearRetained(),
         status: (status) => session.noteStatus(status),
+        subscriptions: (rejected) => {
+          session.pruneCoverageWarning = rejected.length
+            ? `Some topic namespaces could not be observed: ${rejected.join(", ")}`
+            : "";
+          session.reportPruning();
+        },
       },
-      auth,
-    );
-    session.showProgress();
+      {
+        ...options,
+        optionalSubscriptions: {
+          [`${prefix}/settings/#`]: RETAINED,
+          [`${prefix}/set/#`]: RETAINED,
+          [`${prefix}/response/#`]: RETAINED,
+        },
+      },
+    ).catch((error) => {
+      session.close();
+      throw error;
+    });
+    if (session.deferredReplay) {
+      session.deferredReplay = false;
+      void session.mqtt.refresh();
+    } else session.showProgress();
     return session;
   }
 
-  async set(path: string, value: unknown, timeout = SET_TIMEOUT_MS): Promise<SetResponse> {
-    if (!this.ready()) throw new Error("Settings are not ready");
+  async set(
+    path: string,
+    payload: string,
+    timeout = SET_TIMEOUT_MS,
+  ): Promise<SetResponse> {
+    if (!this.ready) throw new Error("Settings are not ready");
     const settingsPath = miniconfPath(path);
-    const payload = JSON.stringify(value);
-    if (payload === undefined) throw new Error("Set value must be JSON-serializable");
+    JSON.parse(payload);
     const correlation = randomCorrelation();
     const key = bytesKey(correlation);
-    this.callbacks.status(`Setting ${displayPath(settingsPath)}`);
 
     return await new Promise<SetResponse>((resolve, reject) => {
       const timer = globalThis.setTimeout(() => {
-        this.reject(key, pending, new Error("Timed out waiting for set response"));
+        this.reject(
+          key,
+          pending,
+          new Error("Set response timed out; outcome unknown"),
+        );
       }, timeout);
-      const pending = { path: settingsPath, resolve, reject, timer };
+      const pending = {
+        path: settingsPath,
+        startedAt: performance.now(),
+        resolve,
+        reject,
+        timer,
+        abort: new AbortController(),
+      };
       this.pending.set(key, pending);
       const options: IClientPublishOptions = {
         qos: 1,
@@ -206,23 +282,35 @@ export class PrefixSession {
           messageExpiryInterval: Math.max(1, Math.ceil(timeout / 1000)),
         },
       };
-      this.mqtt!.publish(`${this.prefix}/set${settingsPath}`, payload, options).catch((error) => {
-        this.reject(key, pending, error instanceof Error ? error : new Error(String(error)));
+      this.mqtt!.publish(
+        `${this.prefix}/set${settingsPath}`,
+        payload,
+        options,
+        pending.abort.signal,
+      ).catch((error) => {
+        this.reject(
+          key,
+          pending,
+          error instanceof Error ? error : new Error(String(error)),
+        );
       });
     });
   }
 
   close(): void {
+    this.cancelOperations(
+      new Error("Prefix session closed; setting outcome unknown"),
+    );
     this.mqtt?.close();
     this.mqtt = undefined;
     this.clearSchemaTimer();
-    this.rejectPending(new Error("Prefix session closed"));
     this.mirror.dispose();
   }
 
-  private ready(): boolean {
+  get ready(): boolean {
     return Boolean(
       this.mqtt?.ready &&
+      !this.deviceError &&
       this.alive &&
       this.schema &&
       this.schema.rev === this.alive.schema_rev,
@@ -230,6 +318,21 @@ export class PrefixSession {
   }
 
   private handle(message: MqttMessage): void {
+    if (
+      message.packet.retain &&
+      staleTopic(this.prefix, undefined, message.topic)
+    ) {
+      const count = this.stale.size;
+      const schema =
+        this.alive?.schema_rev === this.schema?.rev ? this.schema : undefined;
+      if (
+        message.payload.byteLength &&
+        staleTopic(this.prefix, schema, message.topic)
+      )
+        this.stale.add(message.topic);
+      else this.stale.delete(message.topic);
+      if (this.stale.size !== count) this.reportPruning();
+    }
     if (message.topic === `${this.prefix}/alive`) {
       this.handleAlive(message);
     } else if (message.topic.startsWith(`${this.prefix}/schema/`)) {
@@ -244,35 +347,55 @@ export class PrefixSession {
   private handleAlive(message: MqttMessage): void {
     if (!message.packet.retain) return;
     if (!message.payload.byteLength) {
-      this.clearRetained();
-      this.callbacks.status("Prefix offline; waiting for alive");
+      this.requestReplay();
+      this.showProgress();
       return;
     }
     let next: AliveManifest;
     try {
       next = aliveManifest(jsonParse(message.payload));
     } catch (error) {
-      this.clearRetained(new Error("Invalid alive manifest; setting outcome unknown. Check the current value."));
-      this.callbacks.status("Invalid alive manifest");
-      this.callbacks.error(error instanceof Error ? error.message : String(error));
+      this.clearRetained(
+        new Error(
+          "Invalid alive manifest; setting outcome unknown. Check the current value.",
+        ),
+      );
+      this.deviceError = error instanceof Error ? error.message : String(error);
+      this.showProgress();
       return;
     }
+    if (
+      (!this.alive && this.deviceError) ||
+      (this.alive &&
+        (this.alive.epoch !== next.epoch ||
+          this.alive.schema_rev !== next.schema_rev))
+    ) {
+      // Recovery or a new generation needs the observations cleared earlier.
+      // Its values may have preceded the alive commit marker.
+      // Clear and replay through the existing fixed subscription owner.
+      this.requestReplay();
+      return;
+    }
+    if (!this.alive) this.deviceError = undefined;
     this.alive = next;
+    if (this.schema?.rev === next.schema_rev) this.classifyStale();
     for (const page of this.pages.keys()) {
       if (page >= next.pages) this.pages.delete(page);
     }
     this.callbacks.alive(next);
     if (this.schema?.rev !== next.schema_rev) this.startSchemaTimer();
     this.trySchema();
+    this.flushSettings();
     this.showProgress();
   }
 
   private handleSchemaPage(message: MqttMessage): void {
     if (!message.packet.retain) return;
     const suffix = message.topic.slice(`${this.prefix}/schema/`.length);
-    if (!/^\d+$/.test(suffix)) return;
+    if (!/^(0|[1-9]\d*)$/.test(suffix)) return;
     const page = Number(suffix);
-    if (!Number.isSafeInteger(page) || (this.alive && page >= this.alive.pages)) return;
+    if (!Number.isSafeInteger(page) || (this.alive && page >= this.alive.pages))
+      return;
     this.pages.set(page, new Uint8Array(message.payload));
     this.trySchema();
   }
@@ -281,106 +404,204 @@ export class PrefixSession {
     const alive = this.alive;
     if (!alive || this.schema?.rev === alive.schema_rev) return;
     if (this.pages.size < alive.pages) return;
-    const pages = Array.from({ length: alive.pages }, (_unused, index) => this.pages.get(index));
+    const pages = Array.from({ length: alive.pages }, (_unused, index) =>
+      this.pages.get(index),
+    );
     if (pages.some((page) => page === undefined)) return;
     const complete = pages as Uint8Array[];
     if (fnv1a(complete) !== alive.schema_rev) return;
     try {
       const defs = complete.flatMap((page) =>
-        decode(page).split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as CompactDef),
+        decode(page)
+          .split(/\r?\n/)
+          .filter(Boolean)
+          .map((line) => JSON.parse(line) as CompactDef),
       );
       const schema = new Schema(defs, alive.schema_rev);
       const root = schema.path(this.subtreePath);
       this.schema = schema;
+      this.classifyStale();
+      this.deviceError = undefined;
       this.clearSchemaTimer();
       this.callbacks.schema(schema, root);
+      this.flushSettings();
       this.showProgress();
     } catch (error) {
       this.clearSchemaTimer();
-      this.callbacks.status("Schema load failed");
-      this.callbacks.error(error instanceof Error ? error.message : String(error));
+      this.deviceError = error instanceof Error ? error.message : String(error);
+      this.showProgress();
     }
   }
 
   private handleSetting(message: MqttMessage): void {
     try {
       const change = settingChange(this.prefix, this.subtreePath, message);
-      if (change) this.mirror.ingest(change.path, change.value, change.present, change.rev);
+      if (!change) return;
+      this.waitingSettings.set(change.path, change);
+      this.flushSettings();
     } catch {
       // Ignore one malformed retained publication without stopping the stream.
     }
   }
 
+  private flushSettings(): void {
+    if (!this.alive || this.schema?.rev !== this.alive.schema_rev) return;
+    for (const [path, { text, rev }] of this.waitingSettings) {
+      try {
+        if (this.schema.node(path).kind === "leaf")
+          this.mirror.ingest(path, text, rev);
+      } catch {
+        // Obsolete retained paths never enter visible state, revision or activity.
+      }
+    }
+    this.waitingSettings.clear();
+  }
+
+  private classifyStale(): void {
+    for (const topic of this.stale)
+      if (!staleTopic(this.prefix, this.schema, topic))
+        this.stale.delete(topic);
+    this.reportPruning();
+  }
+
+  private reportPruning(): void {
+    this.callbacks.pruning?.({
+      count:
+        this.alive && this.schema?.rev === this.alive.schema_rev
+          ? this.stale.size
+          : 0,
+      coverageWarning: this.pruneCoverageWarning,
+    });
+  }
+
+  async prune(): Promise<{ cleared: number; error?: string }> {
+    if (!this.ready || this.pruning) throw new Error("Pruning is not ready");
+    const topics = [...this.stale];
+    const signal = this.pruneAbort.signal;
+    this.pruning = true;
+    let cleared = 0;
+    try {
+      for (const topic of topics) {
+        signal.throwIfAborted();
+        if (!this.stale.has(topic)) continue;
+        await this.mqtt!.publish(
+          topic,
+          "",
+          {
+            qos: 1,
+            retain: true,
+            properties: { payloadFormatIndicator: true },
+          },
+          signal,
+        );
+        signal.throwIfAborted();
+        // The retained stream owns candidate membership, including replacements
+        // arriving before this acknowledgment. PUBACK only confirms progress.
+        cleared++;
+      }
+      return { cleared };
+    } catch (error) {
+      return {
+        cleared,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      this.pruning = false;
+    }
+  }
+
   private handleResponse(message: MqttMessage): void {
+    if (message.packet.retain) return;
     const key = bytesKey(properties(message.packet).correlationData);
     const pending = this.pending.get(key);
     if (!pending) return;
+    const responseMs = performance.now() - pending.startedAt;
     this.pending.delete(key);
     globalThis.clearTimeout(pending.timer);
+    pending.abort.abort();
     const code = userProperty(message.packet, "code") || "Error";
+    // Make already-observed device values visible before the editor adopts them.
+    if (code === "Ok") this.mirror.flush();
     const response = {
       path: pending.path,
+      responseMs,
       ok: code === "Ok",
       code,
-      message: decode(message.payload),
+      kind: userProperty(message.packet, "kind"),
+      message: new TextDecoder().decode(message.payload),
     };
     pending.resolve(response);
-    this.callbacks.response(response);
   }
 
   private clearRetained(
-    pendingError = new Error("Connection lost; setting outcome unknown. Check the current value."),
+    pendingError = new Error(
+      "Device session changed; Set outcome unknown. Check the current value.",
+    ),
   ): void {
+    this.cancelOperations(pendingError);
+    this.pruneAbort = new AbortController();
+    this.stale.clear();
     this.alive = undefined;
+    this.deviceError = undefined;
     this.pages.clear();
+    this.waitingSettings.clear();
     this.clearSchemaTimer();
     this.mirror.clear();
-    this.rejectPending(pendingError);
     this.callbacks.alive(undefined);
+    this.reportPruning();
+  }
+
+  private requestReplay(): void {
+    if (this.mqtt) {
+      void this.mqtt.refresh();
+    } else {
+      this.clearRetained();
+      this.deferredReplay = true;
+    }
   }
 
   private noteStatus(status: MqttSessionStatus): void {
-    switch (status.state) {
-      case "connected": this.showProgress(); break;
-      case "restoring": this.callbacks.status("Broker reconnected; restoring retained state"); break;
-      case "reconnecting": this.callbacks.status("Broker reconnecting"); break;
-      case "offline":
-        this.rejectPending(new Error("Connection lost; setting outcome unknown. Check the current value."));
-        this.callbacks.status("Broker disconnected");
-        break;
-      case "error":
-        this.callbacks.status("Broker connection error");
-        this.callbacks.error(status.error);
-        break;
+    if (status.state === "connected") {
+      this.showProgress();
+      return;
     }
+    if (status.state === "offline" || status.state === "failed") {
+      this.cancelOperations(
+        new Error(
+          "Connection lost; setting outcome unknown. Check the current value.",
+        ),
+      );
+    }
+    this.callbacks.status(status, this.ready);
   }
 
   private showProgress(): void {
     if (!this.mqtt?.ready) return;
-    if (!this.alive) {
-      this.callbacks.status("Waiting for alive");
-    } else if (this.schema?.rev !== this.alive.schema_rev) {
-      this.callbacks.status(
-        `Loading schema rev ${this.alive.schema_rev} (${this.alive.pages} page${this.alive.pages === 1 ? "" : "s"})`,
-      );
-    } else {
-      this.callbacks.status("Watching settings");
-    }
+    this.callbacks.status(
+      this.deviceError
+        ? { state: "device-error", error: this.deviceError }
+        : {
+            state: !this.alive
+              ? "waiting"
+              : this.schema?.rev !== this.alive.schema_rev
+                ? "loading"
+                : "watching",
+          },
+      this.ready,
+    );
   }
 
   private startSchemaTimer(): void {
-    this.clearSchemaTimer();
+    if (this.schemaTimer !== undefined) return;
     this.schemaTimer = globalThis.setTimeout(() => {
       this.schemaTimer = undefined;
       const alive = this.alive;
       if (!alive || this.schema?.rev === alive.schema_rev) return;
       const missing = alive.pages - this.pages.size;
-      this.callbacks.status("Schema load failed");
-      this.callbacks.error(
-        missing
-          ? `Timed out waiting for ${missing} of ${alive.pages} schema pages`
-          : `Schema pages do not match revision ${alive.schema_rev}`,
-      );
+      this.deviceError = missing
+        ? `Timed out waiting for ${missing} of ${alive.pages} schema pages`
+        : `Schema pages do not match revision ${alive.schema_rev}`;
+      this.showProgress();
     }, SCHEMA_TIMEOUT_MS);
   }
 
@@ -393,10 +614,12 @@ export class PrefixSession {
   private reject(key: string, pending: PendingResponse, error: Error): void {
     if (!this.pending.delete(key)) return;
     globalThis.clearTimeout(pending.timer);
+    pending.abort.abort();
     pending.reject(error);
   }
 
-  private rejectPending(error: Error): void {
+  private cancelOperations(error: Error): void {
+    this.pruneAbort.abort();
     for (const [key, pending] of this.pending) this.reject(key, pending, error);
   }
 }
@@ -407,15 +630,18 @@ function miniconfPath(path: string, label = "Path"): string {
 }
 
 function aliveManifest(value: unknown): AliveManifest {
-  if (!value || typeof value !== "object") throw new Error("Invalid alive manifest");
+  if (!value || typeof value !== "object")
+    throw new Error("Invalid alive manifest");
   const alive = value as Partial<AliveManifest>;
-  if (alive.proto !== MINICONF_MQTT_PROTO) throw new Error("Unsupported alive manifest");
+  if (alive.proto !== MINICONF_MQTT_PROTO)
+    throw new Error("Unsupported alive manifest");
   if (
     !Number.isInteger(alive.epoch) ||
     !Number.isInteger(alive.schema_rev) ||
     !Number.isSafeInteger(alive.pages) ||
     alive.pages! < 0
-  ) throw new Error("Invalid alive manifest");
+  )
+    throw new Error("Invalid alive manifest");
   return alive as AliveManifest;
 }
 
@@ -433,13 +659,16 @@ function settingChange(prefix: string, root: string, message: MqttMessage) {
   const path = message.topic.slice(`${prefix}/settings`.length);
   if ((path && !path.startsWith("/")) || !subtreeMatch(path, root)) return;
   const rev = userProperty(message.packet, "rev");
-  return message.payload.byteLength
-    ? { path, value: jsonParse(message.payload), present: true, rev }
-    : { path, value: undefined, present: false, rev };
+  const text = message.payload.byteLength ? decode(message.payload) : undefined;
+  if (text !== undefined) JSON.parse(text);
+  return { path, text, rev };
 }
 
 function properties(packet: IPublishPacket): PacketProperties {
-  return (packet as IPublishPacket & { properties?: PacketProperties }).properties ?? {};
+  return (
+    (packet as IPublishPacket & { properties?: PacketProperties }).properties ??
+    {}
+  );
 }
 
 function userPropertyValues(packet: IPublishPacket, name: string): string[] {
@@ -448,13 +677,18 @@ function userPropertyValues(packet: IPublishPacket, name: string): string[] {
   return Array.isArray(value) ? value.map(String) : [String(value)];
 }
 
-function userProperty(packet: IPublishPacket, name: string): string | undefined {
+function userProperty(
+  packet: IPublishPacket,
+  name: string,
+): string | undefined {
   return userPropertyValues(packet, name)[0];
 }
 
 function bytesKey(value: unknown): string {
   if (value instanceof Uint8Array) {
-    return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join(
+      "",
+    );
   }
   return typeof value === "string" ? value : "";
 }
@@ -466,7 +700,7 @@ function randomCorrelation(): Uint8Array {
 }
 
 function decode(payload: Uint8Array): string {
-  return new TextDecoder().decode(payload);
+  return new TextDecoder("utf-8", { fatal: true }).decode(payload);
 }
 
 function jsonParse(payload: Uint8Array): unknown {

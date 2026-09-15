@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc --noEmit && vite build",
-    "check": "tsc --noEmit",
+    "build": "npm run check && vite build && node scripts/check-dist.mjs",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run --exclude src/lib/backend.integration.test.ts",
-    "test:integration": "vitest run src/lib/backend.integration.test.ts"
+    "test:integration": "vitest run src/lib/backend.integration.test.ts",
+    "format": "prettier --write src scripts vite.config.ts",
+    "format:check": "prettier --check src scripts vite.config.ts",
+    "test:browser": "node scripts/check-browser.mjs"
   },
   "dependencies": {
     "mqtt": "^5.15.2",
@@ -16,7 +19,10 @@
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
-    "typescript": "^7.0.2",
+    "prettier": "^3.9.6",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte-check": "^4.7.6",
+    "typescript": "^6.0.3",
     "vite": "^8.2.2",
     "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^4.1.11"
