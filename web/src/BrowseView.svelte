@@ -28,7 +28,6 @@
     expanded: Set<string>;
     treeRoot: string;
     canSet: boolean;
-    requestMessage: string;
     editor: string;
     editorDirty: boolean;
     editorError: string;
@@ -62,7 +61,6 @@
     expanded,
     treeRoot,
     canSet,
-    requestMessage,
     editor,
     editorDirty,
     editorError,
@@ -146,7 +144,6 @@
       node={selected}
       path={selectedPath}
       {canSet}
-      {requestMessage}
       {editor}
       {editorDirty}
       {editorError}

@@ -508,9 +508,6 @@
         ? editorError.message
         : ""}
       {canSet}
-      requestMessage={request?.path === browseState.selectedPath
-        ? request.message
-        : ""}
       bind:logOpen
       {logLines}
       treeRoot={browseState.root}

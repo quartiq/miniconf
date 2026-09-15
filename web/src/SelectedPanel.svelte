@@ -9,7 +9,6 @@
     node: ViewNode | undefined;
     path: string;
     canSet: boolean;
-    requestMessage: string;
     editor: string;
     editorDirty: boolean;
     editorError: string;
@@ -23,7 +22,6 @@
     node,
     path,
     canSet,
-    requestMessage,
     editor,
     editorDirty,
     editorError,
@@ -90,9 +88,6 @@
           onclick={resetEditor}>Revert</button
         >
       </div>
-      {#if requestMessage}<p class="request" role="status">
-          {requestMessage}
-        </p>{/if}
     </section>
   {/if}
   <section class="schema-body" aria-label="Schema">

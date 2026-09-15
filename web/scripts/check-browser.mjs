@@ -564,7 +564,7 @@ try {
     await clickButton("Set");
     assert(
       await evaluate(
-        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.request').textContent.includes('Last Set: succeeded')",
+        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.status').textContent.includes('Last Set: succeeded') && !document.querySelector('.selected [role=status]')",
       ),
     );
     assert.equal(writes.length, acceptedWrites);
