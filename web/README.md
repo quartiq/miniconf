@@ -2,6 +2,10 @@
 
 Inspect and edit Miniconf devices over MQTT v5 WebSockets.
 
+Credentials support browser autofill and are remembered for reload in this tab's
+session storage, when available. They are cleared when switching brokers or
+connecting with empty credentials, and are never included in links.
+
 ## Run
 
 ```sh

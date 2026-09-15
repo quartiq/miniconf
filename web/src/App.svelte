@@ -24,25 +24,32 @@
   } from "./lib/tree-navigation";
   import { type TreeActivity } from "./lib/tree-view";
   import { updateActivity } from "./lib/tree-state";
+  import { rememberAuth, restoreAuth } from "./lib/session-auth";
 
   type Action = "Set" | "Prune";
   type ActionResult = { text: string; failed: boolean; responseMs?: number };
 
   const route = readRoute(location);
+  const initialAuth = restoreAuth(route.broker);
   let broker = $state(route.broker);
   let discoveryPattern = $state(route.discoveryPattern);
   let activePrefix = $state(route.activePrefix);
   let subtreePath = $state(route.subtreePath);
   let formBroker = $state(route.broker);
   let formPattern = $state(route.discoveryPattern);
-  let credentials = $state<{
-    broker: string;
-    username: string;
-    password: string;
-  }>();
+  let credentials = $state<
+    | {
+        broker: string;
+        username: string;
+        password: string;
+      }
+    | undefined
+  >(initialAuth ? { broker: route.broker, ...initialAuth } : undefined);
   let connectionAbort = new AbortController();
-  let username = $state("");
-  let password = $state("");
+  let username = $state(initialAuth?.username ?? "");
+  let password = $state(initialAuth?.password ?? "");
+  let connectionPrompt = $state(false);
+  let connectionNotice = $state("");
 
   let session = $state.raw<DiscoverySession | PrefixSession>();
   let deviceReady = $state(false);
@@ -60,6 +67,7 @@
   let status = $derived(
     {
       idle: "Not connected",
+      credentials: "Enter credentials to reconnect",
       connecting: "Connecting",
       connected: "Connected",
       restoring: "Restoring subscriptions",
@@ -89,7 +97,12 @@
     if (actions.pending.has("Set")) return { text: "Setting…", failed: false };
     if (actions.pending.has("Prune"))
       return { text: "Pruning…", failed: false };
-    return actions.result ?? { text: status, failed: false };
+    return (
+      actions.result ?? {
+        text: [status, connectionNotice].filter(Boolean).join(" · "),
+        failed: false,
+      }
+    );
   });
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
@@ -109,7 +122,9 @@
   let canSet = $derived(
     deviceReady && selected?.kind === "leaf" && !actions.pending.has("Set"),
   );
-  let mode = $derived(activePrefix ? "browse" : "discover");
+  let mode = $derived(
+    activePrefix && !connectionPrompt ? "browse" : "discover",
+  );
 
   $effect(() => {
     eventLog.clearHidden(logOpen);
@@ -117,7 +132,10 @@
 
   function syncUrl() {
     history.replaceState(
-      null,
+      {
+        credentialBroker:
+          credentials?.username || credentials?.password ? broker : undefined,
+      },
       "",
       activePrefix
         ? browsePath(broker, activePrefix, subtreePath, discoveryPattern)
@@ -278,9 +296,12 @@
 
   function discover() {
     try {
-      const path = discoveryPath(formBroker.trim(), formPattern);
+      let path = discoveryPath(formBroker.trim(), formPattern);
+      const nextBroker = readRoute({ hash: path }).broker;
+      if (connectionPrompt && activePrefix && nextBroker === broker)
+        path = browsePath(nextBroker, activePrefix, subtreePath, formPattern);
       credentials = {
-        broker: readRoute({ hash: path }).broker,
+        broker: nextBroker,
         username,
         password,
       };
@@ -292,11 +313,13 @@
 
   async function connectRoute() {
     const signal = connectionAbort.signal;
+    const auth = credentials;
     error = "";
+    connectionNotice = "";
     setStatus({ state: "connecting" });
     discoveredPrefixes = [];
     syncUrl();
-    const options = { auth: credentials, signal };
+    const options = { auth, signal };
     try {
       let next: DiscoverySession | PrefixSession;
       if (activePrefix) {
@@ -358,11 +381,15 @@
         return;
       }
       session = next;
+      if (!rememberAuth(broker, auth) && (auth?.username || auth?.password))
+        connectionNotice =
+          "Credentials will not survive reload: browser storage unavailable";
     } catch (err) {
       if (signal.aborted) {
         return;
       }
       error = err instanceof Error ? err.message : String(err);
+      connectionPrompt = true;
       setStatus({ state: "failed", error });
       log("error", error);
     }
@@ -460,6 +487,9 @@
 
   function applyRoute() {
     const next = readRoute(location);
+    if (broker !== next.broker) rememberAuth();
+    connectionPrompt = false;
+    connectionNotice = "";
     if (browseState.schema && activePrefix) {
       browse.rememberRoute(
         browseMemory,
@@ -486,6 +516,9 @@
     subtreePath = next.subtreePath;
     if (next.page === "landing") {
       showDiscoveryIdle();
+    } else if (!credentials && history.state?.credentialBroker === broker) {
+      connectionPrompt = true;
+      setStatus({ state: "credentials" });
     } else {
       void connectRoute();
     }
@@ -511,11 +544,12 @@
       bind:password
       {discoveredPrefixes}
       watching={connection.state === "watching"}
-      {status}
+      status={[status, connectionNotice].filter(Boolean).join(" · ")}
       {error}
       bind:logOpen
       {logLines}
       {discover}
+      submitLabel={connectionPrompt && activePrefix ? "Reconnect" : "Discover"}
       {browseHref}
     />
   {:else}

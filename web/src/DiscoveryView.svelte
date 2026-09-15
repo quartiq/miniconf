@@ -23,6 +23,7 @@
     logOpen?: boolean;
     logLines: string[];
     discover: () => void;
+    submitLabel?: string;
     browseHref: (prefix: string) => string;
   };
 
@@ -38,6 +39,7 @@
     logOpen = $bindable(false),
     logLines,
     discover,
+    submitLabel = "Discover",
     browseHref,
   }: Props = $props();
 
@@ -142,7 +144,7 @@
           type="password"
         />
       </label>
-      <button type="submit">Discover</button>
+      <button type="submit">{submitLabel}</button>
     </form>
     <StatusLog {status} {error} bind:open={logOpen} {logLines} live />
   </section>

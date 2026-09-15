@@ -138,7 +138,11 @@ broker.on("connection", (socket) => {
     if (message.cmd === "connect") {
       lastConnect = message;
       const accept = () =>
-        reply({ cmd: "connack", reasonCode: 0, sessionPresent: false });
+        reply({
+          cmd: "connack",
+          reasonCode: message.username === "rejected-user" ? 0x86 : 0,
+          sessionPresent: false,
+        });
       if (holdConnect) broker.emit("held-connect", accept);
       else accept();
     } else if (message.cmd === "subscribe") {
@@ -455,6 +459,20 @@ try {
     await fill("input[name=password]", "active-secret");
     await click("button[type=submit]");
     await until("document.querySelector('.prefixes a')");
+    await fill("input[name=username]", "rejected-user");
+    await click("button[type=submit]");
+    await until(
+      "document.querySelector('.log summary')?.textContent.includes('Connection failed')",
+    );
+    assert.equal(
+      await evaluate(
+        "JSON.parse(sessionStorage.getItem('miniconf-web.connection')).username",
+      ),
+      "active-user",
+    );
+    await fill("input[name=username]", "active-user");
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
     await fill("input[name=password]", "unsubmitted-secret");
     await click('[data-tree-path="/dt/test"] .toggle');
     publish("dt/test/another/alive", retained.get(`${prefix}/alive`).text);
@@ -487,7 +505,7 @@ try {
     assert.equal(lastConnect.password?.toString(), "active-secret");
     assert(
       await evaluate(
-        "!location.href.includes('active-secret') && !JSON.stringify(history.state).includes('active-secret') && !JSON.stringify(localStorage).includes('active-secret') && !JSON.stringify(sessionStorage).includes('active-secret')",
+        "!location.href.includes('active-secret') && !JSON.stringify(history.state).includes('active-secret') && !JSON.stringify(localStorage).includes('active-secret') && JSON.parse(sessionStorage.getItem('miniconf-web.connection')).password === 'active-secret'",
       ),
     );
     await click('[data-tree-path="/leaf"]');
@@ -874,6 +892,8 @@ try {
     await until(
       "document.querySelector('[data-tree-path=\"/replacement\"] .value')?.textContent === '3'",
     );
+    assert.equal(lastConnect.username, "active-user");
+    assert.equal(lastConnect.password?.toString(), "active-secret");
     assert(
       await evaluate(
         "!document.querySelector('[data-tree-path=\"/leaf\"]') && document.querySelector('.selected').textContent.includes('Leaf unavailable') && document.querySelector('.actions button').disabled",
@@ -1311,6 +1331,53 @@ try {
     );
     console.log(
       `Checked exact editing, broker identity, pruning, recovery and keyboard guards: ${base}`,
+    );
+    // Missing tab credentials must prompt without silently connecting anonymously.
+    await click(".back");
+    await until("document.querySelector('input[name=username]')");
+    await fill("input[name=username]", "reload-user");
+    await fill("input[name=password]", "reload-secret");
+    await click("button[type=submit]");
+    await until("document.querySelector('.prefixes a')");
+    await evaluate(`location.hash = ${JSON.stringify(subtreeHash)}`);
+    await until(
+      "document.querySelector('.selected h2')?.textContent === '/other' && document.querySelector('textarea')?.value === 'null'",
+    );
+    const resumeUrl = await evaluate("location.href");
+    const resumeOrigin = await evaluate("performance.timeOrigin");
+    const beforePrompt = connections;
+    await evaluate("sessionStorage.removeItem('miniconf-web.connection')");
+    await command("Page.reload");
+    await until(`performance.timeOrigin !== ${resumeOrigin}`);
+    await until(
+      "document.querySelector('.log summary')?.textContent.includes('Enter credentials to reconnect')",
+    );
+    assert.equal(connections, beforePrompt);
+    assert.equal(await evaluate("location.href"), resumeUrl);
+    await fill("input[name=username]", "resume-user");
+    await fill("input[name=password]", "resume-secret");
+    await evaluate(
+      "window.restoreStorageSet = Storage.prototype.setItem; Storage.prototype.setItem = () => { throw new DOMException('Storage denied', 'SecurityError'); }",
+    );
+    await click("button[type=submit]");
+    await until(
+      "document.querySelector('.selected h2')?.textContent === '/other' && document.querySelector('textarea')?.value === 'null'",
+    );
+    assert.equal(lastConnect.username, "resume-user");
+    assert.equal(lastConnect.password?.toString(), "resume-secret");
+    await until(
+      "document.querySelector('.status')?.textContent.includes('storage unavailable')",
+    );
+    await evaluate(
+      "Storage.prototype.setItem = window.restoreStorageSet; delete window.restoreStorageSet",
+    );
+    assert.equal(await evaluate("location.href"), resumeUrl);
+    await evaluate("location.hash = ''");
+    await until("document.querySelector('input[name=broker]')");
+    assert(
+      await evaluate(
+        "sessionStorage.getItem('miniconf-web.connection') === null",
+      ),
     );
   }
   assert.deepEqual(errors, [], "Browser console errors");

@@ -46,7 +46,15 @@ export type SetResponse = {
 export type SessionStatus =
   | MqttSessionStatus
   | { state: "device-error"; error: string }
-  | { state: "idle" | "connecting" | "waiting" | "loading" | "watching" };
+  | {
+      state:
+        | "idle"
+        | "credentials"
+        | "connecting"
+        | "waiting"
+        | "loading"
+        | "watching";
+    };
 
 export type DiscoverySessionCallbacks = {
   prefixes: (prefixes: DiscoveredPrefix[]) => void;
