@@ -49,7 +49,18 @@ let holdClear = false;
 let acknowledgeClear;
 let clearAcks = 0;
 let rejectClearAt = 0;
-function seed() {
+function resetFixture() {
+  epoch = 1;
+  writes.length = 0;
+  rejectSubscriptions = false;
+  rejectCleanup = false;
+  holdResponse = false;
+  holdSetAck = false;
+  respond = undefined;
+  holdClear = false;
+  acknowledgeClear = undefined;
+  clearAcks = 0;
+  rejectClearAt = 0;
   retained.clear();
   retained.set(`${prefix}/alive`, {
     text: JSON.stringify({ proto: 1, epoch, schema_rev: revision, pages: 1 }),
@@ -162,21 +173,27 @@ broker.on("connection", (socket) => {
         else if (!holdSetAck || clearing) acknowledge();
       }
       if (message.topic === `${prefix}/set/leaf` && message.payload.length) {
-        respond = (text = message.payload.toString(), echoFirst = true) => {
-          if (echoFirst) publish(`${prefix}/settings/leaf`, text);
+        respond = (
+          text = message.payload.toString(),
+          echoFirst = true,
+          code = "Ok",
+        ) => {
+          if (code === "Ok" && echoFirst)
+            publish(`${prefix}/settings/leaf`, text);
           send(
             socket,
             message.properties.responseTopic,
             {
-              text: "",
+              text: code === "Ok" ? "" : text,
               properties: {
                 correlationData: message.properties.correlationData,
-                userProperties: { code: "Ok" },
+                userProperties: { code },
               },
             },
             false,
           );
-          if (!echoFirst) publish(`${prefix}/settings/leaf`, text);
+          if (code === "Ok" && !echoFirst)
+            publish(`${prefix}/settings/leaf`, text);
         };
         if (!holdResponse) respond();
       }
@@ -378,8 +395,8 @@ try {
     pathToFileURL(resolve("dist/index.html")).href,
     process.env.MINICONF_WEB_DEV_URL,
   ].filter(Boolean)) {
-    seed();
-    writes.length = 0;
+    await command("Page.navigate", { url: "about:blank" });
+    resetFixture();
     console.log(`Connection identity and editor ownership: ${base}`);
     await viewport(1200, 850);
     await command("Page.navigate", { url: base });
@@ -546,13 +563,15 @@ try {
     );
     holdResponse = false;
     respond();
-    await until("document.body?.innerText.includes('Last Set: succeeded')");
+    await until(
+      "document.querySelector('.status [role=status]')?.textContent.trim() === 'Set succeeded'",
+    );
     await until(
       "document.querySelector('textarea').value === '-9007199254740993'",
     );
     assert(
       await evaluate(
-        "document.querySelector('.status').textContent.includes('Last Set: succeeded')",
+        "document.querySelector('.status').textContent.trim() === 'Set succeeded'",
       ),
     );
     assert.equal(
@@ -564,7 +583,7 @@ try {
     await clickButton("Set");
     assert(
       await evaluate(
-        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.status').textContent.includes('Last Set: succeeded') && !document.querySelector('.selected [role=status]')",
+        "document.querySelector('#editor-error').textContent.includes('Invalid JSON') && document.querySelector('.status').textContent.includes('Set succeeded') && !document.querySelector('.selected [role=status]')",
       ),
     );
     assert.equal(writes.length, acceptedWrites);
@@ -615,14 +634,56 @@ try {
       holdResponse = false;
     }
 
+    // Action errors remain readable on mobile and leave the rejected draft intact.
+    await viewport(390, 850);
+    holdResponse = true;
+    await fill("textarea", "999");
+    await clickButton("Set");
+    await until("document.querySelector('.actions button').disabled");
+    const rejection =
+      "Value exceeds the supported range for this setting. Choose a smaller value and try again.";
+    respond(rejection, true, "Error");
+    await until("document.querySelector('.status [role=status].failed')");
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.status [role=status]').textContent.trim()",
+      ),
+      `Set failed: ${rejection}`,
+    );
+    assert.equal(
+      await evaluate("document.querySelector('textarea').value"),
+      "999",
+    );
+    assert(
+      await evaluate(`(() => {
+      const status = document.querySelector('.status [role=status]');
+      return status.scrollWidth <= status.clientWidth && status.scrollHeight <= status.clientHeight &&
+        status.clientHeight > parseFloat(getComputedStyle(status).lineHeight);
+    })()`),
+    );
+    publish(`${prefix}/settings/leaf`, "31.0");
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value').textContent === '31.0'",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.status [role=status]').textContent.trim()",
+      ),
+      `Set failed: ${rejection}`,
+    );
+    holdResponse = false;
+    await clickButton("Set");
+    await until(
+      "document.querySelector('.status [role=status]')?.textContent.trim() === 'Set succeeded'",
+    );
+    assert(await evaluate("!document.querySelector('.status .failed')"));
+
     console.log(
       `Pruning counts, captured candidates and optional permissions: ${base}`,
     );
-    seed();
-    writes.length = 0;
-    clearAcks = 0;
     const beforePruning = connections;
     await command("Page.navigate", { url: "about:blank" });
+    resetFixture();
     await command("Page.navigate", { url: href });
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
     await click('[data-tree-path="/leaf"]');
@@ -651,7 +712,15 @@ try {
     publish(`${prefix}/settings/later`, "not JSON");
     await fill("textarea", "123");
     await clickButton("Set");
-    await until("document.body?.innerText.includes('Last Set: succeeded')");
+    await until(
+      "document.querySelector('[data-tree-path=\"/leaf\"] .value').textContent === '123' && !document.querySelector('.actions button').disabled",
+    );
+    assert.equal(
+      await evaluate(
+        "document.querySelector('.status [role=status]').textContent.trim()",
+      ),
+      "Pruning…",
+    );
     holdClear = false;
     acknowledgeClear();
     await until("document.body?.innerText.includes('Cleared 3')");
@@ -750,15 +819,15 @@ try {
     await click('[data-tree-path="/leaf"]');
     await fill("textarea", "789");
     await clickButton("Set");
-    await until("document.body?.innerText.includes('Last Set: succeeded')");
+    await until("document.body?.innerText.includes('Set succeeded')");
     assert(
       await evaluate("!document.querySelector('.actions button').disabled"),
     );
     rejectCleanup = false;
 
     console.log(`Connection recovery and responsive layout: ${base}`);
-    seed();
     await command("Page.navigate", { url: "about:blank" });
+    resetFixture();
     await command("Page.navigate", { url: href });
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
     await click('[data-tree-path="/leaf"]');
@@ -773,7 +842,6 @@ try {
     );
     rejectSubscriptions = false;
     await clickButton("Retry", ".connection-state");
-    await until("!document.querySelector('.actions button').disabled");
     await until("!document.querySelector('.actions button').disabled");
     await fill("textarea", "789");
     // Live epoch refresh keeps the editor, replays state and resumes readiness.

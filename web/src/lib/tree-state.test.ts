@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { toggleExpansion } from "./tree-navigation";
 import {
   cuePaths,
-  flatTreeNodes,
   parentPath,
   revealPresentSettings,
   treeViewNodes,
@@ -79,13 +78,13 @@ describe("tree state", () => {
     expect([...cuePaths(["/a/b"], "")].sort()).toEqual(["", "/a", "/a/b"]);
   });
 
-  it("flattens schema rows for keyboard navigation", () => {
+  it("includes keyboard navigation structure in displayed rows", () => {
     expect([
-      ...flatTreeNodes([
+      ...treeViewNodes([
         { path: "", kind: "named", children: [], present: false },
         { path: "/a", kind: "leaf", children: [], present: true, value: "1" },
       ]).values(),
-    ]).toEqual([
+    ]).toMatchObject([
       { path: "", children: ["/a"] },
       { path: "/a", parent: "", children: [] },
     ]);

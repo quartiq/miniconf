@@ -1,11 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import {
-    discoveryTree,
-    discoveryTreeView,
-    flatDiscoveryNodes,
-  } from "./lib/discovery-tree";
+  import { discoveryTree, discoveryTreeView } from "./lib/discovery-tree";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import {
     movePath,
@@ -52,8 +48,7 @@
   let prefixKey = $state("");
   let nodes = $derived(discoveryTree(discoveredPrefixes));
   let treeNodes = $derived(discoveryTreeView(nodes, browseHref));
-  let flatNodes = $derived(flatDiscoveryNodes(nodes));
-  let visiblePaths = $derived(visibleTreePaths("", flatNodes, expanded));
+  let visiblePaths = $derived(visibleTreePaths("", treeNodes, expanded));
   let nextPrefixKey = $derived(
     discoveredPrefixes
       .map((prefix) => prefix.prefix)
@@ -98,7 +93,7 @@
     direction: NavDirection,
     step?: number,
   ): string {
-    const next = movePath(visiblePaths, path, direction, flatNodes, step);
+    const next = movePath(visiblePaths, path, direction, treeNodes, step);
     selectedPath = next;
     return next;
   }

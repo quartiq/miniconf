@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { discoveryTree, flatDiscoveryNodes } from "./discovery-tree";
+import { discoveryTree, discoveryTreeView } from "./discovery-tree";
 import { movePath, visibleTreePaths } from "./tree-navigation";
 
 describe("tree navigation", () => {
@@ -50,7 +50,7 @@ describe("tree navigation", () => {
     expect(
       visibleTreePaths(
         "",
-        flatDiscoveryNodes(nodes),
+        discoveryTreeView(nodes, (prefix) => prefix),
         new Set(["", "dt", "dt/sinara"]),
       ),
     ).toEqual(["", "dt", "dt/sinara", "dt/sinara/a", "dt/sinara/b"]);

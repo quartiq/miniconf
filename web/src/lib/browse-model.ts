@@ -78,7 +78,7 @@ export function loadSchema(
     next = { ...next, selectedPath: next.tree.nodes[0]?.path ?? "" };
   }
   const branches = new Set(
-    [...next.tree.flatNodes.values()]
+    [...next.tree.nodeViews.values()]
       .filter(({ children }) => children.length)
       .map(({ path }) => path),
   );
@@ -153,7 +153,7 @@ export function navigate(
     visiblePaths(state),
     path,
     direction,
-    state.tree.flatNodes,
+    state.tree.nodeViews,
     step,
   );
   return { state: loadSelected(state, next), path: next };
@@ -170,7 +170,7 @@ export function loadEditor(state: BrowseState): BrowseState {
 }
 
 function visiblePaths(state: BrowseState): string[] {
-  return visibleTreePaths(state.root, state.tree.flatNodes, state.expanded);
+  return visibleTreePaths(state.root, state.tree.nodeViews, state.expanded);
 }
 
 function rebuild(state: BrowseState): BrowseState {
@@ -183,7 +183,6 @@ function rebuild(state: BrowseState): BrowseState {
 function emptyTree(): TreeSnapshot {
   return {
     nodes: [],
-    flatNodes: new Map(),
     nodeViews: new Map(),
     nodeByPath: new Map(),
   };

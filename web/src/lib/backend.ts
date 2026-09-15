@@ -62,6 +62,7 @@ export type PrefixSessionCallbacks = {
 export type PruningState = {
   count: number;
   pending: boolean;
+  failed: boolean;
   message: string;
   coverageWarning: string;
 };
@@ -163,6 +164,7 @@ export class PrefixSession {
   private pruneAbort = new AbortController();
   private pruning = false;
   private pruneMessage = "";
+  private pruneFailed = false;
   private pruneCoverageWarning = "";
   private mqtt: MqttSession | undefined;
   private alive: AliveManifest | undefined;
@@ -458,6 +460,7 @@ export class PrefixSession {
           : 0,
       pending: this.pruning,
       message: this.pruneMessage,
+      failed: this.pruneFailed,
       coverageWarning: this.pruneCoverageWarning,
     });
   }
@@ -467,6 +470,7 @@ export class PrefixSession {
     const topics = [...this.stale];
     const signal = this.pruneAbort.signal;
     this.pruning = true;
+    this.pruneFailed = false;
     this.pruneMessage = "Pruning…";
     this.reportPruning();
     let cleared = 0;
@@ -492,6 +496,7 @@ export class PrefixSession {
       this.pruneMessage = `Cleared ${cleared}`;
     } catch (error) {
       this.pruneMessage = `Cleared ${cleared}; pruning interrupted, remaining outcome unknown. ${error instanceof Error ? error.message : String(error)}`;
+      this.pruneFailed = true;
     } finally {
       this.pruning = false;
       this.reportPruning();

@@ -1,6 +1,5 @@
 import type { Schema, SchemaNode } from "./schema";
 import { formatSchemaName, schemaSummary, schemaTooltip } from "./schema";
-import type { FlatTreeNode } from "./tree-navigation";
 import type { TreeNodeView } from "./tree-view";
 
 export type ViewNode = SchemaNode & {
@@ -10,7 +9,6 @@ export type ViewNode = SchemaNode & {
 
 export type TreeSnapshot = {
   nodes: ViewNode[];
-  flatNodes: Map<string, FlatTreeNode>;
   nodeViews: Map<string, TreeNodeView>;
   nodeByPath: Map<string, ViewNode>;
 };
@@ -45,7 +43,6 @@ export function treeSnapshot(
   const nodes = viewNodes(schema, root, settings);
   return {
     nodes,
-    flatNodes: flatTreeNodes(nodes),
     nodeViews: treeViewNodes(nodes),
     nodeByPath: new Map(nodes.map((node) => [node.path, node])),
   };
@@ -67,23 +64,6 @@ export function childrenByParent(nodes: ViewNode[]): Map<string, ViewNode[]> {
   return children;
 }
 
-export function flatTreeNodes(nodes: ViewNode[]): Map<string, FlatTreeNode> {
-  const children = childrenByParent(nodes);
-  return new Map(
-    nodes.map((node) => {
-      const parent = parentPath(node.path);
-      return [
-        node.path,
-        {
-          path: node.path,
-          ...(parent === undefined ? {} : { parent }),
-          children: (children.get(node.path) ?? []).map((child) => child.path),
-        },
-      ];
-    }),
-  );
-}
-
 export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
   const children = childrenByParent(nodes);
   return new Map(
@@ -91,6 +71,7 @@ export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
       node.path,
       {
         path: node.path,
+        parent: parentPath(node.path),
         label: node.path ? formatSchemaName(node) : "(root)",
         summary: schemaSummary(node),
         title: schemaTooltip(node),

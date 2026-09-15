@@ -47,11 +47,12 @@
   let aliveManifest = $state<AliveManifest | undefined>();
   let browseState = $state(browse.emptyState());
   let connection = $state<SessionStatus>({ state: "idle" });
-  let latestAction = $state("");
-  let request = $state<{ path: string; pending: boolean; message: string }>();
+  let latestAction = $state<{ text: string; failed: boolean }>();
+  let setPending = $state(false);
   let pruning = $state<PruningState>({
     count: 0,
     pending: false,
+    failed: false,
     message: "",
     coverageWarning: "",
   });
@@ -63,13 +64,15 @@
       restoring: "Restoring subscriptions",
       reconnecting: "Reconnecting",
       offline: "Disconnected — last observed values",
-      waiting: "Waiting for device announcement",
+      waiting: "Waiting for device",
       loading: "Loading schema",
       watching: activePrefix
-        ? request?.pending
+        ? setPending
           ? "Setting…"
-          : latestAction || "Ready"
-        : "Watching discovery",
+          : pruning.pending
+            ? "Pruning…"
+            : latestAction?.text || "Ready"
+        : "Discovering devices",
       error: "Connection error",
       failed: "Connection failed",
       "device-error": "Device unavailable",
@@ -92,7 +95,7 @@
   let selected = $derived(browse.selected(browseState));
   let editorDirty = $derived(browseState.editor !== (selected?.value ?? ""));
   let canSet = $derived(
-    deviceReady && selected?.kind === "leaf" && !request?.pending,
+    deviceReady && selected?.kind === "leaf" && !setPending,
   );
   let mode = $derived(activePrefix ? "browse" : "discover");
 
@@ -131,8 +134,6 @@
   }
 
   function select(path: string) {
-    if (path !== browseState.selectedPath && !request?.pending)
-      request = undefined;
     browseState = browse.loadSelected(browseState, path);
   }
 
@@ -141,7 +142,7 @@
       path,
       visibleTreePaths(
         browseState.root,
-        browseState.tree.flatNodes,
+        browseState.tree.nodeViews,
         browseState.expanded,
       ),
     );
@@ -217,7 +218,13 @@
     deviceReady = false;
     aliveManifest = undefined;
     settingsRevision = "";
-    pruning = { count: 0, pending: false, message: "", coverageWarning: "" };
+    pruning = {
+      count: 0,
+      pending: false,
+      failed: false,
+      message: "",
+      coverageWarning: "",
+    };
     browseState = preserve
       ? browse.commitSettings(browseState, {
           settings: new Map(),
@@ -225,8 +232,8 @@
           activity: new Set(),
         }).state
       : browse.emptyState();
-    request = undefined;
-    latestAction = "";
+    setPending = false;
+    latestAction = undefined;
     editorError = undefined;
     treeActivity = new Map();
   }
@@ -248,7 +255,6 @@
   }
 
   function log(event: string, detail: string) {
-    if (event === "request" || event === "prune") latestAction = detail;
     eventLog.add(logOpen, event, detail);
   }
 
@@ -342,8 +348,10 @@
           },
           pruning: (next) => {
             if (serial !== routeSerial) return;
-            if (next.message && next.message !== pruning.message)
+            if (next.message && next.message !== pruning.message) {
+              latestAction = { text: next.message, failed: next.failed };
               log("prune", next.message);
+            }
             pruning = next;
           },
           status: (next, ready) => {
@@ -386,7 +394,8 @@
       };
       return;
     }
-    request = { path, pending: true, message: "Setting…" };
+    setPending = true;
+    latestAction = undefined;
     try {
       const response = await current.set(path, browseState.editor);
       if (serial !== routeSerial || current !== prefixSession) return;
@@ -394,24 +403,23 @@
         browseState = browse.loadEditor(browseState);
         editorError = undefined;
       }
-      request = {
-        path,
-        pending: false,
-        message: response.ok
-          ? "Last Set: succeeded"
+      latestAction = {
+        failed: !response.ok,
+        text: response.ok
+          ? "Set succeeded"
           : response.kind === "publish"
-            ? `Last Set: value may have changed — publication failed. ${response.message}`
-            : `Last Set: failed — ${response.message || response.code}`,
+            ? `Set: value may have changed — publication failed. ${response.message}`
+            : `Set failed: ${response.message || response.code}`,
       };
     } catch (err) {
       if (serial !== routeSerial || current !== prefixSession) return;
-      request = {
-        path,
-        pending: false,
-        message: `Last Set: ${err instanceof Error ? err.message : String(err)}`,
+      latestAction = {
+        failed: true,
+        text: `Set: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
-    if (request) log("request", `${displayPath(path)}: ${request.message}`);
+    setPending = false;
+    log("request", `${displayPath(path)}: ${latestAction.text}`);
   }
 
   function applyRoute() {
@@ -492,8 +500,15 @@
       {subtreePath}
       {aliveManifest}
       {settingsRevision}
-      {status}
-      {error}
+      status={{
+        text: error ? `${status}: ${error}` : status,
+        failed:
+          !!error ||
+          (connection.state === "watching" &&
+            !setPending &&
+            !pruning.pending &&
+            !!latestAction?.failed),
+      }}
       retryable={connection.state === "failed" ||
         connection.state === "device-error"}
       treeNodes={browseState.tree.nodeViews}

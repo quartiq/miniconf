@@ -127,6 +127,7 @@ describe("retained-topic pruning", () => {
     await clearing;
     expect(states.at(-1)?.count).toBe(1);
     expect(states.at(-1)?.message).toBe("Cleared 1");
+    expect(states.at(-1)?.failed).toBe(false);
     session.close();
   });
 
@@ -164,6 +165,7 @@ describe("retained-topic pruning", () => {
       expect(mqtt.removedPublications).toEqual([1]);
       expect(states.at(-1)?.pending).toBe(false);
       expect(states.at(-1)?.message).toContain("outcome unknown");
+      expect(states.at(-1)?.failed).toBe(true);
       session.close();
     },
   );

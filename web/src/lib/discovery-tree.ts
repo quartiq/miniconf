@@ -1,4 +1,3 @@
-import type { FlatTreeNode } from "./tree-navigation";
 import type { TreeNodeView } from "./tree-view";
 
 type PrefixEntry = {
@@ -54,21 +53,6 @@ export function discoveryTree(
   return nodes;
 }
 
-export function flatDiscoveryNodes(
-  nodes: Map<string, DiscoveryNode>,
-): Map<string, FlatTreeNode> {
-  return new Map(
-    [...nodes].map(([path, node]) => [
-      path,
-      {
-        path,
-        ...(node.parent === undefined ? {} : { parent: node.parent }),
-        children: node.children,
-      },
-    ]),
-  );
-}
-
 export function discoveryTreeView(
   nodes: Map<string, DiscoveryNode>,
   browseHref: (prefix: string) => string,
@@ -79,6 +63,7 @@ export function discoveryTreeView(
       {
         path,
         label: node.label,
+        parent: node.parent,
         href: node.prefix ? browseHref(node.prefix) : undefined,
         children: node.children,
       },

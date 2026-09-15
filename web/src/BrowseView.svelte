@@ -18,8 +18,7 @@
     subtreePath: string;
     aliveManifest: { epoch: number; schema_rev: number } | undefined;
     settingsRevision: string;
-    status: string;
-    error: string;
+    status: { text: string; failed: boolean };
     retryable: boolean;
     treeNodes: Map<string, TreeNodeView>;
     selectedPath: string;
@@ -52,7 +51,6 @@
     aliveManifest,
     settingsRevision,
     status,
-    error,
     retryable,
     treeNodes,
     selectedPath,
@@ -96,10 +94,8 @@
     </div>
     <div class="connection-state">
       <div class="status">
-        <div role="status" title={error || status}>
-          {#if error}<strong>{status}: {error}</strong>{:else}<span
-              >{status}</span
-            >{/if}
+        <div role="status" class:failed={status.failed} title={status.text}>
+          {status.text}
         </div>
         {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
       </div>
@@ -244,7 +240,7 @@
     min-width: 0;
   }
 
-  .connection-state strong {
+  .status [role="status"].failed {
     color: var(--error);
     white-space: normal;
   }
