@@ -60,7 +60,7 @@ describe("Schema", () => {
   it("formats schema metadata for selected rows", () => {
     const node = indexedSchema.node("/values/1");
 
-    expect(schemaSummary(node)).toBe("leaf · f32");
+    expect(schemaSummary(node)).toBe("leaf f32");
   });
 
   it("renders unicode and multiline schema metadata literally", () => {
@@ -86,7 +86,7 @@ describe("Schema", () => {
       doc: "node line 1\nnode line 2",
       typename: "Root",
     });
-    expect(schemaSummary(schema.node("/leaf"))).toBe("leaf · f32");
+    expect(schemaSummary(schema.node("/leaf"))).toBe("leaf f32");
     expect(schemaSummary(schema.node(""))).toBe("named");
   });
   it("interprets only recognized semantic fields and preserves future semantics", () => {

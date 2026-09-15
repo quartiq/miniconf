@@ -190,9 +190,39 @@ export function schemaSummary(node: SchemaNode): string {
       typeof sem.ty === "string" &&
       /^(bool|[iu](8|16|32|64|128|size)|f(32|64)|str)$/.test(sem.ty)
     )
-      parts.push(sem.ty);
+      parts[0] += ` ${sem.ty}`;
     if (sem.oneof === true) parts.push("mutually exclusive children");
     if (sem.maybe_absent === true) parts.push("may be absent");
   }
   return parts.join(" · ");
+}
+
+export function schemaTooltip(node: SchemaNode): string {
+  const sections: [string, unknown][] = [
+    ["Semantics", node.sem],
+    ["Edge metadata", node.edge],
+    ["Node metadata", node.node],
+  ];
+  return [
+    displayPath(node.path),
+    schemaSummary(node),
+    ...sections.flatMap(([label, value]) => {
+      if (value === undefined) return [];
+      const entries =
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.keys(value).length
+          ? Object.entries(value)
+          : [[null, value]];
+      return [
+        `${label}:\n${entries
+          .map(
+            ([key, item]) =>
+              `${key === null ? "" : `${key || '""'}: `}${typeof item === "string" ? item : JSON.stringify(item)}`,
+          )
+          .join("\n")}`,
+      ];
+    }),
+  ].join("\n\n");
 }

@@ -406,6 +406,15 @@ try {
       "document.querySelector('textarea')?.value === '9007199254740993'",
     );
     assert(
+      await evaluate(`(() => {
+      const row = document.querySelector('[data-tree-path="/leaf"]');
+      return row.querySelector('.summary').textContent === ' (leaf i32)' &&
+        row.title.includes('Edge metadata:') && row.title.includes('Node metadata:') &&
+        row.title.includes('Signed digital mixer step') && !row.title.includes('Arrows/');
+    })()`),
+      "Tree rows show semantics and useful schema tooltips",
+    );
+    assert(
       await evaluate(
         "document.querySelector('[data-tree-path=\"/leaf\"]').textContent.includes(' = ')",
       ),
@@ -492,7 +501,6 @@ try {
       await evaluate("document.querySelector('.tree').scrollTop"),
       treeScroll,
     );
-    await click(".schema summary");
     await click(".actions button:last-child");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
@@ -507,7 +515,6 @@ try {
       await evaluate("document.querySelector('.tree').scrollTop"),
       treeScroll,
     );
-    await click(".schema summary");
     assert.equal(
       (await command("Page.getNavigationHistory")).entries.length,
       historyBefore.entries.length,
@@ -813,7 +820,7 @@ try {
     );
     assert(
       await evaluate(
-        "document.querySelector('.schema summary').textContent.includes('leaf · i32')",
+        "!document.querySelector('.selected details') && document.querySelector('.schema-body').textContent.includes('i32')",
       ),
     );
     await click('[data-tree-path=""]');
@@ -824,17 +831,18 @@ try {
       "Internal nodes show schema without an editor or disclosure",
     );
     await click('[data-tree-path="/leaf"]');
-    await click(".schema summary");
     await click('[data-tree-path="/other"]');
     await click('[data-tree-path="/leaf"]');
     assert(
-      await evaluate("document.querySelector('.schema').open"),
-      "Schema disclosure follows user intent across selection",
+      await evaluate(
+        "!!document.querySelector('.schema-body') && !document.querySelector('.selected details')",
+      ),
+      "Schema stays visible across selection",
     );
     assert(
       await evaluate(`(() => {
       const text = label => document.querySelector('[aria-label="'+label+'"]').textContent;
-      return !document.querySelector('.schema-hint') && document.querySelector('.schema summary h2').textContent === '/leaf' &&
+      return document.querySelector('.selected h2').textContent === '/leaf' &&
         text('Edge metadata').includes('edge note') &&
         text('Node metadata').includes('first line\\nsecond line') &&
         text('Node metadata').includes('false') && text('Node metadata').includes('null') &&
@@ -849,10 +857,10 @@ try {
         const broker = document.querySelector('.back').getBoundingClientRect();
         const prefix = document.querySelector('.context h1').getBoundingClientRect();
         const status = document.querySelector('.status').getBoundingClientRect();
-        return broker.right <= prefix.left && Math.abs(broker.top - prefix.top) < 2 &&
-          (innerWidth > 760 ? prefix.right <= status.left && Math.abs(broker.top - status.top) < 2 : status.top >= broker.bottom);
+        return broker.width > 0 && prefix.width > 0 && status.width > 0 &&
+          [document.querySelector('.back'), document.querySelector('.context h1')].every(element => element.scrollWidth <= element.clientWidth + 1 && getComputedStyle(element).textOverflow !== 'ellipsis');
       })()`),
-        "Header keeps identity aligned and moves status to the second row on mobile",
+        "Header identities remain fully readable at every width",
       );
       if (width === 390) {
         const draft = await evaluate(
@@ -872,10 +880,8 @@ try {
         await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
       }
       assert(
-        await evaluate(
-          "document.querySelector('.app-header').getBoundingClientRect().height < 90",
-        ),
-        "Normal mobile identity fits a compact header",
+        await evaluate("!document.querySelector('.app-header details')"),
+        "Header details need no disclosure",
       );
       assert(
         await evaluate(`(() => {
@@ -883,10 +889,10 @@ try {
         const editor = document.querySelector('textarea').getBoundingClientRect();
         const actions = document.querySelector('.actions').getBoundingClientRect();
         const parent = document.querySelector('.value-editor').getBoundingClientRect();
-        return schema.clientHeight >= schema.scrollHeight - 1 &&
+        return schema.getBoundingClientRect().top >= actions.bottom && schema.clientHeight >= schema.scrollHeight - 1 &&
           actions.top >= editor.bottom && Math.abs(editor.width - parent.width) < 1 && editor.width > 240;
       })()`),
-        "Schema is readable in the containing pane and actions leave full editor width",
+        `Schema follows the full-width editor at ${width}px: ${JSON.stringify(await evaluate(`['.schema-body', 'textarea', '.actions', '.value-editor'].map(selector => { const element = document.querySelector(selector); return { selector, rect: element.getBoundingClientRect().toJSON(), height: element.clientHeight, scroll: element.scrollHeight }; })`))}`,
       );
       assert(
         await evaluate("document.documentElement.scrollWidth <= innerWidth"),
@@ -907,14 +913,11 @@ try {
       }
     }
     await viewport(1024, 400);
-    await click(".context summary");
-    assert(await evaluate("document.querySelector('.context').open"));
     assert(
       await evaluate(
         `document.querySelector('.context h1').textContent === '${prefix}' && document.querySelector('.back').textContent === 'ws://127.0.0.1:${port}' && document.querySelector('.identity-details').textContent.includes('${revision}')`,
       ),
     );
-    await click(".context summary");
     await click(".log summary");
     assert(
       await evaluate(

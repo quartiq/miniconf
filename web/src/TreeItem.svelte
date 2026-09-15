@@ -41,15 +41,6 @@
   let internal = $derived(node.children.length > 0);
   let open = $derived(expanded.has(node.path));
   let rowActivity = $derived(activity.get(node.path));
-  let title = $derived(
-    node.href
-      ? internal
-        ? "Enter opens. Space toggles. Arrows/Home/End/Page navigate."
-        : "Enter opens. Ctrl-click opens a new tab. Arrows/Home/End/Page navigate."
-      : internal
-        ? "Enter or Space toggles. Arrows/Home/End/Page navigate."
-        : "Enter edits. Arrows/Home/End/Page navigate.",
-  );
 
   function select() {
     actions.select(node.path);
@@ -142,6 +133,7 @@
   <TreeRow
     path={node.path}
     label={node.label}
+    summary={node.summary}
     value={node.value ?? ""}
     {selected}
     tabbable={node.path === tabStop}
@@ -154,7 +146,7 @@
     href={node.href}
     activity={rowActivity}
     {showActivity}
-    {title}
+    title={node.title ?? node.path}
     {select}
     {toggle}
     {keydown}

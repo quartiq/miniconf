@@ -84,22 +84,20 @@
     <a class="back" href={discoverHref} title={`Show devices on ${broker}`}
       >{broker}</a
     >
-    <details class="context">
-      <summary title="Show full device details">
-        <h1>{activePrefix}</h1>
-        {#if aliveManifest}<span class="identity-details"
-            >schema {aliveManifest.schema_rev}</span
-          >{/if}
-        {#if subtreePath}<span class="identity-details"
-            >subtree {subtreePath}</span
-          >{/if}
-      </summary>
+    <div class="context">
+      <h1>{activePrefix}</h1>
+      {#if aliveManifest}<span class="identity-details"
+          >schema {aliveManifest.schema_rev}</span
+        >{/if}
+      {#if subtreePath}<span class="identity-details"
+          >subtree {subtreePath}</span
+        >{/if}
       <div class="identity-details">
         {#if aliveManifest}epoch {aliveManifest.epoch}{/if}
         {#if settingsRevision}
           · last publication rev {settingsRevision}{/if}
       </div>
-    </details>
+    </div>
     <div class="connection-state">
       <div class="status">
         <div role="status" title={error || status}>
@@ -177,6 +175,7 @@
   .app-header {
     align-items: center;
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-tight) var(--space);
     min-width: 0;
   }
@@ -185,31 +184,28 @@
     color: inherit;
     line-height: var(--line);
     text-decoration: none;
-    max-width: 25%;
+    max-width: 100%;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     flex-shrink: 0;
   }
 
-  .context,
   .connection-state {
     min-width: 0;
   }
 
   h1 {
     margin: 0;
+    line-height: var(--line);
     flex-shrink: 0;
     max-width: 100%;
     display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   .connection-state {
-    flex: 1;
+    flex: 1 0 22ch;
+    max-width: 100%;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
@@ -245,32 +241,10 @@
     grid-column: 1 / -1;
   }
   .context {
-    max-width: 45%;
-    overflow: hidden;
-    line-height: var(--line);
-  }
-  .context summary {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space);
-    cursor: pointer;
-    list-style: none;
-  }
-  .context summary::-webkit-details-marker {
-    display: none;
-  }
-  .context[open] summary {
-    flex-wrap: wrap;
-  }
-  .context[open] h1,
-  .context[open] .identity-details {
-    white-space: normal;
-    overflow-wrap: anywhere;
+    display: contents;
   }
   .identity-details {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     color: var(--muted);
     font-size: var(--text-small);
     min-width: 0;
@@ -303,17 +277,6 @@
   }
 
   @media (max-width: 760px) {
-    .app-header {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    }
-    .back,
-    .context {
-      max-width: none;
-    }
-    .connection-state {
-      grid-column: 1 / -1;
-    }
     .browse {
       height: auto;
     }

@@ -1,5 +1,5 @@
 import type { Schema, SchemaNode } from "./schema";
-import { formatSchemaName } from "./schema";
+import { formatSchemaName, schemaSummary, schemaTooltip } from "./schema";
 import type { FlatTreeNode } from "./tree-navigation";
 import type { TreeNodeView } from "./tree-view";
 
@@ -92,6 +92,8 @@ export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
       {
         path: node.path,
         label: node.path ? formatSchemaName(node) : "(root)",
+        summary: schemaSummary(node),
+        title: schemaTooltip(node),
         value: node.kind === "leaf" ? (node.value ?? "") : "",
         children: (children.get(node.path) ?? []).map((child) => child.path),
       },

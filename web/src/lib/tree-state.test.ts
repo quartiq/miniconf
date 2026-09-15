@@ -9,6 +9,32 @@ import {
 } from "./tree-state";
 
 describe("tree state", () => {
+  it("shows portable semantics inline and preserves opaque metadata in tooltips", () => {
+    const row = treeViewNodes([
+      {
+        path: "/amplitude",
+        kind: "leaf",
+        children: [],
+        present: true,
+        value: "1.0",
+        sem: { ty: "f32", future: ["opaque"] },
+        edge: { note: "edge note" },
+        node: {
+          note: "first line\nsecond line",
+          flag: false,
+          empty: null,
+          "": 0,
+        },
+      },
+    ]).get("/amplitude")!;
+    expect(row.summary).toBe("leaf f32");
+    expect(row.value).toBe("1.0");
+    expect(row.title).toContain('Semantics:\nty: f32\nfuture: ["opaque"]');
+    expect(row.title).toContain("Edge metadata:\nnote: edge note");
+    expect(row.title).toContain(
+      'Node metadata:\nnote: first line\nsecond line\nflag: false\nempty: null\n"": 0',
+    );
+  });
   it("derives parent paths", () => {
     expect(parentPath("")).toBeUndefined();
     expect(parentPath("/a")).toBe("");

@@ -5,6 +5,8 @@ import type { NavDirection } from "./tree-navigation";
 export type TreeNodeView = {
   path: string;
   label: string;
+  summary?: string;
+  title?: string;
   value?: string;
   href?: string;
   children: string[];

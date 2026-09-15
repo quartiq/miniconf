@@ -6,6 +6,7 @@
   type Props = {
     path: string;
     label: string;
+    summary?: string;
     selected: boolean;
     tabbable: boolean;
     internal?: boolean;
@@ -27,6 +28,7 @@
   let {
     path,
     label,
+    summary = "",
     selected,
     tabbable,
     internal = false,
@@ -101,6 +103,7 @@
         ></span></span
       >{/if}
     <span class="label">{label}</span>
+    {#if summary}<span class="summary">{` (${summary})`}</span>{/if}
     {#if value}
       <span class="separator">{" = "}</span>
       <span class="value">{value}</span>
@@ -145,6 +148,7 @@
     {:else}
       <span class="label">{label}</span>
     {/if}
+    {#if summary}<span class="summary">{` (${summary})`}</span>{/if}
     {#if value}
       <span class="separator">{" = "}</span>
       <span class="value">{value}</span>
@@ -241,6 +245,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .summary {
+    color: var(--muted);
+    font-size: var(--text-small);
+    flex: 0 2 auto;
+    max-width: 45%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: pre;
   }
 
   .separator {
