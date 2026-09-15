@@ -121,3 +121,37 @@ fn test_depth() {
 
     const _: ExactSize<NodeIter<(), 2>> = <S<[u32; 1]>>::SCHEMA.nodes();
 }
+
+#[cfg(all(feature = "schema", feature = "meta-node"))]
+#[test]
+fn schema_typename_reuse_and_collision() {
+    use miniconf::json_schema::TreeJsonSchema;
+
+    #[derive(Tree, Default)]
+    #[tree(meta(typename))]
+    struct Channel<T> {
+        value: T,
+    }
+    #[derive(Tree, Default)]
+    struct Settings<T> {
+        a: Channel<u8>,
+        b: Channel<T>,
+    }
+
+    let schema = TreeJsonSchema::<Settings<u8>>::new(Some(&Settings::default())).unwrap();
+    assert!(
+        schema
+            .generator
+            .definitions()
+            .contains_key("tree-internal-Channel")
+    );
+    assert_eq!(
+        schema.root.as_value()["properties"]["a"]["$ref"],
+        schema.root.as_value()["properties"]["b"]["$ref"]
+    );
+    let error = TreeJsonSchema::<Settings<bool>>::new(Some(&Settings::default()))
+        .err()
+        .expect("different definitions must not share a name");
+    assert!(matches!(error, serde_reflection::Error::Custom(message)
+        if message == "Conflicting schema definitions for tree-internal-Channel"));
+}
