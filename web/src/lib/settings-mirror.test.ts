@@ -21,8 +21,13 @@ describe("SettingsMirror", () => {
     expect(commits[0].rev).toBe("13");
 
     mirror.ingest("/a", "3");
+    mirror.ingest("/b", "4");
     vi.advanceTimersByTime(100);
-    expect([...commits[1].activity]).toEqual(["/a"]);
+    expect([...commits[1].activity]).toEqual(["/a", "/b"]);
+    mirror.clear();
+    expect([...commits[0].settings]).toEqual([["/a", "2"]]);
+    expect([...commits[0].touched]).toEqual(["/a"]);
+    expect([...commits[1].touched]).toEqual(["/a", "/b"]);
   });
 
   it("deletes only exact leaves published absent", () => {

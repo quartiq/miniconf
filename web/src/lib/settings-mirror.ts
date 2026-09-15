@@ -57,7 +57,7 @@ export class SettingsMirror {
   flush(): void {
     this.cancel();
     if (!this.touched.size) return;
-    const touched = new Set(this.touched);
+    const touched = this.touched;
     this.touched = new Set();
     this.onCommit({
       settings: new Map(this.shadow),
