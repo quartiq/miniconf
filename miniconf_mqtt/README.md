@@ -58,13 +58,13 @@ network glitch, keep the live settings in RAM authoritative and call
 
 - `ConnectEvent::Connected`: the broker did not resume the MQTT session, so Miniconf republishes
   schema, settings, `set/#`, and `alive`
-- `ConnectEvent::Reconnected`: the broker resumed the MQTT session. If MM2 startup previously completed,
+- `ConnectEvent::Reconnected`: the broker resumed the MQTT session. If startup previously completed,
   Miniconf republishes only `alive`; otherwise it restarts schema/settings synchronization
   from current settings
 
 ## Protocol details
 
-The MQTT wire protocol is MM2 version 1:
+The Miniconf MQTT protocol version is 1:
 
 - retained `/<prefix>/alive` publishes a compact device manifest
 - retained `/<prefix>/schema/<n>` publishes paged compact schemata
@@ -156,7 +156,7 @@ The retained `alive` payload is JSON:
 {"proto":1,"epoch":1,"schema_rev":12345678,"pages":7}
 ```
 
-- `proto` is the MM2 protocol version; clients should reject unsupported values
+- `proto` is the Miniconf MQTT protocol version; clients should reject unsupported values
 - `epoch` identifies the current retained publication generation
 - `schema_rev` identifies the current schema page generation
 - `pages` is the number of retained schema pages
@@ -244,8 +244,7 @@ Success replies carry only `code=Ok`.
 
 ## Limitations
 
-- The MM2 wire protocol is small and opinionated. One MQTT prefix is assumed to have one
-  authoritative device publisher.
+- One MQTT prefix is assumed to have one authoritative device publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.
 - `Startup::step() -> Ok(true)` means startup completed, including schema/settings ACKs,

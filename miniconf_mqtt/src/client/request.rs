@@ -331,7 +331,7 @@ where
 impl FollowUp {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        mm2: &mut Miniconf<Settings>,
+        miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
@@ -347,7 +347,7 @@ impl FollowUp {
                         PendingOp::Complete => {
                             if let Some(target) = reply.take() {
                                 debug!(
-                                    "Published authoritative setting; sending MM2 success reply reply_topic={=str}",
+                                    "Published authoritative setting; sending Miniconf success reply reply_topic={=str}",
                                     target.topic()
                                 );
                                 *self = Self::ReplyOk { target, op: None };
@@ -362,7 +362,7 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match mm2
+                    match miniconf
                         .publish_current(connection, settings, state.as_ref())
                         .await
                     {
@@ -381,7 +381,7 @@ impl FollowUp {
                         Err(err) => {
                             if let Some(target) = reply.take() {
                                 warn!(
-                                    "Authoritative setting publish failed; replying with MM2 error reply_topic={=str}",
+                                    "Authoritative setting publish failed; replying with Miniconf error reply_topic={=str}",
                                     target.topic()
                                 );
                                 let (error, payload) = publish_error_text(&err);
@@ -406,7 +406,7 @@ impl FollowUp {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed MM2 error reply reply_topic={=str} kind={=str} depth={=?}",
+                                "Completed Miniconf error reply reply_topic={=str} kind={=str} depth={=?}",
                                 target.topic(),
                                 message.kind,
                                 message.depth
@@ -438,7 +438,7 @@ impl FollowUp {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed MM2 success reply reply_topic={=str}",
+                                "Completed Miniconf success reply reply_topic={=str}",
                                 target.topic()
                             );
                             *self = Self::Done;
@@ -473,7 +473,7 @@ impl FollowUp {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed MM2 publish-error reply reply_topic={=str}",
+                                "Completed Miniconf publish-error reply reply_topic={=str}",
                                 target.topic()
                             );
                             *self = Self::Done;

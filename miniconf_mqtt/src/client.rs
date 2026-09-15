@@ -19,7 +19,7 @@ use serde::Serialize;
 use serde_json_core::ser::Error as JsonSerError;
 
 use crate::{
-    EncodeError, MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, MM2_PROTO,
+    EncodeError, MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION,
     RESPONSE_CORRELATION_LENGTH, RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
     message::{DepthError, simple_pub_error},
     schema::{SchemaSync, SettingsSync},
@@ -97,7 +97,7 @@ struct AlivePayload {
 }
 
 pub(crate) enum PublishPayload<'a, 'b, Settings> {
-    // Keep MM2 publications behind one concrete payload type per Settings tree.
+    // Keep Miniconf MQTT publications behind one concrete payload type per Settings tree.
     // `Connection::publish<P>()` is generic over `P: ToPayload`; splitting these variants into
     // separate payload structs creates separate publish monomorphizations for alive/schema/leaf.
     Alive(&'a Manifest),
@@ -139,7 +139,7 @@ where
         match self {
             Self::Alive(manifest) => serde_json_core::to_slice(
                 &AlivePayload {
-                    proto: MM2_PROTO,
+                    proto: PROTOCOL_VERSION,
                     epoch: manifest.epoch,
                     schema_rev: manifest.schema_rev,
                     pages: manifest.schema_pages,
@@ -212,7 +212,7 @@ pub struct Miniconf<Settings> {
     _settings: PhantomData<Settings>,
 }
 
-/// Miniconf MQTT startup workflow for one MQTT connection event.
+/// Miniconf startup workflow for one MQTT connection event.
 #[must_use = "drive startup to completion before relying on Miniconf startup state"]
 pub struct Startup {
     phase: sync::StartupPhase,
@@ -327,7 +327,7 @@ where
         ))
     }
 
-    /// Run Miniconf MQTT startup to completion after one MQTT connect event.
+    /// Run Miniconf startup to completion after one MQTT connect event.
     ///
     /// `ConnectEvent::Connected` republishes schema/settings, subscribes `set/#`, and publishes
     /// `alive`. `ConnectEvent::Reconnected` only republishes `alive` if startup previously
@@ -475,7 +475,7 @@ where
 }
 
 impl Startup {
-    /// Begin Miniconf MQTT startup after one MQTT connect event.
+    /// Begin Miniconf startup after one MQTT connect event.
     pub fn new<Settings>(miniconf: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
     where
         Settings: TreeSchema,
@@ -483,7 +483,7 @@ impl Startup {
         match event {
             ConnectEvent::Reconnected if miniconf.startup_complete => {
                 info!(
-                    "Starting reconnected MM2 startup prefix={=str} epoch={=u32} schema_rev={=u32}",
+                    "Starting reconnected Miniconf startup prefix={=str} epoch={=u32} schema_rev={=u32}",
                     miniconf.prefix.as_str(),
                     miniconf.manifest.epoch,
                     miniconf.manifest.schema_rev
@@ -507,7 +507,7 @@ impl Startup {
         miniconf.manifest.schema_rev = 0;
         miniconf.manifest.schema_pages = 0;
         info!(
-            "Starting connected MM2 startup prefix={=str} epoch={=u32}",
+            "Starting connected Miniconf startup prefix={=str} epoch={=u32}",
             miniconf.prefix.as_str(),
             miniconf.manifest.epoch
         );
@@ -525,7 +525,7 @@ impl Startup {
         }
     }
 
-    /// Run Miniconf MQTT startup to completion.
+    /// Run Miniconf startup to completion.
     ///
     /// This helper may consume and discard surfaced inbound publishes while bootstrapping.
     pub async fn run<Settings, IO>(
@@ -544,7 +544,7 @@ impl Startup {
         Ok(())
     }
 
-    /// Advance Miniconf MQTT startup.
+    /// Advance Miniconf startup.
     ///
     /// `Ok(true)` means startup is complete.
     ///
@@ -711,10 +711,6 @@ impl<const N: usize> Service<N> {
         self.follow_ups.len()
     }
 
-    fn is_full(&self) -> bool {
-        self.follow_ups.len() == N
-    }
-
     /// Route one inbound publish through the bounded Miniconf service.
     ///
     /// Non-Miniconf traffic is reported as `ServiceEvent::Unhandled`, while the
@@ -731,10 +727,11 @@ impl<const N: usize> Service<N> {
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     {
-        if self.is_full() && request::needs_capacity::<Settings>(miniconf.prefix.as_str(), inbound)
+        if self.follow_ups.is_full()
+            && request::needs_capacity::<Settings>(miniconf.prefix.as_str(), inbound)
         {
             debug!(
-                "Rejecting MM2 request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
+                "Rejecting Miniconf request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
                 inbound.topic(),
                 self.follow_ups.len(),
                 N,
@@ -748,10 +745,10 @@ impl<const N: usize> Service<N> {
             Route::Ignored => ServiceEvent::Idle,
             Route::Rejected { follow_up } => {
                 if let Some(follow_up) = follow_up {
-                    debug_assert!(!self.is_full());
+                    debug_assert!(!self.follow_ups.is_full());
                     let _ = self.follow_ups.push_back(follow_up);
                     debug!(
-                        "Queued MM2 error follow-up queued={=usize} capacity={=usize}",
+                        "Queued Miniconf error follow-up queued={=usize} capacity={=usize}",
                         self.follow_ups.len(),
                         N
                     );
@@ -759,10 +756,10 @@ impl<const N: usize> Service<N> {
                 ServiceEvent::Idle
             }
             Route::Accepted { changed, follow_up } => {
-                debug_assert!(!self.is_full());
+                debug_assert!(!self.follow_ups.is_full());
                 let _ = self.follow_ups.push_back(follow_up);
                 debug!(
-                    "Queued MM2 publish follow-up changed_depth={=usize} queued={=usize} capacity={=usize}",
+                    "Queued Miniconf publish follow-up changed_depth={=usize} queued={=usize} capacity={=usize}",
                     changed.as_ref().len(),
                     self.follow_ups.len(),
                     N
@@ -795,14 +792,14 @@ impl<const N: usize> Service<N> {
                 return Ok(true);
             };
             debug!(
-                "Driving MM2 follow-up queued_before={=usize} capacity={=usize}",
+                "Driving Miniconf follow-up queued_before={=usize} capacity={=usize}",
                 self.follow_ups.len() + 1,
                 N
             );
 
             if follow_up.step(miniconf, connection, settings).await? {
                 debug!(
-                    "Completed MM2 follow-up queued_remaining={=usize} capacity={=usize}",
+                    "Completed Miniconf follow-up queued_remaining={=usize} capacity={=usize}",
                     self.follow_ups.len(),
                     N
                 );
@@ -810,7 +807,7 @@ impl<const N: usize> Service<N> {
             }
             let _ = self.follow_ups.push_front(follow_up);
             debug!(
-                "MM2 follow-up pending queued_remaining={=usize} capacity={=usize}",
+                "Miniconf follow-up pending queued_remaining={=usize} capacity={=usize}",
                 self.follow_ups.len(),
                 N
             );

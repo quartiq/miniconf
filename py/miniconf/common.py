@@ -5,7 +5,7 @@ from typing import Any
 import json
 import logging
 
-MM2_PROTO = 1
+PROTOCOL_VERSION = 1
 
 LOGGER = logging.getLogger("miniconf")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.
@@ -33,7 +33,7 @@ class AliveManifest:
 def alive_manifest(value: Any) -> AliveManifest:
     if not isinstance(value, dict):
         raise MiniconfException("Protocol", "Invalid alive manifest")
-    if value.get("proto") != MM2_PROTO:
+    if value.get("proto") != PROTOCOL_VERSION:
         raise MiniconfException("Protocol", "Unsupported alive manifest")
     epoch = value.get("epoch")
     schema_rev = value.get("schema_rev")
@@ -44,7 +44,7 @@ def alive_manifest(value: Any) -> AliveManifest:
         or not isinstance(pages, int)
     ):
         raise MiniconfException("Protocol", "Invalid alive manifest")
-    return AliveManifest(MM2_PROTO, epoch, schema_rev, pages)
+    return AliveManifest(PROTOCOL_VERSION, epoch, schema_rev, pages)
 
 
 def is_retained(message) -> bool:
