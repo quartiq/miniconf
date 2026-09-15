@@ -25,6 +25,20 @@ function hash(...pages: string[]): number {
   return value;
 }
 
+function announce(mqtt: FakeMqttClient) {
+  const alive = {
+    proto: 1,
+    epoch: 1,
+    schema_rev: hash(...schemaText),
+    pages: 2,
+  };
+  mqtt.message("dt/device/alive", JSON.stringify(alive));
+  schemaText.forEach((page, index) =>
+    mqtt.message(`dt/device/schema/${index}`, page),
+  );
+  return alive;
+}
+
 function callbacks(
   overrides: Partial<PrefixSessionCallbacks> = {},
 ): PrefixSessionCallbacks {
@@ -216,13 +230,7 @@ describe("PrefixSession", () => {
         settings: (commit) => commits.push(commit.settings),
       }),
     );
-    mqtt.message(
-      "dt/device/alive",
-      JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }),
-    );
-    schemaText.forEach((page, index) =>
-      mqtt.message(`dt/device/schema/${index}`, page),
-    );
+    announce(mqtt);
     mqtt.message("dt/device/settings/leaf", "1", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
 
@@ -244,15 +252,8 @@ describe("PrefixSession", () => {
 
   it("matches concurrent set responses and makes pending outcomes unknown on disconnect", async () => {
     const mqtt = new FakeMqttClient();
-    const revision = hash(...schemaText);
     const session = await connectPrefix(mqtt);
-    mqtt.message(
-      "dt/device/alive",
-      JSON.stringify({ proto: 1, epoch: 1, schema_rev: revision, pages: 2 }),
-    );
-    schemaText.forEach((page, index) =>
-      mqtt.message(`dt/device/schema/${index}`, page),
-    );
+    announce(mqtt);
 
     const first = session.set("/leaf", "1");
     const second = session.set("/leaf", "2");
@@ -364,16 +365,7 @@ describe("exact settings and generation boundaries", () => {
       vi.useFakeTimers();
       const mqtt = new FakeMqttClient();
       const session = await connectPrefix(mqtt);
-      const alive = {
-        proto: 1,
-        epoch: 1,
-        schema_rev: hash(...schemaText),
-        pages: 2,
-      };
-      mqtt.message("dt/device/alive", JSON.stringify(alive));
-      schemaText.forEach((page, i) =>
-        mqtt.message(`dt/device/schema/${i}`, page),
-      );
+      const alive = announce(mqtt);
       mqtt.publishWait = new Promise(() => {});
       const setting = session.set("/leaf", "1");
       const rejected = expect(setting).rejects.toThrow("outcome unknown");
@@ -450,16 +442,7 @@ describe("exact settings and generation boundaries", () => {
       mqtt,
       callbacks({ settings: (c) => commits.push(c.settings) }),
     );
-    const alive = {
-      proto: 1,
-      epoch: 1,
-      schema_rev: hash(...schemaText),
-      pages: 2,
-    };
-    mqtt.message("dt/device/alive", JSON.stringify(alive));
-    schemaText.forEach((page, i) =>
-      mqtt.message(`dt/device/schema/${i}`, page),
-    );
+    const alive = announce(mqtt);
     mqtt.message("dt/device/settings/leaf", "1", true, { auth: "" });
     await vi.advanceTimersByTimeAsync(100);
     let release!: () => void;

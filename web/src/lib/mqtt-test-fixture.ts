@@ -47,19 +47,6 @@ export class FakeMqttClient extends EventEmitter {
     return this;
   }
 
-  async subscribeAsync(subscriptions: ISubscriptionMap) {
-    this.subscriptions.push(subscriptions);
-    await this.subscribeWait;
-    if (this.subscribeError) throw this.subscribeError;
-    return Object.keys(subscriptions).map((topic) => ({
-      topic,
-      qos:
-        topic === this.rejectedTopic
-          ? (128 as const)
-          : (subscriptions[topic].qos ?? 0),
-    }));
-  }
-
   subscribe(
     subscriptions: ISubscriptionMap,
     callback: (
@@ -68,17 +55,25 @@ export class FakeMqttClient extends EventEmitter {
       packet?: { granted: number[] },
     ) => void,
   ): this {
-    void this.subscribeAsync(subscriptions).then(
-      (grants) =>
-        callback(
-          grants.some((g) => g.qos >= 128)
-            ? new Error("Subscribe error")
-            : null,
-          grants,
-          { granted: grants.map((g) => g.qos) },
-        ),
-      (error) => callback(error),
-    );
+    this.subscriptions.push(subscriptions);
+    void Promise.resolve(this.subscribeWait)
+      .then(() => {
+        if (this.subscribeError) throw this.subscribeError;
+        return Object.keys(subscriptions).map((topic) =>
+          topic === this.rejectedTopic ? 128 : (subscriptions[topic].qos ?? 0),
+        );
+      })
+      .then(
+        (granted) =>
+          callback(
+            granted.some((qos) => qos >= 128)
+              ? new Error("Subscribe error")
+              : null,
+            undefined,
+            { granted },
+          ),
+        (error) => callback(error),
+      );
     return this;
   }
 
