@@ -92,7 +92,6 @@
   });
   let logOpen = $state(new URLSearchParams(location.search).get("log") === "1");
   let logLines = $state<string[]>([]);
-  let routeSerial = $state(0);
   const browseMemory = new Map<string, browse.BrowseMemory>();
   // Activity dots are UI cues for /settings echoes only. /set responses update
   // the status/log, but the retained/live settings mirror is authoritative.
@@ -221,6 +220,7 @@
   }
 
   function resetBrowseState(preserve = false) {
+    // Invalidate captured route signals before closing can invoke callbacks.
     connectionAbort.abort();
     connectionAbort = new AbortController();
     session?.close();
@@ -286,12 +286,13 @@
     }
   }
 
-  async function connectRoute(serial: number) {
+  async function connectRoute() {
+    const signal = connectionAbort.signal;
     error = "";
     setStatus({ state: "connecting" });
     discoveredPrefixes = [];
     syncUrl();
-    const options = { auth: credentials, signal: connectionAbort.signal };
+    const options = { auth: credentials, signal };
     try {
       let next: DiscoverySession | PrefixSession;
       if (activePrefix) {
@@ -301,7 +302,7 @@
           subtreePath,
           {
             alive: (next) => {
-              if (serial !== routeSerial) {
+              if (signal.aborted) {
                 return;
               }
               aliveManifest = next;
@@ -311,20 +312,20 @@
               }
             },
             schema: (nextSchema, root) => {
-              if (serial === routeSerial) {
+              if (!signal.aborted) {
                 loadSchema(nextSchema, root);
               }
             },
             settings: (commit) => {
-              if (serial === routeSerial) {
+              if (!signal.aborted) {
                 commitSettings(commit);
               }
             },
             pruning: (next) => {
-              if (serial === routeSerial) pruning = next;
+              if (!signal.aborted) pruning = next;
             },
             status: (next, ready) => {
-              if (serial !== routeSerial) {
+              if (signal.aborted) {
                 return;
               }
               deviceReady = ready;
@@ -339,22 +340,22 @@
           discoveryPattern,
           {
             prefixes: (prefixes) => {
-              if (serial === routeSerial) discoveredPrefixes = prefixes;
+              if (!signal.aborted) discoveredPrefixes = prefixes;
             },
             status: (next) => {
-              if (serial === routeSerial) setStatus(next);
+              if (!signal.aborted) setStatus(next);
             },
           },
           options,
         );
       }
-      if (serial !== routeSerial) {
+      if (signal.aborted) {
         next.close();
         return;
       }
       session = next;
     } catch (err) {
-      if (serial !== routeSerial) {
+      if (signal.aborted) {
         return;
       }
       error = err instanceof Error ? err.message : String(err);
@@ -375,7 +376,7 @@
     )
       return false;
     const current = session;
-    const serial = routeSerial;
+    const signal = connectionAbort.signal;
     actions = { pending: new Set([...actions.pending, action]) };
     let result: ActionResult;
     try {
@@ -386,7 +387,7 @@
         failed: true,
       };
     }
-    if (serial !== routeSerial) return false;
+    if (signal.aborted) return false;
     actions.pending = new Set(
       [...actions.pending].filter((item) => item !== action),
     );
@@ -459,9 +460,6 @@
         },
       );
     }
-    // Route changes cancel the old session; the serial also rejects callbacks
-    // from an initial connection that completed after navigation.
-    const serial = ++routeSerial;
     const preserve =
       next.page === "browse" &&
       next.broker === broker &&
@@ -482,7 +480,7 @@
     if (next.page === "landing") {
       showDiscoveryIdle();
     } else {
-      void connectRoute(serial);
+      void connectRoute();
     }
   }
 
@@ -491,7 +489,6 @@
     applyRoute();
     return () => {
       removeEventListener("hashchange", applyRoute);
-      routeSerial += 1;
       connectionAbort.abort();
       session?.close();
     };

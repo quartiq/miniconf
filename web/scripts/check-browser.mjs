@@ -49,6 +49,7 @@ let holdClear = false;
 let acknowledgeClear;
 let clearAcks = 0;
 let rejectClearAt = 0;
+let holdConnect = false;
 function resetFixture() {
   epoch = 1;
   writes.length = 0;
@@ -61,6 +62,7 @@ function resetFixture() {
   acknowledgeClear = undefined;
   clearAcks = 0;
   rejectClearAt = 0;
+  holdConnect = false;
   retained.clear();
   retained.set(`${prefix}/alive`, {
     text: JSON.stringify({ proto: 1, epoch, schema_rev: revision, pages: 1 }),
@@ -128,11 +130,16 @@ broker.on("connection", (socket) => {
   socket.on("error", () => {});
   socket.on("message", (bytes) => parser.parse(bytes));
   parser.on("packet", (message) => {
-    const reply = (value) =>
-      socket.send(packet.generate(value, { protocolVersion: 5 }));
-    if (message.cmd === "connect")
-      reply({ cmd: "connack", reasonCode: 0, sessionPresent: false });
-    else if (message.cmd === "subscribe") {
+    const reply = (value) => {
+      if (socket.readyState === 1)
+        socket.send(packet.generate(value, { protocolVersion: 5 }));
+    };
+    if (message.cmd === "connect") {
+      const accept = () =>
+        reply({ cmd: "connack", reasonCode: 0, sessionPresent: false });
+      if (holdConnect) broker.emit("held-connect", accept);
+      else accept();
+    } else if (message.cmd === "subscribe") {
       if (rejectSubscriptions) {
         reply({
           cmd: "suback",
@@ -197,6 +204,7 @@ broker.on("connection", (socket) => {
         };
         if (!holdResponse) respond();
       }
+      broker.emit("publication", message);
     } else if (message.cmd === "pingreq") reply({ cmd: "pingresp" });
   });
 });
@@ -1161,6 +1169,59 @@ try {
       ),
       "Open diagnostics leave a usable workspace in short windows",
     );
+
+    console.log(`Same-document route cancellation: ${base}`);
+    const timeOrigin = await evaluate("performance.timeOrigin");
+    await evaluate("location.hash = ''");
+    await until("document.querySelector('input[name=broker]')");
+    resetFixture();
+    holdConnect = true;
+    const connecting = once(broker, "held-connect", {
+      signal: AbortSignal.timeout(5000),
+    });
+    await evaluate(`location.hash = ${JSON.stringify(new URL(href).hash)}`);
+    const [accept] = await connecting;
+    await evaluate("location.hash = ''");
+    await until(
+      "document.querySelector('.log summary')?.textContent.includes('Not connected')",
+    );
+    holdConnect = false;
+    accept();
+
+    await evaluate(`location.hash = ${JSON.stringify(new URL(href).hash)}`);
+    await until("document.querySelector('[data-tree-path=\"/leaf\"] .value')");
+    await click('[data-tree-path="/leaf"]');
+    holdResponse = holdSetAck = holdClear = true;
+    await fill("textarea", "42");
+    const setting = once(broker, "publication", {
+      signal: AbortSignal.timeout(5000),
+    });
+    await clickButton("Set");
+    await setting;
+    const pruning = once(broker, "publication", {
+      signal: AbortSignal.timeout(5000),
+    });
+    await clickButton("Prune (3)");
+    await pruning;
+    const lateResponse = respond;
+    const lateClear = acknowledgeClear;
+    await click(".back");
+    await until(
+      "document.querySelector('a[data-tree-path=\"/dt/test/device\"]')",
+    );
+    lateResponse();
+    lateClear();
+    holdResponse = holdSetAck = holdClear = false;
+    await click('a[data-tree-path="/dt/test/device"]');
+    await until(
+      "document.querySelector('.status [role=status]')?.textContent.trim() === 'Ready'",
+    );
+    await click('[data-tree-path="/leaf"]');
+    await until("document.querySelector('textarea')?.value === '42'");
+    assert(
+      await evaluate("!document.querySelector('.actions button').disabled"),
+    );
+    assert.equal(await evaluate("performance.timeOrigin"), timeOrigin);
     console.log(
       `Checked exact editing, broker identity, pruning, recovery and keyboard guards: ${base}`,
     );
