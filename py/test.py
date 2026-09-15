@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 from queue import Empty, Queue
+from unittest.mock import AsyncMock, Mock
 
 import paho.mqtt.client as mqtt
 from miniconf.client import Miniconf, RawMiniconf
@@ -199,6 +200,56 @@ async def test_snapshot_deadline(interface) -> None:
         raise AssertionError("snapshot accepted a deadline as quiescence")
 
 
+async def test_request_cleanup() -> None:
+    transport = FakeClient()
+    async with RawMiniconf(transport, "test") as interface:
+        await asyncio.wait_for(interface._subscribed.wait(), 1.0)
+        transport.publish = AsyncMock(side_effect=RuntimeError("publish failed"))
+        try:
+            await interface.set("/value", 1)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("expected publish failure")
+        assert not interface._inflight
+
+        # A malformed correlated reply fails its request, not the listener.
+        future = asyncio.get_running_loop().create_future()
+        interface._inflight[b"request"] = future
+        interface._handle_response({"correlation_data": b"request"}, b"")
+        assert isinstance(future.exception(), MiniconfException)
+        assert not interface._inflight
+
+        transport.subscribe = AsyncMock(side_effect=asyncio.CancelledError)
+        try:
+            async with interface._watch("test/settings/#"):
+                raise AssertionError("expected subscription cancellation")
+        except asyncio.CancelledError:
+            pass
+        assert not interface._watchers
+
+
+async def test_ack_cancellation() -> None:
+    transport = Client("localhost")
+    transport._client = Mock()
+    transport._client.subscribe.return_value = 1
+    transport._client.unsubscribe.return_value = 1
+    for operation, pending, callback in (
+        (transport.subscribe, transport._subacks, transport._on_subscribe),
+        (transport.unsubscribe, transport._unsubacks, transport._on_unsubscribe),
+    ):
+        task = asyncio.create_task(operation("test/#"))
+        await asyncio.sleep(0)
+        assert pending
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        assert not pending
+        if operation == transport.subscribe:
+            callback(None, 1, (0,), {})
+        else:
+            callback(None, 1, (0,))
+
+
 async def close_client(client: Client, timeout: float = 1.0) -> None:
     """Bound MQTT teardown so the harness cannot hang on disconnect."""
 
@@ -245,6 +296,8 @@ async def wait_snapshot_value(
 
 async def main() -> None:
     await test_listener_close_tolerates_released_subscription()
+    await test_request_cleanup()
+    await test_ack_cancellation()
 
     assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
     assert _normalize_command_path("/", "") == ("/", "/")

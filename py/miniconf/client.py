@@ -181,11 +181,14 @@ class _BaseClient:
         if fut.done():
             LOGGER.debug("Discarding late response: %s", cd.hex())
             return
-        code = _response_code(properties)
-        if code == "Ok":
-            fut.set_result(None)
-            return
-        fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
+        try:
+            code = _response_code(properties)
+            if code == "Ok":
+                fut.set_result(None)
+            else:
+                fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
+        except (MiniconfException, UnicodeDecodeError) as exc:
+            fut.set_exception(exc)
 
     def _handle_message(
         self, _message: Message, _topic: str, _properties: dict[str, Any]
@@ -239,20 +242,17 @@ class _BaseClient:
         queue: asyncio.Queue[Message] = asyncio.Queue()
         watchers = self._watchers[topic_filter]
         watchers.append(queue)
+        subscribed = False
         try:
             await self._subscribe(topic_filter, subscription)
-        except Exception:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            raise
-        try:
+            subscribed = True
             yield queue
         finally:
             watchers.remove(queue)
             if not watchers:
                 del self._watchers[topic_filter]
-            await self._unsubscribe(topic_filter)
+            if subscribed:
+                await self._unsubscribe(topic_filter)
 
     async def _watch_settings(self, root: str) -> AsyncIterator[SettingEvent]:
         async with self._settings_queue(root) as queue:
@@ -292,13 +292,14 @@ class _BaseClient:
 
         topic = f"{self.prefix}/set{path}"
         LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
-        await self.client.publish(topic, payload=payload, qos=1, properties=props)
-
-        if fut is not None:
-            try:
+        try:
+            await self.client.publish(topic, payload=payload, qos=1, properties=props)
+            if fut is not None:
                 await asyncio.wait_for(fut, timeout)
-            finally:
+        finally:
+            if fut is not None:
                 self._inflight.pop(cd, None)
+                fut.cancel()
 
 
 async def _read_retained_json(

@@ -146,7 +146,10 @@ class Client:
         if mid is not None:
             fut = asyncio.get_running_loop().create_future()
             self._subacks[mid] = fut
-            reasons = await asyncio.wait_for(fut, 3.0)
+            try:
+                reasons = await asyncio.wait_for(fut, 3.0)
+            finally:
+                self._subacks.pop(mid, None)
             if not reasons or reasons[0] >= 128:
                 raise MQTTError(f"SUBACK failed for {topic_filter}: {reasons}")
 
@@ -156,7 +159,10 @@ class Client:
         if mid is not None:
             fut = asyncio.get_running_loop().create_future()
             self._unsubacks[mid] = fut
-            reasons = await asyncio.wait_for(fut, 3.0)
+            try:
+                reasons = await asyncio.wait_for(fut, 3.0)
+            finally:
+                self._unsubacks.pop(mid, None)
             if reasons and reasons[0] >= 128:
                 raise MQTTError(f"UNSUBACK failed for {topic_filter}: {reasons}")
 
@@ -207,7 +213,7 @@ class Client:
         reasons: tuple[int, ...],
         _properties: dict[str, Any],
     ) -> None:
-        if fut := self._subacks.pop(mid, None):
+        if (fut := self._subacks.pop(mid, None)) is not None and not fut.done():
             fut.set_result(reasons)
 
     def _on_unsubscribe(
@@ -216,5 +222,5 @@ class Client:
         mid: int,
         reasons: tuple[int, ...],
     ) -> None:
-        if fut := self._unsubacks.pop(mid, None):
+        if (fut := self._unsubacks.pop(mid, None)) is not None and not fut.done():
             fut.set_result(reasons)

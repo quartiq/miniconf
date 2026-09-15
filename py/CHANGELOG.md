@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Clean up failed or cancelled requests and subscriptions; malformed replies fail only their request.
 * Snapshots and pruning report timeout failure when retained traffic has not reached quiescence.
 
 ### Changed
