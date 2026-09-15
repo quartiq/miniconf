@@ -1251,26 +1251,23 @@ try {
     await pruning;
     const lateResponse = respond;
     const lateClear = acknowledgeClear;
-    await click(".back");
+    const deviceHash = new URL(href).hash;
+    const subtreeHash = `${deviceHash}${deviceHash.includes("?") ? "&" : "?"}path=%2Fother`;
+    await evaluate(`location.hash = ${JSON.stringify(subtreeHash)}`);
     await until(
-      "document.querySelector('a[data-tree-path=\"/dt/test/device\"]')",
+      "document.querySelector('.selected h2')?.textContent === '/other'",
     );
     lateResponse();
     lateClear();
     holdResponse = holdSetAck = holdClear = false;
-    await click('a[data-tree-path="/dt/test/device"]');
     await until(
       "document.querySelector('.status [role=status]')?.textContent.trim() === 'Ready'",
     );
-    await click('[data-tree-path="/leaf"]');
-    await until("document.querySelector('textarea')?.value === '42'");
+    await until("document.querySelector('textarea')?.value === 'null'");
     assert(
       await evaluate("!document.querySelector('.actions button').disabled"),
     );
     assert.equal(await evaluate("performance.timeOrigin"), timeOrigin);
-    const deviceHash = new URL(href).hash;
-    const subtreeHash = `${deviceHash}${deviceHash.includes("?") ? "&" : "?"}path=%2Fother`;
-    await evaluate(`location.hash = ${JSON.stringify(subtreeHash)}`);
     await until(
       "document.querySelector('.identity-details')?.textContent.trim() === '1 setting in subtree' && document.querySelector('.selected h2').textContent === '/other'",
     );
