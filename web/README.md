@@ -55,7 +55,8 @@ Discover, not while typing. Credentials use browser autocomplete and stay out of
 
 Select a leaf, edit its JSON, and press Set or Ctrl/Cmd+Enter. The exact text is sent, without
 rounding large integers. Incoming updates, reconnects and folding preserve your draft;
-selecting another item replaces it. Use device value discards the draft.
+selecting another item replaces it. A successful Set adopts the latest device value,
+including any device formatting. Revert discards edits without sending anything.
 
 If a request's outcome is unknown, inspect the device value before sending again. Set is
 disabled while disconnected; use Retry if automatic recovery stops.

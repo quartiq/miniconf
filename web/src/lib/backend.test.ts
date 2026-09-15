@@ -434,8 +434,11 @@ describe("exact settings and generation boundaries", () => {
       { code: "Error" },
       publication.options.properties!.correlationData as Uint8Array,
     );
+    mqtt.message("dt/device/settings/leaf", "20.0", true, { auth: "" });
     mqtt.respond(0, "Ok");
     await expect(setting).resolves.toMatchObject({ ok: true });
+    // A successful reply exposes buffered device text without waiting for the UI batch timer.
+    expect(commits.at(-1)?.get("/leaf")).toBe("20.0");
     session.close();
   });
 

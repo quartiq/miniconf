@@ -182,7 +182,7 @@ export function formatSchemaName(node: SchemaNode): string {
 }
 
 export function schemaSummary(node: SchemaNode): string {
-  const parts: string[] = [node.kind];
+  const parts: string[] = node.kind === "leaf" ? [] : [node.kind];
   // Only Sem fields defined by Rust carry portable meaning. Other metadata is opaque.
   if (node.sem && typeof node.sem === "object" && !Array.isArray(node.sem)) {
     const sem = node.sem as Record<string, unknown>;
@@ -190,7 +190,7 @@ export function schemaSummary(node: SchemaNode): string {
       typeof sem.ty === "string" &&
       /^(bool|[iu](8|16|32|64|128|size)|f(32|64)|str)$/.test(sem.ty)
     )
-      parts[0] += ` ${sem.ty}`;
+      parts.push(sem.ty);
     if (sem.oneof === true) parts.push("mutually exclusive children");
     if (sem.maybe_absent === true) parts.push("may be absent");
   }

@@ -41,27 +41,27 @@ describe("leaf editor ownership", () => {
     expect(missing.editor).toBe("99");
     expect(browse.selected(missing)).toBeUndefined();
   });
-  it("keeps text and baseline on remote changes and duplicate publications", () => {
+  it("preserves edits until reverted or matched by the device", () => {
     let state = browse.updateEditor(loaded(), "99");
     state = update(state, "1");
-    expect(state.editorBaseline).toBe(browse.selected(state)?.value);
+    expect(state.editor).toBe("99");
     state = update(state, "2");
     expect(state.editor).toBe("99");
-    expect(state.editorBaseline).toBe("1");
     state = browse.loadEditor(state);
     expect(state.editor).toBe("2");
-    expect(state.editorBaseline).toBe("2");
+    state = browse.updateEditor(state, "3");
+    state = update(state, "3");
+    state = update(state, "4");
+    expect(state.editor).toBe("4");
   });
   it("distinguishes JSON null, absent values and empty drafts", () => {
     let state = loaded("null");
     expect(state.editor).toBe("null");
     state = update(state);
     expect(state.editor).toBe("");
-    expect(state.editorBaseline).toBeUndefined();
     state = browse.updateEditor(state, "null");
     state = update(state);
     expect(state.editor).toBe("null");
-    expect(state.editorBaseline).toBeUndefined();
   });
   it("keeps the draft when folded and replaces it on deliberate selection", () => {
     let state = browse.updateEditor(loaded(), "99");

@@ -90,9 +90,7 @@
   });
 
   let selected = $derived(browse.selected(browseState));
-  let editorDirty = $derived(
-    browseState.editor !== (browseState.editorBaseline ?? ""),
-  );
+  let editorDirty = $derived(browseState.editor !== (selected?.value ?? ""));
   let canSet = $derived(
     deviceReady && selected?.kind === "leaf" && !request?.pending,
   );
@@ -392,6 +390,10 @@
     try {
       const response = await current.set(path, browseState.editor);
       if (serial !== routeSerial || current !== prefixSession) return;
+      if (response.ok && browseState.selectedPath === path) {
+        browseState = browse.loadEditor(browseState);
+        editorError = undefined;
+      }
       request = {
         path,
         pending: false,
@@ -501,9 +503,6 @@
       expanded={browseState.expanded}
       editor={browseState.editor}
       {editorDirty}
-      valueUpdated={editorDirty &&
-        selected?.value !== browseState.editorBaseline &&
-        selected?.value !== browseState.editor}
       editorError={editorError?.path === browseState.selectedPath &&
       editorError.text === browseState.editor
         ? editorError.message

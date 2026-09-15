@@ -50,12 +50,13 @@ export class SettingsMirror {
       return;
     }
     this.timer = globalThis.setTimeout(() => {
-      this.timer = undefined;
-      this.commit();
+      this.flush();
     }, this.commitDelayMs);
   }
 
-  private commit(): void {
+  flush(): void {
+    this.cancel();
+    if (!this.touched.size) return;
     const touched = new Set(this.touched);
     this.touched = new Set();
     this.onCommit({

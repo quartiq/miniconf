@@ -14,14 +14,13 @@ import {
   type NavDirection,
 } from "./tree-navigation";
 
-// Browse UI state. The editor draft is user-owned after selection/opening;
-// incoming settings rebuild row values and activity but must not overwrite it.
+// The editor follows the device while equal to its last observed value.
+// Differing text is a local edit; selection, Revert and successful Set replace it.
 export type BrowseState = {
   schema: Schema | undefined;
   settings: Settings;
   root: string;
   editor: string;
-  editorBaseline: string | undefined;
   expanded: Set<string>;
   selectedPath: string;
   userClosed: Set<string>;
@@ -45,7 +44,6 @@ export function emptyState(): BrowseState {
     settings: new Map(),
     root: "",
     editor: "",
-    editorBaseline: undefined,
     expanded: new Set(),
     selectedPath: "",
     userClosed: new Set(),
@@ -74,7 +72,7 @@ export function loadSchema(
     userClosed: new Set(),
   });
   if (
-    state.editor === (state.editorBaseline ?? "") &&
+    state.editor === (selected(state)?.value ?? "") &&
     !next.tree.nodeByPath.has(next.selectedPath)
   ) {
     next = { ...next, selectedPath: next.tree.nodes[0]?.path ?? "" };
@@ -85,7 +83,7 @@ export function loadSchema(
       .map(({ path }) => path),
   );
   return {
-    ...(state.editor !== (state.editorBaseline ?? "")
+    ...(state.editor !== (selected(state)?.value ?? "")
       ? next
       : loadEditor(next)),
     expanded: new Set(
@@ -104,7 +102,7 @@ export function commitSettings(
   let rebuilt = rebuild({ ...state, settings });
   if (
     touched.has(state.selectedPath) &&
-    state.editor === (state.editorBaseline ?? "")
+    state.editor === (selected(state)?.value ?? "")
   ) {
     rebuilt = loadEditor(rebuilt);
   }
@@ -168,7 +166,7 @@ export function updateEditor(state: BrowseState, editor: string): BrowseState {
 export function loadEditor(state: BrowseState): BrowseState {
   const node = selected(state);
   const text = node?.kind === "leaf" ? node.value : undefined;
-  return { ...state, editor: text ?? "", editorBaseline: text };
+  return { ...state, editor: text ?? "" };
 }
 
 function visiblePaths(state: BrowseState): string[] {

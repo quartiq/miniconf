@@ -162,8 +162,8 @@ broker.on("connection", (socket) => {
         else if (!holdSetAck || clearing) acknowledge();
       }
       if (message.topic === `${prefix}/set/leaf` && message.payload.length) {
-        respond = () => {
-          publish(`${prefix}/settings/leaf`, message.payload.toString());
+        respond = (text = message.payload.toString(), echoFirst = true) => {
+          if (echoFirst) publish(`${prefix}/settings/leaf`, text);
           send(
             socket,
             message.properties.responseTopic,
@@ -176,6 +176,7 @@ broker.on("connection", (socket) => {
             },
             false,
           );
+          if (!echoFirst) publish(`${prefix}/settings/leaf`, text);
         };
         if (!holdResponse) respond();
       }
@@ -408,7 +409,7 @@ try {
     assert(
       await evaluate(`(() => {
       const row = document.querySelector('[data-tree-path="/leaf"]');
-      return row.querySelector('.summary').textContent === ' (leaf i32)' &&
+      return row.querySelector('.summary').textContent === ' (i32)' &&
         row.title.includes('Edge metadata:') && row.title.includes('Node metadata:') &&
         row.title.includes('Signed digital mixer step') && !row.title.includes('Arrows/');
     })()`),
@@ -475,7 +476,7 @@ try {
     await fill("textarea", "77");
     assert(
       !(await evaluate(
-        "document.querySelector('.actions').textContent.includes('Use updated value')",
+        "document.querySelector('.actions button:last-child').disabled",
       )),
     );
     publish(`${prefix}/settings/other`, "1234");
@@ -484,7 +485,7 @@ try {
     );
     assert(
       await evaluate(
-        "document.querySelector('.actions').textContent.includes('Use updated value')",
+        "!document.querySelector('.actions button:last-child').disabled",
       ),
     );
     assert.equal(
@@ -507,9 +508,9 @@ try {
       "1234",
     );
     assert(
-      !(await evaluate(
-        "document.querySelector('.actions').textContent.includes('Use updated value')",
-      )),
+      await evaluate(
+        "document.querySelector('.actions button:last-child').disabled",
+      ),
     );
     assert.equal(
       await evaluate("document.querySelector('.tree').scrollTop"),
@@ -546,6 +547,9 @@ try {
     holdResponse = false;
     respond();
     await until("document.body?.innerText.includes('Last Set: succeeded')");
+    await until(
+      "document.querySelector('textarea').value === '-9007199254740993'",
+    );
     assert(
       await evaluate(
         "document.querySelector('.status').textContent.includes('Last Set: succeeded')",
@@ -553,7 +557,7 @@ try {
     );
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
-      "123",
+      "-9007199254740993",
     );
     const acceptedWrites = writes.length;
     await fill("textarea", "{");
@@ -574,7 +578,7 @@ try {
       await evaluate("document.querySelector('textarea').value"),
       "123",
     );
-    await clickButton("Use updated value");
+    await clickButton("Revert");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "456",
@@ -589,11 +593,27 @@ try {
     await until(
       "document.querySelector('[data-tree-path=\"/leaf\"] .value')?.textContent === '458'",
     );
-    await clickButton("Use device value");
+    await clickButton("Revert");
     assert.equal(
       await evaluate("document.querySelector('textarea').value"),
       "458",
     );
+
+    // Device formatting wins on success, with either publication/reply arrival order.
+    for (const [input, value, echoFirst] of [
+      ["20", "20.0", true],
+      ["30", "30.0", false],
+    ]) {
+      holdResponse = true;
+      await fill("textarea", input);
+      await clickButton("Set");
+      await until("document.querySelector('.actions button').disabled");
+      respond(value, echoFirst);
+      await until(
+        `document.querySelector('textarea').value === ${JSON.stringify(value)} && document.querySelector('.actions button:last-child').disabled`,
+      );
+      holdResponse = false;
+    }
 
     console.log(
       `Pruning counts, captured candidates and optional permissions: ${base}`,

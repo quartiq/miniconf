@@ -507,6 +507,8 @@ export class PrefixSession {
     globalThis.clearTimeout(pending.timer);
     pending.abort.abort();
     const code = userProperty(message.packet, "code") || "Error";
+    // Make already-observed device values visible before the editor adopts them.
+    if (code === "Ok") this.mirror.flush();
     const response = {
       path: pending.path,
       ok: code === "Ok",

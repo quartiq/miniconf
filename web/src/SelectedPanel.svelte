@@ -12,7 +12,6 @@
     requestMessage: string;
     editor: string;
     editorDirty: boolean;
-    valueUpdated: boolean;
     editorError: string;
     updateEditor: (value: string) => void;
     submit: () => void;
@@ -27,7 +26,6 @@
     requestMessage,
     editor,
     editorDirty,
-    valueUpdated,
     editorError,
     updateEditor,
     submit,
@@ -36,7 +34,6 @@
   }: Props = $props();
 
   let leaf = $derived(node?.kind === "leaf");
-  let differs = $derived(editor !== (node?.value ?? ""));
 
   function edit(event: Event) {
     updateEditor((event.currentTarget as HTMLTextAreaElement).value);
@@ -85,19 +82,12 @@
         >
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
-          disabled={!differs}
+          disabled={!editorDirty}
           title={node?.present
-            ? valueUpdated
-              ? "Device value changed. Replace your edits with the latest received value; nothing is sent."
-              : "Replace your edits with the latest received value; nothing is sent."
-            : "Discard your draft"}
+            ? "Replace your edits with the latest device value; nothing is sent."
+            : "Discard your edits; no device value has been received."}
           type="button"
-          onclick={resetEditor}
-          >{node?.present
-            ? valueUpdated
-              ? "Use updated value"
-              : "Use device value"
-            : "Clear draft"}</button
+          onclick={resetEditor}>Revert</button
         >
       </div>
       {#if requestMessage}<p class="request" role="status">
