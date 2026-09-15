@@ -1,6 +1,7 @@
 """Common code for the Miniconf MQTT clients."""
 
 from dataclasses import dataclass
+import asyncio
 from typing import Any
 import json
 import logging
@@ -79,14 +80,6 @@ def subtree_match(path: str, root: str) -> bool:
     return not root or path == root or path.startswith(f"{root}/")
 
 
-def settings_topics(prefix: str, path: str) -> tuple[str, ...]:
-    """MQTT topic filters needed to track one Miniconf subtree."""
-    root = validate_path(path)
-    if not root:
-        return (f"{prefix}/settings/#",)
-    return (f"{prefix}/settings{root}/#",)
-
-
 def quiet_window(
     start: float, now: float, rel_timeout: float, abs_timeout: float
 ) -> float:
@@ -95,32 +88,33 @@ def quiet_window(
     return abs_timeout + rel_timeout * (now - start)
 
 
-@dataclass
-class BurstState:
-    """Retained-burst quiescence timer."""
+class _RetainedBurst:
+    """Receive until quiescence; fail if the collection deadline comes first.
 
-    delay: float
-    deadline: float
-    last: float
-    count: int = 0
+    Call `reset()` only after accepting a publication.
+    """
 
-    @classmethod
-    def from_roundtrip(
-        cls, start: float, now: float, rel_timeout: float, abs_timeout: float
-    ) -> "BurstState":
-        delay = quiet_window(start, now, rel_timeout, abs_timeout)
-        return cls(delay, now + delay, now)
-
-    def set_roundtrip(
-        self, start: float, now: float, rel_timeout: float, abs_timeout: float
-    ):
+    def __init__(self, start, now, timeout, rel_timeout, abs_timeout):
         self.delay = quiet_window(start, now, rel_timeout, abs_timeout)
-        self.deadline = self.last + self.delay
-
-    def reset(self, now: float):
-        self.count += 1
-        self.last = now
         self.deadline = now + self.delay
+        self.end = now + timeout
+
+    def reset(self):
+        self.deadline = asyncio.get_running_loop().time() + self.delay
+
+    async def receive(self, queue):
+        while True:
+            remaining = min(self.deadline, self.end) - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                if self.end < self.deadline:
+                    raise TimeoutError(
+                        "Timed out waiting for retained traffic quiescence"
+                    )
+                return None
+            try:
+                return await asyncio.wait_for(queue.get(), remaining)
+            except TimeoutError:
+                continue
 
 
 class MiniconfException(Exception):
