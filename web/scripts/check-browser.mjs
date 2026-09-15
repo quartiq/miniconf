@@ -405,24 +405,24 @@ try {
     await fill("input[name=discovery-pattern]", "dt/test/+");
     await click("button[type=submit]");
     await until(
-      "document.querySelector('a[data-tree-path=\"dt/test/device\"]')",
+      "document.querySelector('a[data-tree-path=\"/dt/test/device\"]')",
     );
     const href = await evaluate(
-      "document.querySelector('a[data-tree-path=\"dt/test/device\"]').href",
+      "document.querySelector('a[data-tree-path=\"/dt/test/device\"]').href",
     );
-    await click('[data-tree-path="dt/test"] .toggle');
+    await click('[data-tree-path="/dt/test"] .toggle');
     publish("dt/test/another/alive", retained.get(`${prefix}/alive`).text);
     await until(
       "document.querySelector('.prefixes .meta').textContent === '2 found'",
     );
     assert(
       await evaluate(
-        "document.querySelector('[data-tree-path=\"dt/test\"]').getAttribute('aria-expanded') === 'false' && !document.querySelector('[data-tree-path=\"dt/test/another\"]')",
+        "document.querySelector('[data-tree-path=\"/dt/test\"]').getAttribute('aria-expanded') === 'false' && !document.querySelector('[data-tree-path=\"/dt/test/another\"]')",
       ),
     );
-    await click('[data-tree-path="dt/test"] .toggle');
+    await click('[data-tree-path="/dt/test"] .toggle');
     await until(
-      "document.querySelector('[data-tree-path=\"dt/test/another\"]')",
+      "document.querySelector('[data-tree-path=\"/dt/test/another\"]')",
     );
     publish("dt/test/another/alive", "");
     await until(
@@ -431,11 +431,11 @@ try {
     await fill("input[name=broker]", "ws://different.invalid:99");
     assert.equal(
       await evaluate(
-        "document.querySelector('a[data-tree-path=\"dt/test/device\"]').href",
+        "document.querySelector('a[data-tree-path=\"/dt/test/device\"]').href",
       ),
       href,
     );
-    await click('a[data-tree-path="dt/test/device"]');
+    await click('a[data-tree-path="/dt/test/device"]');
     await until("document.querySelector('[data-tree-path=\"/leaf\"]')");
     await click('[data-tree-path="/leaf"]');
     await until(

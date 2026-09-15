@@ -1,7 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import { discoveryTree, discoveryTreeView } from "./lib/discovery-tree";
+  import { discoveryTree } from "./lib/discovery-tree";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import {
     movePath,
@@ -43,11 +43,10 @@
 
   let selectedPath = $state("");
   let userClosed = $state(new Set<string>());
-  let nodes = $derived(discoveryTree(discoveredPrefixes));
-  let treeNodes = $derived(discoveryTreeView(nodes, browseHref));
+  let treeNodes = $derived(discoveryTree(discoveredPrefixes, browseHref));
   let expanded = $derived(
     new Set(
-      [...nodes.values()]
+      [...treeNodes.values()]
         .filter((node) => node.children.length && !userClosed.has(node.path))
         .map((node) => node.path),
     ),
@@ -81,13 +80,6 @@
   }
 
   let treeActions = $derived({
-    activate: (node: TreeNodeView, internal: boolean, open: boolean) => {
-      if (node.href) {
-        location.href = node.href;
-      } else if (internal) {
-        setExpanded(node.path, !open);
-      }
-    },
     key: (node: TreeNodeView, direction: NavDirection, step?: number) => {
       return navigateTree(node.path, direction, step);
     },

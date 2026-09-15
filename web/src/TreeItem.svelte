@@ -57,7 +57,7 @@
     // Enter activates, and focus stays on the selected row.
     switch (event.key) {
       case "Enter":
-        if (!node.href || internal) {
+        if (!node.href) {
           event.preventDefault();
           if (actions.activate) {
             actions.activate(node, internal, open);
@@ -131,22 +131,15 @@
 
 <li>
   <TreeRow
-    path={node.path}
-    label={node.label}
-    summary={node.summary}
-    value={node.value ?? ""}
+    {node}
     {selected}
     tabbable={node.path === tabStop}
-    {internal}
     {open}
     {depth}
-    level={depth + 1}
     posinset={index}
     setsize={size}
-    href={node.href}
     activity={rowActivity}
     {showActivity}
-    title={node.title ?? node.path}
     {select}
     {toggle}
     {keydown}

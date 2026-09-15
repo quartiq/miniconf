@@ -4,7 +4,6 @@ import {
   cuePaths,
   revealPresentSettings,
   treeSnapshot,
-  type TreeSnapshot,
   type ViewNode,
 } from "./tree-state";
 import {
@@ -24,7 +23,7 @@ export type BrowseState = {
   expanded: Set<string>;
   selectedPath: string;
   userClosed: Set<string>;
-  tree: TreeSnapshot;
+  tree: Map<string, ViewNode>;
 };
 
 export type BrowseCommit = {
@@ -47,12 +46,12 @@ export function emptyState(): BrowseState {
     expanded: new Set(),
     selectedPath: "",
     userClosed: new Set(),
-    tree: emptyTree(),
+    tree: new Map(),
   };
 }
 
 export function selected(state: BrowseState): ViewNode | undefined {
-  return state.tree.nodeByPath.get(state.selectedPath);
+  return state.tree.get(state.selectedPath);
 }
 
 export function editor(state: BrowseState): string {
@@ -68,7 +67,7 @@ export function loadSchema(
   const root = schema.path(subtreePath);
   const tree = treeSnapshot(schema, root, state.settings);
   const branches = new Set(
-    [...tree.nodeViews.values()]
+    [...tree.values()]
       .filter(({ children }) => children.length)
       .map(({ path }) => path),
   );
@@ -78,7 +77,7 @@ export function loadSchema(
     root,
     tree,
     selectedPath:
-      state.draft !== undefined || tree.nodeByPath.has(memory.selectedPath)
+      state.draft !== undefined || tree.has(memory.selectedPath)
         ? memory.selectedPath
         : root,
     expanded: new Set(
@@ -142,13 +141,7 @@ export function navigate(
   direction: NavDirection,
   step?: number,
 ): { state: BrowseState; path: string } {
-  const next = movePath(
-    visiblePaths(state),
-    path,
-    direction,
-    state.tree.nodeViews,
-    step,
-  );
+  const next = movePath(visiblePaths(state), path, direction, state.tree, step);
   return { state: loadSelected(state, next), path: next };
 }
 
@@ -164,12 +157,5 @@ export function loadEditor(state: BrowseState): BrowseState {
 }
 
 function visiblePaths(state: BrowseState): string[] {
-  return visibleTreePaths(state.root, state.tree.nodeViews, state.expanded);
-}
-
-function emptyTree(): TreeSnapshot {
-  return {
-    nodeViews: new Map(),
-    nodeByPath: new Map(),
-  };
+  return visibleTreePaths(state.root, state.tree, state.expanded);
 }

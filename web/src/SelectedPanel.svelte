@@ -53,7 +53,7 @@
   {#if leaf || editorDirty}
     <section class="editor" aria-label="Leaf editor">
       <div class="value-editor">
-        {#if leaf && !node?.present}<p>No value observed</p>{/if}
+        {#if leaf && node?.value === undefined}<p>No value observed</p>{/if}
         {#if !leaf}<p>Leaf unavailable</p>{/if}
         <textarea
           id="leaf-editor"
@@ -81,7 +81,7 @@
         <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
         <button
           disabled={!editorDirty}
-          title={node?.present
+          title={node?.value !== undefined
             ? "Replace your edits with the latest device value; nothing is sent."
             : "Discard your edits; no device value has been received."}
           type="button"

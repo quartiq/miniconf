@@ -5,29 +5,29 @@ import {
   cuePaths,
   parentPath,
   revealPresentSettings,
-  treeViewNodes,
   treeSnapshot,
 } from "./tree-state";
 
 describe("tree state", () => {
   it("shows portable semantics inline and preserves opaque metadata in tooltips", () => {
-    const row = treeViewNodes([
-      {
-        path: "/amplitude",
-        kind: "leaf",
-        children: [],
-        present: true,
-        value: "1.0",
-        sem: { ty: "f32", future: ["opaque"] },
-        edge: { note: "edge note" },
-        node: {
-          note: "first line\nsecond line",
-          flag: false,
-          empty: null,
-          "": 0,
+    const schema = new Schema(
+      [
+        {
+          s: { ty: "f32", future: ["opaque"] },
+          m: {
+            note: "first line\nsecond line",
+            flag: false,
+            empty: null,
+            "": 0,
+          },
         },
-      },
-    ]).get("/amplitude")!;
+        { i: { k: "n", c: { amplitude: { r: 0, m: { note: "edge note" } } } } },
+      ],
+      1,
+    );
+    const row = treeSnapshot(schema, "", new Map([["/amplitude", "1.0"]])).get(
+      "/amplitude",
+    )!;
     expect(row.summary).toBe("f32");
     expect(row.value).toBe("1.0");
     expect(row.title).toContain('Semantics:\nty: f32\nfuture: ["opaque"]');
@@ -83,7 +83,7 @@ describe("tree state", () => {
   it("includes keyboard navigation structure in displayed rows", () => {
     const schema = new Schema([{ s: {} }, { i: { k: "n", c: { a: 0 } } }], 1);
     const tree = treeSnapshot(schema, "", new Map([["/a", "1"]]));
-    expect([...tree.nodeViews.values()]).toMatchObject([
+    expect([...tree.values()]).toMatchObject([
       { path: "", children: ["/a"] },
       { path: "/a", parent: "", children: [] },
     ]);
@@ -91,9 +91,37 @@ describe("tree state", () => {
 
   it("distinguishes the root from an empty-name child", () => {
     const schema = new Schema([{ s: {} }, { i: { k: "n", c: { "": 0 } } }], 1);
-    const { nodeViews: views } = treeSnapshot(schema, "", new Map());
+    const views = treeSnapshot(schema, "", new Map());
     expect(views.get("")?.label).toBe("(root)");
     expect(views.get("")?.children).toEqual(["/"]);
     expect(views.get("/")?.label).toBe('\"\"');
+  });
+
+  it("preserves empty Miniconf names and exact subtree boundaries", () => {
+    const schema = new Schema(
+      [
+        { s: { ty: "str" } },
+        { i: { k: "n", c: { "": 0, child: 0 } } },
+        { i: { k: "n", c: { "": 1, sibling: 0 } } },
+      ],
+      1,
+    );
+    const tree = treeSnapshot(
+      schema,
+      "/",
+      new Map([
+        ["//", '""'],
+        ["//child", "null"],
+      ]),
+    );
+    expect([...tree.keys()]).toEqual(["/", "//", "//child"]);
+    expect(tree.get("/")?.children).toEqual(["//", "//child"]);
+    expect(tree.get("//")?.value).toBe('\"\"');
+    expect(tree.get("//child")?.value).toBe("null");
+    expect(parentPath("//")).toBe("/");
+    expect(parentPath("//child")).toBe("/");
+    expect(
+      treeSnapshot(schema, "/", new Map()).get("//")?.value,
+    ).toBeUndefined();
   });
 });

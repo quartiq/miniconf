@@ -154,7 +154,7 @@
       path,
       visibleTreePaths(
         browseState.root,
-        browseState.tree.nodeViews,
+        browseState.tree,
         browseState.expanded,
       ),
     );
@@ -525,7 +525,7 @@
       status={browseStatus}
       retryable={connection.state === "failed" ||
         connection.state === "device-error"}
-      treeNodes={browseState.tree.nodeViews}
+      treeNodes={browseState.tree}
       selectedPath={browseState.selectedPath}
       {selected}
       activity={treeActivity}

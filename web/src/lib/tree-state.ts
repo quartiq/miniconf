@@ -2,15 +2,8 @@ import type { Schema, SchemaNode } from "./schema";
 import { formatSchemaName, schemaSummary, schemaTooltip } from "./schema";
 import type { TreeNodeView } from "./tree-view";
 
-export type ViewNode = SchemaNode & {
-  value?: string;
-  present: boolean;
-};
-
-export type TreeSnapshot = {
-  nodeViews: Map<string, TreeNodeView>;
-  nodeByPath: Map<string, ViewNode>;
-};
+export type ViewNode = TreeNodeView &
+  Pick<SchemaNode, "kind" | "node" | "edge" | "sem">;
 
 export function parentPath(path: string): string | undefined {
   if (!path) {
@@ -24,30 +17,17 @@ export function treeSnapshot(
   schema: Schema | undefined,
   root: string,
   settings: Map<string, string>,
-): TreeSnapshot {
-  const nodes =
-    schema?.walk(root).map((node) => ({
-      ...node,
-      value: settings.get(node.path),
-      present: settings.has(node.path),
-    })) ?? [];
-  return {
-    nodeViews: treeViewNodes(nodes),
-    nodeByPath: new Map(nodes.map((node) => [node.path, node])),
-  };
-}
-
-export function treeViewNodes(nodes: ViewNode[]): Map<string, TreeNodeView> {
+): Map<string, ViewNode> {
   return new Map(
-    nodes.map((node) => [
+    (schema?.walk(root) ?? []).map((node) => [
       node.path,
       {
-        path: node.path,
+        ...node,
         parent: parentPath(node.path),
         label: node.path ? formatSchemaName(node) : "(root)",
         summary: schemaSummary(node),
         title: schemaTooltip(node),
-        value: node.kind === "leaf" ? (node.value ?? "") : "",
+        value: node.kind === "leaf" ? settings.get(node.path) : undefined,
         children: node.children.map((child) => child.path),
       },
     ]),
