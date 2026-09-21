@@ -31,9 +31,9 @@ fn main() -> anyhow::Result<()> {
     jsonschema::meta::validate(schema.root.as_value()).unwrap();
 
     let validator = jsonschema::validator_for(schema.root.as_value())?;
-    for e in validator.iter_errors(&value) {
-        eprintln!("{e} {e:?}");
-    }
+    validator
+        .validate(&value)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     Ok(())
 }

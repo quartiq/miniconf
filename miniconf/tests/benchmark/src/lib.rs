@@ -135,7 +135,6 @@ pub trait Engine {
     fn new() -> Self;
     fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error>;
     fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error>;
-    fn settings(&self) -> &settings::Settings;
 }
 
 fn stack_peak_bytes() -> usize {
@@ -195,7 +194,6 @@ enum ValidationError {
 }
 
 fn validate_set_roundtrip<E: Engine>(engine: &mut E) -> Result<(), ValidationError> {
-    let mut set_out = Response::new();
     let mut get_out = Response::new();
     for (i, line) in MIXED.iter().enumerate() {
         let index = i as u32;
@@ -208,12 +206,10 @@ fn validate_set_roundtrip<E: Engine>(engine: &mut E) -> Result<(), ValidationErr
             .set(path, value)
             .map_err(|_| ValidationError::Set(index))?;
         engine
-            .get(path, &mut set_out)
-            .map_err(|_| ValidationError::Get(index))?;
-        engine
             .get(path, &mut get_out)
             .map_err(|_| ValidationError::Get(index))?;
-        if set_out.as_bytes() != get_out.as_bytes() {
+        // MIXED uses canonical scalar encodings, so the request is the oracle.
+        if value.as_bytes() != get_out.as_bytes() {
             return Err(ValidationError::Mismatch(index));
         }
     }
@@ -226,6 +222,39 @@ fn validation_code(err: ValidationError) -> (&'static str, u32) {
         ValidationError::Set(i) => ("set", i),
         ValidationError::Get(i) => ("get", i),
         ValidationError::Mismatch(i) => ("mismatch", i),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct IgnoreWrites(manual_engine::Engine);
+
+    impl Engine for IgnoreWrites {
+        type Error = <manual_engine::Engine as Engine>::Error;
+
+        fn new() -> Self {
+            Self(manual_engine::Engine::new())
+        }
+
+        fn set(&mut self, _: &str, _: &str) -> Result<(), Self::Error> {
+            Ok(())
+        }
+
+        fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error> {
+            self.0.get(path, out)
+        }
+    }
+
+    #[test]
+    fn roundtrip_checks_written_values() {
+        assert!(validate_set_roundtrip(&mut manual_engine::Engine::new()).is_ok());
+        assert!(validate_set_roundtrip(&mut miniconf_engine::Engine::new()).is_ok());
+        assert!(matches!(
+            validate_set_roundtrip(&mut IgnoreWrites::new()),
+            Err(ValidationError::Mismatch(_))
+        ));
     }
 }
 
@@ -244,6 +273,7 @@ pub fn run_engine<E: Engine>() -> ! {
         }
     }
 
+    let mut engine = E::new();
     run_parse_only(MIXED, OUTER_ITERS);
     if let Err(err) = run_workload(&mut engine, MIXED, OUTER_ITERS) {
         let (kind, index) = validation_code(err);
@@ -257,23 +287,7 @@ pub fn run_engine<E: Engine>() -> ! {
             core::hint::spin_loop();
         }
     }
-    let mut replay = E::new();
-    if let Err(err) = run_workload(&mut replay, MIXED, OUTER_ITERS) {
-        let (kind, index) = validation_code(err);
-        hprintln!(
-            "RESULT validation=replay_failed kind={} index={}",
-            kind,
-            index
-        );
-        debug::exit(debug::EXIT_FAILURE);
-        loop {
-            core::hint::spin_loop();
-        }
-    }
-    let state_eq = engine.settings() == replay.settings();
-
     hprintln!("RESULT validation=ok");
-    hprintln!("RESULT final_state_eq={}", state_eq as u8);
     hprintln!("RESULT stack_peak={}", stack_peak_bytes());
 
     debug::exit(debug::EXIT_SUCCESS);

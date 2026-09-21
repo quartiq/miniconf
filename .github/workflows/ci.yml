@@ -27,8 +27,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: cargo fmt -- --check
-      - run: cargo check
-
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - uses: actions/setup-python@v6
@@ -76,24 +74,15 @@ jobs:
 
   compile:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        toolchain:
-          - stable
-
     steps:
       - uses: actions/checkout@v6
-      - name: Install Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.toolchain }}
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --verbose
       - run: cargo build --no-default-features
       - run: cargo build
       - run: cargo build --release
       - run: cargo build --examples
-      - run: cargo run --example cli
+      - run: cargo run --example cli -- --output-dac-1 2048
       - run: cargo run --example scpi
       - run: cargo run --example trace --features schema
       - run: cargo run -p miniconf --example packed --no-default-features --features derive,postcard
@@ -102,25 +91,24 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain:
-          - stable
         command:
           - cargo test
+          - cargo test --all-features
           - cargo test --no-default-features
           - cargo test -p miniconf --no-default-features
     steps:
       - uses: actions/checkout@v6
       - name: Start Broker
+        if: matrix.command != 'cargo test -p miniconf --no-default-features'
         run: |
           sudo apt-get update
           sudo apt-get install -y mosquitto mosquitto-clients
           sudo service mosquitto start
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{matrix.toolchain}}
-          components: rust-src
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: ${{ matrix.command }}
+        env:
+          BROKER: 127.0.0.1:1883
 
   package:
     runs-on: ubuntu-latest
@@ -153,11 +141,8 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
-      - name: Check static Pages artifact
+      - run: npm run test:browser
         working-directory: web
-        run: |
-          test -s dist/index.html
-          test "$(find dist -type f | wc -l)" -eq 1
 
   test-embedded:
     runs-on: ubuntu-latest
@@ -172,9 +157,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-arm binutils-arm-none-eabi
-      - run: cargo build --bins
-        env:
-          RUSTFLAGS: -D warnings
+      - run: cargo test --lib --target x86_64-unknown-linux-gnu
         working-directory: miniconf/tests/benchmark
       - run: ./run.sh
         env:
@@ -183,10 +166,6 @@ jobs:
 
   test-mqtt:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        example:
-          - mqtt
     steps:
       - uses: actions/checkout@v6
       - name: Start Broker

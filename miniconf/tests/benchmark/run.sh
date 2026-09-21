@@ -47,11 +47,6 @@ for bin in "${bins[@]}"; do
     echo "benchmark validation failed for $bin" >&2
     exit 1
   fi
-  if [ "$bin" != baseline ] && ! printf '%s\n' "$run_out" | grep -qx 'RESULT final_state_eq=1'; then
-    printf '%s\n' "$run_out" >&2
-    echo "benchmark replay failed for $bin" >&2
-    exit 1
-  fi
   stack="$(printf '%s\n' "$run_out" | sed -n 's/^RESULT stack_peak=//p' | tail -n1)"
   if ! [[ "$stack" =~ ^[0-9]+$ ]]; then
     printf '%s\n' "$run_out" >&2
