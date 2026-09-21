@@ -5,23 +5,13 @@
 [![QUARTIQ Matrix Chat](https://img.shields.io/matrix/quartiq:matrix.org)](https://matrix.to/#/#quartiq:matrix.org)
 [![Continuous Integration](https://github.com/quartiq/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
-`miniconf` turns selected values inside heterogeneous Rust data into a small
-runtime-addressable tree. It is `no_std` by default, uses Serde for leaf
-payloads, and lets the same settings type serve human tools, compact embedded
-links, generated schemas, and transport protocols.
+`miniconf` makes typed Rust data addressable: read a leaf, change it, discover
+what else is there. Derive one tree and reuse it in a shell, a snapshot, an
+inspector, or a protocol.
 
-Use it when a typed Rust configuration or state tree should be:
-
-- accessed one leaf at a time by path or compact key
-- exposed over a transport without giving that transport ownership of the data
-- discovered by tools through schema iteration, semantics, and metadata
-- reused across CLIs, SCPI-like protocols, MQTT, tests, or generated UI/API
-  surfaces
-
-Serde handles each leaf's value; Miniconf locates that leaf and describes the
-tree around it. Use Serde alone when reading or writing a whole value is enough.
-A small fixed interface may only need a handwritten match. Miniconf is useful
-when the same tree needs selective access, discovery, or several consumers.
+The core is `no_std` and needs no allocator. Serde encodes the leaf values;
+Miniconf supplies paths, compact keys, and discovery. For whole-value
+serialization alone, Serde is enough.
 
 ## Quick Start
 
@@ -70,10 +60,10 @@ fn main() {
 }
 ```
 
-This prints `/enabled`, `/output/gain/0`, and `/output/gain/1`. Adding a field
-to the derived tree makes it addressable and discoverable without another
-dispatch table. The host example uses `String` to print paths; embedded callers
-can use fixed-capacity path buffers or [`Indices`] and [`Packed`] keys.
+This prints `/enabled`, `/output/gain/0`, and `/output/gain/1`.
+Try adding a field: it gets a path without another dispatch table.
+For embedded use, replace the host's `String` path storage with a fixed-capacity
+buffer or [`Indices`]/[`Packed`] keys.
 
 ## One Tree, Several Consumers
 
@@ -86,10 +76,11 @@ From a checkout, these independent examples use the same
 | [Packed](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/packed.rs) | `cargo run --example packed --features postcard` | Compact keys and binary leaf payloads |
 | [Schema](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/trace.rs) | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema generation |
 
-The [SCPI sketch](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/scpi.rs)
-shows a custom key syntax (`cargo run --example scpi`); it is not a complete
-SCPI implementation. Shells, persistence, inspectors, and transport adapters
-can each build on the core without owning the other layers.
+For custom key syntax, see the [SCPI sketch](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/scpi.rs)
+(`cargo run --example scpi`; not a complete SCPI implementation).
+
+[Add a field. Keep the interfaces.](https://github.com/quartiq/miniconf/blob/main/miniconf/INTEGRATION.md)
+follows the same idea through Stabilizer's shell and snapshots.
 
 ## Pick The Surface
 
@@ -153,68 +144,34 @@ in the static schema but may return [`ValueError::Absent`] at runtime.
 
 ## Adapting Boundaries
 
-`miniconf` is transport agnostic. Any channel that can carry a key and a Serde
-payload can use the tree. Keep transport routing, sessions, and buffering in
-the transport layer; pass a borrow of the settings tree into `miniconf` access
-functions when a message targets the tree.
+Bring a key, a payload, and a borrow of the tree. The caller owns framing,
+buffers, scheduling, and application effects. A read-only inspector can require
+only `TreeSchema` and `TreeSerialize`.
 
-Use [`Schema::transcode()`] to translate one key representation into another.
-Use [`NodeIter`] when publishing, validating, or rendering every leaf; it yields
-leaves only and exposes the current indices and schema while walking.
-
-An upper layer normally needs only three operations:
-
-| Task | Core operation | Caller responsibility |
-| --- | --- | --- |
-| Read or write one leaf | `json_core::{get,set}` or the `TreeSerialize`/`TreeDeserialize` traits | Frame the request, provide buffers, report errors |
-| List available paths | `Settings::SCHEMA.nodes()` | Choose key storage and traversal depth; handle absent live branches |
-| Reuse a resolved key | `Settings::SCHEMA.transcode()` | Keep the key paired with the schema it was resolved against |
-
-The core does not require an executor, socket, or lock. Borrow the tree for the
-operation, then let the application decide when to apply settings to hardware.
-An upper layer can use only the traits it needs: a read-only inspector need not
-require `TreeDeserialize`. Compact keys describe positions in a particular
-schema; they are not persistent identifiers across arbitrary tree changes.
+[`Schema::transcode()`] translates keys; [`NodeIter`] walks leaves. Compact
+keys belong to a particular schema, so resolve them again when the tree changes.
+Discovery includes branches that may be absent or unwritable at runtime.
 
 ### Validation And Application Effects
 
 The [shared example](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/common.rs)
-shows two small access policies through `#[tree(with = module)]`:
+uses `#[tree(with = module)]` for read-only fields and DAC range checking.
+Its `dac` module checks a scratch copy before replacing the array.
+Metadata such as `max = "4095"` is descriptive; the custom deserializer enforces
+the range.
 
-- `read_only` denies deserialization while retaining serialization and discovery.
-- `dac` deserializes into a scratch copy, checks the 12-bit range, and replaces
-  the selected array only after validation succeeds.
-
-Metadata such as `max = "4095"` describes a value; it does not enforce its range.
-The custom deserializer enforces that invariant. Likewise, discovering a path
-does not guarantee that its value is present or writable at runtime.
-
-Deserialization is not generally transactional: an error can follow a partial
-mutation, including an error while finalizing a payload. If the whole request
-must leave the live tree unchanged on failure, deserialize and validate a
-candidate, then commit it after the complete operation succeeds. Choose the
-smallest candidate that covers the application's invariant. Multi-leaf updates,
-hardware effects, and persistence need their own application-level commit policy.
-
-Keep settings operations distinct from their transport. Stabilizer's
-[`miniconf-settings`](https://github.com/quartiq/stabilizer/tree/main/miniconf-settings)
-composes a shell, snapshots, and flash storage above Miniconf; UART/USB ownership
-and the timing of application effects remain outside that crate. It is currently
-an unpublished workspace crate, not an additional requirement for using Miniconf.
+A failed deserialization can leave partial changes, including on payload
+finalization errors. For request-level rollback, validate a candidate and commit
+only after the complete call succeeds. Applying hardware changes and saving
+settings remain application decisions.
 
 ## Code Size
 
-The embedded benchmark compares `miniconf` against a handwritten serial-style
-router for the same settings tree and value codec. Treat the handwritten router
-as a routed get/set lower bound, not a feature-equivalent replacement: it omits
-schema iteration, metadata, key transcoding, generic key backends, and generated
-reflection. The benchmark reports the static schema payload separately so the
-routed get/set overhead and reflection data can be judged independently.
-
-See the [benchmark instructions and results](https://github.com/quartiq/miniconf/tree/main/miniconf/tests/benchmark)
-for the target, feature set, build profile, and reproduction command. These are
-whole-program sizes and an observed stack high-water mark for one workload,
-not a universal per-setting cost or a worst-case stack bound.
+The [embedded benchmark](https://github.com/quartiq/miniconf/tree/main/miniconf/tests/benchmark)
+compares the same get/set workload and codec against handwritten dispatch.
+It reports program size, schema bytes, and observed stack use. The manual
+handler omits discovery and reflection; the results are workload-specific,
+not a worst-case stack bound. Run it with your tree when size matters.
 
 ## Limits
 

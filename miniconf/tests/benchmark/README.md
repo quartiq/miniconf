@@ -24,18 +24,15 @@ cd miniconf/tests/benchmark
 ./run.sh
 ```
 
-The script builds release binaries, checks their workload results in QEMU,
-and prints source/compiler provenance with the table. Preserve that output
-and this directory's `Cargo.lock` when comparing runs. Use a clean checkout
-for a publishable source revision; a `-dirty` suffix means local changes were
-included. CI also runs the harness, using its configured nightly toolchain.
+Keep the output and `Cargo.lock`: the report includes source revision, lockfile
+hash, and compiler. `-dirty` marks local source changes. CI runs the same
+harness with its configured nightly toolchain.
 
 The target is Cortex-M3 (`thumbv7m-none-eabi`), run on QEMU's `lm3s6965evb`.
-The [manifest](Cargo.toml) selects size optimization (`opt-level = "s"`), LTO,
-and one codegen unit. It builds Miniconf with only `derive`; the common codec
-is a [small harness-specific Serde backend](src/codec.rs), not JSON or Postcard.
-The [workload](src/lib.rs) traverses the same mixed settings tree for both
-implementations. This measures neither transport overhead nor hardware latency.
+The [manifest](Cargo.toml) selects `opt-level = "s"`, LTO, one codegen unit,
+and Miniconf's `derive` feature only. Both implementations run the same
+[workload](src/lib.rs) through a [custom Serde codec](src/codec.rs).
+JSON, Postcard, transports, and hardware latency are outside this measurement.
 
 `stack` is the painted-stack high-water mark observed during that program's
 execution, including harness work. It is not a worst-case bound for an
@@ -44,10 +41,9 @@ Absent ELF data sections count as zero; absent runtime measurements fail the run
 
 ## Binary size
 
-Example run with program sources at `7f677a3`, Rust 1.98.1 (LLVM 22.1.8),
-and no `RUSTFLAGS`. Dependencies are resolved locally; retain `Cargo.lock`
-(its hash is printed by the script) for an exact dependency comparison.
-Compiler and dependency changes can alter these totals.
+Program sources: `7f677a3`. Compiler: Rust 1.98.1 (LLVM 22.1.8).
+`RUSTFLAGS` unset. Dependencies are resolved locally; totals can change with
+the compiler or dependency versions.
 
 Recorded lockfile SHA-256:
 `76ac96d05b8fb116ca4d3af8e0f17f50fde01c5339ad921829841d2752ebe93b`.
