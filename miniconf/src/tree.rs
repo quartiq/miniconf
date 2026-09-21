@@ -237,7 +237,7 @@ pub trait TreeAny: TreeSchema {
 
 /// Serialize a leaf node by a normalized key cursor.
 ///
-/// See also [`crate::json_core`] or [`crate::postcard`] for convenient wrappers using this trait.
+/// See also [`json_core`](https://docs.rs/miniconf/latest/miniconf/json_core/) or [`postcard`](https://docs.rs/miniconf/latest/miniconf/postcard/) for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///
@@ -278,7 +278,7 @@ pub trait TreeSerialize: TreeSchema {
 
 /// Deserialize a leaf node by a normalized key cursor.
 ///
-/// See also [`crate::json_core`] or [`crate::postcard`] for convenient wrappers using this trait.
+/// See also [`json_core`](https://docs.rs/miniconf/latest/miniconf/json_core/) or [`postcard`](https://docs.rs/miniconf/latest/miniconf/postcard/) for convenient wrappers using this trait.
 ///
 /// # Derive macro
 ///

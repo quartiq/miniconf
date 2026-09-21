@@ -18,13 +18,27 @@ Use it when a typed Rust configuration or state tree should be:
 - reused across CLIs, SCPI-like protocols, MQTT, tests, or generated UI/API
   surfaces
 
+Serde handles each leaf's value; Miniconf locates that leaf and describes the
+tree around it. Use Serde alone when reading or writing a whole value is enough.
+A small fixed interface may only need a handwritten match. Miniconf is useful
+when the same tree needs selective access, discovery, or several consumers.
+
 ## Quick Start
 
+Create a host executable (no hardware or network required):
+
+```sh
+cargo new miniconf-demo
+cd miniconf-demo
+cargo add miniconf@0.21.1
+```
+
+Replace `src/main.rs` with the following and run `cargo run`.
 Derive [`Tree`] for the settings type. Fields whose types also implement the
 `Tree*` traits become internal nodes; ordinary Serde values are leaves.
 
 ```rust
-use miniconf::{json_core, Tree};
+use miniconf::{json_core, ConstPath, Tree, TreeSchema};
 
 #[derive(Default, Tree)]
 struct Settings {
@@ -37,17 +51,45 @@ struct Output {
     gain: [u16; 2],
 }
 
-let mut settings = Settings::default();
+fn main() {
+    let mut settings = Settings::default();
 
-json_core::set(&mut settings, "/enabled", b"true").unwrap();
-json_core::set(&mut settings, "/output/gain/1", b"42").unwrap();
+    json_core::set(&mut settings, "/enabled", b"true").unwrap();
+    json_core::set(&mut settings, "/output/gain/1", b"42").unwrap();
 
-let mut buf = [0; 8];
-let len = json_core::get(&settings, "/output/gain/1", &mut buf).unwrap();
+    let mut buf = [0; 8];
+    let len = json_core::get(&settings, "/output/gain/1", &mut buf).unwrap();
 
-assert!(settings.enabled);
-assert_eq!(&buf[..len], b"42");
+    assert!(settings.enabled);
+    assert_eq!(&buf[..len], b"42");
+
+    const DEPTH: usize = Settings::SCHEMA.max_depth();
+    for path in Settings::SCHEMA.nodes::<ConstPath<String, '/'>, DEPTH>() {
+        println!("{}", path.unwrap());
+    }
+}
 ```
+
+This prints `/enabled`, `/output/gain/0`, and `/output/gain/1`. Adding a field
+to the derived tree makes it addressable and discoverable without another
+dispatch table. The host example uses `String` to print paths; embedded callers
+can use fixed-capacity path buffers or [`Indices`] and [`Packed`] keys.
+
+## One Tree, Several Consumers
+
+From a checkout, these independent examples use the same
+[settings type](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/common.rs):
+
+| Example | Run | Boundary |
+| --- | --- | --- |
+| [CLI](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/cli.rs) | `cargo run --example cli -- --output-dac-1 2048` | Command-line options to leaf access |
+| [Packed](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/packed.rs) | `cargo run --example packed --features postcard` | Compact keys and binary leaf payloads |
+| [Schema](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/trace.rs) | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema generation |
+
+The [SCPI sketch](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/scpi.rs)
+shows a custom key syntax (`cargo run --example scpi`); it is not a complete
+SCPI implementation. Shells, persistence, inspectors, and transport adapters
+can each build on the core without owning the other layers.
 
 ## Pick The Surface
 
@@ -62,9 +104,12 @@ boundary needs something more specific:
 - [`TreeAny`] gives typed host-side access through `core::any::Any`.
 - [`PathIter`], [`ConstPathIter`], [`JsonPathIter`], index slices, and
   [`Packed`] are interchangeable key boundaries through [`IntoKeys`].
-- [`postcard`] with [`Packed`] gives compact binary key-value messages.
-- [`json_schema`] builds host/tooling schemas from the same tree.
-- `miniconf_mqtt` is the ready-made MQTT transport.
+- [`postcard`](https://docs.rs/miniconf/latest/miniconf/postcard/) with [`Packed`]
+  gives compact binary key-value access.
+- [`json_schema`](https://docs.rs/miniconf/latest/miniconf/json_schema/) builds
+  host/tooling schemas from the same tree.
+- [`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
+  [`miniconf_coap`](https://docs.rs/miniconf_coap) provide optional protocol layers.
 
 ## Tree Shape
 

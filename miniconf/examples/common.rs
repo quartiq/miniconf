@@ -1,7 +1,7 @@
 // Shared demo fixture. This tree is not just local example data.
 //
 // Checked-in users:
-// - miniconf examples: `cli`, `scpi`, `trace`
+// - miniconf examples: `cli`, `scpi`, `trace`, `packed`
 // - embedded code-size benchmark: included as the `/device` subtree
 // - miniconf_mqtt example and integration tests
 // - Python client/CLI integration test through the MQTT fixture

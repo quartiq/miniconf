@@ -59,6 +59,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - run: RUSTDOCFLAGS="-D warnings" cargo doc --all-features --no-deps
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc -p miniconf --no-deps
+      - run: RUSTDOCFLAGS="-D warnings" cargo doc -p miniconf --no-default-features --no-deps
 
   semver:
     runs-on: ubuntu-latest
@@ -94,6 +96,7 @@ jobs:
       - run: cargo run --example cli
       - run: cargo run --example scpi
       - run: cargo run --example trace --features schema
+      - run: cargo run -p miniconf --example packed --no-default-features --features derive,postcard
 
   test:
     runs-on: ubuntu-latest
