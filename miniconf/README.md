@@ -162,6 +162,46 @@ Use [`Schema::transcode()`] to translate one key representation into another.
 Use [`NodeIter`] when publishing, validating, or rendering every leaf; it yields
 leaves only and exposes the current indices and schema while walking.
 
+An upper layer normally needs only three operations:
+
+| Task | Core operation | Caller responsibility |
+| --- | --- | --- |
+| Read or write one leaf | `json_core::{get,set}` or the `TreeSerialize`/`TreeDeserialize` traits | Frame the request, provide buffers, report errors |
+| List available paths | `Settings::SCHEMA.nodes()` | Choose key storage and traversal depth; handle absent live branches |
+| Reuse a resolved key | `Settings::SCHEMA.transcode()` | Keep the key paired with the schema it was resolved against |
+
+The core does not require an executor, socket, or lock. Borrow the tree for the
+operation, then let the application decide when to apply settings to hardware.
+An upper layer can use only the traits it needs: a read-only inspector need not
+require `TreeDeserialize`. Compact keys describe positions in a particular
+schema; they are not persistent identifiers across arbitrary tree changes.
+
+### Validation And Application Effects
+
+The [shared example](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/common.rs)
+shows two small access policies through `#[tree(with = module)]`:
+
+- `read_only` denies deserialization while retaining serialization and discovery.
+- `dac` deserializes into a scratch copy, checks the 12-bit range, and replaces
+  the selected array only after validation succeeds.
+
+Metadata such as `max = "4095"` describes a value; it does not enforce its range.
+The custom deserializer enforces that invariant. Likewise, discovering a path
+does not guarantee that its value is present or writable at runtime.
+
+Deserialization is not generally transactional: an error can follow a partial
+mutation, including an error while finalizing a payload. If the whole request
+must leave the live tree unchanged on failure, deserialize and validate a
+candidate, then commit it after the complete operation succeeds. Choose the
+smallest candidate that covers the application's invariant. Multi-leaf updates,
+hardware effects, and persistence need their own application-level commit policy.
+
+Keep settings operations distinct from their transport. Stabilizer's
+[`miniconf-settings`](https://github.com/quartiq/stabilizer/tree/main/miniconf-settings)
+composes a shell, snapshots, and flash storage above Miniconf; UART/USB ownership
+and the timing of application effects remain outside that crate. It is currently
+an unpublished workspace crate, not an additional requirement for using Miniconf.
+
 ## Code Size
 
 The embedded benchmark compares `miniconf` against a handwritten serial-style
@@ -170,6 +210,11 @@ as a routed get/set lower bound, not a feature-equivalent replacement: it omits
 schema iteration, metadata, key transcoding, generic key backends, and generated
 reflection. The benchmark reports the static schema payload separately so the
 routed get/set overhead and reflection data can be judged independently.
+
+See the [benchmark instructions and results](https://github.com/quartiq/miniconf/tree/main/miniconf/tests/benchmark)
+for the target, feature set, build profile, and reproduction command. These are
+whole-program sizes and an observed stack high-water mark for one workload,
+not a universal per-setting cost or a worst-case stack bound.
 
 ## Limits
 
