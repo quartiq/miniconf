@@ -15,4 +15,4 @@ docker run --rm --network host \
     -e BROKER="${BROKER:-localhost}" \
     -e MINICONF_EXAMPLE="$EXAMPLE" \
     "$IMAGE" \
-    python py/test.py
+    sh -c 'python -I -m unittest discover -s py/tests && python -I py/test.py'

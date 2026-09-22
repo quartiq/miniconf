@@ -110,6 +110,8 @@ class Schema:
                 case "d":
                     try:
                         index = int(part)
+                        if index < 0:
+                            raise IndexError(index)
                         child_ref = parent_internal["c"][index]
                     except (ValueError, IndexError) as exc:
                         raise MiniconfException("NotFound", path) from exc
@@ -324,6 +326,8 @@ class Schema:
         for index in indices:
             children = self._child_paths(path)
             try:
+                if index < 0:
+                    raise IndexError(index)
                 path = children[index]
             except IndexError as exc:
                 raise MiniconfException("NotFound", indices) from exc

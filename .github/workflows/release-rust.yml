@@ -1,0 +1,50 @@
+name: Release Rust
+
+on:
+  push:
+    tags: [miniconf-v*, miniconf_derive-v*, miniconf_mqtt-v*, miniconf_coap-v*]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-rust-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.package.outputs.name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - id: package
+        name: Verify tagged package
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          package="${GITHUB_REF_NAME%%-v*}"
+          version=$(cargo metadata --no-deps --format-version=1 | jq -er --arg name "$package" '.packages[] | select(.name == $name) | .version')
+          test "$GITHUB_REF_NAME" = "$package-v$version"
+          cargo package -p "$package" --all-features
+          echo "name=$package" >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - run: cargo publish -p "$PACKAGE" --all-features
+        env:
+          PACKAGE: ${{ needs.validate.outputs.package }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

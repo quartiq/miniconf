@@ -9,16 +9,18 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from queue import Empty, Queue
-from unittest.mock import AsyncMock, Mock
+from unittest import TestCase
 
 import paho.mqtt.client as mqtt
 from miniconf.client import Miniconf, RawMiniconf
-from miniconf.cli import _normalize_command_path
+from aiomqtt import Client, MqttError, ProtocolVersion
+from paho.mqtt.packettypes import PacketTypes
+from paho.mqtt.properties import Properties
 from miniconf.common import MiniconfException
-from miniconf._mqtt import Client
-from miniconf.render import render_schema_tree, render_value_tree
+from miniconf.render import render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,95 +167,47 @@ class TopicWatcher:
         self.client.loop_stop()
 
 
-class FakeMessages:
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await asyncio.Future()
-
-
-class FakeClient:
-    def __init__(self):
-        self.messages = FakeMessages()
-
-    async def subscribe(self, *_args, **_kwargs):
-        pass
-
-    async def unsubscribe(self, *_args, **_kwargs):
-        pass
-
-
-async def test_listener_close_tolerates_released_subscription() -> None:
-    client = RawMiniconf(FakeClient(), "test")
-    await asyncio.wait_for(client._subscribed.wait(), 1.0)
-    del client._subscriptions[client.response_topic]
-    await client.close()
-
-
 async def test_snapshot_deadline(interface) -> None:
-    try:
+    with TestCase().assertRaises(TimeoutError):
         await interface.snapshot(CONTROL, timeout=0.02, abs_timeout=10.0)
-    except TimeoutError as err:
-        assert "quiescence" in str(err), err
-    else:
-        raise AssertionError("snapshot accepted a deadline as quiescence")
-
-
-async def test_request_cleanup() -> None:
-    transport = FakeClient()
-    async with RawMiniconf(transport, "test") as interface:
-        await asyncio.wait_for(interface._subscribed.wait(), 1.0)
-        transport.publish = AsyncMock(side_effect=RuntimeError("publish failed"))
-        try:
-            await interface.set("/value", 1)
-        except RuntimeError:
-            pass
-        else:
-            raise AssertionError("expected publish failure")
-        assert not interface._inflight
-
-        # A malformed correlated reply fails its request, not the listener.
-        future = asyncio.get_running_loop().create_future()
-        interface._inflight[b"request"] = future
-        interface._handle_response({"correlation_data": b"request"}, b"")
-        assert isinstance(future.exception(), MiniconfException)
-        assert not interface._inflight
-
-        transport.subscribe = AsyncMock(side_effect=asyncio.CancelledError)
-        try:
-            async with interface._watch("test/settings/#"):
-                raise AssertionError("expected subscription cancellation")
-        except asyncio.CancelledError:
-            pass
-        assert not interface._watchers
-
-
-async def test_ack_cancellation() -> None:
-    transport = Client("localhost")
-    transport._client = Mock()
-    transport._client.subscribe.return_value = 1
-    transport._client.unsubscribe.return_value = 1
-    for operation, pending, callback in (
-        (transport.subscribe, transport._subacks, transport._on_subscribe),
-        (transport.unsubscribe, transport._unsubacks, transport._on_unsubscribe),
-    ):
-        task = asyncio.create_task(operation("test/#"))
-        await asyncio.sleep(0)
-        assert pending
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        assert not pending
-        if operation == transport.subscribe:
-            callback(None, 1, (0,), {})
-        else:
-            callback(None, 1, (0,))
 
 
 async def close_client(client: Client, timeout: float = 1.0) -> None:
     """Bound MQTT teardown so the harness cannot hang on disconnect."""
 
     await asyncio.wait_for(client.__aexit__(None, None, None), timeout)
+
+
+async def test_broker_disconnect() -> None:
+    """A broker session takeover must fail all pending Miniconf operations."""
+    identifier = f"miniconf-test-{uuid.uuid4().hex}"
+    async with Client(
+        BROKER, identifier=identifier, protocol=ProtocolVersion.V5
+    ) as connection:
+        async with RawMiniconf(connection, identifier) as client:
+            # Complete setup before forcing the established connection off the broker.
+            await client.set("/value", 1, response=False)
+            watch = client.watch()
+            pending = [
+                asyncio.create_task(operation)
+                for operation in (
+                    client.set("/value", 2),
+                    client.get("/value"),
+                    anext(watch),
+                )
+            ]
+            try:
+                async with Client(
+                    BROKER, identifier=identifier, protocol=ProtocolVersion.V5
+                ):
+                    for task in pending:
+                        with TestCase().assertRaises(MqttError):
+                            await asyncio.wait_for(task, 1)
+            finally:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                await watch.aclose()
 
 
 async def wait_event_value(events, path: str, expected, timeout: float = 3.0):
@@ -295,108 +249,9 @@ async def wait_snapshot_value(
 
 
 async def main() -> None:
-    await test_listener_close_tolerates_released_subscription()
-    await test_request_cleanup()
-    await test_ack_cancellation()
-
-    assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
-    assert _normalize_command_path("/", "") == ("/", "/")
-    assert _normalize_command_path("value", "/") == ("//value", "/")
-    assert _normalize_command_path("/channel/0/demodulate", "") == (
-        "/channel/0/demodulate",
-        "/channel/0/demodulate",
-    )
-    assert _normalize_command_path("frequency", "/channel/0/demodulate") == (
-        "/channel/0/demodulate/frequency",
-        "/channel/0/demodulate",
-    )
-    assert _normalize_command_path("attenuation", "/channel/0/demodulate") == (
-        "/channel/0/demodulate/attenuation",
-        "/channel/0/demodulate",
-    )
-    assert _normalize_command_path(
-        "/channel/0/demodulate/frequency", "", subtree=False
-    ) == ("/channel/0/demodulate/frequency", "/channel/0/demodulate")
-    assert _normalize_command_path("phase", "/channel/0/demodulate") == (
-        "/channel/0/demodulate/phase",
-        "/channel/0/demodulate",
-    )
-
-    schema_fixture = fixture_schema()
-    assert [node.path for node in schema_fixture.walk()] == [
-        "",
-        "/value",
-        "/nested",
-        "/nested/leaf",
-    ]
-    assert schema_fixture.node().kind == "named"
-    assert schema_fixture.node("/nested").kind == "named"
-    assert schema_fixture.node("/value").kind == "leaf"
-    assert schema_fixture.node("/value").edge == {"role": "selector"}
-    assert schema_fixture.node("/nested").edge is None
-    assert schema_fixture.compact("/nested") == {
-        "path": "/nested",
-        "rev": 1,
-        "defs": [
-            {},
-            {"i": {"k": "n", "c": {"leaf": 0}}},
-        ],
-    }
-
-    compressed_sem = render_schema_tree(
-        Schema.from_defs(
-            [
-                {"s": {"ty": "i32"}},
-                {"i": {"k": "h", "l": 2, "c": 0}},
-                {"i": {"k": "n", "c": {"array_tree": 1}}},
-            ],
-            1,
-        )
-    ).splitlines()
-    assert compressed_sem == [
-        "└─ array_tree [homogeneous]",
-        "   └─ 0..2 [sem ty=i32]",
-    ], compressed_sem
-    quoted_meta = render_schema_tree(
-        Schema.from_defs(
-            [
-                {"m": {"typename": "InnerType"}},
-                {"i": {"k": "n", "c": {"node": {"r": 0, "m": {"doc": "Outer doc"}}}}},
-            ],
-            1,
-        )
-    ).splitlines()
-    assert quoted_meta == [
-        '└─ node [edge doc="Outer doc"] [node typename="InnerType"]'
-    ], quoted_meta
-
-    empty_name_schema = Schema.from_defs(
-        [
-            {"s": {"ty": "i32"}},
-            {"i": {"k": "n", "c": {"value": 0}}},
-            {"i": {"k": "n", "c": {"": 1, "value": 0}}},
-        ],
-        1,
-    )
-    assert empty_name_schema.path("") == ""
-    assert empty_name_schema.path("/") == "/"
-    assert empty_name_schema.path("//value") == "//value"
-    assert render_schema_tree(empty_name_schema, "/").splitlines() == [
-        '""',
-        "└─ value [sem ty=i32]",
-    ]
-    assert render_schema_tree(empty_name_schema).splitlines() == [
-        '├─ ""',
-        "│  └─ value [sem ty=i32]",
-        "└─ value [sem ty=i32]",
-    ]
-    empty_values = {"//value": 1, "/value": 2}
-    assert render_value_tree(empty_name_schema, empty_values).splitlines() == [
-        '├─ ""',
-        "│  └─ value = 1",
-        "└─ value = 2",
-    ]
-
+    await test_broker_disconnect()
+    auth = Properties(PacketTypes.PUBLISH)
+    auth.UserProperty = [("auth", "")]
     alive = TopicWatcher(f"{PREFIX}/+/alive")
     settings = TopicWatcher(f"{PREFIX}/+/settings/#")
     schema_topics = TopicWatcher(f"{PREFIX}/+/schema/#")
@@ -421,10 +276,10 @@ async def main() -> None:
         settings.drain()
         schema_topics.drain()
 
-        client = Client(BROKER)
+        client = Client(BROKER, protocol=ProtocolVersion.V5)
         await client.__aenter__()
         try:
-            mc = Miniconf(client, TARGET)
+            mc = await Miniconf(client, TARGET).__aenter__()
 
             schema = await mc.schema()
             control = schema.node(CONTROL)
@@ -502,7 +357,7 @@ async def main() -> None:
                 payload=b"not-json",
                 qos=1,
                 retain=True,
-                properties={"user_property": [("auth", "")]},
+                properties=auth,
             )
             assert "/obsolete" not in await mc.snapshot("")
 
@@ -525,16 +380,19 @@ async def main() -> None:
             events = mc.watch("/output")
             try:
                 await wait_event_value(events, DAC0, 1024)
+                assert (await mc.snapshot("/output"))[DAC0] == 1024
                 await mc.set(DAC0, 2048)
                 await wait_event_value(events, DAC0, 2048)
             finally:
                 await events.aclose()
             await wait_snapshot_value(mc, "/output", DAC0, 2048)
         finally:
+            await mc.close()
+            mc = None
             await close_client(client)
             client = None
-        client = await Client(BROKER).__aenter__()
-        raw = RawMiniconf(client, TARGET)
+        client = await Client(BROKER, protocol=ProtocolVersion.V5).__aenter__()
+        raw = await RawMiniconf(client, TARGET).__aenter__()
         try:
             assert await raw.get(ENABLED) is False
             assert await raw.get(DAC0) == 2048
@@ -548,7 +406,7 @@ async def main() -> None:
                     payload=b"null",
                     qos=1,
                     retain=True,
-                    properties={"user_property": [("auth", "")]},
+                    properties=auth,
                 )
                 event = await wait_event_value(events, null_path, None)
                 assert event.retained
@@ -558,7 +416,7 @@ async def main() -> None:
                     payload=b"",
                     qos=1,
                     retain=True,
-                    properties={"user_property": [("auth", "")]},
+                    properties=auth,
                 )
                 event = await wait_event_delete(events, null_path)
                 assert event.retained

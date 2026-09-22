@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "miniconf-mqtt"
-# Note: keep this in sync with Cargo.toml
 version = "0.20.1"
 description = "Async Miniconf MQTT client and CLI"
 readme = "README.md"
@@ -14,7 +13,7 @@ authors = [
     { name = "Ryan Summers", email = "ryan.summers@vertigo-designs.com" },
     { name = "Robert Jördens", email = "rj@quartiq.de" },
 ]
-dependencies = ["gmqtt>=0.7"]
+dependencies = ["aiomqtt>=2.5,<3"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
