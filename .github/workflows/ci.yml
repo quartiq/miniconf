@@ -105,7 +105,11 @@ jobs:
           sudo apt-get install -y mosquitto mosquitto-clients
           sudo service mosquitto start
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rust-src
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.command }}
       - run: ${{ matrix.command }}
         env:
           BROKER: 127.0.0.1:1883
@@ -149,10 +153,12 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: thumbv7m-none-eabi
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: miniconf/tests/benchmark -> target
       - name: Install QEMU
         run: |
           sudo apt-get update

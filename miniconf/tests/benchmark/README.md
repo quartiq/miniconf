@@ -23,7 +23,7 @@ cd miniconf/tests/benchmark
 
 Keep the output and `Cargo.lock`: the report includes source revision, lockfile
 hash, and compiler. `-dirty` marks local source changes. CI runs the same
-harness with its configured nightly toolchain.
+harness with the stable toolchain.
 
 The target is Cortex-M3 (`thumbv7m-none-eabi`), run on QEMU's `lm3s6965evb`.
 The [manifest](Cargo.toml) selects `opt-level = "s"`, LTO, one codegen unit,
