@@ -31,6 +31,7 @@ Core API:
 - `snapshot(path="")` reads a finite retained subtree snapshot.
 - `watch(path="")` streams authoritative retained settings publications below a subtree without
   waiting for quiescence. Events distinguish JSON `null` from retained deletes through `.present`.
+  Opening another reader can replay retained values to an existing watcher.
 - `RawMiniconf` provides exact-path `get()`, `set()`, `snapshot()`, and `watch()` without schema
   loading.
 

@@ -7,7 +7,6 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from .common import (
-    RETAINED_SUBSCRIPTION,
     LOGGER,
     _RetainedBurst,
     MiniconfException,
@@ -34,14 +33,7 @@ async def discover(
     topic = f"{prefix}{suffix}"
 
     start = asyncio.get_running_loop().time()
-    qos, no_local, retain_as_published, retain_handling = RETAINED_SUBSCRIPTION
-    await client.subscribe(
-        topic,
-        qos=qos,
-        no_local=no_local,
-        retain_as_published=retain_as_published,
-        retain_handling=retain_handling,
-    )
+    await client.subscribe(topic, retain_as_published=True)
     quiet = quiet_window(
         start,
         asyncio.get_running_loop().time(),
@@ -90,7 +82,7 @@ async def _collect_retained_topics(
 ) -> list[str]:
     start = asyncio.get_running_loop().time()
     seen: set[str] = set()
-    async with interface._watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
+    async with interface._watch(topic_filter) as queue:
         now = asyncio.get_running_loop().time()
         burst = _RetainedBurst(start, now, timeout, rel_timeout, abs_timeout)
         while (message := await burst.receive(queue)) is not None:
@@ -115,9 +107,7 @@ async def _prune_schema(
     pages = manifest.pages
     seen: set[int] = set()
     start = asyncio.get_running_loop().time()
-    async with interface._watch(
-        f"{interface.prefix}/schema/#", RETAINED_SUBSCRIPTION
-    ) as queue:
+    async with interface._watch(f"{interface.prefix}/schema/#") as queue:
         now = asyncio.get_running_loop().time()
         burst = _RetainedBurst(start, now, timeout, rel_timeout, abs_timeout)
         while (message := await burst.receive(queue)) is not None:
@@ -194,4 +184,5 @@ async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]
         await interface.client.publish(topic, payload=b"", qos=1, retain=True)
     interface._schema = None
     interface._alive = b""
+    interface._alive_ready.clear()
     return [topic.removeprefix(f"{interface.prefix}/") for topic in topics]

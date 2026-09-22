@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 * Reject unsupported MQTT protocol versions without reusing a previously cached schema.
-* Preserve shared subscriptions under concurrent use and include subscription readiness in SET timeouts.
+* Replay retained values for new readers sharing a subscription, and keep it active until the last reader closes.
+* Include subscription readiness in SET timeouts.
 * Reject negative schema indices instead of selecting children from the end.
 * Clean up failed or cancelled requests and subscriptions; malformed replies fail only their request.
 * Snapshots and pruning report timeout failure when retained traffic has not reached quiescence.

@@ -185,11 +185,13 @@ class FakeClient:
         pass
 
 
-async def test_listener_close_tolerates_released_subscription() -> None:
-    client = RawMiniconf(FakeClient(), "test")
+async def test_listener_close() -> None:
+    transport = FakeClient()
+    transport.unsubscribe = AsyncMock()
+    client = RawMiniconf(transport, "test")
     await asyncio.wait_for(client._subscribed.wait(), 1.0)
-    del client._subscriptions[client.response_topic]
     await client.close()
+    transport.unsubscribe.assert_awaited_once_with(client.response_topic)
 
 
 async def test_snapshot_deadline(interface) -> None:
@@ -215,10 +217,15 @@ async def test_request_cleanup() -> None:
         assert not interface._inflight
 
         # A malformed correlated reply fails its request, not the listener.
-        future = asyncio.get_running_loop().create_future()
-        interface._inflight[b"request"] = future
-        interface._handle_response({"correlation_data": b"request"}, b"")
-        assert isinstance(future.exception(), MiniconfException)
+        async def reply(_topic, *, properties, **_kwargs):
+            interface._dispatch(
+                Message(interface.response_topic, b"", False, properties)
+            )
+
+        transport.publish = AsyncMock(side_effect=reply)
+        with TestCase().assertRaisesRegex(MiniconfException, "Missing response code"):
+            await interface.set("/value", 1)
+        assert not interface._listener.done()
         assert not interface._inflight
 
         transport.subscribe = AsyncMock(side_effect=asyncio.CancelledError)
@@ -285,13 +292,42 @@ async def test_subscription_ownership() -> None:
 
         transport.subscribe = AsyncMock(side_effect=subscribe)
         transport.unsubscribe = AsyncMock()
-        await asyncio.gather(
-            interface._subscribe("shared"), interface._subscribe("shared")
-        )
-        transport.subscribe.assert_awaited_once()
-        await interface._unsubscribe("shared")
+        async with interface._watch("shared") as first:
+            async with interface._watch("shared") as second:
+                message = Message("shared", b"1", True, {})
+                interface._dispatch(message)
+                assert await first.get() == await second.get() == message
+                assert transport.subscribe.await_count == 2
+            transport.unsubscribe.assert_not_awaited()
+            transport.subscribe.side_effect = asyncio.CancelledError
+            with TestCase().assertRaises(asyncio.CancelledError):
+                async with interface._watch("shared"):
+                    raise AssertionError("expected subscription cancellation")
+            transport.unsubscribe.assert_not_awaited()
+            interface._dispatch(message)
+            assert await first.get() == message
+        transport.unsubscribe.assert_awaited_once_with("shared")
+
+        # Cancelling a reader waiting for SUBACK must preserve the active reader.
+        suback = asyncio.Event()
+
+        async def subscribe(*_args, **_kwargs):
+            await suback.wait()
+
+        transport.subscribe.side_effect = subscribe
+        transport.unsubscribe.reset_mock()
+        first, second = interface._watch("shared"), interface._watch("shared")
+        opening = asyncio.create_task(first.__aenter__())
+        await asyncio.sleep(0)
+        cancelled = asyncio.create_task(second.__aenter__())
+        await asyncio.sleep(0)
+        cancelled.cancel()
+        suback.set()
+        await opening
+        with TestCase().assertRaises(asyncio.CancelledError):
+            await cancelled
         transport.unsubscribe.assert_not_awaited()
-        await interface._unsubscribe("shared")
+        await first.__aexit__(None, None, None)
         transport.unsubscribe.assert_awaited_once_with("shared")
 
     transport.subscribe = AsyncMock(side_effect=MQTTError("subscription failed"))
@@ -372,7 +408,7 @@ async def wait_snapshot_value(
 
 
 async def main() -> None:
-    await test_listener_close_tolerates_released_subscription()
+    await test_listener_close()
     await test_request_cleanup()
     await test_ack_cancellation()
     await test_protocol_mismatch()
@@ -604,6 +640,7 @@ async def main() -> None:
             events = mc.watch("/output")
             try:
                 await wait_event_value(events, DAC0, 1024)
+                assert (await mc.snapshot("/output"))[DAC0] == 1024
                 await mc.set(DAC0, 2048)
                 await wait_event_value(events, DAC0, 2048)
             finally:

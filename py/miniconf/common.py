@@ -11,10 +11,6 @@ PROTOCOL_VERSION = 1
 LOGGER = logging.getLogger("miniconf")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.
 TRANSIENT_EXPIRY_S = 30
-RETAIN_SEND_ON_SUBSCRIBE = 0
-SubscriptionKey = tuple[int, bool, bool, int]
-DEFAULT_SUBSCRIPTION: SubscriptionKey = (1, False, False, RETAIN_SEND_ON_SUBSCRIBE)
-RETAINED_SUBSCRIPTION: SubscriptionKey = (1, False, True, RETAIN_SEND_ON_SUBSCRIBE)
 
 
 def message_expiry(timeout: float | None) -> int:

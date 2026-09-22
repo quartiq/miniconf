@@ -12,11 +12,8 @@ from dataclasses import dataclass
 from typing import Any, Self
 
 from .common import (
-    DEFAULT_SUBSCRIPTION,
     LOGGER,
-    RETAINED_SUBSCRIPTION,
     AliveManifest,
-    SubscriptionKey,
     _RetainedBurst,
     MiniconfException,
     alive_manifest,
@@ -47,9 +44,8 @@ class _BaseClient:
         self.client = client
         self.prefix = prefix
         self.response_topic = f"{prefix}/response/{uuid.uuid4().hex}"
-        self._inflight: dict[bytes, asyncio.Future[None]] = {}
+        self._inflight: dict[bytes, asyncio.Future[Message]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
-        self._subscriptions: dict[str, tuple[int, SubscriptionKey]] = {}
         self._subscription_lock = asyncio.Lock()
         self._listener = asyncio.create_task(self._listen())
         self._subscribed = asyncio.Event()
@@ -63,8 +59,8 @@ class _BaseClient:
             async with cls(client, prefix) as interface:
                 yield interface
 
-    def _listen_topics(self) -> dict[str, SubscriptionKey]:
-        return {self.response_topic: DEFAULT_SUBSCRIPTION}
+    def _listen_topics(self) -> tuple[str, ...]:
+        return (self.response_topic,)
 
     async def __aenter__(self):
         return self
@@ -87,8 +83,8 @@ class _BaseClient:
     async def _listen(self):
         topics: list[str] = []
         try:
-            for topic, subscription in self._listen_topics().items():
-                await self._subscribe(topic, subscription)
+            for topic in self._listen_topics():
+                await self.client.subscribe(topic, retain_as_published=True)
                 topics.append(topic)
             self._subscribed.set()
             async for message in self.client.messages:
@@ -101,7 +97,7 @@ class _BaseClient:
             self._subscribed.clear()
             for topic in reversed(topics):
                 try:
-                    await self._unsubscribe(topic, missing_ok=True)
+                    await self.client.unsubscribe(topic)
                 except MQTTError:
                     LOGGER.debug("MQTT unsubscribe error", exc_info=True)
 
@@ -116,92 +112,35 @@ class _BaseClient:
                     queue.put_nowait(message)
 
         if topic == self.response_topic:
-            self._handle_response(properties, message.payload)
+            fut = self._inflight.pop(properties.get("correlation_data"), None)
+            if fut is not None and not fut.done():
+                fut.set_result(message)
             return
         self._handle_message(message)
 
-    def _handle_response(self, properties: dict[str, Any], payload: bytes):
-        cd = properties.get("correlation_data")
-        if cd is None:
-            LOGGER.debug("Discarding response without correlation_data")
-            return
-        fut = self._inflight.pop(cd, None)
-        if fut is None:
-            LOGGER.debug("Discarding unexpected correlation_data: %s", cd.hex())
-            return
-        if fut.done():
-            LOGGER.debug("Discarding late response: %s", cd.hex())
-            return
-        try:
-            code = dict(properties["user_property"])["code"]
-            if code == "Ok":
-                fut.set_result(None)
-            else:
-                fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
-        except KeyError:
-            fut.set_exception(MiniconfException("Protocol", "Missing response code"))
-        except UnicodeDecodeError as exc:
-            fut.set_exception(exc)
-
     def _handle_message(self, _message: Message) -> None:
         pass
-
-    async def _subscribe(
-        self,
-        topic_filter: str,
-        subscription: SubscriptionKey = DEFAULT_SUBSCRIPTION,
-    ):
-        async with self._subscription_lock:
-            count, existing_key = self._subscriptions.get(
-                topic_filter, (0, subscription)
-            )
-            if existing_key != subscription:
-                raise MiniconfException("Subscription", topic_filter)
-            if not count:
-                qos, no_local, retain_as_published, retain_handling = subscription
-                await self.client.subscribe(
-                    topic_filter,
-                    qos=qos,
-                    no_local=no_local,
-                    retain_as_published=retain_as_published,
-                    retain_handling=retain_handling,
-                )
-                LOGGER.debug("Subscribed to %s", topic_filter)
-            self._subscriptions[topic_filter] = (count + 1, subscription)
-
-    async def _unsubscribe(self, topic_filter: str, *, missing_ok: bool = False):
-        async with self._subscription_lock:
-            existing = self._subscriptions.get(topic_filter)
-            if existing is None and missing_ok:
-                return
-            count, key = self._subscriptions[topic_filter]
-            if count > 1:
-                self._subscriptions[topic_filter] = (count - 1, key)
-                return
-            del self._subscriptions[topic_filter]
-            await self.client.unsubscribe(topic_filter)
-            LOGGER.debug("Unsubscribed from %s", topic_filter)
 
     @asynccontextmanager
     async def _watch(
         self,
         topic_filter: str,
-        subscription: SubscriptionKey = DEFAULT_SUBSCRIPTION,
     ) -> AsyncIterator[asyncio.Queue[Message]]:
         queue: asyncio.Queue[Message] = asyncio.Queue()
-        watchers = self._watchers[topic_filter]
-        watchers.append(queue)
-        subscribed = False
         try:
-            await self._subscribe(topic_filter, subscription)
-            subscribed = True
+            async with self._subscription_lock:
+                self._watchers[topic_filter].append(queue)
+                # Every reader needs its own retained replay, including shared filters.
+                await self.client.subscribe(topic_filter, retain_as_published=True)
             yield queue
         finally:
-            watchers.remove(queue)
-            if not watchers:
-                del self._watchers[topic_filter]
-            if subscribed:
-                await self._unsubscribe(topic_filter)
+            async with self._subscription_lock:
+                watchers = self._watchers.get(topic_filter, [])
+                if queue in watchers:
+                    watchers.remove(queue)
+                    if not watchers:
+                        del self._watchers[topic_filter]
+                        await self.client.unsubscribe(topic_filter)
 
     def _setting_event(
         self,
@@ -237,9 +176,7 @@ class _BaseClient:
     async def _snapshot(self, root, schema, *, timeout, rel_timeout, abs_timeout):
         start = asyncio.get_running_loop().time()
         retained: dict[str, Any] = {}
-        async with self._watch(
-            f"{self.prefix}/settings{root}/#", RETAINED_SUBSCRIPTION
-        ) as queue:
+        async with self._watch(f"{self.prefix}/settings{root}/#") as queue:
             burst = _RetainedBurst(
                 start,
                 asyncio.get_running_loop().time(),
@@ -281,16 +218,22 @@ class _BaseClient:
                     topic, payload=payload, qos=1, properties=props
                 )
                 if fut is not None:
-                    await fut
+                    reply = await fut
+                    try:
+                        code = dict(reply.properties["user_property"])["code"]
+                    except KeyError as exc:
+                        raise MiniconfException(
+                            "Protocol", "Missing response code"
+                        ) from exc
+                    if code != "Ok":
+                        raise MiniconfException(code, reply.payload.decode("utf-8"))
         finally:
             if fut is not None:
                 self._inflight.pop(cd, None)
                 fut.cancel()
 
     async def _get(self, path: str, *, timeout: float):
-        async with self._watch(
-            f"{self.prefix}/settings{path}", RETAINED_SUBSCRIPTION
-        ) as queue:
+        async with self._watch(f"{self.prefix}/settings{path}") as queue:
             end = asyncio.get_running_loop().time() + timeout
             while True:
                 remaining = end - asyncio.get_running_loop().time()
@@ -322,22 +265,25 @@ class Miniconf(_BaseClient):
         self.alive_topic = f"{prefix}/alive"
         self._schema: Schema | None = None
         self._alive = b""
+        self._alive_ready = asyncio.Event()
         super().__init__(client, prefix)
 
-    def _listen_topics(self) -> dict[str, SubscriptionKey]:
-        return {**super()._listen_topics(), self.alive_topic: RETAINED_SUBSCRIPTION}
+    def _listen_topics(self) -> tuple[str, ...]:
+        return (*super()._listen_topics(), self.alive_topic)
 
     def _handle_message(self, message: Message):
         if message.topic == self.alive_topic and message.payload != self._alive:
             self._alive = message.payload
             self._schema = None
+            if self._alive:
+                self._alive_ready.set()
+            else:
+                self._alive_ready.clear()
 
     async def _load_manifest(self, *, timeout: float) -> AliveManifest:
-        if not self._alive:
-            async with self._watch(self.alive_topic, RETAINED_SUBSCRIPTION) as queue:
-                async with asyncio.timeout(timeout):
-                    while not self._alive:
-                        await queue.get()
+        async with asyncio.timeout(timeout):
+            while not self._alive:
+                await self._alive_ready.wait()
         return alive_manifest(json.loads(self._alive))
 
     async def set(
@@ -388,12 +334,13 @@ class Miniconf(_BaseClient):
     async def watch(
         self, path: str = "", *, timeout: float = 3.0
     ) -> AsyncIterator[SettingEvent]:
-        """Yield authoritative settings updates below one subtree without waiting for quiescence."""
+        """Yield authoritative settings updates below one subtree without waiting for quiescence.
+
+        Opening another reader can replay retained values to existing watchers.
+        """
 
         root = (await self.schema(timeout=timeout)).path(path)
-        async with self._watch(
-            f"{self.prefix}/settings{root}/#", RETAINED_SUBSCRIPTION
-        ) as queue:
+        async with self._watch(f"{self.prefix}/settings{root}/#") as queue:
             while True:
                 message = await queue.get()
                 schema = await self.schema(timeout=timeout)
@@ -412,9 +359,7 @@ class Miniconf(_BaseClient):
         pages = manifest.pages
 
         defs: list[list[dict[str, Any]] | None] = [None] * pages
-        async with self._watch(
-            f"{self.prefix}/schema/#", RETAINED_SUBSCRIPTION
-        ) as queue:
+        async with self._watch(f"{self.prefix}/schema/#") as queue:
             deadline = asyncio.get_running_loop().time() + timeout
             while any(page is None for page in defs):
                 remaining = deadline - asyncio.get_running_loop().time()
@@ -487,12 +432,13 @@ class RawMiniconf(_BaseClient):
         )
 
     async def watch(self, path: str = "") -> AsyncIterator[SettingEvent]:
-        """Yield authoritative settings updates below one exact subtree."""
+        """Yield authoritative settings updates below one exact subtree.
+
+        Opening another reader can replay retained values to existing watchers.
+        """
 
         root = validate_path(path)
-        async with self._watch(
-            f"{self.prefix}/settings{root}/#", RETAINED_SUBSCRIPTION
-        ) as queue:
+        async with self._watch(f"{self.prefix}/settings{root}/#") as queue:
             while True:
                 message = await queue.get()
                 event = self._setting_event(message, root)
