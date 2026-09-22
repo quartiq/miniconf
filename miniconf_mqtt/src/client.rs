@@ -482,7 +482,9 @@ impl Startup {
                     miniconf.manifest.epoch,
                     miniconf.manifest.schema_rev
                 );
-                Self::reconnected()
+                Self {
+                    phase: sync::StartupPhase::Alive(None),
+                }
             }
             _ => Self::connected(miniconf),
         }
@@ -510,12 +512,6 @@ impl Startup {
                 sync: SchemaSync::new(Settings::SCHEMA),
                 op: None,
             },
-        }
-    }
-
-    fn reconnected() -> Self {
-        Self {
-            phase: sync::StartupPhase::Alive(None),
         }
     }
 
