@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 use core::fmt::Write as _;
 
-use heapless::{String, Vec, VecView};
+use heapless::{String, Vec};
 use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
@@ -29,19 +29,9 @@ pub(crate) enum FollowUp {
         reply: Option<ReplyTarget>,
         op: Option<Op>,
     },
-    ErrorReply {
+    Reply {
         target: ReplyTarget,
-        message: ReplyMessage,
-        op: Option<Op>,
-    },
-    ReplyOk {
-        target: ReplyTarget,
-        op: Option<Op>,
-    },
-    ReplyPublishError {
-        target: ReplyTarget,
-        error: ResponseText,
-        payload: ResponseText,
+        error: Option<ReplyError>,
         op: Option<Op>,
     },
     Done,
@@ -57,8 +47,7 @@ impl FollowUp {
     }
 }
 
-pub(crate) struct ReplyMessage {
-    code: ResponseCode,
+pub(crate) struct ReplyError {
     kind: &'static str,
     class: &'static str,
     error: ResponseText,
@@ -87,17 +76,6 @@ where
     }
     let mut state = [0; MAX_DEPTH];
     resolve_leaf::<Settings>(path, &mut state).is_some()
-}
-
-fn with_leaf<T, E>(
-    full: &[usize],
-    func: impl FnOnce(&mut &[usize]) -> Result<T, SerdeError<E>>,
-) -> Result<T, DepthError<E>> {
-    let mut keys = full;
-    func(&mut keys).map_err(|inner| DepthError {
-        inner,
-        depth: full.len() - keys.len(),
-    })
 }
 
 pub(crate) fn route<Settings>(
@@ -149,9 +127,9 @@ where
                 depth: err.lookup.depth,
             });
             return Route::Rejected {
-                follow_up: reply.map(|target| FollowUp::ErrorReply {
+                follow_up: reply.map(|target| FollowUp::Reply {
                     target,
-                    message: encode_body(&body),
+                    error: Some(encode_body(&body)),
                     op: None,
                 }),
             };
@@ -172,19 +150,17 @@ where
             depth: lookup.depth,
         };
         return Route::Rejected {
-            follow_up: reply.map(|target| FollowUp::ErrorReply {
+            follow_up: reply.map(|target| FollowUp::Reply {
                 target,
-                message: encode_body(&body),
+                error: Some(encode_body(&body)),
                 op: None,
             }),
         };
     }
 
     let full = &state[..lookup.depth];
-    match with_leaf(full, |keys| {
-        json_core::set_by_keys(settings, keys, inbound.payload())
-    }) {
-        Ok(_) => {
+    match set_leaf(settings, full, inbound.payload()) {
+        Ok(()) => {
             debug!(
                 "Accepted set request topic={=str} depth={=usize} payload_len={=usize} reply={=bool}",
                 inbound.topic(),
@@ -212,9 +188,9 @@ where
             );
             let body = ResponseBody::Set(err);
             Route::Rejected {
-                follow_up: reply.map(|target| FollowUp::ErrorReply {
+                follow_up: reply.map(|target| FollowUp::Reply {
                     target,
-                    message: encode_body(&body),
+                    error: Some(encode_body(&body)),
                     op: None,
                 }),
             }
@@ -255,7 +231,13 @@ pub(crate) fn set_leaf<Settings>(
 where
     Settings: TreeDeserializeOwned,
 {
-    with_leaf(full, |keys| json_core::set_by_keys(settings, keys, payload)).map(|_| ())
+    let mut keys = full;
+    json_core::set_by_keys(settings, &mut keys, payload)
+        .map(|_| ())
+        .map_err(|inner| DepthError {
+            inner,
+            depth: full.len() - keys.len(),
+        })
 }
 
 fn route_settings<Settings>(
@@ -350,7 +332,11 @@ impl FollowUp {
                                     "Published authoritative setting; sending Miniconf success reply reply_topic={=str}",
                                     target.topic()
                                 );
-                                *self = Self::ReplyOk { target, op: None };
+                                *self = Self::Reply {
+                                    target,
+                                    error: None,
+                                    op: None,
+                                };
                                 continue;
                             }
                             debug!(
@@ -381,11 +367,9 @@ impl FollowUp {
                                     "Authoritative setting publish failed; replying with Miniconf error reply_topic={=str}",
                                     target.topic()
                                 );
-                                let (error, payload) = publish_error_text(&err);
-                                *self = Self::ReplyPublishError {
+                                *self = Self::Reply {
                                     target,
-                                    error,
-                                    payload,
+                                    error: Some(publish_error(&err)),
                                     op: None,
                                 };
                                 continue;
@@ -394,44 +378,12 @@ impl FollowUp {
                         }
                     }
                 }
-                Self::ErrorReply {
-                    target,
-                    message,
-                    op,
-                } => {
+                Self::Reply { target, error, op } => {
                     match poll_op(connection, op)? {
                         PendingOp::Pending => return Ok(false),
                         PendingOp::Complete => {
                             debug!(
-                                "Completed Miniconf error reply reply_topic={=str} kind={=str} depth={=?}",
-                                target.topic(),
-                                message.kind,
-                                message.depth
-                            );
-                            *self = Self::Done;
-                            return Ok(true);
-                        }
-                        PendingOp::Idle => {}
-                    }
-                    match reply_message(connection, target, message).await {
-                        Ok(next) => {
-                            *op = Some(next);
-                            return Ok(false);
-                        }
-                        Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
-                        {
-                            return Ok(false);
-                        }
-                        Err(err) => return Err(err),
-                    }
-                }
-                Self::ReplyOk { target, op } => {
-                    match poll_op(connection, op)? {
-                        PendingOp::Pending => return Ok(false),
-                        PendingOp::Complete => {
-                            debug!(
-                                "Completed Miniconf success reply reply_topic={=str}",
+                                "Completed Miniconf reply reply_topic={=str}",
                                 target.topic()
                             );
                             *self = Self::Done;
@@ -439,38 +391,7 @@ impl FollowUp {
                         }
                         PendingOp::Idle => {}
                     }
-                    match reply_text(connection, target, ResponseCode::Ok, b"").await {
-                        Ok(next) => {
-                            *op = Some(next);
-                            return Ok(false);
-                        }
-                        Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
-                        {
-                            return Ok(false);
-                        }
-                        Err(err) => return Err(err),
-                    }
-                }
-                Self::ReplyPublishError {
-                    target,
-                    error,
-                    payload,
-                    op,
-                } => {
-                    match poll_op(connection, op)? {
-                        PendingOp::Pending => return Ok(false),
-                        PendingOp::Complete => {
-                            debug!(
-                                "Completed Miniconf publish-error reply reply_topic={=str}",
-                                target.topic()
-                            );
-                            *self = Self::Done;
-                            return Ok(true);
-                        }
-                        PendingOp::Idle => {}
-                    }
-                    match reply_publish_error(connection, target, error, payload.as_bytes()).await {
+                    match reply(connection, target, error.as_ref()).await {
                         Ok(next) => {
                             *op = Some(next);
                             return Ok(false);
@@ -489,7 +410,7 @@ impl FollowUp {
     }
 }
 
-fn encode_body(body: &ResponseBody) -> ReplyMessage {
+fn encode_body(body: &ResponseBody) -> ReplyError {
     let mut error = String::new();
     let mut payload = String::new();
     let (kind, class, depth) = match body {
@@ -509,8 +430,7 @@ fn encode_body(body: &ResponseBody) -> ReplyMessage {
             ("set", "SerdeError", Some(err.depth))
         }
     };
-    ReplyMessage {
-        code: ResponseCode::Error,
+    ReplyError {
         kind,
         class,
         error,
@@ -519,108 +439,59 @@ fn encode_body(body: &ResponseBody) -> ReplyMessage {
     }
 }
 
-fn publish_error_text<E: core::fmt::Debug>(err: &Error<E>) -> (ResponseText, ResponseText) {
+fn publish_error<E: core::fmt::Debug>(err: &Error<E>) -> ReplyError {
     let mut error = String::new();
     write!(error.as_mut_view(), "{err:?}").ok();
     let mut payload = String::new();
     write!(payload.as_mut_view(), "{err}").ok();
-    (error, payload)
-}
-
-fn error_props<'a>(
-    code: ResponseCode,
-    kind: &'static str,
-    class: &'static str,
-    error: &'a str,
-    depth: Option<&'a str>,
-) -> Vec<Property<'a>, 7> {
-    let mut props = Vec::new();
-    push_transient_text_props(&mut props);
-    push_prop(&mut props, "code", code.as_str());
-    push_prop(&mut props, "kind", kind);
-    push_prop(&mut props, "class", class);
-    push_prop(&mut props, "error", error);
-    if let Some(depth) = depth {
-        push_prop(&mut props, "depth", depth);
-    }
-    props
-}
-
-fn push_prop<'a>(props: &mut VecView<Property<'a>>, key: &'static str, value: &'a str) {
-    props.push(Property::UserProperty(key, value)).ok();
-}
-
-fn push_transient_text_props(props: &mut VecView<Property<'_>>) {
-    for prop in TRANSIENT_TEXT_PROPERTIES {
-        props.push(prop.clone()).ok();
+    ReplyError {
+        kind: "publish",
+        class: "Error",
+        error,
+        depth: None,
+        payload,
     }
 }
 
-async fn reply_message<IO>(
+async fn reply<IO>(
     connection: &mut Connection<'_, '_, IO>,
     target: &ReplyTarget,
-    message: &ReplyMessage,
+    error: Option<&ReplyError>,
 ) -> Result<Op, Error<IO::Error>>
 where
     IO: Io,
 {
     let mut depth_text = String::<16>::new();
-    let depth = message.depth.and_then(|value| {
-        write!(depth_text.as_mut_view(), "{value}").ok()?;
-        Some(depth_text.as_str())
-    });
-    let props = error_props(
-        message.code,
-        message.kind,
-        message.class,
-        message.error.as_str(),
-        depth,
-    );
-    reply_bytes(connection, target, &props, message.payload.as_bytes()).await
-}
-
-async fn reply_publish_error<IO>(
-    connection: &mut Connection<'_, '_, IO>,
-    target: &ReplyTarget,
-    error: &str,
-    payload: &[u8],
-) -> Result<Op, Error<IO::Error>>
-where
-    IO: Io,
-{
-    let props = error_props(ResponseCode::Error, "publish", "Error", error, None);
-    reply_bytes(connection, target, &props, payload).await
-}
-
-async fn reply_text<IO>(
-    connection: &mut Connection<'_, '_, IO>,
-    target: &ReplyTarget,
-    code: ResponseCode,
-    text: &[u8],
-) -> Result<Op, Error<IO::Error>>
-where
-    IO: Io,
-{
-    let mut props = Vec::<_, 3>::new();
-    push_transient_text_props(&mut props);
-    props.push(code.into()).ok();
-    reply_bytes(connection, target, &props, text).await
-}
-
-async fn reply_bytes<IO>(
-    connection: &mut Connection<'_, '_, IO>,
-    target: &ReplyTarget,
-    props: &[Property<'_>],
-    payload: &[u8],
-) -> Result<Op, Error<IO::Error>>
-where
-    IO: Io,
-{
+    let mut props = Vec::<_, 7>::new();
+    for prop in TRANSIENT_TEXT_PROPERTIES {
+        props.push(prop.clone()).ok();
+    }
+    let payload = if let Some(error) = error {
+        for (key, value) in [
+            ("code", ResponseCode::Error.as_str()),
+            ("kind", error.kind),
+            ("class", error.class),
+            ("error", error.error.as_str()),
+        ] {
+            props.push(Property::UserProperty(key, value)).ok();
+        }
+        if let Some(depth) = error.depth
+            && write!(depth_text.as_mut_view(), "{depth}").is_ok()
+        {
+            props
+                .push(Property::UserProperty("depth", &depth_text))
+                .ok();
+        }
+        error.payload.as_bytes()
+    } else {
+        props.push(ResponseCode::Ok.into()).ok();
+        b""
+    };
     connection
         .publish(
             target
                 .publication(payload)
-                .properties(props)
+                .properties(&props)
                 .qos(QoS::AtLeastOnce),
         )
         .await

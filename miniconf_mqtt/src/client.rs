@@ -351,10 +351,6 @@ where
         startup.run(self, connection, settings).await
     }
 
-    fn route(&mut self, settings: &mut Settings, inbound: &InboundPublish<'_>) -> Route {
-        request::route(self.prefix.as_str(), settings, inbound)
-    }
-
     /// Wait until one `/set` completes or one non-Miniconf inbound publish is returned.
     ///
     /// This is the simple unbounded steady-state helper.
@@ -391,21 +387,15 @@ where
             let Some(inbound) = inbound else {
                 continue;
             };
-            match service.handle(self, settings, &inbound) {
-                ServiceEvent::Unhandled => {
-                    return Ok(Event::Unhandled(on_unhandled(&inbound)));
-                }
-                ServiceEvent::Idle | ServiceEvent::Busy => {
-                    while !service.step(self, connection, settings).await? {
-                        let _ = connection.poll().await?;
-                    }
-                }
-                ServiceEvent::Changed(changed) => {
-                    while !service.step(self, connection, settings).await? {
-                        let _ = connection.poll().await?;
-                    }
-                    return Ok(Event::Changed(changed));
-                }
+            let event = service.handle(self, settings, &inbound);
+            if matches!(event, ServiceEvent::Unhandled) {
+                return Ok(Event::Unhandled(on_unhandled(&inbound)));
+            }
+            while !service.step(self, connection, settings).await? {
+                let _ = connection.poll().await?;
+            }
+            if let ServiceEvent::Changed(changed) = event {
+                return Ok(Event::Changed(changed));
             }
         }
     }
@@ -556,17 +546,17 @@ impl Startup {
     /// progress, then call `step()` again.
     ///
     /// Connected-connection startup may discard surfaced inbound publishes while bootstrapping.
-    pub async fn step<Settings, IO>(
+    pub fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
-    ) -> Result<bool, Error<IO::Error>>
+    ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.phase.step(miniconf, connection, settings).await
+        self.phase.step(miniconf, connection, settings)
     }
 }
 
@@ -609,17 +599,17 @@ impl LoadRetained {
     /// removed.
     ///
     /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
-    pub async fn step<Settings, IO>(
+    pub fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
-    ) -> Result<bool, Error<IO::Error>>
+    ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        self.phase.step(miniconf, connection, settings).await
+        self.phase.step(miniconf, connection, settings)
     }
 }
 
@@ -677,17 +667,17 @@ impl Publisher {
     /// connection progress, then call `step()` again.
     ///
     /// This method never consumes unrelated inbound publishes.
-    pub async fn step<Settings, IO>(
+    pub fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
-    ) -> Result<bool, Error<IO::Error>>
+    ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        sync::step_publisher(self, miniconf, connection, settings).await
+        sync::step_publisher(self, miniconf, connection, settings)
     }
 }
 
@@ -744,7 +734,7 @@ impl<const N: usize> Service<N> {
             return ServiceEvent::Busy;
         }
 
-        match miniconf.route(settings, inbound) {
+        match request::route(miniconf.prefix.as_str(), settings, inbound) {
             Route::Unhandled => ServiceEvent::Unhandled,
             Route::Ignored => ServiceEvent::Idle,
             Route::Rejected { follow_up } => {
