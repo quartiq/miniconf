@@ -83,7 +83,7 @@ jobs:
       - run: cargo build --release
       - run: cargo build --examples
       - run: cargo run --example cli -- --output-dac-1 2048
-      - run: cargo run --example scpi
+      - run: cargo test --example scpi
       - run: cargo run --example trace --features schema
       - run: cargo run -p miniconf --example packed --no-default-features --features derive,postcard
 
