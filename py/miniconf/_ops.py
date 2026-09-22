@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from .common import (
     RETAINED_SUBSCRIPTION,
-    AliveManifest,
     LOGGER,
     _RetainedBurst,
     MiniconfException,
@@ -83,27 +82,6 @@ async def discover(
     return discovered
 
 
-async def _manifest(interface: Miniconf, *, timeout: float = 3.0) -> AliveManifest:
-    if interface._manifest is not None:
-        return interface._manifest
-    async with interface._watch(
-        f"{interface.prefix}/alive", RETAINED_SUBSCRIPTION
-    ) as queue:
-        end = asyncio.get_running_loop().time() + timeout
-        while True:
-            remaining = end - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                raise TimeoutError("Timed out waiting for live manifest")
-            message = await asyncio.wait_for(queue.get(), remaining)
-            if not message.payload:
-                continue
-            if not is_retained(message):
-                continue
-            interface._note_manifest_payload(message.payload)
-            if interface._manifest is not None:
-                return interface._manifest
-
-
 async def _collect_retained_topics(
     interface: Miniconf,
     topic_filter: str,
@@ -135,7 +113,7 @@ async def _prune_schema(
 ) -> list[int]:
     """Clear retained schema pages above the current manifest page count."""
 
-    manifest = await _manifest(interface, timeout=timeout)
+    manifest = await interface._load_manifest(timeout=timeout)
     pages = manifest.pages
     seen: set[int] = set()
     start = asyncio.get_running_loop().time()
@@ -217,5 +195,5 @@ async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]
     for topic in topics:
         await interface.client.publish(topic, payload=b"", qos=1, retain=True)
     interface._schema = None
-    interface._manifest = None
+    interface._alive = b""
     return [topic.removeprefix(f"{interface.prefix}/") for topic in topics]

@@ -11,13 +11,14 @@ import sys
 import time
 from pathlib import Path
 from queue import Empty, Queue
+from unittest import TestCase
 from unittest.mock import AsyncMock, Mock
 
 import paho.mqtt.client as mqtt
 from miniconf.client import Miniconf, RawMiniconf
 from miniconf.cli import _normalize_command_path
 from miniconf.common import MiniconfException
-from miniconf._mqtt import Client
+from miniconf._mqtt import Client, Message, MQTTError
 from miniconf.render import render_schema_tree, render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
@@ -229,6 +230,82 @@ async def test_request_cleanup() -> None:
         assert not interface._watchers
 
 
+async def test_protocol_mismatch() -> None:
+    check = TestCase()
+    transport = FakeClient()
+    transport.publish = AsyncMock()
+    async with Miniconf(transport, "test") as interface:
+        await interface._subscribed.wait()
+
+        def alive(proto):
+            interface._dispatch(
+                Message(
+                    "test/alive",
+                    json.dumps(
+                        dict(proto=proto, epoch=1, schema_rev=1, pages=1)
+                    ).encode(),
+                    True,
+                    {},
+                )
+            )
+
+        loading = asyncio.create_task(interface.schema())
+        await asyncio.sleep(0)
+        alive(2)
+        with check.assertRaisesRegex(MiniconfException, "expected 1"):
+            await loading
+
+        alive(1)
+        loading = asyncio.create_task(interface.schema())
+        await asyncio.sleep(0)
+        interface._dispatch(Message("test/schema/0", FIXTURE.read_bytes(), True, {}))
+        assert (await loading).compact() == fixture_schema().compact()
+
+        alive(2)
+        with check.assertRaisesRegex(MiniconfException, "expected 1"):
+            await interface.set(ENABLED, True)
+        transport.publish.assert_not_called()
+        assert interface._schema is None
+
+        alive(1)
+        loading = asyncio.create_task(interface.schema(timeout=0.01))
+        await asyncio.sleep(0)
+        alive(2)
+        with check.assertRaisesRegex(MiniconfException, "expected 1"):
+            await loading
+
+
+async def test_subscription_ownership() -> None:
+    transport = FakeClient()
+    async with RawMiniconf(transport, "test") as interface:
+        await interface._subscribed.wait()
+
+        async def subscribe(*_args, **_kwargs):
+            await asyncio.sleep(0)  # SUBACK arrives after another caller can enter.
+
+        transport.subscribe = AsyncMock(side_effect=subscribe)
+        transport.unsubscribe = AsyncMock()
+        await asyncio.gather(
+            interface._subscribe("shared"), interface._subscribe("shared")
+        )
+        transport.subscribe.assert_awaited_once()
+        await interface._unsubscribe("shared")
+        transport.unsubscribe.assert_not_awaited()
+        await interface._unsubscribe("shared")
+        transport.unsubscribe.assert_awaited_once_with("shared")
+
+    transport.subscribe = AsyncMock(side_effect=MQTTError("subscription failed"))
+    async with RawMiniconf(transport, "test") as interface:
+        async with asyncio.timeout(1):
+            with TestCase().assertRaises(TimeoutError):
+                await interface.set("/value", 1, timeout=0.01)
+
+    schema = Schema.from_defs([{}, {"i": {"k": "d", "c": [0]}}], 1)
+    for keys in ("/-1", Indices((-1,))):
+        with TestCase().assertRaises(MiniconfException):
+            schema.path(keys)
+
+
 async def test_ack_cancellation() -> None:
     transport = Client("localhost")
     transport._client = Mock()
@@ -298,6 +375,8 @@ async def main() -> None:
     await test_listener_close_tolerates_released_subscription()
     await test_request_cleanup()
     await test_ack_cancellation()
+    await test_protocol_mismatch()
+    await test_subscription_ownership()
 
     assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
     assert _normalize_command_path("/", "") == ("/", "/")

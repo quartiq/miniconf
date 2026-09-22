@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
 
-from . import _ops
 from .common import (
     DEFAULT_SUBSCRIPTION,
     LOGGER,
@@ -58,6 +57,7 @@ class _BaseClient:
         self._inflight: dict[bytes, asyncio.Future[None]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
         self._subscriptions: dict[str, tuple[int, SubscriptionKey]] = {}
+        self._subscription_lock = asyncio.Lock()
         self._listener = asyncio.create_task(self._listen())
         self._subscribed = asyncio.Event()
 
@@ -161,38 +161,36 @@ class _BaseClient:
         topic_filter: str,
         subscription: SubscriptionKey = DEFAULT_SUBSCRIPTION,
     ):
-        existing = self._subscriptions.get(topic_filter)
-        if existing is None:
-            qos, no_local, retain_as_published, retain_handling = subscription
-            await self.client.subscribe(
-                topic_filter,
-                qos=qos,
-                no_local=no_local,
-                retain_as_published=retain_as_published,
-                retain_handling=retain_handling,
+        async with self._subscription_lock:
+            count, existing_key = self._subscriptions.get(
+                topic_filter, (0, subscription)
             )
-            LOGGER.debug("Subscribed to %s", topic_filter)
-            self._subscriptions[topic_filter] = (1, subscription)
-            return
-        count, existing_key = existing
-        if existing_key != subscription:
-            raise MiniconfException("Subscription", topic_filter)
-        self._subscriptions[topic_filter] = (count + 1, subscription)
+            if existing_key != subscription:
+                raise MiniconfException("Subscription", topic_filter)
+            if not count:
+                qos, no_local, retain_as_published, retain_handling = subscription
+                await self.client.subscribe(
+                    topic_filter,
+                    qos=qos,
+                    no_local=no_local,
+                    retain_as_published=retain_as_published,
+                    retain_handling=retain_handling,
+                )
+                LOGGER.debug("Subscribed to %s", topic_filter)
+            self._subscriptions[topic_filter] = (count + 1, subscription)
 
     async def _unsubscribe(self, topic_filter: str, *, missing_ok: bool = False):
-        existing = self._subscriptions.get(topic_filter)
-        if existing is None:
-            if missing_ok:
+        async with self._subscription_lock:
+            existing = self._subscriptions.get(topic_filter)
+            if existing is None and missing_ok:
                 return
-            raise KeyError(topic_filter)
-        count, key = existing
-        remaining = count - 1
-        if remaining:
-            self._subscriptions[topic_filter] = (remaining, key)
-            return
-        del self._subscriptions[topic_filter]
-        await self.client.unsubscribe(topic_filter)
-        LOGGER.debug("Unsubscribed from %s", topic_filter)
+            count, key = self._subscriptions[topic_filter]
+            if count > 1:
+                self._subscriptions[topic_filter] = (count - 1, key)
+                return
+            del self._subscriptions[topic_filter]
+            await self.client.unsubscribe(topic_filter)
+            LOGGER.debug("Unsubscribed from %s", topic_filter)
 
     @asynccontextmanager
     async def _watch(
@@ -278,21 +276,22 @@ class _BaseClient:
             "message_expiry_interval": message_expiry(timeout),
         }
         fut = None
-        if response:
-            await self._subscribed.wait()
-            props["response_topic"] = self.response_topic
-            cd = uuid.uuid4().bytes
-            props["correlation_data"] = cd
-            fut = asyncio.get_running_loop().create_future()
-            assert cd not in self._inflight
-            self._inflight[cd] = fut
-
         topic = f"{self.prefix}/set{path}"
-        LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
         try:
-            await self.client.publish(topic, payload=payload, qos=1, properties=props)
-            if fut is not None:
-                await asyncio.wait_for(fut, timeout)
+            async with asyncio.timeout(timeout):
+                if response:
+                    await self._subscribed.wait()
+                    props["response_topic"] = self.response_topic
+                    cd = uuid.uuid4().bytes
+                    props["correlation_data"] = cd
+                    fut = asyncio.get_running_loop().create_future()
+                    self._inflight[cd] = fut
+                LOGGER.debug("Publishing %s: %s [%s]", topic, payload, props)
+                await self.client.publish(
+                    topic, payload=payload, qos=1, properties=props
+                )
+                if fut is not None:
+                    await fut
         finally:
             if fut is not None:
                 self._inflight.pop(cd, None)
@@ -339,7 +338,7 @@ class Miniconf(_BaseClient):
     def __init__(self, client: Client, prefix: str):
         self.alive_topic = f"{prefix}/alive"
         self._schema: Schema | None = None
-        self._manifest: AliveManifest | None = None
+        self._alive = b""
         super().__init__(client, prefix)
 
     def _listen_topics(self) -> tuple[str, ...]:
@@ -351,31 +350,17 @@ class Miniconf(_BaseClient):
         return DEFAULT_SUBSCRIPTION
 
     def _handle_message(self, message: Message, topic: str, properties: dict[str, Any]):
-        if topic == self.alive_topic:
-            self._note_manifest_payload(message.payload)
-
-    def _note_manifest(self, manifest: Any):
-        prev = self._manifest
-        try:
-            next_manifest = alive_manifest(manifest)
-        except MiniconfException:
-            LOGGER.debug("Ignoring invalid alive manifest: %r", manifest)
-            return
-        self._manifest = next_manifest
-        if prev is None or prev.schema_rev != next_manifest.schema_rev:
+        if topic == self.alive_topic and message.payload != self._alive:
+            self._alive = message.payload
             self._schema = None
 
-    def _note_manifest_payload(self, payload: bytes):
-        if not payload:
-            self._manifest = None
-            self._schema = None
-            return
-        try:
-            manifest = json.loads(payload)
-        except json.JSONDecodeError:
-            LOGGER.debug("Ignoring invalid alive payload: %r", payload)
-            return
-        self._note_manifest(manifest)
+    async def _load_manifest(self, *, timeout: float) -> AliveManifest:
+        if not self._alive:
+            async with self._watch(self.alive_topic, RETAINED_SUBSCRIPTION) as queue:
+                async with asyncio.timeout(timeout):
+                    while not self._alive:
+                        await queue.get()
+        return alive_manifest(json.loads(self._alive))
 
     async def set(
         self,
@@ -447,9 +432,9 @@ class Miniconf(_BaseClient):
     async def schema(self, *, timeout: float = 3.0) -> Schema:
         """Load and cache the retained paged schema."""
 
+        manifest = await self._load_manifest(timeout=timeout)
         if self._schema is not None:
             return self._schema
-        manifest = await _ops._manifest(self, timeout=timeout)
         schema_rev = manifest.schema_rev
         pages = manifest.pages
 
@@ -462,7 +447,11 @@ class Miniconf(_BaseClient):
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
                     raise TimeoutError("Timed out waiting for schema pages")
-                message = await asyncio.wait_for(queue.get(), remaining)
+                try:
+                    message = await asyncio.wait_for(queue.get(), remaining)
+                except TimeoutError:
+                    alive_manifest(json.loads(self._alive or b"null"))
+                    raise
                 if not is_retained(message):
                     continue
                 suffix = message.topic.removeprefix(f"{self.prefix}/schema/")
@@ -475,6 +464,8 @@ class Miniconf(_BaseClient):
                 lines = message.payload.decode("utf-8").splitlines()
                 defs[page] = [json.loads(line) for line in lines if line]
 
+        if alive_manifest(json.loads(self._alive or b"null")) != manifest:
+            raise MiniconfException("Protocol", "Manifest changed while loading schema")
         self._schema = Schema.from_defs(
             [record for page in defs for record in page or ()], schema_rev
         )

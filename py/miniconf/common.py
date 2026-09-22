@@ -35,7 +35,10 @@ def alive_manifest(value: Any) -> AliveManifest:
     if not isinstance(value, dict):
         raise MiniconfException("Protocol", "Invalid alive manifest")
     if value.get("proto") != PROTOCOL_VERSION:
-        raise MiniconfException("Protocol", "Unsupported alive manifest")
+        raise MiniconfException(
+            "Protocol",
+            f"Unsupported protocol {value.get('proto')!r}; expected {PROTOCOL_VERSION}",
+        )
     epoch = value.get("epoch")
     schema_rev = value.get("schema_rev")
     pages = value.get("pages")
