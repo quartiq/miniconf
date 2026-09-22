@@ -83,7 +83,7 @@ leave partial changes, including on payload finalization errors. Applying
 hardware changes and saving settings remain application decisions.
 
 Use `#[tree(with = module)]` to enforce rules for a field. The
-[integration fixture](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/common.rs)
+integration fixture (`examples/common.rs`)
 shows read-only fields and DAC range checking with a scratch copy. Metadata such
 as `max = "4095"` describes the range; the custom deserializer enforces it.
 
@@ -101,10 +101,10 @@ use the small quickstart tree above for experiments.
 
 | Example | Run | What it adds |
 | --- | --- | --- |
-| [CLI](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/cli.rs) | `cargo run --example cli -- --output-dac-1 2048` | Command-line options |
-| [Packed](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/packed.rs) | `cargo run --example packed --features postcard` | A binary leaf round trip in fixed buffers |
-| [Schema](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/trace.rs) | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
-| [SCPI sketch](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/scpi.rs) | `cargo run --example scpi` | Custom command syntax, not a complete SCPI implementation |
+| `examples/cli.rs` | `cargo run --example cli -- --output-dac-1 2048` | Command-line options |
+| `examples/packed.rs` | `cargo run --example packed --features postcard` | A binary leaf round trip in fixed buffers |
+| `examples/trace.rs` | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
+| `examples/scpi.rs` | `cargo run --example scpi` | Custom command syntax, not a complete SCPI implementation |
 
 ## Build A Consumer
 
@@ -126,7 +126,7 @@ binary payloads. [`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
 
 ## Code Size
 
-The [embedded benchmark](https://github.com/quartiq/miniconf/tree/main/miniconf/tests/benchmark)
+The embedded benchmark in `tests/benchmark`
 compares the same get/set workload and codec against handwritten dispatch.
 It reports program size, schema bytes, and observed stack use. The manual
 handler omits discovery and reflection; the results are workload-specific,

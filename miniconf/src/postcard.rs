@@ -37,7 +37,7 @@
 //!
 //! Compact keys depend on the tree's schema: these records are not a migration
 //! format for changed settings types. For a single leaf without allocation, see
-//! the [fixed-buffer example](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/packed.rs).
+//! `examples/packed.rs`.
 
 use postcard::{Deserializer, Serializer, de_flavors, ser_flavors};
 
