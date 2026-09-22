@@ -1,7 +1,6 @@
-use heapless::String;
-use miniconf::{ConstPath, NodeIter, Schema, compact_schema::SchemaDefs};
+use miniconf::{NodeIter, Schema, compact_schema::SchemaDefs};
 
-use crate::{MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH};
+use crate::{MAX_DEPTH, MAX_SCHEMA_DEFS};
 
 pub(crate) struct SchemaSync {
     pub(crate) defs: SchemaDefs<MAX_SCHEMA_DEFS>,
@@ -21,4 +20,4 @@ impl SchemaSync {
     }
 }
 
-pub(crate) type SettingsSync = NodeIter<ConstPath<String<MAX_TOPIC_LENGTH>, '/'>, MAX_DEPTH>;
+pub(crate) type SettingsSync = NodeIter<(), MAX_DEPTH>;

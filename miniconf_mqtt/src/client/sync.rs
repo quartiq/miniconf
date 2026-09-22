@@ -52,21 +52,17 @@ impl LoadRetainedPhase {
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
-        // This state machine is intentionally not feature-gated. It has no extra dependencies, and
-        // generic code here is only monomorphized by callers that actually construct LoadRetained.
-        // It is a cold-boot recovery step, not reconnect handling: after a running device loses the
-        // network, the live settings in RAM remain authoritative and Startup::connected republishes
-        // them if the broker connection was lost.
         loop {
             match self {
                 Self::Subscribe { start, op } => {
-                    if let Some(current) = *op {
-                        if connection.is_pending(&current) {
+                    match poll_op(connection, op)? {
+                        PendingOp::Pending => {
                             if let Some(inbound) = connection.poll().await? {
                                 apply_retained(miniconf.prefix.as_str(), settings, &inbound);
                             }
                             return Ok(false);
-                        } else if connection.is_complete(&current) {
+                        }
+                        PendingOp::Complete => {
                             let now = Instant::now();
                             let suback_rtt = now.saturating_duration_since(*start);
                             let quiet = retained_quiet_window(suback_rtt);
@@ -81,10 +77,8 @@ impl LoadRetainedPhase {
                                 quiet,
                             };
                             continue;
-                        } else {
-                            debug_assert!(connection.is_invalidated(&current));
-                            return Err(Error::Mqtt(MqttError::Disconnected));
                         }
+                        PendingOp::Idle => {}
                     }
 
                     match subscribe_settings(&miniconf.prefix, connection).await {
@@ -421,11 +415,10 @@ where
             Some(state) => state,
             None => {
                 let iter = publisher.iter.as_mut().unwrap();
-                let Some(path) = iter.next() else {
+                let Some(Ok(())) = iter.next() else {
                     info!("Completed retained settings sync");
                     return Ok(true);
                 };
-                path.map_err(|_| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
                 let full = iter
                     .indices()
                     .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
