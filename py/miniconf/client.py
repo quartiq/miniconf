@@ -31,13 +31,6 @@ from ._mqtt import Client, Message, MQTTError, topic_matches_sub
 from .schema import Schema
 
 
-def _response_code(properties: dict[str, Any]) -> str:
-    try:
-        return dict(properties["user_property"])["code"]
-    except KeyError as exc:
-        raise MiniconfException("Protocol", "Missing response code") from exc
-
-
 @dataclass(frozen=True)
 class SettingEvent:
     """One authoritative `/settings` publication."""
@@ -70,11 +63,8 @@ class _BaseClient:
             async with cls(client, prefix) as interface:
                 yield interface
 
-    def _listen_topics(self) -> tuple[str, ...]:
-        return (self.response_topic,)
-
-    def _listen_subscription(self, _topic: str) -> SubscriptionKey:
-        return DEFAULT_SUBSCRIPTION
+    def _listen_topics(self) -> dict[str, SubscriptionKey]:
+        return {self.response_topic: DEFAULT_SUBSCRIPTION}
 
     async def __aenter__(self):
         return self
@@ -97,8 +87,8 @@ class _BaseClient:
     async def _listen(self):
         topics: list[str] = []
         try:
-            for topic in self._listen_topics():
-                await self._subscribe(topic, self._listen_subscription(topic))
+            for topic, subscription in self._listen_topics().items():
+                await self._subscribe(topic, subscription)
                 topics.append(topic)
             self._subscribed.set()
             async for message in self.client.messages:
@@ -128,7 +118,7 @@ class _BaseClient:
         if topic == self.response_topic:
             self._handle_response(properties, message.payload)
             return
-        self._handle_message(message, topic, properties)
+        self._handle_message(message)
 
     def _handle_response(self, properties: dict[str, Any], payload: bytes):
         cd = properties.get("correlation_data")
@@ -143,17 +133,17 @@ class _BaseClient:
             LOGGER.debug("Discarding late response: %s", cd.hex())
             return
         try:
-            code = _response_code(properties)
+            code = dict(properties["user_property"])["code"]
             if code == "Ok":
                 fut.set_result(None)
             else:
                 fut.set_exception(MiniconfException(code, payload.decode("utf-8")))
-        except (MiniconfException, UnicodeDecodeError) as exc:
+        except KeyError:
+            fut.set_exception(MiniconfException("Protocol", "Missing response code"))
+        except UnicodeDecodeError as exc:
             fut.set_exception(exc)
 
-    def _handle_message(
-        self, _message: Message, _topic: str, _properties: dict[str, Any]
-    ) -> None:
+    def _handle_message(self, _message: Message) -> None:
         pass
 
     async def _subscribe(
@@ -297,35 +287,28 @@ class _BaseClient:
                 self._inflight.pop(cd, None)
                 fut.cancel()
 
-
-async def _read_retained_json(
-    watch,
-    topic_filter: str,
-    path: str,
-    *,
-    timeout: float,
-):
-    async with watch(topic_filter, RETAINED_SUBSCRIPTION) as queue:
-        end = asyncio.get_running_loop().time() + timeout
-        while True:
-            remaining = end - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                raise TimeoutError(
-                    f"Timed out waiting for retained setting {path or '/'}"
-                )
-            message = await asyncio.wait_for(queue.get(), remaining)
-            if not is_retained(message):
-                continue
-            if not is_authoritative(message.properties):
-                continue
-            if not message.payload:
-                raise MiniconfException("NotFound", path)
-            try:
-                return json.loads(message.payload)
-            except json.JSONDecodeError as exc:
-                raise MiniconfException(
-                    "Protocol", f"Invalid retained JSON for {path or '/'}"
-                ) from exc
+    async def _get(self, path: str, *, timeout: float):
+        async with self._watch(
+            f"{self.prefix}/settings{path}", RETAINED_SUBSCRIPTION
+        ) as queue:
+            end = asyncio.get_running_loop().time() + timeout
+            while True:
+                remaining = end - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Timed out waiting for retained setting {path or '/'}"
+                    )
+                message = await asyncio.wait_for(queue.get(), remaining)
+                if not is_retained(message) or not is_authoritative(message.properties):
+                    continue
+                if not message.payload:
+                    raise MiniconfException("NotFound", path)
+                try:
+                    return json.loads(message.payload)
+                except json.JSONDecodeError as exc:
+                    raise MiniconfException(
+                        "Protocol", f"Invalid retained JSON for {path or '/'}"
+                    ) from exc
 
 
 class Miniconf(_BaseClient):
@@ -341,16 +324,11 @@ class Miniconf(_BaseClient):
         self._alive = b""
         super().__init__(client, prefix)
 
-    def _listen_topics(self) -> tuple[str, ...]:
-        return self.response_topic, self.alive_topic
+    def _listen_topics(self) -> dict[str, SubscriptionKey]:
+        return {**super()._listen_topics(), self.alive_topic: RETAINED_SUBSCRIPTION}
 
-    def _listen_subscription(self, topic: str) -> SubscriptionKey:
-        if topic == self.alive_topic:
-            return RETAINED_SUBSCRIPTION
-        return DEFAULT_SUBSCRIPTION
-
-    def _handle_message(self, message: Message, topic: str, properties: dict[str, Any]):
-        if topic == self.alive_topic and message.payload != self._alive:
+    def _handle_message(self, message: Message):
+        if message.topic == self.alive_topic and message.payload != self._alive:
             self._alive = message.payload
             self._schema = None
 
@@ -386,12 +364,7 @@ class Miniconf(_BaseClient):
         path = schema.path(path)
         if schema.node(path).kind != "leaf":
             raise MiniconfException("LeafRequired", path)
-        return await _read_retained_json(
-            self._watch,
-            f"{self.prefix}/settings{path}",
-            path,
-            timeout=timeout,
-        )
+        return await self._get(path, timeout=timeout)
 
     async def snapshot(
         self,
@@ -493,13 +466,7 @@ class RawMiniconf(_BaseClient):
 
     async def get(self, path: str, *, timeout: float = 3.0):
         """Read one exact retained authoritative leaf without schema tracking."""
-        path = validate_path(path)
-        return await _read_retained_json(
-            self._watch,
-            f"{self.prefix}/settings{path}",
-            path,
-            timeout=timeout,
-        )
+        return await self._get(validate_path(path), timeout=timeout)
 
     async def snapshot(
         self,

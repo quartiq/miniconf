@@ -49,18 +49,18 @@ async def discover(
         timeout,
     )
 
-    async def listen():
+    try:
         deadline = asyncio.get_running_loop().time() + quiet
         while True:
             now = asyncio.get_running_loop().time()
             if now >= deadline:
-                return
+                break
             try:
                 message = await asyncio.wait_for(
                     client.messages.__anext__(), deadline - now
                 )
             except (asyncio.TimeoutError, StopAsyncIteration):
-                return
+                break
             if not is_retained(message):
                 continue
             peer = message.topic.removesuffix(suffix)
@@ -75,8 +75,6 @@ async def discover(
             discovered[peer] = manifest
             deadline = asyncio.get_running_loop().time() + quiet
 
-    try:
-        await listen()
     finally:
         await client.unsubscribe(topic)
     return discovered
