@@ -66,7 +66,7 @@ heapless-09 = { package = "heapless", version = "0.9.0" }
 strum = { version = "0.28", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
-jsonschema = { version = "0.49.0", default-features = false }
+jsonschema = { version = "0.57.0", default-features = false }
 
 [[test]]
 name = "arrays"
