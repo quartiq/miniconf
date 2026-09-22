@@ -11,11 +11,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 * Build the core without default features independently of workspace feature unification.
-* Include the introduction in default-feature rustdoc and resolve optional-module links.
-
-### Added
-
-* Runnable core quickstart and a fixed-buffer Postcard example using compact keys.
 
 ## [0.21.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.0...miniconf-v0.21.1) - 2026-09-15
 
