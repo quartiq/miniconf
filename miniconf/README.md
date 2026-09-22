@@ -5,26 +5,28 @@
 [![QUARTIQ Matrix Chat](https://img.shields.io/matrix/quartiq:matrix.org)](https://matrix.to/#/#quartiq:matrix.org)
 [![Continuous Integration](https://github.com/quartiq/miniconf/workflows/Continuous%20Integration/badge.svg)](https://github.com/quartiq/miniconf/actions)
 
-`miniconf` turns selected values inside heterogeneous Rust data into a small
-runtime-addressable tree. It is `no_std` by default, uses Serde for leaf
-payloads, and lets the same settings type serve human tools, compact embedded
-links, generated schemas, and transport protocols.
+`miniconf` makes typed Rust data addressable: read a value, change it, discover
+what else is there. Derive one tree and reuse it in a shell, a snapshot, an
+inspector, or a protocol.
 
-Use it when a typed Rust configuration or state tree should be:
-
-- accessed one leaf at a time by path or compact key
-- exposed over a transport without giving that transport ownership of the data
-- discovered by tools through schema iteration, semantics, and metadata
-- reused across CLIs, SCPI-like protocols, MQTT, tests, or generated UI/API
-  surfaces
+The core is `no_std` and needs no allocator. Serde encodes the values;
+Miniconf selects them by path.
 
 ## Quick Start
 
-Derive [`Tree`] for the settings type. Fields whose types also implement the
-`Tree*` traits become internal nodes; ordinary Serde values are leaves.
+Create a host executable (no hardware or network required):
+
+```sh
+cargo new miniconf-demo
+cd miniconf-demo
+cargo add miniconf@0.21.1
+```
+
+Replace `src/main.rs` with the following and run `cargo run`.
+Derive [`Tree`] to expose the fields of each settings struct.
 
 ```rust
-use miniconf::{json_core, Tree};
+use miniconf::{json_core, ConstPath, Tree, TreeSchema};
 
 #[derive(Default, Tree)]
 struct Settings {
@@ -37,94 +39,98 @@ struct Output {
     gain: [u16; 2],
 }
 
-let mut settings = Settings::default();
+fn main() {
+    let mut settings = Settings::default();
 
-json_core::set(&mut settings, "/enabled", b"true").unwrap();
-json_core::set(&mut settings, "/output/gain/1", b"42").unwrap();
+    json_core::set(&mut settings, "/enabled", b"true").unwrap();
+    json_core::set(&mut settings, "/output/gain/1", b"42").unwrap();
 
-let mut buf = [0; 8];
-let len = json_core::get(&settings, "/output/gain/1", &mut buf).unwrap();
+    let mut buf = [0; 8];
+    let len = json_core::get(&settings, "/output/gain/1", &mut buf).unwrap();
 
-assert!(settings.enabled);
-assert_eq!(&buf[..len], b"42");
+    assert!(settings.enabled);
+    assert_eq!(&buf[..len], b"42");
+
+    const DEPTH: usize = Settings::SCHEMA.max_depth();
+    for path in Settings::SCHEMA.nodes::<ConstPath<String, '/'>, DEPTH>() {
+        println!("{}", path.unwrap());
+    }
+}
 ```
 
-## Pick The Surface
-
-Start with [`json_core`] and slash-separated `&str` paths for human-facing
-tools, tests, and protocol sketches. The lower layers are useful when the
-boundary needs something more specific:
-
-- [`TreeSchema`] and [`Schema::nodes()`] discover leaves; [`Schema::get()`]
-  checks one exact key and returns the reached schema.
-- [`TreeSerialize`] and [`TreeDeserialize`] serialize or update exactly one
-  selected leaf with any Serde format.
-- [`TreeAny`] gives typed host-side access through `core::any::Any`.
-- [`PathIter`], [`ConstPathIter`], [`JsonPathIter`], index slices, and
-  [`Packed`] are interchangeable key boundaries through [`IntoKeys`].
-- [`postcard`] with [`Packed`] gives compact binary key-value messages.
-- [`json_schema`] builds host/tooling schemas from the same tree.
-- `miniconf_mqtt` is the ready-made MQTT transport.
+This prints `/enabled`, `/output/gain/0`, and `/output/gain/1`.
+Try adding a field: it gets a path without another dispatch table. The final
+loop discovers those paths from the type's schema. Here it uses the host's
+`String`; a fixed-capacity string also works when no allocator is available.
 
 ## Tree Shape
 
-`Tree` is a derive shorthand for [`macro@TreeSchema`], [`macro@TreeSerialize`],
-[`macro@TreeDeserialize`], and [`macro@TreeAny`]. Derive attributes live under
-`#[tree(...)]`:
-
-- `rename = ident` changes a field or variant path segment to a Rust identifier.
-- `skip` removes a field or variant from the tree.
-- `flatten` splices a single unambiguous child tree into its parent.
-- `with = module` delegates access to a custom implementation module.
-- `meta(...)` attaches schema metadata when the matching metadata feature is enabled.
-
-Use `#[tree(with = leaf)]` to keep a type as one Serde leaf even if it also
-implements `Tree`.
-
-```rust
-use miniconf::{json_core, leaf, Tree};
-use serde::{Deserialize, Serialize};
-
-#[derive(Default, Serialize, Deserialize)]
-struct Calibration {
-    offset: i32,
-    scale: u16,
-}
-
-#[derive(Default, Tree)]
-struct Settings {
-    #[tree(rename = "cal", with = leaf)]
-    calibration: Calibration,
-}
-
-let mut settings = Settings::default();
-json_core::set(&mut settings, "/cal", br#"{"offset":-3,"scale":10}"#).unwrap();
-assert_eq!(settings.calibration.offset, -3);
-```
+Nested trees expose their fields separately, as `Output` does above. A leaf is
+read or written as one Serde value. On the `gain` field,
+`#[tree(with = miniconf::leaf)]` would make the array one leaf:
+`/output/gain` would read or write `[0, 42]` as a whole instead of exposing each
+element. `#[tree(rename = "level")]` would change its path segment to `level`.
 
 Structs, enums, arrays, tuples, `Option<T>`, and standard container types can be
 combined into larger trees. `Option` branches and inactive enum variants remain
 in the static schema but may return [`ValueError::Absent`] at runtime.
 
-## Adapting Boundaries
+## Control Changes
 
-`miniconf` is transport agnostic. Any channel that can carry a key and a Serde
-payload can use the tree. Keep transport routing, sessions, and buffering in
-the transport layer; pass a borrow of the settings tree into `miniconf` access
-functions when a message targets the tree.
+To reject invalid settings without changing the live tree, deserialize into a
+candidate and commit only after the complete call succeeds. A failed call can
+leave partial changes, including on payload finalization errors. Applying
+hardware changes and saving settings remain application decisions.
 
-Use [`Schema::transcode()`] to translate one key representation into another.
-Use [`NodeIter`] when publishing, validating, or rendering every leaf; it yields
-leaves only and exposes the current indices and schema while walking.
+Use `#[tree(with = module)]` to enforce rules for a field. The
+integration fixture (`examples/common.rs`)
+shows read-only fields and DAC range checking with a scratch copy. Metadata such
+as `max = "4095"` describes the range; the custom deserializer enforces it.
+
+## Reuse The Tree
+
+Stabilizer's [miniconf-settings](https://github.com/quartiq/stabilizer/tree/292f6f3fa15b4a51789d97a08cbd7546ca3f3d06/miniconf-settings)
+uses one tree for a shell and snapshots: `get` and `set` address live values,
+while snapshots walk the leaves to save and restore them. Add a field and both
+consumers can reach it. The application handles USB framing, hardware updates,
+and flash storage. This upper-layer crate is currently unpublished.
+
+The checkout examples explore other consumers using the same integration
+fixture. Its paths and values are also used by tests and the embedded benchmark;
+use the small quickstart tree above for experiments.
+
+| Example | Run | What it adds |
+| --- | --- | --- |
+| `examples/cli.rs` | `cargo run --example cli -- --output-dac-1 2048` | Command-line options |
+| `examples/packed.rs` | `cargo run --example packed --features postcard` | A binary leaf round trip in fixed buffers |
+| `examples/trace.rs` | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
+| `examples/scpi.rs` | `cargo run --example scpi` | Custom command syntax, not a complete SCPI implementation |
+
+## Build A Consumer
+
+`Tree` derives four independent capabilities: [`TreeSchema`] describes the
+leaves, [`TreeSerialize`] reads them, [`TreeDeserialize`] writes them, and
+[`TreeAny`] borrows their values through `core::any::Any`. An inspector can
+require only the first two. The caller supplies framing, buffers, and scheduling.
+
+Paths are one way to select a leaf. Index slices and [`Packed`] keys use the same
+[`IntoKeys`] interface; [`Schema::transcode()`] converts between representations.
+Compact keys belong to a particular schema, so resolve them again when the tree
+changes. [`Schema::nodes()`] discovers leaves and [`Schema::get()`] looks up one
+key.
+
+Choose the leaf codec independently: [`json_core`] uses JSON byte slices,
+[`postcard`](https://docs.rs/miniconf/latest/miniconf/postcard/) uses compact
+binary payloads. [`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
+[`miniconf_coap`](https://docs.rs/miniconf_coap) are ready-made protocol consumers.
 
 ## Code Size
 
-The embedded benchmark compares `miniconf` against a handwritten serial-style
-router for the same settings tree and value codec. Treat the handwritten router
-as a routed get/set lower bound, not a feature-equivalent replacement: it omits
-schema iteration, metadata, key transcoding, generic key backends, and generated
-reflection. The benchmark reports the static schema payload separately so the
-routed get/set overhead and reflection data can be judged independently.
+The embedded benchmark in `tests/benchmark`
+compares the same get/set workload and codec against handwritten dispatch.
+It reports program size, schema bytes, and observed stack use. The manual
+handler omits discovery and reflection; the results are workload-specific,
+not a worst-case stack bound. Run it with your tree when size matters.
 
 ## Limits
 

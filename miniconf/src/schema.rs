@@ -554,7 +554,7 @@ impl InternalSchema {
 /// `Schema` exposes the in-crate structural schema model. Its `Serialize`
 /// implementation follows this Rust data model and is useful for inspection and
 /// tests, but transport clients should prefer explicit projections such as
-/// [`crate::compact_schema`] or [`crate::json_schema`] when they need a stable
+/// [`crate::compact_schema`] or [`json_schema`](https://docs.rs/miniconf/latest/miniconf/json_schema/) when they need a stable
 /// schema payload contract.
 ///
 /// Metadata and structured semantics are retained only when the corresponding

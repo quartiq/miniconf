@@ -88,7 +88,8 @@ npm run test:browser
 The browser test needs Chrome/Chromium (`CHROME_BIN` can select it) and uses a local fixture,
 not hardware. It checks both served and `file://` builds.
 
-Live broker smoke test:
+The optional live broker smoke test needs a running device and broker; it is
+separate from the self-contained CI tests:
 
 ```sh
 MINICONF_WEB_BROKER=wss://mqtt.quartiq.de \

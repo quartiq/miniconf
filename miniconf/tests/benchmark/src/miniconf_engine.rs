@@ -30,8 +30,4 @@ impl crate::Engine for Engine {
             .serialize_by_key(path.into_keys(), ResponseSerializer::new(out))
             .map_err(|_| MiniconfError::Serde)
     }
-
-    fn settings(&self) -> &Settings {
-        &self.settings
-    }
 }

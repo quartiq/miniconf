@@ -10,9 +10,21 @@ bins=(
 )
 
 cargo build --release --bins
+echo '## Environment'
+echo '```text'
+git describe --always --dirty
+sha256sum Cargo.lock
+rustc -Vv
+cargo -V
+printf 'RUSTFLAGS=%s\n' "${RUSTFLAGS:-}"
+echo '```'
 schema_out="$(cargo run --quiet --release --bin schema_size 2>&1)"
 schema_bytes="$(printf '%s\n' "$schema_out" | sed -n 's/^RESULT schema_bytes=//p' | tail -n1)"
-schema_bytes="${schema_bytes:-0}"
+if ! [[ "$schema_bytes" =~ ^[0-9]+$ ]]; then
+  printf '%s\n' "$schema_out" >&2
+  echo 'missing or invalid schema size' >&2
+  exit 1
+fi
 
 echo "## Binary size"
 echo "| variant | text | rodata | schema | stack | data | bss | **∑ ram** | **∑ flash** |"
@@ -36,7 +48,11 @@ for bin in "${bins[@]}"; do
     exit 1
   fi
   stack="$(printf '%s\n' "$run_out" | sed -n 's/^RESULT stack_peak=//p' | tail -n1)"
-  stack="${stack:-0}"
+  if ! [[ "$stack" =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$run_out" >&2
+    echo "missing or invalid stack measurement for $bin" >&2
+    exit 1
+  fi
   schema=0
   if [ "$bin" = "miniconf" ]; then
     schema="$schema_bytes"

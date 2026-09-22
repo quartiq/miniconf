@@ -453,8 +453,4 @@ impl crate::Engine for Engine {
     fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error> {
         self.serialize_key(Key::parse(path)?, out)
     }
-
-    fn settings(&self) -> &Settings {
-        &self.settings
-    }
 }
