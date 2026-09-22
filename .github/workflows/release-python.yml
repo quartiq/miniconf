@@ -1,0 +1,66 @@
+name: Release Python
+
+on:
+  push:
+    tags: [miniconf-mqtt-v*]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-python-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Check release tag
+        if: github.event_name == 'push'
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          python - <<'PY'
+          import os, tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path("py/pyproject.toml").read_text())["project"]["version"]
+          assert os.environ["GITHUB_REF_NAME"] == f"miniconf-mqtt-v{version}"
+          PY
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test distributions
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mosquitto
+          sudo service mosquitto start
+          cargo build -p miniconf_mqtt --example miniconf
+          python -m pip install build
+          python -m build py
+          python -m pip install py/dist/*.whl paho-mqtt
+          python -I py/test.py
+          miniconf --help
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-dist
+          path: py/dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

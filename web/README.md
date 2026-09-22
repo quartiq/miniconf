@@ -27,6 +27,9 @@ GitHub Pages, served from any static host, or opened as a local file.
 No local tooling is needed to get the bundle: open <https://miniconf.quartiq.de/>, save the page as
 HTML, and open the saved file in the browser.
 
+Successful Web Pages workflow runs also provide a downloadable `index.html` artifact,
+including PR builds. Main deploys that same tested build to Pages.
+
 ## Routes
 
 - `#/discover/{broker}/{wildcard}` discovers device prefixes.

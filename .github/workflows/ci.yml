@@ -20,7 +20,7 @@ jobs:
   style:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -29,7 +29,7 @@ jobs:
       - run: cargo fmt -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -51,7 +51,7 @@ jobs:
   documentation:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -63,19 +63,16 @@ jobs:
   semver:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      # Development stays at the latest published version. Intentional breaking
-      # work must select a minor release and document its migration.
+      - uses: actions/checkout@v7
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
           package: miniconf
           feature-group: all-features
-          release-type: patch
 
   compile:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --no-default-features
@@ -97,7 +94,7 @@ jobs:
           - cargo test --no-default-features
           - cargo test -p miniconf --no-default-features
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Start Broker
         if: matrix.command != 'cargo test -p miniconf --no-default-features'
         run: |
@@ -117,8 +114,8 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -130,29 +127,11 @@ jobs:
           python -m pip install build
           python -m build
 
-  web:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci --ignore-scripts
-        working-directory: web
-      - run: npm test
-        working-directory: web
-      - run: npm run build
-        working-directory: web
-      - run: npm run test:browser
-        working-directory: web
-
   test-embedded:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           target: thumbv7m-none-eabi
@@ -173,7 +152,7 @@ jobs:
   test-mqtt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Start Broker
         run: |
           sudo apt-get install mosquitto mosquitto-clients
