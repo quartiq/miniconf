@@ -1,8 +1,12 @@
-//! `TreeSerialize`/`TreeDeserialize` with `postcard`.
+//! Read and write leaf values with the Postcard binary format.
+//!
+//! Collect a tree as compact-key/value records, then replay them into another
+//! instance of the same type. This host-side example allocates the record list
+//! and payloads; each leaf can also be processed separately in a fixed buffer.
 //!
 //! ```
 //! use ::postcard::{de_flavors::Slice, ser_flavors::AllocVec};
-//! use miniconf::{postcard, Leaf, Packed, Tree, TreeSchema};
+//! use miniconf::{postcard, Packed, Tree, TreeSchema};
 //!
 //! #[derive(Tree, Default, PartialEq, Debug)]
 //! struct S {
@@ -21,15 +25,19 @@
 //!         (p.into_lsb().get(), v)
 //!     })
 //!     .collect();
-//! assert_eq!(kv, [(2, vec![9]), (6, vec![7]), (7, vec![11])]);
 //!
 //! let mut target = S::default();
 //! for (k, v) in kv {
 //!     let p = Packed::from_lsb(k.try_into().unwrap());
-//!     postcard::set_by_key(&mut target, p, Slice::new(&v[..])).unwrap();
+//!     let remaining = postcard::set_by_key(&mut target, p, Slice::new(&v)).unwrap();
+//!     assert!(remaining.is_empty());
 //! }
 //! assert_eq!(source, target);
 //! ```
+//!
+//! Compact keys depend on the tree's schema: these records are not a migration
+//! format for changed settings types. For a single leaf without allocation, see
+//! the [fixed-buffer example](https://github.com/quartiq/miniconf/blob/main/miniconf/examples/packed.rs).
 
 use postcard::{Deserializer, Serializer, de_flavors, ser_flavors};
 
