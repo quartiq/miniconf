@@ -47,8 +47,8 @@ class _BaseClient:
         self._inflight: dict[bytes, asyncio.Future[Message]] = {}
         self._watchers: dict[str, list[asyncio.Queue[Message]]] = defaultdict(list)
         self._subscription_lock = asyncio.Lock()
+        self._startup = asyncio.create_task(self._subscribe())
         self._listener = asyncio.create_task(self._listen())
-        self._subscribed = asyncio.Event()
 
     @classmethod
     @asynccontextmanager
@@ -71,35 +71,24 @@ class _BaseClient:
     async def close(self) -> None:
         """Cancel the response listener and all in-flight requests."""
         self._listener.cancel()
+        self._startup.cancel()
         for fut in self._inflight.values():
             fut.cancel()
-        try:
-            await self._listener
-        except asyncio.CancelledError:
-            pass
-        if self._inflight:
-            await asyncio.wait(self._inflight.values())
+        await asyncio.gather(self._listener, self._startup, return_exceptions=True)
+        for topic in self._listen_topics():
+            try:
+                await self.client.unsubscribe(topic)
+            except (MQTTError, TimeoutError):
+                LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+
+    async def _subscribe(self):
+        for topic in self._listen_topics():
+            await self.client.subscribe(topic, retain_as_published=True)
 
     async def _listen(self):
-        topics: list[str] = []
-        try:
-            for topic in self._listen_topics():
-                await self.client.subscribe(topic, retain_as_published=True)
-                topics.append(topic)
-            self._subscribed.set()
-            async for message in self.client.messages:
-                self._dispatch(message)
-        except asyncio.CancelledError:
-            pass
-        except MQTTError:
-            LOGGER.debug("MQTT error", exc_info=True)
-        finally:
-            self._subscribed.clear()
-            for topic in reversed(topics):
-                try:
-                    await self.client.unsubscribe(topic)
-                except MQTTError:
-                    LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+        await self._startup
+        async for message in self.client.messages:
+            self._dispatch(message)
 
     def _dispatch(self, message: Message):
         topic = message.topic
@@ -126,6 +115,7 @@ class _BaseClient:
         self,
         topic_filter: str,
     ) -> AsyncIterator[asyncio.Queue[Message]]:
+        await asyncio.shield(self._startup)
         queue: asyncio.Queue[Message] = asyncio.Queue()
         try:
             async with self._subscription_lock:
@@ -207,7 +197,7 @@ class _BaseClient:
         try:
             async with asyncio.timeout(timeout):
                 if response:
-                    await self._subscribed.wait()
+                    await asyncio.shield(self._startup)
                     props["response_topic"] = self.response_topic
                     cd = uuid.uuid4().bytes
                     props["correlation_data"] = cd
@@ -282,6 +272,7 @@ class Miniconf(_BaseClient):
 
     async def _load_manifest(self, *, timeout: float) -> AliveManifest:
         async with asyncio.timeout(timeout):
+            await asyncio.shield(self._startup)
             while not self._alive:
                 await self._alive_ready.wait()
         return alive_manifest(json.loads(self._alive))

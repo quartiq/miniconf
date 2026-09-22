@@ -37,28 +37,15 @@ class _Messages:
         self._queue.put_nowait(message)
 
 
-def _first(properties: dict[str, Any], name: str) -> Any:
-    value = properties.get(name)
-    if isinstance(value, list):
-        return value[0] if value else None
-    return value
-
-
 def _normalize_properties(properties: dict[str, Any]) -> dict[str, Any]:
-    normalized: dict[str, Any] = {}
-    if payload_format := _first(properties, "payload_format_id"):
-        normalized["payload_format_id"] = payload_format
-    if expiry := _first(properties, "message_expiry_interval"):
-        normalized["message_expiry_interval"] = expiry
-    if response_topic := _first(properties, "response_topic"):
-        normalized["response_topic"] = response_topic
-    correlation = _first(properties, "correlation_data")
-    if correlation is not None:
-        normalized["correlation_data"] = correlation
-    user_properties = properties.get("user_property")
-    if user_properties is not None:
-        normalized["user_property"] = list(user_properties)
-    return normalized
+    # gmqtt groups properties into lists; these two properties are repeatable.
+    return {
+        key: value[0]
+        if isinstance(value, list)
+        and key not in ("user_property", "subscription_identifier")
+        else value
+        for key, value in properties.items()
+    }
 
 
 def topic_matches_sub(topic_filter: str, topic: str) -> bool:

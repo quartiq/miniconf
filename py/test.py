@@ -189,7 +189,7 @@ async def test_listener_close() -> None:
     transport = FakeClient()
     transport.unsubscribe = AsyncMock()
     client = RawMiniconf(transport, "test")
-    await asyncio.wait_for(client._subscribed.wait(), 1.0)
+    await asyncio.wait_for(asyncio.shield(client._startup), 1.0)
     await client.close()
     transport.unsubscribe.assert_awaited_once_with(client.response_topic)
 
@@ -206,7 +206,7 @@ async def test_snapshot_deadline(interface) -> None:
 async def test_request_cleanup() -> None:
     transport = FakeClient()
     async with RawMiniconf(transport, "test") as interface:
-        await asyncio.wait_for(interface._subscribed.wait(), 1.0)
+        await asyncio.wait_for(asyncio.shield(interface._startup), 1.0)
         transport.publish = AsyncMock(side_effect=RuntimeError("publish failed"))
         try:
             await interface.set("/value", 1)
@@ -242,7 +242,7 @@ async def test_protocol_mismatch() -> None:
     transport = FakeClient()
     transport.publish = AsyncMock()
     async with Miniconf(transport, "test") as interface:
-        await interface._subscribed.wait()
+        await interface._startup
 
         def alive(proto):
             interface._dispatch(
@@ -285,7 +285,7 @@ async def test_protocol_mismatch() -> None:
 async def test_subscription_ownership() -> None:
     transport = FakeClient()
     async with RawMiniconf(transport, "test") as interface:
-        await interface._subscribed.wait()
+        await interface._startup
 
         async def subscribe(*_args, **_kwargs):
             await asyncio.sleep(0)  # SUBACK arrives after another caller can enter.
@@ -333,8 +333,8 @@ async def test_subscription_ownership() -> None:
     transport.subscribe = AsyncMock(side_effect=MQTTError("subscription failed"))
     async with RawMiniconf(transport, "test") as interface:
         async with asyncio.timeout(1):
-            with TestCase().assertRaises(TimeoutError):
-                await interface.set("/value", 1, timeout=0.01)
+            with TestCase().assertRaisesRegex(MQTTError, "subscription failed"):
+                await interface.set("/value", 1)
 
     schema = Schema.from_defs([{}, {"i": {"k": "d", "c": [0]}}], 1)
     for keys in ("/-1", Indices((-1,))):
@@ -361,6 +361,73 @@ async def test_ack_cancellation() -> None:
             callback(None, 1, (0,), {})
         else:
             callback(None, 1, (0,))
+
+
+async def test_startup() -> None:
+    transport = FakeClient()
+    transport.subscribe = AsyncMock()
+    transport.unsubscribe = AsyncMock()
+    interface = Miniconf(transport, "test")
+    await interface.close()
+    assert interface._startup.done() and interface._listener.done()
+    transport.subscribe.assert_not_awaited()
+
+    transport.unsubscribe.reset_mock()
+    transport.subscribe.side_effect = [None, MQTTError("alive denied")]
+    async with Miniconf(transport, "test") as interface:
+        with TestCase().assertRaisesRegex(MQTTError, "alive denied"):
+            await interface.schema()
+    transport.unsubscribe.assert_any_await(interface.response_topic)
+    transport.unsubscribe.assert_any_await(interface.alive_topic)
+
+    suback = asyncio.Event()
+
+    async def subscribe(*_args, **_kwargs):
+        await suback.wait()
+
+    transport.subscribe.side_effect = subscribe
+    transport.publish = AsyncMock()
+    async with RawMiniconf(transport, "test") as interface:
+        with TestCase().assertRaises(TimeoutError):
+            await interface.set("/value", 1, timeout=0.01)
+        suback.set()
+
+        async def reply(_topic, *, properties, **_kwargs):
+            interface._dispatch(
+                Message(
+                    interface.response_topic,
+                    b"",
+                    False,
+                    {
+                        "correlation_data": properties["correlation_data"],
+                        "user_property": [("code", "Ok")],
+                    },
+                )
+            )
+
+        transport.publish.side_effect = reply
+        await interface.set("/value", 2, timeout=1)
+
+
+async def test_message_properties() -> None:
+    transport = Client("localhost")
+    properties = {
+        "payload_format_id": [0],
+        "message_expiry_interval": [0],
+        "correlation_data": [b"request"],
+        "user_property": [("auth", ""), ("auth", "")],
+        "subscription_identifier": [1, 2],
+        "retain": True,
+    }
+    transport._on_message(None, "test", b"1", 1, properties)
+    message = await anext(transport.messages)
+    assert message.retain
+    assert message.properties == {
+        **properties,
+        "payload_format_id": 0,
+        "message_expiry_interval": 0,
+        "correlation_data": b"request",
+    }
 
 
 async def close_client(client: Client, timeout: float = 1.0) -> None:
@@ -413,6 +480,8 @@ async def main() -> None:
     await test_ack_cancellation()
     await test_protocol_mismatch()
     await test_subscription_ownership()
+    await test_startup()
+    await test_message_properties()
 
     assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
     assert _normalize_command_path("/", "") == ("/", "/")
