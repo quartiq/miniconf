@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-* The CLI and client library now use the Miniconf MQTT retained schema/settings protocol and async API.
+* The CLI and client library now use the Miniconf MQTT retained schema/settings protocol and
+  an async, context-managed API.
 
 ### Added
 

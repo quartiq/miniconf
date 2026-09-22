@@ -6,11 +6,22 @@ from typing import Any
 import json
 import logging
 
+from aiomqtt import MqttError
+from paho.mqtt.subscribeoptions import SubscribeOptions
+
 PROTOCOL_VERSION = 1
 
 LOGGER = logging.getLogger("miniconf")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.
 TRANSIENT_EXPIRY_S = 30
+RETAINED = SubscribeOptions(qos=1, retainAsPublished=True)
+
+
+async def subscribe(client, topic):
+    """Request retained replay and reject a failed MQTT SUBACK."""
+    codes = await client.subscribe(topic, options=RETAINED)
+    if not codes or any(code >= 128 for code in codes):
+        raise MqttError(f"Subscription rejected for {topic}: {codes}")
 
 
 def message_expiry(timeout: float | None) -> int:
@@ -47,16 +58,10 @@ def alive_manifest(value: Any) -> AliveManifest:
     return AliveManifest(PROTOCOL_VERSION, epoch, schema_rev, pages)
 
 
-def is_retained(message) -> bool:
-    return bool(getattr(message, "retain", False))
-
-
-def user_property_values(properties: dict, name: str) -> list[str]:
-    return [value for key, value in properties.get("user_property", ()) if key == name]
-
-
-def is_authoritative(properties: dict) -> bool:
-    return user_property_values(properties, "auth") == [""]
+def is_authoritative(properties) -> bool:
+    return [
+        value for key, value in getattr(properties, "UserProperty", ()) if key == "auth"
+    ] == [""]
 
 
 def json_dumps(value):
@@ -87,33 +92,44 @@ def quiet_window(
     return abs_timeout + rel_timeout * (now - start)
 
 
+class _Deadline:
+    """One time budget shared by all phases of an operation."""
+
+    def __init__(self, timeout):
+        self.end = (
+            None if timeout is None else asyncio.get_running_loop().time() + timeout
+        )
+
+    def remaining(self):
+        if self.end is None:
+            return None
+        remaining = self.end - asyncio.get_running_loop().time()
+        if remaining <= 0:
+            raise TimeoutError("Miniconf operation timed out")
+        return remaining
+
+
 class _RetainedBurst:
-    """Receive until quiescence; fail if the collection deadline comes first.
+    """Receive until quiescence, within the caller's operation deadline.
 
     Call `reset()` only after accepting a publication.
     """
 
-    def __init__(self, start, now, timeout, rel_timeout, abs_timeout):
+    def __init__(self, start, now, rel_timeout, abs_timeout):
         self.delay = quiet_window(start, now, rel_timeout, abs_timeout)
         self.deadline = now + self.delay
-        self.end = now + timeout
 
     def reset(self):
         self.deadline = asyncio.get_running_loop().time() + self.delay
 
     async def receive(self, queue):
-        while True:
-            remaining = min(self.deadline, self.end) - asyncio.get_running_loop().time()
-            if remaining <= 0:
-                if self.end < self.deadline:
-                    raise TimeoutError(
-                        "Timed out waiting for retained traffic quiescence"
-                    )
-                return None
+        remaining = self.deadline - asyncio.get_running_loop().time()
+        if remaining > 0:
             try:
                 return await asyncio.wait_for(queue.get(), remaining)
             except TimeoutError:
-                continue
+                pass
+        return None
 
 
 class MiniconfException(Exception):

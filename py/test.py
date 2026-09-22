@@ -9,17 +9,18 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from queue import Empty, Queue
 from unittest import TestCase
-from unittest.mock import AsyncMock, Mock
 
 import paho.mqtt.client as mqtt
 from miniconf.client import Miniconf, RawMiniconf
-from miniconf.cli import _normalize_command_path
+from aiomqtt import Client, MqttError, ProtocolVersion
+from paho.mqtt.packettypes import PacketTypes
+from paho.mqtt.properties import Properties
 from miniconf.common import MiniconfException
-from miniconf._mqtt import Client, Message, MQTTError
-from miniconf.render import render_schema_tree, render_value_tree
+from miniconf.render import render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -166,274 +167,47 @@ class TopicWatcher:
         self.client.loop_stop()
 
 
-class FakeMessages:
-    def __aiter__(self):
-        return self
-
-    async def __anext__(self):
-        await asyncio.Future()
-
-
-class FakeClient:
-    def __init__(self):
-        self.messages = FakeMessages()
-
-    async def subscribe(self, *_args, **_kwargs):
-        pass
-
-    async def unsubscribe(self, *_args, **_kwargs):
-        pass
-
-
-async def test_listener_close() -> None:
-    transport = FakeClient()
-    transport.unsubscribe = AsyncMock()
-    client = RawMiniconf(transport, "test")
-    await asyncio.wait_for(asyncio.shield(client._startup), 1.0)
-    await client.close()
-    transport.unsubscribe.assert_awaited_once_with(client.response_topic)
-
-
 async def test_snapshot_deadline(interface) -> None:
-    try:
+    with TestCase().assertRaises(TimeoutError):
         await interface.snapshot(CONTROL, timeout=0.02, abs_timeout=10.0)
-    except TimeoutError as err:
-        assert "quiescence" in str(err), err
-    else:
-        raise AssertionError("snapshot accepted a deadline as quiescence")
-
-
-async def test_request_cleanup() -> None:
-    transport = FakeClient()
-    async with RawMiniconf(transport, "test") as interface:
-        await asyncio.wait_for(asyncio.shield(interface._startup), 1.0)
-        transport.publish = AsyncMock(side_effect=RuntimeError("publish failed"))
-        try:
-            await interface.set("/value", 1)
-        except RuntimeError:
-            pass
-        else:
-            raise AssertionError("expected publish failure")
-        assert not interface._inflight
-
-        # A malformed correlated reply fails its request, not the listener.
-        async def reply(_topic, *, properties, **_kwargs):
-            interface._dispatch(
-                Message(interface.response_topic, b"", False, properties)
-            )
-
-        transport.publish = AsyncMock(side_effect=reply)
-        with TestCase().assertRaisesRegex(MiniconfException, "Missing response code"):
-            await interface.set("/value", 1)
-        assert not interface._listener.done()
-        assert not interface._inflight
-
-        transport.subscribe = AsyncMock(side_effect=asyncio.CancelledError)
-        try:
-            async with interface._watch("test/settings/#"):
-                raise AssertionError("expected subscription cancellation")
-        except asyncio.CancelledError:
-            pass
-        assert not interface._watchers
-
-
-async def test_protocol_mismatch() -> None:
-    check = TestCase()
-    transport = FakeClient()
-    transport.publish = AsyncMock()
-    async with Miniconf(transport, "test") as interface:
-        await interface._startup
-
-        def alive(proto):
-            interface._dispatch(
-                Message(
-                    "test/alive",
-                    json.dumps(
-                        dict(proto=proto, epoch=1, schema_rev=1, pages=1)
-                    ).encode(),
-                    True,
-                    {},
-                )
-            )
-
-        loading = asyncio.create_task(interface.schema())
-        await asyncio.sleep(0)
-        alive(2)
-        with check.assertRaisesRegex(MiniconfException, "expected 1"):
-            await loading
-
-        alive(1)
-        loading = asyncio.create_task(interface.schema())
-        await asyncio.sleep(0)
-        interface._dispatch(Message("test/schema/0", FIXTURE.read_bytes(), True, {}))
-        assert (await loading).compact() == fixture_schema().compact()
-
-        alive(2)
-        with check.assertRaisesRegex(MiniconfException, "expected 1"):
-            await interface.set(ENABLED, True)
-        transport.publish.assert_not_called()
-        assert interface._schema is None
-
-        alive(1)
-        loading = asyncio.create_task(interface.schema(timeout=0.01))
-        await asyncio.sleep(0)
-        alive(2)
-        with check.assertRaisesRegex(MiniconfException, "expected 1"):
-            await loading
-
-
-async def test_subscription_ownership() -> None:
-    transport = FakeClient()
-    async with RawMiniconf(transport, "test") as interface:
-        await interface._startup
-
-        async def subscribe(*_args, **_kwargs):
-            await asyncio.sleep(0)  # SUBACK arrives after another caller can enter.
-
-        transport.subscribe = AsyncMock(side_effect=subscribe)
-        transport.unsubscribe = AsyncMock()
-        async with interface._watch("shared") as first:
-            async with interface._watch("shared") as second:
-                message = Message("shared", b"1", True, {})
-                interface._dispatch(message)
-                assert await first.get() == await second.get() == message
-                assert transport.subscribe.await_count == 2
-            transport.unsubscribe.assert_not_awaited()
-            transport.subscribe.side_effect = asyncio.CancelledError
-            with TestCase().assertRaises(asyncio.CancelledError):
-                async with interface._watch("shared"):
-                    raise AssertionError("expected subscription cancellation")
-            transport.unsubscribe.assert_not_awaited()
-            interface._dispatch(message)
-            assert await first.get() == message
-        transport.unsubscribe.assert_awaited_once_with("shared")
-
-        # Cancelling a reader waiting for SUBACK must preserve the active reader.
-        suback = asyncio.Event()
-
-        async def subscribe(*_args, **_kwargs):
-            await suback.wait()
-
-        transport.subscribe.side_effect = subscribe
-        transport.unsubscribe.reset_mock()
-        first, second = interface._watch("shared"), interface._watch("shared")
-        opening = asyncio.create_task(first.__aenter__())
-        await asyncio.sleep(0)
-        cancelled = asyncio.create_task(second.__aenter__())
-        await asyncio.sleep(0)
-        cancelled.cancel()
-        suback.set()
-        await opening
-        with TestCase().assertRaises(asyncio.CancelledError):
-            await cancelled
-        transport.unsubscribe.assert_not_awaited()
-        await first.__aexit__(None, None, None)
-        transport.unsubscribe.assert_awaited_once_with("shared")
-
-    transport.subscribe = AsyncMock(side_effect=MQTTError("subscription failed"))
-    async with RawMiniconf(transport, "test") as interface:
-        async with asyncio.timeout(1):
-            with TestCase().assertRaisesRegex(MQTTError, "subscription failed"):
-                await interface.set("/value", 1)
-
-    schema = Schema.from_defs([{}, {"i": {"k": "d", "c": [0]}}], 1)
-    for keys in ("/-1", Indices((-1,))):
-        with TestCase().assertRaises(MiniconfException):
-            schema.path(keys)
-
-
-async def test_ack_cancellation() -> None:
-    transport = Client("localhost")
-    transport._client = Mock()
-    transport._client.subscribe.return_value = 1
-    transport._client.unsubscribe.return_value = 1
-    for operation, pending, callback in (
-        (transport.subscribe, transport._subacks, transport._on_subscribe),
-        (transport.unsubscribe, transport._unsubacks, transport._on_unsubscribe),
-    ):
-        task = asyncio.create_task(operation("test/#"))
-        await asyncio.sleep(0)
-        assert pending
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        assert not pending
-        if operation == transport.subscribe:
-            callback(None, 1, (0,), {})
-        else:
-            callback(None, 1, (0,))
-
-
-async def test_startup() -> None:
-    transport = FakeClient()
-    transport.subscribe = AsyncMock()
-    transport.unsubscribe = AsyncMock()
-    interface = Miniconf(transport, "test")
-    await interface.close()
-    assert interface._startup.done() and interface._listener.done()
-    transport.subscribe.assert_not_awaited()
-
-    transport.unsubscribe.reset_mock()
-    transport.subscribe.side_effect = [None, MQTTError("alive denied")]
-    async with Miniconf(transport, "test") as interface:
-        with TestCase().assertRaisesRegex(MQTTError, "alive denied"):
-            await interface.schema()
-    transport.unsubscribe.assert_any_await(interface.response_topic)
-    transport.unsubscribe.assert_any_await(interface.alive_topic)
-
-    suback = asyncio.Event()
-
-    async def subscribe(*_args, **_kwargs):
-        await suback.wait()
-
-    transport.subscribe.side_effect = subscribe
-    transport.publish = AsyncMock()
-    async with RawMiniconf(transport, "test") as interface:
-        with TestCase().assertRaises(TimeoutError):
-            await interface.set("/value", 1, timeout=0.01)
-        suback.set()
-
-        async def reply(_topic, *, properties, **_kwargs):
-            interface._dispatch(
-                Message(
-                    interface.response_topic,
-                    b"",
-                    False,
-                    {
-                        "correlation_data": properties["correlation_data"],
-                        "user_property": [("code", "Ok")],
-                    },
-                )
-            )
-
-        transport.publish.side_effect = reply
-        await interface.set("/value", 2, timeout=1)
-
-
-async def test_message_properties() -> None:
-    transport = Client("localhost")
-    properties = {
-        "payload_format_id": [0],
-        "message_expiry_interval": [0],
-        "correlation_data": [b"request"],
-        "user_property": [("auth", ""), ("auth", "")],
-        "subscription_identifier": [1, 2],
-        "retain": True,
-    }
-    transport._on_message(None, "test", b"1", 1, properties)
-    message = await anext(transport.messages)
-    assert message.retain
-    assert message.properties == {
-        **properties,
-        "payload_format_id": 0,
-        "message_expiry_interval": 0,
-        "correlation_data": b"request",
-    }
 
 
 async def close_client(client: Client, timeout: float = 1.0) -> None:
     """Bound MQTT teardown so the harness cannot hang on disconnect."""
 
     await asyncio.wait_for(client.__aexit__(None, None, None), timeout)
+
+
+async def test_broker_disconnect() -> None:
+    """A broker session takeover must fail all pending Miniconf operations."""
+    identifier = f"miniconf-test-{uuid.uuid4().hex}"
+    async with Client(
+        BROKER, identifier=identifier, protocol=ProtocolVersion.V5
+    ) as connection:
+        async with RawMiniconf(connection, identifier) as client:
+            # Complete setup before forcing the established connection off the broker.
+            await client.set("/value", 1, response=False)
+            watch = client.watch()
+            pending = [
+                asyncio.create_task(operation)
+                for operation in (
+                    client.set("/value", 2),
+                    client.get("/value"),
+                    anext(watch),
+                )
+            ]
+            try:
+                async with Client(
+                    BROKER, identifier=identifier, protocol=ProtocolVersion.V5
+                ):
+                    for task in pending:
+                        with TestCase().assertRaises(MqttError):
+                            await asyncio.wait_for(task, 1)
+            finally:
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                await watch.aclose()
 
 
 async def wait_event_value(events, path: str, expected, timeout: float = 3.0):
@@ -475,112 +249,9 @@ async def wait_snapshot_value(
 
 
 async def main() -> None:
-    await test_listener_close()
-    await test_request_cleanup()
-    await test_ack_cancellation()
-    await test_protocol_mismatch()
-    await test_subscription_ownership()
-    await test_startup()
-    await test_message_properties()
-
-    assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
-    assert _normalize_command_path("/", "") == ("/", "/")
-    assert _normalize_command_path("value", "/") == ("//value", "/")
-    assert _normalize_command_path("/channel/0/demodulate", "") == (
-        "/channel/0/demodulate",
-        "/channel/0/demodulate",
-    )
-    assert _normalize_command_path("frequency", "/channel/0/demodulate") == (
-        "/channel/0/demodulate/frequency",
-        "/channel/0/demodulate",
-    )
-    assert _normalize_command_path("attenuation", "/channel/0/demodulate") == (
-        "/channel/0/demodulate/attenuation",
-        "/channel/0/demodulate",
-    )
-    assert _normalize_command_path(
-        "/channel/0/demodulate/frequency", "", subtree=False
-    ) == ("/channel/0/demodulate/frequency", "/channel/0/demodulate")
-    assert _normalize_command_path("phase", "/channel/0/demodulate") == (
-        "/channel/0/demodulate/phase",
-        "/channel/0/demodulate",
-    )
-
-    schema_fixture = fixture_schema()
-    assert [node.path for node in schema_fixture.walk()] == [
-        "",
-        "/value",
-        "/nested",
-        "/nested/leaf",
-    ]
-    assert schema_fixture.node().kind == "named"
-    assert schema_fixture.node("/nested").kind == "named"
-    assert schema_fixture.node("/value").kind == "leaf"
-    assert schema_fixture.node("/value").edge == {"role": "selector"}
-    assert schema_fixture.node("/nested").edge is None
-    assert schema_fixture.compact("/nested") == {
-        "path": "/nested",
-        "rev": 1,
-        "defs": [
-            {},
-            {"i": {"k": "n", "c": {"leaf": 0}}},
-        ],
-    }
-
-    compressed_sem = render_schema_tree(
-        Schema.from_defs(
-            [
-                {"s": {"ty": "i32"}},
-                {"i": {"k": "h", "l": 2, "c": 0}},
-                {"i": {"k": "n", "c": {"array_tree": 1}}},
-            ],
-            1,
-        )
-    ).splitlines()
-    assert compressed_sem == [
-        "└─ array_tree [homogeneous]",
-        "   └─ 0..2 [sem ty=i32]",
-    ], compressed_sem
-    quoted_meta = render_schema_tree(
-        Schema.from_defs(
-            [
-                {"m": {"typename": "InnerType"}},
-                {"i": {"k": "n", "c": {"node": {"r": 0, "m": {"doc": "Outer doc"}}}}},
-            ],
-            1,
-        )
-    ).splitlines()
-    assert quoted_meta == [
-        '└─ node [edge doc="Outer doc"] [node typename="InnerType"]'
-    ], quoted_meta
-
-    empty_name_schema = Schema.from_defs(
-        [
-            {"s": {"ty": "i32"}},
-            {"i": {"k": "n", "c": {"value": 0}}},
-            {"i": {"k": "n", "c": {"": 1, "value": 0}}},
-        ],
-        1,
-    )
-    assert empty_name_schema.path("") == ""
-    assert empty_name_schema.path("/") == "/"
-    assert empty_name_schema.path("//value") == "//value"
-    assert render_schema_tree(empty_name_schema, "/").splitlines() == [
-        '""',
-        "└─ value [sem ty=i32]",
-    ]
-    assert render_schema_tree(empty_name_schema).splitlines() == [
-        '├─ ""',
-        "│  └─ value [sem ty=i32]",
-        "└─ value [sem ty=i32]",
-    ]
-    empty_values = {"//value": 1, "/value": 2}
-    assert render_value_tree(empty_name_schema, empty_values).splitlines() == [
-        '├─ ""',
-        "│  └─ value = 1",
-        "└─ value = 2",
-    ]
-
+    await test_broker_disconnect()
+    auth = Properties(PacketTypes.PUBLISH)
+    auth.UserProperty = [("auth", "")]
     alive = TopicWatcher(f"{PREFIX}/+/alive")
     settings = TopicWatcher(f"{PREFIX}/+/settings/#")
     schema_topics = TopicWatcher(f"{PREFIX}/+/schema/#")
@@ -605,10 +276,10 @@ async def main() -> None:
         settings.drain()
         schema_topics.drain()
 
-        client = Client(BROKER)
+        client = Client(BROKER, protocol=ProtocolVersion.V5)
         await client.__aenter__()
         try:
-            mc = Miniconf(client, TARGET)
+            mc = await Miniconf(client, TARGET).__aenter__()
 
             schema = await mc.schema()
             control = schema.node(CONTROL)
@@ -686,7 +357,7 @@ async def main() -> None:
                 payload=b"not-json",
                 qos=1,
                 retain=True,
-                properties={"user_property": [("auth", "")]},
+                properties=auth,
             )
             assert "/obsolete" not in await mc.snapshot("")
 
@@ -716,10 +387,12 @@ async def main() -> None:
                 await events.aclose()
             await wait_snapshot_value(mc, "/output", DAC0, 2048)
         finally:
+            await mc.close()
+            mc = None
             await close_client(client)
             client = None
-        client = await Client(BROKER).__aenter__()
-        raw = RawMiniconf(client, TARGET)
+        client = await Client(BROKER, protocol=ProtocolVersion.V5).__aenter__()
+        raw = await RawMiniconf(client, TARGET).__aenter__()
         try:
             assert await raw.get(ENABLED) is False
             assert await raw.get(DAC0) == 2048
@@ -733,7 +406,7 @@ async def main() -> None:
                     payload=b"null",
                     qos=1,
                     retain=True,
-                    properties={"user_property": [("auth", "")]},
+                    properties=auth,
                 )
                 event = await wait_event_value(events, null_path, None)
                 assert event.retained
@@ -743,7 +416,7 @@ async def main() -> None:
                     payload=b"",
                     qos=1,
                     retain=True,
-                    properties={"user_property": [("auth", "")]},
+                    properties=auth,
                 )
                 event = await wait_event_delete(events, null_path)
                 assert event.retained

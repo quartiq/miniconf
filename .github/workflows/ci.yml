@@ -42,11 +42,13 @@ jobs:
 
       - name: Check Python
         working-directory: py
-        run: python -m ruff format --check miniconf test.py
+        run: python -m ruff format --check miniconf tests test.py
       - working-directory: py
-        run: python -m ruff check miniconf test.py
+        run: python -m ruff check miniconf tests test.py
       - working-directory: py
-        run: python -m compileall miniconf test.py
+        run: python -m compileall miniconf tests test.py
+      - working-directory: py
+        run: python -m unittest discover -s tests
 
   documentation:
     runs-on: ubuntu-latest

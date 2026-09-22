@@ -43,6 +43,7 @@ jobs:
           python -m pip install build
           python -m build py
           python -m pip install py/dist/*.whl paho-mqtt
+          python -I -m unittest discover -s py/tests
           python -I py/test.py
           miniconf --help
       - uses: actions/upload-artifact@v7

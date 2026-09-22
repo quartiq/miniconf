@@ -8,10 +8,12 @@ import json
 import logging
 import os
 import sys
+from urllib.parse import urlsplit
+
+from aiomqtt import Client, MqttError, ProtocolVersion
 
 from .client import Miniconf, RawMiniconf
 from .common import LOGGER, MiniconfException, json_dumps, validate_path
-from ._mqtt import Client
 from ._ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
@@ -44,14 +46,14 @@ def _normalize_command_path(
 
 
 def main() -> None:
-    asyncio.run(_main())
-
-
-async def _main() -> None:
     if sys.platform.lower() == "win32" or os.name.lower() == "nt":
         from asyncio import WindowsSelectorEventLoopPolicy, set_event_loop_policy
 
         set_event_loop_policy(WindowsSelectorEventLoopPolicy())
+    asyncio.run(_main())
+
+
+async def _main() -> None:
 
     args = _cli().parse_args()
     logging.basicConfig(
@@ -59,7 +61,10 @@ async def _main() -> None:
         level=logging.WARN - 10 * args.verbose,
     )
 
-    async with Client(args.broker) as client:
+    address = urlsplit(f"//{args.broker}")
+    async with Client(
+        address.hostname, port=address.port or 1883, protocol=ProtocolVersion.V5
+    ) as client:
         prefix = await _resolve_prefix(client, args.prefix, args.discover)
         if args.raw and (args.prune or args.force_prune):
             raise MiniconfException(
@@ -233,6 +238,11 @@ async def _handle_commands(
                 path, base = _normalize_command_path(arg, base, subtree=False)
                 value = await interface.get(path, timeout=timeout)
                 print(f"{path}={json_dumps(value)}")
-        except (MiniconfException, TimeoutError, json.JSONDecodeError) as err:
+        except (
+            MiniconfException,
+            MqttError,
+            TimeoutError,
+            json.JSONDecodeError,
+        ) as err:
             print(f"{arg}: {err!r}")
             sys.exit(1)
