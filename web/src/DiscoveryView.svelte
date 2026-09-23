@@ -12,6 +12,7 @@
   } from "./lib/tree-navigation";
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
+  import BuildIdentity from "./BuildIdentity.svelte";
 
   type Props = {
     broker?: string;
@@ -146,6 +147,7 @@
   <section class="connection panel" aria-labelledby="connect-title">
     <header>
       <h1 id="connect-title">Miniconf Web</h1>
+      <BuildIdentity />
       <p>Discover and inspect Miniconf devices on an MQTT broker.</p>
     </header>
     <!-- The shortcut handles bubbled keystrokes from the form's native controls. -->
@@ -259,6 +261,14 @@
 
   header p {
     color: var(--muted);
+    grid-column: 1 / -1;
+  }
+
+  .connection > header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--space-tight) var(--space);
   }
 
   form {

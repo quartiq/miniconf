@@ -5,6 +5,7 @@
   import SelectedPanel from "./SelectedPanel.svelte";
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
+  import BuildIdentity from "./BuildIdentity.svelte";
 
   type Props = {
     model: BrowseModel;
@@ -73,6 +74,8 @@
           {status.text}
         </div>
         {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
+        <span class="build-separator" aria-hidden="true">·</span>
+        <BuildIdentity />
       </div>
       <div class="prune-action">
         {#if model.pruning.count}
@@ -201,7 +204,8 @@
     min-width: 0;
     display: flex;
     align-items: baseline;
-    gap: var(--space);
+    gap: var(--space-tight);
+    justify-content: flex-end;
     line-height: var(--line);
   }
   .status [role="status"] {
@@ -212,6 +216,10 @@
   }
   .coverage {
     grid-column: 1 / -1;
+  }
+  .build-separator {
+    color: var(--muted);
+    font-size: var(--text-small);
   }
   .context {
     display: contents;
@@ -250,6 +258,14 @@
   }
 
   @media (max-width: 760px) {
+    .connection-state {
+      flex-basis: 100%;
+    }
+
+    .status {
+      justify-content: flex-start;
+    }
+
     .browse {
       height: auto;
     }
