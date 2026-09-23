@@ -32,6 +32,8 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci --ignore-scripts
         working-directory: web
+      - run: npx playwright install --with-deps --no-shell chromium
+        working-directory: web
       - run: npm test
         working-directory: web
       - run: npm run format:check
@@ -40,6 +42,13 @@ jobs:
         working-directory: web
       - run: npm run test:browser
         working-directory: web
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: browser-failures
+          path: web/.codex/test-results
+          include-hidden-files: true
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v7
         with:
           archive: false

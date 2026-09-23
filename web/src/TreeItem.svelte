@@ -53,6 +53,8 @@
   }
 
   function keydown(event: KeyboardEvent) {
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey)
+      return;
     // Follow the usual tree-view model: arrows navigate structure, Space folds,
     // Enter activates, and focus stays on the selected row.
     switch (event.key) {
@@ -129,7 +131,7 @@
   }
 </script>
 
-<li>
+<li role="none">
   <TreeRow
     {node}
     {selected}

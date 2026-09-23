@@ -1,6 +1,7 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import { tick } from "svelte";
   import { displayPath } from "./lib/schema";
   import Metadata from "./Metadata.svelte";
   import type { ViewNode } from "./lib/tree-state";
@@ -14,7 +15,7 @@
     editorError: string;
     updateEditor: (value: string) => void;
     submit: () => void;
-    resetEditor: () => void;
+    revert: () => void;
     focusTree: () => void;
   };
 
@@ -27,17 +28,23 @@
     editorError,
     updateEditor,
     submit,
-    resetEditor,
+    revert,
     focusTree,
   }: Props = $props();
 
   let leaf = $derived(node?.kind === "leaf");
+  let textarea = $state<HTMLTextAreaElement>();
+  export async function focus() {
+    await tick();
+    textarea?.focus();
+  }
 
   function edit(event: Event) {
     updateEditor((event.currentTarget as HTMLTextAreaElement).value);
   }
 
   function maybeSubmit(event: KeyboardEvent) {
+    if (event.isComposing) return;
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       event.preventDefault();
       if (canSet) submit();
@@ -51,15 +58,15 @@
 <section class="selected panel" aria-label="Selected item">
   <h2>{displayPath(path)}</h2>
   {#if leaf || editorDirty}
-    <section class="editor" aria-label="Leaf editor">
+    <section class="editor" aria-label="Setting editor">
       <div class="value-editor">
         {#if leaf && node?.value === undefined}<p>No value observed</p>{/if}
-        {#if !leaf}<p>Leaf unavailable</p>{/if}
+        {#if !leaf}<p>Setting unavailable</p>{/if}
         <textarea
+          bind:this={textarea}
           id="leaf-editor"
           aria-label="Setting value"
           aria-keyshortcuts="Control+Enter Meta+Enter Escape"
-          data-leaf-editor
           aria-invalid={!!editorError}
           aria-describedby={editorError ? "editor-error" : undefined}
           title="Ctrl/Cmd+Enter sets the value. Esc returns to the tree."
@@ -78,14 +85,14 @@
           disabled={!canSet}
           onclick={submit}>Set</button
         >
-        <!-- Reset intentionally has no keyboard shortcut: it discards the draft. -->
+        <!-- Revert intentionally has no keyboard shortcut: it discards the draft. -->
         <button
           disabled={!editorDirty}
           title={node?.value !== undefined
             ? "Replace your edits with the latest device value; nothing is sent."
             : "Discard your edits; no device value has been received."}
           type="button"
-          onclick={resetEditor}>Revert</button
+          onclick={revert}>Revert</button
         >
       </div>
     </section>

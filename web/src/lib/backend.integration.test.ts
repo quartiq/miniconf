@@ -7,7 +7,7 @@ import {
 import type { Schema } from "./schema";
 
 const broker = process.env.MINICONF_WEB_BROKER;
-const discoveryPattern = process.env.MINICONF_WEB_FILTER ?? "dt/sinara/+/+";
+const discoveryFilter = process.env.MINICONF_WEB_FILTER ?? "dt/sinara/+/+";
 
 describe.skipIf(!broker)("Miniconf WebSocket broker", () => {
   it("discovers one target and resolves its retained schema", async () => {
@@ -24,7 +24,7 @@ describe.skipIf(!broker)("Miniconf WebSocket broker", () => {
         }, 3_000);
         void DiscoverySession.connect(
           broker!,
-          discoveryPattern,
+          discoveryFilter,
           {
             prefixes: (prefixes) => {
               if (!prefixes.length) return;

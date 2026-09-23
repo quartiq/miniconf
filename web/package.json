@@ -7,17 +7,18 @@
     "dev": "vite --host 0.0.0.0",
     "build": "npm run check && vite build && node scripts/check-dist.mjs",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "test": "vitest run --exclude src/lib/backend.integration.test.ts",
+    "test": "vitest run src --exclude src/lib/backend.integration.test.ts",
     "test:integration": "vitest run src/lib/backend.integration.test.ts",
-    "format": "prettier --write src scripts vite.config.ts",
-    "format:check": "prettier --check src scripts vite.config.ts",
-    "test:browser": "node scripts/check-browser.mjs"
+    "format": "prettier --write src scripts tests *.config.*",
+    "format:check": "prettier --check src scripts tests *.config.*",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "mqtt": "^5.15.2",
     "svelte": "^5.56.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^4.1.1",

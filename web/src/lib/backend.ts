@@ -92,24 +92,21 @@ export class DiscoverySession {
   private mqtt: MqttSession | undefined;
   private readonly found = new Map<string, AliveManifest>();
 
-  private constructor(
-    private readonly pattern: string,
-    private readonly callbacks: DiscoverySessionCallbacks,
-  ) {}
+  private constructor(private readonly callbacks: DiscoverySessionCallbacks) {}
 
   static async connect(
     broker: string,
-    pattern: string,
+    prefixFilter: string,
     callbacks: DiscoverySessionCallbacks,
     options: ConnectOptions = {},
   ): Promise<DiscoverySession> {
-    if (pattern.split("/").includes("#")) {
+    if (prefixFilter.split("/").includes("#")) {
       throw new Error(
         "Discovery filter cannot contain #; it must leave room for /alive",
       );
     }
-    const session = new DiscoverySession(pattern, callbacks);
-    const filter = `${pattern}/alive`;
+    const session = new DiscoverySession(callbacks);
+    const filter = `${prefixFilter}/alive`;
     session.mqtt = await MqttSession.connect(
       broker,
       { [filter]: RETAINED },

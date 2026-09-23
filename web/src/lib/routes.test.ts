@@ -10,7 +10,7 @@ describe("semantic routes", () => {
       ).toBe(prefix);
       expect(
         readRoute({ hash: discoveryPath("ws://mqtt:8083", prefix) })
-          .discoveryPattern,
+          .discoveryFilter,
       ).toBe(prefix);
     },
   );
@@ -42,7 +42,7 @@ describe("semantic routes", () => {
       broker,
       activePrefix: "dt/device",
       subtreePath: "/pid",
-      discoveryPattern: "dt/+",
+      discoveryFilter: "dt/+",
     });
   });
 
@@ -58,7 +58,7 @@ describe("semantic routes", () => {
     expect(readRoute({ hash: "#/discover/mqtt:8083/dt/sinara/+/+" })).toEqual({
       page: "discover",
       broker: "ws://mqtt:8083",
-      discoveryPattern: "dt/sinara/+/+",
+      discoveryFilter: "dt/sinara/+/+",
       activePrefix: "",
       subtreePath: "",
     });
@@ -69,7 +69,7 @@ describe("semantic routes", () => {
     ).toEqual({
       page: "browse",
       broker: "ws://mqtt:8083",
-      discoveryPattern: "dt/sinara/thermostat-eem/+",
+      discoveryFilter: "dt/sinara/thermostat-eem/+",
       activePrefix: "dt/sinara/thermostat-eem/host",
       subtreePath: "/pid",
     });
@@ -79,7 +79,7 @@ describe("semantic routes", () => {
     expect(readRoute({ hash: "" })).toEqual({
       page: "landing",
       broker: "",
-      discoveryPattern: "dt/sinara/+/+",
+      discoveryFilter: "dt/sinara/+/+",
       activePrefix: "",
       subtreePath: "",
     });
@@ -97,7 +97,7 @@ describe("semantic routes", () => {
     expect(readRoute({ hash: "#/discover/%zz/dt/sinara/+/+" })).toEqual({
       page: "landing",
       broker: "",
-      discoveryPattern: "dt/sinara/+/+",
+      discoveryFilter: "dt/sinara/+/+",
       activePrefix: "",
       subtreePath: "",
     });
