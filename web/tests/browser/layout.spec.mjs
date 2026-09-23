@@ -1,6 +1,58 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures.mjs";
 
+test("build identity stays inside both headers without crowding content", async ({
+  page,
+  baseURL,
+  browseURL,
+}, testInfo) => {
+  for (const [view, url] of [
+    ["connect", baseURL],
+    ["browse", browseURL],
+  ]) {
+    await page.goto(url);
+    if (view === "browse")
+      await expect(page.getByRole("tree", { name: "Settings" })).toBeVisible();
+    for (const width of [320, 761, 1200]) {
+      await page.setViewportSize({ width, height: 850 });
+      const identity = page.locator("header .build-id");
+      await expect(identity).toBeVisible();
+      const build = await identity.boundingBox();
+      const header = await page.locator("header").boundingBox();
+      expect(build.x).toBeGreaterThanOrEqual(header.x);
+      expect(build.x + build.width).toBeLessThanOrEqual(
+        header.x + header.width,
+      );
+      expect(build.y).toBeGreaterThanOrEqual(header.y);
+      expect(build.y + build.height).toBeLessThanOrEqual(
+        header.y + header.height,
+      );
+      expect(
+        await page.evaluate(() => document.documentElement.scrollWidth),
+      ).toBeLessThanOrEqual(width);
+      if (view === "browse") {
+        await expect(page.locator('[role="status"]')).toHaveText("Ready");
+        expect(
+          await page
+            .locator('[role="status"]')
+            .evaluate((node) => node.scrollWidth <= node.clientWidth),
+        ).toBe(true);
+        const status = await page.locator('[role="status"]').boundingBox();
+        expect(status.x + status.width).toBeLessThan(build.x);
+        if (width === 1200)
+          expect(
+            await page.evaluate(() => document.documentElement.scrollHeight),
+          ).toBeLessThanOrEqual(850);
+      }
+      if (width !== 761)
+        await page.screenshot({
+          path: testInfo.outputPath(`${view}-${width}.png`),
+          fullPage: true,
+        });
+    }
+  }
+});
+
 test("metadata and responsive layout keep the workspace usable", async ({
   browsePage: page,
   device,

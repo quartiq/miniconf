@@ -36,17 +36,17 @@ test("connection shortcuts, tree focus recovery, and build identity", async ({
   device.publish(`${device.prefix}/alive`, alive);
   await expect(deviceRow).toBeVisible();
   await expect(broker).toBeFocused();
-  const footer = page.locator("footer");
+  const identity = page.locator("header .build-id");
   const commit =
     process.env.MINICONF_WEB_BUILD_COMMIT || process.env.GITHUB_SHA;
   if (commit && /^[0-9a-f]{40}$/i.test(commit)) {
-    await expect(footer.getByRole("link")).toHaveAttribute(
+    await expect(page.locator("header a.build-id")).toHaveAttribute(
       "href",
       `https://github.com/quartiq/miniconf/commit/${commit}`,
     );
-    await expect(footer).toHaveText(`build ${commit.slice(0, 8)}`);
+    await expect(identity).toHaveText(`build ${commit.slice(0, 8)}`);
   } else {
-    await expect(footer).toHaveText("local build");
-    await expect(footer.getByRole("link")).toHaveCount(0);
+    await expect(identity).toHaveText("local build");
+    await expect(page.locator("header a.build-id")).toHaveCount(0);
   }
 });

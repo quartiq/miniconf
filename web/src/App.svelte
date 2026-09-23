@@ -17,11 +17,6 @@
   import { Connection } from "./lib/connection.svelte";
   import type { MqttAuth } from "./lib/mqtt-session";
 
-  const buildCommit = __BUILD_COMMIT__;
-  const buildUrl = /^[0-9a-f]{40}$/i.test(buildCommit)
-    ? `https://github.com/quartiq/miniconf/commit/${buildCommit}`
-    : undefined;
-
   const initialRoute = readRoute(location);
   const initialAuth = restoreAuth(initialRoute.broker);
   let route = $state(initialRoute);
@@ -243,21 +238,4 @@
       retry={applyRoute}
     />
   {/if}
-  <footer>
-    {#if buildUrl}
-      <a href={buildUrl} target="_blank" rel="noreferrer"
-        >build {buildCommit.slice(0, 8)}</a
-      >
-    {:else}
-      local build
-    {/if}
-  </footer>
 </main>
-
-<style>
-  footer {
-    color: var(--muted);
-    font-size: var(--text-small);
-    margin-top: var(--space);
-  }
-</style>
