@@ -1,6 +1,8 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
+  import { untrack } from "svelte";
+  import type { MqttAuth } from "./lib/mqtt-session";
   import { discoveryTree } from "./lib/discovery-tree";
   import type { TreeActions, TreeNodeView } from "./lib/tree-view";
   import {
@@ -13,37 +15,60 @@
 
   type Props = {
     broker?: string;
-    discoveryPattern?: string;
-    username?: string;
-    password?: string;
+    discoveryFilter?: string;
+    auth?: MqttAuth;
     discoveredPrefixes: { prefix: string }[];
     status: string;
     watching: boolean;
     error: string;
     logOpen?: boolean;
     logLines: string[];
-    discover: () => void;
+    connect: (broker: string, filter: string, auth: MqttAuth) => void;
     submitLabel?: string;
     browseHref: (prefix: string) => string;
   };
 
   let {
-    broker = $bindable(""),
-    discoveryPattern = $bindable(""),
-    username = $bindable(""),
-    password = $bindable(""),
+    broker: appliedBroker = "",
+    discoveryFilter: appliedFilter = "",
+    auth,
     discoveredPrefixes,
     status,
     watching,
     error,
     logOpen = $bindable(false),
     logLines,
-    discover,
+    connect,
     submitLabel = "Discover",
     browseHref,
   }: Props = $props();
 
+  let broker = $state(untrack(() => appliedBroker));
+  let discoveryFilter = $state(untrack(() => appliedFilter));
+  let username = $state(untrack(() => auth?.username ?? ""));
+  let password = $state(untrack(() => auth?.password ?? ""));
+  $effect(() => {
+    broker = appliedBroker;
+    discoveryFilter = appliedFilter;
+    username = auth?.username ?? "";
+    password = auth?.password ?? "";
+    credentialBroker = appliedBroker.trim();
+    formError = "";
+  });
+
   let selectedPath = $state("");
+  let credentialBroker = $state(untrack(() => broker.trim()));
+  let formError = $state("");
+  const credentialSection = $derived(
+    `section-broker${Array.from(new TextEncoder().encode(broker.trim()), (byte) => byte.toString(16).padStart(2, "0")).join("")}` as const,
+  );
+  $effect(() => {
+    const next = broker.trim();
+    if (next !== credentialBroker) {
+      credentialBroker = next;
+      username = password = "";
+    }
+  });
   let userClosed = $state(new Set<string>());
   let treeNodes = $derived(discoveryTree(discoveredPrefixes, browseHref));
   let expanded = $derived(
@@ -92,22 +117,54 @@
   function submit(event: SubmitEvent) {
     event.preventDefault();
     // Autofill may update visible fields without input events. Submit their values.
-    const data = new FormData(event.currentTarget as HTMLFormElement);
-    broker = data.get("broker") as string;
-    discoveryPattern = data.get("discovery-pattern") as string;
+    const form = event.currentTarget as HTMLFormElement;
+    const data = new FormData(form);
+    const nextBroker = (data.get("broker") as string).trim();
+    if (nextBroker !== credentialBroker) {
+      broker = credentialBroker = nextBroker;
+      username = password = "";
+      for (const name of ["username", "password"])
+        (form.elements.namedItem(name) as HTMLInputElement).value = "";
+      formError =
+        "Broker changed. Enter credentials for this broker, then connect.";
+      return;
+    }
+    formError = "";
+    broker = nextBroker;
+    discoveryFilter = data.get("discovery-filter") as string;
     username = data.get("username") as string;
     password = data.get("password") as string;
-    discover();
+    try {
+      connect(broker, discoveryFilter, { username, password });
+    } catch (error) {
+      formError = error instanceof Error ? error.message : String(error);
+    }
   }
 </script>
 
 <section class="discovery">
   <section class="connection panel" aria-labelledby="connect-title">
     <header>
-      <h1 id="connect-title">Miniconf Browser</h1>
+      <h1 id="connect-title">Miniconf Web</h1>
       <p>Discover and inspect Miniconf devices on an MQTT broker.</p>
     </header>
-    <form autocomplete="on" onsubmit={submit}>
+    <!-- The shortcut handles bubbled keystrokes from the form's native controls. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <form
+      autocomplete="on"
+      onsubmit={submit}
+      onkeydown={(event) => {
+        if (
+          !event.isComposing &&
+          !event.repeat &&
+          (event.ctrlKey || event.metaKey) &&
+          event.key === "Enter"
+        ) {
+          event.preventDefault();
+          event.currentTarget.requestSubmit();
+        }
+      }}
+    >
       <label class="broker">
         Broker
         <input
@@ -119,11 +176,11 @@
           type="url"
         />
       </label>
-      <label class="pattern">
+      <label class="filter">
         Discovery filter
         <input
-          bind:value={discoveryPattern}
-          name="discovery-pattern"
+          bind:value={discoveryFilter}
+          name="discovery-filter"
           aria-describedby="filter-help"
         />
         <span id="filter-help" class="meta"
@@ -131,22 +188,38 @@
           unsupported.</span
         >
       </label>
-      <label>
-        Username
-        <input autocomplete="username" bind:value={username} name="username" />
-      </label>
-      <label>
-        Password
-        <input
-          autocomplete="current-password"
-          bind:value={password}
-          name="password"
-          type="password"
-        />
-      </label>
-      <button type="submit">{submitLabel}</button>
+      {#key credentialSection}
+        <label>
+          Username
+          <input
+            autocomplete={`${credentialSection} username`}
+            bind:value={username}
+            name="username"
+          />
+        </label>
+        <label>
+          Password
+          <input
+            autocomplete={`${credentialSection} current-password`}
+            bind:value={password}
+            name="password"
+            type="password"
+          />
+        </label>
+      {/key}
+      <button
+        type="submit"
+        aria-keyshortcuts="Control+Enter Meta+Enter"
+        title="Ctrl/Cmd+Enter">{submitLabel}</button
+      >
     </form>
-    <StatusLog {status} {error} bind:open={logOpen} {logLines} live />
+    <StatusLog
+      {status}
+      error={formError || error}
+      bind:open={logOpen}
+      {logLines}
+      live
+    />
   </section>
 
   {#if discoveredPrefixes.length || watching}

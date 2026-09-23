@@ -1,10 +1,14 @@
-# Miniconf MQTT Web Browser
+# Miniconf Web
 
 Inspect and edit Miniconf devices over MQTT v5 WebSockets.
 
 Credentials support browser autofill and are remembered for reload in this tab's
 session storage, when available. They are cleared when switching brokers or
 connecting with empty credentials, and are never included in links.
+
+Use Ctrl/Cmd+Enter to connect from the connection form or submit an edited setting.
+In a tree, arrows navigate and fold, Home/End jump, and PageUp/PageDown move ten rows.
+Enter opens the selected device or setting; Escape returns from the editor to the tree.
 
 ## Run
 
@@ -30,10 +34,13 @@ HTML, and open the saved file in the browser.
 Successful Web Pages workflow runs also provide a downloadable `index.html` artifact,
 including PR builds. Main deploys that same tested build to Pages.
 
+The footer links CI builds to their source commit. Other builds show “local build”;
+set `MINICONF_WEB_BUILD_COMMIT` to a full commit SHA when building a known revision.
+
 ## Routes
 
-- `#/discover/{broker}/{wildcard}` discovers device prefixes.
-- `#/browse/{broker}/{prefix}` opens an active prefix.
+- `#/discover/{broker}/{filter}` discovers device prefixes.
+- `#/browse/{broker}/{prefix}` opens a device prefix.
 - Hash query `endpoint=` preserves an optional WebSocket path and query.
 - Hash query `path=` selects a subtree. The default is the empty root path.
 - Document query `log=1` opens the log from startup, for example `?log=1#/discover/...`.
@@ -60,10 +67,11 @@ Enter a full WebSocket broker URL and a discovery filter such as `dt/sinara/+/+`
 Discover. `+` matches one level; `#` is unsupported. Connection-field edits take effect on
 Discover, not while typing. Credentials use browser autocomplete and stay out of saved links.
 
-Select a leaf, edit its JSON, and press Set or Ctrl/Cmd+Enter. The exact text is sent, without
+Select a setting, edit its JSON, and press Set or Ctrl/Cmd+Enter. The exact text is sent, without
 rounding large integers. Incoming updates, reconnects and folding preserve your draft;
-selecting another item replaces it. A successful Set adopts the latest device value,
-including any device formatting. Revert discards edits without sending anything.
+selecting another item replaces it. A successful Set clears the submitted draft, so the editor
+follows observed values again, including device formatting. Newer edits are kept.
+Revert discards edits without sending anything.
 Reloading the tab reconnects from the URL and discards unsent edits.
 
 If a request's outcome is unknown, inspect the device value before sending again. Set is
@@ -71,7 +79,7 @@ disabled while disconnected; use Retry if automatic recovery stops.
 
 ## Retained-topic cleanup
 
-**Prune (N)** appears when stale retained topics are observed for an alive device.
+**Prune (N)** appears when stale retained topics are observed for an available device.
 Click it to clear those topics.
 This clears stale retained messages under `/settings`, `/set`, and `/response` across the
 device prefix, even when browsing a subtree; valid settings are kept.
@@ -85,11 +93,13 @@ npm run check
 npm test
 npm run format:check
 npm run build
+npx playwright install --no-shell chromium
 npm run test:browser
 ```
 
-The browser test needs Chrome/Chromium (`CHROME_BIN` can select it) and uses a local fixture,
-not hardware. It checks both served and `file://` builds.
+Browser tests use isolated local MQTT fixtures and check both served and `file://`
+builds. Failure traces and screenshots are saved in `.codex/test-results` and
+uploaded by CI. Set `CHROME_BIN` to use an existing Chrome/Chromium installation.
 
 The optional live broker smoke test needs a running device and broker; it is
 separate from the self-contained CI tests:

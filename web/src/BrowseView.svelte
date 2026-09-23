@@ -1,93 +1,52 @@
 <svelte:options runes={true} />
 
 <script lang="ts">
-  import type { PruningState } from "./lib/backend";
-  import type { ViewNode } from "./lib/tree-state";
-  import type { TreeActions } from "./lib/tree-view";
+  import type { BrowseModel } from "./lib/browse-model.svelte";
   import SelectedPanel from "./SelectedPanel.svelte";
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
 
   type Props = {
-    pruning: PruningState;
-    canPrune: boolean;
-    prune: () => void;
+    model: BrowseModel;
     broker: string;
     activePrefix: string;
     discoverHref: string;
     subtreePath: string;
-    aliveManifest: { epoch: number; schema_rev: number } | undefined;
-    settingsRevision: string;
     status: { text: string; failed: boolean };
     retryable: boolean;
-    treeNodes: Map<string, ViewNode>;
-    selectedPath: string;
-    selected: ViewNode | undefined;
-    activity: Map<string, import("./lib/tree-view").TreeActivity>;
-    expanded: Set<string>;
-    treeRoot: string;
-    canSet: boolean;
-    editor: string;
-    editorDirty: boolean;
-    editorError: string;
+    retry: () => void;
     logOpen?: boolean;
     logLines: string[];
-    treeActions: TreeActions;
-    updateEditor: (value: string) => void;
-    submit: () => void;
-    resetEditor: () => void;
-    focusTree: () => void;
-    retry: () => void;
   };
-
   let {
-    pruning,
-    canPrune,
-    prune,
+    model,
     broker,
     activePrefix,
     discoverHref,
     subtreePath,
-    aliveManifest,
-    settingsRevision,
     status,
     retryable,
-    treeNodes,
-    selectedPath,
-    selected,
-    activity,
-    expanded,
-    treeRoot,
-    canSet,
-    editor,
-    editorDirty,
-    editorError,
+    retry,
     logOpen = $bindable(false),
     logLines,
-    treeActions,
-    updateEditor,
-    submit,
-    resetEditor,
-    focusTree,
-    retry,
   }: Props = $props();
-
+  let tree = $state<{ focus: (path: string) => Promise<void> }>();
+  let panel = $state<{ focus: () => Promise<void> }>();
   let settingCount = $derived.by(() => {
     let count = 0;
-    for (const node of treeNodes.values()) if (node.kind === "leaf") count++;
+    for (const node of model.state.tree.values())
+      if (node.kind === "leaf") count++;
     return count;
   });
   let diagnostics = $derived(
     [
-      ...(aliveManifest
+      ...(model.alive
         ? [
-            `Announced schema ${aliveManifest.schema_rev}`,
-            `Epoch ${aliveManifest.epoch}`,
+            `Schema revision ${model.alive.schema_rev}`,
+            `Epoch ${model.alive.epoch}`,
           ]
         : []),
-      ...(settingsRevision
-        ? [`Last publication revision ${settingsRevision}`]
-        : []),
+      ...(model.revision ? [`Last settings revision ${model.revision}`] : []),
     ].join("\n"),
   );
 </script>
@@ -99,7 +58,7 @@
     >
     <div class="context">
       <h1 title={diagnostics}>{activePrefix}</h1>
-      {#if treeNodes.has(treeRoot)}<span
+      {#if model.state.tree.has(model.state.root)}<span
           class="identity-details"
           title="Number of settings in the displayed schema; includes leaves whose values have not been observed."
           >{`${settingCount} ${settingCount === 1 ? "setting" : "settings"}${subtreePath ? " in subtree" : ""}`}</span
@@ -116,20 +75,20 @@
         {#if retryable}<button type="button" onclick={retry}>Retry</button>{/if}
       </div>
       <div class="prune-action">
-        {#if pruning.count}
+        {#if model.pruning.count}
           <button
             class="prune"
             type="button"
-            disabled={!canPrune}
-            onclick={prune}
-            title={`Clear ${pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
-            >Prune ({pruning.count})</button
+            disabled={!model.canPrune}
+            onclick={() => void model.prune()}
+            title={`Clear ${model.pruning.count} observed stale retained messages from this device’s broker topics. Covers the entire device prefix; preserves valid settings.`}
+            >Prune ({model.pruning.count})</button
           >
         {/if}
       </div>
-      {#if pruning.coverageWarning}<span
+      {#if model.pruning.coverageWarning}<span
           class="meta coverage"
-          title={pruning.coverageWarning}>Partial pruning coverage</span
+          title={model.pruning.coverageWarning}>Partial pruning coverage</span
         >{/if}
     </div>
   </header>
@@ -137,15 +96,28 @@
   <div class="workspace">
     <section class="tree panel" aria-labelledby="settings-title">
       <h2 id="settings-title">Settings</h2>
-      {#if treeNodes.has(treeRoot)}
+      {#if model.state.tree.has(model.state.root)}
         <TreeView
+          bind:this={tree}
           label="Settings"
-          root={treeRoot}
-          nodes={treeNodes}
-          {selectedPath}
-          {activity}
-          {expanded}
-          actions={treeActions}
+          root={model.state.root}
+          nodes={model.state.tree}
+          selectedPath={model.state.selectedPath}
+          activity={model.activity}
+          expanded={model.state.expanded}
+          actions={{
+            select: (path) => model.select(path),
+            open: (path, open) => model.setExpanded(path, open),
+            key: (node, direction, step) =>
+              model.navigate(node.path, direction, step),
+            activate: (node, internal, open) => {
+              if (internal) model.setExpanded(node.path, !open);
+              else {
+                model.select(node.path);
+                if (model.selected?.kind === "leaf") void panel?.focus();
+              }
+            },
+          }}
         />
       {:else}
         <p>No schema loaded.</p>
@@ -153,16 +125,17 @@
     </section>
 
     <SelectedPanel
-      node={selected}
-      path={selectedPath}
-      {canSet}
-      {editor}
-      {editorDirty}
-      {editorError}
-      {updateEditor}
-      {submit}
-      {resetEditor}
-      {focusTree}
+      bind:this={panel}
+      node={model.selected}
+      path={model.state.selectedPath}
+      canSet={model.canSet}
+      editor={model.editor}
+      editorDirty={model.dirty}
+      editorError={model.editorError}
+      updateEditor={(text) => model.edit(text)}
+      submit={() => void model.submit()}
+      revert={() => model.revert()}
+      focusTree={() => void tree?.focus(model.state.selectedPath)}
     />
   </div>
 

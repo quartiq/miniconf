@@ -1,58 +1,89 @@
 # Releasing
 
-**The maintainer prepares the version and pushes a release tag. Actions builds,
-checks, and publishes the package.** Merging a PR does not publish anything.
+**Maintainer:** prepare and merge a release PR, then push the tags.
+**Actions:** validate and publish the tagged packages.
 
 Package versions advance independently. MQTT compatibility is defined by
 `proto: 1`; incompatible wire changes require a new protocol version.
 
-## Each release: maintainer
+## 1. Prepare the release PR
 
-1. **Prepare a PR.** Choose versions and update dependency requirements and
-   changelogs. Use a minor bump for breaking 0.x API changes. Edit the Python
-   version in `py/pyproject.toml`.
-2. **Merge and check CI.** Confirm CI passed on the main commit being released.
-   The release workflows do not check historical CI results.
-3. **Tag and push.** Create an annotated tag on that commit using the table below.
-   Push one tag at a time. Release changed derive, core, then transport crates;
-   wait for each dependency to become available in the registry before proceeding.
-4. **Verify the result.** Check the publishing run and install from the registry.
+Start a branch from current main. Choose versions and commit curated release
+notes to the changelogs. Use a minor bump for breaking 0.x API changes.
 
-| Package | Release tag |
-| --- | --- |
-| Python `miniconf-mqtt` | `miniconf-mqtt-v<version>` |
-| Rust crate | `<crate>-v<version>` |
-
-For Rust preparation, cargo-release can update versions and changelog headings.
-Review each preview before executing it; substitute the package and bump needed:
+**Rust:** on a clean working tree, substitute the crate and bump below.
+Cargo-release updates versions, dependency requirements and changelog headings,
+then commits. Omit `--execute` to preview any cargo-release command.
 
 ```sh
-cargo release version patch -p miniconf
-cargo release version patch -p miniconf --execute
-cargo release replace -p miniconf
-cargo release replace -p miniconf --execute
+cargo release patch -p miniconf_mqtt --no-publish --no-tag --no-push --execute
 ```
 
-Use only these preparation steps; Actions handles publication after the tag push.
+Prepare dependencies before dependents. Review all resulting version changes.
 
-## After the tag push: Actions
+**Python:** update `py/pyproject.toml` and `py/CHANGELOG.md`, then commit.
 
-Both workflows require the tag to match the manifest version and its commit to
-belong to main. Only the publishing job receives registry credentials.
+Push and open the PR:
+
+```sh
+git push -u origin HEAD
+gh pr create
+```
+
+## 2. Merge and tag
+
+Merge the PR, then update local main:
+
+```sh
+git switch main
+git pull --ff-only
+```
+
+Confirm HEAD is the intended release commit, with no unmerged local commits,
+and that its main CI run passed. Publishing workflows do not check CI history.
+
+**Rust:** create and push the manifest-derived `<crate>-v<version>` tag:
+
+```sh
+cargo release tag -p miniconf_mqtt --execute
+cargo release push -p miniconf_mqtt --execute
+```
+
+The push step also pushes the current branch. Do not run `cargo release publish`.
+
+Release changed derive, core, then transport crates, **one tag at a time**.
+Wait for each dependency to become available in the registry before proceeding.
+
+**Python:** substitute the version from `py/pyproject.toml`:
+
+```sh
+git tag -a miniconf-mqtt-v<version> -m "Release miniconf-mqtt <version>"
+git push origin miniconf-mqtt-v<version>
+```
+
+Only repository admins can create release tags; GitHub reports this as an
+authorized ruleset bypass. Release tags cannot be moved or deleted.
+
+## 3. Verify publication
+
+A tag push starts Actions. Both publishers check the manifest version and main
+ancestry; only publishing jobs receive registry credentials.
 
 | Workflow | Automated work |
 | --- | --- |
-| Rust | Verify the package against registry dependencies, then run normal `cargo publish`. The Rust test suite runs in ordinary CI. |
-| Python | Build the sdist and a wheel from it, install and test that wheel against the Rust MQTT fixture, then publish those same distribution files. |
+| Rust | Package against registry dependencies, then `cargo publish`. Tests run in ordinary CI. |
+| Python | Build sdist and wheel, test the wheel against the Rust MQTT fixture, then upload those distributions. |
 
-For a preview, run `cargo package -p <crate> --all-features` locally, or manually
-run the **Release Python** workflow. Neither preview publishes.
+Check the publishing run and install the released package from its registry.
 
-## Failed publication: maintainer
+For an unpublished preview, use `cargo package -p <crate> --all-features` or
+manually run **Release Python**.
 
-Inspect the registry before retrying. If nothing was uploaded, fix configuration
-failures and rerun. Source changes require a new version and tag, never a moved tag.
-Verify an already published crate before continuing with dependent releases.
+## If publication fails
+
+Inspect the registry first. If nothing was uploaded, fix configuration and rerun.
+Source changes require a new version and tag. Verify published dependencies
+before continuing.
 
 For a partial PyPI upload, download the original `python-dist` workflow artifact,
 compare existing file hashes, and have a registry owner upload only the missing

@@ -1,7 +1,7 @@
 export type AppRoute = {
   page: "landing" | "discover" | "browse";
   broker: string;
-  discoveryPattern: string;
+  discoveryFilter: string;
   activePrefix: string;
   subtreePath: string;
 };
@@ -87,7 +87,7 @@ export function readRoute(location: Pick<Location, "hash">): AppRoute {
       return {
         page: action,
         broker: routeBroker,
-        discoveryPattern:
+        discoveryFilter:
           action === "discover"
             ? routeTopic || DEFAULT_FILTER
             : params.get("discover") || DEFAULT_FILTER,
@@ -105,26 +105,23 @@ function landingRoute(): AppRoute {
   return {
     page: "landing",
     broker: "",
-    discoveryPattern: DEFAULT_FILTER,
+    discoveryFilter: DEFAULT_FILTER,
     activePrefix: "",
     subtreePath: "",
   };
 }
 
-export function discoveryPath(
-  broker: string,
-  discoveryPattern: string,
-): string {
+export function discoveryPath(broker: string, discoveryFilter: string): string {
   const { token, endpoint } = brokerRoute(broker);
   const query = endpoint ? `?${new URLSearchParams({ endpoint })}` : "";
-  return `#/discover/${token}/${topicPath(discoveryPattern)}${query}`;
+  return `#/discover/${token}/${topicPath(discoveryFilter)}${query}`;
 }
 
 export function browsePath(
   broker: string,
   prefix: string,
   subtreePath = "",
-  discoveryPattern = DEFAULT_FILTER,
+  discoveryFilter = DEFAULT_FILTER,
 ): string {
   const { token, endpoint } = brokerRoute(broker);
   const params = new URLSearchParams();
@@ -134,8 +131,8 @@ export function browsePath(
   if (subtreePath) {
     params.set("path", subtreePath);
   }
-  if (discoveryPattern !== DEFAULT_FILTER) {
-    params.set("discover", discoveryPattern);
+  if (discoveryFilter !== DEFAULT_FILTER) {
+    params.set("discover", discoveryFilter);
   }
   const query = params.toString();
   return `#/browse/${token}/${topicPath(prefix)}${query ? `?${query}` : ""}`;
