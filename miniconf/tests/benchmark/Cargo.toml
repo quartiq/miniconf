@@ -13,6 +13,9 @@ serde = { version = "1.0", default-features = false, features = ["derive"] }
 
 [workspace]
 
+[features]
+erased-keys = []
+
 [profile.release]
 codegen-units = 1
 incremental = false

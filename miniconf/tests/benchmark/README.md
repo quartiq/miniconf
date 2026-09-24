@@ -4,6 +4,8 @@ Compare serial-style get/set using miniconf vs hand-written handler:
 
 - `manual`: manual parser + manual dispatch/get/set.
 - `miniconf`: same command protocol, miniconf path lookup on every command, same backend codec.
+- `miniconf_dyn`: the same binary rebuilt with `erased-keys`, changing only
+  the path cursor to `&mut dyn Keys`.
 - `baseline`: parser/loop baseline for size context.
 
 The manual variant implements only the routed get/set workload. Miniconf's path
@@ -47,7 +49,8 @@ Absent ELF data sections count as zero; absent runtime measurements fail the run
 
 ## Binary size
 
-Program sources: `11eea3e`. Compiler: Rust 1.98.1 (LLVM 22.1.8).
+Program sources: `a99b827-dirty` with the key-dispatch comparison.
+Compiler: Rust 1.98.1 (LLVM 22.1.8).
 `RUSTFLAGS` unset. Dependencies are resolved locally; totals can change with
 the compiler or dependency versions.
 
@@ -59,3 +62,6 @@ Recorded lockfile SHA-256:
 | baseline | 1636 | 2140 | 0 | 92 | 0 | 8 | **100** | **3776** |
 | manual | 8412 | 2388 | 0 | 560 | 0 | 8 | **568** | **10800** |
 | miniconf | 8880 | 3036 | 1172 | 728 | 0 | 8 | **736** | **11916** |
+
+Key erasure increases flash by about 6.5% in this single-cursor workload.
+This comparison does not exercise duplication across different key representations.

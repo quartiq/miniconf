@@ -59,6 +59,7 @@ schema = ["trace", "dep:schemars", "json"]
 all-features = true
 
 [dev-dependencies]
+erased-serde = "0.4.10"
 anyhow = "1.0.86"
 postcard = { version = "1.0.8", features = ["use-std"] }
 crosstrait = { version = "0.1", default-features = false }
@@ -67,6 +68,10 @@ strum = { version = "0.28", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
 jsonschema = { version = "0.57.0", default-features = false }
+
+[[test]]
+name = "erased"
+required-features = ["derive"]
 
 [[test]]
 name = "arrays"
