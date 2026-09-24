@@ -379,11 +379,12 @@ impl Internal {
 
     /// Perform a name-to-index lookup
     pub fn get_index(&self, name: &str) -> Option<usize> {
-        match self {
-            Internal::Named(n) => n.iter().position(|n| n.name == name),
-            Internal::Numbered(n) => name.parse().ok().filter(|i| *i < n.len()),
-            Internal::Homogeneous(h, ..) => name.parse().ok().filter(|i| *i < h.len.get()),
-        }
+        let len = match self {
+            Internal::Named(n) => return n.iter().position(|n| n.name == name),
+            Internal::Numbered(n) => n.len(),
+            Internal::Homogeneous(h) => h.len.get(),
+        };
+        name.parse().ok().filter(|i| *i < len)
     }
 }
 

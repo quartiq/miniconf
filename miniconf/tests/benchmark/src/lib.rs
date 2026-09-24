@@ -1,140 +1,93 @@
+//! A small settings command interface, implemented manually or with Tree.
 #![no_std]
 
 use core::hint::black_box;
-use core::ptr::read_volatile;
+use cortex_m_semihosting::{debug, hio};
 
-use cortex_m_rt::STACK_PAINT_VALUE;
-use cortex_m_semihosting::{debug, hprintln};
-pub mod codec;
-pub mod manual_engine;
-pub mod miniconf_engine;
-pub mod settings;
+#[path = "../../../examples/common.rs"]
+mod common;
+use common::Settings;
 
-use codec::Response;
+#[cfg_attr(feature = "tree", path = "tree.rs")]
+#[cfg_attr(not(feature = "tree"), path = "manual.rs")]
+mod engine;
 
-#[derive(Copy, Clone)]
-pub enum Command<'a> {
-    Get(&'a str),
-    Set(&'a str, &'a str),
+#[derive(Debug, PartialEq, Eq)]
+enum Error {
+    Path,
+    Unavailable,
+    Access,
+    Value,
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum ParseError {
-    Empty,
-    MissingPath,
-    MissingValue,
-}
-
-pub fn parse(line: &str) -> Result<Command<'_>, ParseError> {
-    if line.is_empty() {
-        return Err(ParseError::Empty);
+fn command<'a>(
+    settings: &mut Settings,
+    command: &str,
+    out: &'a mut [u8],
+) -> Result<&'a [u8], Error> {
+    let (path, value) = command
+        .split_once('=')
+        .map_or((command, None), |(path, value)| {
+            (path.trim(), Some(value.trim()))
+        });
+    if !path.starts_with('/') {
+        return Err(Error::Path);
     }
-    let bytes = line.as_bytes();
-    if let Some(eq) = bytes.iter().position(|b| *b == b'=') {
-        let path = line.get(..eq).ok_or(ParseError::MissingPath)?;
-        let value = line.get(eq + 1..).ok_or(ParseError::MissingValue)?;
-        if path.is_empty() || !path.as_bytes().starts_with(b"/") {
-            return Err(ParseError::MissingPath);
+    let len = engine::exchange(settings, path, value, out)?;
+    Ok(if value.is_some() { b"OK" } else { &out[..len] })
+}
+
+fn session(settings: &mut Settings, input: &str, mut reply: impl FnMut(&[u8])) {
+    let mut out = [0; 32];
+    for cmd in input.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+        #[cfg(feature = "help")]
+        let result = if cmd == "help" {
+            reply(b"Read: /path; write: /path=JSON; help [/path]");
+            engine::help("", &mut reply)
+        } else if let Some(path) = cmd.strip_prefix("help ") {
+            let path = path.trim();
+            if path.starts_with('/') {
+                engine::help(if path == "/" { "" } else { path }, &mut reply)
+            } else {
+                Err(Error::Path)
+            }
+        } else {
+            command(settings, cmd, &mut out).map(&mut reply)
+        };
+        #[cfg(not(feature = "help"))]
+        let result = command(settings, cmd, &mut out).map(&mut reply);
+        if let Err(error) = result {
+            reply(match error {
+                Error::Path => b"ERR path",
+                Error::Unavailable => b"ERR unavailable",
+                Error::Access => b"ERR access",
+                Error::Value => b"ERR value",
+            });
         }
-        if value.is_empty() {
-            return Err(ParseError::MissingValue);
-        }
-        Ok(Command::Set(path, value))
-    } else {
-        if !bytes.starts_with(b"/") {
-            return Err(ParseError::MissingPath);
-        }
-        Ok(Command::Get(line))
     }
 }
 
-pub const MIXED: &[&str] = &[
-    "/device/serial",
-    "/device/control/enabled",
-    "/device/control/mode",
-    "/device/control/enabled=false",
-    "/device/control/enabled",
-    "/device/output/dac/0",
-    "/device/output/dac/0=2048",
-    "/device/output/dac/1=4095",
-    "/device/output/dac/0",
-    "/device/output/dac/1",
-    "/device/output/attenuation/0=-3",
-    "/device/output/attenuation/1=6",
-    "/device/output/attenuation/0",
-    "/device/output/attenuation/1",
-    "/device/calibration/offset=-9",
-    "/device/calibration/slope=24",
-    "/device/calibration/offset",
-    "/device/calibration/slope",
-    "/foo",
-    "/foo=true",
-    "/foo",
-    "/option=11",
-    "/option",
-    "/option=null",
-    "/option",
-    "/option_tree=13",
-    "/option_tree",
-    "/option_tree=-1",
-    "/option_tree",
-    "/enum_tree/C/0/a=12",
-    "/enum_tree/C/0/b=21",
-    "/enum_tree/C/1/a=-7",
-    "/enum_tree/C/1/b=9",
-    "/enum_tree/C/0/a",
-    "/enum_tree/C/0/b",
-    "/enum_tree/C/1/a",
-    "/enum_tree/C/1/b",
-    "/struct_tree/a=9",
-    "/struct_tree/a",
-    "/struct_tree/b=7",
-    "/struct_tree/b",
-    "/array_tree/1=-2",
-    "/array_tree/0=3",
-    "/array_tree/0",
-    "/array_tree/1",
-    "/array_tree2/0/a=12",
-    "/array_tree2/0/b=21",
-    "/array_tree2/1/a=-7",
-    "/array_tree2/1/b=9",
-    "/array_tree2/0/a",
-    "/array_tree2/0/b",
-    "/array_tree2/1/a",
-    "/array_tree2/1/b",
-    "/tuple_tree/0=22",
-    "/tuple_tree/1/a=5",
-    "/tuple_tree/1/b=14",
-    "/tuple_tree/0",
-    "/tuple_tree/1/a",
-    "/tuple_tree/1/b",
-    "/option_tree2/a=6",
-    "/option_tree2/b=8",
-    "/option_tree2/a",
-    "/option_tree2/b",
-    "/array_option_tree/0/a",
-    "/array_option_tree/0/b",
-    "/array_option_tree/0/a=1",
-    "/array_option_tree/0/b=1",
-    "/array_option_tree/1/a=4",
-    "/array_option_tree/1/b=10",
-    "/array_option_tree/1/a",
-    "/array_option_tree/1/b",
-    "/device/control/enabled=true",
-    "/device/control/enabled",
-    "/foo=false",
-    "/foo",
-];
-
-// This harness is primarily for code size and representative path coverage.
-// Stack depth is iteration-invariant here, so keep the QEMU workload short.
-const OUTER_ITERS: u32 = 32;
-
-pub trait Engine {
-    type Error;
-    fn new() -> Self;
-    fn set(&mut self, path: &str, value: &str) -> Result<(), Self::Error>;
-    fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error>;
+fn workload(mut reply: impl FnMut(&[u8])) {
+    let mut settings = black_box(Settings::new());
+    session(
+        &mut settings,
+        black_box(include_str!("commands.txt")),
+        &mut reply,
+    );
+    // A sensor sample arrives; calibration becomes unavailable.
+    settings.temperature = black_box(Some(1.5));
+    settings.calibration = None;
+    session(
+        &mut settings,
+        black_box("/temp; /calibration/offset; /calibration/slope=0;"),
+        &mut reply,
+    );
+    #[cfg(feature = "help")]
+    session(
+        &mut settings,
+        black_box(include_str!("help-commands.txt")),
+        &mut reply,
+    );
 }
 
 fn stack_peak_bytes() -> usize {
@@ -142,167 +95,104 @@ fn stack_peak_bytes() -> usize {
         static __sheap: u32;
         static _stack_start: u32;
     }
-
     let mut cursor = (&raw const __sheap) as usize;
     let top = (&raw const _stack_start) as usize;
-    while cursor < top && unsafe { read_volatile(cursor as *const u32) } == STACK_PAINT_VALUE {
+    while cursor < top
+        && unsafe { core::ptr::read_volatile(cursor as *const u32) }
+            == cortex_m_rt::STACK_PAINT_VALUE
+    {
         cursor += core::mem::size_of::<u32>();
     }
     top - cursor
 }
 
-fn run_parse_only(lines: &[&str], outer_iters: u32) {
-    for _ in 0..outer_iters {
-        for line in lines {
-            let _ = black_box(parse(black_box(line)));
-        }
+pub fn run() -> ! {
+    let mut stdout = hio::hstdout().unwrap();
+    stdout.write_all(b"BEGIN\n").unwrap();
+    workload(|reply| {
+        stdout.write_all(reply).unwrap();
+        stdout.write_all(b"\n").unwrap();
+    });
+    let stack = stack_peak_bytes();
+    stdout.write_all(b"END\n").unwrap();
+    let mut report = *b"RESULT stack_peak=0x00000000\n";
+    for (i, digit) in report[20..28].iter_mut().enumerate() {
+        *digit = b"0123456789abcdef"[(stack >> (4 * (7 - i))) & 15];
     }
-}
-
-fn run_workload<E: Engine>(
-    engine: &mut E,
-    lines: &[&str],
-    outer_iters: u32,
-) -> Result<(), ValidationError> {
-    for _ in 0..outer_iters {
-        for (i, line) in lines.iter().enumerate() {
-            let index = i as u32;
-            let cmd = parse(black_box(line)).map_err(|_| ValidationError::Parse(index))?;
-            match black_box(cmd) {
-                Command::Get(path) => {
-                    let mut out = Response::new();
-                    black_box(engine.get(black_box(path), black_box(&mut out)))
-                        .map_err(|_| ValidationError::Get(index))?;
-                    black_box(out.as_bytes());
-                }
-                Command::Set(path, value) => {
-                    black_box(engine.set(black_box(path), black_box(value)))
-                        .map_err(|_| ValidationError::Set(index))?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-#[allow(dead_code)]
-enum ValidationError {
-    Parse(u32),
-    Set(u32),
-    Get(u32),
-    Mismatch(u32),
-}
-
-fn validate_set_roundtrip<E: Engine>(engine: &mut E) -> Result<(), ValidationError> {
-    let mut get_out = Response::new();
-    for (i, line) in MIXED.iter().enumerate() {
-        let index = i as u32;
-        let cmd = parse(line).map_err(|_| ValidationError::Parse(index))?;
-        let (path, value) = match cmd {
-            Command::Set(path, value) => (path, value),
-            Command::Get(_) => continue,
-        };
-        engine
-            .set(path, value)
-            .map_err(|_| ValidationError::Set(index))?;
-        engine
-            .get(path, &mut get_out)
-            .map_err(|_| ValidationError::Get(index))?;
-        // MIXED uses canonical scalar encodings, so the request is the oracle.
-        if value.as_bytes() != get_out.as_bytes() {
-            return Err(ValidationError::Mismatch(index));
-        }
-    }
-    Ok(())
-}
-
-fn validation_code(err: ValidationError) -> (&'static str, u32) {
-    match err {
-        ValidationError::Parse(i) => ("parse", i),
-        ValidationError::Set(i) => ("set", i),
-        ValidationError::Get(i) => ("get", i),
-        ValidationError::Mismatch(i) => ("mismatch", i),
+    stdout.write_all(&report).unwrap();
+    debug::exit(debug::EXIT_SUCCESS);
+    loop {
+        core::hint::spin_loop();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    extern crate std;
     use super::*;
 
-    struct IgnoreWrites(manual_engine::Engine);
-
-    impl Engine for IgnoreWrites {
-        type Error = <manual_engine::Engine as Engine>::Error;
-
-        fn new() -> Self {
-            Self(manual_engine::Engine::new())
+    #[test]
+    fn transcript() {
+        let mut replies = std::vec::Vec::new();
+        workload(|reply| {
+            replies.extend_from_slice(reply);
+            replies.push(b'\n');
+        });
+        let mut expected = std::string::String::from(include_str!("replies.txt"));
+        if cfg!(feature = "help") {
+            expected.push_str(include_str!("help-replies.txt"));
         }
-
-        fn set(&mut self, _: &str, _: &str) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn get(&self, path: &str, out: &mut Response) -> Result<(), Self::Error> {
-            self.0.get(path, out)
-        }
+        assert_eq!(std::str::from_utf8(&replies).unwrap(), expected);
     }
 
     #[test]
-    fn roundtrip_checks_written_values() {
-        assert!(validate_set_roundtrip(&mut manual_engine::Engine::new()).is_ok());
-        assert!(validate_set_roundtrip(&mut miniconf_engine::Engine::new()).is_ok());
-        assert!(matches!(
-            validate_set_roundtrip(&mut IgnoreWrites::new()),
-            Err(ValidationError::Mismatch(_))
-        ));
-    }
-}
-
-pub fn run_engine<E: Engine>() -> ! {
-    let mut engine = E::new();
-    if let Err(err) = validate_set_roundtrip(&mut engine) {
-        let (kind, index) = validation_code(err);
-        hprintln!(
-            "RESULT validation=set_get_roundtrip_failed kind={} index={}",
-            kind,
-            index
-        );
-        debug::exit(debug::EXIT_FAILURE);
-        loop {
-            core::hint::spin_loop();
+    fn rejected_values_and_framing() {
+        let mut settings = Settings::new();
+        let mut out = [0; 32];
+        for (cmd, expected) in [
+            ("/output/dac/0=4095", Ok(b"OK".as_slice())),
+            ("/output/dac/0=4096", Err(Error::Access)),
+            ("/output/dac/0", Ok(b"4095")),
+            ("/output/attenuation/0=32768", Err(Error::Value)),
+            ("/output/attenuation/0", Ok(b"0")),
+            ("/control/mode=\"unknown\"", Err(Error::Value)),
+            ("/control/mode", Ok(b"\"Run\"")),
+            ("/control/enabled/extra", Err(Error::Path)),
+            ("/output/dac/2", Err(Error::Path)),
+            ("control/enabled", Err(Error::Path)),
+            ("/control/enabled=", Err(Error::Value)),
+            ("/serial=7", Err(Error::Access)),
+            ("/serial", Ok(b"4660")),
+            // JSON finalization follows the write, as in the Tree JSON API.
+            ("/control/enabled=false garbage", Err(Error::Value)),
+            ("/control/enabled", Ok(b"false")),
+        ] {
+            assert_eq!(command(&mut settings, cmd, &mut out), expected, "{cmd}");
         }
-    }
-
-    let mut engine = E::new();
-    run_parse_only(MIXED, OUTER_ITERS);
-    if let Err(err) = run_workload(&mut engine, MIXED, OUTER_ITERS) {
-        let (kind, index) = validation_code(err);
-        hprintln!(
-            "RESULT validation=workload_failed kind={} index={}",
-            kind,
-            index
+        let mut replies = std::vec::Vec::new();
+        session(
+            &mut settings,
+            " ; /control/enabled = true ; /control/enabled; ",
+            |r| replies.push(r.to_vec()),
         );
-        debug::exit(debug::EXIT_FAILURE);
-        loop {
-            core::hint::spin_loop();
-        }
+        assert_eq!(replies, [b"OK".as_slice(), b"true"]);
     }
-    hprintln!("RESULT validation=ok");
-    hprintln!("RESULT stack_peak={}", stack_peak_bytes());
 
-    debug::exit(debug::EXIT_SUCCESS);
-    loop {
-        core::hint::spin_loop();
-    }
-}
-
-pub fn run_baseline() -> ! {
-    run_parse_only(MIXED, OUTER_ITERS);
-    hprintln!("RESULT validation=ok");
-    hprintln!("RESULT stack_peak={}", stack_peak_bytes());
-
-    debug::exit(debug::EXIT_SUCCESS);
-    loop {
-        core::hint::spin_loop();
+    #[cfg(feature = "help")]
+    #[test]
+    fn help_paths() {
+        let mut settings = Settings::new();
+        let mut replies = std::vec::Vec::new();
+        session(
+            &mut settings,
+            "help /missing; help /output/dac/2; help /temp/extra; help relative; helper;",
+            |r| replies.push(r.to_vec()),
+        );
+        assert_eq!(replies, [b"ERR path"; 5]);
+        let mut root = std::vec::Vec::new();
+        engine::help("", |r| root.push(r.to_vec())).unwrap();
+        replies.clear();
+        session(&mut settings, "help /", |r| replies.push(r.to_vec()));
+        assert_eq!(replies, root);
     }
 }

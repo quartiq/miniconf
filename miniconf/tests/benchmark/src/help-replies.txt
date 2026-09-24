@@ -1,0 +1,26 @@
+Read: /path; write: /path=JSON; help [/path]
+/ typename=Settings
+  serial doc=Hardware serial number. type=U32
+  control typename=Control
+  output typename=Output
+  calibration typename=Calibration doc=Factory calibration applied to measurements. optional
+  temp unit=°C type=F32 optional
+/control typename=Control
+  enabled type=Bool
+  mode
+/output typename=Output
+  dac max=4095
+  attenuation unit=dB
+/output/dac max=4095
+  0 type=U16
+  1 type=U16
+/output/dac/0 type=U16
+/output/attenuation unit=dB
+  0 type=I16
+  1 type=I16
+/output/attenuation/1 type=I16
+/calibration typename=Calibration doc=Factory calibration applied to measurements. optional
+  offset type=I32
+  slope unit=ppm type=I16
+/calibration/slope unit=ppm type=I16
+/temp unit=°C type=F32 optional

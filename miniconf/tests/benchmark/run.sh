@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET_DIR="target/thumbv7m-none-eabi/release"
-
-bins=(
-  baseline
-  manual
-  miniconf
-  miniconf_dyn
-)
+elf="target/thumbv7m-none-eabi/release/benchmark"
 
 if [ ! -f Cargo.lock ]; then
   cargo generate-lockfile
@@ -22,27 +15,21 @@ rustc -Vv
 cargo -V
 printf 'RUSTFLAGS=%s\n' "${RUSTFLAGS:-}"
 echo '```'
-schema_out="$(cargo run --locked --quiet --release --bin schema_size 2>&1)"
-schema_bytes="$(printf '%s\n' "$schema_out" | sed -n 's/^RESULT schema_bytes=//p' | tail -n1)"
-if ! [[ "$schema_bytes" =~ ^[0-9]+$ ]]; then
-  printf '%s\n' "$schema_out" >&2
-  echo 'missing or invalid schema size' >&2
-  exit 1
-fi
-
 echo "## Binary size"
-echo "| variant | text | rodata | schema | stack | data | bss | **∑ ram** | **∑ flash** |"
-echo "|---|---:|---:|---:|---:|---:|---:|---:|---:|"
+echo "Sizes in bytes; stack is the observed high-water mark, including semihosting."
+echo
+echo "| variant | text | rodata | observed stack | data | bss | **data + bss + observed stack** | **text + rodata** |"
+echo "|---|---:|---:|---:|---:|---:|---:|---:|"
 
-for variant in "${bins[@]}"; do
-  bin="$variant"
-  features=()
-  if [ "$variant" = "miniconf_dyn" ]; then
-    bin=miniconf
-    features=(--features erased-keys)
+for variant in manual tree manual+help tree+help; do
+  feature_list="${variant/manual/}"
+  feature_list="${feature_list/+/ }"
+  features=(--features "$feature_list")
+  expected="$(cat src/replies.txt)"
+  if [[ "$variant" = *+help ]]; then
+    expected+=$'\n'"$(cat src/help-replies.txt)"
   fi
-  cargo build --locked --release --bin "$bin" "${features[@]}"
-  elf="$TARGET_DIR/$bin"
+  cargo build --locked --release --bin benchmark "${features[@]}"
   size_out="$(arm-none-eabi-size -A "$elf")"
   text="$(printf '%s\n' "$size_out" | awk '$1==".text"{print $2}')"
   rodata="$(printf '%s\n' "$size_out" | awk '$1==".rodata"{print $2}')"
@@ -52,23 +39,25 @@ for variant in "${bins[@]}"; do
   rodata="${rodata:-0}"
   data="${data:-0}"
   bss="${bss:-0}"
-  run_out="$(cargo run --locked --quiet --release --bin "$bin" "${features[@]}" 2>&1)"
-  if ! printf '%s\n' "$run_out" | grep -qx 'RESULT validation=ok'; then
+  if ! run_out="$(cargo run --locked --quiet --release --bin benchmark "${features[@]}" 2>&1)"; then
     printf '%s\n' "$run_out" >&2
-    echo "benchmark validation failed for $bin" >&2
+    echo "benchmark validation failed for $variant" >&2
+    exit 1
+  fi
+  replies="$(printf '%s\n' "$run_out" | sed -n '/^BEGIN$/,/^END$/{ /^BEGIN$/d; /^END$/d; p; }')"
+  if [ "$replies" != "$expected" ]; then
+    printf '%s\n' "$run_out" >&2
+    echo "unexpected replies for $variant" >&2
     exit 1
   fi
   stack="$(printf '%s\n' "$run_out" | sed -n 's/^RESULT stack_peak=//p' | tail -n1)"
-  if ! [[ "$stack" =~ ^[0-9]+$ ]]; then
+  if ! [[ "$stack" =~ ^0x[0-9a-f]{8}$ ]]; then
     printf '%s\n' "$run_out" >&2
-    echo "missing or invalid stack measurement for $bin" >&2
+    echo "missing or invalid stack measurement for $variant" >&2
     exit 1
   fi
-  schema=0
-  if [[ "$bin" == miniconf* ]]; then
-    schema="$schema_bytes"
-  fi
+  stack=$((stack))
   flash=$((text + rodata))
   ram=$((data + bss + stack))
-  echo "| $variant | $text | $rodata | $schema | $stack | $data | $bss | **$ram** | **$flash** |"
+  echo "| $variant | $text | $rodata | $stack | $data | $bss | **$ram** | **$flash** |"
 done

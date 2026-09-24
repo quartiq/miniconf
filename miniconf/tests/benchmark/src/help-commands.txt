@@ -1,0 +1,10 @@
+help;
+help /control;
+help /output;
+help /output/dac;
+help /output/dac/0;
+help /output/attenuation;
+help /output/attenuation/1;
+help /calibration;
+help /calibration/slope;
+help /temp;

@@ -8,7 +8,7 @@ use darling::{
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, quote_spanned};
-use syn::{parse_quote_spanned, spanned::Spanned};
+use syn::{parse_quote, parse_quote_spanned, spanned::Spanned};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum TreeTrait {
@@ -106,12 +106,12 @@ impl TreeField {
 
     fn value(&self, i: Option<usize>) -> syn::Expr {
         let def = if let Some(i) = i {
-            // named or tuple struct field
+            // Keep `self` in the generated method's scope, not a macro input's scope.
             if let Some(name) = &self.ident {
-                parse_quote_spanned!(self.span()=> self.#name)
+                parse_quote!(self.#name)
             } else {
                 let index = syn::Index::from(i);
-                parse_quote_spanned!(self.span()=> self.#index)
+                parse_quote!(self.#index)
             }
         } else {
             // enum variant newtype value

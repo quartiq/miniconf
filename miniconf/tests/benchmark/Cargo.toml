@@ -10,11 +10,14 @@ cortex-m-semihosting = "0.5"
 panic-halt = "1.0"
 miniconf = { path = "../../../miniconf", default-features = false, features = ["derive"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde-json-core = { version = "0.6", default-features = false }
+heapless = { version = "0.8", optional = true }
 
 [workspace]
 
 [features]
-erased-keys = []
+tree = ["miniconf/json-core"]
+help = ["miniconf/meta-node", "miniconf/meta-edge", "miniconf/sem", "dep:heapless"]
 
 [profile.release]
 codegen-units = 1
@@ -22,19 +25,3 @@ incremental = false
 lto = true
 opt-level = "s"
 debug = true
-
-[[bin]]
-name = "baseline"
-path = "src/bin/baseline.rs"
-
-[[bin]]
-name = "manual"
-path = "src/bin/manual.rs"
-
-[[bin]]
-name = "miniconf"
-path = "src/bin/miniconf.rs"
-
-[[bin]]
-name = "schema_size"
-path = "src/bin/schema_size.rs"
