@@ -1,0 +1,17 @@
+/serial;
+/control/enabled;
+/control/enabled=false; /control/enabled;
+/control/mode;
+/control/mode="Standby"; /control/mode;
+/output/dac/0; /output/dac/1;
+/output/dac/0=7; /output/dac/1=2048;
+/output/dac/0; /output/dac/1;
+/output/dac/1=5000; /output/dac/1;
+/output/attenuation/0=-9; /output/attenuation/1=7;
+/output/attenuation/0; /output/attenuation/1;
+/calibration/offset; /calibration/slope;
+/calibration/offset=-100; /calibration/slope=13;
+/calibration/offset; /calibration/slope;
+/temp;
+/serial=0; /temp=0;
+/missing; /output/dac/2;

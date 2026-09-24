@@ -7,6 +7,26 @@ use miniconf::{
 mod common;
 
 #[test]
+fn derive_inside_macro() {
+    macro_rules! trees {
+        ($field:ident, $ty:ty) => {
+            #[derive(Tree)]
+            struct Named {
+                $field: $ty,
+            }
+            #[derive(Tree)]
+            struct Tuple($ty);
+        };
+    }
+    trees!(value, u8);
+    let mut named = Named { value: 0 };
+    let mut tuple = Tuple(0);
+    json_core::set(&mut named, "/value", b"7").unwrap();
+    json_core::set(&mut tuple, "/0", b"9").unwrap();
+    assert_eq!((named.value, tuple.0), (7, 9));
+}
+
+#[test]
 fn dynamic_keys() {
     use miniconf::{IntoKeys, Keys};
     let mut tree = [[0u32; 2]; 2];

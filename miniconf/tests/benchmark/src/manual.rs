@@ -1,0 +1,121 @@
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json_core::{de::Deserializer, to_slice};
+
+use crate::{Error, Settings};
+
+#[cfg(feature = "help")]
+pub(super) fn help(path: &str, mut reply: impl FnMut(&[u8])) -> Result<(), Error> {
+    let text = match path {
+        "" => {
+            "/ typename=Settings\n  serial doc=Hardware serial number. type=U32\n  control typename=Control\n  output typename=Output\n  calibration typename=Calibration doc=Factory calibration applied to measurements. optional\n  temp unit=°C type=F32 optional"
+        }
+        "/serial" => "/serial doc=Hardware serial number. type=U32",
+        "/control" => "/control typename=Control\n  enabled type=Bool\n  mode",
+        "/control/enabled" => "/control/enabled type=Bool",
+        "/control/mode" => "/control/mode",
+        "/output" => "/output typename=Output\n  dac max=4095\n  attenuation unit=dB",
+        "/output/dac" => "/output/dac max=4095\n  0 type=U16\n  1 type=U16",
+        "/output/dac/0" => "/output/dac/0 type=U16",
+        "/output/dac/1" => "/output/dac/1 type=U16",
+        "/output/attenuation" => "/output/attenuation unit=dB\n  0 type=I16\n  1 type=I16",
+        "/output/attenuation/0" => "/output/attenuation/0 type=I16",
+        "/output/attenuation/1" => "/output/attenuation/1 type=I16",
+        "/calibration" => {
+            "/calibration typename=Calibration doc=Factory calibration applied to measurements. optional\n  offset type=I32\n  slope unit=ppm type=I16"
+        }
+        "/calibration/offset" => "/calibration/offset type=I32",
+        "/calibration/slope" => "/calibration/slope unit=ppm type=I16",
+        "/temp" => "/temp unit=°C type=F32 optional",
+        _ => return Err(Error::Path),
+    };
+    for line in text.lines() {
+        reply(line.as_bytes());
+    }
+    Ok(())
+}
+
+fn value<T: Serialize + DeserializeOwned>(
+    value: &mut T,
+    de: Option<&mut Deserializer<'_, '_>>,
+    out: &mut [u8],
+) -> Result<usize, Error> {
+    if let Some(de) = de {
+        *value = T::deserialize(de).map_err(|_| Error::Value)?;
+        Ok(0)
+    } else {
+        to_slice(value, out).map_err(|_| Error::Value)
+    }
+}
+
+pub(super) fn exchange(
+    settings: &mut Settings,
+    path: &str,
+    input: Option<&str>,
+    out: &mut [u8],
+) -> Result<usize, Error> {
+    let mut de = input.map(|s| Deserializer::new(s.as_bytes(), None));
+    let len = match path {
+        "/serial" | "/temp" if input.is_some() => return Err(Error::Access),
+        "/serial" => to_slice(&settings.serial, out).map_err(|_| Error::Value)?,
+        "/temp" => to_slice(
+            settings.temperature.as_ref().ok_or(Error::Unavailable)?,
+            out,
+        )
+        .map_err(|_| Error::Value)?,
+        "/control/enabled" => value(&mut settings.control.enabled, de.as_mut(), out)?,
+        "/control/mode" => value(&mut settings.control.mode, de.as_mut(), out)?,
+        "/calibration/offset" => value(
+            &mut settings
+                .calibration
+                .as_mut()
+                .ok_or(Error::Unavailable)?
+                .offset,
+            de.as_mut(),
+            out,
+        )?,
+        "/calibration/slope" => value(
+            &mut settings
+                .calibration
+                .as_mut()
+                .ok_or(Error::Unavailable)?
+                .slope,
+            de.as_mut(),
+            out,
+        )?,
+        _ => {
+            let (array, index) = path
+                .strip_prefix("/output/")
+                .ok_or(Error::Path)?
+                .split_once('/')
+                .ok_or(Error::Path)?;
+            let index: usize = index.parse().map_err(|_| Error::Path)?;
+            match array {
+                "dac" => {
+                    let mut next = settings.output.dac;
+                    let len = value(next.get_mut(index).ok_or(Error::Path)?, de.as_mut(), out)?;
+                    if input.is_some() {
+                        if next.iter().any(|v| *v > 4095) {
+                            return Err(Error::Access);
+                        }
+                        settings.output.dac = next;
+                    }
+                    len
+                }
+                "attenuation" => value(
+                    settings
+                        .output
+                        .attenuation
+                        .get_mut(index)
+                        .ok_or(Error::Path)?,
+                    de.as_mut(),
+                    out,
+                )?,
+                _ => return Err(Error::Path),
+            }
+        }
+    };
+    if let Some(mut de) = de {
+        de.end().map_err(|_| Error::Value)?;
+    }
+    Ok(len)
+}

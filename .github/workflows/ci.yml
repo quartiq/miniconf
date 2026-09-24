@@ -144,7 +144,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y qemu-system-arm binutils-arm-none-eabi
-      - run: cargo test --lib --target x86_64-unknown-linux-gnu
+      - run: |
+          for features in '' tree help tree,help; do
+            cargo test --lib --target x86_64-unknown-linux-gnu --features "$features"
+          done
         working-directory: miniconf/tests/benchmark
       - run: ./run.sh
         env:

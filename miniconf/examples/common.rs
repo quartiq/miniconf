@@ -1,5 +1,5 @@
 // Integration fixture shared by core and protocol examples, MQTT/Python tests,
-// and the embedded benchmark's `/device` subtree. Paths, metadata, and defaults
+// and the embedded benchmark. Paths, metadata, and defaults
 // are part of those checks; update their expectations together when changing it.
 use miniconf::{Tree, leaf};
 use serde::{Deserialize, Serialize};
