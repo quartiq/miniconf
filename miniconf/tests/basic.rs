@@ -6,6 +6,31 @@ use miniconf::{
 };
 mod common;
 
+#[test]
+fn dynamic_keys() {
+    use miniconf::{IntoKeys, Keys};
+    let mut tree = [[0u32; 2]; 2];
+    let mut path = "/1/0".into_keys();
+    let mut indices = [1usize, 0].as_slice();
+    for keys in [&mut path as &mut dyn Keys, &mut indices] {
+        json_core::set_by_keys(&mut tree, keys, b"17").unwrap();
+        assert_eq!(tree[1][0], 17);
+        tree[1][0] = 0;
+    }
+    let mut buffer = [0; 8];
+    let len = json_core::get_by_keys(&tree, &mut "/1/0".into_keys() as &mut dyn Keys, &mut buffer)
+        .unwrap();
+    assert_eq!(&buffer[..len], b"0");
+    assert_eq!(
+        json_core::get_by_keys(
+            &tree,
+            &mut "/1/0/0".into_keys() as &mut dyn Keys,
+            &mut buffer
+        ),
+        Err(SerdeError::from(KeyError::TooLong))
+    );
+}
+
 fn assert_lookup(have: Lookup, depth: usize, leaf: bool) {
     assert_eq!(have.depth, depth);
     assert_eq!(have.schema.is_leaf(), leaf);

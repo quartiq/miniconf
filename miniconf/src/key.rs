@@ -29,6 +29,21 @@ impl<T: Key + ?Sized> Key for &mut T {
 }
 
 /// Normalized cursor over selector segments.
+///
+/// Pass `&mut dyn Keys` to share a traversal's key-type specialization across
+/// cursor representations. This borrows the cursor without allocation; whether
+/// it reduces code size depends on the workload and compiler.
+///
+/// ```
+/// use miniconf::{IntoKeys, Keys, TreeAny};
+///
+/// let tree = [7u32, 11];
+/// let mut path = "/1".into_keys();
+/// let mut indices = [1usize].as_slice();
+/// for keys in [&mut path as &mut dyn Keys, &mut indices] {
+///     assert_eq!(tree.ref_any_by_key(keys).unwrap().downcast_ref(), Some(&11u32));
+/// }
+/// ```
 pub trait Keys {
     /// Resolve the next selector segment in `internal` to a child index.
     ///

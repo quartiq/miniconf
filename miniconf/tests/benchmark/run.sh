@@ -7,9 +7,13 @@ bins=(
   baseline
   manual
   miniconf
+  miniconf_dyn
 )
 
-cargo build --release --bins
+if [ ! -f Cargo.lock ]; then
+  cargo generate-lockfile
+fi
+
 echo '## Environment'
 echo '```text'
 git describe --always --dirty
@@ -18,7 +22,7 @@ rustc -Vv
 cargo -V
 printf 'RUSTFLAGS=%s\n' "${RUSTFLAGS:-}"
 echo '```'
-schema_out="$(cargo run --quiet --release --bin schema_size 2>&1)"
+schema_out="$(cargo run --locked --quiet --release --bin schema_size 2>&1)"
 schema_bytes="$(printf '%s\n' "$schema_out" | sed -n 's/^RESULT schema_bytes=//p' | tail -n1)"
 if ! [[ "$schema_bytes" =~ ^[0-9]+$ ]]; then
   printf '%s\n' "$schema_out" >&2
@@ -30,7 +34,14 @@ echo "## Binary size"
 echo "| variant | text | rodata | schema | stack | data | bss | **∑ ram** | **∑ flash** |"
 echo "|---|---:|---:|---:|---:|---:|---:|---:|---:|"
 
-for bin in "${bins[@]}"; do
+for variant in "${bins[@]}"; do
+  bin="$variant"
+  features=()
+  if [ "$variant" = "miniconf_dyn" ]; then
+    bin=miniconf
+    features=(--features erased-keys)
+  fi
+  cargo build --locked --release --bin "$bin" "${features[@]}"
   elf="$TARGET_DIR/$bin"
   size_out="$(arm-none-eabi-size -A "$elf")"
   text="$(printf '%s\n' "$size_out" | awk '$1==".text"{print $2}')"
@@ -41,7 +52,7 @@ for bin in "${bins[@]}"; do
   rodata="${rodata:-0}"
   data="${data:-0}"
   bss="${bss:-0}"
-  run_out="$(cargo run --quiet --release --bin "$bin" 2>&1)"
+  run_out="$(cargo run --locked --quiet --release --bin "$bin" "${features[@]}" 2>&1)"
   if ! printf '%s\n' "$run_out" | grep -qx 'RESULT validation=ok'; then
     printf '%s\n' "$run_out" >&2
     echo "benchmark validation failed for $bin" >&2
@@ -54,10 +65,10 @@ for bin in "${bins[@]}"; do
     exit 1
   fi
   schema=0
-  if [ "$bin" = "miniconf" ]; then
+  if [[ "$bin" == miniconf* ]]; then
     schema="$schema_bytes"
   fi
   flash=$((text + rodata))
   ram=$((data + bss + stack))
-  echo "| $bin | $text | $rodata | $schema | $stack | $data | $bss | **$ram** | **$flash** |"
+  echo "| $variant | $text | $rodata | $schema | $stack | $data | $bss | **$ram** | **$flash** |"
 done
