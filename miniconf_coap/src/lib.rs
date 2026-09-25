@@ -123,31 +123,22 @@ mod tests {
     }
 
     mod label {
-        use miniconf::{Keys, SerdeError, ValueError, leaf};
-        use serde::{Deserializer, Serializer};
+        use miniconf::{Keys, SerdeError, TreeDeserializer, ValueError, leaf};
 
-        pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, schema};
+        pub use leaf::{mut_any_by_key, probe_by_key, ref_any_by_key, schema, serialize_by_key};
 
-        pub fn serialize_by_key<S: Serializer>(
-            value: &heapless::String<16>,
-            keys: impl Keys,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            leaf::serialize_by_key(value, keys, ser)
-        }
-
-        pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+        pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
             value: &mut heapless::String<16>,
-            keys: impl Keys,
+            mut keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
-            let mut next = value.clone();
-            leaf::deserialize_by_key(&mut next, keys, de)?;
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
+            keys.finalize()?;
+            let (next, output) = de.deserialize::<heapless::String<16>>()?;
             if next.contains('<') {
                 return Err(ValueError::Access("bad label").into());
             }
             *value = next;
-            Ok(())
+            Ok(output)
         }
     }
 
@@ -332,6 +323,17 @@ mod tests {
         );
         let out = handler.handle(&req, &mut settings, &mut response);
         assert!(matches!(out, Outcome::Changed { .. }));
+        assert_eq!(settings.number, 12);
+
+        let req = request(
+            code::PUT,
+            &["settings", "number"],
+            Some(content_format::from_str("application/json").unwrap()),
+            b"13 trailing",
+        );
+        let out = handler.handle(&req, &mut settings, &mut response);
+        assert!(!matches!(out, Outcome::Changed { .. }));
+        assert_eq!(out.response().unwrap().code, code::BAD_REQUEST);
         assert_eq!(settings.number, 12);
     }
 

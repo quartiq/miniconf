@@ -1,8 +1,63 @@
 use core::any::Any;
+use core::marker::PhantomData;
 
-use serde::{Deserializer, Serializer};
+use serde::de::DeserializeSeed;
+use serde::{Deserialize, Deserializer, Serializer};
 
 use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, ValueError};
+
+/// A source for deserializing tree leaves.
+///
+/// Raw Serde deserializers preserve in-place deserialization without message finalization.
+/// Codec adapters can finalize a decoded value before assigning it.
+pub trait TreeDeserializer<'de>: Sized {
+    /// The codec completion result.
+    type Ok;
+    /// The codec error.
+    type Error: serde::de::Error;
+    /// Run a seed and complete any source-specific validation.
+    /// Side effects of the seed are not rolled back if validation fails.
+    #[allow(clippy::type_complexity)]
+    fn deserialize_seed<S: DeserializeSeed<'de>>(
+        self,
+        seed: S,
+    ) -> Result<(S::Value, Self::Ok), SerdeError<Self::Error>>;
+
+    /// Deserialize a value and complete any source-specific validation.
+    fn deserialize<T: Deserialize<'de>>(self) -> Result<(T, Self::Ok), SerdeError<Self::Error>> {
+        self.deserialize_seed(PhantomData::<T>)
+    }
+
+    /// Update a value, by default only after successful deserialization and validation.
+    fn deserialize_in_place<T: Deserialize<'de>>(
+        self,
+        place: &mut T,
+    ) -> Result<Self::Ok, SerdeError<Self::Error>> {
+        let (value, output) = self.deserialize()?;
+        *place = value;
+        Ok(output)
+    }
+}
+
+impl<'de, D: Deserializer<'de>> TreeDeserializer<'de> for D {
+    type Ok = ();
+    type Error = D::Error;
+    fn deserialize_seed<S: DeserializeSeed<'de>>(
+        self,
+        seed: S,
+    ) -> Result<(S::Value, Self::Ok), SerdeError<Self::Error>> {
+        seed.deserialize(self)
+            .map(|value| (value, ()))
+            .map_err(SerdeError::Inner)
+    }
+
+    fn deserialize_in_place<T: Deserialize<'de>>(
+        self,
+        place: &mut T,
+    ) -> Result<Self::Ok, SerdeError<Self::Error>> {
+        T::deserialize_in_place(self, place).map_err(SerdeError::Inner)
+    }
+}
 
 /// Traversal and iteration of key paths in a tree.
 ///
@@ -89,7 +144,7 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, 
 ///
 /// ## Type
 ///
-/// The type to use when accessing the field/variant through `TreeDeserialize::probe`
+/// The type to use when accessing the field/variant through [`TreeDeserialize::probe_by_key()`]
 /// can be overridden using the `typ` derive macro attribute (`#[tree(typ="[f32; 4]")]`).
 ///
 /// ## Implementation overrides
@@ -107,29 +162,28 @@ use crate::{ExactSize, IntoKeys, Keys, NodeIter, Schema, SerdeError, Transcode, 
 /// deserialization lifetime should refer to it as `'__de`.
 /// ```
 /// # #[cfg(feature = "derive")] {
-/// # use miniconf::{SerdeError, Tree, Keys, ValueError, TreeDeserialize};
-/// # use serde::Deserializer;
+/// # use miniconf::Tree;
 /// #[derive(Tree, Default)]
 /// struct S {
 ///     #[tree(with=check)]
 ///     b: f32,
 /// }
 /// mod check {
-///     use miniconf::{SerdeError, Deserializer, TreeDeserialize, ValueError, Keys};
+///     use miniconf::{SerdeError, TreeDeserializer, ValueError, Keys};
 ///     pub use miniconf::leaf::{schema, serialize_by_key, probe_by_key, ref_any_by_key, mut_any_by_key};
 ///
-///     pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+///     pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
 ///         value: &mut f32,
-///         keys: impl Keys,
+///         mut keys: impl Keys,
 ///         de: D
-///     ) -> Result<(), SerdeError<D::Error>> {
-///         let mut new = *value;
-///         new.deserialize_by_key(keys, de)?;
+///     ) -> Result<D::Ok, SerdeError<D::Error>> {
+///         keys.finalize()?;
+///         let (new, output) = de.deserialize()?;
 ///         if new < 0.0 {
 ///             Err(ValueError::Access("fail").into())
 ///         } else {
 ///             *value = new;
-///             Ok(())
+///             Ok(output)
 ///         }
 ///     }
 /// }
@@ -305,12 +359,12 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     ///
     /// # Args
     /// * `keys`: A normalized [`Keys`] cursor identifying the node.
-    /// * `de`: A `Deserializer` to deserialize the value.
-    fn deserialize_by_key<D: Deserializer<'de>>(
+    /// * `de`: A [`TreeDeserializer`] source, including raw Serde deserializers.
+    fn deserialize_by_key<D: TreeDeserializer<'de>>(
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>>;
+    ) -> Result<D::Ok, SerdeError<D::Error>>;
 
     /// Blind deserialize a leaf node by a normalized key cursor.
     ///
@@ -334,11 +388,11 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     ///
     /// # Args
     /// * `keys`: A normalized [`Keys`] cursor identifying the node.
-    /// * `de`: A `Deserializer` to deserialize the value.
-    fn probe_by_key<D: Deserializer<'de>>(
+    /// * `de`: A [`TreeDeserializer`] source, including raw Serde deserializers.
+    fn probe_by_key<D: TreeDeserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>>;
+    ) -> Result<D::Ok, SerdeError<D::Error>>;
 }
 
 /// Shorthand for owned deserialization through [`TreeDeserialize`].
@@ -376,18 +430,18 @@ impl<T: TreeSerialize + ?Sized> TreeSerialize for &mut T {
 }
 
 impl<'de, T: TreeDeserialize<'de> + ?Sized> TreeDeserialize<'de> for &mut T {
-    fn deserialize_by_key<D: Deserializer<'de>>(
+    fn deserialize_by_key<D: TreeDeserializer<'de>>(
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         (**self).deserialize_by_key(keys, de)
     }
 
-    fn probe_by_key<D: Deserializer<'de>>(
+    fn probe_by_key<D: TreeDeserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 }

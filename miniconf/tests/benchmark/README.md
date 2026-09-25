@@ -36,14 +36,14 @@ All variants have zero `.data` and `.bss`.
 
 | Implementation | Code + constants (bytes) | Observed stack (bytes) |
 |---|---:|---:|
-| Manual | 24064 | 376 |
-| Tree | 24848 | 400 |
-| Manual + help | 26052 | 396 |
-| Tree + help | 28768 | 728 |
+| Manual | 24104 | 368 |
+| Tree | 25244 | 440 |
+| Manual + help | 26028 | 372 |
+| Tree + help | 29116 | 776 |
 
 For this interface, Tree replaces handwritten field dispatch and access checks
-for 784 extra bytes of code and constants and 24 extra bytes of observed stack.
-Including help, the gaps are 2,716 and 332 bytes; Tree derives help from the
+for 1,140 extra bytes of code and constants and 72 extra bytes of observed stack.
+Including help, the gaps are 3,088 and 404 bytes; Tree derives help from the
 schema instead of maintaining separate descriptions. Metadata features are
 enabled only with `help`.
 

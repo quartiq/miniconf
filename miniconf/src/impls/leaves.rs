@@ -4,10 +4,11 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
-    Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize, Ty, ValueError,
+    Keys, Schema, SerdeError, TreeAny, TreeDeserialize, TreeDeserializer, TreeSchema,
+    TreeSerialize, Ty, ValueError,
 };
 
 /// Passthrough Tree*
@@ -29,19 +30,19 @@ pub mod passthrough {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    pub fn deserialize_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: TreeDeserializer<'de>>(
         value: &mut T,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         value.deserialize_by_key(keys, de)
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    pub fn probe_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: Deserializer<'de>>(
+    pub fn probe_by_key<'de, T: TreeDeserialize<'de> + ?Sized, D: TreeDeserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         T::probe_by_key(keys, de)
     }
 
@@ -87,24 +88,22 @@ pub mod leaf {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    pub fn deserialize_by_key<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, T: Deserialize<'de>, D: TreeDeserializer<'de>>(
         value: &mut T,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         keys.finalize()?;
-        Deserialize::deserialize_in_place(de, value).map_err(SerdeError::Inner)?;
-        Ok(())
+        de.deserialize_in_place(value)
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    pub fn probe_by_key<'de, T: Deserialize<'de>, D: Deserializer<'de>>(
+    pub fn probe_by_key<'de, T: Deserialize<'de>, D: TreeDeserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         keys.finalize()?;
-        T::deserialize(de).map_err(SerdeError::Inner)?;
-        Ok(())
+        de.deserialize::<T>().map(|(_, output)| output)
     }
 
     /// [`TreeAny::ref_any_by_key()`]
@@ -176,18 +175,18 @@ impl<T: Serialize + ?Sized> TreeSerialize for Leaf<T> {
 }
 
 impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Leaf<T> {
-    fn deserialize_by_key<D: Deserializer<'de>>(
+    fn deserialize_by_key<D: TreeDeserializer<'de>>(
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         leaf::deserialize_by_key(&mut self.0, keys, de)
     }
 
-    fn probe_by_key<D: Deserializer<'de>>(
+    fn probe_by_key<D: TreeDeserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         leaf::probe_by_key::<Self, _>(keys, de)
     }
 }
@@ -221,18 +220,18 @@ macro_rules! impl_typed_leaf {
         }
 
         impl<'de> TreeDeserialize<'de> for $ty {
-            fn deserialize_by_key<D: Deserializer<'de>>(
+            fn deserialize_by_key<D: TreeDeserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::deserialize_by_key(self, keys, de)
             }
 
-            fn probe_by_key<D: Deserializer<'de>>(
+            fn probe_by_key<D: TreeDeserializer<'de>>(
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::probe_by_key::<Self, _>(keys, de)
             }
         }
@@ -266,18 +265,18 @@ macro_rules! impl_leaf {
         }
 
         impl<'de> TreeDeserialize<'de> for $ty {
-            fn deserialize_by_key<D: Deserializer<'de>>(
+            fn deserialize_by_key<D: TreeDeserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::deserialize_by_key(self, keys, de)
             }
 
-            fn probe_by_key<D: Deserializer<'de>>(
+            fn probe_by_key<D: TreeDeserializer<'de>>(
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::probe_by_key::<Self, _>(keys, de)
             }
         }
@@ -337,18 +336,18 @@ macro_rules! impl_unsized_leaf {
         }
 
         impl<'a, 'de: 'a> TreeDeserialize<'de> for &'a $ty {
-            fn deserialize_by_key<D: Deserializer<'de>>(
+            fn deserialize_by_key<D: TreeDeserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::deserialize_by_key(self, keys, de)
             }
 
-            fn probe_by_key<D: Deserializer<'de>>(
+            fn probe_by_key<D: TreeDeserializer<'de>>(
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::probe_by_key::<Self, _>(keys, de)
             }
         }
@@ -372,18 +371,18 @@ macro_rules! impl_typed_unsized_leaf {
         }
 
         impl<'a, 'de: 'a> TreeDeserialize<'de> for &'a $ty {
-            fn deserialize_by_key<D: Deserializer<'de>>(
+            fn deserialize_by_key<D: TreeDeserializer<'de>>(
                 &mut self,
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::deserialize_by_key(self, keys, de)
             }
 
-            fn probe_by_key<D: Deserializer<'de>>(
+            fn probe_by_key<D: TreeDeserializer<'de>>(
                 keys: impl Keys,
                 de: D,
-            ) -> Result<(), SerdeError<D::Error>> {
+            ) -> Result<D::Ok, SerdeError<D::Error>> {
                 leaf::probe_by_key::<Self, _>(keys, de)
             }
         }
@@ -410,18 +409,18 @@ impl<'a, 'de: 'a, T> TreeDeserialize<'de> for &'a [T]
 where
     &'a [T]: Deserialize<'de>,
 {
-    fn deserialize_by_key<D: Deserializer<'de>>(
+    fn deserialize_by_key<D: TreeDeserializer<'de>>(
         &mut self,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         leaf::deserialize_by_key(self, keys, de)
     }
 
-    fn probe_by_key<D: Deserializer<'de>>(
+    fn probe_by_key<D: TreeDeserializer<'de>>(
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         leaf::probe_by_key::<Self, _>(keys, de)
     }
 }
@@ -449,18 +448,18 @@ mod alloc_impls {
     }
 
     impl<'de, T: Deserialize<'de>> TreeDeserialize<'de> for Vec<T> {
-        fn deserialize_by_key<D: Deserializer<'de>>(
+        fn deserialize_by_key<D: TreeDeserializer<'de>>(
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        fn probe_by_key<D: Deserializer<'de>>(
+        fn probe_by_key<D: TreeDeserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
@@ -529,18 +528,18 @@ mod heapless_impls {
     }
 
     impl<'de, const N: usize> TreeDeserialize<'de> for String<N> {
-        fn deserialize_by_key<D: Deserializer<'de>>(
+        fn deserialize_by_key<D: TreeDeserializer<'de>>(
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        fn probe_by_key<D: Deserializer<'de>>(
+        fn probe_by_key<D: TreeDeserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
@@ -570,18 +569,18 @@ mod heapless_impls {
     }
 
     impl<'de, T: Deserialize<'de>, const N: usize> TreeDeserialize<'de> for Vec<T, N> {
-        fn deserialize_by_key<D: Deserializer<'de>>(
+        fn deserialize_by_key<D: TreeDeserializer<'de>>(
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        fn probe_by_key<D: Deserializer<'de>>(
+        fn probe_by_key<D: TreeDeserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
@@ -622,18 +621,18 @@ mod heapless_09_impls {
     }
 
     impl<'de, const N: usize, LenT: LenType> TreeDeserialize<'de> for String<N, LenT> {
-        fn deserialize_by_key<D: Deserializer<'de>>(
+        fn deserialize_by_key<D: TreeDeserializer<'de>>(
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        fn probe_by_key<D: Deserializer<'de>>(
+        fn probe_by_key<D: TreeDeserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
@@ -665,18 +664,18 @@ mod heapless_09_impls {
     impl<'de, T: Deserialize<'de>, const N: usize, LenT: LenType> TreeDeserialize<'de>
         for Vec<T, N, LenT>
     {
-        fn deserialize_by_key<D: Deserializer<'de>>(
+        fn deserialize_by_key<D: TreeDeserializer<'de>>(
             &mut self,
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::deserialize_by_key(self, keys, de)
         }
 
-        fn probe_by_key<D: Deserializer<'de>>(
+        fn probe_by_key<D: TreeDeserializer<'de>>(
             keys: impl Keys,
             de: D,
-        ) -> Result<(), SerdeError<D::Error>> {
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
             leaf::probe_by_key::<Self, _>(keys, de)
         }
     }
@@ -745,28 +744,28 @@ pub mod str_leaf {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
         value: &mut impl TryFrom<&'de str>,
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         keys.finalize()?;
-        let name: &str = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
+        let (name, output) = de.deserialize::<&str>()?;
         *value = name
             .try_into()
             .or(Err(ValueError::Access("Could not convert from str")))?;
-        Ok(())
+        Ok(output)
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    pub fn probe_by_key<'de, T: TryFrom<&'de str>, D: Deserializer<'de>>(
+    pub fn probe_by_key<'de, T: TryFrom<&'de str>, D: TreeDeserializer<'de>>(
         mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         keys.finalize()?;
-        let name: &str = Deserialize::deserialize(de).map_err(SerdeError::Inner)?;
+        let (name, output) = de.deserialize::<&str>()?;
         T::try_from(name).or(Err(ValueError::Access("Could not convert from str")))?;
-        Ok(())
+        Ok(output)
     }
 }
 
@@ -791,19 +790,19 @@ pub mod deny {
     }
 
     /// [`TreeDeserialize::deserialize_by_key()`]
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
         _value: &mut impl ?Sized,
         _keys: impl Keys,
         _de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         Err(ValueError::Access("Denied").into())
     }
 
     /// [`TreeDeserialize::probe_by_key()`]
-    pub fn probe_by_key<'de, T: ?Sized, D: Deserializer<'de>>(
+    pub fn probe_by_key<'de, T: ?Sized, D: TreeDeserializer<'de>>(
         _keys: impl Keys,
         _de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         Err(ValueError::Access("Denied").into())
     }
 

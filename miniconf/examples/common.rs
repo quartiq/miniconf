@@ -86,23 +86,23 @@ mod read_only {
 }
 
 mod dac {
-    use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
+    use miniconf::{Keys, SerdeError, TreeDeserialize, TreeDeserializer, ValueError};
 
     pub use miniconf::passthrough::{
         mut_any_by_key, probe_by_key, ref_any_by_key, schema, serialize_by_key,
     };
 
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
         value: &mut [u16; 2],
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         // Validate into a scratch copy so a rejected write leaves the DAC unchanged.
         let mut next = *value;
-        next.deserialize_by_key(keys, de)?;
+        let output = next.deserialize_by_key(keys, de)?;
         if next.iter().all(|value| *value <= 4095) {
             *value = next;
-            Ok(())
+            Ok(output)
         } else {
             Err(ValueError::Access("DAC value exceeds 12-bit range").into())
         }

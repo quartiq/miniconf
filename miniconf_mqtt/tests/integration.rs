@@ -849,6 +849,51 @@ async fn service_rejects_overflow_without_mutating() {
 }
 
 #[tokio::test]
+async fn service_rejects_trailing_input_without_a_change() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+    let prefix = unique("finalization");
+    let mut publisher_session = Session::new(config());
+    let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
+    let mut settings = Settings::default();
+    let mut service = Service::<1>::new();
+    let mut connection = connect_miniconf(
+        &mut miniconf,
+        &mut session,
+        &settings,
+        connect_addr(addr).await.unwrap(),
+    )
+    .await;
+    let mut publisher =
+        wait_session(&mut publisher_session, connect_addr(addr).await.unwrap()).await;
+    publisher
+        .publish(Publication::bytes(
+            &format!("{prefix}/set/value"),
+            b"9 trailing",
+        ))
+        .await
+        .unwrap();
+    loop {
+        let inbound = timeout(Duration::from_secs(5), connection.poll())
+            .await
+            .unwrap()
+            .unwrap();
+        if let Some(inbound) = inbound {
+            assert!(matches!(
+                service.handle(&mut miniconf, &mut settings, &inbound),
+                ServiceEvent::Idle
+            ));
+            break;
+        }
+    }
+    assert_eq!(settings.value, 0);
+    assert!(service.is_empty());
+}
+
+#[tokio::test]
 async fn interrupted_startup_restarts_before_using_the_resume_path() {
     init_host_logging();
     let Some(addr) = broker_addr() else {
