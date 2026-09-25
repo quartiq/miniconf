@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_coap"
-version = "0.1.0"
+version = "0.2.0"
 description = "CoAP interface for `miniconf`"
 autoexamples = false
 authors.workspace = true
