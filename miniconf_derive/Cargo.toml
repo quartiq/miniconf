@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_derive"
-version = "0.21.1"
+version = "0.22.0"
 description = "Derive macros for `miniconf`"
 authors.workspace = true
 edition.workspace = true

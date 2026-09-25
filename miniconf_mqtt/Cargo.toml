@@ -1,6 +1,6 @@
 [package]
 name = "miniconf_mqtt"
-version = "0.22.1"
+version = "0.23.0"
 description = "MQTT interface for `miniconf`, using `minimq`"
 autoexamples = false
 authors.workspace = true
@@ -20,7 +20,7 @@ workspace = true
 default = []
 
 [dependencies]
-miniconf = { version = "0.21.1", features = [
+miniconf = { version = "0.22.0", features = [
     "defmt",
     "json-core",
 ], default-features = false, path = "../miniconf" }

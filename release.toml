@@ -1,7 +1,8 @@
 [[pre-release-replacements]]
 file = "CHANGELOG.md"
 search = "## \\[UNRELEASED\\]\\(https?://[^)]+?/compare/(?P<previous>[^)]+)\\.\\.\\.HEAD\\) - DATE"
-replace = """## [UNRELEASED]({{repository}}/compare/{{tag_name}}...HEAD) - DATE
+# Preparation uses --no-tag, so construct the future tag name explicitly.
+replace = """## [UNRELEASED]({{repository}}/compare/{{crate_name}}-v{{version}}...HEAD) - DATE
 
-## [{{version}}]({{repository}}/compare/${previous}...{{tag_name}}) - {{date}}"""
+## [{{version}}]({{repository}}/compare/${previous}...{{crate_name}}-v{{version}}) - {{date}}"""
 exactly = 1
