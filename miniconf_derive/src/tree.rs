@@ -521,11 +521,11 @@ impl Tree {
         quote! {
             #[automatically_derived]
             impl #impl_generics ::miniconf::TreeDeserialize<'__de> for #ident #ty_generics #where_clause {
-                fn deserialize_by_key<__D: ::miniconf::Deserializer<'__de>>(
+                fn deserialize_by_key<__D: ::miniconf::TreeDeserializer<'__de>>(
                     &mut self,
                     keys: impl ::miniconf::Keys,
                     de: __D
-                ) -> ::core::result::Result<(), ::miniconf::SerdeError<__D::Error>>
+                ) -> ::core::result::Result<__D::Ok, ::miniconf::SerdeError<__D::Error>>
                 {
                     #key_setup
                     let index = #index?;
@@ -535,10 +535,10 @@ impl Tree {
                     }
                 }
 
-            fn probe_by_key<__D: ::miniconf::Deserializer<'__de>>(
+            fn probe_by_key<__D: ::miniconf::TreeDeserializer<'__de>>(
                 keys: impl ::miniconf::Keys,
                 de: __D
-            ) -> ::core::result::Result<(), ::miniconf::SerdeError<__D::Error>>
+            ) -> ::core::result::Result<__D::Ok, ::miniconf::SerdeError<__D::Error>>
                 {
                     #key_setup
                     let index = #index?;

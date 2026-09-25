@@ -163,9 +163,9 @@ mod tests {
             ("/control/enabled=", Err(Error::Value)),
             ("/serial=7", Err(Error::Access)),
             ("/serial", Ok(b"4660")),
-            // JSON finalization follows the write, as in the Tree JSON API.
+            // A rejected message must not update the leaf.
             ("/control/enabled=false garbage", Err(Error::Value)),
-            ("/control/enabled", Ok(b"false")),
+            ("/control/enabled", Ok(b"true")),
         ] {
             assert_eq!(command(&mut settings, cmd, &mut out), expected, "{cmd}");
         }

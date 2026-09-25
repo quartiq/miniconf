@@ -40,8 +40,26 @@
 //! `examples/packed.rs`.
 
 use postcard::{Deserializer, Serializer, de_flavors, ser_flavors};
+use serde::de::DeserializeSeed;
 
-use crate::{IntoKeys, Keys, SerdeError, TreeDeserialize, TreeSerialize};
+use crate::{IntoKeys, Keys, SerdeError, TreeDeserialize, TreeDeserializer, TreeSerialize};
+
+struct Postcard<F>(F);
+
+impl<'de, F: de_flavors::Flavor<'de>> TreeDeserializer<'de> for Postcard<F> {
+    type Error = postcard::Error;
+    type Ok = F::Remainder;
+
+    fn deserialize_seed<S: DeserializeSeed<'de>>(
+        self,
+        seed: S,
+    ) -> Result<(S::Value, F::Remainder), SerdeError<postcard::Error>> {
+        let mut de = Deserializer::from_flavor(self.0);
+        let value = seed.deserialize(&mut de).map_err(SerdeError::Inner)?;
+        let remainder = de.finalize().map_err(SerdeError::Finalization)?;
+        Ok((value, remainder))
+    }
+}
 
 /// Deserialize and set a node value from a `postcard` flavor using a boundary key input.
 pub fn set_by_key<'de, F: de_flavors::Flavor<'de>>(
@@ -58,9 +76,7 @@ pub fn set_by_keys<'de, F: de_flavors::Flavor<'de>>(
     keys: impl Keys,
     flavor: F,
 ) -> Result<F::Remainder, SerdeError<postcard::Error>> {
-    let mut de = Deserializer::from_flavor(flavor);
-    tree.deserialize_by_key(keys, &mut de)?;
-    de.finalize().map_err(SerdeError::Finalization)
+    tree.deserialize_by_key(keys, Postcard(flavor))
 }
 
 /// Get and serialize a node value into a `postcard` flavor using a boundary key input.

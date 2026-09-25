@@ -21,9 +21,27 @@
 //! assert_eq!(&buf[..len], b"9");
 //! ```
 
+use serde::de::DeserializeSeed;
 use serde_json_core::{de, ser};
 
-use crate::{IntoKeys, Keys, SerdeError, TreeDeserialize, TreeSerialize};
+use crate::{IntoKeys, Keys, SerdeError, TreeDeserialize, TreeDeserializer, TreeSerialize};
+
+struct Json<'de>(&'de [u8]);
+
+impl<'de> TreeDeserializer<'de> for Json<'de> {
+    type Error = de::Error;
+    type Ok = usize;
+
+    fn deserialize_seed<S: DeserializeSeed<'de>>(
+        self,
+        seed: S,
+    ) -> Result<(S::Value, usize), SerdeError<de::Error>> {
+        let mut de = de::Deserializer::new(self.0, None);
+        let value = seed.deserialize(&mut de).map_err(SerdeError::Inner)?;
+        let len = de.end().map_err(SerdeError::Finalization)?;
+        Ok((value, len))
+    }
+}
 
 /// Update a node by path.
 ///
@@ -77,9 +95,7 @@ pub fn set_by_keys<'de>(
     keys: impl Keys,
     data: &'de [u8],
 ) -> Result<usize, SerdeError<de::Error>> {
-    let mut de = de::Deserializer::new(data, None);
-    tree.deserialize_by_key(keys, &mut de)?;
-    de.end().map_err(SerdeError::Finalization)
+    tree.deserialize_by_key(keys, Json(data))
 }
 
 /// Retrieve a serialized value by a boundary key input.

@@ -73,19 +73,8 @@ pub enum SerdeError<E> {
     #[error("(De)serialization")]
     Inner(#[source] E),
 
-    /// There was an error during finalization.
-    ///
-    /// This is not to be returned by a TreeSerialize/TreeDeserialize
-    /// implementation but only from a wrapper that creates and finalizes the
-    /// the serializer/deserializer.
-    ///
-    /// The `Deserializer` has encountered an error only after successfully
-    /// deserializing a value. This is the case if there is additional unexpected data.
-    /// The `deserialize_by_key()` update takes place but this
-    /// error will be returned.
-    ///
-    /// A `Serializer` may write checksums or additional framing data and fail with
-    /// this error during finalization after the value has been serialized.
+    /// The codec failed to finalize, for example while checking trailing input
+    /// or reading or writing a checksum.
     #[error("(De)serializer finalization")]
     Finalization(#[source] E),
 }

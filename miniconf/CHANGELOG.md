@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 * Build the core without default features independently of workspace feature unification.
+* Finalize JSON-core and Postcard input before assigning the decoded leaf.
+
+### Changed
+
+* `TreeDeserialize` methods and custom field adapters now accept `TreeDeserializer`
+  and return its `Ok` type. Raw Serde deserializers remain supported with in-place
+  deserialization and `Ok = ()`.
 
 ## [0.21.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.0...miniconf-v0.21.1) - 2026-09-15
 

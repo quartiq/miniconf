@@ -7,24 +7,24 @@ struct Check {
 }
 
 mod check {
-    use miniconf::{Deserializer, Keys, SerdeError, TreeDeserialize, ValueError};
+    use miniconf::{Keys, SerdeError, TreeDeserializer, ValueError};
 
     pub use miniconf::leaf::{
         mut_any_by_key, probe_by_key, ref_any_by_key, schema, serialize_by_key,
     };
 
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
         value: &mut f32,
-        keys: impl Keys,
+        mut keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
-        let mut old = *value;
-        old.deserialize_by_key(keys, de)?;
-        if old < 0.0 {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
+        keys.finalize()?;
+        let (next, output) = de.deserialize()?;
+        if next < 0.0 {
             Err(ValueError::Access("").into())
         } else {
-            *value = old;
-            Ok(())
+            *value = next;
+            Ok(output)
         }
     }
 }
@@ -56,7 +56,7 @@ mod page4 {
     use super::Page;
 
     use miniconf::{
-        Deserializer, Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeSchema,
+        Keys, Schema, SerdeError, Serializer, TreeDeserialize, TreeDeserializer, TreeSchema,
         TreeSerialize, ValueError,
     };
 
@@ -83,11 +83,11 @@ mod page4 {
         arr.serialize_by_key(keys, ser)
     }
 
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
         value: &mut Page,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         let arr: &mut [i32; LENGTH] = value
             .vec
             .get_mut(value.offset..value.offset + LENGTH)
@@ -126,7 +126,7 @@ struct Lock {
 mod lock {
     use super::Lock;
     use miniconf::{
-        Deserializer, Keys, SerdeError, Serializer, TreeDeserialize, TreeSerialize, ValueError,
+        Keys, SerdeError, Serializer, TreeDeserialize, TreeDeserializer, TreeSerialize, ValueError,
     };
 
     pub use miniconf::deny::{mut_any_by_key, probe_by_key, ref_any_by_key, schema};
@@ -142,11 +142,11 @@ mod lock {
         value.val.serialize_by_key(keys, ser)
     }
 
-    pub fn deserialize_by_key<'de, D: Deserializer<'de>>(
+    pub fn deserialize_by_key<'de, D: TreeDeserializer<'de>>(
         value: &mut Lock,
         keys: impl Keys,
         de: D,
-    ) -> Result<(), SerdeError<D::Error>> {
+    ) -> Result<D::Ok, SerdeError<D::Error>> {
         if !value.write {
             return Err(ValueError::Access("not writable").into());
         }

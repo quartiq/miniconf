@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_derive-v0.21.1...HEAD) - DATE
 
+### Changed
+
+* Custom deserialization adapters must accept `TreeDeserializer` and return `D::Ok`.
+
 ## [0.21.1](https://github.com/quartiq/miniconf/compare/miniconf_derive-v0.21.0...miniconf_derive-v0.21.1) - 2026-09-15
 
 ## [0.21.0](https://github.com/quartiq/miniconf/compare/miniconf_derive-v0.20.0...miniconf_derive-v0.21.0) - 2026-06-10

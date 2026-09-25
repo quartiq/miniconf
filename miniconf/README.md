@@ -77,10 +77,11 @@ in the static schema but may return [`ValueError::Absent`] at runtime.
 
 ## Control Changes
 
-To reject invalid settings without changing the live tree, deserialize into a
-candidate and commit only after the complete call succeeds. A failed call can
-leave partial changes, including on payload finalization errors. Applying
-hardware changes and saving settings remain application decisions.
+Standard leaf updates through JSON-core and Postcard decode and finalize before
+assignment. Raw Serde sources deserialize in place and can leave partial changes
+on failure. Custom setters control their own side effects. Stage multi-leaf
+updates and commit after all calls succeed. Hardware updates and persistence
+remain application decisions.
 
 Use `#[tree(with = module)]` to enforce rules for a field. The
 integration fixture (`examples/common.rs`)

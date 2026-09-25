@@ -36,11 +36,14 @@ pub(super) fn help(path: &str, mut reply: impl FnMut(&[u8])) -> Result<(), Error
 
 fn value<T: Serialize + DeserializeOwned>(
     value: &mut T,
-    de: Option<&mut Deserializer<'_, '_>>,
+    input: Option<&str>,
     out: &mut [u8],
 ) -> Result<usize, Error> {
-    if let Some(de) = de {
-        *value = T::deserialize(de).map_err(|_| Error::Value)?;
+    if let Some(input) = input {
+        let mut de = Deserializer::new(input.as_bytes(), None);
+        let next = T::deserialize(&mut de).map_err(|_| Error::Value)?;
+        de.end().map_err(|_| Error::Value)?;
+        *value = next;
         Ok(0)
     } else {
         to_slice(value, out).map_err(|_| Error::Value)
@@ -53,7 +56,6 @@ pub(super) fn exchange(
     input: Option<&str>,
     out: &mut [u8],
 ) -> Result<usize, Error> {
-    let mut de = input.map(|s| Deserializer::new(s.as_bytes(), None));
     let len = match path {
         "/serial" | "/temp" if input.is_some() => return Err(Error::Access),
         "/serial" => to_slice(&settings.serial, out).map_err(|_| Error::Value)?,
@@ -62,15 +64,15 @@ pub(super) fn exchange(
             out,
         )
         .map_err(|_| Error::Value)?,
-        "/control/enabled" => value(&mut settings.control.enabled, de.as_mut(), out)?,
-        "/control/mode" => value(&mut settings.control.mode, de.as_mut(), out)?,
+        "/control/enabled" => value(&mut settings.control.enabled, input, out)?,
+        "/control/mode" => value(&mut settings.control.mode, input, out)?,
         "/calibration/offset" => value(
             &mut settings
                 .calibration
                 .as_mut()
                 .ok_or(Error::Unavailable)?
                 .offset,
-            de.as_mut(),
+            input,
             out,
         )?,
         "/calibration/slope" => value(
@@ -79,7 +81,7 @@ pub(super) fn exchange(
                 .as_mut()
                 .ok_or(Error::Unavailable)?
                 .slope,
-            de.as_mut(),
+            input,
             out,
         )?,
         _ => {
@@ -92,7 +94,7 @@ pub(super) fn exchange(
             match array {
                 "dac" => {
                     let mut next = settings.output.dac;
-                    let len = value(next.get_mut(index).ok_or(Error::Path)?, de.as_mut(), out)?;
+                    let len = value(next.get_mut(index).ok_or(Error::Path)?, input, out)?;
                     if input.is_some() {
                         if next.iter().any(|v| *v > 4095) {
                             return Err(Error::Access);
@@ -107,15 +109,12 @@ pub(super) fn exchange(
                         .attenuation
                         .get_mut(index)
                         .ok_or(Error::Path)?,
-                    de.as_mut(),
+                    input,
                     out,
                 )?,
                 _ => return Err(Error::Path),
             }
         }
     };
-    if let Some(mut de) = de {
-        de.end().map_err(|_| Error::Value)?;
-    }
     Ok(len)
 }
