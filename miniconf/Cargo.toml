@@ -1,6 +1,6 @@
 [package]
 name = "miniconf"
-version = "0.21.1"
+version = "0.22.0"
 description = "Access, serialize and discover values in typed trees (no_std, no alloc)"
 authors.workspace = true
 edition.workspace = true
