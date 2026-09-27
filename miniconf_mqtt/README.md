@@ -35,8 +35,6 @@ Typical flow:
 5. use `Publisher::root(Settings::SCHEMA)` or `Publisher::by_key(Settings::SCHEMA, key)` for explicit app-side retained
    republish
 
-`Publisher::root(Settings::SCHEMA)` replaces the old full-tree `publish_all()` flow.
-
 Retained settings recovery is a cold-boot step:
 
 ```rust

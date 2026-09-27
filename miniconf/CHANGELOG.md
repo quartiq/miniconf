@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf-v0.22.0...HEAD) - DATE
 
+### Fixed
+
+* Correct compact schema map lengths for length-prefixed serializers.
+
+### Changed
+
+* Breaking: `SchemaDefinition<'a>` no longer has a capacity parameter.
+
 ## [0.22.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.1...miniconf-v0.22.0) - 2026-09-25
 
 ### Fixed
