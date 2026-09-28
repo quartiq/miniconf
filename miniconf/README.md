@@ -80,6 +80,7 @@ Try the same settings tree through different interfaces:
 | --- | --- |
 | `cargo run --example cli -- --output-dac-1 2048` | Command-line options |
 | `cargo run --example packed --features postcard` | A binary leaf round trip in fixed buffers |
+| `cargo run --example diff` | Compare configurations, apply changes, and undo them |
 | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
 | `cargo run --example scpi` | A small SCPI-style command interface |
 
