@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{DescendError, IntoKeys, Keys, KeysIter, Schema, Transcode};
+use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Transcode};
 
 /// JSON-style path iterator for boundary key input.
 ///
@@ -18,18 +18,20 @@ use crate::{DescendError, IntoKeys, Keys, KeysIter, Schema, Transcode};
 ///     "['foo']['bar'][4]['baz'][5][6]",
 ///     ".foo['bar'].4.'baz'['5'].'6'",
 /// ] {
-///     assert_eq!(&path[..], JsonPathIter::new(valid).collect::<Vec<_>>());
+///     assert_eq!(&path[..], JsonPathIter::new(valid).collect::<Result<Vec<_>, _>>().unwrap());
 /// }
 ///
 /// for short in ["'", "[", "['"] {
-///     assert!(JsonPathIter::new(short).next().is_none());
+///     assert!(JsonPathIter::new(short).next().unwrap().is_err());
 /// }
 /// ```
 ///
 /// # Limitations
 ///
-/// * No attempt at validating conformance
-/// * Does not support any escaping
+/// * This is not full JSONPath and does not support escaping.
+/// * Unquoted segments cannot contain `.`, `'`, `[` or `]`.
+///
+/// Malformed text yields [`KeyError::NotFound`] and ends iteration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize, Hash)]
 #[repr(transparent)]
 #[serde(transparent)]
@@ -49,9 +51,13 @@ impl core::fmt::Display for JsonPathIter<'_> {
 }
 
 impl<'a> Iterator for JsonPathIter<'a> {
-    type Item = &'a str;
+    type Item = Result<&'a str, KeyError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.0.is_empty() {
+            return None;
+        }
+        let path = core::mem::take(&mut self.0);
         enum Close {
             Inclusive(&'static str),
             Exclusive(&'static [char]),
@@ -63,23 +69,47 @@ impl<'a> Iterator for JsonPathIter<'a> {
             ("['", Inclusive("']")),
             ("[", Inclusive("]")),
         ] {
-            if let Some(rest) = self.0.strip_prefix(open) {
+            if let Some(rest) = path.strip_prefix(open) {
                 let (pre, post) = match close {
                     Exclusive(close) => rest
                         .find(close)
                         .map(|i| rest.split_at(i))
                         .unwrap_or((rest, "")),
-                    Inclusive(close) => rest.split_once(close)?,
+                    Inclusive(close) => match rest.split_once(close) {
+                        Some(parts) => parts,
+                        None => return Some(Err(KeyError::NotFound)),
+                    },
                 };
+                if pre.contains('\'')
+                    || (matches!(open, "." | "[") && pre.contains(['.', '[', ']']))
+                {
+                    return Some(Err(KeyError::NotFound));
+                }
                 self.0 = post;
-                return Some(pre);
+                return Some(Ok(pre));
             }
         }
-        None
+        Some(Err(KeyError::NotFound))
     }
 }
 
 impl core::iter::FusedIterator for JsonPathIter<'_> {}
+
+impl Keys for JsonPathIter<'_> {
+    fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
+        let key = Iterator::next(self)
+            .transpose()?
+            .ok_or(KeyError::TooShort)?;
+        <str as Key>::find(key, internal).ok_or(KeyError::NotFound)
+    }
+
+    fn finalize(&mut self) -> Result<(), KeyError> {
+        match Iterator::next(self).transpose()? {
+            Some(_) => Err(KeyError::TooLong),
+            None => Ok(()),
+        }
+    }
+}
 
 /// JSON-style path notation output.
 ///
@@ -110,10 +140,10 @@ impl<T: core::fmt::Display> core::fmt::Display for JsonPath<T> {
 }
 
 impl<'a> IntoKeys for JsonPathIter<'a> {
-    type IntoKeys = KeysIter<Self>;
+    type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        KeysIter::new(self)
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 

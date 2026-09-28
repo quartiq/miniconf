@@ -105,27 +105,28 @@ impl<T: AsMut<[usize]> + ?Sized> Transcode for Indices<T> {
     }
 }
 
-macro_rules! impl_transcode_slice {
-    ($($t:ty)+) => {$(
-        impl Transcode for [$t] {
-            type Error = ();
+impl<T> Transcode for [T]
+where
+    usize: TryInto<T>,
+{
+    type Error = ();
 
-            fn transcode_from(&mut self, schema: &Schema, keys: impl Keys) -> Result<(), DescendError<Self::Error>> {
-                let mut it = self.iter_mut();
-                schema.descend(keys, |_meta, idx_schema| {
-                    if let Some((index, internal)) = idx_schema {
-                        debug_assert!(internal.len().get() <= <$t>::MAX as _);
-                        let i = index.try_into().or(Err(()))?;
-                        let idx = it.next().ok_or(())?;
-                        *idx = i;
-                    }
-                    Ok(())
-                })
+    fn transcode_from(
+        &mut self,
+        schema: &Schema,
+        keys: impl Keys,
+    ) -> Result<(), DescendError<Self::Error>> {
+        let mut it = self.iter_mut();
+        schema.descend(keys, |_meta, idx_schema| {
+            if let Some((index, _schema)) = idx_schema {
+                let i = index.try_into().or(Err(()))?;
+                let idx = it.next().ok_or(())?;
+                *idx = i;
             }
-        }
-    )+};
+            Ok(())
+        })
+    }
 }
-impl_transcode_slice!(usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128);
 
 #[cfg(feature = "alloc")]
 impl<T> Transcode for Vec<T>
@@ -298,7 +299,21 @@ fn split_path(path: &str, separator: char) -> (&str, Option<&str>) {
     (left, right.get(separator.len_utf8()..))
 }
 
+fn finalize_path(path: Option<&str>) -> Result<(), KeyError> {
+    if path.is_none() {
+        Ok(())
+    } else {
+        Err(KeyError::TooLong)
+    }
+}
+
 /// Runtime-separated path iterator for boundary key input.
+///
+/// Empty input selects the root. Each segment starts with the separator;
+/// repeated and trailing separators preserve empty segments. Construction rejects
+/// nonempty input without a leading separator with [`KeyError::NotFound`].
+/// [`Keys::finalize()`] checks the remainder without consuming it.
+/// Serde stores the remaining segments, not the original rooted input.
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct PathIter<'a> {
     path: Option<&'a str>,
@@ -306,26 +321,14 @@ pub struct PathIter<'a> {
 }
 
 impl<'a> PathIter<'a> {
-    /// Create a new `PathIter`.
-    pub fn new(path: Option<&'a str>, separator: char) -> Self {
-        Self { path, separator }
-    }
-
-    /// Create a new `PathIter` starting at the root.
-    ///
-    /// This calls `next()` once to pop everything up to and including the first separator.
-    pub fn root(path: &'a str, separator: char) -> Self {
-        let mut s = Self::new(Some(path), separator);
-        // Skip the first part to disambiguate between
-        // the one-Key Keys `[""]` and the zero-Key Keys `[]`.
-        // This is relevant in the case of e.g. `Option` and newtypes.
-        // See the corresponding unittests (`just_option`).
-        // It implies that Paths start with the separator
-        // or are empty. Everything before the first separator is ignored.
-        // This also means that paths can always be concatenated without having to
-        // worry about adding/trimming leading or trailing separators.
-        Iterator::next(&mut s);
-        s
+    /// Create a rooted path iterator.
+    pub fn root(path: &'a str, separator: char) -> Result<Self, KeyError> {
+        let path = if path.is_empty() {
+            None
+        } else {
+            Some(path.strip_prefix(separator).ok_or(KeyError::NotFound)?)
+        };
+        Ok(Self { path, separator })
     }
 }
 
@@ -348,30 +351,20 @@ impl Keys for PathIter<'_> {
     }
 
     fn finalize(&mut self) -> Result<(), KeyError> {
-        match Iterator::next(self) {
-            Some(_) => Err(KeyError::TooLong),
-            None => Ok(()),
-        }
+        finalize_path(self.path)
     }
 }
 
-/// Const-specialized path iterator for boundary key input.
+/// Const-specialized path iterator following the rules of [`PathIter`].
 #[repr(transparent)]
 #[derive(Copy, Clone, Default, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ConstPathIter<'a, const S: char>(Option<&'a str>);
 
 impl<'a, const S: char> ConstPathIter<'a, S> {
-    /// Create a new const-specialized `PathIter`.
-    pub fn new(path: Option<&'a str>) -> Self {
-        Self(path)
-    }
-
-    /// Create a new const-specialized `PathIter` starting at the root.
-    pub fn root(path: &'a str) -> Self {
-        let mut s = Self::new(Some(path));
-        Iterator::next(&mut s);
-        s
+    /// Create a rooted path iterator.
+    pub fn root(path: &'a str) -> Result<Self, KeyError> {
+        PathIter::root(path, S).map(|path| Self(path.path))
     }
 }
 
@@ -405,26 +398,23 @@ impl<const S: char> Keys for ConstPathIter<'_, S> {
     }
 
     fn finalize(&mut self) -> Result<(), KeyError> {
-        match Iterator::next(self) {
-            Some(_) => Err(KeyError::TooLong),
-            None => Ok(()),
-        }
+        finalize_path(self.0)
     }
 }
 
 impl<'a> IntoKeys for PathIter<'a> {
     type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 
 impl<'a, const S: char> IntoKeys for ConstPathIter<'a, S> {
     type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 
@@ -460,6 +450,7 @@ impl<T: Write, const S: char> Transcode for ConstPath<T, S> {
         schema: &Schema,
         keys: impl Keys,
     ) -> Result<(), DescendError<Self::Error>> {
+        // Keep S in the traversal; Path can share code with runtime separators.
         schema.descend(keys, |_meta, idx_schema| {
             if let Some((index, internal)) = idx_schema {
                 self.0.write_char(S)?;
@@ -481,22 +472,60 @@ mod test {
     use super::*;
 
     #[test]
-    fn strsplit() {
-        use heapless_09::Vec;
-        for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_, 10> = PathIter::root(p, '/').collect();
-            let b: Vec<_, 10> = p.split('/').skip(1).collect();
-            assert_eq!(a, b);
+    fn path_finalization() {
+        for (path, expected) in [
+            ("", Ok(())),
+            ("/", Err(KeyError::TooLong)),
+            ("/a/b", Err(KeyError::TooLong)),
+        ] {
+            let mut dynamic = PathIter::root(path, '/').unwrap();
+            let mut fixed = ConstPathIter::<'/'>::root(path).unwrap();
+            for cursor in [&mut dynamic as &mut dyn Keys, &mut fixed] {
+                assert_eq!(cursor.finalize(), expected);
+                assert_eq!(cursor.finalize(), expected);
+            }
+            assert_eq!(dynamic, PathIter::root(path, '/').unwrap());
+            assert_eq!(fixed, ConstPathIter::root(path).unwrap());
         }
     }
 
     #[test]
-    fn ascii_strsplit() {
-        use heapless_09::Vec;
-        for p in ["/d/1", "/a/bccc//d/e/", "", "/", "a/b", "a"] {
-            let a: Vec<_, 10> = ConstPathIter::<'/'>::root(p).collect();
-            let b: Vec<_, 10> = p.split('/').skip(1).collect();
-            assert_eq!(a, b);
+    fn rooted_segments() {
+        use std::vec::Vec;
+        for p in ["/d/1", "/a/bccc//d/e/", "/é/温度/", "", "/"] {
+            let expected: Vec<_> = p.split('/').skip(1).collect();
+            assert_eq!(
+                PathIter::root(p, '/').unwrap().collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(
+                ConstPathIter::<'/'>::root(p).unwrap().collect::<Vec<_>>(),
+                expected
+            );
         }
+        for p in ["a", "a/b"] {
+            assert_eq!(PathIter::root(p, '/'), Err(KeyError::NotFound));
+            assert_eq!(ConstPathIter::<'/'>::root(p), Err(KeyError::NotFound));
+        }
+        let expected = ["a", "", ""];
+        assert_eq!(
+            PathIter::root("·a··", '·').unwrap().collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            ConstPathIter::<'·'>::root("·a··")
+                .unwrap()
+                .collect::<Vec<_>>(),
+            expected
+        );
+    }
+
+    #[test]
+    fn deserialize_remaining_segments() {
+        let dynamic: PathIter<'_> =
+            serde_json::from_str(r#"{"path":"a··","separator":"·"}"#).unwrap();
+        let fixed: ConstPathIter<'_, '·'> = serde_json::from_str(r#""a··""#).unwrap();
+        assert!(dynamic.eq(["a", "", ""]));
+        assert!(fixed.eq(["a", "", ""]));
     }
 }

@@ -1,5 +1,5 @@
-use core::{convert::Infallible, num::NonZero};
-use serde::{Serialize, Serializer, ser::SerializeMap as _};
+use core::num::NonZero;
+use serde::{Serialize, Serializer};
 
 use crate::{DescendError, ExactSize, IntoKeys, KeyError, Keys, NodeIter, Shape, Transcode};
 
@@ -436,11 +436,7 @@ impl Serialize for Meta {
     where
         S: Serializer,
     {
-        let mut map = serializer.serialize_map(Some(self.items.len()))?;
-        for (key, value) in self.items {
-            map.serialize_entry(key, value)?;
-        }
-        map.end()
+        serializer.collect_map(self.items.iter().copied())
     }
 }
 
@@ -457,7 +453,42 @@ mod tests {
     ));
 
     #[test]
+    fn metadata_at_any_node() {
+        const SCHEMA: Schema = Schema::named(&[Named::new("nested", &ROOT, Meta::EMPTY)]);
+        let schema = &SCHEMA;
+        let edge = ROOT.internal().unwrap().get_edge_meta(0);
+        assert_eq!(schema.get_meta(""), Ok((None, schema.node_meta())));
+        assert_eq!(
+            schema.get_meta("/nested"),
+            Ok((Some(&Meta::EMPTY), ROOT.node_meta()))
+        );
+        assert_eq!(
+            schema.get_meta("/nested/value"),
+            Ok((Some(edge), CHILD.node_meta()))
+        );
+        assert_eq!(
+            schema.get_meta("/nested/value/extra"),
+            Err(KeyError::TooLong)
+        );
+        assert_eq!(schema.get_meta("/missing"), Err(KeyError::NotFound));
+    }
+
+    #[test]
+    fn empty_internal_nodes_are_rejected() {
+        for internal in [Internal::Named(&[]), Internal::Numbered(&[])] {
+            assert!(
+                std::panic::catch_unwind(|| InternalSchema::new(NodeSchema::EMPTY, internal))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn meta_iter_preserves_declaration_order_and_duplicates() {
+        assert_eq!(
+            serde_json::to_string(&META).unwrap(),
+            r#"{"doc":"node","doc":"second"}"#
+        );
         assert_eq!(META.len(), 2);
         assert_eq!(META.get("doc"), Some("node"));
         assert_eq!(
@@ -532,7 +563,10 @@ pub struct InternalSchema {
 
 impl InternalSchema {
     /// Construct an internal schema from node payload and child layout.
+    ///
+    /// Panics if the child layout is empty.
     pub const fn new(node: NodeSchema, internal: Internal) -> Self {
+        let _ = internal.len();
         Self { node, internal }
     }
 
@@ -699,7 +733,7 @@ impl Schema {
     ///     assert_eq!(ret.next().unwrap(), (schema, idx_internal.map(|(idx, _)| idx)));
     ///     Ok::<_, Infallible>(())
     /// };
-    /// assert_eq!(S::SCHEMA.descend(["bar", "0"].into_keys(), func), Ok(()));
+    /// assert_eq!(S::SCHEMA.descend(["bar", "0"].into_keys().unwrap(), func), Ok(()));
     /// # }
     /// ```
     ///
@@ -728,19 +762,45 @@ impl Schema {
         func(schema, None).map_err(DescendError::Inner)
     }
 
-    /// Look up edge and node metadata given a boundary key input.
+    /// Look up incoming edge and node metadata at any exact node.
+    /// The root has no incoming edge.
+    ///
+    /// Discover settings and their units without constructing a settings instance:
+    ///
+    /// ```
+    /// # #[cfg(all(feature = "derive", feature = "meta-edge"))] {
+    /// use miniconf::{Path, TreeSchema};
+    /// #[derive(TreeSchema)]
+    /// struct Settings {
+    ///     #[tree(meta(unit = "V"))]
+    ///     voltage: f32,
+    ///     #[tree(meta(unit = "s"))]
+    ///     delay: f32,
+    /// }
+    /// let mut help = Vec::new();
+    /// for path in Settings::SCHEMA.nodes::<Path<String>, 1>() {
+    ///     let path = path.unwrap();
+    ///     let (field, _) = Settings::SCHEMA.get_meta(path.as_ref()).unwrap();
+    ///     help.push((path.path, field.unwrap().get("unit").unwrap_or("")));
+    /// }
+    /// assert_eq!(help, [("/voltage".into(), "V"), ("/delay".into(), "s")]);
+    /// # }
+    /// ```
     pub fn get_meta(&self, keys: impl IntoKeys) -> Result<(Option<&Meta>, &Meta), KeyError> {
+        let mut keys = keys.into_keys()?;
         let mut edge = None;
-        let mut node = self.node_meta();
-        self.descend(keys.into_keys(), |schema, idx_internal| {
-            if let Some((idx, internal)) = idx_internal {
-                edge = Some(internal.get_edge_meta(idx));
-            }
-            node = schema.node_meta();
-            Ok::<_, Infallible>(())
-        })
-        .map_err(|e| e.try_into().unwrap())?;
-        Ok((edge, node))
+        let mut schema = self;
+        while let Some(internal) = schema.internal() {
+            let idx = match keys.next(internal) {
+                Ok(idx) => idx,
+                Err(KeyError::TooShort) => return Ok((edge, schema.node_meta())),
+                Err(err) => return Err(err),
+            };
+            edge = Some(internal.get_edge_meta(idx));
+            schema = internal.get_schema(idx);
+        }
+        keys.finalize()?;
+        Ok((edge, schema.node_meta()))
     }
 
     fn walk(
@@ -792,7 +852,14 @@ impl Schema {
         keys: impl IntoKeys,
         state: &mut [usize],
     ) -> Result<Lookup, ResolveError> {
-        self.walk(keys.into_keys(), |depth, idx| {
+        let keys = keys.into_keys().map_err(|error| ResolveError {
+            error: error.into(),
+            lookup: Lookup {
+                depth: 0,
+                schema: self,
+            },
+        })?;
+        self.walk(keys, |depth, idx| {
             let Some(slot) = state.get_mut(depth) else {
                 return false;
             };
@@ -803,7 +870,7 @@ impl Schema {
 
     /// Get the schema node identified exactly by a boundary key input.
     pub fn get(&'static self, keys: impl IntoKeys) -> Result<Lookup, KeyError> {
-        self.walk(keys.into_keys(), |_, _| true)
+        self.walk(keys.into_keys()?, |_, _| true)
             .map_err(|err| match err.error {
                 DescendError::Key(err) => err,
                 DescendError::Inner(()) => unreachable!("infallible exact lookup"),
@@ -814,36 +881,21 @@ impl Schema {
     ///
     /// This default-constructs the output and then calls [`Transcode::transcode_from()`].
     ///
+    /// Resolve a path once, then use the indices to read and write the selected leaf:
+    ///
     /// ```
-    /// # #[cfg(feature = "derive")] {
-    /// use miniconf::{ConstPath, Indices, JsonPath, JsonPathIter, Lookup, Packed, Path, TreeSchema};
-    /// #[derive(TreeSchema)]
-    /// struct S {
-    ///     foo: u32,
-    ///     bar: [u16; 5],
-    /// };
-    ///
-    /// let idx = [1, 1];
-    /// let sch = S::SCHEMA;
-    ///
-    /// let path = sch.transcode::<Path<String>>(idx).unwrap();
-    /// assert_eq!(path.path.as_str(), "/bar/1");
-    /// let path = sch.transcode::<ConstPath<String, ':'>>(idx).unwrap();
-    /// assert_eq!(path.0.as_str(), ":bar:1");
-    /// let path = sch.transcode::<JsonPath<String>>(idx).unwrap();
-    /// assert_eq!(path.0.as_str(), ".bar[1]");
-    /// let indices = sch
-    ///     .transcode::<Indices<[usize; 2]>>(JsonPathIter::new(path.0.as_str()))
-    ///     .unwrap();
-    /// assert_eq!(indices.as_ref(), idx);
-    /// let indices = sch.transcode::<Indices<[usize; 2]>>(["bar", "1"]).unwrap();
-    /// assert_eq!(indices.as_ref(), [1, 1]);
-    /// let packed = sch.transcode::<Packed>(["bar", "4"]).unwrap();
-    /// assert_eq!(packed.into_lsb().get(), 0b1_1_100);
-    /// let path = sch.transcode::<Path<String>>(packed).unwrap();
-    /// assert_eq!(path.path.as_str(), "/bar/4");
-    /// let lookup = sch.get(path.as_ref()).unwrap();
-    /// assert_eq!((lookup.depth, lookup.schema.is_leaf()), (2, true));
+    /// # #[cfg(all(feature = "derive", feature = "json-core"))] {
+    /// use miniconf::{Indices, Tree, TreeSchema, json_core};
+    /// #[derive(Tree, Default)]
+    /// struct Settings {
+    ///     gain: [u16; 2],
+    /// }
+    /// let key = Settings::SCHEMA.transcode::<Indices<[usize; 2]>>("/gain/1").unwrap();
+    /// let mut settings = Settings::default();
+    /// json_core::set_by_key(&mut settings, key.as_ref(), b"9").unwrap();
+    /// let mut buf = [0; 8];
+    /// let len = json_core::get_by_key(&settings, key.as_ref(), &mut buf).unwrap();
+    /// assert_eq!(&buf[..len], b"9");
     /// # }
     /// ```
     ///

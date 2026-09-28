@@ -10,20 +10,9 @@ what else is there. Derive one tree and reuse it in a shell, a snapshot, an
 inspector, or a protocol.
 
 The core is `no_std` and needs no allocator. Serde encodes the values;
-Miniconf selects them by path.
+Miniconf selects them.
 
 ## Quick Start
-
-Create a host executable (no hardware or network required):
-
-```sh
-cargo new miniconf-demo
-cd miniconf-demo
-cargo add miniconf@0.21.1
-```
-
-Replace `src/main.rs` with the following and run `cargo run`.
-Derive [`Tree`] to expose the fields of each settings struct.
 
 ```rust
 use miniconf::{json_core, ConstPath, Tree, TreeSchema};
@@ -60,8 +49,10 @@ fn main() {
 
 This prints `/enabled`, `/output/gain/0`, and `/output/gain/1`.
 Try adding a field: it gets a path without another dispatch table. The final
-loop discovers those paths from the type's schema. Here it uses the host's
-`String`; a fixed-capacity string also works when no allocator is available.
+loop discovers those paths from the type's schema.
+
+Paths are empty for the root or start with `/`. Each separator introduces a
+segment; trailing and repeated separators select empty names.
 
 ## Tree Shape
 
@@ -77,26 +68,14 @@ in the static schema but may return [`ValueError::Absent`] at runtime.
 
 ## Control Changes
 
-Standard leaf updates through JSON-core and Postcard decode and finalize before
-assignment. Raw Serde sources deserialize in place and can leave partial changes
-on failure. Custom setters control their own side effects. Stage multi-leaf
-updates and commit after all calls succeed. Hardware updates and persistence
-remain application decisions.
-
-Use `#[tree(with = module)]` to enforce rules for a field. The
+Use `#[tree(with = module)]` to enforce rules or sideeffects for a node. The
 integration fixture (`examples/common.rs`)
-shows read-only fields and DAC range checking with a scratch copy. Metadata such
-as `max = "4095"` describes the range; the custom deserializer enforces it.
+shows read-only nodes and DAC range checking with a scratch copy. Metadata such
+as `max = "4095"` describe; the custom deserializer enforces it.
 
 ## Reuse The Tree
 
-Stabilizer's [miniconf-settings](https://github.com/quartiq/stabilizer/tree/292f6f3fa15b4a51789d97a08cbd7546ca3f3d06/miniconf-settings)
-uses one tree for a shell and snapshots: `get` and `set` address live values,
-while snapshots walk the leaves to save and restore them. Add a field and both
-consumers can reach it. The application handles USB framing, hardware updates,
-and flash storage. This upper-layer crate is currently unpublished.
-
-The checkout examples explore other consumers using the same integration
+The examples explore other consumers using the same integration
 fixture. Its paths and values are also used by tests and the embedded benchmark;
 use the small quickstart tree above for experiments.
 
@@ -110,15 +89,16 @@ use the small quickstart tree above for experiments.
 ## Build A Consumer
 
 `Tree` derives four independent capabilities: [`TreeSchema`] describes the
-leaves, [`TreeSerialize`] reads them, [`TreeDeserialize`] writes them, and
+structure, [`TreeSerialize`] reads leaves, [`TreeDeserialize`] writes them, and
 [`TreeAny`] borrows their values through `core::any::Any`. An inspector can
 require only the first two. The caller supplies framing, buffers, and scheduling.
 
 Paths are one way to select a leaf. Index slices and [`Packed`] keys use the same
 [`IntoKeys`] interface; [`Schema::transcode()`] converts between representations.
-Compact keys belong to a particular schema, so resolve them again when the tree
-changes. [`Schema::nodes()`] discovers leaves and [`Schema::get()`] looks up one
-key.
+[`Schema::nodes()`] enumerates leaves; [`Schema::get()`] looks up any node.
+
+Boundary APIs accept paths directly. For direct trait calls, use [`IntoKeys::into_keys()`]
+to handle boundary errors before traversing the returned cursor.
 
 Choose the leaf codec independently: [`json_core`] uses JSON byte slices,
 [`postcard`](https://docs.rs/miniconf/latest/miniconf/postcard/) uses compact
@@ -129,9 +109,6 @@ binary payloads. [`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
 
 The embedded benchmark in `tests/benchmark`
 compares the same get/set workload and codec against handwritten dispatch.
-It reports program size, schema bytes, and observed stack use. The manual
-handler omits discovery and reflection; the results are workload-specific,
-not a worst-case stack bound. Run it with your tree when size matters.
 
 ## Limits
 
@@ -161,9 +138,6 @@ not a worst-case stack bound. Run it with your tree when size matters.
 
 ## Stability
 
-`miniconf` follows [Cargo's SemVer compatibility guidelines][cargo-semver],
-including [Rust's policy for trait implementations][trait-impls]. For `0.y.z`
-releases, breaking changes bump `y`; compatible changes bump `z`.
-
-[cargo-semver]: https://doc.rust-lang.org/cargo/reference/semver.html
-[trait-impls]: https://rust-lang.github.io/rfcs/1105-api-evolution.html#trait-implementations
+`miniconf` follows [Cargo's SemVer compatibility guidelines](https://doc.rust-lang.org/cargo/reference/semver.html)
+including [Rust's policy for trait implementations](https://rust-lang.github.io/rfcs/1105-api-evolution.html#trait-implementations).
+For `0.y.z` releases, breaking changes bump `y`; compatible changes bump `z`.

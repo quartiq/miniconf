@@ -7,6 +7,38 @@ use miniconf::{
 mod common;
 
 #[test]
+fn paths_must_be_complete_and_rooted() {
+    use miniconf::JsonPathIter;
+
+    let mut settings = [7u8];
+    for path in ["0", "junk/0"] {
+        assert_eq!(
+            json_core::set(&mut settings, path, b"9"),
+            Err(KeyError::NotFound.into())
+        );
+    }
+    for path in ["[0]junk", "[0][", "['0]", "[0'bad]", "plain"] {
+        assert_eq!(
+            json_core::set_by_key(&mut settings, JsonPathIter::new(path), b"9"),
+            Err(KeyError::NotFound.into())
+        );
+    }
+    assert_eq!(settings, [7]);
+    assert_eq!(u8::SCHEMA.get("garbage"), Err(KeyError::NotFound));
+    let mut indices = [usize::MAX];
+    let failure = <[u8; 1]>::SCHEMA
+        .resolve_into("garbage", &mut indices)
+        .unwrap_err();
+    assert_eq!(failure.error, DescendError::Key(KeyError::NotFound));
+    assert_eq!(failure.lookup.depth, 0);
+    assert_eq!(indices, [usize::MAX]);
+    for path in [".0", "[0]", "['0']", ".'0'"] {
+        json_core::set_by_key(&mut settings, JsonPathIter::new(path), b"9").unwrap();
+    }
+    assert_eq!(settings, [9]);
+}
+
+#[test]
 fn derive_inside_macro() {
     macro_rules! trees {
         ($field:ident, $ty:ty) => {
@@ -30,7 +62,7 @@ fn derive_inside_macro() {
 fn dynamic_keys() {
     use miniconf::{IntoKeys, Keys};
     let mut tree = [[0u32; 2]; 2];
-    let mut path = "/1/0".into_keys();
+    let mut path = "/1/0".into_keys().unwrap();
     let mut indices = [1usize, 0].as_slice();
     for keys in [&mut path as &mut dyn Keys, &mut indices] {
         json_core::set_by_keys(&mut tree, keys, b"17").unwrap();
@@ -38,13 +70,17 @@ fn dynamic_keys() {
         tree[1][0] = 0;
     }
     let mut buffer = [0; 8];
-    let len = json_core::get_by_keys(&tree, &mut "/1/0".into_keys() as &mut dyn Keys, &mut buffer)
-        .unwrap();
+    let len = json_core::get_by_keys(
+        &tree,
+        &mut "/1/0".into_keys().unwrap() as &mut dyn Keys,
+        &mut buffer,
+    )
+    .unwrap();
     assert_eq!(&buffer[..len], b"0");
     assert_eq!(
         json_core::get_by_keys(
             &tree,
-            &mut "/1/0/0".into_keys() as &mut dyn Keys,
+            &mut "/1/0/0".into_keys().unwrap() as &mut dyn Keys,
             &mut buffer
         ),
         Err(SerdeError::from(KeyError::TooLong))
@@ -211,6 +247,25 @@ fn indices_capacity() {
     assert_eq!(indices.len(), 1);
 }
 
+#[test]
+fn index_conversion_checks_the_selected_index() {
+    let schema = <[[u8; 257]; 1]>::SCHEMA;
+    let mut indices = [0u8; 2];
+    indices
+        .as_mut_slice()
+        .transcode_from(schema, &[0usize, 255][..])
+        .unwrap();
+    assert_eq!(indices, [0, 255]);
+    indices = [9, 9];
+    assert_eq!(
+        indices
+            .as_mut_slice()
+            .transcode_from(schema, &[0usize, 256][..]),
+        Err(DescendError::Inner(()))
+    );
+    assert_eq!(indices, [0, 9]);
+}
+
 #[cfg(feature = "json-core")]
 #[test]
 fn slice_cursor_keys() {
@@ -315,8 +370,8 @@ fn lookup_preserves_finalize_errors() {
     }
     impl IntoKeys for Cursor {
         type IntoKeys = Self;
-        fn into_keys(self) -> Self {
-            self
+        fn into_keys(self) -> Result<Self, KeyError> {
+            Ok(self)
         }
     }
     for error in [KeyError::NotFound, KeyError::TooShort, KeyError::TooLong] {

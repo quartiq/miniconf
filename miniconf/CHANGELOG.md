@@ -10,11 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-* Correct compact schema map lengths for length-prefixed serializers.
+* Fix index-slice transcoding for large schemas.
+* Fix compact schema encoding for length-prefixed formats.
+* Support metadata lookup at internal nodes and the root.
 
 ### Changed
 
 * Breaking: `SchemaDefinition<'a>` no longer has a capacity parameter.
+* Breaking: `IntoKeys::{into_keys, chain}` and path-iterator `root()` constructors
+  return `Result`. Nonempty paths must start with their separator; raw-suffix
+  constructors are removed.
+* Breaking: `JsonPathIter` yields `Result` segments and rejects malformed remainders.
 
 ## [0.22.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.21.1...miniconf-v0.22.0) - 2026-09-25
 

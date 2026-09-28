@@ -67,7 +67,7 @@ pub fn set_by_key<'de, F: de_flavors::Flavor<'de>>(
     keys: impl IntoKeys,
     flavor: F,
 ) -> Result<F::Remainder, SerdeError<postcard::Error>> {
-    set_by_keys(tree, keys.into_keys(), flavor)
+    set_by_keys(tree, keys.into_keys()?, flavor)
 }
 
 /// Deserialize and set a node value from a `postcard` flavor using a normalized key cursor.
@@ -85,7 +85,7 @@ pub fn get_by_key<F: ser_flavors::Flavor>(
     keys: impl IntoKeys,
     flavor: F,
 ) -> Result<F::Output, SerdeError<postcard::Error>> {
-    get_by_keys(tree, keys.into_keys(), flavor)
+    get_by_keys(tree, keys.into_keys()?, flavor)
 }
 
 /// Get and serialize a node value into a `postcard` flavor using a normalized key cursor.

@@ -175,6 +175,16 @@ pub struct Tree {
 }
 
 impl Tree {
+    fn check_names<'a>(names: impl Iterator<Item = &'a syn::Ident>) -> Result<()> {
+        let mut seen = std::collections::BTreeSet::new();
+        for name in names {
+            if !seen.insert(name.to_string()) {
+                return Err(Error::custom("Duplicate tree name").with_span(name));
+            }
+        }
+        Ok(())
+    }
+
     fn no_leaf_error(span: &impl quote::ToTokens) -> Error {
         Error::custom("Internal nodes must have at least one leaf").with_span(span)
     }
@@ -228,6 +238,9 @@ impl Tree {
         {
             return Err(Self::no_leaf_skip_error(skip.span()));
         }
+        if fields.style == Style::Struct {
+            Self::check_names(fields.fields.iter().filter_map(TreeField::name))?;
+        }
         Ok(())
     }
 
@@ -237,6 +250,7 @@ impl Tree {
             .find(|variant| variant.skip.is_present())
             .map(|variant| variant.skip);
         variants.retain(|variant| !variant.skip.is_present() && !variant.fields.is_empty());
+        Self::check_names(variants.iter().map(TreeVariant::name))?;
         if variants.is_empty()
             && let Some(skip) = skip
         {

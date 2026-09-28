@@ -6,8 +6,8 @@
 use core::str;
 
 use miniconf::{
-    ConstPathIter, Internal, IntoKeys, Key, KeyError, Keys, SerdeError, TreeDeserializeOwned,
-    TreeSerialize, json_core,
+    Internal, IntoKeys, Key, KeyError, Keys, SerdeError, TreeDeserializeOwned, TreeSerialize,
+    json_core,
 };
 
 mod common;
@@ -50,7 +50,7 @@ impl Key for ScpiKey<'_> {
     }
 }
 
-struct ScpiPath<'a>(ConstPathIter<'a, ':'>);
+struct ScpiPath<'a>(str::Split<'a, char>);
 
 impl Keys for ScpiPath<'_> {
     fn next(&mut self, internal: &Internal) -> Result<usize, KeyError> {
@@ -69,8 +69,8 @@ impl Keys for ScpiPath<'_> {
 impl IntoKeys for ScpiPath<'_> {
     type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 
@@ -108,7 +108,7 @@ fn scpi<M: TreeSerialize + TreeDeserializeOwned>(target: &mut M, cmds: &str) -> 
         }
         path.push_str(header)
             .map_err(|_| Error::Parse("Header too long"))?;
-        let keys = ScpiPath(ConstPathIter::new(Some(&path)));
+        let keys = ScpiPath(path.split(':'));
         if query {
             let len = json_core::get_by_key(target, keys, &mut buf)?;
             println!("{}", str::from_utf8(&buf[..len])?);

@@ -1,6 +1,6 @@
 use miniconf::{
-    Deserialize, IntoKeys, Leaf, Serialize, Shape, Tree, TreeAny, TreeDeserialize, TreeSchema,
-    TreeSerialize, ValueError, json_core,
+    Deserialize, Leaf, Serialize, Shape, Tree, TreeAny, TreeDeserialize, TreeSchema, TreeSerialize,
+    ValueError, json_core,
 };
 
 mod common;
@@ -114,9 +114,9 @@ fn deny_access() {
     }
 
     common::set_get(&mut s, "/cell", b"3");
-    s.ref_any_by_key([0].into_keys()).unwrap();
+    s.ref_any_by_key(&[0][..]).unwrap();
     assert!(matches!(
-        s.mut_any_by_key([0].into_keys()),
+        s.mut_any_by_key(&[0][..]),
         Err(ValueError::Access("Denied"))
     ));
 }
