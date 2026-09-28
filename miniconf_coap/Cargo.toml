@@ -37,6 +37,8 @@ yafnv = { version = "3", default-features = false }
 coap-handler-implementations = "0.6.2"
 coap-message-implementations = { version = "0.1.10", features = ["alloc"] }
 defmt2log = "0.2.0"
+embedded-nal = "0.9"
+embedded-nal-minimal-coapserver = "0.5"
 env_logger = "0.11"
 miniconf = { features = [
     "defmt",
@@ -48,6 +50,7 @@ miniconf = { features = [
     "meta-edge",
 ], path = "../miniconf" }
 serde = { version = "1", default-features = false, features = ["derive"] }
+std-embedded-nal = "0.4"
 
 [package.metadata.docs.rs]
 all-features = true

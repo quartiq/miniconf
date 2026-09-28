@@ -1,5 +1,5 @@
 use coap_numbers::code;
-use defmt::{debug, trace, warn};
+use defmt::trace;
 use miniconf::{
     Schema,
     compact_schema::{SchemaDefs, serialize_schema_page},
@@ -16,15 +16,22 @@ const SCHEMA_PROTO: u8 = 1;
 pub struct SchemaRoute<'a> {
     base: &'a str,
     schema: &'static Schema,
+    page_size: usize,
 }
 
 impl<'a> SchemaRoute<'a> {
     /// Construct a compact schema route.
     ///
     /// The base path serves a JSON manifest. `base/{page}` serves newline-delimited compact schema
-    /// pages.
-    pub const fn new(base: &'a str, schema: &'static Schema) -> Self {
-        Self { base, schema }
+    /// pages of at most `page_size` bytes. Keep this size fixed for the route;
+    /// response buffers must accommodate this budget and, for manifest requests,
+    /// the manifest itself.
+    pub const fn new(base: &'a str, schema: &'static Schema, page_size: usize) -> Self {
+        Self {
+            base,
+            schema,
+            page_size,
+        }
     }
 
     /// Handle a schema `GET` request.
@@ -37,67 +44,65 @@ impl<'a> SchemaRoute<'a> {
             trace!("Ignoring non-schema CoAP route request={}", request);
             return Outcome::Unhandled;
         };
-        if let Err(err) = request.check_options() {
-            return Outcome::Handled(err.response(response_buf));
-        }
-        trace!("Handling Miniconf CoAP schema request request={}", request);
+        let resource = match self.prepare(request, resource) {
+            Ok(resource) => resource,
+            Err(error) => return Outcome::Handled(error.response(response_buf)),
+        };
+        Outcome::Handled(self.render(resource, response_buf))
+    }
+
+    pub(crate) fn prepare(
+        &self,
+        request: &RequestParts<'_>,
+        resource: SchemaRequest,
+    ) -> Result<SchemaRequest, Error> {
+        request.check_options()?;
         if request.code() != code::GET {
-            return Outcome::Handled(
-                Error::new(code::METHOD_NOT_ALLOWED, Problem::MethodNotAllowed)
-                    .response(response_buf),
-            );
+            return Err(Error::new(
+                code::METHOD_NOT_ALLOWED,
+                Problem::MethodNotAllowed,
+            ));
+        }
+        request.accepts(match resource {
+            SchemaRequest::Manifest => format::JSON,
+            SchemaRequest::Page(_) => format::TEXT,
+        })?;
+        Ok(resource)
+    }
+
+    pub(crate) fn render<'b>(
+        &self,
+        resource: SchemaRequest,
+        response_buf: &'b mut [u8],
+    ) -> Response<'b> {
+        if response_buf.len() < self.page_size {
+            return Error::new(code::INTERNAL_SERVER_ERROR, Problem::PayloadTooLong)
+                .response(response_buf);
         }
         let Ok(defs) = SchemaDefs::<MAX_SCHEMA_DEFS>::new(self.schema) else {
-            return Outcome::Handled(
-                Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
-                    .response(response_buf),
-            );
+            return Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
+                .response(response_buf);
         };
 
         match resource {
-            SchemaResource::Manifest => self.manifest(&defs, request, response_buf),
-            SchemaResource::Page(page_index) => self.page(&defs, page_index, request, response_buf),
+            SchemaRequest::Manifest => self.manifest(&defs, response_buf),
+            SchemaRequest::Page(page_index) => self.page(&defs, page_index, response_buf),
         }
     }
 
     fn manifest<'b, const N: usize>(
         &self,
         defs: &SchemaDefs<N>,
-        request: &RequestParts<'_>,
         response_buf: &'b mut [u8],
-    ) -> Outcome<'b> {
-        if let Err(err) = request.accepts(format::JSON) {
-            return Outcome::Handled(err.response(response_buf));
-        }
-        match schema_manifest(defs, response_buf) {
-            Ok((manifest, len)) => {
-                debug!(
-                    "Handled Miniconf CoAP schema manifest GET path={=str} pages={=usize} rev={=u32} response_len={=usize}",
-                    request.path(),
-                    manifest.pages,
-                    manifest.schema_rev,
-                    len
-                );
-                Outcome::Handled(Response {
-                    code: code::CONTENT,
-                    content_format: Some(format::JSON),
-                    payload: &response_buf[..len],
-                })
-            }
-            Err(SchemaError::PayloadTooLong(id)) => {
-                warn!(
-                    "Failed to serialize Miniconf CoAP schema path={=str} definition={=usize}",
-                    request.path(),
-                    id
-                );
-                Outcome::Handled(
-                    Error::request_entity_too_large(Problem::PayloadTooLong).response(response_buf),
-                )
-            }
-            Err(SchemaError::Serialization) => Outcome::Handled(
-                Error::new(code::INTERNAL_SERVER_ERROR, Problem::Serialization)
-                    .response(response_buf),
-            ),
+    ) -> Response<'b> {
+        match schema_manifest(defs, self.page_size, response_buf) {
+            Ok(len) => Response {
+                code: code::CONTENT,
+                content_format: Some(format::JSON),
+                max_age: None,
+                payload: &response_buf[..len],
+            },
+            Err(problem) => Error::new(code::INTERNAL_SERVER_ERROR, problem).response(response_buf),
         }
     }
 
@@ -105,60 +110,38 @@ impl<'a> SchemaRoute<'a> {
         &self,
         defs: &SchemaDefs<N>,
         page_index: usize,
-        request: &RequestParts<'_>,
         response_buf: &'b mut [u8],
-    ) -> Outcome<'b> {
-        if let Err(err) = request.accepts(format::TEXT) {
-            return Outcome::Handled(err.response(response_buf));
-        }
+    ) -> Response<'b> {
         let mut next = 0;
-        for _ in 0..page_index {
-            match serialize_schema_page(defs, next, response_buf) {
-                Ok(page) if page.count != 0 => next += page.count,
-                _ => {
-                    return Outcome::Handled(
-                        Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 })
-                            .response(response_buf),
-                    );
-                }
+        for index in 0..=page_index {
+            if next >= defs.len() {
+                break;
             }
-        }
-        if next >= defs.len() {
-            return Outcome::Handled(
-                Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 }).response(response_buf),
-            );
-        }
-        match serialize_schema_page(defs, next, response_buf) {
-            Ok(page) => {
-                debug!(
-                    "Handled Miniconf CoAP schema GET path={=str} page={=usize} defs={=usize} response_len={=usize}",
-                    request.path(),
-                    page_index,
-                    page.count,
-                    page.len
-                );
-                Outcome::Handled(Response {
+            let page = match serialize_schema_page(defs, next, &mut response_buf[..self.page_size])
+            {
+                Ok(page) => page,
+                Err(_) => {
+                    return Error::new(code::INTERNAL_SERVER_ERROR, Problem::PayloadTooLong)
+                        .response(response_buf);
+                }
+            };
+            if index == page_index {
+                return Response {
                     code: code::CONTENT,
                     content_format: Some(format::TEXT),
+                    max_age: None,
                     payload: &response_buf[..page.len],
-                })
+                };
             }
-            Err(id) => {
-                warn!(
-                    "Failed to serialize Miniconf CoAP schema path={=str} definition={=usize}",
-                    request.path(),
-                    id
-                );
-                Outcome::Handled(
-                    Error::request_entity_too_large(Problem::PayloadTooLong).response(response_buf),
-                )
-            }
+            next += page.count;
         }
+
+        Error::new(code::NOT_FOUND, Problem::NotFound { depth: 1 }).response(response_buf)
     }
 
-    fn resource(&self, path: &str) -> Option<SchemaResource> {
+    pub(crate) fn resource(&self, path: &str) -> Option<SchemaRequest> {
         if path == self.base {
-            return Some(SchemaResource::Manifest);
+            return Some(SchemaRequest::Manifest);
         }
         let suffix = if self.base.is_empty() {
             path.strip_prefix('/')?
@@ -166,12 +149,16 @@ impl<'a> SchemaRoute<'a> {
             path.strip_prefix(self.base)?.strip_prefix('/')?
         };
         (!suffix.is_empty() && !suffix.contains('/'))
-            .then(|| parse_usize(suffix).map(SchemaResource::Page))?
+            .then(|| parse_usize(suffix).map(SchemaRequest::Page))?
     }
 }
 
-enum SchemaResource {
+/// A prepared compact-schema resource selection.
+#[derive(Debug, Clone, Copy)]
+pub enum SchemaRequest {
+    /// Schema revision and page count.
     Manifest,
+    /// A compact-schema page.
     Page(usize),
 }
 
@@ -183,21 +170,18 @@ struct SchemaManifest {
     pages: usize,
 }
 
-enum SchemaError {
-    PayloadTooLong(usize),
-    Serialization,
-}
-
 fn schema_manifest<const N: usize>(
     defs: &SchemaDefs<N>,
+    page_size: usize,
     buf: &mut [u8],
-) -> Result<(SchemaManifest, usize), SchemaError> {
+) -> Result<usize, Problem> {
     let mut next = 0;
     let mut pages = 0;
     let mut hash = u32::OFFSET_BASIS;
 
     while next < defs.len() {
-        let page = serialize_schema_page(defs, next, buf).map_err(SchemaError::PayloadTooLong)?;
+        let page = serialize_schema_page(defs, next, &mut buf[..page_size])
+            .map_err(|_| Problem::PayloadTooLong)?;
         hash = hash.fnv1a(buf[..page.len].iter().copied());
         next += page.count;
         pages += 1;
@@ -209,9 +193,7 @@ fn schema_manifest<const N: usize>(
         schema_rev: hash,
         pages,
     };
-    serde_json_core::to_slice(&manifest, buf)
-        .map(|len| (manifest, len))
-        .map_err(|_| SchemaError::Serialization)
+    serde_json_core::to_slice(&manifest, buf).map_err(|_| Problem::Serialization)
 }
 
 fn parse_usize(value: &str) -> Option<usize> {
