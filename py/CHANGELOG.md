@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-* Avoid loading optional DNS/HTTP dependencies during CLI startup.
-* Reduce small-message latency by enabling TCP_NODELAY in the CLI and client connection factory.
+* Reduce CLI startup time and MQTT message latency.
+* Schema-aware settings watches now raise an error when the device goes offline or its
+  publication manifest changes, even when no settings arrive.
 
 ## [v0.21.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...miniconf-mqtt-v0.21.0) - 2026-09-22
 

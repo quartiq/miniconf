@@ -39,6 +39,10 @@ Core API:
 - `watch(path="")` streams authoritative retained settings publications below a subtree without
   waiting for quiescence. Events distinguish JSON `null` from retained deletes through `.present`.
   Opening another reader can replay retained values to an existing watcher.
+  Schema-aware watches raise `MiniconfException` with code `Offline` when `/alive` clears,
+  or `Changed` when its supported manifest changes. Unsupported protocols raise `Protocol`.
+  Reopen the watch to read the new generation;
+  the client session remains usable. Identical alive announcements do not interrupt watches.
 - `RawMiniconf` provides exact-path `get()`, `set()`, `snapshot()`, and `watch()` without schema
   loading.
 
@@ -60,11 +64,12 @@ Notes:
   protocol version.
 - Exact reads and open watches do not wait for subtree quiescence.
 - A finite operation's timeout covers startup, schema loading, subscription, and response waits
-  together. Watch timeouts bound setup and later schema reloads, not the lifetime of the stream.
+  together. Watch timeouts bound setup, not the lifetime of the stream.
   Subscription cleanup has a separate one-second allowance.
 - Finite retained subtree snapshots use a quiescence window because MQTT retained replay has no
   end-of-set marker. If the timeout expires before quiescence, snapshots and pruning raise
   `TimeoutError` instead of accepting partial results.
+  Snapshots are incremental observations, not atomic reads or guarantees of a single epoch.
 - Retained `/settings` messages without `auth=""` are ignored as non-authoritative settings
   traffic.
 - Retained burst quiescence uses the same rule as the Rust client:
