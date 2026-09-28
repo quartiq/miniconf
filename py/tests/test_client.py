@@ -2,10 +2,11 @@
 
 import asyncio
 import json
+import socket
 import time
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from aiomqtt import Message, MqttError
 from paho.mqtt.packettypes import PacketTypes
@@ -13,7 +14,7 @@ from paho.mqtt.properties import Properties
 from paho.mqtt.reasoncodes import ReasonCode
 
 from miniconf.client import Miniconf, RawMiniconf
-from miniconf.common import MiniconfException
+from miniconf.common import MiniconfException, mqtt_client
 from miniconf._ops import discover
 
 
@@ -51,6 +52,27 @@ class Transport:
 
 
 class ClientTests(IsolatedAsyncioTestCase):
+    async def test_connection_options(self):
+        nodelay = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        keepalive = (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        override = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
+        for options in ([], [keepalive], [keepalive, override]):
+            with (
+                self.subTest(options=options),
+                patch("miniconf.common.Client") as client,
+            ):
+                transport = mqtt_client(
+                    "[::1]:1884", socket_options=iter(options), username="reader"
+                )
+                self.assertIs(transport, client.return_value)
+                client.assert_called_once_with(
+                    "::1",
+                    protocol=5,
+                    port=1884,
+                    username="reader",
+                    socket_options=[nodelay, *options],
+                )
+
     async def test_context_lifetime(self):
         transport = Transport()
         client = RawMiniconf(transport, "test")

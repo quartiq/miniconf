@@ -8,12 +8,11 @@ import json
 import logging
 import os
 import sys
-from urllib.parse import urlsplit
 
-from aiomqtt import Client, MqttError, ProtocolVersion
+from aiomqtt import Client, MqttError
 
 from .client import Miniconf, RawMiniconf
-from .common import LOGGER, MiniconfException, json_dumps, validate_path
+from .common import LOGGER, MiniconfException, json_dumps, mqtt_client, validate_path
 from ._ops import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
@@ -61,10 +60,7 @@ async def _main() -> None:
         level=logging.WARN - 10 * args.verbose,
     )
 
-    address = urlsplit(f"//{args.broker}")
-    async with Client(
-        address.hostname, port=address.port or 1883, protocol=ProtocolVersion.V5
-    ) as client:
+    async with mqtt_client(args.broker) as client:
         prefix = await _resolve_prefix(client, args.prefix, args.discover)
         if args.raw and (args.prune or args.force_prune):
             raise MiniconfException(

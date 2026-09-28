@@ -10,9 +10,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
-from urllib.parse import urlsplit
 
-from aiomqtt import Client, Message, MqttError, ProtocolVersion
+from aiomqtt import Client, Message, MqttError
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
 
@@ -26,8 +25,10 @@ from .common import (
     is_authoritative,
     json_dumps,
     message_expiry,
+    mqtt_client,
     subtree_match,
     subscribe,
+    unsubscribe,
     validate_path,
 )
 from .schema import Schema
@@ -60,11 +61,7 @@ class _BaseClient:
     async def connect(
         cls, broker: str, prefix: str, **client_kwargs: Any
     ) -> AsyncIterator[Self]:
-        address = urlsplit(f"//{broker}")
-        client_kwargs.setdefault("port", address.port or 1883)
-        async with Client(
-            address.hostname, protocol=ProtocolVersion.V5, **client_kwargs
-        ) as client:
+        async with mqtt_client(broker, **client_kwargs) as client:
             async with cls(client, prefix) as interface:
                 yield interface
 
@@ -89,14 +86,7 @@ class _BaseClient:
         async with self._subscription_lock:
             topics = [*self._listen_topics(), *self._watchers]
             self._watchers.clear()
-            await self._unsubscribe(topics)
-
-    async def _unsubscribe(self, topics):
-        # Cleanup has its own bounded allowance and must not mask the operation's error.
-        try:
-            await self.client.unsubscribe(topics, timeout=1.0)
-        except (MqttError, TimeoutError):
-            LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+            await unsubscribe(self.client, topics)
 
     async def _listen(self):
         for topic in self._listen_topics():
@@ -164,7 +154,7 @@ class _BaseClient:
                     watchers.remove(queue)
                     if not watchers:
                         del self._watchers[topic_filter]
-                        await self._unsubscribe(topic_filter)
+                        await unsubscribe(self.client, topic_filter)
 
     def _setting_event(self, message: Message, root: str, schema: Schema | None = None):
         if not message.retain or not is_authoritative(message.properties):

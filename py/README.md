@@ -26,6 +26,8 @@ async with Miniconf.connect("mqtt", "app/id") as mc:
 Each context is one session. Connection loss raises `aiomqtt.MqttError` in pending operations and watches;
 open a new context to reconnect. When supplying an existing aiomqtt client, enter
 `async with Miniconf(client, prefix)` and give it exclusive use of the client's message stream.
+`connect()` enables TCP_NODELAY for TCP connections; caller-supplied `socket_options` are applied
+after this default, allowing an explicit override.
 
 Core API:
 

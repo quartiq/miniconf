@@ -5,8 +5,10 @@ import asyncio
 from typing import Any
 import json
 import logging
+import socket
+from urllib.parse import urlsplit
 
-from aiomqtt import MqttError
+from aiomqtt import Client, MqttError, ProtocolVersion
 from paho.mqtt.subscribeoptions import SubscribeOptions
 
 PROTOCOL_VERSION = 1
@@ -17,11 +19,31 @@ TRANSIENT_EXPIRY_S = 30
 RETAINED = SubscribeOptions(qos=1, retainAsPublished=True)
 
 
+def mqtt_client(broker: str, **kwargs: Any) -> Client:
+    """Construct an MQTT v5 client; caller socket options override TCP defaults."""
+    address = urlsplit(f"//{broker}")
+    kwargs.setdefault("port", address.port or 1883)
+    if kwargs.get("transport", "tcp") == "tcp":
+        kwargs["socket_options"] = [
+            (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1),
+            *(kwargs.get("socket_options") or ()),
+        ]
+    return Client(address.hostname, protocol=ProtocolVersion.V5, **kwargs)
+
+
 async def subscribe(client, topic):
     """Request retained replay and reject a failed MQTT SUBACK."""
     codes = await client.subscribe(topic, options=RETAINED)
     if not codes or any(code >= 128 for code in codes):
         raise MqttError(f"Subscription rejected for {topic}: {codes}")
+
+
+async def unsubscribe(client, topics):
+    """Bound cleanup separately without masking the operation's error."""
+    try:
+        await client.unsubscribe(topics, timeout=1.0)
+    except (MqttError, TimeoutError):
+        LOGGER.debug("MQTT unsubscribe error", exc_info=True)
 
 
 def message_expiry(timeout: float | None) -> int:
