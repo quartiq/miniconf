@@ -2,7 +2,6 @@ use embedded_io_adapters::tokio_1::FromTokio;
 use miniconf_mqtt::{Error, Event, Miniconf};
 use minimq::{ConfigBuilder, Error as MqttError};
 
-#[path = "../../miniconf/examples/common.rs"]
 mod common;
 
 const BROKER: &str = "127.0.0.1:1883";

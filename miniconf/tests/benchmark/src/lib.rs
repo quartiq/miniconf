@@ -4,7 +4,6 @@
 use core::hint::black_box;
 use cortex_m_semihosting::{debug, hio};
 
-#[path = "../../../examples/common.rs"]
 mod common;
 use common::Settings;
 

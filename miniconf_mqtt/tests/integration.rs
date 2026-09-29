@@ -19,7 +19,7 @@ use tokio::{
     time::{Duration, timeout},
 };
 
-#[path = "../../miniconf/examples/common.rs"]
+#[path = "../examples/common.rs"]
 mod common;
 
 const BROKER_ADDR_ENV: &str = "BROKER";
