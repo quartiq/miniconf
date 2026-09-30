@@ -48,11 +48,10 @@ fn main() {
 ```
 
 This prints `/enabled`, `/output/gain/0`, and `/output/gain/1`.
-Try adding a field: it gets a path without another dispatch table. The final
-loop discovers those paths from the type's schema.
+Add a field and it gets a path automatically. The final loop discovers the
+available paths without constructing another dispatch table.
 
-Paths are empty for the root or start with `/`. Each separator introduces a
-segment; trailing and repeated separators select empty names.
+Paths are empty for the root or start with `/`.
 
 ## Tree Shape
 
@@ -66,25 +65,29 @@ Structs, enums, arrays, tuples, `Option<T>`, and standard container types can be
 combined into larger trees. `Option` branches and inactive enum variants remain
 in the static schema but may return [`ValueError::Absent`] at runtime.
 
-## Control Changes
+Use `#[tree(with = module)]` for validation, read-only fields, or application
+hooks. `examples/common.rs` demonstrates read-only values and range checking.
+Metadata describes constraints; it does not enforce them.
 
-Use `#[tree(with = module)]` to enforce rules or sideeffects for a node. The
-integration fixture (`examples/common.rs`)
-shows read-only nodes and DAC range checking with a scratch copy. Metadata such
-as `max = "4095"` describe; the custom deserializer enforces it.
+Internal enums support unit and newtype variants; other variants can be skipped.
+Keep enums with named or multi-field variants as Serde leaves.
 
 ## Reuse The Tree
 
-The examples explore other consumers using the same integration
-fixture. Its paths and values are also used by tests and the embedded benchmark;
-use the small quickstart tree above for experiments.
+Try the same settings tree through different interfaces:
 
-| Example | Run | What it adds |
-| --- | --- | --- |
-| `examples/cli.rs` | `cargo run --example cli -- --output-dac-1 2048` | Command-line options |
-| `examples/packed.rs` | `cargo run --example packed --features postcard` | A binary leaf round trip in fixed buffers |
-| `examples/trace.rs` | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
-| `examples/scpi.rs` | `cargo run --example scpi` | Custom command syntax, not a complete SCPI implementation |
+| Run | What it adds |
+| --- | --- |
+| `cargo run --example cli -- --output-dac-1 2048` | Command-line options |
+| `cargo run --example packed --features postcard` | A binary leaf round trip in fixed buffers |
+| `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
+| `cargo run --example scpi` | A small SCPI-style command interface |
+
+[`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
+[`miniconf_coap`](https://docs.rs/miniconf_coap) expose trees over MQTT and CoAP.
+
+The code-size benchmark in `tests/benchmark` compares get/set against
+handwritten dispatch with the same codec.
 
 ## Build A Consumer
 
@@ -97,44 +100,24 @@ Paths are one way to select a leaf. Index slices and [`Packed`] keys use the sam
 [`IntoKeys`] interface; [`Schema::transcode()`] converts between representations.
 [`Schema::nodes()`] enumerates leaves; [`Schema::get()`] looks up any node.
 
-Boundary APIs accept paths directly. For direct trait calls, use [`IntoKeys::into_keys()`]
-to handle boundary errors before traversing the returned cursor.
-
 Choose the leaf codec independently: [`json_core`] uses JSON byte slices,
 [`postcard`](https://docs.rs/miniconf/latest/miniconf/postcard/) uses compact
-binary payloads. [`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
-[`miniconf_coap`](https://docs.rs/miniconf_coap) are ready-made protocol consumers.
-
-## Code Size
-
-The embedded benchmark in `tests/benchmark`
-compares the same get/set workload and codec against handwritten dispatch.
-
-## Limits
-
-- Internal tree enums support unit, newtype, and skipped variants only. Enums
-  with named fields or multi-field tuple variants should stay leaves or use a
-  manual/custom implementation.
-- Flattening is accepted only when generated lookup stays structurally
-  unambiguous.
-- `&str` key input is always slash-separated. Use explicit iterator types for
-  other syntaxes or separators.
-- Schema semantics and metadata are feature-gated reflection data. Do not depend
-  on them unless `sem`, `meta-node`, or `meta-edge` is enabled as needed.
+binary payloads, and custom consumers can supply any Serde format.
 
 ## Features
 
-- `derive`: re-export derive macros from `miniconf_derive`; enabled by default.
+Defaults enable `derive`, `json-core`, `sem`, `meta-node`, `meta-edge`, and
+`heapless-09`. Disable default features to select only what you need.
+
+- `derive`: derive the tree traits.
 - `json-core`: `serde_json_core` helpers for JSON byte slices.
 - `json`: `serde_json` helpers.
 - `postcard`: compact binary helpers using `postcard`.
-- `sem`, `meta-node`, `meta-edge`: retain structured schema semantics, node
-  metadata, and parent-child edge metadata. Constructors and derive output accept
-  these payloads in all builds; without the matching feature, they are discarded
-  and schema accessors return `None` or empty metadata.
+- `sem`, `meta-node`, `meta-edge`: schema semantics, node and edge metadata.
 - `trace`, `schema`: serde-reflection tracing and JSON Schema generation.
 - `heapless`, `heapless-09`, `alloc`, `std`: support for the corresponding
   storage and platform layers.
+- `defmt`: embedded diagnostics formatting.
 
 ## Stability
 
