@@ -20,6 +20,9 @@ cargo release patch -p miniconf_mqtt --no-publish --no-tag --no-push --execute
 ```
 
 Prepare dependencies before dependents. Review all resulting version changes.
+For a first release, keep the chosen manifest version and run
+`cargo release replace -p <crate> --execute` instead, then commit the changelog.
+After merging, follow [First Rust publication](#first-rust-publication).
 
 **Python:** update `py/pyproject.toml` and `py/CHANGELOG.md`, then commit.
 
@@ -78,6 +81,25 @@ Check the publishing run and install the released package from its registry.
 
 For an unpublished preview, use `cargo package -p <crate> --all-features` or
 manually run **Release Python**.
+
+## First Rust publication
+
+[Trusted publishing](https://crates.io/docs/trusted-publishing) is configured
+after the first upload. Keep the new crate's tag pattern out of
+`.github/workflows/release-rust.yml` until that release is complete.
+
+From the merged release commit with passing CI and published dependencies:
+
+```sh
+cargo publish -p <crate> --all-features --dry-run
+cargo publish -p <crate> --all-features
+cargo release tag -p <crate> --execute
+cargo release push -p <crate> --execute
+```
+
+Use a crates.io API token for this upload. Then configure the crate's trusted
+publisher for repository `quartiq/miniconf`, workflow `release-rust.yml`,
+environment `release`, and add its tag pattern to the workflow for future releases.
 
 ## If publication fails
 

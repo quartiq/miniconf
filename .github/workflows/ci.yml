@@ -81,6 +81,7 @@ jobs:
       - run: cargo build
       - run: cargo build --release
       - run: cargo build --examples
+      - run: python3 miniconf_settings/examples/test_shell.py target/debug/examples/shell
       - run: cargo run --example cli -- --output-dac-1 2048
       - run: cargo test --example scpi
       - run: cargo run --example trace --features schema
