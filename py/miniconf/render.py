@@ -36,16 +36,8 @@ def _format_mapping(prefix: str, value: Any, *, quote_strings: bool = False) -> 
     return prefix if not items else f"{prefix} {' '.join(items)}"
 
 
-def _annotations(
-    node: SchemaNode,
-    *,
-    compressed_homogeneous: bool = False,
-) -> list[str]:
-    tags = []
-    if compressed_homogeneous or node.kind == "homogeneous":
-        tags.append("homogeneous")
-    elif node.kind == "numbered":
-        tags.append("numbered")
+def _annotations(node: SchemaNode) -> list[str]:
+    tags = [node.kind]
     sem = node.schema.get("sem")
     if sem is not None:
         tags.append(_format_mapping("sem", sem))
@@ -60,10 +52,9 @@ def format_schema_label(
     node: SchemaNode,
     *,
     name: str | None = None,
-    compressed_homogeneous: bool = False,
 ) -> str:
-    label = name if name is not None else _segment_label(node.path)
-    tags = _annotations(node, compressed_homogeneous=compressed_homogeneous)
+    label = name if name is not None else "/" + _segment_label(node.path)
+    tags = _annotations(node)
     return " ".join([label, *tags]).strip()
 
 
@@ -98,28 +89,24 @@ def _tree_lines(
 def render_schema_tree(schema: Schema, root: str = "") -> str:
     root = schema.path(root)
 
-    def visit(path: str, *, compress: bool) -> list[str]:
+    def visit(path: str) -> list[str]:
         node = schema.node(path)
-        if compress and node.kind == "homogeneous":
-            children = schema.children(path)
-            if children:
-                count = node.schema["internal"]["len"]
-                child = children[0]
-                child_lines = visit(child.path, compress=False)
-                child_lines[0] = format_schema_label(child, name=f"0..{count}")
+        if node.kind == "homogeneous":
+            count = node.schema["internal"]["len"]
+            if count:
+                child = schema.node(f"{path}/0")
+                child_lines = visit(child.path)
+                child_lines[0] = format_schema_label(child, name=f"/0..{count}")
                 return _tree_lines(format_schema_label(node), [child_lines])
 
         return _tree_lines(
             format_schema_label(node),
-            [visit(child.path, compress=True) for child in schema.children(path)],
+            [visit(child.path) for child in schema.children(path)],
         )
 
-    if not root:
-        lines = _tree_lines(
-            None, [visit(child.path, compress=True) for child in schema.children("")]
-        )
-        return "\n".join(lines)
-    return "\n".join(visit(root, compress=True))
+    lines = visit(root)
+    lines[0] = format_schema_label(schema.node(root), name=root or "(root)")
+    return "\n".join(lines)
 
 
 def render_value_tree(schema: Schema, values: dict[str, Any], root: str = "") -> str:
