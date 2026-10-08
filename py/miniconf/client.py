@@ -10,9 +10,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Self
-from urllib.parse import urlsplit
 
-from aiomqtt import Client, Message, MqttError, ProtocolVersion
+from aiomqtt import Client, Message, MqttError
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
 
@@ -26,8 +25,10 @@ from .common import (
     is_authoritative,
     json_dumps,
     message_expiry,
+    mqtt_client,
     subtree_match,
     subscribe,
+    unsubscribe,
     validate_path,
 )
 from .schema import Schema
@@ -60,11 +61,7 @@ class _BaseClient:
     async def connect(
         cls, broker: str, prefix: str, **client_kwargs: Any
     ) -> AsyncIterator[Self]:
-        address = urlsplit(f"//{broker}")
-        client_kwargs.setdefault("port", address.port or 1883)
-        async with Client(
-            address.hostname, protocol=ProtocolVersion.V5, **client_kwargs
-        ) as client:
+        async with mqtt_client(broker, **client_kwargs) as client:
             async with cls(client, prefix) as interface:
                 yield interface
 
@@ -87,16 +84,9 @@ class _BaseClient:
         self._listener.cancel()
         await asyncio.gather(self._listener, return_exceptions=True)
         async with self._subscription_lock:
-            topics = [*self._listen_topics(), *self._watchers]
+            topics = list(dict.fromkeys((*self._listen_topics(), *self._watchers)))
             self._watchers.clear()
-            await self._unsubscribe(topics)
-
-    async def _unsubscribe(self, topics):
-        # Cleanup has its own bounded allowance and must not mask the operation's error.
-        try:
-            await self.client.unsubscribe(topics, timeout=1.0)
-        except (MqttError, TimeoutError):
-            LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+            await unsubscribe(self.client, topics)
 
     async def _listen(self):
         for topic in self._listen_topics():
@@ -147,9 +137,13 @@ class _BaseClient:
         pass
 
     @asynccontextmanager
-    async def _watch(self, topic_filter: str, deadline: _Deadline):
+    async def _watch(self, topic_filter: str, deadline: _Deadline, *listen_topics: str):
         queue: asyncio.Queue[Message] = asyncio.Queue()
+        topics = (topic_filter, *listen_topics)
         try:
+            # Observe session-owned topics before setup can yield to the listener.
+            for topic in listen_topics:
+                self._watchers[topic].append(queue)
             await self._wait(self._ready.wait(), deadline)
             async with asyncio.timeout(deadline.remaining()):
                 async with self._subscription_lock:
@@ -159,12 +153,14 @@ class _BaseClient:
             yield queue
         finally:
             async with self._subscription_lock:
-                watchers = self._watchers.get(topic_filter, [])
-                if queue in watchers:
-                    watchers.remove(queue)
-                    if not watchers:
-                        del self._watchers[topic_filter]
-                        await self._unsubscribe(topic_filter)
+                for topic in topics:
+                    watchers = self._watchers.get(topic, [])
+                    if queue in watchers:
+                        watchers.remove(queue)
+                        if not watchers:
+                            del self._watchers[topic]
+                            if topic not in self._listen_topics():
+                                await unsubscribe(self.client, topic)
 
     def _setting_event(self, message: Message, root: str, schema: Schema | None = None):
         if not message.retain or not is_authoritative(message.properties):
@@ -330,17 +326,29 @@ class Miniconf(_BaseClient):
     async def watch(
         self, path: str = "", *, timeout: float = 3.0
     ) -> AsyncIterator[SettingEvent]:
-        """Stream settings; timeout bounds setup and subsequent schema reloads.
+        """Stream settings; timeout bounds setup.
 
         Opening another reader can replay retained values to existing watchers.
+        Going offline or changing the alive manifest ends this watch.
         """
         deadline = _Deadline(timeout)
-        root = (await self._load_schema(deadline)).path(path)
-        async with self._watch(f"{self.prefix}/settings{root}/#", deadline) as queue:
+        schema = await self._load_schema(deadline)
+        root = schema.path(path)
+        manifest = alive_manifest(json.loads(self._alive or b"null"))
+        async with self._watch(
+            f"{self.prefix}/settings{root}/#", deadline, self.alive_topic
+        ) as queue:
             while True:
                 message = await self._wait(queue.get(), _Deadline(None))
-                schema = await self.schema(timeout=timeout)
-                schema.path(root)
+                if str(message.topic) == self.alive_topic:
+                    if not message.payload:
+                        raise MiniconfException("Offline", "Device went offline")
+                    if alive_manifest(json.loads(message.payload)) != manifest:
+                        raise MiniconfException(
+                            "Changed",
+                            "Device publication manifest changed; reopen watch",
+                        )
+                    continue
                 event = self._setting_event(message, root, schema)
                 if event is not None:
                     yield event

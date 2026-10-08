@@ -14,8 +14,9 @@ from .common import (
     alive_manifest,
     quiet_window,
     subscribe,
+    unsubscribe,
 )
-from aiomqtt import Client, MqttError
+from aiomqtt import Client
 
 if TYPE_CHECKING:
     from .client import Miniconf
@@ -65,10 +66,7 @@ async def discover(
             discovered[peer] = manifest
             deadline = asyncio.get_running_loop().time() + quiet
     finally:
-        try:
-            await client.unsubscribe(topic, timeout=1.0)
-        except (MqttError, TimeoutError):
-            LOGGER.debug("MQTT unsubscribe error", exc_info=True)
+        await unsubscribe(client, topic)
     return discovered
 
 
@@ -125,16 +123,9 @@ async def _prune_schema(
             burst.reset()
 
     stale = sorted(page for page in seen if page >= pages)
-    for page in stale:
-        await interface._wait(
-            interface.client.publish(
-                f"{interface.prefix}/schema/{page}",
-                payload=b"",
-                qos=1,
-                retain=True,
-            ),
-            deadline,
-        )
+    await _clear_retained(
+        interface, (f"{interface.prefix}/schema/{page}" for page in stale), deadline
+    )
     return stale
 
 
@@ -160,17 +151,18 @@ async def _prune_settings(
             if node.kind != "leaf":
                 stale.append(cache_path)
     stale.sort()
-    for cache_path in stale:
-        await interface._wait(
-            interface.client.publish(
-                f"{interface.prefix}/settings{cache_path}",
-                payload=b"",
-                qos=1,
-                retain=True,
-            ),
-            deadline,
-        )
+    await _clear_retained(
+        interface, (f"{prefix}{cache_path}" for cache_path in stale), deadline
+    )
     return stale
+
+
+async def _clear_retained(interface, topics, deadline):
+    """Clear retained publications with acknowledgements within one deadline."""
+    for topic in topics:
+        await interface._wait(
+            interface.client.publish(topic, payload=b"", qos=1, retain=True), deadline
+        )
 
 
 async def prune(
@@ -192,10 +184,7 @@ async def force_prune(interface: Miniconf, *, timeout: float = 3.0) -> list[str]
     topics = await _collect_retained_topics(
         interface, f"{interface.prefix}/#", deadline=deadline
     )
-    for topic in topics:
-        await interface._wait(
-            interface.client.publish(topic, payload=b"", qos=1, retain=True), deadline
-        )
+    await _clear_retained(interface, topics, deadline)
     interface._schema = None
     interface._alive = b""
     interface._alive_ready.clear()

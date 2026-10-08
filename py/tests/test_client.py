@@ -2,10 +2,11 @@
 
 import asyncio
 import json
+import socket
 import time
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call, patch
 
 from aiomqtt import Message, MqttError
 from paho.mqtt.packettypes import PacketTypes
@@ -13,7 +14,7 @@ from paho.mqtt.properties import Properties
 from paho.mqtt.reasoncodes import ReasonCode
 
 from miniconf.client import Miniconf, RawMiniconf
-from miniconf.common import MiniconfException
+from miniconf.common import MiniconfException, mqtt_client
 from miniconf._ops import discover
 
 
@@ -25,7 +26,8 @@ def message(topic, payload=b"1", **properties):
 
 
 class Transport:
-    def __init__(self):
+    def __init__(self, retained=()):
+        self.retained = retained
         self.incoming = asyncio.Queue()
         self.subscriptions = asyncio.Queue()
         self.messages = self.stream()
@@ -35,6 +37,9 @@ class Transport:
 
     async def subscribed(self, topic, **_kwargs):
         self.subscriptions.put_nowait(topic)
+        for item in self.retained:
+            if item.topic.matches(topic):
+                self.incoming.put_nowait(item)
         return (1,)
 
     async def stream(self):
@@ -50,7 +55,42 @@ class Transport:
                 pass
 
 
+ALIVE = dict(proto=1, epoch=1, schema_rev=1, pages=1)
+
+
+def device_transport():
+    fixture = Path(__file__).resolve().parents[2] / "fixtures/compact-schema.ndjson"
+    return Transport(
+        [
+            message("test/alive", json.dumps(ALIVE).encode()),
+            message("test/schema/0", fixture.read_bytes()),
+            message("test/settings/value", UserProperty=[("auth", "")]),
+        ]
+    )
+
+
 class ClientTests(IsolatedAsyncioTestCase):
+    async def test_connection_options(self):
+        nodelay = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        keepalive = (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        override = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
+        for options in ([], [keepalive], [keepalive, override]):
+            with (
+                self.subTest(options=options),
+                patch("miniconf.common.Client") as client,
+            ):
+                transport = mqtt_client(
+                    "[::1]:1884", socket_options=iter(options), username="reader"
+                )
+                self.assertIs(transport, client.return_value)
+                client.assert_called_once_with(
+                    "::1",
+                    protocol=5,
+                    port=1884,
+                    username="reader",
+                    socket_options=[nodelay, *options],
+                )
+
     async def test_context_lifetime(self):
         transport = Transport()
         client = RawMiniconf(transport, "test")
@@ -294,52 +334,103 @@ class ClientTests(IsolatedAsyncioTestCase):
             await watch.aclose()
 
     async def test_protocol_change_invalidates_schema(self):
-        transport = Transport()
-        manifest = dict(proto=1, epoch=1, schema_rev=1, pages=1)
-        fixture = Path(__file__).resolve().parents[2] / "fixtures/compact-schema.ndjson"
-
-        async def subscribe(topic, **_kwargs):
-            if topic == "test/alive":
-                transport.incoming.put_nowait(
-                    message(topic, json.dumps(manifest).encode())
-                )
-            elif topic == "test/schema/#":
-                transport.incoming.put_nowait(
-                    message("test/schema/0", fixture.read_bytes())
-                )
-            return (1,)
-
-        transport.subscribe.side_effect = subscribe
+        transport = device_transport()
         async with Miniconf(transport, "test") as client:
             self.assertEqual((await client.schema()).node("/value").kind, "leaf")
-            manifest["proto"] = 2
             transport.incoming.put_nowait(
-                message("test/alive", json.dumps(manifest).encode())
+                message("test/alive", json.dumps(ALIVE | {"proto": 2}).encode())
             )
             with self.assertRaisesRegex(MiniconfException, "expected 1"):
                 await client.set("/value", 1)
             transport.publish.assert_not_awaited()
 
-    async def test_schema_and_get_share_deadline(self):
-        transport = Transport()
-        fixture = Path(__file__).resolve().parents[2] / "fixtures/compact-schema.ndjson"
+    async def test_watch_manifest_changes(self):
+        for change, code in (
+            (None, "Offline"),
+            ({"epoch": 2}, "Changed"),
+            ({"schema_rev": 2}, "Changed"),
+            ({"pages": 2}, "Changed"),
+            ({"proto": 2}, "Protocol"),
+        ):
+            with self.subTest(change=change):
+                transport = device_transport()
+                async with Miniconf(transport, "test") as client:
+                    watch = client.watch()
+                    self.assertEqual((await anext(watch)).value, 1)
+                    payload = json.dumps(ALIVE | change).encode() if change else b""
+                    transport.incoming.put_nowait(message("test/alive", payload))
+                    with self.assertRaises(MiniconfException) as error:
+                        await asyncio.wait_for(anext(watch), 1)
+                    self.assertEqual(error.exception.code, code)
+                    self.assertEqual(
+                        transport.unsubscribe.await_args_list,
+                        [
+                            call("test/schema/#", timeout=1.0),
+                            call("test/settings/#", timeout=1.0),
+                        ],
+                    )
 
-        async def subscribe(topic, **_kwargs):
-            if topic == "test/alive":
+    async def test_watch_shares_alive_subscription_and_reopens(self):
+        transport = device_transport()
+        async with Miniconf(transport, "test") as client:
+            first, second = client.watch(), client.watch()
+            self.assertEqual((await anext(first)).value, 1)
+            self.assertEqual((await anext(second)).value, 1)
+            await first.aclose()
+            transport.unsubscribe.assert_awaited_once_with("test/schema/#", timeout=1.0)
+
+            # Equivalent JSON is harmless; a later setting proves the reader advances.
+            transport.incoming.put_nowait(
+                message("test/alive", json.dumps(ALIVE, indent=2).encode())
+            )
+            transport.incoming.put_nowait(
+                message("test/settings/value", UserProperty=[("auth", "")])
+            )
+            self.assertEqual((await anext(second)).value, 1)
+
+            # Recovery cannot erase an offline notification already in the stream.
+            transport.incoming.put_nowait(message("test/alive", b""))
+            transport.incoming.put_nowait(
+                message("test/alive", json.dumps(ALIVE).encode())
+            )
+            with self.assertRaises(MiniconfException) as error:
+                await asyncio.wait_for(anext(second), 1)
+            self.assertEqual(error.exception.code, "Offline")
+            reopened = client.watch()
+            self.assertEqual((await asyncio.wait_for(anext(reopened), 1)).value, 1)
+            await reopened.aclose()
+            self.assertEqual(
+                [args.args[0] for args in transport.subscribe.await_args_list].count(
+                    "test/alive"
+                ),
+                1,
+            )
+
+    async def test_watch_observes_alive_during_subscribe(self):
+        transport = device_transport()
+
+        async def subscribe(topic, **kwargs):
+            if topic == "test/settings/#":
+                transport.incoming.put_nowait(message("test/alive", b""))
                 transport.incoming.put_nowait(
-                    message(topic, b'{"proto":1,"epoch":1,"schema_rev":1,"pages":1}')
+                    message("test/alive", json.dumps(ALIVE).encode())
                 )
-            elif topic == "test/schema/#":
+                return (1,)  # No settings arrive to wake the watch.
+            return await transport.subscribed(topic, **kwargs)
+
+        transport.subscribe.side_effect = subscribe
+        async with Miniconf(transport, "test") as client:
+            with self.assertRaises(MiniconfException) as error:
+                await asyncio.wait_for(anext(client.watch()), 1)
+            self.assertEqual(error.exception.code, "Offline")
+
+    async def test_schema_and_get_share_deadline(self):
+        transport = device_transport()
+
+        async def subscribe(topic, **kwargs):
+            if topic in ("test/schema/#", "test/settings/value"):
                 await asyncio.sleep(0.04)
-                transport.incoming.put_nowait(
-                    message("test/schema/0", fixture.read_bytes())
-                )
-            elif topic == "test/settings/value":
-                await asyncio.sleep(0.04)
-                transport.incoming.put_nowait(
-                    message(topic, UserProperty=[("auth", "")])
-                )
-            return (1,)
+            return await transport.subscribed(topic, **kwargs)
 
         transport.subscribe.side_effect = subscribe
         async with Miniconf(transport, "test") as client:
