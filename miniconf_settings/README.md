@@ -65,7 +65,8 @@ not runtime presence or writability.
 Load a store or explicitly erase it before storing or resetting.
 Loading tries the newest valid snapshot, then the older one; `load_validated`
 also applies application validation. Failure leaves the caller's settings
-unchanged.
+unchanged when clones have independent mutable state. Setter and validation side
+effects are not rolled back.
 
 Unknown paths are ignored; missing leaves keep the caller's defaults.
 Incompatible values at known paths reject the snapshot. Applications own migrations.

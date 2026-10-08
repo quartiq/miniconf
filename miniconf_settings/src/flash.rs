@@ -164,7 +164,8 @@ impl<'a, S: NorFlash> Store<'a, S> {
 
     /// Load the newest valid snapshot, falling back to the other logical slot.
     ///
-    /// Failure leaves `settings` unchanged; erasing unusable storage is explicit.
+    /// Failure leaves `settings` unchanged when clones have independent mutable state.
+    /// Setter side effects are not rolled back. Erasing unusable storage is explicit.
     /// The underlying map may repair interrupted writes while reading.
     pub fn load<'s, T>(
         &'s mut self,
@@ -178,6 +179,8 @@ impl<'a, S: NorFlash> Store<'a, S> {
 
     /// Load the newest intact snapshot accepted by the application.
     /// Caller-provided defaults are trusted; rejected snapshots leave them unchanged.
+    /// Clones must have independent mutable settings state. Setter and validation
+    /// side effects are not rolled back.
     pub async fn load_validated<T>(
         &mut self,
         settings: &mut T,
