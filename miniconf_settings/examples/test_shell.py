@@ -36,8 +36,10 @@ def expect(expected):
         received += os.read(master, 65536)
         while queries < received.count(b"\x1b[6n"):
             if queries == 0:
-                os.write(master, b"help\rget /output/dac/0\r")
-            os.write(master, b"\x1b[24;20R" if queries % 2 == 0 else b"\x1b[1;3R")
+                # Reject a malformed reply; retain queued editing and a literal R.
+                os.write(master, b"help\rget /output/dac/0\x1b[DR\x7f\r\x1b[;20R")
+            else:
+                os.write(master, b"\x1b[24;20R" if queries % 2 == 1 else b"\x1b[1;3R")
             queries += 1
     position = received.index(expected, position) + len(expected)
 
@@ -50,7 +52,7 @@ try:
     expect(b"/output [named]")
     expect(b"    /0..2 [leaf] [sem ty=i16]\r\n")
     expect(b"> \x1b[1;3H")
-    os.write(master, b"se\t/out\t/dac/0\t2048\r")
+    os.write(master, b"se\x1b\t/out\t/dac/0\t2048\r")
     expect(b"Set.\r\n")
     expect(b"> \x1b[1;3H")
     os.write(master, b"get /out\t\t\r")

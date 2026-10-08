@@ -28,6 +28,8 @@ impl Terminal {
     /// answer ANSI cursor queries; up to 256 input bytes can wait for an answer.
     /// Ctrl-C returns `Aborted`; Ctrl-D on an empty line or input EOF returns
     /// `None`. After an I/O error, reconnect before starting again.
+    /// Cancellation can interrupt output and discard queued input. Restore the
+    /// terminal and create a fresh `Terminal` before starting another line.
     /// Application command names complete alongside settings commands; only
     /// `get`, `set`, and `schema` receive path completion.
     pub async fn readline<'a, 'prompt, B, H, I, IO>(
@@ -62,11 +64,10 @@ impl Terminal {
                         .windows(2)
                         .rposition(|w| w == b"\x1b[")
                         .filter(|&start| {
-                            let fields = bytes[start + 2..bytes.len() - 1].split(|&b| b == b';');
-                            fields.clone().count() == 2
-                                && fields
-                                    .clone()
-                                    .all(|s| !s.is_empty() && s.iter().all(u8::is_ascii_digit))
+                            // Frame a CSI ending in R; Noline validates its parameters.
+                            bytes[start + 2..bytes.len() - 1]
+                                .iter()
+                                .all(|byte| !(0x40..=0x7e).contains(byte))
                         });
                     for &byte in &bytes[..start.unwrap_or(bytes.len())] {
                         self.pending
