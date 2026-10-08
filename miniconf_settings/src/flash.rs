@@ -111,6 +111,7 @@ impl<E> From<sequential_storage::Error<E>> for Error<E> {
 pub struct Store<'a, S: NorFlash> {
     map: MapStorage<u16, S, NoCache>,
     buffers: &'a mut Buffers,
+    // Reserve entries before writing so cancellation cannot reuse their generation.
     head: Option<Entry>,
     active: Option<Entry>,
     recovered: bool,
@@ -262,6 +263,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
             generation: next_generation(self.head)?,
             snapshot: Snapshot::Stored(description),
         };
+        self.head = Some(entry);
         self.write_snapshot(settings, entry, description).await?;
         self.publish(entry).await?;
         self.recovered = false;
@@ -279,6 +281,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
             generation: next_generation(self.head)?,
             snapshot: Snapshot::Defaults,
         };
+        self.head = Some(entry);
         self.publish(entry).await?;
         self.recovered = false;
         Ok(())
@@ -585,6 +588,69 @@ mod tests {
     #[derive(Clone, Debug, Default, Tree)]
     struct Boolean {
         value: bool,
+    }
+
+    #[test]
+    fn cancelled_commit_does_not_reuse_generation() {
+        use embedded_storage_async::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+
+        struct Paused {
+            flash: Flash,
+            manifest: bool,
+        }
+        impl ErrorType for Paused {
+            type Error = <Flash as ErrorType>::Error;
+        }
+        impl ReadNorFlash for Paused {
+            const READ_SIZE: usize = Flash::READ_SIZE;
+            async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+                self.flash.read(offset, bytes).await
+            }
+            fn capacity(&self) -> usize {
+                self.flash.capacity()
+            }
+        }
+        impl NorFlash for Paused {
+            const WRITE_SIZE: usize = Flash::WRITE_SIZE;
+            const ERASE_SIZE: usize = Flash::ERASE_SIZE;
+            async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+                self.flash.erase(from, to).await
+            }
+            async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+                self.flash.write(offset, bytes).await?;
+                if self.manifest && bytes.windows(4).any(|w| w == super::MANIFEST_MAGIC) {
+                    self.manifest = false;
+                    futures::future::pending::<()>().await;
+                }
+                Ok(())
+            }
+        }
+
+        block_on(async {
+            let mut buffers = Buffers::new();
+            let mut store = Store::new(
+                Paused {
+                    flash: flash(),
+                    manifest: false,
+                },
+                &mut buffers,
+            );
+            let original = [1_111_111_111u32; 48];
+            store.erase().await.unwrap();
+            store.store(&original).await.unwrap();
+            store.map.flash().manifest = true;
+            let next = [2_222_222_222u32; 48];
+            assert!(futures::poll!(std::pin::pin!(store.store(&next))).is_pending());
+            // Interrupt the retry after its first chunk, leaving the other chunk intact.
+            store.map.flash().flash.bytes_until_shutoff = Some(800);
+            assert!(store.store(&[3_333_333_333u32; 48]).await.is_err());
+            let mut flash = store.into_flash();
+            flash.flash.bytes_until_shutoff = None;
+            let mut store = Store::new(flash, &mut buffers);
+            let mut loaded = [0u32; 48];
+            store.load(&mut loaded).await.unwrap();
+            assert_eq!(loaded, original);
+        });
     }
 
     #[test]

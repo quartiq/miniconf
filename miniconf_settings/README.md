@@ -64,6 +64,10 @@ unchanged.
 Unknown paths are ignored; missing leaves keep the caller's defaults.
 Incompatible values at known paths reject the snapshot. Applications own migrations.
 
+Persist a writable settings view, excluding diagnostics and read-only leaves.
+Flash must hold both snapshots plus space for compaction; two erase pages alone
+do not guarantee enough capacity.
+
 `store` saves the current tree. `reset` selects defaults for the next load
 without changing current settings. Erasing unusable storage is explicit.
 
