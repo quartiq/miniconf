@@ -14,7 +14,7 @@ mod common;
 const COMMANDS: &[&str] = &["get", "set", "schema", "help"];
 const HELP: &str = "get [path], set <path> <json>, schema [path], help\r\n\
     Settings are kept in memory; persistence is not configured.\r\n\
-    Tab completes; repeat without progress for schema or command help.\r\n";
+    Tab completes; repeat to list matches.\r\n";
 
 struct Console<R, W>(R, W);
 

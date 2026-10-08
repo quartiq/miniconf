@@ -25,9 +25,11 @@ error: Access/validation failure: DAC value exceeds 12-bit range
 
 The example keeps settings in memory; piped commands also work.
 Tab completes commands and path segments. Type `/` to enter a subtree.
-When completion stops, repeat Tab for contextual help; `schema` describes the
-whole subtree. Arrow keys edit and recall history, Ctrl-C cancels, and Ctrl-D
-exits an empty line.
+When completion stops, repeat Tab to list matching names in columns. Branch names
+show `/`; large indexed collections show an index range. Type an index to select
+it directly. Lists are limited to four rows; narrow the prefix for more.
+Use `schema` to describe a whole subtree. Arrow keys edit and recall history,
+Ctrl-C cancels, and Ctrl-D exits an empty line.
 
 Command paths start with `/`, are unquoted, and contain no whitespace. Omit the
 path for root `get` or `schema`; `set` requires a path.
@@ -35,17 +37,21 @@ path for root `get` or `schema`; `set` requires a path.
 ## Integrate
 
 - `shell::Terminal` drives a Noline editor over async I/O, with completion and
-  contextual help. Supply editor buffers and your command names; dispatch the
+  match listing. Supply editor buffers and your command names; dispatch the
   returned line in your application.
 - `shell::Command` parses commands for your dispatcher.
   `write_values` reads a leaf or subtree; `write_schema` describes it.
-- `shell::complete` returns a replacement or contextual help for a command
+- `shell::complete` returns a replacement or match context for a command
   line when integrating another editor.
 - `snapshot` encodes and restores JSON leaf records.
 - `flash::Store` saves snapshots with fallback to the previous snapshot.
 
 Apply assignments with `miniconf::json_core::set` and record successful changes
 before replying. The application dispatches persistence and board commands.
+Include application commands in the terminal's command list and route
+`ParseError::UnknownCommand` to your own parser. Their names complete normally;
+their arguments remain application-defined. `complete_path` supplies path
+candidates for custom command syntaxes.
 
 For shared settings, combine `NodeIter` with `write_value` to release settings
 before awaiting output.

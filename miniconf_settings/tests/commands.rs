@@ -45,12 +45,25 @@ fn command_completion_and_context() {
             Some(Completion::Replace(0..2, "reboot ".try_into().unwrap())),
         ),
         (
+            "ge /output",
+            2,
+            Some(Completion::Replace(0..2, "get".try_into().unwrap())),
+        ),
+        (
             "get /output/dac/0",
             8,
             Some(Completion::Replace(5..11, "output".try_into().unwrap())),
         ),
-        ("get /output/dac/0", 11, Some(Completion::Help(Some(4..11)))),
-        ("get /output/dac/", 16, Some(Completion::Help(Some(4..15)))),
+        (
+            "get /output/dac/0",
+            11,
+            Some(Completion::Matches(Some(4..11))),
+        ),
+        (
+            "get /output/dac/",
+            16,
+            Some(Completion::Matches(Some(4..16))),
+        ),
         (
             "set /output/dac/0",
             17,
@@ -79,6 +92,10 @@ fn command_completion_and_context() {
         complete(common::Settings::SCHEMA, "get /out", 8, &["reboot"]),
         None
     );
+    assert_eq!(
+        complete(common::Settings::SCHEMA, "ge", 2, &["get", "get"]),
+        Some(Completion::Replace(0..2, "get ".try_into().unwrap()))
+    );
 }
 
 #[test]
@@ -101,6 +118,33 @@ fn command_completion_omits_whitespace_names() {
     assert_eq!(
         complete(SCHEMA, "set /ser", 8, &["set"]),
         Some(Completion::Replace(5..8, "serial ".try_into().unwrap()))
+    );
+}
+
+#[test]
+fn numeric_completion_selects_an_index() {
+    for (line, cursor, expected) in [
+        ("get /", 5, Some(Completion::Matches(Some(4..5)))),
+        (
+            "get /1",
+            6,
+            Some(Completion::Replace(5..6, "1 ".try_into().unwrap())),
+        ),
+        (
+            "get /999",
+            8,
+            Some(Completion::Replace(5..8, "999 ".try_into().unwrap())),
+        ),
+        ("get /1000", 9, Some(Completion::Matches(Some(4..9)))),
+    ] {
+        assert_eq!(
+            complete(<[u16; 1000]>::SCHEMA, line, cursor, &["get"]),
+            expected
+        );
+    }
+    assert_eq!(
+        complete(<(u16, [u16; 2])>::SCHEMA, "set /1", 6, &["set"]),
+        Some(Completion::Matches(Some(4..6)))
     );
 }
 

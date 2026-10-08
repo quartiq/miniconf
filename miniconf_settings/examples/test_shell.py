@@ -37,13 +37,13 @@ def expect(expected):
         while queries < received.count(b"\x1b[6n"):
             if queries == 0:
                 os.write(master, b"help\rget /output/dac/0\r")
-            os.write(master, b"\x1b[24;80R" if queries % 2 == 0 else b"\x1b[1;3R")
+            os.write(master, b"\x1b[24;20R" if queries % 2 == 0 else b"\x1b[1;3R")
             queries += 1
     position = received.index(expected, position) + len(expected)
 
 
 try:
-    expect(b"Tab completes; repeat without progress for schema or command help.\r\n")
+    expect(b"Tab completes; repeat to list matches.\r\n")
     expect(b"/output/dac/0: 1024\r\n")
     expect(b"> \x1b[1;3H")
     os.write(master, b"schema /out\t\r")
@@ -57,12 +57,16 @@ try:
     expect(b"/output/dac/0: 2048\r\n")
     expect(b"> \x1b[1;3H")
     assert received.count(b"/output [named]") == 1
-    # Help must preserve a mid-line cursor and accept queued editing immediately.
+    os.write(master, b"get /c\t\t\t\x03")
+    expect(b"control/\r\ncalibration/\r\n")
+    expect(b"control/\r\ncalibration/\r\n")
+    expect(b"> \x1b[1;3H")
+    # Match listings preserve a mid-line cursor and accept queued editing immediately.
     os.write(master, b"get /output/dac/1\x1b[D\t\t\t\x040\t\r")
-    expect(b"/output/dac [homogeneous]")
-    expect(b"/output/dac [homogeneous]")
+    expect(b"0  1\r\n")
+    expect(b"0  1\r\n")
     expect(b"/output/dac/0: 2048\r\n")
-    assert received.count(b"/output/dac [homogeneous]") == 2
+    assert received.count(b"0  1\r\n") == 2
     expect(b"> \x1b[1;3H")
     os.write(master, b"set /output/dac/0 99\x03get /output/dac/0\r")
     expect(b"/output/dac/0: 2048\r\n")
@@ -79,4 +83,4 @@ finally:
         process.wait()
     os.close(master)
     os.close(slave)
-print("Pipes, completion, contextual help, and terminal restoration passed.")
+print("Pipes, completion, match listing, and terminal restoration passed.")

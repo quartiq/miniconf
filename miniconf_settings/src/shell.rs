@@ -14,6 +14,7 @@ use crate::{MAX_DEPTH, MAX_PATH_LENGTH};
 
 mod completion;
 pub use completion::{Completion, complete, complete_path};
+mod matches;
 mod schema;
 pub use schema::write_schema;
 mod terminal;

@@ -8,7 +8,10 @@ use noline::{
     line_buffer::Buffer,
 };
 
-use super::{Completion, complete, write_schema};
+use super::{
+    Completion, complete,
+    matches::{Candidates, write_matches},
+};
 
 /// Settings terminal interaction. Retains input queued during cursor queries.
 /// Create a fresh terminal after a disconnect.
@@ -18,13 +21,15 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    /// Edit a command with completion, history, and repeated-Tab contextual help.
+    /// Edit a command with completion, history, and repeated-Tab match listing.
     ///
-    /// The caller owns the editor buffers and dispatches the returned line. Help
-    /// shows one schema level and restores the draft and cursor. The terminal must
+    /// The caller owns the editor buffers and dispatches the returned line. Match
+    /// listings are bounded and restore the draft and cursor. The terminal must
     /// answer ANSI cursor queries; up to 256 input bytes can wait for an answer.
     /// Ctrl-C returns `Aborted`; Ctrl-D on an empty line or input EOF returns
     /// `None`. After an I/O error, reconnect before starting again.
+    /// Application command names complete alongside settings commands; only
+    /// `get`, `set`, and `schema` receive path completion.
     pub async fn readline<'a, 'prompt, B, H, I, IO>(
         &mut self,
         mut line: Line<'a, B, H, I>,
@@ -40,6 +45,7 @@ impl Terminal {
     {
         output(io, line.start()).await?;
         let mut tab = false;
+        let mut columns = None;
         loop {
             let Some(cursor) = line.cursor() else {
                 // Cursor replies share the input stream with queued keystrokes.
@@ -52,29 +58,31 @@ impl Terminal {
                     if byte != b'R' {
                         continue;
                     }
-                    let start = bytes.windows(2).rposition(|w| w == b"\x1b[");
-                    if let Some(start) = start {
-                        let fields = bytes[start + 2..bytes.len() - 1].split(|&b| b == b';');
-                        if fields.clone().count() == 2
-                            && fields
-                                .clone()
-                                .all(|s| !s.is_empty() && s.iter().all(u8::is_ascii_digit))
-                        {
-                            for &byte in &bytes[..start] {
-                                self.pending
-                                    .push_back(byte)
-                                    .map_err(|_| ErrorKind::OutOfMemory)?;
-                            }
-                            for &byte in &bytes[start..] {
-                                output(io, line.advance(byte)?).await?;
-                            }
-                            break;
-                        }
-                    }
-                    for &byte in &bytes {
+                    let start = bytes
+                        .windows(2)
+                        .rposition(|w| w == b"\x1b[")
+                        .filter(|&start| {
+                            let fields = bytes[start + 2..bytes.len() - 1].split(|&b| b == b';');
+                            fields.clone().count() == 2
+                                && fields
+                                    .clone()
+                                    .all(|s| !s.is_empty() && s.iter().all(u8::is_ascii_digit))
+                        });
+                    for &byte in &bytes[..start.unwrap_or(bytes.len())] {
                         self.pending
                             .push_back(byte)
                             .map_err(|_| ErrorKind::OutOfMemory)?;
+                    }
+                    if let Some(start) = start {
+                        if columns.is_none() {
+                            columns = core::str::from_utf8(&bytes[start + 2..bytes.len() - 1])
+                                .ok()
+                                .and_then(|reply| reply.split_once(';')?.1.parse().ok());
+                        }
+                        for &byte in &bytes[start..] {
+                            output(io, line.advance(byte)?).await?;
+                        }
+                        break;
                     }
                     bytes.clear();
                 }
@@ -96,21 +104,27 @@ impl Terminal {
                 None
             };
             let previous_tab = tab;
-            tab = matches!(completion, Some(Completion::Help(_)));
-            if let Some(Completion::Help(root)) = completion.as_ref()
+            tab = matches!(completion, Some(Completion::Matches(_)));
+            if let Some(Completion::Matches(path)) = completion.as_ref()
                 && previous_tab
             {
                 output(io, line.suspend()?).await?;
-                if let Some(root) = root {
-                    write_schema(io, schema, &line.as_str()[root.clone()], 1).await?;
-                } else {
-                    for command in commands {
-                        io.write_all(command.as_bytes()).await?;
-                        io.write_all(b" ").await?;
+                if let Some(path) = path {
+                    if let Some((_, candidates)) =
+                        Candidates::path(schema, &line.as_str()[path.clone()], path.len())
+                    {
+                        write_matches(io, candidates, columns.unwrap_or(80)).await?;
                     }
-                    io.write_all(b"\r\n").await?;
+                } else {
+                    write_matches(
+                        io,
+                        Candidates::Commands(commands, line.as_str()[..cursor].trim_start()),
+                        columns.unwrap_or(80),
+                    )
+                    .await?;
                 }
                 output(io, line.resume()?).await?;
+                columns = None;
                 continue;
             }
             let edits = match completion {
@@ -137,17 +151,19 @@ async fn output<'a>(
     io: &mut impl Write,
     edits: impl IntoIterator<Item = OutputItem<'a>>,
 ) -> Result<bool, NolineError> {
-    let mut result = Ok(false);
+    let mut result = None;
     for item in edits {
         if let Some(bytes) = item.get_bytes() {
             io.write_all(bytes).await?;
         }
-        match item.event() {
-            Some(Event::Submitted) => result = Ok(true),
-            Some(Event::Aborted) => result = Err(NolineError::Aborted),
-            _ => {}
-        }
+        result = Some(match item.event() {
+            Some(Event::Submitted) => Ok(true),
+            Some(Event::Aborted) => Err(NolineError::Aborted),
+            _ => Ok(false),
+        });
     }
-    io.flush().await?;
-    result
+    if result.is_some() {
+        io.flush().await?;
+    }
+    result.unwrap_or(Ok(false))
 }
