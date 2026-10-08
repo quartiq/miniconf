@@ -76,8 +76,9 @@ class SchemaTests(TestCase):
             )
         ).splitlines()
         assert compressed_sem == [
-            "└─ array_tree [homogeneous]",
-            "   └─ 0..2 [sem ty=i32]",
+            "(root) [named]",
+            "└─ /array_tree [homogeneous]",
+            "   └─ /0..2 [leaf] [sem ty=i32]",
         ], compressed_sem
         quoted_meta = render_schema_tree(
             Schema.from_defs(
@@ -94,8 +95,28 @@ class SchemaTests(TestCase):
             )
         ).splitlines()
         assert quoted_meta == [
-            '└─ node [edge doc="Outer doc"] [node typename="InnerType"]'
+            "(root) [named]",
+            '└─ /node [leaf] [edge doc="Outer doc"] [node typename="InnerType"]',
         ], quoted_meta
+
+    def test_nested_homogeneous_and_numbered(self):
+        schema = Schema.from_defs(
+            [
+                {"s": {"ty": "u16"}},
+                {"s": {"ty": "bool"}},
+                {"i": {"k": "h", "l": 2, "c": 0}},
+                {"i": {"k": "h", "l": 3, "c": 2}},
+                {"i": {"k": "d", "c": [3, 1]}},
+            ],
+            1,
+        )
+        assert render_schema_tree(schema).splitlines() == [
+            "(root) [numbered]",
+            "├─ /0 [homogeneous]",
+            "│  └─ /0..3 [homogeneous]",
+            "│     └─ /0..2 [leaf] [sem ty=u16]",
+            "└─ /1 [leaf] [sem ty=bool]",
+        ]
 
     def test_empty_names(self):
         empty_name_schema = Schema.from_defs(
@@ -110,13 +131,14 @@ class SchemaTests(TestCase):
         assert empty_name_schema.path("/") == "/"
         assert empty_name_schema.path("//value") == "//value"
         assert render_schema_tree(empty_name_schema, "/").splitlines() == [
-            '""',
-            "└─ value [sem ty=i32]",
+            "/ [named]",
+            "└─ /value [leaf] [sem ty=i32]",
         ]
         assert render_schema_tree(empty_name_schema).splitlines() == [
-            '├─ ""',
-            "│  └─ value [sem ty=i32]",
-            "└─ value [sem ty=i32]",
+            "(root) [named]",
+            '├─ /"" [named]',
+            "│  └─ /value [leaf] [sem ty=i32]",
+            "└─ /value [leaf] [sem ty=i32]",
         ]
         empty_values = {"//value": 1, "/value": 2}
         assert render_value_tree(empty_name_schema, empty_values).splitlines() == [

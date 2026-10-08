@@ -196,11 +196,12 @@ export function displayPath(path: string): string {
 }
 
 export function formatSchemaName(node: SchemaNode): string {
-  return node.path.split("/").at(-1) || '\"\"';
+  return "/" + (node.path.split("/").at(-1) || '\"\"');
 }
 
 export function schemaSummary(node: SchemaNode): string {
-  const parts: string[] = node.kind === "leaf" ? [] : [node.kind];
+  const parts: string[] = [node.kind];
+  if (node.kind === "homogeneous") parts.push(`0..${node.children.length}`);
   // Only Sem fields defined by Rust carry portable meaning. Other metadata is opaque.
   if (node.sem && typeof node.sem === "object" && !Array.isArray(node.sem)) {
     const sem = node.sem as Record<string, unknown>;

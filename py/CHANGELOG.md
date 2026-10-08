@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Render nested homogeneous schema children once, with rooted segment labels and explicit kinds.
+
 * Reduce CLI startup time and MQTT message latency.
 * Schema-aware settings watches now raise an error when the device goes offline or its
   publication manifest changes, even when no settings arrive.

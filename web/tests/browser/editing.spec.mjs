@@ -6,7 +6,7 @@ test("schema presentation and coalesced settings logs", async ({
   device,
 }) => {
   const leaf = page.locator('[data-tree-path="/leaf"]');
-  await expect(leaf.locator(".summary")).toHaveText("(i32)");
+  await expect(leaf.locator(".summary")).toHaveText("(leaf · i32)");
   await expect(leaf).toHaveAttribute(
     "title",
     /Edge metadata:[\s\S]*Node metadata:/,

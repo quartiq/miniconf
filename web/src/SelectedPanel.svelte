@@ -98,7 +98,10 @@
     </section>
   {/if}
   <section class="schema-body" aria-label="Schema">
-    {#if node}<div class="meta">Kind: {node.kind}</div>{/if}
+    {#if node}<div class="meta">
+        Kind: {node.kind}{#if node.kind === "homogeneous"}
+          (0..{node.children.length}){/if}
+      </div>{/if}
     {#if node?.sem !== undefined}<Metadata
         label="Semantics"
         heading={false}

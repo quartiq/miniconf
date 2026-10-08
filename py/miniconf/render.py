@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 from .common import json_dumps
 from .schema import Schema, SchemaNode
@@ -36,16 +36,8 @@ def _format_mapping(prefix: str, value: Any, *, quote_strings: bool = False) -> 
     return prefix if not items else f"{prefix} {' '.join(items)}"
 
 
-def _annotations(
-    node: SchemaNode,
-    *,
-    compressed_homogeneous: bool = False,
-) -> list[str]:
-    tags = []
-    if compressed_homogeneous or node.kind == "homogeneous":
-        tags.append("homogeneous")
-    elif node.kind == "numbered":
-        tags.append("numbered")
+def _annotations(node: SchemaNode) -> list[str]:
+    tags = [node.kind]
     sem = node.schema.get("sem")
     if sem is not None:
         tags.append(_format_mapping("sem", sem))
@@ -60,10 +52,9 @@ def format_schema_label(
     node: SchemaNode,
     *,
     name: str | None = None,
-    compressed_homogeneous: bool = False,
 ) -> str:
-    label = name if name is not None else _segment_label(node.path)
-    tags = _annotations(node, compressed_homogeneous=compressed_homogeneous)
+    label = name if name is not None else "/" + _segment_label(node.path)
+    tags = _annotations(node)
     return " ".join([label, *tags]).strip()
 
 
@@ -82,15 +73,15 @@ def format_value_label(
 
 def _tree_lines(
     root_line: str | None,
-    children: list[tuple[str, Callable[[str], list[str]]]],
+    children: list[list[str]],
 ) -> list[str]:
     lines = [] if root_line is None else [root_line]
-    for index, (label, descend) in enumerate(children):
+    for index, child in enumerate(children):
         last = index + 1 == len(children)
         branch = "└─ " if last else "├─ "
-        lines.append(f"{branch}{label}")
+        lines.append(f"{branch}{child[0]}")
         child_prefix = "   " if last else "│  "
-        for line in descend(child_prefix):
+        for line in child[1:]:
             lines.append(f"{child_prefix}{line}")
     return lines
 
@@ -98,51 +89,24 @@ def _tree_lines(
 def render_schema_tree(schema: Schema, root: str = "") -> str:
     root = schema.path(root)
 
-    def visit(path: str, *, compress: bool) -> list[str]:
+    def visit(path: str) -> list[str]:
         node = schema.node(path)
-        if compress and node.kind == "homogeneous":
-            children = schema.children(path)
-            if children:
-                count = node.schema["internal"]["len"]
-                child = children[0]
-
-                return _tree_lines(
-                    format_schema_label(node),
-                    [
-                        (
-                            format_schema_label(
-                                child,
-                                name=f"0..{count}",
-                            ),
-                            lambda _prefix: visit(child.path, compress=False)[1:],
-                        )
-                    ],
-                )
+        if node.kind == "homogeneous":
+            count = node.schema["internal"]["len"]
+            if count:
+                child = schema.node(f"{path}/0")
+                child_lines = visit(child.path)
+                child_lines[0] = format_schema_label(child, name=f"/0..{count}")
+                return _tree_lines(format_schema_label(node), [child_lines])
 
         return _tree_lines(
             format_schema_label(node),
-            [
-                (
-                    format_schema_label(child),
-                    lambda _prefix, path=child.path: visit(path, compress=True)[1:],
-                )
-                for child in schema.children(path)
-            ],
+            [visit(child.path) for child in schema.children(path)],
         )
 
-    if not root:
-        lines = []
-        children = schema.children("")
-        for index, child in enumerate(children):
-            last = index + 1 == len(children)
-            branch = "└─ " if last else "├─ "
-            child_lines = visit(child.path, compress=True)
-            lines.append(f"{branch}{child_lines[0]}")
-            prefix = "   " if last else "│  "
-            for line in child_lines[1:]:
-                lines.append(f"{prefix}{line}")
-        return "\n".join(lines)
-    return "\n".join(visit(root, compress=True))
+    lines = visit(root)
+    lines[0] = format_schema_label(schema.node(root), name=root or "(root)")
+    return "\n".join(lines)
 
 
 def render_value_tree(schema: Schema, values: dict[str, Any], root: str = "") -> str:
@@ -157,29 +121,10 @@ def render_value_tree(schema: Schema, values: dict[str, Any], root: str = "") ->
         )
         return _tree_lines(
             line,
-            [
-                (
-                    format_value_label(
-                        child,
-                        present=child.path in values,
-                        value=values.get(child.path),
-                    ),
-                    lambda _prefix, path=child.path: visit(path)[1:],
-                )
-                for child in schema.children(path)
-            ],
+            [visit(child.path) for child in schema.children(path)],
         )
 
     if not root:
-        lines = []
-        children = schema.children("")
-        for index, child in enumerate(children):
-            last = index + 1 == len(children)
-            branch = "└─ " if last else "├─ "
-            child_lines = visit(child.path)
-            lines.append(f"{branch}{child_lines[0]}")
-            prefix = "   " if last else "│  "
-            for line in child_lines[1:]:
-                lines.append(f"{prefix}{line}")
+        lines = _tree_lines(None, [visit(child.path) for child in schema.children("")])
         return "\n".join(lines)
     return "\n".join(visit(root))
