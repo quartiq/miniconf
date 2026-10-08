@@ -22,7 +22,7 @@ impl<T: TreeSerialize, K: Keys + Clone> Serialize for Selected<'_, T, K> {
 fn serialize_repeatedly_across_codecs() {
     let tree = (7u32, Leaf([3u32, 4]));
     for (path, json, bytes) in [("/0", "7", &[7][..]), ("/1", "[3,4]", &[3, 4][..])] {
-        let selected = Selected(&tree, path.into_keys());
+        let selected = Selected(&tree, path.into_keys().unwrap());
         let value: &dyn erased_serde::Serialize = &selected;
         for _ in 0..2 {
             assert_eq!(serde_json::to_string(value).unwrap(), json);
@@ -37,7 +37,7 @@ fn serialize_repeatedly_across_codecs() {
             postcard::Error::SerializeBufferFull
         );
     }
-    let selected = Selected(&tree, "/missing".into_keys());
+    let selected = Selected(&tree, "/missing".into_keys().unwrap());
     let value: &dyn erased_serde::Serialize = &selected;
     assert!(
         serde_json::to_string(value)
@@ -62,7 +62,7 @@ fn deserialize_borrowed_values_and_finalize() {
     let mut json = serde_json::Deserializer::from_slice(input);
     set(
         &mut tree,
-        &mut "/0".into_keys(),
+        &mut "/0".into_keys().unwrap(),
         &mut <dyn erased_serde::Deserializer<'_>>::erase(&mut json),
     )
     .unwrap();

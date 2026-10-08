@@ -276,14 +276,14 @@ pub trait TreeAny: TreeSchema {
 
     /// Obtain a reference to a leaf of known type by boundary key input.
     fn ref_by_key<T: Any>(&self, keys: impl IntoKeys) -> Result<&T, ValueError> {
-        self.ref_any_by_key(keys.into_keys())?
+        self.ref_any_by_key(keys.into_keys()?)?
             .downcast_ref()
             .ok_or(ValueError::Access("Incorrect type"))
     }
 
     /// Obtain a mutable reference to a leaf of known type by boundary key input.
     fn mut_by_key<T: Any>(&mut self, keys: impl IntoKeys) -> Result<&mut T, ValueError> {
-        self.mut_any_by_key(keys.into_keys())?
+        self.mut_any_by_key(keys.into_keys()?)?
             .downcast_mut()
             .ok_or(ValueError::Access("Incorrect type"))
     }
@@ -314,7 +314,7 @@ pub trait TreeSerialize: TreeSchema {
     /// };
     /// let mut buf = [0u8; 10];
     /// let mut ser = serde_json_core::ser::Serializer::new(&mut buf);
-    /// s.serialize_by_key(["bar", "0"].into_keys(), &mut ser).unwrap();
+    /// s.serialize_by_key(["bar", "0"].into_keys().unwrap(), &mut ser).unwrap();
     /// let len = ser.end();
     /// assert_eq!(&buf[..len], b"11");
     /// # }
@@ -351,7 +351,7 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     /// };
     /// let mut s = S::default();
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
-    /// s.deserialize_by_key(["bar", "0"].into_keys(), &mut de).unwrap();
+    /// s.deserialize_by_key(["bar", "0"].into_keys().unwrap(), &mut de).unwrap();
     /// de.end().unwrap();
     /// assert_eq!(s.bar[0], 7);
     /// # }
@@ -380,7 +380,7 @@ pub trait TreeDeserialize<'de>: TreeSchema {
     ///     bar: [u16; 2],
     /// };
     /// let mut de = serde_json::de::Deserializer::from_slice(b"7");
-    /// S::probe_by_key(["bar", "0"].into_keys(), &mut de)
+    /// S::probe_by_key(["bar", "0"].into_keys().unwrap(), &mut de)
     ///     .unwrap();
     /// de.end().unwrap();
     /// # }

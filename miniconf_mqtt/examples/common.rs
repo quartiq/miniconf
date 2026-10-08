@@ -1,0 +1,1 @@
+../../miniconf/examples/common.rs

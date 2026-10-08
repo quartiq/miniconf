@@ -23,16 +23,12 @@ use crate::{DescendError, Internal, IntoKeys, Key, KeyError, Keys, Schema, Trans
 ///
 /// The representation is MSB aligned to make `PartialOrd`/`Ord` more natural and stable.
 /// The `Packed` key `Ord` matches the ordering of nodes in a horizontal leaf tree
-/// traversal. New nodes can be added/removed to the tree without changing the implicit
-/// encoding (and ordering!) as long no new bits need to be allocated/deallocated (
-/// as long as the number of child nodes of an internal node does not cross a
-/// power-of-two boundary).
-/// Under this condition the mapping between indices/paths and `Packed` representation
-/// is stable even if child nodes are added/removed.
+/// traversal. A key's encoding remains stable while its child indices and the
+/// bit widths along its path remain unchanged. Adding or removing children can
+/// change either, even when the selected leaf itself is unchanged.
 ///
 /// "Small numbers" in LSB-aligned representation can be obtained through
-/// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't have the ordering
-/// and stability properties.
+/// [`Packed::into_lsb()`]/[`Packed::from_lsb()`] but don't preserve traversal ordering.
 ///
 /// `Packed` can be used to uniquely identify
 /// nodes in a `TreeSchema` using only a very small amount of bits.
@@ -214,8 +210,8 @@ impl Keys for Packed {
 impl IntoKeys for Packed {
     type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 

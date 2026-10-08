@@ -18,7 +18,7 @@ pub fn trace_value(
     value: impl TreeSerialize,
 ) -> Result<(Format, Value), SerdeError<serde_reflection::Error>> {
     let (mut format, sample) = value.serialize_by_key(
-        keys.into_keys(),
+        keys.into_keys()?,
         serde_reflection::Serializer::new(tracer, samples),
     )?;
     format.reduce();
@@ -33,7 +33,7 @@ pub fn trace_type_once<'de, T: TreeDeserialize<'de>>(
 ) -> Result<Format, SerdeError<serde_reflection::Error>> {
     let mut format = Format::unknown();
     T::probe_by_key(
-        keys.into_keys(),
+        keys.into_keys()?,
         serde_reflection::Deserializer::new(tracer, samples, &mut format),
     )?;
     format.reduce();

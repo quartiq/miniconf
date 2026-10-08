@@ -38,7 +38,7 @@ impl<T: Key + ?Sized> Key for &mut T {
 /// use miniconf::{IntoKeys, Keys, TreeAny};
 ///
 /// let tree = [7u32, 11];
-/// let mut path = "/1".into_keys();
+/// let mut path = "/1".into_keys().unwrap();
 /// let mut indices = [1usize].as_slice();
 /// for keys in [&mut path as &mut dyn Keys, &mut indices] {
 ///     assert_eq!(tree.ref_any_by_key(keys).unwrap().downcast_ref(), Some(&11u32));
@@ -88,22 +88,15 @@ pub trait IntoKeys {
     /// The specific `Keys` implementor.
     type IntoKeys: Keys;
 
-    /// Convert `self` into a normalized [`Keys`] implementor.
-    ///
-    /// This is the outer boundary funnel. Accept wider ergonomic key inputs here, but keep the
-    /// actual `Keys` type space small so deep traversal APIs (`*_by_keys()`, schema descent, and
-    /// transcoding) do not monomorphize over every input wrapper/container flavor.
-    fn into_keys(self) -> Self::IntoKeys;
+    /// Normalize boundary input into a cursor, returning any construction error.
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError>;
 
     /// Concatenate two boundary key inputs into one normalized key stream.
-    ///
-    /// This lives on [`IntoKeys`], not [`Keys`], because chaining is boundary composition rather
-    /// than a concern of deep traversal APIs.
-    fn chain<U: IntoKeys>(self, other: U) -> Chain<Self::IntoKeys, U::IntoKeys>
+    fn chain<U: IntoKeys>(self, other: U) -> Result<Chain<Self::IntoKeys, U::IntoKeys>, KeyError>
     where
         Self: Sized,
     {
-        Chain(self.into_keys(), other.into_keys())
+        Ok(Chain(self.into_keys()?, other.into_keys()?))
     }
 }
 
@@ -133,7 +126,7 @@ pub trait Transcode {
         Self: Sized + Default,
     {
         let mut target = Self::default();
-        target.transcode_from(schema, keys.into_keys())?;
+        target.transcode_from(schema, keys.into_keys()?)?;
         Ok(target)
     }
 }
@@ -199,32 +192,40 @@ impl<'a> IntoKeys for &'a str {
     /// Interpret `self` as a rooted slash-separated path.
     ///
     /// Use [`crate::PathIter`] or [`crate::ConstPathIter`] directly for non-`'/'` separators.
-    fn into_keys(self) -> Self::IntoKeys {
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
         ConstPathIter::root(self)
+    }
+}
+
+impl<T: IntoKeys> IntoKeys for Result<T, KeyError> {
+    type IntoKeys = T::IntoKeys;
+
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        self?.into_keys()
     }
 }
 
 impl<T: Key> IntoKeys for &[T] {
     type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 
 impl<'a, T: Key, const N: usize> IntoKeys for &'a [T; N] {
     type IntoKeys = &'a [T];
 
-    fn into_keys(self) -> Self::IntoKeys {
-        &self[..]
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(&self[..])
     }
 }
 
 impl<T: Key, const N: usize> IntoKeys for [T; N] {
     type IntoKeys = KeysIter<core::array::IntoIter<T, N>>;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        KeysIter::new(self.into_iter())
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(KeysIter::new(self.into_iter()))
     }
 }
 
@@ -235,8 +236,8 @@ where
 {
     type IntoKeys = KeysIter<T>;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }
 
@@ -259,7 +260,7 @@ impl<T: Keys, U: Keys> Keys for Chain<T, U> {
 impl<T: Keys, U: Keys> IntoKeys for Chain<T, U> {
     type IntoKeys = Self;
 
-    fn into_keys(self) -> Self::IntoKeys {
-        self
+    fn into_keys(self) -> Result<Self::IntoKeys, KeyError> {
+        Ok(self)
     }
 }

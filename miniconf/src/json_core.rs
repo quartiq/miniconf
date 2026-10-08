@@ -47,7 +47,7 @@ impl<'de> TreeDeserializer<'de> for Json<'de> {
 ///
 /// # Args
 /// * `tree` - The `TreeDeserialize` to operate on.
-/// * `path` - The path to the node. Everything before the first `'/'` is ignored.
+/// * `path` - Empty for the root, otherwise starts with `'/'`.
 /// * `data` - The serialized data making up the content.
 ///
 /// # Returns
@@ -63,8 +63,8 @@ pub fn set<'de>(
 /// Retrieve a serialized value by path.
 ///
 /// # Args
-/// * `tree` - The `TreeDeserialize` to operate on.
-/// * `path` - The path to the node. Everything before the first `'/'` is ignored.
+/// * `tree` - The `TreeSerialize` to operate on.
+/// * `path` - Empty for the root, otherwise starts with `'/'`.
 /// * `data` - The buffer to serialize the data into.
 ///
 /// # Returns
@@ -86,7 +86,7 @@ pub fn set_by_key<'de>(
     keys: impl IntoKeys,
     data: &'de [u8],
 ) -> Result<usize, SerdeError<de::Error>> {
-    set_by_keys(tree, keys.into_keys(), data)
+    set_by_keys(tree, keys.into_keys()?, data)
 }
 
 /// Update a node by a normalized key cursor.
@@ -107,7 +107,7 @@ pub fn get_by_key(
     keys: impl IntoKeys,
     data: &mut [u8],
 ) -> Result<usize, SerdeError<ser::Error>> {
-    get_by_keys(tree, keys.into_keys(), data)
+    get_by_keys(tree, keys.into_keys()?, data)
 }
 
 /// Retrieve a serialized value by a normalized key cursor.

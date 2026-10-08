@@ -28,7 +28,7 @@ or validation comparisons. [Help replies](src/help-replies.txt) are checked sepa
 ## Results
 
 Rust 1.98.1 (LLVM 22.1.8), Cortex-M3 (`thumbv7m-none-eabi`),
-`opt-level = "s"`, LTO, one codegen unit. Each variant is built separately.
+`opt-level = "s"`, LTO, one codegen unit, Ryu `small`. Each variant is built separately.
 Code and constants are `.text + .rodata`, including the transcript driver but
 excluding the 1,024-byte vector table. Observed stack is the painted high-water
 mark during the transcript, including semihosting, not a worst-case bound.
@@ -36,14 +36,14 @@ All variants have zero `.data` and `.bss`.
 
 | Implementation | Code + constants (bytes) | Observed stack (bytes) |
 |---|---:|---:|
-| Manual | 24104 | 368 |
-| Tree | 25244 | 440 |
-| Manual + help | 26028 | 372 |
-| Tree + help | 29116 | 776 |
+| Manual | 15056 | 432 |
+| Tree | 16264 | 504 |
+| Manual + help | 17204 | 440 |
+| Tree + help | 19964 | 784 |
 
 For this interface, Tree replaces handwritten field dispatch and access checks
-for 1,140 extra bytes of code and constants and 72 extra bytes of observed stack.
-Including help, the gaps are 3,088 and 404 bytes; Tree derives help from the
+for 1,208 extra bytes of code and constants and 72 extra bytes of observed stack.
+Including help, the gaps are 2,760 and 344 bytes; Tree derives help from the
 schema instead of maintaining separate descriptions. Metadata features are
 enabled only with `help`.
 

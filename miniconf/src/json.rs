@@ -5,7 +5,7 @@ use alloc::{
 };
 use serde_json::value::{Serializer as ValueSerializer, Value};
 
-use crate::{Internal, IntoKeys, KeyError, Schema, SerdeError, TreeSerialize, ValueError};
+use crate::{Internal, KeyError, Schema, SerdeError, TreeSerialize, ValueError};
 
 /// Magic JSON Value for absent node values.
 pub const TREE_ABSENT: &str = "__tree-absent__";
@@ -60,7 +60,7 @@ pub fn to_json_value<T: TreeSerialize>(
         schema: &Schema,
         value: &T,
     ) -> Result<NodeValue<Value>, SerdeError<<ValueSerializer as serde::Serializer>::Error>> {
-        match classify(value.serialize_by_key((&idx[..depth]).into_keys(), ValueSerializer)) {
+        match classify(value.serialize_by_key(&idx[..depth], ValueSerializer)) {
             Ok(NodeValue::Value(value)) => Ok(NodeValue::Value(value)),
             Ok(NodeValue::Absent) => Ok(NodeValue::Absent),
             Ok(NodeValue::Access) => Ok(NodeValue::Access),

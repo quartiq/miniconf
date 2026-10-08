@@ -1,0 +1,11 @@
+error: Duplicate tree name
+ --> tests/ui/duplicate_names.rs:6:21
+  |
+6 |     #[tree(rename = "x")]
+  |                     ^^^
+
+error: Duplicate tree name
+  --> tests/ui/duplicate_names.rs:13:21
+   |
+13 |     #[tree(rename = "A")]
+   |                     ^^^

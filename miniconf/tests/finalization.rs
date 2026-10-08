@@ -81,7 +81,7 @@ fn seed_uses_field_context_before_assignment() {
     assert_eq!(settings.level, (9, 10));
     let mut raw = serde_json_core::de::Deserializer::new(b"8", None);
     settings
-        .deserialize_by_key("/level".into_keys(), &mut raw)
+        .deserialize_by_key("/level".into_keys().unwrap(), &mut raw)
         .unwrap();
     assert_eq!(settings.level, (8, 10));
     settings.level.1 = 7;
@@ -136,7 +136,11 @@ fn composite_leaf_errors_preserve_value() {
 
     // Raw sources retain Serde's in-place behavior, including partial updates on errors.
     let mut de = serde_json_core::de::Deserializer::new(b"[7]", None);
-    assert!(value.deserialize_by_key("".into_keys(), &mut de).is_err());
+    assert!(
+        value
+            .deserialize_by_key("".into_keys().unwrap(), &mut de)
+            .is_err()
+    );
     assert_eq!(value.0, [7, 8]);
 }
 
@@ -146,7 +150,9 @@ fn raw_source_reuses_leaf_storage() {
     value.0.extend([1, 2, 3]);
     let storage = value.0.as_ptr();
     let mut de = serde_json_core::de::Deserializer::new(b"[9,8]", None);
-    value.deserialize_by_key("".into_keys(), &mut de).unwrap();
+    value
+        .deserialize_by_key("".into_keys().unwrap(), &mut de)
+        .unwrap();
     assert_eq!(value.0, [9, 8]);
     assert_eq!(value.0.as_ptr(), storage);
     assert_eq!(value.0.capacity(), 8);
