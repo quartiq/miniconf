@@ -141,3 +141,8 @@ required-features = ["derive", "schema"]
 [[example]]
 name = "packed"
 required-features = ["derive", "postcard"]
+
+[[example]]
+name = "diff"
+test = true
+required-features = ["derive", "json-core"]
