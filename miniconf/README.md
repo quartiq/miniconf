@@ -84,7 +84,8 @@ Try the same settings tree through different interfaces:
 | `cargo run --example trace --features schema` | Host-side JSON and JSON Schema |
 | `cargo run --example scpi` | A small SCPI-style command interface |
 
-[`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
+For embedded applications, `miniconf_settings` adds a settings shell, snapshots,
+and flash persistence. [`miniconf_mqtt`](https://docs.rs/miniconf_mqtt) and
 [`miniconf_coap`](https://docs.rs/miniconf_coap) expose trees over MQTT and CoAP.
 
 The code-size benchmark in `tests/benchmark` compares get/set against

@@ -13,6 +13,7 @@ unreleased changes are tracked per package:
 * [`miniconf_derive`](miniconf_derive/CHANGELOG.md)
 * [`miniconf_mqtt`](miniconf_mqtt/CHANGELOG.md)
 * [`miniconf_coap`](miniconf_coap/CHANGELOG.md)
+* [`miniconf_settings`](miniconf_settings/CHANGELOG.md)
 * [`miniconf-mqtt` Python package](py/CHANGELOG.md)
 
 ## [0.20.1](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.0...miniconf-v0.20.1) - 2026-02-12

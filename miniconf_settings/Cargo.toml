@@ -1,0 +1,45 @@
+[package]
+name = "miniconf_settings"
+version = "0.2.0"
+description = "Miniconf settings commands, snapshots and flash persistence"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version = "1.93"
+autoexamples = false
+categories.workspace = true
+keywords.workspace = true
+readme = "README.md"
+
+[features]
+default = ["shell", "flash"]
+shell = ["dep:embedded-io-async", "dep:noline"]
+flash = ["dep:embedded-storage-async", "dep:sequential-storage"]
+
+[dependencies]
+defmt = "1.0.1"
+embedded-io-async = { version = "0.7", optional = true }
+embedded-storage-async = { version = "0.4", optional = true }
+heapless = "0.9"
+miniconf = { version = "0.22.0", path = "../miniconf", default-features = false, features = ["defmt", "json-core", "heapless-09"] }
+sequential-storage = { version = "7", optional = true }
+noline = { git = "https://github.com/quartiq/noline", branch = "pr/editor", optional = true }
+
+[dev-dependencies]
+defmt2log = "0.2.0"
+env_logger = "0.11"
+embedded-io-async = { version = "0.7", features = ["std"] }
+futures = "0.3.34"
+miniconf = { version = "0.22.0", path = "../miniconf", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+termion = "4.0.6"
+sequential-storage = { version = "7", features = ["_test"] }
+
+[[example]]
+name = "shell"
+test = true
+required-features = ["shell"]
+
+[package.metadata.docs.rs]
+all-features = true
