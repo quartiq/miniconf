@@ -18,7 +18,7 @@ serde = { version = "1.0.120", default-features = false, features = ["derive"] }
 itoa = "1.0.4"
 thiserror = { version = "2", default-features = false }
 miniconf_derive = { path = "../miniconf_derive", version = "0.22.0", optional = true }
-serde-json-core = { version = "0.6.0", optional = true }
+serde-json-core = { version = "0.7.0", optional = true }
 postcard = { version = "1.0.8", optional = true }
 defmt = { version = "1.0.1", optional = true }
 serde-reflection = { version = "0.6", optional = true }
@@ -26,7 +26,7 @@ schemars = { version = "1.0.4", optional = true, default-features = false }
 serde_json = { version = "1.0.133", features = [
     "preserve_order",
 ], optional = true }
-heapless = { version = "0.8", optional = true }
+heapless = { version = "0.8", optional = true, features = ["serde"] }
 heapless-09 = { package = "heapless", version = "0.9", optional = true, features = [
     "serde",
 ] }
@@ -67,7 +67,7 @@ heapless-09 = { package = "heapless", version = "0.9.0" }
 strum = { version = "0.28", features = ["derive"] }
 trybuild = { version = "1.0.99", features = ["diff"] }
 serde_json = "1.0.133"
-jsonschema = { version = "0.57.0", default-features = false }
+jsonschema = { version = "0.58.0", default-features = false }
 
 [[test]]
 name = "erased"

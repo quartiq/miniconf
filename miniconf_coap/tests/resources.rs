@@ -365,7 +365,7 @@ mod adapter {
         HandlerBuilder as _, ReportingHandlerBuilder as _, SimpleRendered, new_dispatcher,
     };
     use coap_message::{MessageOption as _, ReadableMessage as _, error::RenderableOnMinimal as _};
-    use coap_message_implementations::{inmemory, inmemory_write};
+    use coap_message_implementations::inmemory;
     use miniconf_coap::{Json, MiniconfCoapHandler, SchemaCoapHandler};
 
     #[test]
@@ -385,7 +385,7 @@ mod adapter {
         for _ in 0..2 {
             let mut code = 0;
             let mut buf = [];
-            let mut response = inmemory_write::Message::new(&mut code, &mut buf);
+            let mut response = inmemory::MessageMut::new_in_slice(&mut code, &mut buf);
             handler
                 .build_response(&mut response, prepared.clone())
                 .unwrap();
@@ -478,10 +478,10 @@ mod adapter {
             .unwrap();
         let mut buf = vec![0; handler.estimate_length(&request)];
         let mut code = 0;
-        let mut response = inmemory_write::Message::new(&mut code, &mut buf);
+        let mut response = inmemory::MessageMut::new_in_slice(&mut code, &mut buf);
         handler.build_response(&mut response, request).unwrap();
-        let len = response.finish();
-        let response = inmemory::Message::new(code, &buf[..len]);
+        let (len, _) = response.finish();
+        let response = inmemory::Message::new_from_slice(code, &buf[..len]);
         assert_eq!(response.code(), coap_numbers::code::CONTENT);
         assert_eq!(response.payload().len(), 512);
         assert_eq!(

@@ -10,9 +10,9 @@ cortex-m-semihosting = "0.5"
 panic-halt = "1.0"
 miniconf = { path = "../../../miniconf", default-features = false, features = ["derive"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde-json-core = { version = "0.6", default-features = false }
+serde-json-core = { version = "0.7", default-features = false }
 ryu = { version = "1", features = ["small"] }
-heapless = { version = "0.8", optional = true }
+heapless = { version = "0.9", optional = true }
 
 [workspace]
 

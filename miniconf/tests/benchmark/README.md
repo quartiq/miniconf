@@ -37,11 +37,11 @@ All variants have zero `.data` and `.bss`.
 |---|---:|---:|
 | Manual | 15024 | 424 |
 | Tree | 15968 | 504 |
-| Tree + help | 19848 | 784 |
+| Tree + help | 19724 | 784 |
 
 For this interface, Tree replaces handwritten field dispatch and access checks
 for 944 extra bytes of code and constants and 80 extra bytes of observed stack.
-Adding schema-derived help costs another 3,880 bytes and 280 bytes of observed
+Adding schema-derived help costs another 3,756 bytes and 280 bytes of observed
 stack, including metadata and the help transcript. Metadata features are enabled
 only with `help`.
 
