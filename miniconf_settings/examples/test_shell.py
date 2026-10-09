@@ -50,7 +50,7 @@ try:
     expect(b"> \x1b[1;3H")
     os.write(master, b"schema /out\t\r")
     expect(b"/output [named]")
-    expect(b"    /0..2 [leaf] [sem ty=i16]\r\n")
+    expect(b"    0..2 [leaf] [sem ty=i16]\r\n")
     expect(b"> \x1b[1;3H")
     os.write(master, b"se\x1b\t/out\t/dac/0\t2048\r")
     expect(b"Set.\r\n")

@@ -20,7 +20,7 @@ Set.
 error: Access/validation failure: DAC value exceeds 12-bit range
 > schema /output/dac
 /output/dac [homogeneous]
-  /0..2 [leaf] [sem ty=i16]
+  0..2 [leaf] [sem ty=i16]
 ```
 
 The example keeps settings in memory; piped commands also work.

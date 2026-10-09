@@ -143,7 +143,6 @@
     max-width: 100%;
     min-height: var(--line);
     min-width: 0;
-    overflow: hidden;
     padding-right: var(--space-tight);
     border-radius: var(--radius);
     text-align: left;
@@ -178,6 +177,8 @@
 
   button.toggle {
     cursor: pointer;
+    padding-right: var(--space-tight);
+    text-align: right;
   }
 
   .selected {
@@ -186,10 +187,7 @@
   }
 
   .label {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    flex: none;
     white-space: nowrap;
   }
 
@@ -197,7 +195,7 @@
     align-items: center;
     align-self: stretch;
     display: flex;
-    flex: 0 0 var(--caret);
+    flex: 0 0 calc(var(--activity-size) + var(--space-tight));
     justify-content: center;
   }
 
@@ -210,7 +208,7 @@
   }
 
   .value {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

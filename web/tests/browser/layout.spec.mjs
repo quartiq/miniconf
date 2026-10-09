@@ -1,6 +1,30 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures.mjs";
 
+test("long values shorten only the value, keeping complete bare names", async ({
+  browsePage: page,
+  device,
+}) => {
+  const value = JSON.stringify(Array(500).fill([1, 2]));
+  device.publish(`${device.prefix}/settings/leaf`, value);
+  const row = page.locator('[data-tree-path="/leaf"]');
+  await expect(row.locator(".value")).toHaveText(value);
+  await expect(row.locator(".label")).toHaveText("leaf");
+  for (const width of [320, 761, 1200]) {
+    await page.setViewportSize({ width, height: 850 });
+    expect(
+      await row
+        .locator(".label")
+        .evaluate((node) => node.clientWidth === node.scrollWidth),
+    ).toBe(true);
+    expect(
+      await row
+        .locator(".value")
+        .evaluate((node) => node.clientWidth < node.scrollWidth),
+    ).toBe(true);
+  }
+});
+
 test("build identity stays inside both headers without crowding content", async ({
   page,
   baseURL,
