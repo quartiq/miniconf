@@ -663,171 +663,89 @@ mod _alloc {
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeSchema> TreeSchema for Rc<T> {
-        const SCHEMA: &'static Schema = T::SCHEMA;
+    macro_rules! impl_rc {
+        ($($ty:ident),+ $(,)?) => {$(
+            impl<T: TreeSchema> TreeSchema for $ty<T> {
+                const SCHEMA: &'static Schema = T::SCHEMA;
+            }
+
+            impl<T: TreeSerialize> TreeSerialize for $ty<T> {
+                fn serialize_by_key<S: Serializer>(
+                    &self,
+                    keys: impl Keys,
+                    ser: S,
+                ) -> Result<S::Ok, SerdeError<S::Error>> {
+                    (**self).serialize_by_key(keys, ser)
+                }
+            }
+
+            impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for $ty<T> {
+                fn deserialize_by_key<D: TreeDeserializer<'de>>(
+                    &mut self,
+                    keys: impl Keys,
+                    de: D,
+                ) -> Result<D::Ok, SerdeError<D::Error>> {
+                    $ty::get_mut(self)
+                        .ok_or(ValueError::Access("Reference is taken"))?
+                        .deserialize_by_key(keys, de)
+                }
+
+                impl_passthrough_probe!('de, T);
+            }
+
+            impl<T: TreeAny> TreeAny for $ty<T> {
+                fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
+                    (**self).ref_any_by_key(keys)
+                }
+
+                fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
+                    $ty::get_mut(self)
+                        .ok_or(ValueError::Access("Reference is taken"))?
+                        .mut_any_by_key(keys)
+                }
+            }
+        )*};
     }
 
-    impl<T: TreeSerialize> TreeSerialize for Rc<T> {
-        fn serialize_by_key<S: Serializer>(
-            &self,
-            keys: impl Keys,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            (**self).serialize_by_key(keys, ser)
-        }
-    }
-
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Rc<T> {
-        fn deserialize_by_key<D: TreeDeserializer<'de>>(
-            &mut self,
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            Rc::get_mut(self)
-                .ok_or(ValueError::Access("Reference is taken"))?
-                .deserialize_by_key(keys, de)
-        }
-
-        fn probe_by_key<D: TreeDeserializer<'de>>(
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            T::probe_by_key(keys, de)
-        }
-    }
-
-    impl<T: TreeAny> TreeAny for Rc<T> {
-        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
-            (**self).ref_any_by_key(keys)
-        }
-
-        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-            Rc::get_mut(self)
-                .ok_or(ValueError::Access("Reference is taken"))?
-                .mut_any_by_key(keys)
-        }
-    }
+    impl_rc!(Rc, Arc);
 
     /////////////////////////////////////////////////////////////////////////////////////////
 
-    impl<T: TreeSchema> TreeSchema for RcWeak<T> {
-        const SCHEMA: &'static Schema = T::SCHEMA;
+    macro_rules! impl_weak {
+        ($($ty:ident),+ $(,)?) => {$(
+            impl<T: TreeSchema> TreeSchema for $ty<T> {
+                const SCHEMA: &'static Schema = T::SCHEMA;
+            }
+
+            impl<T: TreeSerialize> TreeSerialize for $ty<T> {
+                fn serialize_by_key<S: Serializer>(
+                    &self,
+                    keys: impl Keys,
+                    ser: S,
+                ) -> Result<S::Ok, SerdeError<S::Error>> {
+                    self.upgrade()
+                        .ok_or(ValueError::Absent)?
+                        .serialize_by_key(keys, ser)
+                }
+            }
+
+            impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for $ty<T> {
+                fn deserialize_by_key<D: TreeDeserializer<'de>>(
+                    &mut self,
+                    keys: impl Keys,
+                    de: D,
+                ) -> Result<D::Ok, SerdeError<D::Error>> {
+                    self.upgrade()
+                        .ok_or(ValueError::Absent)?
+                        .deserialize_by_key(keys, de)
+                }
+
+                impl_passthrough_probe!('de, T);
+            }
+        )*};
     }
 
-    impl<T: TreeSerialize> TreeSerialize for RcWeak<T> {
-        fn serialize_by_key<S: Serializer>(
-            &self,
-            keys: impl Keys,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            self.upgrade()
-                .ok_or(ValueError::Absent)?
-                .serialize_by_key(keys, ser)
-        }
-    }
-
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RcWeak<T> {
-        fn deserialize_by_key<D: TreeDeserializer<'de>>(
-            &mut self,
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            self.upgrade()
-                .ok_or(ValueError::Absent)?
-                .deserialize_by_key(keys, de)
-        }
-
-        fn probe_by_key<D: TreeDeserializer<'de>>(
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            T::probe_by_key(keys, de)
-        }
-    }
-
-    /////////////////////////////////////////////////////////////////////////////////////////
-
-    impl<T: TreeSchema> TreeSchema for Arc<T> {
-        const SCHEMA: &'static Schema = T::SCHEMA;
-    }
-
-    impl<T: TreeSerialize> TreeSerialize for Arc<T> {
-        fn serialize_by_key<S: Serializer>(
-            &self,
-            keys: impl Keys,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            (**self).serialize_by_key(keys, ser)
-        }
-    }
-
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Arc<T> {
-        fn deserialize_by_key<D: TreeDeserializer<'de>>(
-            &mut self,
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            Arc::get_mut(self)
-                .ok_or(ValueError::Access("Reference is taken"))?
-                .deserialize_by_key(keys, de)
-        }
-
-        fn probe_by_key<D: TreeDeserializer<'de>>(
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            T::probe_by_key(keys, de)
-        }
-    }
-
-    impl<T: TreeAny> TreeAny for Arc<T> {
-        fn ref_any_by_key(&self, keys: impl Keys) -> Result<&dyn Any, ValueError> {
-            (**self).ref_any_by_key(keys)
-        }
-
-        fn mut_any_by_key(&mut self, keys: impl Keys) -> Result<&mut dyn Any, ValueError> {
-            Arc::get_mut(self)
-                .ok_or(ValueError::Access("Reference is taken"))?
-                .mut_any_by_key(keys)
-        }
-    }
-
-    /////////////////////////////////////////////////////////////////////////////////////////
-
-    impl<T: TreeSchema> TreeSchema for SyncWeak<T> {
-        const SCHEMA: &'static Schema = T::SCHEMA;
-    }
-
-    impl<T: TreeSerialize> TreeSerialize for SyncWeak<T> {
-        fn serialize_by_key<S: Serializer>(
-            &self,
-            keys: impl Keys,
-            ser: S,
-        ) -> Result<S::Ok, SerdeError<S::Error>> {
-            self.upgrade()
-                .ok_or(ValueError::Absent)?
-                .serialize_by_key(keys, ser)
-        }
-    }
-
-    impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for SyncWeak<T> {
-        fn deserialize_by_key<D: TreeDeserializer<'de>>(
-            &mut self,
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            self.upgrade()
-                .ok_or(ValueError::Absent)?
-                .deserialize_by_key(keys, de)
-        }
-
-        fn probe_by_key<D: TreeDeserializer<'de>>(
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            T::probe_by_key(keys, de)
-        }
-    }
+    impl_weak!(RcWeak, SyncWeak);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
