@@ -67,6 +67,18 @@ pub(crate) enum PendingOp {
     Complete,
 }
 
+fn is_backpressure<IO: Io>(connection: &Connection<'_, '_, IO>, error: &Error<IO::Error>) -> bool {
+    match error {
+        Error::Mqtt(
+            MqttError::NotReady | MqttError::Resource(ResourceError::InflightExhausted),
+        ) => true,
+        Error::Mqtt(MqttError::Resource(ResourceError::BufferTooSmall)) => {
+            !connection.session().is_publish_quiescent()
+        }
+        _ => false,
+    }
+}
+
 fn poll_op<IO>(
     connection: &Connection<'_, '_, IO>,
     op: &mut Option<Op>,
@@ -175,20 +187,20 @@ where
 pub enum Event<T> {
     /// One non-Miniconf inbound publish was returned through the callback.
     Unhandled(T),
-    /// One `/set` changed this exact leaf and protocol follow-up work completed.
+    /// This exact leaf changed and protocol follow-up work completed.
     Changed(ChangedKey),
 }
 
 /// Immediate outcome of cooperative Miniconf service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
 pub enum ServiceEvent {
-    /// No immediate Miniconf work or inbound publish was available.
+    /// The message was consumed without reporting a settings change; follow-up work may be queued.
     Idle,
     /// One Miniconf request was rejected because bounded service capacity was exhausted.
     Busy,
     /// The message is not Miniconf traffic.
     Unhandled,
-    /// One `/set` changed this exact leaf and follow-up work was queued.
+    /// This exact leaf changed and follow-up work was queued.
     Changed(ChangedKey),
 }
 
@@ -295,7 +307,7 @@ where
     /// Construct Miniconf MQTT state and a configured caller-owned MQTT session.
     ///
     /// The broker must support QoS 1. Do not enable automatic QoS downgrade on `config`:
-    /// startup and service completion depend on publication acknowledgements.
+    /// startup and service completion depend on broker publication acknowledgements.
     pub fn new<'buf>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
@@ -351,7 +363,7 @@ where
         startup.run(self, connection, settings).await
     }
 
-    /// Wait until one `/set` completes or one non-Miniconf inbound publish is returned.
+    /// Wait until one leaf change completes or one non-Miniconf inbound publish is returned.
     ///
     /// This is the simple unbounded steady-state helper.
     ///
@@ -541,7 +553,7 @@ impl Startup {
     /// `Ok(false)` means no more immediate startup progress is possible. Wait for later connection
     /// progress, then call `step()` again.
     ///
-    /// Connected-connection startup may discard surfaced inbound publishes while bootstrapping.
+    /// This method never consumes inbound publishes. The caller drives connection progress.
     pub fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
@@ -706,11 +718,11 @@ impl<const N: usize> Service<N> {
     /// Non-Miniconf traffic is reported as `ServiceEvent::Unhandled`, while the
     /// caller keeps ownership of the inbound publish.
     ///
-    /// If the bounded service is full, Miniconf `/set` requests are rejected without mutating local
+    /// If the bounded service is full, mutation requests are rejected without changing local
     /// settings.
     pub fn handle<Settings>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         settings: &mut Settings,
         inbound: &InboundPublish<'_>,
     ) -> ServiceEvent
@@ -768,7 +780,8 @@ impl<const N: usize> Service<N> {
     ///
     /// This method never consumes unrelated inbound publishes.
     /// Cancelling it retains the current follow-up for the next call. Transport cancellation
-    /// safety still depends on the underlying I/O. An error discards the failed follow-up.
+    /// safety still depends on the underlying I/O; retries may duplicate queued packets.
+    /// An error discards the failed follow-up.
     pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,

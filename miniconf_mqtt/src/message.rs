@@ -7,11 +7,17 @@ use minimq::{Property, PubError, ResourceError};
 use crate::Error;
 
 pub(crate) fn set_path<'a>(topic: &'a str, prefix: &str) -> Option<&'a str> {
-    topic.strip_prefix(prefix)?.strip_prefix("/set")
+    topic
+        .strip_prefix(prefix)?
+        .strip_prefix("/set")
+        .filter(|path| path.is_empty() || path.starts_with('/'))
 }
 
 pub(crate) fn settings_path<'a>(topic: &'a str, prefix: &str) -> Option<&'a str> {
-    topic.strip_prefix(prefix)?.strip_prefix("/settings")
+    topic
+        .strip_prefix(prefix)?
+        .strip_prefix("/settings")
+        .filter(|path| path.is_empty() || path.starts_with('/'))
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -48,6 +54,7 @@ impl<E> Display for DepthError<E> {
 }
 
 pub(crate) enum ResponseBody<E = serde_json_core::de::Error> {
+    Retained,
     Lookup(DepthError<Infallible>),
     LeafRequired { depth: usize },
     Set(DepthError<E>),
@@ -56,6 +63,7 @@ pub(crate) enum ResponseBody<E = serde_json_core::de::Error> {
 impl<E: Display> Display for ResponseBody<E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Retained => f.write_str("Retained requests are not accepted"),
             Self::Lookup(err) => Display::fmt(err, f),
             Self::LeafRequired { .. } => f.write_str("Path does not resolve to a leaf"),
             Self::Set(err) => Display::fmt(err, f),

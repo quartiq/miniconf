@@ -35,6 +35,17 @@ fn init_host_logging() {
 }
 
 #[test]
+fn routes_only_complete_topic_levels() {
+    use crate::message::{set_path, settings_path};
+
+    assert_eq!(set_path("dev/set", "dev"), Some(""));
+    assert_eq!(set_path("dev/set/", "dev"), Some("/"));
+    assert_eq!(set_path("dev/setup", "dev"), None);
+    assert_eq!(settings_path("dev/settings/value", "dev"), Some("/value"));
+    assert_eq!(settings_path("dev/settings-extra", "dev"), None);
+}
+
+#[test]
 fn constructor_rejects_long_prefix() {
     init_host_logging();
     let prefix = "x".repeat(MAX_TOPIC_LENGTH);

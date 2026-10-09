@@ -5,8 +5,8 @@ use minimq::{
     ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
 };
 
-use super::poll_op;
 use super::request::{Auth, auth, resolve_leaf, set_leaf};
+use super::{is_backpressure, poll_op};
 use crate::{
     Error, MAX_DEPTH, RETAINED_TEXT_PROPERTIES, TopicString,
     client::{
@@ -87,7 +87,7 @@ impl LoadRetainedPhase {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(err) if is_retryable_startup_error(&err) => {
+                        Err(err) if is_backpressure(connection, &err) => {
                             let _ = connection.poll().await?;
                             return Ok(false);
                         }
@@ -128,7 +128,7 @@ impl LoadRetainedPhase {
                                 *op = Some(next);
                                 return Ok(false);
                             }
-                            Err(err) if is_retryable_startup_error(&err) => {
+                            Err(err) if is_backpressure(connection, &err) => {
                                 let _ = connection.poll().await?;
                                 return Ok(false);
                             }
@@ -222,14 +222,6 @@ where
     }
 }
 
-fn is_retryable_startup_error<E>(err: &Error<E>) -> bool {
-    matches!(
-        err,
-        Error::Mqtt(MqttError::NotReady)
-            | Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))
-    )
-}
-
 impl StartupPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
@@ -280,7 +272,7 @@ impl StartupPhase {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(err) if is_retryable_startup_error(&err) => return Ok(false),
+                        Err(err) if is_backpressure(connection, &err) => return Ok(false),
                         Err(err) => return Err(err),
                     },
                 },
@@ -307,7 +299,7 @@ impl StartupPhase {
                                 *op = Some(next);
                                 return Ok(false);
                             }
-                            Err(err) if is_retryable_startup_error(&err) => return Ok(false),
+                            Err(err) if is_backpressure(connection, &err) => return Ok(false),
                             Err(err) => return Err(err),
                         }
                     }
@@ -455,10 +447,7 @@ where
                 publisher.op = Some(op);
                 return Ok(false);
             }
-            Err(Error::Mqtt(MqttError::NotReady))
-            | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) => {
-                return Ok(false);
-            }
+            Err(err) if is_backpressure(connection, &err) => return Ok(false),
             Err(err) => return Err(err),
         }
     }
@@ -482,6 +471,8 @@ where
     let topics = [TopicFilter::new(&topic).options(
         SubscriptionOptions::default()
             .maximum_qos(QoS::AtLeastOnce)
+            .retain_behavior(RetainHandling::Never)
+            .retain_as_published()
             .ignore_local_messages(),
     )];
     connection.subscribe(&topics, &[]).await.map_err(Into::into)

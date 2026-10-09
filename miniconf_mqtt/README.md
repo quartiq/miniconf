@@ -64,18 +64,18 @@ network glitch, keep the live settings in RAM authoritative and call
 
 The Miniconf MQTT protocol version is 1:
 
-- retained `/<prefix>/alive` publishes a compact device manifest
-- retained `/<prefix>/schema/<n>` publishes paged compact schemata
-- retained `/<prefix>/settings/<path>` publishes authoritative leaf values
-- `/<prefix>/set/<path>` accepts explicit leaf mutation requests
-- `/<prefix>/response` carries metadata-only ACK/NACK replies when requested
+- retained `<prefix>/alive` publishes a compact device manifest
+- retained `<prefix>/schema/<n>` publishes paged compact schemata
+- retained `<prefix>/settings/<path>` publishes authoritative leaf values
+- non-retained `<prefix>/set/<path>` accepts explicit leaf mutation requests
+- metadata-only ACK/NACK replies go to the requester's MQTT Response Topic
 
 ## Core contract
 
 Simple helpers:
 
 - `miniconf.startup(...)` runs the Miniconf MQTT work required by one `ConnectEvent` to completion.
-- `miniconf.serve(...)` waits until one `/set` has been applied and fully republished, or until
+- `miniconf.serve(...)` waits until one leaf change has been applied and fully republished, or until
   one non-Miniconf inbound publish has been handled by the callback and returned.
 - both helpers are unbounded
 - `Startup::run(...)` may discard inbound publishes while bootstrapping
@@ -95,22 +95,19 @@ Stepwise APIs:
 
 - `ServiceEvent::Unhandled` means the caller still owns the non-Miniconf publish and
   may route it elsewhere
-- `ServiceEvent::Changed(changed)` means one `/set` changed local settings and queued authoritative
+- `ServiceEvent::Changed(changed)` means one leaf changed and queued authoritative
   protocol follow-up work
 - `ServiceEvent::Busy` means bounded service capacity was exhausted, so the Miniconf request was
   rejected without mutating settings
-- `ServiceEvent::Idle` means Miniconf recognized the message and intentionally did nothing
+- `ServiceEvent::Idle` means no settings change was reported; an error reply or mirror repair
+  may still be queued
 
 Practical boundary:
 
 - use `Connection::poll()` to wait for any later session progress
 - use `Connection::recv()` when you specifically want the next inbound publish
-- `Startup::step()` may consume and discard inbound publishes while bootstrapping
-- `Publisher::step()` must not consume unrelated inbound publishes
-- `Service::step()` must not consume unrelated inbound publishes
-- after any `step()` returns `false`, wait for later session progress before retrying
-- after `Publisher::step()` returns `false`, the caller must route any surfaced inbound publishes
-  before retrying
+- `Startup::step()`, `Publisher::step()`, and `Service::step()` leave inbound routing to the caller
+- after `step()` returns `false`, drive the connection and route surfaced publishes before retrying
 
 Bounded cooperative serving:
 
@@ -121,7 +118,7 @@ loop {
     let _empty = service.step(&mut miniconf, &mut connection, &settings).await?;
 
     if let Some(inbound) = connection.poll().await? {
-        match service.handle(&mut miniconf, &mut settings, &inbound) {
+        match service.handle(&miniconf, &mut settings, &inbound) {
             ServiceEvent::Unhandled => { /* app traffic */ }
             ServiceEvent::Changed(_) | ServiceEvent::Busy | ServiceEvent::Idle => {}
         }
@@ -215,18 +212,18 @@ Client snapshot rule:
 3. Collect retained settings until quiescent.
 4. Accept valid schema leaves with exactly one empty `auth` property.
 
-`set/<path>` accepts one JSON value for one leaf.
+`set/<path>` accepts one JSON leaf value. Requests with the retain flag are rejected.
 
 - success republishes authoritative retained `settings/<path>`
-- if `Response Topic` is present, success also emits an `Ok` reply on `response`
-- failure emits only an `Error` reply on `response`
+- if `Response Topic` is present, success also emits an `Ok` reply there
+- failure emits only an optional `Error` reply there
 - explicit replies are metadata-only; the authoritative applied value is always the retained
   `settings/<path>` publication
 
 For compatibility with simple MQTT tools, an application may subscribe to `settings/#` itself
-using `RetainHandling::Never` and route those publishes through `Service`. Only no-`auth` leaf
-publishes are treated as requests; `auth` publications are the authoritative mirror and are ignored
-as ingress.
+using `RetainHandling::Never` and `retain_as_published()` and route those publishes through
+`Service`. Only non-retained, no-`auth` leaf publishes are treated as requests. Authoritative
+retained publications are applied only by cold-boot `LoadRetained` recovery.
 
 ## Response metadata
 
@@ -243,7 +240,7 @@ Success replies carry only `code=Ok`.
 ## Limitations
 
 - The broker must support QoS 1. Leave MiniMQ's automatic QoS downgrade disabled: startup
-  and service completion depend on publication acknowledgements.
+  and service completion depend on broker publication acknowledgements.
 - One MQTT prefix is assumed to have one authoritative device publisher.
 - Publication is incremental, not atomic. Clients must treat retained `alive` as the authority
   for `epoch` and `schema_rev`.
