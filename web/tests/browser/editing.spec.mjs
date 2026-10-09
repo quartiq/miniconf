@@ -11,7 +11,7 @@ test("schema presentation and coalesced settings logs", async ({
     "title",
     /Edge metadata:[\s\S]*Node metadata:/,
   );
-  await expect(leaf).toHaveAttribute("title", /Signed digital mixer step/);
+  await expect(leaf).toHaveAttribute("title", /Setting documentation/);
   await expect(leaf).not.toHaveAttribute("title", /Arrows\//);
   await expect(leaf).toContainText(" = ");
   await expect(page.locator('[data-tree-path="/obsolete"]')).toHaveCount(0);

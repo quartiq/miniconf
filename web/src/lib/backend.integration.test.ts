@@ -5,9 +5,10 @@ import {
   type DiscoveredPrefix,
 } from "./backend";
 import type { Schema } from "./schema";
+import { DEFAULT_FILTER } from "./routes";
 
 const broker = process.env.MINICONF_WEB_BROKER;
-const discoveryFilter = process.env.MINICONF_WEB_FILTER ?? "dt/sinara/+/+";
+const discoveryFilter = process.env.MINICONF_WEB_FILTER ?? DEFAULT_FILTER;
 
 describe.skipIf(!broker)("Miniconf WebSocket broker", () => {
   it("discovers one target and resolves its retained schema", async () => {

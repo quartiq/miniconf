@@ -19,27 +19,24 @@ def fixture_schema():
 
 class SchemaTests(TestCase):
     def test_paths(self):
-        assert _normalize_command_path("", "/channel/0") == ("", "/channel/0")
+        assert _normalize_command_path("", "/items/0") == ("", "/items/0")
         assert _normalize_command_path("/", "") == ("/", "/")
         assert _normalize_command_path("value", "/") == ("//value", "/")
-        assert _normalize_command_path("/channel/0/demodulate", "") == (
-            "/channel/0/demodulate",
-            "/channel/0/demodulate",
+        assert _normalize_command_path("/items/0/group", "") == (
+            "/items/0/group",
+            "/items/0/group",
         )
-        assert _normalize_command_path("frequency", "/channel/0/demodulate") == (
-            "/channel/0/demodulate/frequency",
-            "/channel/0/demodulate",
+        assert _normalize_command_path("a", "/items/0/group") == (
+            "/items/0/group/a",
+            "/items/0/group",
         )
-        assert _normalize_command_path("attenuation", "/channel/0/demodulate") == (
-            "/channel/0/demodulate/attenuation",
-            "/channel/0/demodulate",
+        assert _normalize_command_path("/items/0/group/a", "", subtree=False) == (
+            "/items/0/group/a",
+            "/items/0/group",
         )
-        assert _normalize_command_path(
-            "/channel/0/demodulate/frequency", "", subtree=False
-        ) == ("/channel/0/demodulate/frequency", "/channel/0/demodulate")
-        assert _normalize_command_path("phase", "/channel/0/demodulate") == (
-            "/channel/0/demodulate/phase",
-            "/channel/0/demodulate",
+        assert _normalize_command_path("b", "/items/0/group") == (
+            "/items/0/group/b",
+            "/items/0/group",
         )
 
     def test_schema(self):
