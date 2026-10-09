@@ -110,7 +110,7 @@ class Schema:
                 case "d":
                     try:
                         index = int(part)
-                        if index < 0:
+                        if index < 0 or str(index) != part:
                             raise IndexError(index)
                         child_ref = parent_internal["c"][index]
                     except (ValueError, IndexError) as exc:
@@ -120,7 +120,7 @@ class Schema:
                         index = int(part)
                     except ValueError as exc:
                         raise MiniconfException("NotFound", path) from exc
-                    if index < 0 or index >= parent_internal["l"]:
+                    if str(index) != part or not 0 <= index < parent_internal["l"]:
                         raise MiniconfException("NotFound", path)
                     child_ref = parent_internal["c"]
                 case kind:

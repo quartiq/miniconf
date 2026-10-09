@@ -74,8 +74,8 @@ class SchemaTests(TestCase):
         ).splitlines()
         assert compressed_sem == [
             "(root) [named]",
-            "└─ /array_tree [homogeneous]",
-            "   └─ /0..2 [leaf] [sem ty=i32]",
+            "└─ array_tree [homogeneous]",
+            "   └─ 0..2 [leaf] [sem ty=i32]",
         ], compressed_sem
         quoted_meta = render_schema_tree(
             Schema.from_defs(
@@ -93,7 +93,7 @@ class SchemaTests(TestCase):
         ).splitlines()
         assert quoted_meta == [
             "(root) [named]",
-            '└─ /node [leaf] [edge doc="Outer doc"] [node typename="InnerType"]',
+            '└─ node [leaf] [edge doc="Outer doc"] [node typename="InnerType"]',
         ], quoted_meta
 
     def test_nested_homogeneous_and_numbered(self):
@@ -109,10 +109,10 @@ class SchemaTests(TestCase):
         )
         assert render_schema_tree(schema).splitlines() == [
             "(root) [numbered]",
-            "├─ /0 [homogeneous]",
-            "│  └─ /0..3 [homogeneous]",
-            "│     └─ /0..2 [leaf] [sem ty=u16]",
-            "└─ /1 [leaf] [sem ty=bool]",
+            "├─ 0 [homogeneous]",
+            "│  └─ 0..3 [homogeneous]",
+            "│     └─ 0..2 [leaf] [sem ty=u16]",
+            "└─ 1 [leaf] [sem ty=bool]",
         ]
 
     def test_empty_names(self):
@@ -129,13 +129,13 @@ class SchemaTests(TestCase):
         assert empty_name_schema.path("//value") == "//value"
         assert render_schema_tree(empty_name_schema, "/").splitlines() == [
             "/ [named]",
-            "└─ /value [leaf] [sem ty=i32]",
+            "└─ value [leaf] [sem ty=i32]",
         ]
         assert render_schema_tree(empty_name_schema).splitlines() == [
             "(root) [named]",
-            '├─ /"" [named]',
-            "│  └─ /value [leaf] [sem ty=i32]",
-            "└─ /value [leaf] [sem ty=i32]",
+            '├─ "" [named]',
+            "│  └─ value [leaf] [sem ty=i32]",
+            "└─ value [leaf] [sem ty=i32]",
         ]
         empty_values = {"//value": 1, "/value": 2}
         assert render_value_tree(empty_name_schema, empty_values).splitlines() == [
@@ -144,8 +144,19 @@ class SchemaTests(TestCase):
             "└─ value = 2",
         ]
 
-    def test_negative_indices(self):
-        schema = Schema.from_defs([{}, {"i": {"k": "d", "c": [0]}}], 1)
-        for keys in ("/-1", Indices((-1,))):
-            with self.assertRaises(MiniconfException):
-                schema.path(keys)
+    def test_root_leaf(self):
+        schema = Schema.from_defs([{"s": {"ty": "i32"}}], 1)
+        assert render_schema_tree(schema) == "(root) [leaf] [sem ty=i32]"
+        assert render_value_tree(schema, {"": 42}) == "(root) = 42"
+        assert render_value_tree(schema, {}) == "(root) = <absent>"
+
+    def test_array_indices(self):
+        for internal in ({"k": "d", "c": [0, 0]}, {"k": "h", "c": 0, "l": 2}):
+            schema = Schema.from_defs([{}, {"i": internal}], 1)
+            assert schema.path("/0") == "/0"
+            assert schema.path("/1") == "/1"
+            for keys in ("/-1", "/2", "/00", "/+0", "/ 0", Indices((-1,))):
+                with self.assertRaises(MiniconfException):
+                    schema.path(keys)
+        named = Schema.from_defs([{}, {"i": {"k": "n", "c": {"00": 0}}}], 1)
+        assert named.path("/00") == "/00"

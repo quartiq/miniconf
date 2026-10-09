@@ -96,7 +96,3 @@ Command suffixes:
 - `--raw` disables schema, subtree tracking, `?`, and `!`.
 - `--prune PATH` clears stale retained schema/settings below `PATH`.
 - `--force-prune` clears all retained topics under the resolved prefix.
-
-Schema trees use indented `/segments` and distinguish leaf, named, numbered and
-homogeneous nodes. `/0..N` describes shared children for indices below N; it is
-not a literal path. Semantics, edge metadata and node metadata remain distinct.
