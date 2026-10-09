@@ -6,9 +6,7 @@ use serde::Serialize;
 use serde_reflection::{Format, FormatHolder, Samples, Tracer, Value};
 use std::sync::LazyLock;
 
-use crate::{
-    Internal, IntoKeys, Schema, SerdeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError,
-};
+use crate::{IntoKeys, Schema, SerdeError, TreeDeserialize, TreeSchema, TreeSerialize, ValueError};
 
 /// Trace a leaf value
 pub fn trace_value(
@@ -114,11 +112,7 @@ impl<L: Default> From<&'static Schema> for Node<(&'static Schema, L)> {
             data: (value, L::default()),
             children: value
                 .internal()
-                .map(|internal| match internal {
-                    Internal::Named(n) => n.iter().map(|n| Self::from(n.schema)).collect(),
-                    Internal::Numbered(n) => n.iter().map(|n| Self::from(n.schema)).collect(),
-                    Internal::Homogeneous(n) => vec![Self::from(n.schema)],
-                })
+                .map(|internal| internal.schemata().map(Self::from).collect())
                 .unwrap_or_default(),
         }
     }

@@ -350,6 +350,16 @@ impl Internal {
         }
     }
 
+    /// Child schema definitions in declaration order.
+    /// Homogeneous collections yield their element schema once.
+    pub fn schemata(&self) -> impl ExactSizeIterator<Item = &Schema> + Clone {
+        let len = match self {
+            Self::Homogeneous(_) => 1,
+            _ => self.len().get(),
+        };
+        (0..len).map(|index| self.get_schema(index))
+    }
+
     /// Return the edge metadata for the given child
     ///
     /// # Panics

@@ -37,12 +37,11 @@ pub async fn write_schema<W: Write>(
         stack.push((children, 0)).unwrap();
     }
     while let Some((children, index)) = stack.last_mut() {
-        let homogeneous = matches!(children, Internal::Homogeneous(_));
-        if *index == if homogeneous { 1 } else { children.len().get() } {
+        let Some(child) = children.schemata().nth(*index) else {
             stack.pop();
             continue;
-        }
-        let child = children.get_schema(*index);
+        };
+        let homogeneous = matches!(children, Internal::Homogeneous(_));
         let edge = children.get_edge_meta(*index);
         let number;
         let name = if homogeneous {
