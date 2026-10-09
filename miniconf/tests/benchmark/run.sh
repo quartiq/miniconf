@@ -21,7 +21,7 @@ echo
 echo "| variant | text | rodata | observed stack | data | bss | **data + bss + observed stack** | **text + rodata** |"
 echo "|---|---:|---:|---:|---:|---:|---:|---:|"
 
-for variant in manual tree manual+help tree+help; do
+for variant in manual tree tree+help; do
   feature_list="${variant/manual/}"
   feature_list="${feature_list/+/ }"
   features=(--features "$feature_list")
