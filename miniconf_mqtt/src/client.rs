@@ -165,7 +165,7 @@ where
 pub enum Event<T> {
     /// One non-Miniconf inbound publish was returned through the callback.
     Unhandled(T),
-    /// This exact leaf changed and protocol follow-up work completed.
+    /// This leaf was successfully set and protocol follow-up work completed.
     Changed(ChangedKey),
 }
 
@@ -178,7 +178,7 @@ pub enum ServiceEvent {
     Busy,
     /// The message is not Miniconf traffic.
     Unhandled,
-    /// This exact leaf changed and follow-up work was queued.
+    /// This leaf was successfully set and follow-up work was queued.
     Changed(ChangedKey),
 }
 
@@ -343,7 +343,7 @@ where
         startup.run(self, connection, settings).await
     }
 
-    /// Wait until one leaf change completes or one non-Miniconf inbound publish is returned.
+    /// Wait until one leaf write completes or one non-Miniconf inbound publish is returned.
     ///
     /// This is the simple unbounded steady-state helper.
     ///
