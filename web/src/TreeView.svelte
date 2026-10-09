@@ -39,7 +39,8 @@
     const paths = visible;
     const active = document.activeElement as HTMLElement | null;
     if (!active || !tree?.contains(active)) return;
-    const path = active.dataset.treePath;
+    const path =
+      active.closest<HTMLElement>("[data-tree-path]")?.dataset.treePath;
     if (path === undefined || paths.includes(path)) return;
     void tick().then(() => {
       if (!active.isConnected && document.activeElement === document.body)
