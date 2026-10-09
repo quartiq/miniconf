@@ -148,17 +148,25 @@ export const test = base.extend({
             return;
           }
           const granted = message.subscriptions.map((sub) =>
-            device.rejectCleanup && sub.topic === `${prefix}/set/#` ? 135 : 1,
+            device.rejectCleanup && sub.topic === `${prefix}/set/#`
+              ? 135
+              : sub.qos,
           );
-          socket.subscriptions = message.subscriptions.filter(
+          const accepted = message.subscriptions.filter(
             (_sub, index) => granted[index] < 128,
           );
+          for (const sub of accepted) {
+            socket.subscriptions = socket.subscriptions.filter(
+              (previous) => previous.topic !== sub.topic,
+            );
+            socket.subscriptions.push(sub);
+          }
           reply({
             cmd: "suback",
             messageId: message.messageId,
             granted,
           });
-          for (const sub of socket.subscriptions)
+          for (const sub of accepted)
             if (sub.rh !== 2) {
               for (const [topic, entry] of retained)
                 if (matches(sub.topic, topic)) send(socket, topic, entry, true);
