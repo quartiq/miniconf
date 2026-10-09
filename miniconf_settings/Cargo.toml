@@ -23,7 +23,7 @@ embedded-io-async = { version = "0.7", optional = true }
 embedded-storage-async = { version = "0.4", optional = true }
 heapless = "0.9"
 miniconf = { version = "0.22.0", path = "../miniconf", default-features = false, features = ["defmt", "json-core", "heapless-09"] }
-sequential-storage = { version = "7", optional = true }
+sequential-storage = { version = "8", optional = true }
 noline = { git = "https://github.com/quartiq/noline", branch = "pr/editor", optional = true }
 
 [dev-dependencies]
@@ -34,7 +34,7 @@ futures = "0.3.34"
 miniconf = { version = "0.22.0", path = "../miniconf", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 termion = "4.0.6"
-sequential-storage = { version = "7", features = ["_test"] }
+sequential-storage = { version = "8", features = ["_test"] }
 
 [[example]]
 name = "shell"

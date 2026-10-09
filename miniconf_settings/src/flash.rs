@@ -4,7 +4,7 @@ use defmt::{Debug2Format, debug};
 use embedded_storage_async::nor_flash::NorFlash;
 use miniconf::{TreeDeserializeOwned, TreeSerialize};
 use sequential_storage::{
-    cache::NoCache,
+    cache::{Cache, Uncached},
     map::{MapConfig, MapStorage},
 };
 
@@ -108,7 +108,7 @@ impl<E> From<sequential_storage::Error<E>> for Error<E> {
 
 /// Atomic settings store backed by one map spanning at least two erase pages.
 pub struct Store<'a, S: NorFlash> {
-    map: MapStorage<u16, S, NoCache>,
+    map: MapStorage<u16, S, Cache<Uncached, Uncached, Uncached, u16>>,
     buffers: Scratch<'a>,
     // Reserve entries before writing so cancellation cannot reuse their generation.
     head: Option<Entry>,
@@ -177,7 +177,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         );
         let end = u32::try_from(flash.capacity()).expect("settings flash capacity exceeds u32");
         Self {
-            map: MapStorage::new(flash, MapConfig::new(0..end), NoCache::new()),
+            map: MapStorage::new(flash, MapConfig::new(0..end), Cache::new_uncached()),
             buffers: Scratch { map, chunk, record },
             head: None,
             active: None,
@@ -599,7 +599,7 @@ mod tests {
     use futures::executor::block_on;
     use miniconf::Tree;
     use sequential_storage::{
-        cache::NoCache,
+        cache::Cache,
         map::{MapConfig, MapStorage},
         mock_flash::{MockFlashBase, WriteCountCheck},
         queue::{QueueConfig, QueueStorage},
@@ -879,7 +879,7 @@ mod tests {
                 let mut queue = QueueStorage::new(
                     &mut flash,
                     QueueConfig::new(start..start + PAGE_SIZE as u32),
-                    NoCache::new(),
+                    Cache::new_uncached(),
                 );
                 queue.push(b"legacy queue record", false).await.unwrap();
             }
@@ -911,7 +911,7 @@ mod tests {
             let mut map = MapStorage::new(
                 flash,
                 MapConfig::new(0..(2 * PAGE_SIZE) as u32),
-                NoCache::new(),
+                Cache::new_uncached(),
             );
             map.store_item(&mut [0; 704], &0, &&b"bad"[..])
                 .await
