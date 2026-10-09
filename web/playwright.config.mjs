@@ -1,4 +1,11 @@
 import { defineConfig } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+
+// Keep browser profiles alongside the checkout's test artifacts.
+process.env.TMPDIR = resolve(".codex/browser-tmp");
+mkdirSync(process.env.TMPDIR, { recursive: true });
+
 export default defineConfig({
   testDir: "tests/browser",
   outputDir: ".codex/test-results",
