@@ -953,6 +953,45 @@ async fn service_rejects_overflow_without_mutating() {
 
     assert_eq!(settings.value, 9);
     assert_eq!(settings.nested.leaf, 0);
+
+    let filter = format!("{prefix}/settings/#");
+    let options = SubscriptionOptions::default()
+        .retain_behavior(RetainHandling::Never)
+        .retain_as_published();
+    let op = connection
+        .subscribe(&[TopicFilter::new(&filter).options(options)], &[])
+        .await
+        .unwrap();
+    wait_op(&mut connection, op).await;
+    for (path, retained, authoritative) in [
+        ("missing", false, false),
+        ("value", true, false),
+        ("value", false, true),
+        ("nested/leaf", false, false),
+    ] {
+        let topic = format!("{prefix}/settings/{path}");
+        let props = [Property::UserProperty("auth", "")];
+        let mut publication = Publication::bytes(&topic, b"7");
+        if retained {
+            publication = publication.retain();
+        }
+        if authoritative {
+            publication = publication.properties(&props);
+        }
+        publisher.publish(publication).await.unwrap();
+        let inbound = timeout(Duration::from_secs(5), connection.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let event = service.handle(&miniconf, &mut settings, &inbound);
+        if path == "nested/leaf" {
+            assert!(matches!(event, ServiceEvent::Busy));
+        } else {
+            assert!(matches!(event, ServiceEvent::Idle));
+        }
+    }
+    assert_eq!(settings.value, 9);
+    assert_eq!(settings.nested.leaf, 0);
 }
 
 #[tokio::test]

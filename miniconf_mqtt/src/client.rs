@@ -185,6 +185,7 @@ pub enum ServiceEvent {
 enum Route {
     Unhandled,
     Ignored,
+    Busy,
     Rejected {
         follow_up: Option<FollowUp>,
     },
@@ -687,22 +688,24 @@ impl<const N: usize> Service<N> {
     where
         Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
     {
-        if self.follow_ups.is_full()
-            && request::needs_capacity::<Settings>(miniconf.prefix.as_str(), inbound)
-        {
-            debug!(
-                "Rejecting Miniconf request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
-                inbound.topic(),
-                self.follow_ups.len(),
-                N,
-                inbound.payload().len()
-            );
-            return ServiceEvent::Busy;
-        }
-
-        match request::route(miniconf.prefix.as_str(), settings, inbound) {
+        match request::route(
+            miniconf.prefix.as_str(),
+            settings,
+            inbound,
+            self.follow_ups.is_full(),
+        ) {
             Route::Unhandled => ServiceEvent::Unhandled,
             Route::Ignored => ServiceEvent::Idle,
+            Route::Busy => {
+                debug!(
+                    "Rejecting Miniconf request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
+                    inbound.topic(),
+                    self.follow_ups.len(),
+                    N,
+                    inbound.payload().len()
+                );
+                ServiceEvent::Busy
+            }
             Route::Rejected { follow_up } => {
                 if let Some(follow_up) = follow_up {
                     debug_assert!(!self.follow_ups.is_full());

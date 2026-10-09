@@ -59,38 +59,25 @@ pub(crate) enum Auth {
     Invalid,
 }
 
-pub(crate) fn needs_capacity<Settings>(prefix: &str, inbound: &InboundPublish<'_>) -> bool
-where
-    Settings: TreeSchema,
-{
-    if set_path(inbound.topic(), prefix).is_some() {
-        return true;
-    }
-    let Some(path) = settings_path(inbound.topic(), prefix) else {
-        return false;
-    };
-    if inbound.retained() || !matches!(auth(inbound), Auth::Absent) {
-        return false;
-    }
-    let mut state = [0; MAX_DEPTH];
-    resolve_leaf::<Settings>(path, &mut state).is_some()
-}
-
 pub(crate) fn route<Settings>(
     prefix: &str,
     settings: &mut Settings,
     inbound: &InboundPublish<'_>,
+    full: bool,
 ) -> Route
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
 {
     if let Some(path) = settings_path(inbound.topic(), prefix) {
-        return route_settings(settings, inbound, path);
+        return route_settings(settings, inbound, path, full);
     }
 
     let Some(path) = set_path(inbound.topic(), prefix) else {
         return Route::Unhandled;
     };
+    if full {
+        return Route::Busy;
+    }
 
     let reply = match inbound.reply_owned::<{ MAX_TOPIC_LENGTH }, { RESPONSE_CORRELATION_LENGTH }>()
     {
@@ -252,6 +239,7 @@ fn route_settings<Settings>(
     settings: &mut Settings,
     inbound: &InboundPublish<'_>,
     path: &str,
+    full: bool,
 ) -> Route
 where
     Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
@@ -273,6 +261,9 @@ where
         );
         return Route::Ignored;
     };
+    if full {
+        return Route::Busy;
+    }
 
     let changed = Indices::new(state, depth);
     if inbound.payload().is_empty() {
