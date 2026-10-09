@@ -8,10 +8,7 @@ use noline::{
     line_buffer::Buffer,
 };
 
-use super::{
-    Completion, complete,
-    matches::{Candidates, write_matches},
-};
+use super::{Completion, complete, completion::Context, matches::write_matches};
 
 /// Settings terminal interaction. Retains input queued during cursor queries.
 /// Create a fresh terminal after a disconnect.
@@ -106,24 +103,10 @@ impl Terminal {
             };
             let previous_tab = tab;
             tab = matches!(completion, Some(Completion::Matches(_)));
-            if let Some(Completion::Matches(path)) = completion.as_ref()
-                && previous_tab
-            {
+            if tab && previous_tab {
                 output(io, line.suspend()?).await?;
-                if let Some(path) = path {
-                    if let Some((_, candidates)) =
-                        Candidates::path(schema, &line.as_str()[path.clone()], path.len())
-                    {
-                        write_matches(io, candidates, columns.unwrap_or(80)).await?;
-                    }
-                } else {
-                    write_matches(
-                        io,
-                        Candidates::Commands(commands, line.as_str()[..cursor].trim_start()),
-                        columns.unwrap_or(80),
-                    )
-                    .await?;
-                }
+                let context = Context::new(schema, line.as_str(), cursor, commands).unwrap();
+                write_matches(io, context.candidates, columns.unwrap_or(80)).await?;
                 output(io, line.resume()?).await?;
                 columns = None;
                 continue;

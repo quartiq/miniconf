@@ -1,75 +1,9 @@
-use core::{fmt::Write as _, ops::Range};
-
 use embedded_io_async::Write;
-use heapless::String;
-use miniconf::{Internal, Schema};
 
-use crate::MAX_PATH_LENGTH;
+use super::completion::Candidates;
 
 const MAX_MATCHES: usize = 32;
 const MAX_ROWS: usize = 4;
-
-pub(super) enum Candidates<'a> {
-    Commands(&'a [&'a str], &'a str),
-    Children(&'static Internal, &'a str),
-}
-
-impl<'a> Candidates<'a> {
-    pub(super) fn path(
-        schema: &'static Schema,
-        path: &'a str,
-        cursor: usize,
-    ) -> Option<(Range<usize>, Self)> {
-        let before = path.get(..cursor)?;
-        let (parent, prefix) = before.rsplit_once('/')?;
-        let children = schema.get(parent).ok()?.schema.internal()?;
-        let end = cursor + path[cursor..].find('/').unwrap_or(path.len() - cursor);
-        Some((
-            before.len() - prefix.len()..end,
-            Self::Children(children, prefix),
-        ))
-    }
-
-    pub(super) fn numeric_len(&self) -> Option<usize> {
-        match self {
-            Self::Children(children, _) if !matches!(children, Internal::Named(_)) => {
-                Some(children.len().get())
-            }
-            _ => None,
-        }
-    }
-
-    pub(super) fn iter(&self) -> impl Iterator<Item = (String<MAX_PATH_LENGTH>, bool)> + Clone {
-        let (len, mut prefix) = match self {
-            Self::Commands(names, prefix) => (names.len(), *prefix),
-            Self::Children(children, prefix) => (children.len().get(), *prefix),
-        };
-        let indices = if self.numeric_len().is_some() && !prefix.is_empty() {
-            let index = prefix.parse::<usize>().ok().filter(|&index| index < len);
-            prefix = "";
-            index.map_or(0..0, |index| index..index + 1)
-        } else {
-            0..len
-        };
-        indices.filter_map(move |index| {
-            let mut name = String::new();
-            let branch = match self {
-                Self::Commands(names, _) => {
-                    name.push_str(names[index]).ok()?;
-                    false
-                }
-                Self::Children(children, _) => {
-                    match children.get_name(index) {
-                        Some(text) => name.push_str(text).ok()?,
-                        None => write!(name, "{index}").ok()?,
-                    }
-                    !children.get_schema(index).is_leaf()
-                }
-            };
-            name.starts_with(prefix).then_some((name, branch))
-        })
-    }
-}
 
 pub(super) async fn write_matches<W: Write>(
     writer: &mut W,
@@ -83,10 +17,7 @@ pub(super) async fn write_matches<W: Write>(
         let hint = heapless::format!(64; "0..={}\r\n", len - 1).unwrap();
         return writer.write_all(hint.as_bytes()).await;
     }
-    let names = candidates.iter().filter_map(|(mut name, branch)| {
-        if name.chars().any(|ch| ch.is_whitespace() || ch.is_control()) {
-            return None;
-        }
+    let names = candidates.tokens().filter_map(|(mut name, branch)| {
         if name.is_empty() {
             name.push_str("\"\"").ok()?;
         }
