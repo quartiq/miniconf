@@ -3,7 +3,7 @@ use miniconf::{Internal, Meta, Schema};
 
 use crate::MAX_DEPTH;
 
-/// Describe a subtree, showing homogeneous children once as `/0..N` (exclusive end).
+/// Describe a subtree, showing homogeneous children once as `0..N` (exclusive end).
 ///
 /// Indented labels are path segments; ranges describe schema, not literal paths.
 /// Semantics, edge metadata and node metadata remain distinct. Enable Miniconf's
@@ -37,12 +37,11 @@ pub async fn write_schema<W: Write>(
         stack.push((children, 0)).unwrap();
     }
     while let Some((children, index)) = stack.last_mut() {
-        let homogeneous = matches!(children, Internal::Homogeneous(_));
-        if *index == if homogeneous { 1 } else { children.len().get() } {
+        let Some(child) = children.schemata().nth(*index) else {
             stack.pop();
             continue;
-        }
-        let child = children.get_schema(*index);
+        };
+        let homogeneous = matches!(children, Internal::Homogeneous(_));
         let edge = children.get_edge_meta(*index);
         let number;
         let name = if homogeneous {
@@ -58,7 +57,6 @@ pub async fn write_schema<W: Write>(
         for _ in 0..stack.len() {
             writer.write_all(b"  ").await?;
         }
-        writer.write_all(b"/").await?;
         writer.write_all(name.as_bytes()).await?;
         describe(writer, child, edge).await?;
         if stack.len() < depth

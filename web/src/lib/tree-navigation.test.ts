@@ -44,14 +44,14 @@ describe("tree navigation", () => {
 
   it("builds a browsable discovery tree from prefixes", () => {
     const nodes = discoveryTree(
-      [{ prefix: "dt/sinara/a/host" }, { prefix: "dt/sinara/b/host" }],
+      [{ prefix: "dt/test/a/host" }, { prefix: "dt/test/b/host" }],
       (prefix) => prefix,
     );
 
     expect(
-      visibleTreePaths("", nodes, new Set(["", "/dt", "/dt/sinara"])),
-    ).toEqual(["", "/dt", "/dt/sinara", "/dt/sinara/a", "/dt/sinara/b"]);
-    expect(nodes.get("/dt/sinara/a/host")?.href).toBe("dt/sinara/a/host");
+      visibleTreePaths("", nodes, new Set(["", "/dt", "/dt/test"])),
+    ).toEqual(["", "/dt", "/dt/test", "/dt/test/a", "/dt/test/b"]);
+    expect(nodes.get("/dt/test/a/host")?.href).toBe("dt/test/a/host");
   });
 
   it("keeps literal MQTT levels distinct from the synthetic root and route syntax", () => {

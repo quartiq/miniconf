@@ -1,5 +1,27 @@
 import { expect } from "@playwright/test";
+import { once } from "node:events";
+import { connectAsync } from "mqtt";
 import { test } from "./fixtures.mjs";
+
+test("broker fixture preserves earlier subscriptions when adding a filter", async ({
+  device,
+}) => {
+  const client = await connectAsync(`ws://127.0.0.1:${device.port}`, {
+    protocolVersion: 5,
+  });
+  try {
+    const topic = `${device.prefix}/settings/leaf`;
+    await client.subscribeAsync(topic, { rh: 2 });
+    await client.subscribeAsync(`${device.prefix}/settings/other`, { rh: 2 });
+    const received = once(client, "message");
+    device.publish(topic, "42");
+    const [actualTopic, payload] = await received;
+    expect(actualTopic).toBe(topic);
+    expect(payload.toString()).toBe("42");
+  } finally {
+    await client.endAsync(true);
+  }
+});
 
 test("device loss, schema replacement, and reload preserve observation and drafts", async ({
   browsePage: page,

@@ -66,18 +66,8 @@ fn collect(
         return Ok(len);
     }
     if let Some(internal) = schema.internal() {
-        match internal {
-            Internal::Named(children) => {
-                for child in *children {
-                    len = collect(child.schema(), defs, len)?;
-                }
-            }
-            Internal::Numbered(children) => {
-                for child in *children {
-                    len = collect(child.schema(), defs, len)?;
-                }
-            }
-            Internal::Homogeneous(child) => len = collect(child.schema(), defs, len)?,
+        for child in internal.schemata() {
+            len = collect(child, defs, len)?;
         }
     }
     let Some(slot) = defs.get_mut(len) else {

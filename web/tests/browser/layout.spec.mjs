@@ -1,6 +1,53 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures.mjs";
 
+test("tree marks stay centered and visible in forced colors", async ({
+  browsePage: page,
+}) => {
+  const centers = await page.locator('[data-tree-path=""]').evaluate((node) =>
+    [".caret-mark", ".activity-dot"].map((selector) => {
+      const rect = node.querySelector(selector).getBoundingClientRect();
+      return rect.y + rect.height / 2;
+    }),
+  );
+  expect(Math.abs(centers[0] - centers[1])).toBeLessThanOrEqual(0.5);
+  await page.emulateMedia({ forcedColors: "active" });
+  await page.addStyleTag({
+    content: ".activity-dot { opacity: 1 !important; }",
+  });
+  for (const selector of [".caret-mark", ".activity-dot"]) {
+    const mark = page.locator(`[data-tree-path=""] ${selector}`);
+    const clip = await mark.boundingBox();
+    const painted = await page.screenshot({ clip });
+    await mark.evaluate((node) => (node.style.visibility = "hidden"));
+    expect(await page.screenshot({ clip })).not.toEqual(painted);
+  }
+});
+
+test("long values shorten only the value, keeping complete bare names", async ({
+  browsePage: page,
+  device,
+}) => {
+  const value = JSON.stringify(Array(500).fill([1, 2]));
+  device.publish(`${device.prefix}/settings/leaf`, value);
+  const row = page.locator('[data-tree-path="/leaf"]');
+  await expect(row.locator(".value")).toHaveText(value);
+  await expect(row.locator(".label")).toHaveText("leaf");
+  for (const width of [320, 761, 1200]) {
+    await page.setViewportSize({ width, height: 850 });
+    expect(
+      await row
+        .locator(".label")
+        .evaluate((node) => node.clientWidth === node.scrollWidth),
+    ).toBe(true);
+    expect(
+      await row
+        .locator(".value")
+        .evaluate((node) => node.clientWidth < node.scrollWidth),
+    ).toBe(true);
+  }
+});
+
 test("build identity stays inside both headers without crowding content", async ({
   page,
   baseURL,

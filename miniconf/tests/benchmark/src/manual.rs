@@ -3,37 +3,6 @@ use serde_json_core::{de::Deserializer, to_slice};
 
 use crate::{Error, Settings};
 
-#[cfg(feature = "help")]
-pub(super) fn help(path: &str, mut reply: impl FnMut(&[u8])) -> Result<(), Error> {
-    let text = match path {
-        "" => {
-            "/ typename=Settings\n  serial doc=Hardware serial number. type=U32\n  control typename=Control\n  output typename=Output\n  calibration typename=Calibration doc=Factory calibration applied to measurements. optional\n  temp unit=°C type=F32 optional"
-        }
-        "/serial" => "/serial doc=Hardware serial number. type=U32",
-        "/control" => "/control typename=Control\n  enabled type=Bool\n  mode",
-        "/control/enabled" => "/control/enabled type=Bool",
-        "/control/mode" => "/control/mode",
-        "/output" => "/output typename=Output\n  dac max=4095\n  attenuation unit=dB",
-        "/output/dac" => "/output/dac max=4095\n  0 type=U16\n  1 type=U16",
-        "/output/dac/0" => "/output/dac/0 type=U16",
-        "/output/dac/1" => "/output/dac/1 type=U16",
-        "/output/attenuation" => "/output/attenuation unit=dB\n  0 type=I16\n  1 type=I16",
-        "/output/attenuation/0" => "/output/attenuation/0 type=I16",
-        "/output/attenuation/1" => "/output/attenuation/1 type=I16",
-        "/calibration" => {
-            "/calibration typename=Calibration doc=Factory calibration applied to measurements. optional\n  offset type=I32\n  slope unit=ppm type=I16"
-        }
-        "/calibration/offset" => "/calibration/offset type=I32",
-        "/calibration/slope" => "/calibration/slope unit=ppm type=I16",
-        "/temp" => "/temp unit=°C type=F32 optional",
-        _ => return Err(Error::Path),
-    };
-    for line in text.lines() {
-        reply(line.as_bytes());
-    }
-    Ok(())
-}
-
 fn value<T: Serialize + DeserializeOwned>(
     value: &mut T,
     input: Option<&str>,

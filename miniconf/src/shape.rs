@@ -56,35 +56,23 @@ impl Shape {
             max_bits: 0,
         };
         if let Some(internal) = schema.internal() {
+            let len = internal.len().get();
+            let bits = Packed::bits_for(len - 1);
             match internal {
-                Internal::Named(nameds) => {
-                    let bits = Packed::bits_for(nameds.len() - 1);
+                Internal::Named(_) | Internal::Numbered(_) => {
                     let mut index = 0;
                     let mut count = 0;
-                    while index < nameds.len() {
-                        let named = &nameds[index];
-                        let child = Self::new(named.schema);
-                        assign_max!(m.max_depth, 1 + child.max_depth);
-                        assign_max!(m.max_length, named.name.len() + child.max_length);
-                        assign_max!(m.max_bits, bits + child.max_bits);
-                        count += child.count.get();
-                        index += 1;
-                    }
-                    m.count = NonZero::new(count).unwrap();
-                }
-                Internal::Numbered(numbereds) => {
-                    let bits = Packed::bits_for(numbereds.len() - 1);
-                    let mut index = 0;
-                    let mut count = 0;
-                    while index < numbereds.len() {
-                        let numbered = &numbereds[index];
-                        let len = 1 + match index.checked_ilog10() {
-                            None => 0,
-                            Some(len) => len as usize,
+                    while index < len {
+                        let name_len = match internal.get_name(index) {
+                            Some(name) => name.len(),
+                            None => match index.checked_ilog10() {
+                                None => 1,
+                                Some(digits) => 1 + digits as usize,
+                            },
                         };
-                        let child = Self::new(numbered.schema);
+                        let child = Self::new(internal.get_schema(index));
                         assign_max!(m.max_depth, 1 + child.max_depth);
-                        assign_max!(m.max_length, len + child.max_length);
+                        assign_max!(m.max_length, name_len + child.max_length);
                         assign_max!(m.max_bits, bits + child.max_bits);
                         count += child.count.get();
                         index += 1;
@@ -94,11 +82,11 @@ impl Shape {
                 Internal::Homogeneous(homogeneous) => {
                     m = Self::new(homogeneous.schema);
                     m.max_depth += 1;
-                    m.max_length += match (homogeneous.len.get() - 1).checked_ilog10() {
+                    m.max_length += match (len - 1).checked_ilog10() {
                         Some(digits) => 1 + digits as usize,
                         None => 1,
                     };
-                    m.max_bits += Packed::bits_for(homogeneous.len.get() - 1);
+                    m.max_bits += bits;
                     m.count = m.count.checked_mul(homogeneous.len).unwrap();
                 }
             }

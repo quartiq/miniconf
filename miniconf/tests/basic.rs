@@ -385,3 +385,15 @@ fn lookup_preserves_finalize_errors() {
         assert_eq!(state, [0]);
     }
 }
+
+#[cfg(feature = "json")]
+#[test]
+fn json_arrays_preserve_slots() {
+    use miniconf::json::{TREE_ABSENT, to_json_value};
+
+    let value = ([Some(1u8), None], (Some(2u16), None::<bool>));
+    assert_eq!(
+        to_json_value(&value).unwrap(),
+        serde_json::json!([[1, TREE_ABSENT], [2, TREE_ABSENT]])
+    );
+}

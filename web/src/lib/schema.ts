@@ -196,7 +196,7 @@ export function displayPath(path: string): string {
 }
 
 export function formatSchemaName(node: SchemaNode): string {
-  return "/" + (node.path.split("/").at(-1) || '\"\"');
+  return node.path.split("/").at(-1) || '\"\"';
 }
 
 export function schemaSummary(node: SchemaNode): string {

@@ -18,7 +18,7 @@ heapless = { version = "0.8", optional = true }
 
 [features]
 tree = ["miniconf/json-core"]
-help = ["miniconf/meta-node", "miniconf/meta-edge", "miniconf/sem", "dep:heapless"]
+help = ["tree", "miniconf/meta-node", "miniconf/meta-edge", "miniconf/sem", "dep:heapless"]
 
 [profile.release]
 codegen-units = 1

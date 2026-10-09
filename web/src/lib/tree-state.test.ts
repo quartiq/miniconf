@@ -51,6 +51,7 @@ describe("tree state", () => {
     const row = treeSnapshot(schema, "", new Map([["/amplitude", "1.0"]])).get(
       "/amplitude",
     )!;
+    expect(row.label).toBe("amplitude");
     expect(row.summary).toBe("leaf · f32");
     expect(row.value).toBe("1.0");
     expect(row.title).toContain('Semantics:\nty: f32\nfuture: ["opaque"]');
@@ -131,7 +132,7 @@ describe("tree state", () => {
     const views = treeSnapshot(schema, "", new Map());
     expect(views.get("")?.label).toBe("(root)");
     expect(views.get("")?.children).toEqual(["/"]);
-    expect(views.get("/")?.label).toBe('/\"\"');
+    expect(views.get("/")?.label).toBe('\"\"');
   });
 
   it("preserves empty Miniconf names and exact subtree boundaries", () => {

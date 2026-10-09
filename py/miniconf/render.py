@@ -53,7 +53,7 @@ def format_schema_label(
     *,
     name: str | None = None,
 ) -> str:
-    label = name if name is not None else "/" + _segment_label(node.path)
+    label = name if name is not None else _segment_label(node.path)
     tags = _annotations(node)
     return " ".join([label, *tags]).strip()
 
@@ -65,7 +65,7 @@ def format_value_label(
     present: bool = False,
     value: Any = None,
 ) -> str:
-    label = name if name is not None else _segment_label(node.path)
+    label = name if name is not None else _segment_label(node.path) or "(root)"
     if node.kind == "leaf":
         return f"{label} = {json_dumps(value) if present else '<absent>'}"
     return label
@@ -96,7 +96,7 @@ def render_schema_tree(schema: Schema, root: str = "") -> str:
             if count:
                 child = schema.node(f"{path}/0")
                 child_lines = visit(child.path)
-                child_lines[0] = format_schema_label(child, name=f"/0..{count}")
+                child_lines[0] = format_schema_label(child, name=f"0..{count}")
                 return _tree_lines(format_schema_label(node), [child_lines])
 
         return _tree_lines(
@@ -124,7 +124,7 @@ def render_value_tree(schema: Schema, values: dict[str, Any], root: str = "") ->
             [visit(child.path) for child in schema.children(path)],
         )
 
-    if not root:
+    if not root and schema.node(root).kind != "leaf":
         lines = _tree_lines(None, [visit(child.path) for child in schema.children("")])
         return "\n".join(lines)
     return "\n".join(visit(root))

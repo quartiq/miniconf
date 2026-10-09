@@ -69,14 +69,6 @@ pub fn to_json_value<T: TreeSerialize>(
                     unreachable!("TooShort implies an internal schema");
                 };
                 Ok(NodeValue::Value(match internal {
-                    Internal::Homogeneous(h) => Value::Array(
-                        (0..h.len.get())
-                            .map(|i| {
-                                idx[depth] = i;
-                                visit(idx, depth + 1, h.schema, value).map(NodeValue::into_value)
-                            })
-                            .collect::<Result<_, _>>()?,
-                    ),
                     Internal::Named(n) => {
                         let mut object = serde_json::Map::with_capacity(n.len());
                         for (i, n) in n.iter().enumerate() {
@@ -89,12 +81,12 @@ pub fn to_json_value<T: TreeSerialize>(
                         }
                         Value::Object(object)
                     }
-                    Internal::Numbered(n) => Value::Array(
-                        n.iter()
-                            .enumerate()
-                            .map(|(i, n)| {
+                    Internal::Numbered(_) | Internal::Homogeneous(_) => Value::Array(
+                        (0..internal.len().get())
+                            .map(|i| {
                                 idx[depth] = i;
-                                visit(idx, depth + 1, n.schema, value).map(NodeValue::into_value)
+                                visit(idx, depth + 1, internal.get_schema(i), value)
+                                    .map(NodeValue::into_value)
                             })
                             .collect::<Result<_, _>>()?,
                     ),

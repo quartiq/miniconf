@@ -1,6 +1,39 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures.mjs";
 
+test("discovery recovers focus from a removed row's caret", async ({
+  page,
+  device,
+  baseURL,
+}) => {
+  await page.goto(baseURL);
+  await page
+    .locator("input[name=broker]")
+    .fill(`ws://127.0.0.1:${device.port}`);
+  await page.locator("input[name=discovery-filter]").fill("dt/+/+");
+  await page.locator("button[type=submit]").click();
+  await expect(
+    page.locator('[data-tree-path="/dt/test/device"]'),
+  ).toBeVisible();
+  device.publish(
+    "dt/other/device/alive",
+    device.retained.get(`${device.prefix}/alive`).text,
+  );
+  await expect(
+    page.locator('[data-tree-path="/dt/other/device"]'),
+  ).toBeVisible();
+  const branch = page.locator('[data-tree-path="/dt/test"]');
+  const caret = branch.locator(".toggle");
+  await caret.focus();
+  await caret.press("Space");
+  await expect(branch).toHaveAttribute("aria-expanded", "false");
+  await caret.press("Space");
+  await expect(branch).toHaveAttribute("aria-expanded", "true");
+  device.publish(`${device.prefix}/alive`, "");
+  await expect(page.locator('[data-tree-path="/dt/test"]')).toHaveCount(0);
+  await expect(page.locator('[data-tree-path="/dt"]')).toBeFocused();
+});
+
 test("connection shortcuts, tree focus recovery, and build identity", async ({
   page,
   device,

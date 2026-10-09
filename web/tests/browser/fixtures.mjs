@@ -26,7 +26,7 @@ export const test = base.extend({
         flag: false,
         empty: null,
         nested: { a: [1, 2] },
-        doc: "Signed digital mixer step in 1/16 of the ADC sample rate.\n\nPositive advances the complex oscillator as exp(+j*phase) and shifts the sampled spectrum upward. Reconstructing the analog input therefore subtracts this frequency from the demodulation DDS carrier. The step aliases modulo 16 into the principal interval [-8, 7].",
+        doc: "Setting documentation.\n\nThis paragraph provides enough text to exercise wrapping in a narrow panel. It describes a generic setting without relying on a particular device or application.",
       },
     })}\n{"i":{"k":"n","c":{"leaf":{"r":0,"m":{"note":"edge note"}},"other":0}}}\n`;
     let revision = 0x811c9dc5;
@@ -148,17 +148,25 @@ export const test = base.extend({
             return;
           }
           const granted = message.subscriptions.map((sub) =>
-            device.rejectCleanup && sub.topic === `${prefix}/set/#` ? 135 : 1,
+            device.rejectCleanup && sub.topic === `${prefix}/set/#`
+              ? 135
+              : sub.qos,
           );
-          socket.subscriptions = message.subscriptions.filter(
+          const accepted = message.subscriptions.filter(
             (_sub, index) => granted[index] < 128,
           );
+          for (const sub of accepted) {
+            socket.subscriptions = socket.subscriptions.filter(
+              (previous) => previous.topic !== sub.topic,
+            );
+            socket.subscriptions.push(sub);
+          }
           reply({
             cmd: "suback",
             messageId: message.messageId,
             granted,
           });
-          for (const sub of socket.subscriptions)
+          for (const sub of accepted)
             if (sub.rh !== 2) {
               for (const [topic, entry] of retained)
                 if (matches(sub.topic, topic)) send(socket, topic, entry, true);
