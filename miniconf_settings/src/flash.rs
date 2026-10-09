@@ -16,13 +16,12 @@ const MAX_CHUNKS: usize = 64;
 const CHUNK_DATA_CAPACITY: usize = 672;
 const CHUNK_HEADER_LEN: usize = 5;
 const CHUNK_VALUE_CAPACITY: usize = CHUNK_HEADER_LEN + CHUNK_DATA_CAPACITY;
-const MAP_BUFFER_CAPACITY: usize = 704;
+const MAP_BUFFER_CAPACITY: usize = (size_of::<u16>() + CHUNK_VALUE_CAPACITY).next_multiple_of(32);
 const MANIFEST_KEY: [u16; SLOT_COUNT] = [0, 1];
 const MANIFEST_MAGIC: &[u8; 4] = b"MCS\x03";
 const MANIFEST_LEN: usize = 16;
 
 const _: () = assert!(CHUNK_DATA_CAPACITY >= snapshot::RECORD_CAPACITY);
-const _: () = assert!(MAP_BUFFER_CAPACITY >= (2 + CHUNK_VALUE_CAPACITY).next_multiple_of(32));
 
 /// Scratch memory used while loading or storing settings.
 #[repr(C, align(32))]
@@ -110,11 +109,17 @@ impl<E> From<sequential_storage::Error<E>> for Error<E> {
 /// Atomic settings store backed by one map spanning at least two erase pages.
 pub struct Store<'a, S: NorFlash> {
     map: MapStorage<u16, S, NoCache>,
-    buffers: &'a mut Buffers,
+    buffers: Scratch<'a>,
     // Reserve entries before writing so cancellation cannot reuse their generation.
     head: Option<Entry>,
     active: Option<Entry>,
     recovered: bool,
+}
+
+struct Scratch<'a> {
+    map: &'a mut [u8],
+    chunk: &'a mut [u8],
+    record: &'a mut [u8],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,10 +145,40 @@ struct Description {
 impl<'a, S: NorFlash> Store<'a, S> {
     /// Open a map over the entire flash object.
     pub fn new(flash: S, buffers: &'a mut Buffers) -> Self {
+        Self::with_buffers(
+            flash,
+            &mut buffers.map,
+            &mut buffers.chunk,
+            &mut buffers.record,
+        )
+    }
+
+    /// Open a map with caller-sized scratch memory.
+    ///
+    /// `chunk` includes a five-byte header; each encoded leaf must fit in its remainder.
+    /// `record` determines leaf JSON capacity. `map` must hold the largest key-value
+    /// item, including items already stored, rounded up to flash word size. Its RAM
+    /// alignment must also satisfy the flash driver.
+    /// Smaller chunk buffers need more of the format's fixed 64 chunks per snapshot.
+    ///
+    /// Panics if the chunk header, or a chunk or manifest plus key, cannot fit.
+    pub fn with_buffers(
+        flash: S,
+        map: &'a mut [u8],
+        chunk: &'a mut [u8],
+        record: &'a mut [u8],
+    ) -> Self {
+        assert!(chunk.len() >= CHUNK_HEADER_LEN, "chunk buffer too small");
+        let word_size = S::READ_SIZE.max(S::WRITE_SIZE);
+        assert!(
+            map.len()
+                >= (size_of::<u16>() + chunk.len().max(MANIFEST_LEN)).next_multiple_of(word_size),
+            "map buffer too small"
+        );
         let end = u32::try_from(flash.capacity()).expect("settings flash capacity exceeds u32");
         Self {
             map: MapStorage::new(flash, MapConfig::new(0..end), NoCache::new()),
-            buffers,
+            buffers: Scratch { map, chunk, record },
             head: None,
             active: None,
             recovered: false,
@@ -317,7 +352,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         for (slot, entry) in entries.iter_mut().enumerate() {
             let Some(raw) = self
                 .map
-                .fetch_item::<&[u8]>(&mut self.buffers.map, &MANIFEST_KEY[slot])
+                .fetch_item::<&[u8]>(self.buffers.map, &MANIFEST_KEY[slot])
                 .await?
             else {
                 continue;
@@ -333,16 +368,15 @@ impl<'a, S: NorFlash> Store<'a, S> {
     where
         T: TreeSerialize,
     {
-        let mut cursor = 0;
+        let mut encoder = snapshot::Encoder::new(T::SCHEMA);
         let mut chunks = 0usize;
         let mut records = 0u16;
         let mut bytes = 0u32;
         loop {
-            let chunk = snapshot::encode_chunk(
+            let chunk = encoder.encode(
                 settings,
-                &mut cursor,
                 &mut self.buffers.chunk[CHUNK_HEADER_LEN..],
-                &mut self.buffers.record,
+                self.buffers.record,
             )?;
             if chunk.bytes != 0 {
                 chunks += 1;
@@ -373,19 +407,18 @@ impl<'a, S: NorFlash> Store<'a, S> {
     where
         T: TreeSerialize,
     {
-        let mut cursor = 0;
+        let mut encoder = snapshot::Encoder::new(T::SCHEMA);
         for index in 0..description.chunks {
-            let chunk = snapshot::encode_chunk(
+            let chunk = encoder.encode(
                 settings,
-                &mut cursor,
                 &mut self.buffers.chunk[CHUNK_HEADER_LEN..],
-                &mut self.buffers.record,
+                self.buffers.record,
             )?;
-            write_chunk_header(&mut self.buffers.chunk, entry.generation, index);
+            write_chunk_header(self.buffers.chunk, entry.generation, index);
             let expected = &self.buffers.chunk[..CHUNK_HEADER_LEN + chunk.bytes];
             let Some(stored) = self
                 .map
-                .fetch_item::<&[u8]>(&mut self.buffers.map, &chunk_key(entry.slot, index))
+                .fetch_item::<&[u8]>(self.buffers.map, &chunk_key(entry.slot, index))
                 .await?
             else {
                 return Ok(false);
@@ -406,18 +439,17 @@ impl<'a, S: NorFlash> Store<'a, S> {
     where
         T: TreeSerialize,
     {
-        let mut cursor = 0;
+        let mut encoder = snapshot::Encoder::new(T::SCHEMA);
         for index in 0..description.chunks {
-            let chunk = snapshot::encode_chunk(
+            let chunk = encoder.encode(
                 settings,
-                &mut cursor,
                 &mut self.buffers.chunk[CHUNK_HEADER_LEN..],
-                &mut self.buffers.record,
+                self.buffers.record,
             )?;
-            write_chunk_header(&mut self.buffers.chunk, entry.generation, index);
+            write_chunk_header(self.buffers.chunk, entry.generation, index);
             self.map
                 .store_item(
-                    &mut self.buffers.map,
+                    self.buffers.map,
                     &chunk_key(entry.slot, index),
                     &&self.buffers.chunk[..CHUNK_HEADER_LEN + chunk.bytes],
                 )
@@ -431,7 +463,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         let result = self
             .map
             .store_item(
-                &mut self.buffers.map,
+                self.buffers.map,
                 &MANIFEST_KEY[entry.slot],
                 &manifest.as_slice(),
             )
@@ -466,7 +498,7 @@ impl<'a, S: NorFlash> Store<'a, S> {
         for index in 0..description.chunks {
             let raw = self
                 .map
-                .fetch_item::<&[u8]>(&mut self.buffers.map, &chunk_key(entry.slot, index))
+                .fetch_item::<&[u8]>(self.buffers.map, &chunk_key(entry.slot, index))
                 .await?
                 .ok_or(SnapshotError::InvalidFormat)?;
             let data = parse_chunk(raw, entry.generation, index)?;
@@ -678,6 +710,34 @@ mod tests {
                 Err(Error::NoSnapshot)
             ));
             assert_eq!(settings.value, 7);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "map buffer too small")]
+    fn map_buffer_must_fit_the_manifest() {
+        let flash =
+            MockFlashBase::<2, 4, { PAGE_SIZE / 4 }>::new(WriteCountCheck::OnceOnly, None, true);
+        Store::with_buffers(flash, &mut [0; 12], &mut [0; 9], &mut [0; 4]);
+    }
+
+    #[test]
+    fn caller_sized_buffers_load_with_default_buffers() {
+        block_on(async {
+            let mut buffers = Buffers::new();
+            let mut store = Store::with_buffers(
+                flash(),
+                &mut buffers.map,
+                &mut buffers.chunk[..25],
+                &mut buffers.record[..24],
+            );
+            let settings = [17u32; 12];
+            store.erase().await.unwrap();
+            store.store(&settings).await.unwrap();
+            let mut store = Store::new(store.into_flash(), &mut buffers);
+            let mut loaded = [0u32; 12];
+            store.load(&mut loaded).await.unwrap();
+            assert_eq!(loaded, settings);
         });
     }
 

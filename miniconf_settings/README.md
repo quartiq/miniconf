@@ -78,10 +78,15 @@ do not guarantee enough capacity.
 `store` saves the current tree. `reset` selects defaults for the next load
 without changing current settings. Erasing unusable storage is explicit.
 
+`Store::new` uses default `Buffers`; `Store::with_buffers` takes caller-sized
+map, chunk, and record scratch slices. Map scratch must also fit existing items.
+Snapshots are limited to 64 chunks; smaller chunks reduce their total capacity.
+
 ## Features and limits
 
 The default `shell` and `flash` features are independent; disable both for
 snapshot records alone. Traversal supports `MAX_DEPTH` levels, printed and
-stored paths up to 128 bytes, and snapshot JSON values up to 512 bytes per leaf.
+stored paths up to 128 bytes. Snapshot JSON capacity follows the record buffer;
+the default flash buffers accommodate at least 512 bytes per leaf.
 
 Set `DEFMT_LOG=debug RUST_LOG=debug` for diagnostics in the host example.
