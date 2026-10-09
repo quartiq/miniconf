@@ -1,6 +1,29 @@
 import { expect } from "@playwright/test";
 import { test } from "./fixtures.mjs";
 
+test("tree marks stay centered and visible in forced colors", async ({
+  browsePage: page,
+}) => {
+  const centers = await page.locator('[data-tree-path=""]').evaluate((node) =>
+    [".caret-mark", ".activity-dot"].map((selector) => {
+      const rect = node.querySelector(selector).getBoundingClientRect();
+      return rect.y + rect.height / 2;
+    }),
+  );
+  expect(Math.abs(centers[0] - centers[1])).toBeLessThanOrEqual(0.5);
+  await page.emulateMedia({ forcedColors: "active" });
+  await page.addStyleTag({
+    content: ".activity-dot { opacity: 1 !important; }",
+  });
+  for (const selector of [".caret-mark", ".activity-dot"]) {
+    const mark = page.locator(`[data-tree-path=""] ${selector}`);
+    const clip = await mark.boundingBox();
+    const painted = await page.screenshot({ clip });
+    await mark.evaluate((node) => (node.style.visibility = "hidden"));
+    expect(await page.screenshot({ clip })).not.toEqual(painted);
+  }
+});
+
 test("long values shorten only the value, keeping complete bare names", async ({
   browsePage: page,
   device,

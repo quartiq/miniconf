@@ -39,7 +39,7 @@
 
   let internal = $derived(node.children.length > 0);
 
-  function indicateActivity(node: HTMLElement, initial?: TreeActivity) {
+  function indicateActivity(node: SVGElement, initial?: TreeActivity) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = (next?: TreeActivity) => {
       clearTimeout(timer);
@@ -68,12 +68,35 @@
 </script>
 
 {#snippet contents()}
-  {#if showActivity}<span
+  {#if internal && !node.href}
+    <button
+      aria-label={open ? "Collapse" : "Expand"}
+      class="toggle"
+      tabindex="-1"
+      type="button"
+      onclick={stopAndToggle}
+      ><svg aria-hidden="true" class="caret-mark" class:open viewBox="0 0 10 10"
+        ><path d="M0 0 10 5 0 10Z" /></svg
+      ></button
+    >
+  {:else}
+    <span aria-hidden="true" class="spacer"></span>
+  {/if}
+  {#if showActivity}
+    <span
       aria-hidden="true"
       class="activity-slot"
       title="Recent settings publication"
-      ><span class="activity-dot" use:indicateActivity={activity}></span></span
-    >{/if}
+    >
+      <svg
+        class="activity-dot"
+        viewBox="0 0 10 10"
+        use:indicateActivity={activity}
+      >
+        <circle cx="5" cy="5" r="5" />
+      </svg>
+    </span>
+  {/if}
   <span class="label">{node.label}</span>
   {#if node.summary}<span class="summary">{` (${node.summary})`}</span>{/if}
   {#if node.value}
@@ -99,7 +122,6 @@
     onclick={select}
     onkeydown={keydown}
   >
-    <span aria-hidden="true" class="spacer"></span>
     {@render contents()}
   </a>
 {:else}
@@ -118,17 +140,6 @@
     onclick={select}
     onkeydown={keydown}
   >
-    {#if internal}
-      <button
-        aria-label={open ? "Collapse" : "Expand"}
-        class="toggle"
-        tabindex="-1"
-        type="button"
-        onclick={stopAndToggle}>{open ? "▾" : "▸"}</button
-      >
-    {:else}
-      <span aria-hidden="true" class="spacer"></span>
-    {/if}
     {@render contents()}
   </div>
 {/if}
@@ -161,24 +172,33 @@
 
   button.toggle,
   .spacer {
-    appearance: none;
-    background: transparent;
-    border: 0;
-    color: inherit;
-    display: inline-block;
     flex: 0 0 var(--caret);
-    font: inherit;
-    line-height: inherit;
-    margin: 0;
-    padding: 0;
-    text-align: left;
     width: var(--caret);
   }
 
   button.toggle {
+    align-items: center;
+    align-self: stretch;
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: inherit;
     cursor: pointer;
-    padding-right: var(--space-tight);
-    text-align: right;
+    display: flex;
+    justify-content: flex-end;
+    margin: 0;
+    padding: 0 var(--space-tight) 0 0;
+  }
+
+  .caret-mark {
+    fill: currentColor;
+    flex: none;
+    height: var(--caret-size);
+    width: var(--caret-size);
+  }
+
+  .caret-mark.open {
+    transform: rotate(90deg);
   }
 
   .selected {
@@ -200,8 +220,7 @@
   }
 
   .activity-dot {
-    background: currentColor;
-    border-radius: 50%;
+    fill: currentColor;
     height: var(--activity-size);
     width: var(--activity-size);
     opacity: 0;
