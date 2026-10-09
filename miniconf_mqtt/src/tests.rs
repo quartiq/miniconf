@@ -46,6 +46,46 @@ fn routes_only_complete_topic_levels() {
 }
 
 #[test]
+fn single_root_leaf_uses_bare_topics() {
+    use crate::{
+        client::PublishPayload,
+        message::{set_path, settings_path},
+        schema::SettingsSync,
+    };
+    use miniconf::{Leaf, json_core};
+    use minimq::ToPayload;
+
+    init_host_logging();
+    let mut buffer = [0; 1024];
+    let (miniconf, _session) =
+        Miniconf::<Leaf<u8>>::new("dev", ConfigBuilder::from_buffer(&mut buffer, 128).unwrap())
+            .unwrap();
+    let mut settings = Leaf(0u8);
+    for path in [
+        set_path("dev/set", "dev"),
+        settings_path("dev/settings", "dev"),
+    ] {
+        assert_eq!(path, Some(""));
+        let mut leaves = SettingsSync::with_root(Leaf::<u8>::SCHEMA, path.unwrap()).unwrap();
+        assert_eq!(leaves.next(), Some(Ok(())));
+        let state = leaves.indices().unwrap();
+        assert!(state.is_empty());
+        assert_eq!(miniconf.settings_topic(state).unwrap(), "dev/settings");
+        json_core::set_by_keys(&mut settings, state, b"9").unwrap();
+        let mut payload = [0; 8];
+        let len = PublishPayload::Leaf {
+            settings: &settings,
+            state,
+        }
+        .serialize(&mut payload)
+        .unwrap();
+        assert_eq!(&payload[..len], b"9");
+        assert_eq!(leaves.next(), None);
+    }
+    assert!(SettingsSync::with_root(Leaf::<u8>::SCHEMA, "/").is_err());
+}
+
+#[test]
 fn constructor_rejects_long_prefix() {
     init_host_logging();
     let prefix = "x".repeat(MAX_TOPIC_LENGTH);
