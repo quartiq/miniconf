@@ -7,10 +7,21 @@ use serde::Serializer;
 use crate::{
     Homogeneous, Internal, InternalSchema, Keys, Meta, Named, NodeSchema, Numbered, ONEOF_SEM,
     Schema, Sem, SerdeError, TreeAny, TreeDeserialize, TreeDeserializer, TreeSchema, TreeSerialize,
-    ValueError,
+    ValueError, passthrough,
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////
+
+macro_rules! impl_passthrough_probe {
+    ($de:lifetime, $ty:ty) => {
+        fn probe_by_key<D: TreeDeserializer<$de>>(
+            keys: impl Keys,
+            de: D,
+        ) -> Result<D::Ok, SerdeError<D::Error>> {
+            passthrough::probe_by_key::<$ty, _>(keys, de)
+        }
+    };
+}
 
 macro_rules! impl_tuple {
     ($($i:tt $t:ident)+) => {
@@ -284,12 +295,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Option<T> {
             .deserialize_by_key(keys, de)
     }
 
-    fn probe_by_key<D: TreeDeserializer<'de>>(
-        keys: impl Keys,
-        de: D,
-    ) -> Result<D::Ok, SerdeError<D::Error>> {
-        T::probe_by_key(keys, de)
-    }
+    impl_passthrough_probe!('de, T);
 }
 
 impl<T: TreeAny> TreeAny for Option<T> {
@@ -501,12 +507,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for Cell<T> {
         self.get_mut().deserialize_by_key(keys, de)
     }
 
-    fn probe_by_key<D: TreeDeserializer<'de>>(
-        keys: impl Keys,
-        de: D,
-    ) -> Result<D::Ok, SerdeError<D::Error>> {
-        T::probe_by_key(keys, de)
-    }
+    impl_passthrough_probe!('de, T);
 }
 
 impl<T: TreeAny> TreeAny for Cell<T> {
@@ -546,12 +547,7 @@ impl<'de, T: TreeDeserialize<'de>> TreeDeserialize<'de> for RefCell<T> {
         self.get_mut().deserialize_by_key(keys, de)
     }
 
-    fn probe_by_key<D: TreeDeserializer<'de>>(
-        keys: impl Keys,
-        de: D,
-    ) -> Result<D::Ok, SerdeError<D::Error>> {
-        T::probe_by_key(keys, de)
-    }
+    impl_passthrough_probe!('de, T);
 }
 
 impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RefCell<T> {
@@ -565,12 +561,7 @@ impl<'a, 'de: 'a, T: TreeDeserialize<'de>> TreeDeserialize<'de> for &'a RefCell<
             .deserialize_by_key(keys, de)
     }
 
-    fn probe_by_key<D: TreeDeserializer<'de>>(
-        keys: impl Keys,
-        de: D,
-    ) -> Result<D::Ok, SerdeError<D::Error>> {
-        T::probe_by_key(keys, de)
-    }
+    impl_passthrough_probe!('de, T);
 }
 
 impl<T: TreeAny> TreeAny for RefCell<T> {
@@ -619,12 +610,7 @@ mod _alloc {
             (**self).deserialize_by_key(keys, de)
         }
 
-        fn probe_by_key<D: TreeDeserializer<'de>>(
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            T::probe_by_key(keys, de)
-        }
+        impl_passthrough_probe!('de, T);
     }
 
     impl<T: TreeAny> TreeAny for Box<T> {
@@ -662,12 +648,7 @@ mod _alloc {
             self.to_mut().deserialize_by_key(keys, de)
         }
 
-        fn probe_by_key<D: TreeDeserializer<'de>>(
-            keys: impl Keys,
-            de: D,
-        ) -> Result<D::Ok, SerdeError<D::Error>> {
-            T::probe_by_key(keys, de)
-        }
+        impl_passthrough_probe!('de, T);
     }
 
     impl<T: TreeAny + Clone> TreeAny for Cow<'_, T> {
@@ -1020,12 +1001,7 @@ macro_rules! impl_newtype {
                 self.0.deserialize_by_key(keys, de)
             }
 
-            fn probe_by_key<D: TreeDeserializer<'de>>(
-                keys: impl Keys,
-                de: D,
-            ) -> Result<D::Ok, SerdeError<D::Error>> {
-                $gen::probe_by_key(keys, de)
-            }
+            impl_passthrough_probe!('de, $gen);
         }
 
         impl<$gen: TreeAny> TreeAny for $ty {
