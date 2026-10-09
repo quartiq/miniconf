@@ -85,6 +85,3 @@ pub(crate) const TRANSIENT_TEXT_PROPERTIES: &[minimq::Property<'static>] = &[
     minimq::Property::PayloadFormatIndicator(1),
     minimq::Property::MessageExpiryInterval(TRANSIENT_EXPIRY_SECS),
 ];
-
-/// Payload serialization failed because the provided scratch buffer was too small.
-pub(crate) type EncodeError<E> = (bool, E);

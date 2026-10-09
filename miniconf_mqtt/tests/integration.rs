@@ -3,7 +3,7 @@ use miniconf::{
     Tree, TreeSchema,
     compact_schema::{SchemaDefs, serialize_schema_page},
 };
-use miniconf_mqtt::{Event, LoadRetained, Miniconf, Service, ServiceEvent};
+use miniconf_mqtt::{Event, LoadRetained, Miniconf, Publisher, Service, ServiceEvent};
 use minimq::{
     ConfigBuilder, ConnectEvent, Connection, InboundPublish, Op, Property, Publication, QoS,
     RetainHandling, Session, SubscriptionOptions, TopicFilter,
@@ -607,6 +607,60 @@ async fn startup_with_large_schema_completes() {
     .await
     .unwrap()
     .unwrap();
+}
+
+#[tokio::test]
+async fn absent_subtree_clears_authoritative_leaves() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+    let prefix = unique("absent");
+    let mut observer_session = Session::new(config());
+    let mut observer = wait_session(&mut observer_session, connect_addr(addr).await.unwrap()).await;
+    let filter = format!("{prefix}/settings/calibration/#");
+    let options = SubscriptionOptions::default()
+        .retain_behavior(RetainHandling::Never)
+        .retain_as_published();
+    let op = observer
+        .subscribe(&[TopicFilter::new(&filter).options(options)], &[])
+        .await
+        .unwrap();
+    wait_op(&mut observer, op).await;
+    let (mut miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
+    let mut connection = wait_session(&mut session, connect_addr(addr).await.unwrap()).await;
+    let mut settings = common::Settings::new();
+    for absent in [false, true] {
+        if absent {
+            settings.calibration = None;
+        }
+        let mut publisher = Publisher::by_key(common::Settings::SCHEMA, "/calibration").unwrap();
+        timeout(
+            Duration::from_secs(5),
+            publisher.run(&mut miniconf, &mut connection, &settings),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut values = BTreeMap::new();
+        while values.len() < 2 {
+            let inbound = timeout(Duration::from_secs(5), observer.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(inbound.retained());
+            assert_eq!(user_property(&inbound, "auth"), Some(""));
+            assert!(has_utf8_payload_indicator(&inbound));
+            values.insert(inbound.topic().to_owned(), inbound.payload().to_vec());
+        }
+        for (name, expected) in [("offset", b"-3".as_slice()), ("slope", b"12".as_slice())] {
+            assert_eq!(
+                values[&format!("{prefix}/settings/calibration/{name}")],
+                if absent { &[][..] } else { expected }
+            );
+        }
+    }
 }
 
 #[tokio::test]

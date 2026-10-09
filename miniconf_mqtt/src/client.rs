@@ -12,16 +12,14 @@ use miniconf::{
 };
 use minimq::{
     ConfigBuilder, ConfigError, ConnectEvent, Connection, Error as MqttError, InboundPublish, Io,
-    Op, OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session,
-    ToPayload, Will,
+    Op, OwnedResponseTarget, Property, Publication, QoS, ResourceError, Session, ToPayload, Will,
 };
 use serde::Serialize;
-use serde_json_core::ser::Error as JsonSerError;
 
 use crate::{
-    EncodeError, MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION,
-    RESPONSE_CORRELATION_LENGTH, RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
-    message::{DepthError, simple_pub_error},
+    MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION, RESPONSE_CORRELATION_LENGTH,
+    RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
+    message::simple_pub_error,
     schema::{SchemaSync, SettingsSync},
 };
 use request::FollowUp;
@@ -55,9 +53,8 @@ pub(crate) struct Manifest {
 
 #[derive(Debug)]
 pub(crate) enum PayloadError {
-    Json(JsonSerError),
+    Serialize,
     Schema(usize),
-    Leaf(DepthError<JsonSerError>),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -125,27 +122,11 @@ pub(crate) enum PublishPayload<'a, 'b, Settings> {
     },
 }
 
-fn serialize_leaf<Settings: TreeSerialize>(
-    settings: &Settings,
-    mut keys: &[usize],
-    buf: &mut [u8],
-) -> Result<usize, EncodeError<DepthError<JsonSerError>>> {
-    let len = keys.len();
-    json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
-        let no_space = matches!(inner, SerdeError::Inner(JsonSerError::BufferFull));
-        let err = DepthError {
-            inner,
-            depth: len - keys.len(),
-        };
-        (no_space, err)
-    })
-}
-
 impl<Settings> ToPayload for PublishPayload<'_, '_, Settings>
 where
     Settings: TreeSerialize,
 {
-    type Error = EncodeError<PayloadError>;
+    type Error = PayloadError;
 
     fn serialize(self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
@@ -158,26 +139,23 @@ where
                 },
                 buf,
             )
-            .map_err(|err| {
-                (
-                    matches!(err, JsonSerError::BufferFull),
-                    PayloadError::Json(err),
-                )
-            }),
+            .map_err(|_| PayloadError::Serialize),
             Self::SchemaPage {
                 defs,
                 next,
                 hash,
                 advanced,
             } => {
-                let page = serialize_schema_page(defs, next, buf)
-                    .map_err(|id| (true, PayloadError::Schema(id)))?;
+                let page = serialize_schema_page(defs, next, buf).map_err(PayloadError::Schema)?;
                 let next_hash = yafnv::Fnv::fnv1a(hash, buf[..page.len].iter().copied());
                 *advanced = Some((page.count, next_hash));
                 Ok(page.len)
             }
-            Self::Leaf { settings, state } => serialize_leaf(settings, state, buf)
-                .map_err(|(no_space, err)| (no_space, PayloadError::Leaf(err))),
+            Self::Leaf { settings, state } => match json_core::get_by_keys(settings, state, buf) {
+                Ok(len) => Ok(len),
+                Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => Ok(0),
+                Err(_) => Err(PayloadError::Serialize),
+            },
         }
     }
 }
@@ -452,31 +430,11 @@ where
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
-        match connection.publish(publication).await {
-            Ok(op) => op.ok_or(Error::Mqtt(MqttError::InvalidRequest)),
-            Err(PubError::Payload((
-                _no_space,
-                PayloadError::Leaf(DepthError {
-                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                    ..
-                }),
-            ))) => {
-                debug!(
-                    "Clearing authoritative setting topic={=str}",
-                    topic.as_str()
-                );
-                let publication = Publication::bytes(&topic, b"")
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce)
-                    .retain();
-                let op = connection
-                    .publish(publication)
-                    .await
-                    .map_err(simple_pub_error)?;
-                op.ok_or(Error::Mqtt(MqttError::InvalidRequest))
-            }
-            Err(err) => Err(simple_pub_error(err)),
-        }
+        connection
+            .publish(publication)
+            .await
+            .map_err(simple_pub_error)?
+            .ok_or(Error::Mqtt(MqttError::InvalidRequest))
     }
 }
 

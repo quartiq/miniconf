@@ -369,7 +369,7 @@ where
         | Err(PubError::Session(MqttError::Resource(ResourceError::InflightExhausted))) => {
             Ok(false)
         }
-        Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
+        Err(PubError::Payload(PayloadError::Schema(id))) => {
             info!(
                 "Aborting schema sync after oversized schema entry definition={=usize}",
                 id
