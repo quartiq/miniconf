@@ -281,7 +281,7 @@ where
 
 impl<Settings> Miniconf<Settings>
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeSchema,
 {
     /// Construct Miniconf MQTT state and a configured caller-owned MQTT session.
     ///
@@ -336,6 +336,7 @@ where
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
+        Settings: TreeSerialize,
         IO: Io,
     {
         let mut startup = Startup::new(self, connection.connect_event());
@@ -368,6 +369,7 @@ where
         on_unhandled: impl FnOnce(&InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
     where
+        Settings: TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
         // Reuse the bounded service path with capacity one. `serve()` drains every queued
@@ -406,12 +408,13 @@ where
     }
 
     pub(crate) async fn publish_current<IO>(
-        &mut self,
+        &self,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
         state: &[usize],
     ) -> Result<Op, Error<IO::Error>>
     where
+        Settings: TreeSerialize,
         IO: Io,
     {
         let topic = self
@@ -496,7 +499,7 @@ impl Startup {
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
@@ -520,7 +523,7 @@ impl Startup {
         settings: &Settings,
     ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         self.phase.step(miniconf, connection, settings)
@@ -543,17 +546,17 @@ impl LoadRetained {
 
     /// Run retained settings load to completion.
     ///
-    /// This helper owns the temporary `settings/#` subscription while it runs. Use it only before
-    /// the first Miniconf startup of a device process. Afterwards run [`Startup::connected`] to
-    /// publish the recovered settings authoritatively.
+    /// This helper owns a temporary `settings/#` subscription. For cold-boot recovery, run it
+    /// before the first Miniconf startup, then use [`Startup::connected`] to publish the recovered
+    /// settings authoritatively.
     pub async fn run<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {}
@@ -568,12 +571,12 @@ impl LoadRetained {
     /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
     pub fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
         IO: Io,
     {
         self.phase.step(miniconf, connection, settings)
@@ -612,12 +615,12 @@ impl Publisher {
     /// routed elsewhere.
     pub async fn run<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
@@ -636,12 +639,12 @@ impl Publisher {
     /// This method never consumes unrelated inbound publishes.
     pub fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         sync::step_publisher(self, miniconf, connection, settings)
@@ -686,7 +689,7 @@ impl<const N: usize> Service<N> {
         inbound: &InboundPublish<'_>,
     ) -> ServiceEvent
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
     {
         match request::route(
             miniconf.prefix.as_str(),
@@ -745,12 +748,12 @@ impl<const N: usize> Service<N> {
     /// An error discards the failed follow-up.
     pub async fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         loop {

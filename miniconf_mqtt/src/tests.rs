@@ -8,7 +8,7 @@ use miniconf::{
 use minimq::{ConfigBuilder, ConfigError};
 use std::sync::OnceLock;
 
-#[derive(Tree)]
+#[derive(TreeSchema, miniconf::TreeSerialize)]
 struct Tiny {
     value: u8,
 }

@@ -352,13 +352,13 @@ async fn retained_load_applies_only_auth_leaf_values() {
     let mut load = LoadRetained::new();
     assert!(
         !load
-            .step(&mut miniconf, &mut connection, &mut settings)
+            .step(&miniconf, &mut connection, &mut settings)
             .await
             .unwrap()
     );
     timeout(Duration::from_secs(5), async {
         while !connection.session().is_publish_quiescent() {
-            load.step(&mut miniconf, &mut connection, &mut settings)
+            load.step(&miniconf, &mut connection, &mut settings)
                 .await
                 .unwrap();
         }
@@ -378,7 +378,7 @@ async fn retained_load_applies_only_auth_leaf_values() {
     }
     timeout(
         Duration::from_secs(5),
-        load.run(&mut miniconf, &mut connection, &mut settings),
+        load.run(&miniconf, &mut connection, &mut settings),
     )
     .await
     .unwrap()
@@ -469,7 +469,7 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 ServiceEvent::Changed(_)
             ));
             while !service
-                .step(&mut miniconf, &mut connection, &settings)
+                .step(&miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -505,7 +505,7 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 ServiceEvent::Idle
             ));
             while !service
-                .step(&mut miniconf, &mut connection, &settings)
+                .step(&miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -628,7 +628,7 @@ async fn absent_subtree_clears_authoritative_leaves() {
         .await
         .unwrap();
     wait_op(&mut observer, op).await;
-    let (mut miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
+    let (miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
     let mut connection = wait_session(&mut session, connect_addr(addr).await.unwrap()).await;
     let mut settings = common::Settings::new();
     for absent in [false, true] {
@@ -638,7 +638,7 @@ async fn absent_subtree_clears_authoritative_leaves() {
         let mut publisher = Publisher::by_key(common::Settings::SCHEMA, "/calibration").unwrap();
         timeout(
             Duration::from_secs(5),
-            publisher.run(&mut miniconf, &mut connection, &settings),
+            publisher.run(&miniconf, &mut connection, &settings),
         )
         .await
         .unwrap()
@@ -784,12 +784,12 @@ async fn startup_and_service_resume_after_step_cancellation() {
         }
         paused.set(true);
         {
-            let mut step = pin!(service.step(&mut miniconf, &mut connection, &settings));
+            let mut step = pin!(service.step(&miniconf, &mut connection, &settings));
             assert!(poll_fn(|cx| Poll::Ready(step.as_mut().poll(cx).is_pending())).await);
         }
         paused.set(false);
         while !service
-            .step(&mut miniconf, &mut connection, &settings)
+            .step(&miniconf, &mut connection, &settings)
             .await
             .unwrap()
         {
@@ -868,7 +868,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 
         while !service.is_empty() {
             if service
-                .step(&mut miniconf, &mut connection, &settings)
+                .step(&miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {

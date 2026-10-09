@@ -66,7 +66,7 @@ pub(crate) fn route<Settings>(
     full: bool,
 ) -> Route
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeDeserializeOwned,
 {
     if let Some(path) = settings_path(inbound.topic(), prefix) {
         return route_settings(settings, inbound, path, full);
@@ -242,7 +242,7 @@ fn route_settings<Settings>(
     full: bool,
 ) -> Route
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeDeserializeOwned,
 {
     // Compatibility writes are non-retained and carry no auth property.
     if inbound.retained() || !matches!(auth(inbound), Auth::Absent) {
@@ -311,12 +311,12 @@ where
 impl FollowUp {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         loop {

@@ -1,5 +1,5 @@
 use embassy_time::{Duration, Instant, with_deadline};
-use miniconf::{SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize};
+use miniconf::{SerdeError, TreeDeserializeOwned, TreeSerialize};
 use minimq::{
     Connection, Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS,
     ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
@@ -44,12 +44,12 @@ impl LoadRetainedPhase {
 
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
         IO: Io,
     {
         loop {
@@ -155,7 +155,7 @@ fn apply_retained<Settings>(
     inbound: &InboundPublish<'_>,
 ) -> bool
 where
-    Settings: TreeSchema + TreeDeserializeOwned,
+    Settings: TreeDeserializeOwned,
 {
     // Startup recovery only trusts previous authoritative mirror publications. No-auth settings are
     // reserved for the runtime compatibility path and stale topics are left for smarter clients to
@@ -230,7 +230,7 @@ impl StartupPhase {
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         // Replayed traffic must release its storage before startup uses the publish budget.
@@ -383,12 +383,12 @@ where
 
 pub(crate) async fn step_publisher<Settings, IO>(
     publisher: &mut Publisher,
-    miniconf: &mut Miniconf<Settings>,
+    miniconf: &Miniconf<Settings>,
     connection: &mut Connection<'_, '_, IO>,
     settings: &Settings,
 ) -> Result<bool, Error<IO::Error>>
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeSerialize,
     IO: Io,
 {
     loop {
