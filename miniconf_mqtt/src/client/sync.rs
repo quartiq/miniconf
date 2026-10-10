@@ -1,12 +1,12 @@
 use embassy_time::{Duration, Instant, with_deadline};
-use miniconf::{SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize};
+use miniconf::{SerdeError, TreeDeserializeOwned, TreeSerialize};
 use minimq::{
     Connection, Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS,
     ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
 };
 
-use super::poll_op;
 use super::request::{Auth, auth, resolve_leaf, set_leaf};
+use super::{is_backpressure, poll_op};
 use crate::{
     Error, MAX_DEPTH, RETAINED_TEXT_PROPERTIES, TopicString,
     client::{
@@ -44,12 +44,12 @@ impl LoadRetainedPhase {
 
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
         IO: Io,
     {
         loop {
@@ -87,7 +87,7 @@ impl LoadRetainedPhase {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(err) if is_retryable_startup_error(&err) => {
+                        Err(err) if is_backpressure(connection, &err) => {
                             let _ = connection.poll().await?;
                             return Ok(false);
                         }
@@ -128,7 +128,7 @@ impl LoadRetainedPhase {
                                 *op = Some(next);
                                 return Ok(false);
                             }
-                            Err(err) if is_retryable_startup_error(&err) => {
+                            Err(err) if is_backpressure(connection, &err) => {
                                 let _ = connection.poll().await?;
                                 return Ok(false);
                             }
@@ -155,7 +155,7 @@ fn apply_retained<Settings>(
     inbound: &InboundPublish<'_>,
 ) -> bool
 where
-    Settings: TreeSchema + TreeDeserializeOwned,
+    Settings: TreeDeserializeOwned,
 {
     // Startup recovery only trusts previous authoritative mirror publications. No-auth settings are
     // reserved for the runtime compatibility path and stale topics are left for smarter clients to
@@ -222,14 +222,6 @@ where
     }
 }
 
-fn is_retryable_startup_error<E>(err: &Error<E>) -> bool {
-    matches!(
-        err,
-        Error::Mqtt(MqttError::NotReady)
-            | Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))
-    )
-}
-
 impl StartupPhase {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
@@ -238,7 +230,7 @@ impl StartupPhase {
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         // Replayed traffic must release its storage before startup uses the publish budget.
@@ -280,7 +272,7 @@ impl StartupPhase {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(err) if is_retryable_startup_error(&err) => return Ok(false),
+                        Err(err) if is_backpressure(connection, &err) => return Ok(false),
                         Err(err) => return Err(err),
                     },
                 },
@@ -307,7 +299,7 @@ impl StartupPhase {
                                 *op = Some(next);
                                 return Ok(false);
                             }
-                            Err(err) if is_retryable_startup_error(&err) => return Ok(false),
+                            Err(err) if is_backpressure(connection, &err) => return Ok(false),
                             Err(err) => return Err(err),
                         }
                     }
@@ -377,7 +369,7 @@ where
         | Err(PubError::Session(MqttError::Resource(ResourceError::InflightExhausted))) => {
             Ok(false)
         }
-        Err(PubError::Payload((true, PayloadError::Schema(id)))) => {
+        Err(PubError::Payload(PayloadError::Schema(id))) => {
             info!(
                 "Aborting schema sync after oversized schema entry definition={=usize}",
                 id
@@ -391,12 +383,12 @@ where
 
 pub(crate) async fn step_publisher<Settings, IO>(
     publisher: &mut Publisher,
-    miniconf: &mut Miniconf<Settings>,
+    miniconf: &Miniconf<Settings>,
     connection: &mut Connection<'_, '_, IO>,
     settings: &Settings,
 ) -> Result<bool, Error<IO::Error>>
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeSerialize,
     IO: Io,
 {
     loop {
@@ -455,10 +447,7 @@ where
                 publisher.op = Some(op);
                 return Ok(false);
             }
-            Err(Error::Mqtt(MqttError::NotReady))
-            | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) => {
-                return Ok(false);
-            }
+            Err(err) if is_backpressure(connection, &err) => return Ok(false),
             Err(err) => return Err(err),
         }
     }
@@ -482,6 +471,8 @@ where
     let topics = [TopicFilter::new(&topic).options(
         SubscriptionOptions::default()
             .maximum_qos(QoS::AtLeastOnce)
+            .retain_behavior(RetainHandling::Never)
+            .retain_as_published()
             .ignore_local_messages(),
     )];
     connection.subscribe(&topics, &[]).await.map_err(Into::into)

@@ -12,16 +12,14 @@ use miniconf::{
 };
 use minimq::{
     ConfigBuilder, ConfigError, ConnectEvent, Connection, Error as MqttError, InboundPublish, Io,
-    Op, OwnedResponseTarget, Property, PubError, Publication, QoS, ResourceError, Session,
-    ToPayload, Will,
+    Op, OwnedResponseTarget, Property, Publication, QoS, ResourceError, Session, ToPayload, Will,
 };
 use serde::Serialize;
-use serde_json_core::ser::Error as JsonSerError;
 
 use crate::{
-    EncodeError, MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION,
-    RESPONSE_CORRELATION_LENGTH, RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
-    message::{DepthError, simple_pub_error},
+    MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION, RESPONSE_CORRELATION_LENGTH,
+    RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
+    message::simple_pub_error,
     schema::{SchemaSync, SettingsSync},
 };
 use request::FollowUp;
@@ -55,9 +53,8 @@ pub(crate) struct Manifest {
 
 #[derive(Debug)]
 pub(crate) enum PayloadError {
-    Json(JsonSerError),
+    Serialize,
     Schema(usize),
-    Leaf(DepthError<JsonSerError>),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -65,6 +62,18 @@ pub(crate) enum PendingOp {
     Idle,
     Pending,
     Complete,
+}
+
+fn is_backpressure<IO: Io>(connection: &Connection<'_, '_, IO>, error: &Error<IO::Error>) -> bool {
+    match error {
+        Error::Mqtt(
+            MqttError::NotReady | MqttError::Resource(ResourceError::InflightExhausted),
+        ) => true,
+        Error::Mqtt(MqttError::Resource(ResourceError::BufferTooSmall)) => {
+            !connection.session().is_publish_quiescent()
+        }
+        _ => false,
+    }
 }
 
 fn poll_op<IO>(
@@ -113,27 +122,11 @@ pub(crate) enum PublishPayload<'a, 'b, Settings> {
     },
 }
 
-fn serialize_leaf<Settings: TreeSerialize>(
-    settings: &Settings,
-    mut keys: &[usize],
-    buf: &mut [u8],
-) -> Result<usize, EncodeError<DepthError<JsonSerError>>> {
-    let len = keys.len();
-    json_core::get_by_keys(settings, &mut keys, buf).map_err(|inner| {
-        let no_space = matches!(inner, SerdeError::Inner(JsonSerError::BufferFull));
-        let err = DepthError {
-            inner,
-            depth: len - keys.len(),
-        };
-        (no_space, err)
-    })
-}
-
 impl<Settings> ToPayload for PublishPayload<'_, '_, Settings>
 where
     Settings: TreeSerialize,
 {
-    type Error = EncodeError<PayloadError>;
+    type Error = PayloadError;
 
     fn serialize(self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         match self {
@@ -146,26 +139,23 @@ where
                 },
                 buf,
             )
-            .map_err(|err| {
-                (
-                    matches!(err, JsonSerError::BufferFull),
-                    PayloadError::Json(err),
-                )
-            }),
+            .map_err(|_| PayloadError::Serialize),
             Self::SchemaPage {
                 defs,
                 next,
                 hash,
                 advanced,
             } => {
-                let page = serialize_schema_page(defs, next, buf)
-                    .map_err(|id| (true, PayloadError::Schema(id)))?;
+                let page = serialize_schema_page(defs, next, buf).map_err(PayloadError::Schema)?;
                 let next_hash = yafnv::Fnv::fnv1a(hash, buf[..page.len].iter().copied());
                 *advanced = Some((page.count, next_hash));
                 Ok(page.len)
             }
-            Self::Leaf { settings, state } => serialize_leaf(settings, state, buf)
-                .map_err(|(no_space, err)| (no_space, PayloadError::Leaf(err))),
+            Self::Leaf { settings, state } => match json_core::get_by_keys(settings, state, buf) {
+                Ok(len) => Ok(len),
+                Err(SerdeError::Value(ValueError::Absent | ValueError::Access(_))) => Ok(0),
+                Err(_) => Err(PayloadError::Serialize),
+            },
         }
     }
 }
@@ -175,26 +165,27 @@ where
 pub enum Event<T> {
     /// One non-Miniconf inbound publish was returned through the callback.
     Unhandled(T),
-    /// One `/set` changed this exact leaf and protocol follow-up work completed.
+    /// This leaf was successfully set and protocol follow-up work completed.
     Changed(ChangedKey),
 }
 
 /// Immediate outcome of cooperative Miniconf service work.
 #[must_use = "match on the event to handle unhandled traffic or changed local settings"]
 pub enum ServiceEvent {
-    /// No immediate Miniconf work or inbound publish was available.
+    /// The message was consumed without reporting a settings change; follow-up work may be queued.
     Idle,
     /// One Miniconf request was rejected because bounded service capacity was exhausted.
     Busy,
     /// The message is not Miniconf traffic.
     Unhandled,
-    /// One `/set` changed this exact leaf and follow-up work was queued.
+    /// This leaf was successfully set and follow-up work was queued.
     Changed(ChangedKey),
 }
 
 enum Route {
     Unhandled,
     Ignored,
+    Busy,
     Rejected {
         follow_up: Option<FollowUp>,
     },
@@ -290,12 +281,12 @@ where
 
 impl<Settings> Miniconf<Settings>
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeSchema,
 {
     /// Construct Miniconf MQTT state and a configured caller-owned MQTT session.
     ///
     /// The broker must support QoS 1. Do not enable automatic QoS downgrade on `config`:
-    /// startup and service completion depend on publication acknowledgements.
+    /// startup and service completion depend on broker publication acknowledgements.
     pub fn new<'buf>(
         prefix: &str,
         config: ConfigBuilder<'buf>,
@@ -345,13 +336,14 @@ where
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
+        Settings: TreeSerialize,
         IO: Io,
     {
         let mut startup = Startup::new(self, connection.connect_event());
         startup.run(self, connection, settings).await
     }
 
-    /// Wait until one `/set` completes or one non-Miniconf inbound publish is returned.
+    /// Wait until one leaf write completes or one non-Miniconf inbound publish is returned.
     ///
     /// This is the simple unbounded steady-state helper.
     ///
@@ -377,6 +369,7 @@ where
         on_unhandled: impl FnOnce(&InboundPublish<'_>) -> T,
     ) -> Result<Event<T>, Error<IO::Error>>
     where
+        Settings: TreeSerialize + TreeDeserializeOwned,
         IO: Io,
     {
         // Reuse the bounded service path with capacity one. `serve()` drains every queued
@@ -415,12 +408,13 @@ where
     }
 
     pub(crate) async fn publish_current<IO>(
-        &mut self,
+        &self,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
         state: &[usize],
     ) -> Result<Op, Error<IO::Error>>
     where
+        Settings: TreeSerialize,
         IO: Io,
     {
         let topic = self
@@ -440,31 +434,11 @@ where
             .properties(&props)
             .qos(QoS::AtLeastOnce)
             .retain();
-        match connection.publish(publication).await {
-            Ok(op) => op.ok_or(Error::Mqtt(MqttError::InvalidRequest)),
-            Err(PubError::Payload((
-                _no_space,
-                PayloadError::Leaf(DepthError {
-                    inner: SerdeError::Value(ValueError::Absent | ValueError::Access(_)),
-                    ..
-                }),
-            ))) => {
-                debug!(
-                    "Clearing authoritative setting topic={=str}",
-                    topic.as_str()
-                );
-                let publication = Publication::bytes(&topic, b"")
-                    .properties(&props)
-                    .qos(QoS::AtLeastOnce)
-                    .retain();
-                let op = connection
-                    .publish(publication)
-                    .await
-                    .map_err(simple_pub_error)?;
-                op.ok_or(Error::Mqtt(MqttError::InvalidRequest))
-            }
-            Err(err) => Err(simple_pub_error(err)),
-        }
+        connection
+            .publish(publication)
+            .await
+            .map_err(simple_pub_error)?
+            .ok_or(Error::Mqtt(MqttError::InvalidRequest))
     }
 }
 
@@ -525,7 +499,7 @@ impl Startup {
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
@@ -541,7 +515,7 @@ impl Startup {
     /// `Ok(false)` means no more immediate startup progress is possible. Wait for later connection
     /// progress, then call `step()` again.
     ///
-    /// Connected-connection startup may discard surfaced inbound publishes while bootstrapping.
+    /// This method never consumes inbound publishes. The caller drives connection progress.
     pub fn step<Settings, IO>(
         &mut self,
         miniconf: &mut Miniconf<Settings>,
@@ -549,7 +523,7 @@ impl Startup {
         settings: &Settings,
     ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         self.phase.step(miniconf, connection, settings)
@@ -572,17 +546,17 @@ impl LoadRetained {
 
     /// Run retained settings load to completion.
     ///
-    /// This helper owns the temporary `settings/#` subscription while it runs. Use it only before
-    /// the first Miniconf startup of a device process. Afterwards run [`Startup::connected`] to
-    /// publish the recovered settings authoritatively.
+    /// This helper owns a temporary `settings/#` subscription. For cold-boot recovery, run it
+    /// before the first Miniconf startup, then use [`Startup::connected`] to publish the recovered
+    /// settings authoritatively.
     pub async fn run<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {}
@@ -597,12 +571,12 @@ impl LoadRetained {
     /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
     pub fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &mut Settings,
     ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
         IO: Io,
     {
         self.phase.step(miniconf, connection, settings)
@@ -641,12 +615,12 @@ impl Publisher {
     /// routed elsewhere.
     pub async fn run<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<(), Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         while !self.step(miniconf, connection, settings).await? {
@@ -665,12 +639,12 @@ impl Publisher {
     /// This method never consumes unrelated inbound publishes.
     pub fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         sync::step_publisher(self, miniconf, connection, settings)
@@ -706,33 +680,35 @@ impl<const N: usize> Service<N> {
     /// Non-Miniconf traffic is reported as `ServiceEvent::Unhandled`, while the
     /// caller keeps ownership of the inbound publish.
     ///
-    /// If the bounded service is full, Miniconf `/set` requests are rejected without mutating local
+    /// If the bounded service is full, mutation requests are rejected without changing local
     /// settings.
     pub fn handle<Settings>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         settings: &mut Settings,
         inbound: &InboundPublish<'_>,
     ) -> ServiceEvent
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeDeserializeOwned,
     {
-        if self.follow_ups.is_full()
-            && request::needs_capacity::<Settings>(miniconf.prefix.as_str(), inbound)
-        {
-            debug!(
-                "Rejecting Miniconf request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
-                inbound.topic(),
-                self.follow_ups.len(),
-                N,
-                inbound.payload().len()
-            );
-            return ServiceEvent::Busy;
-        }
-
-        match request::route(miniconf.prefix.as_str(), settings, inbound) {
+        match request::route(
+            miniconf.prefix.as_str(),
+            settings,
+            inbound,
+            self.follow_ups.is_full(),
+        ) {
             Route::Unhandled => ServiceEvent::Unhandled,
             Route::Ignored => ServiceEvent::Idle,
+            Route::Busy => {
+                debug!(
+                    "Rejecting Miniconf request because service backlog is full topic={=str} queued={=usize} capacity={=usize} payload_len={=usize}",
+                    inbound.topic(),
+                    self.follow_ups.len(),
+                    N,
+                    inbound.payload().len()
+                );
+                ServiceEvent::Busy
+            }
             Route::Rejected { follow_up } => {
                 if let Some(follow_up) = follow_up {
                     debug_assert!(!self.follow_ups.is_full());
@@ -768,15 +744,16 @@ impl<const N: usize> Service<N> {
     ///
     /// This method never consumes unrelated inbound publishes.
     /// Cancelling it retains the current follow-up for the next call. Transport cancellation
-    /// safety still depends on the underlying I/O. An error discards the failed follow-up.
+    /// safety still depends on the underlying I/O; retries may duplicate queued packets.
+    /// An error discards the failed follow-up.
     pub async fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         loop {

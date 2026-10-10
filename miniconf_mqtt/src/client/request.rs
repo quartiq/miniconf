@@ -6,12 +6,10 @@ use miniconf::{
     DescendError, Indices, KeyError, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
     ValueError, json_core,
 };
-use minimq::{
-    Connection, Error as MqttError, InboundPublish, Io, Op, Property, QoS, ResourceError,
-};
+use minimq::{Connection, Error as MqttError, InboundPublish, Io, Op, Property, QoS};
 use serde_json_core::de::Error as JsonDeError;
 
-use super::poll_op;
+use super::{is_backpressure, poll_op};
 use crate::{
     Error, MAX_DEPTH, MAX_TOPIC_LENGTH, RESPONSE_CORRELATION_LENGTH, RESPONSE_TEXT_LENGTH,
     TRANSIENT_TEXT_PROPERTIES,
@@ -61,38 +59,25 @@ pub(crate) enum Auth {
     Invalid,
 }
 
-pub(crate) fn needs_capacity<Settings>(prefix: &str, inbound: &InboundPublish<'_>) -> bool
-where
-    Settings: TreeSchema,
-{
-    if set_path(inbound.topic(), prefix).is_some() {
-        return true;
-    }
-    let Some(path) = settings_path(inbound.topic(), prefix) else {
-        return false;
-    };
-    if !matches!(auth(inbound), Auth::Absent) {
-        return false;
-    }
-    let mut state = [0; MAX_DEPTH];
-    resolve_leaf::<Settings>(path, &mut state).is_some()
-}
-
 pub(crate) fn route<Settings>(
     prefix: &str,
     settings: &mut Settings,
     inbound: &InboundPublish<'_>,
+    full: bool,
 ) -> Route
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeDeserializeOwned,
 {
     if let Some(path) = settings_path(inbound.topic(), prefix) {
-        return route_settings(settings, inbound, path);
+        return route_settings(settings, inbound, path, full);
     }
 
     let Some(path) = set_path(inbound.topic(), prefix) else {
         return Route::Unhandled;
     };
+    if full {
+        return Route::Busy;
+    }
 
     let reply = match inbound.reply_owned::<{ MAX_TOPIC_LENGTH }, { RESPONSE_CORRELATION_LENGTH }>()
     {
@@ -106,6 +91,16 @@ where
             return Route::Ignored;
         }
     };
+
+    if inbound.retained() {
+        return Route::Rejected {
+            follow_up: reply.map(|target| FollowUp::Reply {
+                target,
+                error: Some(encode_body(&ResponseBody::Retained)),
+                op: None,
+            }),
+        };
+    }
 
     let mut state = [0; MAX_DEPTH];
     let lookup = match Settings::SCHEMA.resolve_into(path, &mut state) {
@@ -244,15 +239,15 @@ fn route_settings<Settings>(
     settings: &mut Settings,
     inbound: &InboundPublish<'_>,
     path: &str,
+    full: bool,
 ) -> Route
 where
-    Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+    Settings: TreeDeserializeOwned,
 {
-    // No-auth settings publications are a narrow compatibility ingress for tools that edit the
-    // retained mirror by hand. Auth-marked publications are the authoritative mirror itself.
-    if !matches!(auth(inbound), Auth::Absent) {
+    // Compatibility writes are non-retained and carry no auth property.
+    if inbound.retained() || !matches!(auth(inbound), Auth::Absent) {
         debug!(
-            "Ignoring authoritative settings mirror publication topic={=str}",
+            "Ignoring retained or authoritative settings publication topic={=str}",
             inbound.topic()
         );
         return Route::Ignored;
@@ -266,6 +261,9 @@ where
         );
         return Route::Ignored;
     };
+    if full {
+        return Route::Busy;
+    }
 
     let changed = Indices::new(state, depth);
     if inbound.payload().is_empty() {
@@ -313,12 +311,12 @@ where
 impl FollowUp {
     pub(crate) async fn step<Settings, IO>(
         &mut self,
-        miniconf: &mut Miniconf<Settings>,
+        miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
         settings: &Settings,
     ) -> Result<bool, Error<IO::Error>>
     where
-        Settings: TreeSchema + TreeSerialize + TreeDeserializeOwned,
+        Settings: TreeSerialize,
         IO: Io,
     {
         loop {
@@ -356,11 +354,7 @@ impl FollowUp {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
-                        {
-                            return Ok(false);
-                        }
+                        Err(err) if is_backpressure(connection, &err) => return Ok(false),
                         Err(err) => {
                             if let Some(target) = reply.take() {
                                 warn!(
@@ -396,11 +390,7 @@ impl FollowUp {
                             *op = Some(next);
                             return Ok(false);
                         }
-                        Err(Error::Mqtt(MqttError::NotReady))
-                        | Err(Error::Mqtt(MqttError::Resource(ResourceError::InflightExhausted))) =>
-                        {
-                            return Ok(false);
-                        }
+                        Err(err) if is_backpressure(connection, &err) => return Ok(false),
                         Err(err) => return Err(err),
                     }
                 }
@@ -413,20 +403,22 @@ impl FollowUp {
 fn encode_body(body: &ResponseBody) -> ReplyError {
     let mut error = String::new();
     let mut payload = String::new();
+    write!(payload.as_mut_view(), "{body}").ok();
     let (kind, class, depth) = match body {
+        ResponseBody::Retained => {
+            error.push_str("Retained").ok();
+            ("set", "RequestError", None)
+        }
         ResponseBody::Lookup(err) => {
             write!(error.as_mut_view(), "{:?}", err.inner).ok();
-            write!(payload.as_mut_view(), "{err}").ok();
             ("lookup", "SerdeError", Some(err.depth))
         }
         ResponseBody::LeafRequired { depth } => {
             write!(error.as_mut_view(), "{:?}", KeyError::TooShort).ok();
-            payload.push_str("Path does not resolve to a leaf").ok();
             ("set", "KeyError", Some(*depth))
         }
         ResponseBody::Set(err) => {
             write!(error.as_mut_view(), "{:?}", err.inner).ok();
-            write!(payload.as_mut_view(), "{err}").ok();
             ("set", "SerdeError", Some(err.depth))
         }
     };

@@ -3,7 +3,7 @@ use miniconf::{
     Tree, TreeSchema,
     compact_schema::{SchemaDefs, serialize_schema_page},
 };
-use miniconf_mqtt::{Event, LoadRetained, Miniconf, Service, ServiceEvent};
+use miniconf_mqtt::{Event, LoadRetained, Miniconf, Publisher, Service, ServiceEvent};
 use minimq::{
     ConfigBuilder, ConnectEvent, Connection, InboundPublish, Op, Property, Publication, QoS,
     RetainHandling, Session, SubscriptionOptions, TopicFilter,
@@ -341,10 +341,44 @@ async fn retained_load_applies_only_auth_leaf_values() {
     let (mut miniconf, mut session) = Miniconf::<Settings>::new(&prefix, config()).unwrap();
     let mut settings = Settings::default();
     let mut connection = wait_session(&mut session, connect_addr(addr).await.unwrap()).await;
+    let filter = format!("{prefix}/#");
+    let topics = [TopicFilter::new(&filter).options(
+        SubscriptionOptions::default()
+            .retain_behavior(RetainHandling::Never)
+            .retain_as_published(),
+    )];
+    let op = connection.subscribe(&topics, &[]).await.unwrap();
+    wait_op(&mut connection, op).await;
     let mut load = LoadRetained::new();
+    assert!(
+        !load
+            .step(&miniconf, &mut connection, &mut settings)
+            .await
+            .unwrap()
+    );
+    timeout(Duration::from_secs(5), async {
+        while !connection.session().is_publish_quiescent() {
+            load.step(&miniconf, &mut connection, &mut settings)
+                .await
+                .unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    for (suffix, retained) in [("settings/nested/leaf", false), ("set/value", true)] {
+        let topic = format!("{prefix}/{suffix}");
+        let mut publication = Publication::bytes(&topic, b"42")
+            .properties(&auth)
+            .qos(QoS::AtLeastOnce);
+        if retained {
+            publication = publication.retain();
+        }
+        let op = seeder.publish(publication).await.unwrap().unwrap();
+        wait_op(&mut seeder, op).await;
+    }
     timeout(
         Duration::from_secs(5),
-        load.run(&mut miniconf, &mut connection, &mut settings),
+        load.run(&miniconf, &mut connection, &mut settings),
     )
     .await
     .unwrap()
@@ -389,10 +423,30 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
     let topics = [TopicFilter::new(&compat_filter).options(
         SubscriptionOptions::default()
             .retain_behavior(RetainHandling::Never)
+            .retain_as_published()
             .ignore_local_messages(),
     )];
     let op = connection.subscribe(&topics, &[]).await.unwrap();
     wait_op(&mut connection, op).await;
+
+    let mut service = Service::<4>::new();
+    for suffix in ["set/value", "settings/value"] {
+        publisher
+            .publish(Publication::bytes(&format!("{prefix}/{suffix}"), b"42").retain())
+            .await
+            .unwrap();
+        let inbound = timeout(Duration::from_secs(5), connection.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(inbound.retained());
+        assert!(matches!(
+            service.handle(&miniconf, &mut settings, &inbound),
+            ServiceEvent::Idle
+        ));
+        assert_eq!(settings.value, 0);
+        assert!(service.is_empty());
+    }
 
     publisher
         .publish(Publication::bytes(
@@ -402,7 +456,6 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
         .await
         .unwrap();
 
-    let mut service = Service::<4>::new();
     timeout(Duration::from_secs(5), async {
         loop {
             let Some(inbound) = connection.poll().await.unwrap() else {
@@ -412,11 +465,11 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 continue;
             }
             assert!(matches!(
-                service.handle(&mut miniconf, &mut settings, &inbound),
+                service.handle(&miniconf, &mut settings, &inbound),
                 ServiceEvent::Changed(_)
             ));
             while !service
-                .step(&mut miniconf, &mut connection, &settings)
+                .step(&miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -448,11 +501,11 @@ async fn service_accepts_no_auth_settings_compat_ingress() {
                 continue;
             }
             assert!(matches!(
-                service.handle(&mut miniconf, &mut settings, &inbound),
+                service.handle(&miniconf, &mut settings, &inbound),
                 ServiceEvent::Idle
             ));
             while !service
-                .step(&mut miniconf, &mut connection, &settings)
+                .step(&miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -554,6 +607,60 @@ async fn startup_with_large_schema_completes() {
     .await
     .unwrap()
     .unwrap();
+}
+
+#[tokio::test]
+async fn absent_subtree_clears_authoritative_leaves() {
+    init_host_logging();
+    let Some(addr) = broker_addr() else {
+        eprintln!("skipping broker-backed test; set {BROKER_ADDR_ENV}=host:port");
+        return;
+    };
+    let prefix = unique("absent");
+    let mut observer_session = Session::new(config());
+    let mut observer = wait_session(&mut observer_session, connect_addr(addr).await.unwrap()).await;
+    let filter = format!("{prefix}/settings/calibration/#");
+    let options = SubscriptionOptions::default()
+        .retain_behavior(RetainHandling::Never)
+        .retain_as_published();
+    let op = observer
+        .subscribe(&[TopicFilter::new(&filter).options(options)], &[])
+        .await
+        .unwrap();
+    wait_op(&mut observer, op).await;
+    let (miniconf, mut session) = Miniconf::<common::Settings>::new(&prefix, config()).unwrap();
+    let mut connection = wait_session(&mut session, connect_addr(addr).await.unwrap()).await;
+    let mut settings = common::Settings::new();
+    for absent in [false, true] {
+        if absent {
+            settings.calibration = None;
+        }
+        let mut publisher = Publisher::by_key(common::Settings::SCHEMA, "/calibration").unwrap();
+        timeout(
+            Duration::from_secs(5),
+            publisher.run(&miniconf, &mut connection, &settings),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut values = BTreeMap::new();
+        while values.len() < 2 {
+            let inbound = timeout(Duration::from_secs(5), observer.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(inbound.retained());
+            assert_eq!(user_property(&inbound, "auth"), Some(""));
+            assert!(has_utf8_payload_indicator(&inbound));
+            values.insert(inbound.topic().to_owned(), inbound.payload().to_vec());
+        }
+        for (name, expected) in [("offset", b"-3".as_slice()), ("slope", b"12".as_slice())] {
+            assert_eq!(
+                values[&format!("{prefix}/settings/calibration/{name}")],
+                if absent { &[][..] } else { expected }
+            );
+        }
+    }
 }
 
 #[tokio::test]
@@ -670,19 +777,19 @@ async fn startup_and_service_resume_after_step_cancellation() {
                 continue;
             };
             assert!(matches!(
-                service.handle(&mut miniconf, &mut settings, &inbound),
+                service.handle(&miniconf, &mut settings, &inbound),
                 ServiceEvent::Changed(_)
             ));
             break;
         }
         paused.set(true);
         {
-            let mut step = pin!(service.step(&mut miniconf, &mut connection, &settings));
+            let mut step = pin!(service.step(&miniconf, &mut connection, &settings));
             assert!(poll_fn(|cx| Poll::Ready(step.as_mut().poll(cx).is_pending())).await);
         }
         paused.set(false);
         while !service
-            .step(&mut miniconf, &mut connection, &settings)
+            .step(&miniconf, &mut connection, &settings)
             .await
             .unwrap()
         {
@@ -749,7 +856,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
             let Some(inbound) = connection.poll().await.unwrap() else {
                 continue;
             };
-            match service.handle(&mut miniconf, &mut settings, &inbound) {
+            match service.handle(&miniconf, &mut settings, &inbound) {
                 ServiceEvent::Unhandled => panic!("unexpected app traffic"),
                 ServiceEvent::Idle | ServiceEvent::Busy => {}
                 ServiceEvent::Changed(_) => {
@@ -761,7 +868,7 @@ async fn service_accepts_later_sets_while_earlier_response_is_pending() {
 
         while !service.is_empty() {
             if service
-                .step(&mut miniconf, &mut connection, &settings)
+                .step(&miniconf, &mut connection, &settings)
                 .await
                 .unwrap()
             {
@@ -826,7 +933,7 @@ async fn service_rejects_overflow_without_mutating() {
         }
     };
     assert!(matches!(
-        service.handle(&mut miniconf, &mut settings, &first),
+        service.handle(&miniconf, &mut settings, &first),
         ServiceEvent::Changed(_)
     ));
 
@@ -840,10 +947,49 @@ async fn service_rejects_overflow_without_mutating() {
         }
     };
     assert!(matches!(
-        service.handle(&mut miniconf, &mut settings, &second),
+        service.handle(&miniconf, &mut settings, &second),
         ServiceEvent::Busy
     ));
 
+    assert_eq!(settings.value, 9);
+    assert_eq!(settings.nested.leaf, 0);
+
+    let filter = format!("{prefix}/settings/#");
+    let options = SubscriptionOptions::default()
+        .retain_behavior(RetainHandling::Never)
+        .retain_as_published();
+    let op = connection
+        .subscribe(&[TopicFilter::new(&filter).options(options)], &[])
+        .await
+        .unwrap();
+    wait_op(&mut connection, op).await;
+    for (path, retained, authoritative) in [
+        ("missing", false, false),
+        ("value", true, false),
+        ("value", false, true),
+        ("nested/leaf", false, false),
+    ] {
+        let topic = format!("{prefix}/settings/{path}");
+        let props = [Property::UserProperty("auth", "")];
+        let mut publication = Publication::bytes(&topic, b"7");
+        if retained {
+            publication = publication.retain();
+        }
+        if authoritative {
+            publication = publication.properties(&props);
+        }
+        publisher.publish(publication).await.unwrap();
+        let inbound = timeout(Duration::from_secs(5), connection.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let event = service.handle(&miniconf, &mut settings, &inbound);
+        if path == "nested/leaf" {
+            assert!(matches!(event, ServiceEvent::Busy));
+        } else {
+            assert!(matches!(event, ServiceEvent::Idle));
+        }
+    }
     assert_eq!(settings.value, 9);
     assert_eq!(settings.nested.leaf, 0);
 }
@@ -883,7 +1029,7 @@ async fn service_rejects_trailing_input_without_a_change() {
             .unwrap();
         if let Some(inbound) = inbound {
             assert!(matches!(
-                service.handle(&mut miniconf, &mut settings, &inbound),
+                service.handle(&miniconf, &mut settings, &inbound),
                 ServiceEvent::Idle
             ));
             break;

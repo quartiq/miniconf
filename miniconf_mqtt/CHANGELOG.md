@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.23.0...HEAD) - DATE
 
+### Fixed
+
+* Match complete MQTT topic levels and reject retained mutation requests.
+* Retry queued publications when shared MQTT TX storage is temporarily occupied.
+
 ## [0.23.0](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.22.1...miniconf_mqtt-v0.23.0) - 2026-09-25
 
 ## [0.22.1](https://github.com/quartiq/miniconf/compare/miniconf_mqtt-v0.22.0...miniconf_mqtt-v0.22.1) - 2026-09-15
