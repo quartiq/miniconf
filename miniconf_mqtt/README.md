@@ -5,16 +5,6 @@
 It owns Miniconf MQTT protocol state; the caller owns the MQTT session, live connection, and
 settings tree.
 
-## Limitations
-
-- Use one authoritative device per MQTT prefix.
-- The broker must support QoS 1; leave MiniMQ's automatic QoS downgrade disabled.
-- Schema/settings publication is incremental, not atomic; `alive` announces completed startup.
-- Retained recovery uses a quiescence heuristic, not a storage transaction, and can trigger setter
-  side effects.
-- The device clears only leaves in the traversed schema. Pruning retained topics left behind by
-  older schemas remains a client/tooling operation.
-
 ## Quick start
 
 See the runnable example in [examples/miniconf.rs](examples/miniconf.rs).
