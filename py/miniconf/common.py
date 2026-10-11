@@ -31,11 +31,14 @@ def mqtt_client(broker: str, **kwargs: Any) -> Client:
     return Client(address.hostname, protocol=ProtocolVersion.V5, **kwargs)
 
 
-async def subscribe(client, topic):
+async def subscribe(client, *topics):
     """Request retained replay and reject a failed MQTT SUBACK."""
-    codes = await client.subscribe(topic, options=RETAINED)
+    if len(topics) == 1:
+        codes = await client.subscribe(topics[0], options=RETAINED)
+    else:
+        codes = await client.subscribe([(topic, RETAINED) for topic in topics])
     if not codes or any(code >= 128 for code in codes):
-        raise MqttError(f"Subscription rejected for {topic}: {codes}")
+        raise MqttError(f"Subscription rejected for {topics}: {codes}")
 
 
 async def unsubscribe(client, topics):
