@@ -89,11 +89,21 @@ class _BaseClient:
             await unsubscribe(self.client, topics)
 
     async def _listen(self):
-        for topic in self._listen_topics():
-            await subscribe(self.client, topic)
-        self._ready.set()
-        async for message in self.client.messages:
-            self._dispatch(message)
+        async def setup():
+            await subscribe(self.client, *self._listen_topics())
+            self._ready.set()
+
+        async def receive():
+            async for message in self.client.messages:
+                self._dispatch(message)
+
+        tasks = [asyncio.create_task(setup()), asyncio.create_task(receive())]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _wait(self, awaitable, deadline: _Deadline):
         """Wait within the operation budget, failing when the session ends."""
@@ -261,21 +271,38 @@ class Miniconf(_BaseClient):
     def __init__(self, client: Client, prefix: str):
         self.alive_topic = f"{prefix}/alive"
         self._schema: Schema | None = None
+        self._schema_pages: dict[int, bytes] = {}
+        self._schema_changed = asyncio.Event()
+        self._replay_needed = False
         self._alive = b""
         self._alive_ready = asyncio.Event()
         super().__init__(client, prefix)
 
     def _listen_topics(self) -> tuple[str, ...]:
-        return (*super()._listen_topics(), self.alive_topic)
+        return (*super()._listen_topics(), self.alive_topic, f"{self.prefix}/schema/#")
 
     def _handle_message(self, message: Message):
         if str(message.topic) == self.alive_topic and message.payload != self._alive:
             self._alive = message.payload
             self._schema = None
+            self._schema_changed.set()
             if self._alive:
                 self._alive_ready.set()
             else:
                 self._alive_ready.clear()
+
+        elif message.retain and message.topic.matches(f"{self.prefix}/schema/+"):
+            try:
+                page = int(str(message.topic).rsplit("/", 1)[1])
+            except ValueError:
+                return
+            if page < 0:
+                return
+            if message.payload:
+                self._schema_pages[page] = message.payload
+            else:
+                self._schema_pages.pop(page, None)
+            self._schema_changed.set()
 
     async def _load_manifest(self, deadline) -> AliveManifest:
         await self._wait(self._ready.wait(), deadline)
@@ -358,36 +385,62 @@ class Miniconf(_BaseClient):
         return await self._load_schema(_Deadline(timeout))
 
     async def _load_schema(self, deadline):
+        try:
+            return await self._assemble_schema(deadline)
+        except TimeoutError:
+            # An externally bounded aiomqtt queue can drop retained replay. Let
+            # the next operation recover instead of retaining an incomplete cache.
+            self._replay_needed = True
+            raise
+
+    async def _assemble_schema(self, deadline):
+        if self._replay_needed:
+            await self._wait(self._ready.wait(), deadline)
+            async with asyncio.timeout(deadline.remaining()):
+                async with self._subscription_lock:
+                    if self._replay_needed:
+                        await self._wait(
+                            subscribe(
+                                self.client, self.alive_topic, f"{self.prefix}/schema/#"
+                            ),
+                            deadline,
+                        )
+                        self._replay_needed = False
         manifest = await self._load_manifest(deadline)
-        if self._schema is not None:
-            return self._schema
-        defs: list[list[dict[str, Any]] | None] = [None] * manifest.pages
-        async with self._watch(f"{self.prefix}/schema/#", deadline) as queue:
-            while any(page is None for page in defs):
-                try:
-                    message = await self._wait(queue.get(), deadline)
-                except TimeoutError:
-                    alive_manifest(json.loads(self._alive or b"null"))
-                    raise
-                if not message.retain:
-                    continue
-                suffix = str(message.topic).removeprefix(f"{self.prefix}/schema/")
-                try:
-                    page = int(suffix)
-                except ValueError:
-                    continue
-                if 0 <= page < manifest.pages:
-                    defs[page] = [
-                        json.loads(line)
-                        for line in message.payload.splitlines()
-                        if line
-                    ]
-        if alive_manifest(json.loads(self._alive or b"null")) != manifest:
-            raise MiniconfException("Protocol", "Manifest changed while loading schema")
-        self._schema = Schema.from_defs(
-            [record for page in defs for record in page or ()], manifest.schema_rev
-        )
-        return self._schema
+        while True:
+            if alive_manifest(json.loads(self._alive or b"null")) != manifest:
+                raise MiniconfException(
+                    "Protocol", "Manifest changed while loading schema"
+                )
+            if self._schema is not None:
+                return self._schema
+            self._schema_changed.clear()
+            pages = [self._schema_pages.get(page) for page in range(manifest.pages)]
+            if all(page is not None for page in pages):
+                # Pages can precede alive or overlap a restart. Only its advertised
+                # generation is safe to assemble; revision is 32-bit FNV-1a.
+                revision = 0x811C9DC5
+                for page in pages:
+                    for byte in page:
+                        revision = ((revision ^ byte) * 0x01000193) & 0xFFFFFFFF
+                if revision == manifest.schema_rev:
+                    schema = Schema.from_defs(
+                        [
+                            json.loads(line)
+                            for page in pages
+                            for line in page.splitlines()
+                            if line
+                        ],
+                        manifest.schema_rev,
+                    )
+                    deadline.remaining()
+                    self._schema = schema
+                    return schema
+            try:
+                await self._wait(self._schema_changed.wait(), deadline)
+            except TimeoutError:
+                alive_manifest(json.loads(self._alive or b"null"))
+                raise
 
 
 class RawMiniconf(_BaseClient):

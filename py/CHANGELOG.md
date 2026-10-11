@@ -10,10 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Validate retained schema replay against the advertised revision.
 * Render nested homogeneous schema children once.
 * Show root leaf settings in value trees and reject noncanonical array indices in schema paths.
-
-* Reduce CLI startup time and MQTT message latency.
+* Reduce CLI startup time and MQTT message latency with batched subscriptions and TCP_NODELAY.
 * Schema-aware settings watches now raise an error when the device goes offline or its
   publication manifest changes, even when no settings arrive.
 
