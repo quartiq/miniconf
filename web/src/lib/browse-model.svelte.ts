@@ -264,7 +264,7 @@ export class BrowseModel {
           failed: !response.ok,
           responseMs: response.responseMs,
           text: response.ok
-            ? "Set succeeded"
+            ? "Set acknowledged"
             : response.kind === "publish"
               ? `Set: value may have changed — publication failed. ${response.message}`
               : `Set failed: ${response.message || response.code}`,
