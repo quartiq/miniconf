@@ -35,12 +35,19 @@ class Transport:
         self.unsubscribe = AsyncMock()
         self.publish = AsyncMock()
 
-    async def subscribed(self, topic, **_kwargs):
-        topics = [topic] if isinstance(topic, str) else [item[0] for item in topic]
-        for topic in topics:
+    async def subscribed(self, topic, **kwargs):
+        topics = (
+            [(topic, kwargs.get("options", RETAINED))]
+            if isinstance(topic, str)
+            else topic
+        )
+        for topic, _options in topics:
             self.subscriptions.put_nowait(topic)
         for item in self.retained:
-            if any(item.topic.matches(topic) for topic in topics):
+            if any(
+                item.topic.matches(topic) and options.retainHandling != 2
+                for topic, options in topics
+            ):
                 self.incoming.put_nowait(item)
         return (1,) * len(topics)
 
@@ -72,6 +79,32 @@ def device_transport():
 
 
 class ClientTests(IsolatedAsyncioTestCase):
+    async def test_subscribe_is_ready_without_initial_replay(self):
+        for client_type in (Miniconf, RawMiniconf):
+            transport = device_transport()
+            async with client_type(transport, "test") as client:
+                async with client.subscribe() as events:
+                    self.assertEqual(transport.subscribe.await_count, 1)
+                    topic, options = transport.subscribe.call_args.args[0][-1]
+                    self.assertEqual(topic, "test/settings/#")
+                    self.assertEqual(options.retainHandling, 2)
+                    transport.incoming.put_nowait(
+                        message(
+                            "test/settings/value", b"2", UserProperty=[("auth", "")]
+                        )
+                    )
+                    self.assertEqual(
+                        (await asyncio.wait_for(anext(events), 1)).value, 2
+                    )
+                    await client.snapshot(abs_timeout=0.01)
+                    self.assertEqual(
+                        (await asyncio.wait_for(anext(events), 1)).value, 1
+                    )
+                    transport.unsubscribe.assert_not_awaited()
+                transport.unsubscribe.assert_awaited_once_with(
+                    "test/settings/#", timeout=1.0
+                )
+
     async def test_connection_options(self):
         nodelay = (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         keepalive = (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)

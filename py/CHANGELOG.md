@@ -10,12 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+* Successful CLI SETs and prunes are silent; handled errors omit tracebacks and ambiguous discovery lists matching prefixes.
 * Validate retained schema replay against the advertised revision.
 * Render nested homogeneous schema children once.
 * Show root leaf settings in value trees and reject noncanonical array indices in schema paths.
 * Reduce CLI startup time and MQTT message latency with batched subscriptions and TCP_NODELAY.
 * Schema-aware settings watches now raise an error when the device goes offline or its
   publication manifest changes, even when no settings arrive.
+
+### Added
+
+* `subscribe()` and `--subscribe` stream settings independently of SET replies.
 
 ## [v0.21.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...miniconf-mqtt-v0.21.0) - 2026-09-22
 

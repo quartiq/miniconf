@@ -66,7 +66,7 @@ it("returns an acknowledged draft to the observed value without inventing an ech
   await pending;
   expect(model.editor).toBe("1");
   expect(model.dirty).toBe(false);
-  expect(model.result?.text).toBe("Set succeeded");
+  expect(model.result?.text).toBe("Set acknowledged");
 });
 
 it("keeps edits made while a Set is pending", async () => {

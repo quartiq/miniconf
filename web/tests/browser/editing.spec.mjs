@@ -119,11 +119,11 @@ test("pending Set preserves newer edits and reports its correlated response", as
   expect(device.writes[0].payload.toString()).toBe("-9007199254740993");
   device.respond();
   await expect(page.locator(".status [role=status]")).toHaveText(
-    "Set succeeded",
+    "Set acknowledged",
   );
   await expect(editor).toHaveValue("123");
   await expect(page.locator(".log pre")).toContainText(
-    /set: \/leaf: Set succeeded · \d+ ms/,
+    /set: \/leaf: Set acknowledged · \d+ ms/,
   );
 });
 
@@ -213,6 +213,6 @@ test("action failures remain readable until an explicit retry", async ({
   await expect(status).toHaveText("Set failed: " + rejection);
   device.holdResponse = false;
   await page.getByRole("button", { name: "Set", exact: true }).tap();
-  await expect(status).toHaveText("Set succeeded");
+  await expect(status).toHaveText("Set acknowledged");
   await expect(status).not.toHaveClass(/failed/);
 });

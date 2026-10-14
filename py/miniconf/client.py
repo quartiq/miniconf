@@ -17,6 +17,7 @@ from paho.mqtt.properties import Properties
 
 from .common import (
     LOGGER,
+    LIVE,
     AliveManifest,
     _Deadline,
     _RetainedBurst,
@@ -55,6 +56,7 @@ class _BaseClient:
         self._subscription_lock = asyncio.Lock()
         self._ready = asyncio.Event()
         self._listener: asyncio.Task | None = None
+        self._initial_subscriptions: dict[str, Any] | None = {}
 
     @classmethod
     @asynccontextmanager
@@ -90,7 +92,9 @@ class _BaseClient:
 
     async def _listen(self):
         async def setup():
-            await subscribe(self.client, *self._listen_topics())
+            topics = (*self._listen_topics(), *self._initial_subscriptions.items())
+            self._initial_subscriptions = None
+            await subscribe(self.client, *topics)
             self._ready.set()
 
         async def receive():
@@ -147,19 +151,29 @@ class _BaseClient:
         pass
 
     @asynccontextmanager
-    async def _watch(self, topic_filter: str, deadline: _Deadline, *listen_topics: str):
+    async def _watch(
+        self, topic_filter: str, deadline: _Deadline, *listen_topics: str, replay=True
+    ):
         queue: asyncio.Queue[Message] = asyncio.Queue()
         topics = (topic_filter, *listen_topics)
+        initial = (
+            not replay
+            and self._initial_subscriptions is not None
+            and topic_filter not in self._initial_subscriptions
+        )
+        if initial:
+            self._initial_subscriptions[topic_filter] = LIVE
         try:
             # Observe session-owned topics before setup can yield to the listener.
-            for topic in listen_topics:
+            for topic in topics:
                 self._watchers[topic].append(queue)
             await self._wait(self._ready.wait(), deadline)
             async with asyncio.timeout(deadline.remaining()):
                 async with self._subscription_lock:
-                    self._watchers[topic_filter].append(queue)
-                    # Each reader needs retained replay, even for an existing filter.
-                    await self._wait(subscribe(self.client, topic_filter), deadline)
+                    if not initial:
+                        # Snapshot/watch readers need replay even for an existing filter.
+                        topic = topic_filter if replay else (topic_filter, LIVE)
+                        await self._wait(subscribe(self.client, topic), deadline)
             yield queue
         finally:
             async with self._subscription_lock:
@@ -169,8 +183,22 @@ class _BaseClient:
                         watchers.remove(queue)
                         if not watchers:
                             del self._watchers[topic]
+                            if self._initial_subscriptions is not None:
+                                self._initial_subscriptions.pop(topic, None)
                             if topic not in self._listen_topics():
                                 await unsubscribe(self.client, topic)
+
+    async def watch(
+        self, path: str = "", *, timeout: float = 3.0
+    ) -> AsyncIterator[SettingEvent]:
+        """Stream retained and live settings; timeout bounds setup.
+
+        Other readers can cause retained replay. Schema-aware streams end when the
+        device goes offline or its publication manifest changes.
+        """
+        async with self.subscribe(path, timeout=timeout, replay=True) as events:
+            async for event in events:
+                yield event
 
     def _setting_event(self, message: Message, root: str, schema: Schema | None = None):
         if not message.retain or not is_authoritative(message.properties):
@@ -350,35 +378,46 @@ class Miniconf(_BaseClient):
             schema.path(path), schema, deadline, rel_timeout, abs_timeout
         )
 
-    async def watch(
-        self, path: str = "", *, timeout: float = 3.0
-    ) -> AsyncIterator[SettingEvent]:
-        """Stream settings; timeout bounds setup.
+    @asynccontextmanager
+    async def subscribe(
+        self, path: str = "", *, timeout: float = 3.0, replay: bool = False
+    ) -> AsyncIterator[AsyncIterator[SettingEvent]]:
+        """Subscribe before issuing commands; yield an independent settings stream.
 
-        Opening another reader can replay retained values to existing watchers.
-        Going offline or changing the alive manifest ends this watch.
+        Entry waits for subscription and schema readiness. Live subscriptions opened
+        immediately after session entry join the initial subscription batch.
+        Other readers can cause retained replay even with replay=False.
         """
         deadline = _Deadline(timeout)
-        schema = await self._load_schema(deadline)
-        root = schema.path(path)
-        manifest = alive_manifest(json.loads(self._alive or b"null"))
+        root = validate_path(path)
         async with self._watch(
-            f"{self.prefix}/settings{root}/#", deadline, self.alive_topic
+            f"{self.prefix}/settings{root}/#", deadline, self.alive_topic, replay=replay
         ) as queue:
-            while True:
-                message = await self._wait(queue.get(), _Deadline(None))
-                if str(message.topic) == self.alive_topic:
-                    if not message.payload:
-                        raise MiniconfException("Offline", "Device went offline")
-                    if alive_manifest(json.loads(message.payload)) != manifest:
-                        raise MiniconfException(
-                            "Changed",
-                            "Device publication manifest changed; reopen watch",
-                        )
-                    continue
-                event = self._setting_event(message, root, schema)
-                if event is not None:
-                    yield event
+            schema = await self._load_schema(deadline)
+            root = schema.path(root)
+            manifest = alive_manifest(json.loads(self._alive or b"null"))
+
+            async def events():
+                while True:
+                    message = await self._wait(queue.get(), _Deadline(None))
+                    if str(message.topic) == self.alive_topic:
+                        if not message.payload:
+                            raise MiniconfException("Offline", "Device went offline")
+                        if alive_manifest(json.loads(message.payload)) != manifest:
+                            raise MiniconfException(
+                                "Changed",
+                                "Device publication manifest changed; reopen watch",
+                            )
+                        continue
+                    event = self._setting_event(message, root, schema)
+                    if event is not None:
+                        yield event
+
+            stream = events()
+            try:
+                yield stream
+            finally:
+                await stream.aclose()
 
     async def schema(self, *, timeout: float = 3.0) -> Schema:
         """Load and cache the retained paged schema."""
@@ -476,16 +515,28 @@ class RawMiniconf(_BaseClient):
             validate_path(path), None, _Deadline(timeout), rel_timeout, abs_timeout
         )
 
-    async def watch(
-        self, path: str = "", *, timeout: float = 3.0
-    ) -> AsyncIterator[SettingEvent]:
-        """Stream settings after bounded setup; retained values may repeat."""
+    @asynccontextmanager
+    async def subscribe(
+        self, path: str = "", *, timeout: float = 3.0, replay: bool = False
+    ) -> AsyncIterator[AsyncIterator[SettingEvent]]:
+        """Subscribe before issuing commands; yield settings without schema tracking.
+
+        Entry waits for subscription readiness; replay=False suppresses initial replay.
+        """
         root = validate_path(path)
         async with self._watch(
-            f"{self.prefix}/settings{root}/#", _Deadline(timeout)
+            f"{self.prefix}/settings{root}/#", _Deadline(timeout), replay=replay
         ) as queue:
-            while True:
-                message = await self._wait(queue.get(), _Deadline(None))
-                event = self._setting_event(message, root)
-                if event is not None:
-                    yield event
+
+            async def events():
+                while True:
+                    message = await self._wait(queue.get(), _Deadline(None))
+                    event = self._setting_event(message, root)
+                    if event is not None:
+                        yield event
+
+            stream = events()
+            try:
+                yield stream
+            finally:
+                await stream.aclose()

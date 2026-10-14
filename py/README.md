@@ -29,6 +29,20 @@ open a new context to reconnect. When supplying an existing aiomqtt client, ente
 `connect()` enables TCP_NODELAY for TCP connections; caller-supplied `socket_options` are applied
 after this default, allowing an explicit override.
 
+To subscribe before sending commands, use `subscribe()`. Entering the context waits for the
+subscription to be ready; it does not request retained replay unless `replay=True`:
+
+```python
+async with Miniconf.connect("mqtt", "app/id") as mc:
+    async with mc.subscribe() as events:
+        await mc.set("/path", 42)
+        async for event in events:
+            print(event.path, event.value if event.present else "<unavailable>")
+```
+
+SET replies acknowledge requests; settings events independently report observed device state.
+An event is not correlated with a particular SET. Other readers can cause retained values to repeat.
+
 Core API:
 
 - `schema()` loads and caches the retained schema.
@@ -43,7 +57,7 @@ Core API:
   or `Changed` when its supported manifest changes. Unsupported protocols raise `Protocol`.
   Reopen the watch to read the new generation;
   the client session remains usable. Identical alive announcements do not interrupt watches.
-- `RawMiniconf` provides exact-path `get()`, `set()`, `snapshot()`, and `watch()` without schema
+- `RawMiniconf` provides `get()`, `set()`, `snapshot()`, `watch()`, and `subscribe()` without schema
   loading.
 
 Schema helpers:
@@ -80,15 +94,23 @@ Notes:
 ```sh
 miniconf --broker mqtt app/id /path
 miniconf --broker mqtt app/id /path=42
-miniconf --broker mqtt app/id /path?
-miniconf --broker mqtt app/id /path!
+miniconf --broker mqtt app/id '/path?'
+miniconf --broker mqtt app/id '/path!'
+miniconf --broker mqtt -d 'app/+'
 miniconf --broker mqtt --raw app/id /path
+miniconf --broker mqtt --subscribe app/id /path=42
 ```
 
 Command suffixes:
 
 - `PATH` reads one exact leaf.
-- `PATH=VALUE` writes one JSON value with ACK/NACK by default.
+- `PATH=VALUE` writes one JSON value and is silent after the device acknowledges it.
+  A rejected SET prints the device's error to stderr and exits unsuccessfully, without a traceback.
+  `--fire-and-forget` is also silent and does not request a device reply.
+- `--subscribe` enters the library's `subscribe()` context before commands, prints settings as
+  `PATH=VALUE`, and stays open until Ctrl-C. Empty publications print `PATH=<unavailable>`.
+  Updates are independent of SET replies. No initial retained dump is requested.
+  This also works with `--raw`, `--fire-and-forget`, or no commands. Errors go to stderr.
 - `PATH?` renders schema; `PATH??` prints compact schema NDJSON.
 - `PATH!` renders retained subtree values; `PATH!!` prints raw `/path=value` lines.
 - The root path is empty: use the quoted command `'?'` for root schema. `'/?'` addresses the
@@ -96,3 +118,11 @@ Command suffixes:
 - `--raw` disables schema, subtree tracking, `?`, and `!`.
 - `--prune PATH` clears stale retained schema/settings below `PATH`.
 - `--force-prune` clears all retained topics under the resolved prefix.
+
+Reads, schema queries, and subscriptions print data to stdout. Successful SETs and
+prunes are silent. Errors and verbose diagnostics go to stderr.
+
+`--discover` requires exactly one match, with or without commands;
+otherwise the error lists candidates on stderr, one prefix per line.
+Commands run in order and stop at the first error. Exit status is 0 on success,
+1 for an operation failure, and 2 for invalid command-line options.

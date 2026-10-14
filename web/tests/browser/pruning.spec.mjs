@@ -101,7 +101,7 @@ test("optional cleanup permissions do not prevent editing or observed-topic prun
   await page.getByRole("textbox", { name: "Setting value" }).fill("789");
   await page.getByRole("button", { name: "Set", exact: true }).click();
   await expect(page.locator(".status [role=status]")).toHaveText(
-    "Set succeeded",
+    "Set acknowledged",
   );
 });
 

@@ -17,6 +17,7 @@ LOGGER = logging.getLogger("miniconf")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.
 TRANSIENT_EXPIRY_S = 30
 RETAINED = SubscribeOptions(qos=1, retainAsPublished=True)
+LIVE = SubscribeOptions(qos=1, retainAsPublished=True, retainHandling=2)
 
 
 def mqtt_client(broker: str, **kwargs: Any) -> Client:
@@ -32,11 +33,13 @@ def mqtt_client(broker: str, **kwargs: Any) -> Client:
 
 
 async def subscribe(client, *topics):
-    """Request retained replay and reject a failed MQTT SUBACK."""
-    if len(topics) == 1:
+    """Subscribe with retained replay by default, or explicit options per filter."""
+    if len(topics) == 1 and isinstance(topics[0], str):
         codes = await client.subscribe(topics[0], options=RETAINED)
     else:
-        codes = await client.subscribe([(topic, RETAINED) for topic in topics])
+        codes = await client.subscribe(
+            [(topic, RETAINED) if isinstance(topic, str) else topic for topic in topics]
+        )
     if not codes or any(code >= 128 for code in codes):
         raise MqttError(f"Subscription rejected for {topics}: {codes}")
 
