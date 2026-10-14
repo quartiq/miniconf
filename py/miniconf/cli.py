@@ -6,8 +6,10 @@ import asyncio
 import argparse
 import json
 import logging
+import math
 import os
 import sys
+from contextlib import AsyncExitStack
 
 from aiomqtt import Client, MqttError
 
@@ -49,43 +51,82 @@ def main() -> None:
         from asyncio import WindowsSelectorEventLoopPolicy, set_event_loop_policy
 
         set_event_loop_policy(WindowsSelectorEventLoopPolicy())
-    asyncio.run(_main())
+    try:
+        asyncio.run(_main())
+    except* KeyboardInterrupt:
+        pass
+    except* (
+        MiniconfException,
+        MqttError,
+        TimeoutError,
+        json.JSONDecodeError,
+    ) as errors:
+        _print_errors(errors)
+        sys.exit(1)
+
+
+def _print_errors(error: BaseException) -> None:
+    if isinstance(error, BaseExceptionGroup):
+        for child in error.exceptions:
+            _print_errors(child)
+    else:
+        message = repr(error) if isinstance(error, MiniconfException) else str(error)
+        print(f"error: {message or type(error).__name__}", file=sys.stderr)
 
 
 async def _main() -> None:
 
-    args = _cli().parse_args()
+    parser = _cli()
+    args = parser.parse_args()
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout must be a finite positive number")
+    if args.raw and (args.prune or args.force_prune):
+        parser.error("--prune and --force-prune require schema support; omit --raw")
+    if args.raw and any(
+        "=" not in command and command.endswith(("?", "!")) for command in args.commands
+    ):
+        parser.error("schema and subtree commands require schema support; omit --raw")
     logging.basicConfig(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         level=logging.WARN - 10 * args.verbose,
     )
 
     async with mqtt_client(args.broker) as client:
-        prefix = await _resolve_prefix(client, args.prefix, args.discover)
-        if args.raw and (args.prune or args.force_prune):
-            raise MiniconfException(
-                "RawMode", "--prune and --force-prune require tracked mode"
-            )
+        prefix = await _resolve_prefix(
+            client,
+            args.prefix,
+            args.discover,
+            timeout=args.timeout,
+        )
         interface = (
             RawMiniconf(client, prefix) if args.raw else Miniconf(client, prefix)
         )
-        async with interface:
-            if args.force_prune:
-                for topic in await force_prune(interface, timeout=args.timeout):
-                    print(topic)
-            for path in args.prune:
-                pages, stale = await prune(interface, path, timeout=args.timeout)
-                for page in pages:
-                    print(f"schema/{page}")
-                for stale in stale:
-                    print(stale)
-            await _handle_commands(
-                interface,
-                args.commands,
-                args.fire_and_forget,
-                args.timeout,
-                raw=args.raw,
-            )
+        async with interface, AsyncExitStack() as stack:
+            events = None
+            if args.subscribe:
+                events = await stack.enter_async_context(
+                    interface.subscribe(timeout=args.timeout)
+                )
+            async with asyncio.TaskGroup() as tasks:
+                if events is not None:
+                    tasks.create_task(_print_settings(events))
+                if args.force_prune:
+                    await force_prune(interface, timeout=args.timeout)
+                for path in args.prune:
+                    await prune(interface, path, timeout=args.timeout)
+                await _handle_commands(
+                    interface,
+                    args.commands,
+                    args.fire_and_forget,
+                    args.timeout,
+                    raw=args.raw,
+                )
+
+
+async def _print_settings(events) -> None:
+    async for event in events:
+        value = json_dumps(event.value) if event.present else "<unavailable>"
+        print(f"{event.path}={value}", flush=True)
 
 
 def _cli() -> argparse.ArgumentParser:
@@ -93,17 +134,18 @@ def _cli() -> argparse.ArgumentParser:
         description="Miniconf MQTT command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples (with a target at prefix 'app/id' and id discovery):
-        %(prog)s -d app/+ /path       # exact leaf read
-        %(prog)s -d app/+ /path=value # SET with explicit ACK/NACK
-        %(prog)s -n -d app/+ /path=value # fire-and-forget SET
-        %(prog)s -d app/+ /path?      # show human-readable schema below PATH
-        %(prog)s -d app/+ /path??     # show machine-readable compact defs below PATH
-        %(prog)s -d app/+ /path!      # show human-readable values below PATH
-        %(prog)s -d app/+ /path!!     # dump raw /path=value values below PATH
+        %(prog)s -d 'app/+' /path     # exact leaf read from one matching device
+        %(prog)s -d 'app/+' /path=42  # SET; silent on success
+        %(prog)s -n app/id /path=42   # SET without waiting for a device reply
+        %(prog)s --subscribe app/id /path=42 # SET and stream settings until Ctrl-C
+        %(prog)s app/id '/path?'     # show human-readable schema below PATH
+        %(prog)s app/id '/path??'    # show machine-readable compact defs below PATH
+        %(prog)s app/id '/path!'     # show human-readable values below PATH
+        %(prog)s app/id '/path!!'    # dump raw /path=value values below PATH
         %(prog)s app/id '?'           # show schema from the root (empty path)
         %(prog)s app/id '/?'          # show schema below the empty-name child
         %(prog)s --raw app/id /path   # exact retained GET without schema tracking
-        %(prog)s --raw -d app/+ /path=value # discover one prefix, then exact SET
+        %(prog)s --raw -d 'app/+' /path=42 # discover one prefix, then exact SET
 """,
     )
     parser.add_argument(
@@ -113,12 +155,15 @@ def _cli() -> argparse.ArgumentParser:
         "--broker", "-b", default="mqtt", type=str, help="The MQTT broker address"
     )
     parser.add_argument(
-        "--discover", "-d", action="store_true", help="Detect device prefix"
+        "--discover",
+        "-d",
+        action="store_true",
+        help="Select exactly one matching device prefix",
     )
     parser.add_argument(
         "--raw",
         action="store_true",
-        help="Use exact-path GET/SET only, without schema or tracked retained-state caching",
+        help="Read, write, and subscribe without loading the device schema",
     )
     parser.add_argument(
         "--fire-and-forget",
@@ -127,11 +172,16 @@ def _cli() -> argparse.ArgumentParser:
         help="Do not request an explicit ACK/NACK for SET",
     )
     parser.add_argument(
+        "--subscribe",
+        action="store_true",
+        help="Subscribe to live settings before commands and keep printing updates until Ctrl-C",
+    )
+    parser.add_argument(
         "--timeout",
         "-t",
         default=3.0,
         type=float,
-        help="Timeout in seconds for explicit replies, exact reads, or subtree snapshots",
+        help="Timeout in seconds per discovery or operation (default: 3)",
     )
     parser.add_argument(
         "--prune",
@@ -167,16 +217,24 @@ def _cli() -> argparse.ArgumentParser:
     return parser
 
 
-async def _resolve_prefix(client: Client, prefix: str, discover_enabled: bool) -> str:
+async def _resolve_prefix(
+    client: Client,
+    prefix: str,
+    discover_enabled: bool,
+    *,
+    timeout: float = 3.0,
+) -> str:
     if not discover_enabled:
         return prefix
-    devices = await discover(client, prefix)
-    try:
-        ((prefix, alive),) = devices.items()
-    except ValueError as exc:
-        raise MiniconfException(
-            "Discover", f"No unique Miniconf device (found `{devices}`)."
-        ) from exc
+    devices = await discover(client, prefix, timeout=timeout)
+    if len(devices) != 1:
+        message = (
+            f"Multiple devices match {prefix!r}; choose a prefix:"
+            if devices
+            else f"No devices match {prefix!r}."
+        )
+        raise MiniconfException("Discover", "\n".join([message, *sorted(devices)]))
+    ((prefix, alive),) = devices.items()
     LOGGER.info("Found device: %s", (prefix, alive))
     return prefix
 
@@ -197,48 +255,45 @@ async def _handle_commands(
         return path
 
     for arg in commands:
-        try:
-            if raw and arg.endswith(("??", "?", "!!", "!")):
-                raise MiniconfException("RawMode", f"{arg} requires tracked mode")
-            if arg.endswith("??"):
-                path = normalize(arg.removesuffix("??"))
-                schema = await interface.schema(timeout=timeout)
-                for definition in schema.compact(path)["defs"]:
-                    print(json_dumps(definition))
-            elif arg.endswith("?"):
-                path = normalize(arg.removesuffix("?"))
-                print(render_schema_tree(await interface.schema(timeout=timeout), path))
-            elif arg.endswith("!!"):
-                path = normalize(arg.removesuffix("!!"))
-                for dump_path, value in sorted(
-                    (await interface.snapshot(path, timeout=timeout)).items()
-                ):
-                    print(f"{dump_path}={json_dumps(value)}")
-            elif arg.endswith("!"):
-                path = normalize(arg.removesuffix("!"))
-                schema = await interface.schema(timeout=timeout)
-                root = schema.path(path)
-                snapshot = await interface.snapshot(root, timeout=timeout)
-                print(render_value_tree(schema, snapshot, root))
-            elif "=" in arg:
-                path, value = arg.split("=", 1)
-                path, base = _normalize_command_path(path, base, subtree=False)
-                await interface.set(
-                    path,
-                    json.loads(value),
-                    response=not fire_and_forget,
-                    timeout=timeout,
-                )
-                print(f"{path}={value}")
-            else:
-                path, base = _normalize_command_path(arg, base, subtree=False)
-                value = await interface.get(path, timeout=timeout)
-                print(f"{path}={json_dumps(value)}")
-        except (
-            MiniconfException,
-            MqttError,
-            TimeoutError,
-            json.JSONDecodeError,
-        ) as err:
-            print(f"{arg}: {err!r}")
-            sys.exit(1)
+        if "=" in arg:
+            path, value = arg.split("=", 1)
+            path, base = _normalize_command_path(path, base, subtree=False)
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as error:
+                raise MiniconfException(
+                    "JSON",
+                    f"{path!r}: {error.msg} (line {error.lineno}, column {error.colno})",
+                ) from error
+            await interface.set(
+                path,
+                value,
+                response=not fire_and_forget,
+                timeout=timeout,
+            )
+        elif raw and arg.endswith(("?", "!")):
+            raise MiniconfException("RawMode", f"{arg} requires schema support")
+        elif arg.endswith("??"):
+            path = normalize(arg.removesuffix("??"))
+            schema = await interface.schema(timeout=timeout)
+            for definition in schema.compact(path)["defs"]:
+                print(json_dumps(definition))
+        elif arg.endswith("?"):
+            path = normalize(arg.removesuffix("?"))
+            print(render_schema_tree(await interface.schema(timeout=timeout), path))
+        elif arg.endswith("!!"):
+            path = normalize(arg.removesuffix("!!"))
+            for dump_path, value in sorted(
+                (await interface.snapshot(path, timeout=timeout)).items()
+            ):
+                print(f"{dump_path}={json_dumps(value)}")
+        elif arg.endswith("!"):
+            path = normalize(arg.removesuffix("!"))
+            schema = await interface.schema(timeout=timeout)
+            root = schema.path(path)
+            snapshot = await interface.snapshot(root, timeout=timeout)
+            print(render_value_tree(schema, snapshot, root))
+        else:
+            path, base = _normalize_command_path(arg, base, subtree=False)
+            value = await interface.get(path, timeout=timeout)
+            print(f"{path}={json_dumps(value)}")

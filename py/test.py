@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -55,7 +56,7 @@ def cli(*args: str) -> subprocess.CompletedProcess[str]:
 
 def cli_stdout(*args: str) -> str:
     proc = cli(*args)
-    if proc.returncode != 0:
+    if proc.returncode != 0 or proc.stderr:
         raise AssertionError(
             f"cli failed: {args}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
@@ -428,6 +429,36 @@ async def main() -> None:
             settings.drain()
             await raw.set(ENABLED, False, response=False)
             assert settings.wait_payload(3.0, f"{TARGET}/settings{ENABLED}") == "false"
+            for options in [(), ("--raw", "-n")]:
+                stream = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    "-m",
+                    "miniconf",
+                    "-b",
+                    BROKER,
+                    "--subscribe",
+                    *options,
+                    TARGET,
+                    f"{ENABLED}=true",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                try:
+                    assert (
+                        await asyncio.wait_for(stream.stdout.readline(), 5)
+                    ).decode().strip() == f"{ENABLED}=true"
+                    assert stream.returncode is None
+                    await raw.set(ENABLED, False)
+                    assert (
+                        await asyncio.wait_for(stream.stdout.readline(), 5)
+                    ).decode().strip() == f"{ENABLED}=false"
+                    stream.send_signal(signal.SIGINT)
+                    _out, errors = await asyncio.wait_for(stream.communicate(), 5)
+                    assert stream.returncode == 0 and not errors, errors
+                finally:
+                    if stream.returncode is None:
+                        stream.kill()
+                        await stream.wait()
         finally:
             await raw.close()
             await close_client(client)
@@ -451,56 +482,39 @@ async def main() -> None:
         assert leaf_dump_raw_rel == f"{ENABLED}=false", leaf_dump_raw_rel
         raw_out = cli_stdout("--raw", TARGET, ENABLED).strip()
         assert raw_out == f"{ENABLED}=false", raw_out
+        assert cli_stdout(TARGET, f"{ENABLED}=false") == ""
+        assert cli_stdout("-n", TARGET, f"{ENABLED}=false") == ""
         raw_discover_out = cli_stdout("--raw", "-d", f"{PREFIX}/+", ENABLED).strip()
         assert raw_discover_out == f"{ENABLED}=false", raw_discover_out
+        assert cli_stdout("-d", f"{PREFIX}/+") == ""
+        rejected = cli(TARGET, f'{ENABLED}="not a boolean"')
+        assert rejected.returncode == 1 and not rejected.stdout, rejected
+        assert rejected.stderr.startswith("error: "), rejected.stderr
+        assert len(rejected.stderr.splitlines()) == 1, rejected.stderr
         for command in ("/", "/?", "/!"):
             invalid = cli(TARGET, command)
             assert invalid.returncode != 0, invalid
-            assert "NotFound:" in invalid.stdout, invalid.stdout
+            assert "NotFound:" in invalid.stderr, invalid.stderr
         branch_invalid = cli(TARGET, CONTROL)
         assert branch_invalid.returncode != 0, branch_invalid
-        assert "LeafRequired:" in branch_invalid.stdout, branch_invalid.stdout
+        assert "LeafRequired:" in branch_invalid.stderr, branch_invalid.stderr
         raw_invalid = cli("--raw", TARGET, "/?")
         assert raw_invalid.returncode != 0, raw_invalid
-        assert "RawMode:" in raw_invalid.stdout, raw_invalid.stdout
+        assert "omit --raw" in raw_invalid.stderr, raw_invalid.stderr
 
         stale_schema_topic = f"{TARGET}/schema/99"
+        schema_topics.drain()
+        settings.drain()
         schema_topics.client.publish(stale_schema_topic, b'{"bad":true}', retain=True)
-        time.sleep(0.2)
-        prune_out = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "miniconf",
-                "-b",
-                "localhost",
-                "--prune",
-                "",
-                TARGET,
-            ],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.splitlines()
-        assert "schema/99" in prune_out, prune_out
-        assert "/obsolete" in prune_out, prune_out
-        force_prune_out = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "miniconf",
-                "-b",
-                "localhost",
-                "--force-prune",
-                TARGET,
-            ],
-            cwd=ROOT,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.splitlines()
-        assert "settings/obsolete" not in force_prune_out, force_prune_out
+        assert schema_topics.wait_payload(3, stale_schema_topic) == '{"bad":true}'
+        assert cli_stdout("--prune", "", TARGET) == ""
+        assert schema_topics.wait_payload(3, stale_schema_topic) == ""
+        assert settings.wait_payload(3, f"{TARGET}/settings/obsolete") == ""
+        alive.drain()
+        settings.drain()
+        assert cli_stdout("--force-prune", TARGET) == ""
+        assert alive.wait_payload(3) == ""
+        assert settings.wait_payload(3, f"{TARGET}/settings{ENABLED}") == ""
 
     finally:
         if mc is not None:
