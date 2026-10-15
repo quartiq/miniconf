@@ -13,7 +13,7 @@
 
   type Props = {
     label: string;
-    root: string;
+    roots: string[];
     nodes: Map<string, TreeNodeView>;
     selectedPath: string;
     expanded: Set<string>;
@@ -21,18 +21,27 @@
     actions: TreeActions;
   };
 
-  let { label, root, nodes, selectedPath, expanded, activity, actions }: Props =
-    $props();
+  let {
+    label,
+    roots,
+    nodes,
+    selectedPath,
+    expanded,
+    activity,
+    actions,
+  }: Props = $props();
 
   let tree: HTMLUListElement;
-  let visible = $derived(visibleTreePaths(root, nodes, expanded));
+  let visible = $derived(
+    roots.flatMap((root) => visibleTreePaths(root, nodes, expanded)),
+  );
   let tabStop = $derived(treeTabStop(selectedPath, visible));
   export async function focus(path = selectedPath) {
     await tick();
     const row = tree?.querySelector<HTMLElement>(
       `[data-tree-path="${CSS.escape(treeTabStop(path, visible))}"]`,
     );
-    row?.focus({ preventScroll: true });
+    (row ?? tree)?.focus({ preventScroll: true });
     row?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
   $effect.pre(() => {
@@ -47,7 +56,6 @@
         void focus(path);
     });
   });
-  let rootNode = $derived(nodes.get(root));
   let treeActions = $derived({
     ...actions,
     key(node: TreeNodeView, direction: NavDirection, step?: number) {
@@ -58,19 +66,24 @@
   } satisfies TreeActions);
 </script>
 
-<ul role="tree" aria-label={label} bind:this={tree}>
-  {#if rootNode}
-    <TreeItem
-      node={rootNode}
-      {nodes}
-      {selectedPath}
-      {tabStop}
-      {activity}
-      showActivity={activity !== undefined}
-      {expanded}
-      actions={treeActions}
-    />
-  {/if}
+<ul role="tree" aria-label={label} tabindex="-1" bind:this={tree}>
+  {#each roots as root, index (root)}
+    {@const rootNode = nodes.get(root)}
+    {#if rootNode}
+      <TreeItem
+        node={rootNode}
+        {nodes}
+        {selectedPath}
+        {tabStop}
+        {activity}
+        showActivity={activity !== undefined}
+        {expanded}
+        actions={treeActions}
+        index={index + 1}
+        size={roots.length}
+      />
+    {/if}
+  {/each}
 </ul>
 
 <style>
