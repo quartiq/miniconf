@@ -10,7 +10,7 @@ test("discovery recovers focus from a removed row's caret", async ({
   await page
     .locator("input[name=broker]")
     .fill(`ws://127.0.0.1:${device.port}`);
-  await page.locator("input[name=discovery-filter]").fill("dt/+/+");
+  await page.locator("input[name=discovery-filter]").fill("+/+/+");
   await page.locator("button[type=submit]").click();
   await expect(
     page.locator('[data-tree-path="/dt/test/device"]'),
@@ -22,6 +22,19 @@ test("discovery recovers focus from a removed row's caret", async ({
   await expect(
     page.locator('[data-tree-path="/dt/other/device"]'),
   ).toBeVisible();
+  device.publish(
+    "/test/device/alive",
+    device.retained.get(`${device.prefix}/alive`).text,
+  );
+  const emptySegment = page.locator('[data-tree-path="/"]');
+  await expect(emptySegment.locator(".label")).toHaveText('""');
+  await expect(emptySegment).toHaveAttribute("aria-level", "1");
+  await expect(emptySegment).toHaveAttribute("aria-posinset", "2");
+  await expect(emptySegment).toHaveAttribute("aria-setsize", "2");
+  await expect(page.locator('[data-tree-path="/dt"]')).toHaveAttribute(
+    "aria-setsize",
+    "2",
+  );
   const branch = page.locator('[data-tree-path="/dt/test"]');
   const caret = branch.locator(".toggle");
   await caret.focus();
@@ -56,14 +69,20 @@ test("connection shortcuts, tree focus recovery, and build identity", async ({
   await expect(deviceRow).toBeVisible();
   await deviceRow.focus();
   await page.keyboard.press("Home");
-  const root = page.locator('[data-tree-path=""]');
+  const root = page.locator('[data-tree-path="/dt"]');
+  await expect(page.locator('[data-tree-path=""]')).toHaveCount(0);
+  await expect(root).toHaveAttribute("aria-level", "1");
   await expect(root).toBeFocused();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect(root).toBeFocused();
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.press("End");
   await expect(deviceRow).toBeFocused();
   const alive = device.retained.get(`${device.prefix}/alive`).text;
   device.publish(`${device.prefix}/alive`, "");
   await expect(deviceRow).toHaveCount(0);
-  await expect(root).toBeFocused();
+  await expect(page.getByRole("tree", { name: "Devices" })).toBeFocused();
   // A discovery update must not steal focus from a form control.
   await broker.focus();
   device.publish(`${device.prefix}/alive`, alive);

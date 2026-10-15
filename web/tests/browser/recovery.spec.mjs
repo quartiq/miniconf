@@ -99,6 +99,10 @@ test("route changes abandon pending connections, Set, and Prune", async ({
     location.hash = hash;
   }, hash);
   const [accept] = await connecting;
+  await expect(page.getByText("No schema loaded.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Selected item" })).toHaveCount(
+    0,
+  );
   await page.evaluate(() => {
     location.hash = "";
   });

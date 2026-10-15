@@ -79,7 +79,10 @@
         .map((node) => node.path),
     ),
   );
-  let visiblePaths = $derived(visibleTreePaths("", treeNodes, expanded));
+  let roots = $derived(treeNodes.get("")!.children);
+  let visiblePaths = $derived(
+    roots.flatMap((root) => visibleTreePaths(root, treeNodes, expanded)),
+  );
 
   $effect(() => {
     if (!visiblePaths.includes(selectedPath)) {
@@ -232,7 +235,7 @@
       </header>
       <TreeView
         label="Devices"
-        root=""
+        {roots}
         nodes={treeNodes}
         {selectedPath}
         {expanded}

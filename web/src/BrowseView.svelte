@@ -103,7 +103,7 @@
         <TreeView
           bind:this={tree}
           label="Settings"
-          root={model.state.root}
+          roots={[model.state.root]}
           nodes={model.state.tree}
           selectedPath={model.state.selectedPath}
           activity={model.activity}
@@ -127,19 +127,21 @@
       {/if}
     </section>
 
-    <SelectedPanel
-      bind:this={panel}
-      node={model.selected}
-      path={model.state.selectedPath}
-      canSet={model.canSet}
-      editor={model.editor}
-      editorDirty={model.dirty}
-      editorError={model.editorError}
-      updateEditor={(text) => model.edit(text)}
-      submit={() => void model.submit()}
-      revert={() => model.revert()}
-      focusTree={() => void tree?.focus(model.state.selectedPath)}
-    />
+    {#if model.selected || model.dirty}
+      <SelectedPanel
+        bind:this={panel}
+        node={model.selected}
+        path={model.state.selectedPath}
+        canSet={model.canSet}
+        editor={model.editor}
+        editorDirty={model.dirty}
+        editorError={model.editorError}
+        updateEditor={(text) => model.edit(text)}
+        submit={() => void model.submit()}
+        revert={() => model.revert()}
+        focusTree={() => void tree?.focus(model.state.selectedPath)}
+      />
+    {/if}
   </div>
 
   <StatusLog status="Log" bind:open={logOpen} {logLines} />
