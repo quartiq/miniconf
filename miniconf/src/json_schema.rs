@@ -11,6 +11,8 @@
 //!
 //! Tree definitions live in `$defs`; the root and child uses reference them.
 //! Definition names are local to an export, not persistent type identifiers.
+//! Equal Miniconf schemata and serialized representations share definitions.
+//! This is structural equivalence, including metadata, not Rust type identity.
 //! Node metadata belongs to definitions, edge metadata to uses. Nullable uses
 //! have the canonical shape `anyOf: [reference, {type: "null"}]`.
 //! Named children always live in `properties`, including mutually exclusive
@@ -74,31 +76,19 @@ fn format_schema(format: &Format, generator: &mut SchemaGenerator) -> Option<sch
         Format::Str => str::json_schema(generator),
         Format::Bytes => <[u8]>::json_schema(generator),
         Format::Option(format) => {
-            json_schema!({"oneOf": [
+            json_schema!({"anyOf": [
                 format_schema(format, generator)?,
                 {"const": null}
             ]})
         }
-        Format::Seq(format) => json_schema!({"items": format_schema(format, generator)?}),
-        Format::Map { key, value } => {
-            if matches!(**key, Format::Str) {
-                json_schema!({
-                    "type": "object",
-                    "additionalProperties": format_schema(value, generator)?
-                })
-            } else {
-                json_schema!({
-                    "type": "array",
-                    "items": {
-                        "prefixItems": [
-                            format_schema(key, generator)?,
-                            format_schema(value, generator)?
-                        ],
-                        "items": false
-                    }
-                })
-            }
-        }
+        Format::Seq(format) => json_schema!({
+            "type": "array", "items": format_schema(format, generator)?
+        }),
+        // serde_json encodes supported map keys as object property names,
+        // including integer keys. Unsupported keys fail serialization.
+        Format::Map { value, .. } => json_schema!({
+            "type": "object", "additionalProperties": format_schema(value, generator)?
+        }),
         Format::Tuple(formats) => tuple_schema(formats, generator)?,
         Format::TupleArray { content, size } => json_schema!({
             "type": "array",
@@ -139,6 +129,7 @@ fn tuple_schema(fields: &[Format], generator: &mut SchemaGenerator) -> Option<sc
     Some(json_schema!({
         "type": "array",
         "prefixItems": items?,
+        "minItems": fields.len(),
         "items": false
     }))
 }
@@ -283,12 +274,13 @@ impl TreeProjector<'_> {
         if maybe_absent(node) {
             schema.insert(TREE_MAYBE_ABSENT.into(), true.into());
         }
-        // Schema identity alone is insufficient when tracing supplies different
-        // serialized representations at two uses of the same schema.
+        // Compare schema contents, including child order, rather than addresses
+        // of promoted constants. Tracing can supply different leaf formats for
+        // otherwise equal Miniconf schemata.
         let reference = if let Some((_, _, reference)) = self
             .definitions
             .iter()
-            .find(|(other, value, _)| core::ptr::eq(*other, source) && *value == schema)
+            .find(|(other, value, _)| *other == source && *value == schema)
         {
             reference.clone()
         } else {
@@ -384,5 +376,39 @@ impl<T: TreeSerialize + TreeDeserializeOwned> TreeJsonSchema<T> {
             generator,
             root,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sharing_compares_schema_contents_and_leaf_formats() {
+        static FIRST: Schema = Schema::LEAF;
+        static SECOND: Schema = Schema::LEAF;
+        assert!(!core::ptr::eq(&FIRST, &SECOND));
+        let mut generator = SchemaGenerator::new(SchemaSettings::draft2020_12());
+        let mut projector = TreeProjector {
+            generator: &mut generator,
+            definitions: Vec::new(),
+        };
+        let references: Vec<_> = [
+            (&FIRST, Format::U32),
+            (&SECOND, Format::U32),
+            (&FIRST, Format::Bool),
+        ]
+        .into_iter()
+        .map(|(schema, format)| {
+            projector
+                .node(&Node {
+                    data: (schema, Some(format)),
+                    children: Vec::new(),
+                })
+                .unwrap()
+        })
+        .collect();
+        assert_eq!(references[0], references[1]);
+        assert_ne!(references[0], references[2]);
     }
 }
