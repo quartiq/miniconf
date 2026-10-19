@@ -53,7 +53,7 @@ heapless-09 = ["dep:heapless-09"]
 defmt = ["dep:defmt"]
 derive = ["dep:miniconf_derive"]
 trace = ["std", "dep:serde-reflection"]
-schema = ["trace", "dep:schemars", "json"]
+schema = ["trace", "dep:schemars", "json", "sem"]
 
 [package.metadata.docs.rs]
 all-features = true

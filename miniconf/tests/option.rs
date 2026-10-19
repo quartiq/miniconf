@@ -241,15 +241,24 @@ fn option_json_schema_matches_omitted_named_child() {
     assert_eq!(json, serde_json::json!({}));
 
     let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
-    assert_eq!(schema.root.get("tree-leaf"), None);
+    let root = schema
+        .root
+        .as_value()
+        .pointer(&schema.root.as_value()["$ref"].as_str().unwrap()[1..])
+        .unwrap();
+    assert_eq!(root["tree-kind"], "named");
+    let child = schema
+        .root
+        .as_value()
+        .pointer(&root["properties"]["value"]["$ref"].as_str().unwrap()[1..])
+        .unwrap();
+    assert_eq!(child["tree-kind"], "named");
+    let present = Settings {
+        value: Some(Inner { data: 1 }),
+    };
     assert_eq!(
-        schema
-            .root
-            .get("properties")
-            .and_then(serde_json::Value::as_object)
-            .and_then(|properties| properties.get("value"))
-            .and_then(|value| value.get("tree-leaf")),
-        None
+        schema.root,
+        TreeJsonSchema::new(Some(&present)).unwrap().root
     );
     AllowAbsent.transform(&mut schema.root);
     jsonschema::validator_for(schema.root.as_value())
@@ -277,16 +286,21 @@ fn option_json_schema_matches_nullable_leaf() {
     assert_eq!(json, serde_json::json!({"value": null}));
 
     let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap();
-    assert_eq!(schema.root.get("tree-leaf"), None);
-    assert_eq!(
-        schema
-            .root
-            .get("properties")
-            .and_then(serde_json::Value::as_object)
-            .and_then(|properties| properties.get("value"))
-            .and_then(|value| value.get("tree-leaf")),
-        Some(&serde_json::json!(true))
-    );
+    let root = schema
+        .root
+        .as_value()
+        .pointer(&schema.root.as_value()["$ref"].as_str().unwrap()[1..])
+        .unwrap();
+    let child = schema
+        .root
+        .as_value()
+        .pointer(
+            &root["properties"]["value"]["anyOf"][0]["$ref"]
+                .as_str()
+                .unwrap()[1..],
+        )
+        .unwrap();
+    assert_eq!(child["tree-kind"], "leaf");
     AllowAbsent.transform(&mut schema.root);
     jsonschema::validator_for(schema.root.as_value())
         .unwrap()
