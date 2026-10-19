@@ -12,8 +12,7 @@ note: inside `Schema::nodes::<(), 0>`
 note: inside `NodeIter::<(), 0>::exact_size`
  --> $RUST/core/src/panic.rs
   |
-  |         $crate::panicking::panic_fmt($crate::const_format_args!($($t)+));
-  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the failure occurred here
+  = note: the failure occurred here
   |
  ::: src/iter.rs
   |
