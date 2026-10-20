@@ -96,10 +96,11 @@ jobs:
           - cargo test --all-features
           - cargo test --no-default-features
           - cargo test -p miniconf --no-default-features
+          - cargo test -p miniconf --no-default-features --features schema,derive --lib --test json_schema -- --test-threads=8
     steps:
       - uses: actions/checkout@v7
       - name: Start Broker
-        if: matrix.command != 'cargo test -p miniconf --no-default-features'
+        if: ${{ !startsWith(matrix.command, 'cargo test -p miniconf --no-default-features') }}
         run: |
           sudo apt-get update
           sudo apt-get install -y mosquitto mosquitto-clients
