@@ -17,6 +17,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  reference:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python -m pip install './miniconf-doc[dev]'
+      - run: python -m ruff format --check miniconf-doc
+      - run: python -m ruff check miniconf-doc
+      - run: python -m compileall -q miniconf-doc
+      - run: python -m build miniconf-doc
+      - run: python -m pip install --force-reinstall --no-deps miniconf-doc/dist/*.whl
+      - run: python -I -m pytest -q -n 8 miniconf-doc/tests
+      - name: Check installed command outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: python -I -m miniconf_doc --help
+
   style:
     runs-on: ubuntu-latest
     steps:

@@ -20,6 +20,12 @@
 //!
 //! [`AllowAbsent`] lowers `tree-maybe-absent` into plain JSON Schema `anyOf` forms for validators
 //! that do not understand the compact extension key.
+//!
+//! Host reference generators should consume this projection before `AllowAbsent`.
+//! Applications may attach a root `default` from [`crate::json::to_json_value`];
+//! its reserved diagnostic strings represent node availability, separately from
+//! JSON null. Traced leaf representations describe the discovered serialization
+//! shape; applications must supply enough samples for otherwise unobserved variants.
 
 use schemars::{
     JsonSchema, SchemaGenerator, generate::SchemaSettings, json_schema, transform::Transform,

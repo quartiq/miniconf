@@ -18,6 +18,22 @@ def fixture_schema():
 
 
 class SchemaTests(TestCase):
+    def test_rust_export(self):
+        fixture = (
+            Path(__file__).resolve().parents[2]
+            / "miniconf-doc/tests/schema-contract.json"
+        )
+        schema = Schema.from_defs(json.loads(fixture.read_text())["compact"], 1)
+        assert schema.node("/atomic").kind == "leaf"
+        assert schema.children("/atomic") == []
+        assert schema.node("/internal/gain").edge == {"unit": "V"}
+        assert schema.node("/numbered").kind == "numbered"
+        assert len(schema.children("/array")) == 2
+        assert schema.node("/array/1").schema["sem"]["maybe_absent"]
+        assert schema.node("/mode").schema["sem"]["oneof"]
+        assert schema.indices("/mode/Err").value == (4, 1)
+        assert schema.node("/nullable").edge == {"nullable": "true"}
+
     def test_paths(self):
         assert _normalize_command_path("", "/items/0") == ("", "/items/0")
         assert _normalize_command_path("/", "") == ("/", "/")

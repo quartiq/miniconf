@@ -7,12 +7,16 @@ use serde_json::value::{Serializer as ValueSerializer, Value};
 
 use crate::{Internal, KeyError, Schema, SerdeError, TreeSerialize, ValueError};
 
-/// Magic JSON Value for absent node values.
+/// Reserved diagnostic string for absent node values; see [`to_json_value`].
 pub const TREE_ABSENT: &str = "__tree-absent__";
-/// Magic JSON Value for access-denied node values.
+/// Reserved diagnostic string for access-denied node values; see [`to_json_value`].
 pub const TREE_ACCESS: &str = "__tree-access__";
 
 /// Serialize a TreeSerialize into a JSON Value
+///
+/// [`TREE_ABSENT`] and [`TREE_ACCESS`] mark unavailable Miniconf nodes and cannot
+/// be distinguished from literal string leaves with those values. Markers are
+/// not interpreted inside structured leaves. JSON null remains a value.
 pub fn to_json_value<T: TreeSerialize>(
     value: &T,
 ) -> Result<Value, SerdeError<<ValueSerializer as serde::Serializer>::Error>> {

@@ -1,0 +1,3 @@
+include LICENSE-MIT
+recursive-include examples *.json *.md
+recursive-include tests *.py *.json

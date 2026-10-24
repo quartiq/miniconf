@@ -1,0 +1,51 @@
+{
+  "title": "Current driver",
+  "type": "object",
+  "tree-node-meta": {
+    "typename": "Settings"
+  },
+  "properties": {
+    "output": {
+      "$ref": "#/$defs/Channel",
+      "tree-edge-meta": {
+        "doc": "Main output."
+      }
+    },
+    "monitor": {
+      "$ref": "#/$defs/Channel",
+      "tree-edge-meta": {
+        "doc": "Monitor output."
+      }
+    }
+  },
+  "$defs": {
+    "Channel": {
+      "type": "object",
+      "tree-node-meta": {
+        "typename": "Channel",
+        "doc": "Output channel configuration."
+      },
+      "properties": {
+        "gain": {
+          "type": "number",
+          "format": "float",
+          "tree-edge-meta": {
+            "doc": "Conversion gain.",
+            "unit": "A/V"
+          },
+          "tree-kind": "leaf"
+        }
+      },
+      "tree-kind": "named"
+    }
+  },
+  "default": {
+    "output": {
+      "gain": 1.0
+    },
+    "monitor": {
+      "gain": 0.1
+    }
+  },
+  "tree-kind": "named"
+}

@@ -27,6 +27,34 @@ struct Mixed {
     nullable: miniconf::Leaf<Option<Option<u16>>>,
 }
 
+#[cfg(all(feature = "meta-node", feature = "meta-edge"))]
+#[test]
+fn consumer_contract_fixture() {
+    use miniconf::{TreeSchema, compact_schema::SchemaDefs};
+
+    let settings = Mixed {
+        array: [Some(3), None],
+        mode: Some(Ok(7)),
+        ..Default::default()
+    };
+    let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap().root;
+    schema.insert("default".into(), to_json_value(&settings).unwrap());
+    let compact = SchemaDefs::<32>::new(Mixed::SCHEMA).unwrap();
+    let defs: Vec<_> = (0..compact.len())
+        .map(|i| json!(compact.definition(i).unwrap()))
+        .collect();
+    let actual = json!({"compact": defs, "schema": schema});
+    let expected: serde_json::Value = serde_json::from_str(include_str!(
+        "../../miniconf-doc/tests/schema-contract.json"
+    ))
+    .unwrap();
+    // Named-child order determines Miniconf indices; Value equality ignores it.
+    assert_eq!(
+        serde_json::to_string(&actual).unwrap(),
+        serde_json::to_string(&expected).unwrap()
+    );
+}
+
 #[test]
 fn structured_leaves_roots_and_null_values() {
     let mut settings = Mixed::default();

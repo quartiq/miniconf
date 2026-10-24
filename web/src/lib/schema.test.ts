@@ -24,6 +24,30 @@ const indexedSchema = new Schema(
 );
 
 describe("Schema", () => {
+  it("reads the Rust exporter contract without expanding atomic values", () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        resolve("../miniconf-doc/tests/schema-contract.json"),
+        "utf8",
+      ),
+    );
+    const schema = new Schema(fixture.compact, 1);
+    expect(schema.node("/atomic")).toMatchObject({
+      kind: "leaf",
+      children: [],
+    });
+    expect(schema.node("/internal/gain").edge).toEqual({ unit: "V" });
+    expect(schema.node("/numbered").kind).toBe("numbered");
+    expect(schema.node("/array").children).toHaveLength(2);
+    expect(schema.node("/array/1").sem).toMatchObject({ maybe_absent: true });
+    expect(schema.node("/mode").sem).toMatchObject({ oneof: true });
+    expect(schema.node("/mode").children.map((child) => child.name)).toEqual([
+      "Ok",
+      "Err",
+    ]);
+    expect(schema.node("/nullable").edge).toEqual({ nullable: "true" });
+  });
+
   it("walks shared definitions in preorder with path-specific edge metadata", () => {
     const schema = new Schema(
       [
