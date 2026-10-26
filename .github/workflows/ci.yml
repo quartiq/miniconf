@@ -106,7 +106,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Start Broker
-        if: ${{ !startsWith(matrix.command, 'cargo test -p miniconf --no-default-features') }}
+        if: matrix.command == 'cargo test --all-features'
         run: |
           sudo apt-get update
           sudo apt-get install -y mosquitto mosquitto-clients
@@ -118,6 +118,9 @@ jobs:
         with:
           key: ${{ matrix.command }}
       - run: ${{ matrix.command }}
+      - name: Broker integration
+        if: matrix.command == 'cargo test --all-features'
+        run: cargo test -p miniconf_mqtt --all-features --test integration -- --ignored --test-threads=8
         env:
           BROKER: 127.0.0.1:1883
 
