@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
 
-from miniconf_mqtt import cli
+from miniconf_mqtt import cli, operations
 from miniconf_mqtt.errors import MiniconfException
 
 
@@ -21,7 +21,7 @@ class CliTests(TestCase):
                 raise MiniconfException("decode", "expected a boolean")
 
         async def discovery():
-            await cli._resolve_prefix(None, "app/+", True)
+            await cli.discover_one(None, "app/+")
 
         async def invalid_json():
             await cli._handle_commands(None, ["/enabled=!"], False, 3, raw=True)
@@ -45,7 +45,9 @@ class CliTests(TestCase):
                 out, err = StringIO(), StringIO()
                 with (
                     patch.object(cli, "_main", operation),
-                    patch.object(cli, "discover", AsyncMock(return_value=devices)),
+                    patch.object(
+                        operations, "discover", AsyncMock(return_value=devices)
+                    ),
                     redirect_stdout(out),
                     redirect_stderr(err),
                     self.assertRaises(SystemExit) as raised,
@@ -59,11 +61,11 @@ class CliTests(TestCase):
         out = StringIO()
         with (
             patch.object(
-                cli, "discover", AsyncMock(return_value={"app/a": {}})
+                operations, "discover", AsyncMock(return_value={"app/a": {}})
             ) as discover,
             redirect_stdout(out),
         ):
-            result = asyncio.run(cli._resolve_prefix(None, "app/+", True, timeout=0.5))
+            result = asyncio.run(operations.discover_one(None, "app/+", timeout=0.5))
         self.assertEqual(result, "app/a")
         self.assertEqual(out.getvalue(), "")
         discover.assert_awaited_once_with(None, "app/+", timeout=0.5)

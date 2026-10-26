@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* `discover_one()` selects a unique device; discovery accepts MQTT prefix wildcards.
+* `TemporaryChanges` restores temporary leaf writes on scope exit.
 * `subscribe()` and `--subscribe` stream settings independently of SET replies.
 
 ## [v0.21.0](https://github.com/quartiq/miniconf/compare/miniconf-v0.20.1...miniconf-mqtt-v0.21.0) - 2026-09-22

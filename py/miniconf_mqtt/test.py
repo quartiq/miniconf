@@ -21,6 +21,7 @@ from aiomqtt import Client, MqttError, ProtocolVersion
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
 from miniconf_mqtt.errors import MiniconfException
+from miniconf_mqtt.operations import discover_one
 from miniconf_mqtt.render import render_value_tree
 from miniconf_mqtt.schema import Indices, Packed, Schema, SchemaNode
 
@@ -269,6 +270,9 @@ async def main() -> None:
         assert manifest["pages"] > 0, manifest
         assert manifest["schema_rev"], manifest
         schema_topics.wait_schema_pages(3.0, TARGET, manifest["pages"])
+        async with Client(BROKER, protocol=ProtocolVersion.V5) as discovery:
+            for prefix in (TARGET, f"{PREFIX}/+", f"{PREFIX}/#", "#"):
+                assert await discover_one(discovery, prefix) == TARGET
         alive.drain()
         settings.drain()
         schema_topics.drain()

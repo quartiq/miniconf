@@ -22,7 +22,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.17,<1"]
+dev = ["ruff>=0.17,<1", "pytest>=9,<10", "pytest-xdist>=3,<4"]
 
 [project.urls]
 Homepage = "https://github.com/quartiq/miniconf"

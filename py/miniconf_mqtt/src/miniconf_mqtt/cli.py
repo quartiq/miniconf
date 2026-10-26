@@ -11,13 +11,13 @@ import os
 import sys
 from contextlib import AsyncExitStack
 
-from aiomqtt import Client, MqttError
+from aiomqtt import MqttError
 
 from .client import Miniconf, RawMiniconf
-from .mqtt import LOGGER, json_dumps, mqtt_client
+from .mqtt import json_dumps, mqtt_client
 from .errors import MiniconfException
 from .paths import validate_path
-from .operations import discover, force_prune, prune
+from .operations import discover_one, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
 
@@ -94,12 +94,9 @@ async def _main() -> None:
     )
 
     async with mqtt_client(args.broker) as client:
-        prefix = await _resolve_prefix(
-            client,
-            args.prefix,
-            args.discover,
-            timeout=args.timeout,
-        )
+        prefix = args.prefix
+        if args.discover:
+            prefix = await discover_one(client, prefix, timeout=args.timeout)
         interface = (
             RawMiniconf(client, prefix) if args.raw else Miniconf(client, prefix)
         )
@@ -218,28 +215,6 @@ def _cli() -> argparse.ArgumentParser:
         "set it to PATH's parent.",
     )
     return parser
-
-
-async def _resolve_prefix(
-    client: Client,
-    prefix: str,
-    discover_enabled: bool,
-    *,
-    timeout: float = 3.0,
-) -> str:
-    if not discover_enabled:
-        return prefix
-    devices = await discover(client, prefix, timeout=timeout)
-    if len(devices) != 1:
-        message = (
-            f"Multiple devices match {prefix!r}; choose a prefix:"
-            if devices
-            else f"No devices match {prefix!r}."
-        )
-        raise MiniconfException("Discover", "\n".join([message, *sorted(devices)]))
-    ((prefix, alive),) = devices.items()
-    LOGGER.info("Found device: %s", (prefix, alive))
-    return prefix
 
 
 async def _handle_commands(

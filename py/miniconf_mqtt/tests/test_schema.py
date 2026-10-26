@@ -24,7 +24,9 @@ sys.modules['aiomqtt'] = None
 sys.modules['paho'] = None
 from miniconf_mqtt.schema import Schema
 from miniconf_mqtt.render import render_schema_tree
+from miniconf_mqtt.temporary import TemporaryChanges
 assert render_schema_tree(Schema([{}], 1))
+assert not TemporaryChanges(None).pending
 """,
             ],
             check=True,

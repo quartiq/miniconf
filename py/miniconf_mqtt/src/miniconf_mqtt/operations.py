@@ -16,6 +16,7 @@ from .mqtt import (
     unsubscribe,
 )
 from aiomqtt import Client
+from paho.mqtt.client import topic_matches_sub
 from .errors import MiniconfException
 
 if TYPE_CHECKING:
@@ -32,9 +33,10 @@ async def discover(
     """Discover devices after retained quiescence, within one deadline.
 
     Requires exclusive use of the client's message stream for this operation.
+    ``prefix`` is an MQTT filter over device prefixes, including ``+`` and ``#``.
     """
     discovered: dict[str, Any] = {}
-    topic = f"{prefix}/alive"
+    topic = prefix if prefix.endswith("#") else f"{prefix}/alive"
     budget = _Deadline(timeout)
     start = asyncio.get_running_loop().time()
     try:
@@ -55,9 +57,11 @@ async def discover(
             except TimeoutError:
                 budget.remaining()  # Only quiet-window expiry completes discovery.
                 break
-            if not message.retain or not message.topic.matches(topic):
+            if not message.retain or not str(message.topic).endswith("/alive"):
                 continue
             peer = str(message.topic).removesuffix("/alive")
+            if not topic_matches_sub(prefix, peer):
+                continue
             if not message.payload:
                 discovered.pop(peer, None)
                 continue
@@ -71,6 +75,22 @@ async def discover(
     finally:
         await unsubscribe(client, topic)
     return discovered
+
+
+async def discover_one(client: Client, prefix: str, *, timeout: float = 3.0) -> str:
+    """Return the sole compatible device prefix, or raise ``Discover``.
+
+    Requires exclusive use of the client's message stream, as with ``discover``.
+    """
+    devices = await discover(client, prefix, timeout=timeout)
+    if len(devices) != 1:
+        message = (
+            f"Multiple devices match {prefix!r}; choose a prefix:"
+            if devices
+            else f"No devices match {prefix!r}."
+        )
+        raise MiniconfException("Discover", "\n".join([message, *sorted(devices)]))
+    return next(iter(devices))
 
 
 async def _collect_retained_topics(

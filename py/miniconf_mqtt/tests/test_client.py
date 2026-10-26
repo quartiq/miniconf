@@ -197,6 +197,23 @@ class ClientTests(IsolatedAsyncioTestCase):
         with self.assertRaises(TimeoutError):
             await discover(Transport(), "test/+", timeout=0.01, abs_timeout=1)
 
+    async def test_discovery_matches_device_prefixes(self):
+        payload = b'{"proto":1,"epoch":1,"schema_rev":1,"pages":1}'
+        peers = ("app", "app/one", "app/one/nested", "other")
+        retained = [message(f"{peer}/alive", payload) for peer in peers]
+        retained.append(message("app/settings/value", payload))
+        for prefix, expected in (
+            ("app", ["app"]),
+            ("app/+", ["app/one"]),
+            ("app/#", list(peers[:3])),
+            ("#", list(peers)),
+        ):
+            with self.subTest(prefix=prefix):
+                self.assertEqual(
+                    list(await discover(Transport(retained), prefix, abs_timeout=0.01)),
+                    expected,
+                )
+
     async def test_immediate_close(self):
         transport = Transport()
         async with RawMiniconf(transport, "test"):
