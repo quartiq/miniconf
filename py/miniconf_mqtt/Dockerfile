@@ -5,8 +5,6 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-ARG MINICONF_PY_EXTRAS=
-
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -17,11 +15,7 @@ COPY pyproject.toml README.md LICENSE-MIT ./
 COPY src ./src
 
 RUN python -m pip install --upgrade pip \
-    && if [ -n "$MINICONF_PY_EXTRAS" ]; then \
-        python -m pip install ".[${MINICONF_PY_EXTRAS}]"; \
-    else \
-        python -m pip install .; \
-    fi
+    && python -m pip install .
 
 WORKDIR /work
 
