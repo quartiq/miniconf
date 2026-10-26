@@ -2,7 +2,7 @@ use core::convert::Infallible;
 use core::fmt::Display;
 
 use miniconf::SerdeError;
-use minimq::{Property, PubError, ResourceError};
+use minimq::{PubError, ResourceError};
 
 use crate::Error;
 
@@ -20,27 +20,6 @@ pub(crate) fn settings_path<'a>(topic: &'a str, prefix: &str) -> Option<&'a str>
         .filter(|path| path.is_empty() || path.starts_with('/'))
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum ResponseCode {
-    Ok,
-    Error,
-}
-
-impl ResponseCode {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Ok => "Ok",
-            Self::Error => "Error",
-        }
-    }
-}
-
-impl From<ResponseCode> for Property<'static> {
-    fn from(value: ResponseCode) -> Self {
-        Property::UserProperty("code", value.as_str())
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DepthError<E> {
     pub(crate) inner: SerdeError<E>,
@@ -53,22 +32,11 @@ impl<E> Display for DepthError<E> {
     }
 }
 
-pub(crate) enum ResponseBody<E = serde_json_core::de::Error> {
+pub(crate) enum ResponseBody {
     Retained,
     Lookup(DepthError<Infallible>),
     LeafRequired { depth: usize },
-    Set(DepthError<E>),
-}
-
-impl<E: Display> Display for ResponseBody<E> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Retained => f.write_str("Retained requests are not accepted"),
-            Self::Lookup(err) => Display::fmt(err, f),
-            Self::LeafRequired { .. } => f.write_str("Path does not resolve to a leaf"),
-            Self::Set(err) => Display::fmt(err, f),
-        }
-    }
+    Set(DepthError<serde_json_core::de::Error>),
 }
 
 pub(crate) fn simple_pub_error<P, E>(err: PubError<P, E>) -> Error<E> {

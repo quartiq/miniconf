@@ -5,24 +5,23 @@ use core::marker::PhantomData;
 
 use heapless::Deque;
 use miniconf::{
-    ConstPath, DescendError, Indices, IntoKeys, ResolveError, Schema, SerdeError,
-    TreeDeserializeOwned, TreeSchema, TreeSerialize, ValueError,
+    ConstPath, DescendError, Indices, SerdeError, TreeDeserializeOwned, TreeSchema, TreeSerialize,
+    ValueError,
     compact_schema::{SchemaDefs, serialize_schema_page},
     json_core,
 };
 use minimq::{
-    ConfigBuilder, ConfigError, ConnectEvent, Connection, Error as MqttError, InboundPublish, Io,
-    Op, OwnedResponseTarget, Property, Publication, QoS, ResourceError, Session, ToPayload, Will,
+    ConfigBuilder, ConfigError, Connection, Error as MqttError, InboundPublish, Io, Op,
+    OwnedResponseTarget, Property, Publication, QoS, ResourceError, Session, ToPayload, Will,
 };
 use serde::Serialize;
 
 use crate::{
     MAX_DEPTH, MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, PROTOCOL_VERSION, RESPONSE_CORRELATION_LENGTH,
-    RETAINED_TEXT_PROPERTIES, TopicString, debug, info,
-    message::simple_pub_error,
-    schema::{SchemaSync, SettingsSync},
+    RETAINED_TEXT_PROPERTIES, TopicString, debug, message::simple_pub_error,
 };
 use request::FollowUp;
+pub use sync::{LoadRetained, Publisher, Startup};
 
 /// Exact leaf indices produced by Miniconf request handling.
 pub type ChangedKey = Indices<[usize; MAX_DEPTH]>;
@@ -203,35 +202,6 @@ pub struct Miniconf<Settings> {
     _settings: PhantomData<Settings>,
 }
 
-/// Miniconf startup workflow for one MQTT connection event.
-#[must_use = "drive startup to completion before relying on Miniconf startup state"]
-pub struct Startup {
-    phase: sync::StartupPhase,
-}
-
-/// Cold-boot retained-settings load workflow.
-///
-/// Run this after the device process boots and connects, before its first connected [`Startup`],
-/// when retained `settings/#` should seed the live settings tree.
-///
-/// Do not run this on network reconnects of a still-running device. Local settings are already the
-/// authority in that case, even when the broker reports `ConnectEvent::Connected` because the MQTT
-/// connection was not resumed.
-#[must_use = "drive retained loading to completion before starting Miniconf publication"]
-pub struct LoadRetained {
-    phase: sync::LoadRetainedPhase,
-}
-
-/// Explicit retained publication workflow for a leaf, subtree, or root.
-#[must_use = "drive the publisher to completion to update the retained subtree"]
-pub struct Publisher {
-    schema: &'static Schema,
-    root: ChangedKey,
-    iter: Option<SettingsSync>,
-    pending: Option<ChangedKey>,
-    op: Option<Op>,
-}
-
 /// Bounded cooperative Miniconf service.
 ///
 /// Use this when you want to interleave Miniconf request handling with unrelated work while keeping
@@ -345,23 +315,15 @@ where
 
     /// Wait until one leaf write completes or one non-Miniconf inbound publish is returned.
     ///
-    /// This is the simple unbounded steady-state helper.
-    ///
     /// `on_unhandled` runs synchronously for the first non-Miniconf inbound publish and its return
     /// value is returned as `Event::Unhandled`.
-    ///
-    /// This callback is the ownership boundary for the borrowed MQTT receive buffer. Returning
-    /// `InboundPublish<'_>` directly from this unbounded helper would make the same async loop both
-    /// return a borrow from `connection` and reborrow `connection` to complete protocol follow-up work.
     ///
     /// For async application work, copy or extract the needed data in `on_unhandled`, return it
     /// through `Event::Unhandled`, and await after `serve()` returns.
     ///
-    /// This helper favors simplicity over exact control:
-    /// - it is unbounded
-    /// - it may discard unrelated inbound publishes that arrive while completing protocol follow-up
-    ///   work
-    /// - use [`Service`] when you need bounded stepwise control
+    /// This unbounded helper may discard unrelated inbound publishes while completing follow-up
+    /// work. Cancellation drops its pending follow-ups; use [`Service`] to retain them between calls
+    /// and route unrelated traffic yourself.
     pub async fn serve<IO, T>(
         &mut self,
         connection: &mut Connection<'_, '_, IO>,
@@ -442,215 +404,6 @@ where
     }
 }
 
-impl Startup {
-    /// Begin Miniconf startup after one MQTT connect event.
-    pub fn new<Settings>(miniconf: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
-    where
-        Settings: TreeSchema,
-    {
-        match event {
-            ConnectEvent::Reconnected if miniconf.startup_complete => {
-                info!(
-                    "Starting reconnected Miniconf startup prefix={=str} epoch={=u32} schema_rev={=u32}",
-                    miniconf.prefix.as_str(),
-                    miniconf.manifest.epoch,
-                    miniconf.manifest.schema_rev
-                );
-                Self {
-                    phase: sync::StartupPhase::Alive(None),
-                }
-            }
-            _ => Self::connected(miniconf),
-        }
-    }
-
-    /// Begin the Miniconf startup path for `ConnectEvent::Connected`.
-    ///
-    /// Use this after cold-boot [`LoadRetained`] so the retained mirror is republished
-    /// authoritatively from the recovered local settings.
-    pub fn connected<Settings>(miniconf: &mut Miniconf<Settings>) -> Self
-    where
-        Settings: TreeSchema,
-    {
-        miniconf.startup_complete = false;
-        miniconf.manifest.epoch = miniconf.manifest.epoch.wrapping_add(1);
-        miniconf.manifest.schema_rev = 0;
-        miniconf.manifest.schema_pages = 0;
-        info!(
-            "Starting connected Miniconf startup prefix={=str} epoch={=u32}",
-            miniconf.prefix.as_str(),
-            miniconf.manifest.epoch
-        );
-        Self {
-            phase: sync::StartupPhase::Schema {
-                sync: SchemaSync::new(Settings::SCHEMA),
-                op: None,
-            },
-        }
-    }
-
-    /// Run Miniconf startup to completion.
-    ///
-    /// This helper may consume and discard surfaced inbound publishes while bootstrapping.
-    pub async fn run<Settings, IO>(
-        &mut self,
-        miniconf: &mut Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &Settings,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        Settings: TreeSerialize,
-        IO: Io,
-    {
-        while !self.step(miniconf, connection, settings).await? {
-            let _ = connection.poll().await?;
-        }
-        Ok(())
-    }
-
-    /// Advance Miniconf startup.
-    ///
-    /// `Ok(true)` means startup is complete.
-    ///
-    /// `Ok(false)` means no more immediate startup progress is possible. Wait for later connection
-    /// progress, then call `step()` again.
-    ///
-    /// This method never consumes inbound publishes. The caller drives connection progress.
-    pub fn step<Settings, IO>(
-        &mut self,
-        miniconf: &mut Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &Settings,
-    ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
-    where
-        Settings: TreeSerialize,
-        IO: Io,
-    {
-        self.phase.step(miniconf, connection, settings)
-    }
-}
-
-impl Default for LoadRetained {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl LoadRetained {
-    /// Begin loading retained `settings/#` into local settings.
-    pub fn new() -> Self {
-        Self {
-            phase: sync::LoadRetainedPhase::new(),
-        }
-    }
-
-    /// Run retained settings load to completion.
-    ///
-    /// This helper owns a temporary `settings/#` subscription. For cold-boot recovery, run it
-    /// before the first Miniconf startup, then use [`Startup::connected`] to publish the recovered
-    /// settings authoritatively.
-    pub async fn run<Settings, IO>(
-        &mut self,
-        miniconf: &Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &mut Settings,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        Settings: TreeDeserializeOwned,
-        IO: Io,
-    {
-        while !self.step(miniconf, connection, settings).await? {}
-        Ok(())
-    }
-
-    /// Advance retained settings loading.
-    ///
-    /// `Ok(true)` means retained loading is complete and the temporary subscription has been
-    /// removed.
-    ///
-    /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
-    pub fn step<Settings, IO>(
-        &mut self,
-        miniconf: &Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &mut Settings,
-    ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
-    where
-        Settings: TreeDeserializeOwned,
-        IO: Io,
-    {
-        self.phase.step(miniconf, connection, settings)
-    }
-}
-
-impl Publisher {
-    /// Begin explicit retained publication for the whole tree root.
-    pub fn root(schema: &'static Schema) -> Self {
-        Self {
-            schema,
-            root: ChangedKey::new([0; MAX_DEPTH], 0),
-            iter: None,
-            pending: None,
-            op: None,
-        }
-    }
-
-    /// Begin explicit retained publication for one leaf or subtree.
-    pub fn by_key(schema: &'static Schema, key: impl IntoKeys) -> Result<Self, ResolveError> {
-        let mut state = [0; MAX_DEPTH];
-        let lookup = schema.resolve_into(key, &mut state)?;
-        Ok(Self {
-            schema,
-            root: ChangedKey::new(state, lookup.depth),
-            iter: None,
-            pending: None,
-            op: None,
-        })
-    }
-
-    /// Run retained subtree publication to completion.
-    ///
-    /// This is the simple unbounded helper. It may discard unrelated inbound publishes while
-    /// waiting for MQTT connection progress. Use [`Publisher::step`] when those publishes must be
-    /// routed elsewhere.
-    pub async fn run<Settings, IO>(
-        &mut self,
-        miniconf: &Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &Settings,
-    ) -> Result<(), Error<IO::Error>>
-    where
-        Settings: TreeSerialize,
-        IO: Io,
-    {
-        while !self.step(miniconf, connection, settings).await? {
-            let _ = connection.poll().await?;
-        }
-        Ok(())
-    }
-
-    /// Advance retained subtree publication.
-    ///
-    /// `Ok(true)` means publication is complete.
-    ///
-    /// `Ok(false)` means no more immediate publication progress is possible. Wait for later
-    /// connection progress, then call `step()` again.
-    ///
-    /// This method never consumes unrelated inbound publishes.
-    pub fn step<Settings, IO>(
-        &mut self,
-        miniconf: &Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &Settings,
-    ) -> impl Future<Output = Result<bool, Error<IO::Error>>>
-    where
-        Settings: TreeSerialize,
-        IO: Io,
-    {
-        sync::step_publisher(self, miniconf, connection, settings)
-    }
-}
-
 impl<const N: usize> Default for Service<N> {
     fn default() -> Self {
         Self::new()
@@ -713,23 +466,12 @@ impl<const N: usize> Service<N> {
                 if let Some(follow_up) = follow_up {
                     debug_assert!(!self.follow_ups.is_full());
                     let _ = self.follow_ups.push_back(follow_up);
-                    debug!(
-                        "Queued Miniconf error follow-up queued={=usize} capacity={=usize}",
-                        self.follow_ups.len(),
-                        N
-                    );
                 }
                 ServiceEvent::Idle
             }
             Route::Accepted { changed, follow_up } => {
                 debug_assert!(!self.follow_ups.is_full());
                 let _ = self.follow_ups.push_back(follow_up);
-                debug!(
-                    "Queued Miniconf publish follow-up changed_depth={=usize} queued={=usize} capacity={=usize}",
-                    changed.as_ref().len(),
-                    self.follow_ups.len(),
-                    N
-                );
                 ServiceEvent::Changed(changed)
             }
         }
@@ -757,31 +499,16 @@ impl<const N: usize> Service<N> {
         IO: Io,
     {
         loop {
-            let queued = self.follow_ups.len();
             let Some(follow_up) = self.follow_ups.front_mut() else {
                 return Ok(true);
             };
-            debug!(
-                "Driving Miniconf follow-up queued_before={=usize} capacity={=usize}",
-                queued, N
-            );
 
             let result = follow_up.step(miniconf, connection, settings).await;
             if !matches!(result, Ok(false)) {
                 self.follow_ups.pop_front();
                 result?;
-                debug!(
-                    "Completed Miniconf follow-up queued_remaining={=usize} capacity={=usize}",
-                    self.follow_ups.len(),
-                    N
-                );
                 continue;
             }
-            debug!(
-                "Miniconf follow-up pending queued_remaining={=usize} capacity={=usize}",
-                self.follow_ups.len(),
-                N
-            );
             return Ok(false);
         }
     }

@@ -1,25 +1,33 @@
 use embassy_time::{Duration, Instant, with_deadline};
-use miniconf::{SerdeError, TreeDeserializeOwned, TreeSerialize};
+use miniconf::{
+    IntoKeys, NodeIter, ResolveError, Schema, SerdeError, TreeDeserializeOwned, TreeSchema,
+    TreeSerialize, compact_schema::SchemaDefs,
+};
 use minimq::{
-    Connection, Error as MqttError, InboundPublish, Io, Op, PubError, Publication, QoS,
-    ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
+    ConnectEvent, Connection, Error as MqttError, InboundPublish, Io, Op, PubError, Publication,
+    QoS, ResourceError, RetainHandling, SubscriptionOptions, TopicFilter,
 };
 
 use super::request::{Auth, auth, resolve_leaf, set_leaf};
 use super::{is_backpressure, poll_op};
 use crate::{
-    Error, MAX_DEPTH, RETAINED_TEXT_PROPERTIES, TopicString,
+    Error, MAX_DEPTH, MAX_SCHEMA_DEFS, RETAINED_TEXT_PROPERTIES, TopicString,
     client::{
-        ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, Publisher,
-        publish_alive_once, schema_page_topic,
+        ChangedKey, Miniconf, PayloadError, PendingOp, PublishPayload, publish_alive_once,
+        schema_page_topic,
     },
     debug, info,
     message::settings_path,
-    schema::{SchemaSync, SettingsSync},
 };
 
+/// Miniconf startup workflow for one MQTT connection event.
+#[must_use = "drive startup to completion before relying on Miniconf startup state"]
+pub struct Startup {
+    phase: StartupPhase,
+}
+
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum StartupPhase {
+enum StartupPhase {
     Schema { sync: SchemaSync, op: Option<Op> },
     Settings(Publisher),
     SubscribeSet(Option<Op>),
@@ -27,22 +35,259 @@ pub(crate) enum StartupPhase {
     Done,
 }
 
-pub(crate) enum LoadRetainedPhase {
+/// Cold-boot retained-settings load workflow.
+///
+/// Run this after the device process boots and connects, before its first connected [`Startup`],
+/// when retained `settings/#` should seed the live settings tree.
+///
+/// Do not run this on network reconnects of a still-running device. Local settings are already the
+/// authority in that case, even when the broker reports `ConnectEvent::Connected` because the MQTT
+/// connection was not resumed.
+#[must_use = "drive retained loading to completion before starting Miniconf publication"]
+pub struct LoadRetained {
+    phase: LoadRetainedPhase,
+}
+
+enum LoadRetainedPhase {
     Subscribe { start: Instant, op: Option<Op> },
     Drain { deadline: Instant, quiet: Duration },
     Unsubscribe(Option<Op>),
     Done,
 }
 
-impl LoadRetainedPhase {
-    pub(crate) fn new() -> Self {
-        Self::Subscribe {
-            start: Instant::now(),
-            op: None,
+/// Explicit retained publication workflow for a leaf, subtree, or root.
+#[must_use = "drive the publisher to completion to update the retained subtree"]
+pub struct Publisher {
+    schema: &'static Schema,
+    root: ChangedKey,
+    iter: Option<NodeIter<(), MAX_DEPTH>>,
+    pending: Option<ChangedKey>,
+    op: Option<Op>,
+}
+
+struct SchemaSync {
+    defs: SchemaDefs<MAX_SCHEMA_DEFS>,
+    next: usize,
+    page: usize,
+    hash: u32,
+}
+
+impl SchemaSync {
+    fn new(schema: &'static Schema) -> Self {
+        Self {
+            defs: SchemaDefs::new(schema).unwrap(),
+            next: 0,
+            page: 0,
+            hash: <u32 as yafnv::Fnv>::OFFSET_BASIS,
+        }
+    }
+}
+
+impl Startup {
+    /// Begin Miniconf startup after one MQTT connect event.
+    pub fn new<Settings>(miniconf: &mut Miniconf<Settings>, event: ConnectEvent) -> Self
+    where
+        Settings: TreeSchema,
+    {
+        match event {
+            ConnectEvent::Reconnected if miniconf.startup_complete => {
+                info!(
+                    "Starting reconnected Miniconf startup prefix={=str} epoch={=u32} schema_rev={=u32}",
+                    miniconf.prefix.as_str(),
+                    miniconf.manifest.epoch,
+                    miniconf.manifest.schema_rev
+                );
+                Self {
+                    phase: StartupPhase::Alive(None),
+                }
+            }
+            _ => Self::connected(miniconf),
         }
     }
 
-    pub(crate) async fn step<Settings, IO>(
+    /// Begin the Miniconf startup path for `ConnectEvent::Connected`.
+    ///
+    /// Use this after cold-boot [`LoadRetained`] so the retained mirror is republished
+    /// authoritatively from the recovered local settings.
+    pub fn connected<Settings>(miniconf: &mut Miniconf<Settings>) -> Self
+    where
+        Settings: TreeSchema,
+    {
+        miniconf.startup_complete = false;
+        miniconf.manifest.epoch = miniconf.manifest.epoch.wrapping_add(1);
+        miniconf.manifest.schema_rev = 0;
+        miniconf.manifest.schema_pages = 0;
+        info!(
+            "Starting connected Miniconf startup prefix={=str} epoch={=u32}",
+            miniconf.prefix.as_str(),
+            miniconf.manifest.epoch
+        );
+        Self {
+            phase: StartupPhase::Schema {
+                sync: SchemaSync::new(Settings::SCHEMA),
+                op: None,
+            },
+        }
+    }
+
+    /// Run Miniconf startup to completion.
+    ///
+    /// This helper may consume and discard surfaced inbound publishes while bootstrapping.
+    pub async fn run<Settings, IO>(
+        &mut self,
+        miniconf: &mut Miniconf<Settings>,
+        connection: &mut Connection<'_, '_, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSerialize,
+        IO: Io,
+    {
+        while !self.step(miniconf, connection, settings).await? {
+            let _ = connection.poll().await?;
+        }
+        Ok(())
+    }
+
+    /// Advance Miniconf startup.
+    ///
+    /// `Ok(true)` means startup is complete.
+    ///
+    /// `Ok(false)` means no more immediate startup progress is possible. Wait for later connection
+    /// progress, then call `step()` again.
+    ///
+    /// This method never consumes inbound publishes. The caller drives connection progress.
+    pub async fn step<Settings, IO>(
+        &mut self,
+        miniconf: &mut Miniconf<Settings>,
+        connection: &mut Connection<'_, '_, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSerialize,
+        IO: Io,
+    {
+        // Replayed traffic must release its storage before startup uses the publish budget.
+        if !matches!(self.phase, StartupPhase::Done) && !connection.session().is_publish_quiescent()
+        {
+            return Ok(false);
+        }
+        loop {
+            match &mut self.phase {
+                StartupPhase::Schema { sync, op } => {
+                    if step_schema::<Settings, _>(&miniconf.prefix, connection, sync, op).await? {
+                        miniconf.manifest.schema_pages = sync.page;
+                        miniconf.manifest.schema_rev = sync.hash;
+                        debug!(
+                            "Schema startup phase complete pages={=usize} rev={=u32}",
+                            miniconf.manifest.schema_pages, miniconf.manifest.schema_rev
+                        );
+                        self.phase = StartupPhase::Settings(Publisher::root(Settings::SCHEMA));
+                        continue;
+                    }
+                    return Ok(false);
+                }
+                StartupPhase::Settings(publisher) => {
+                    if publisher.step(miniconf, connection, settings).await? {
+                        debug!("Settings startup phase complete");
+                        self.phase = StartupPhase::SubscribeSet(None);
+                        continue;
+                    }
+                    return Ok(false);
+                }
+                StartupPhase::SubscribeSet(op) => match poll_op(connection, op)? {
+                    PendingOp::Pending => return Ok(false),
+                    PendingOp::Complete => {
+                        debug!("Subscribed Miniconf request ingress");
+                        self.phase = StartupPhase::Alive(None);
+                        continue;
+                    }
+                    PendingOp::Idle => match subscribe_set(&miniconf.prefix, connection).await {
+                        Ok(next) => {
+                            *op = Some(next);
+                            return Ok(false);
+                        }
+                        Err(err) if is_backpressure(connection, &err) => return Ok(false),
+                        Err(err) => return Err(err),
+                    },
+                },
+                StartupPhase::Alive(op) => match poll_op(connection, op)? {
+                    PendingOp::Pending => return Ok(false),
+                    PendingOp::Complete => {
+                        info!(
+                            "Completed Miniconf startup epoch={=u32} schema_rev={=u32}",
+                            miniconf.manifest.epoch, miniconf.manifest.schema_rev
+                        );
+                        miniconf.startup_complete = true;
+                        self.phase = StartupPhase::Done;
+                        return Ok(true);
+                    }
+                    PendingOp::Idle => {
+                        match publish_alive_once::<Settings, _>(
+                            &miniconf.prefix,
+                            &miniconf.manifest,
+                            connection,
+                        )
+                        .await
+                        {
+                            Ok(next) => {
+                                *op = Some(next);
+                                return Ok(false);
+                            }
+                            Err(err) if is_backpressure(connection, &err) => return Ok(false),
+                            Err(err) => return Err(err),
+                        }
+                    }
+                },
+                StartupPhase::Done => return Ok(true),
+            }
+        }
+    }
+}
+
+impl Default for LoadRetained {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LoadRetained {
+    /// Begin loading retained `settings/#` into local settings.
+    pub fn new() -> Self {
+        Self {
+            phase: LoadRetainedPhase::Subscribe {
+                start: Instant::now(),
+                op: None,
+            },
+        }
+    }
+
+    /// Run retained settings load to completion.
+    ///
+    /// This helper owns a temporary `settings/#` subscription. For cold-boot recovery, run it
+    /// before the first Miniconf startup, then use [`Startup::connected`] to publish the recovered
+    /// settings authoritatively.
+    pub async fn run<Settings, IO>(
+        &mut self,
+        miniconf: &Miniconf<Settings>,
+        connection: &mut Connection<'_, '_, IO>,
+        settings: &mut Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeDeserializeOwned,
+        IO: Io,
+    {
+        while !self.step(miniconf, connection, settings).await? {}
+        Ok(())
+    }
+
+    /// Advance retained settings loading.
+    ///
+    /// `Ok(true)` means retained loading is complete and the temporary subscription has been
+    /// removed.
+    ///
+    /// This workflow consumes inbound publishes while draining the retained `settings/#` burst.
+    pub async fn step<Settings, IO>(
         &mut self,
         miniconf: &Miniconf<Settings>,
         connection: &mut Connection<'_, '_, IO>,
@@ -53,8 +298,8 @@ impl LoadRetainedPhase {
         IO: Io,
     {
         loop {
-            match self {
-                Self::Subscribe { start, op } => {
+            match &mut self.phase {
+                LoadRetainedPhase::Subscribe { start, op } => {
                     match poll_op(connection, op)? {
                         PendingOp::Pending => {
                             if let Some(inbound) = connection.poll().await? {
@@ -72,7 +317,7 @@ impl LoadRetainedPhase {
                                 suback_rtt.as_millis(),
                                 quiet.as_millis()
                             );
-                            *self = Self::Drain {
+                            self.phase = LoadRetainedPhase::Drain {
                                 deadline: now.saturating_add(quiet),
                                 quiet,
                             };
@@ -94,7 +339,7 @@ impl LoadRetainedPhase {
                         Err(err) => return Err(err),
                     }
                 }
-                Self::Drain { deadline, quiet } => {
+                LoadRetainedPhase::Drain { deadline, quiet } => {
                     match with_deadline(*deadline, connection.poll()).await {
                         Ok(Ok(Some(inbound))) => {
                             if apply_retained(miniconf.prefix.as_str(), settings, &inbound) {
@@ -107,19 +352,19 @@ impl LoadRetainedPhase {
                         Ok(Ok(None)) => return Ok(false),
                         Ok(Err(err)) => return Err(Error::Mqtt(err)),
                         Err(_) => {
-                            *self = Self::Unsubscribe(None);
+                            self.phase = LoadRetainedPhase::Unsubscribe(None);
                             continue;
                         }
                     }
                 }
-                Self::Unsubscribe(op) => match poll_op(connection, op)? {
+                LoadRetainedPhase::Unsubscribe(op) => match poll_op(connection, op)? {
                     PendingOp::Pending => {
                         let _ = connection.poll().await?;
                         return Ok(false);
                     }
                     PendingOp::Complete => {
                         info!("Completed retained settings load");
-                        *self = Self::Done;
+                        self.phase = LoadRetainedPhase::Done;
                         return Ok(true);
                     }
                     PendingOp::Idle => {
@@ -136,7 +381,123 @@ impl LoadRetainedPhase {
                         }
                     }
                 },
-                Self::Done => return Ok(true),
+                LoadRetainedPhase::Done => return Ok(true),
+            }
+        }
+    }
+}
+
+impl Publisher {
+    /// Begin explicit retained publication for the whole tree root.
+    pub fn root(schema: &'static Schema) -> Self {
+        Self {
+            schema,
+            root: ChangedKey::new([0; MAX_DEPTH], 0),
+            iter: None,
+            pending: None,
+            op: None,
+        }
+    }
+
+    /// Begin explicit retained publication for one leaf or subtree.
+    pub fn by_key(schema: &'static Schema, key: impl IntoKeys) -> Result<Self, ResolveError> {
+        let mut state = [0; MAX_DEPTH];
+        let lookup = schema.resolve_into(key, &mut state)?;
+        Ok(Self {
+            schema,
+            root: ChangedKey::new(state, lookup.depth),
+            iter: None,
+            pending: None,
+            op: None,
+        })
+    }
+
+    /// Run retained subtree publication to completion.
+    ///
+    /// This is the simple unbounded helper. It may discard unrelated inbound publishes while
+    /// waiting for MQTT connection progress. Use [`Publisher::step`] when those publishes must be
+    /// routed elsewhere.
+    pub async fn run<Settings, IO>(
+        &mut self,
+        miniconf: &Miniconf<Settings>,
+        connection: &mut Connection<'_, '_, IO>,
+        settings: &Settings,
+    ) -> Result<(), Error<IO::Error>>
+    where
+        Settings: TreeSerialize,
+        IO: Io,
+    {
+        while !self.step(miniconf, connection, settings).await? {
+            let _ = connection.poll().await?;
+        }
+        Ok(())
+    }
+
+    /// Advance retained subtree publication.
+    ///
+    /// `Ok(true)` means publication is complete.
+    ///
+    /// `Ok(false)` means no more immediate publication progress is possible. Wait for later
+    /// connection progress, then call `step()` again.
+    ///
+    /// This method never consumes unrelated inbound publishes.
+    pub async fn step<Settings, IO>(
+        &mut self,
+        miniconf: &Miniconf<Settings>,
+        connection: &mut Connection<'_, '_, IO>,
+        settings: &Settings,
+    ) -> Result<bool, Error<IO::Error>>
+    where
+        Settings: TreeSerialize,
+        IO: Io,
+    {
+        loop {
+            if self.iter.is_none() {
+                self.iter = Some(NodeIter::with_root(self.schema, self.root.as_ref())?);
+                info!(
+                    "Starting retained settings sync root_depth={=usize}",
+                    self.root.as_ref().len()
+                );
+            }
+
+            let state = match self.pending {
+                Some(state) => state,
+                None => {
+                    let iter = self.iter.as_mut().unwrap();
+                    let Some(Ok(())) = iter.next() else {
+                        info!("Completed retained settings sync");
+                        return Ok(true);
+                    };
+                    let full = iter
+                        .indices()
+                        .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
+                    let mut state = [0; MAX_DEPTH];
+                    state[..full.len()].copy_from_slice(full);
+                    let state = ChangedKey::new(state, full.len());
+                    self.pending = Some(state);
+                    state
+                }
+            };
+
+            match poll_op(connection, &mut self.op)? {
+                PendingOp::Pending => return Ok(false),
+                PendingOp::Complete => {
+                    self.pending = None;
+                    continue;
+                }
+                PendingOp::Idle => {}
+            }
+
+            match miniconf
+                .publish_current(connection, settings, state.as_ref())
+                .await
+            {
+                Ok(op) => {
+                    self.op = Some(op);
+                    return Ok(false);
+                }
+                Err(err) if is_backpressure(connection, &err) => return Ok(false),
+                Err(err) => return Err(err),
             }
         }
     }
@@ -157,9 +518,8 @@ fn apply_retained<Settings>(
 where
     Settings: TreeDeserializeOwned,
 {
-    // Startup recovery only trusts previous authoritative mirror publications. No-auth settings are
-    // reserved for the runtime compatibility path and stale topics are left for smarter clients to
-    // prune because the device cannot enumerate broker-retained state outside this subscription.
+    // Cold-boot recovery accepts only authoritative retained values.
+    // No-auth writes belong to runtime compatibility handling; clients prune stale topics.
     if !inbound.retained() || inbound.payload().is_empty() {
         return false;
     }
@@ -218,94 +578,6 @@ where
                 }
             );
             false
-        }
-    }
-}
-
-impl StartupPhase {
-    pub(crate) async fn step<Settings, IO>(
-        &mut self,
-        miniconf: &mut Miniconf<Settings>,
-        connection: &mut Connection<'_, '_, IO>,
-        settings: &Settings,
-    ) -> Result<bool, Error<IO::Error>>
-    where
-        Settings: TreeSerialize,
-        IO: Io,
-    {
-        // Replayed traffic must release its storage before startup uses the publish budget.
-        if !matches!(self, Self::Done) && !connection.session().is_publish_quiescent() {
-            return Ok(false);
-        }
-        loop {
-            match self {
-                Self::Schema { sync, op } => {
-                    if step_schema::<Settings, _>(&miniconf.prefix, connection, sync, op).await? {
-                        miniconf.manifest.schema_pages = sync.page;
-                        miniconf.manifest.schema_rev = sync.hash;
-                        debug!(
-                            "Schema startup phase complete pages={=usize} rev={=u32}",
-                            miniconf.manifest.schema_pages, miniconf.manifest.schema_rev
-                        );
-                        *self = Self::Settings(Publisher::root(Settings::SCHEMA));
-                        continue;
-                    }
-                    return Ok(false);
-                }
-                Self::Settings(publisher) => {
-                    if publisher.step(miniconf, connection, settings).await? {
-                        debug!("Settings startup phase complete");
-                        *self = Self::SubscribeSet(None);
-                        continue;
-                    }
-                    return Ok(false);
-                }
-                Self::SubscribeSet(op) => match poll_op(connection, op)? {
-                    PendingOp::Pending => return Ok(false),
-                    PendingOp::Complete => {
-                        debug!("Subscribed Miniconf request ingress");
-                        *self = Self::Alive(None);
-                        continue;
-                    }
-                    PendingOp::Idle => match subscribe_set(&miniconf.prefix, connection).await {
-                        Ok(next) => {
-                            *op = Some(next);
-                            return Ok(false);
-                        }
-                        Err(err) if is_backpressure(connection, &err) => return Ok(false),
-                        Err(err) => return Err(err),
-                    },
-                },
-                Self::Alive(op) => match poll_op(connection, op)? {
-                    PendingOp::Pending => return Ok(false),
-                    PendingOp::Complete => {
-                        info!(
-                            "Completed Miniconf startup epoch={=u32} schema_rev={=u32}",
-                            miniconf.manifest.epoch, miniconf.manifest.schema_rev
-                        );
-                        miniconf.startup_complete = true;
-                        *self = Self::Done;
-                        return Ok(true);
-                    }
-                    PendingOp::Idle => {
-                        match publish_alive_once::<Settings, _>(
-                            &miniconf.prefix,
-                            &miniconf.manifest,
-                            connection,
-                        )
-                        .await
-                        {
-                            Ok(next) => {
-                                *op = Some(next);
-                                return Ok(false);
-                            }
-                            Err(err) if is_backpressure(connection, &err) => return Ok(false),
-                            Err(err) => return Err(err),
-                        }
-                    }
-                },
-                Self::Done => return Ok(true),
-            }
         }
     }
 }
@@ -378,78 +650,6 @@ where
         }
         Err(PubError::Payload(_)) => Err(Error::Mqtt(ResourceError::BufferTooSmall.into())),
         Err(PubError::Session(err)) => Err(Error::Mqtt(err)),
-    }
-}
-
-pub(crate) async fn step_publisher<Settings, IO>(
-    publisher: &mut Publisher,
-    miniconf: &Miniconf<Settings>,
-    connection: &mut Connection<'_, '_, IO>,
-    settings: &Settings,
-) -> Result<bool, Error<IO::Error>>
-where
-    Settings: TreeSerialize,
-    IO: Io,
-{
-    loop {
-        if publisher.iter.is_none() {
-            publisher.iter = Some(SettingsSync::with_root(
-                publisher.schema,
-                publisher.root.as_ref(),
-            )?);
-            info!(
-                "Starting retained settings sync root_depth={=usize}",
-                publisher.root.as_ref().len()
-            );
-        }
-
-        let state = match publisher.pending {
-            Some(state) => state,
-            None => {
-                let iter = publisher.iter.as_mut().unwrap();
-                let Some(Ok(())) = iter.next() else {
-                    info!("Completed retained settings sync");
-                    return Ok(true);
-                };
-                let full = iter
-                    .indices()
-                    .ok_or_else(|| Error::Mqtt(ResourceError::BufferTooSmall.into()))?;
-                let mut state = [0; MAX_DEPTH];
-                state[..full.len()].copy_from_slice(full);
-                let state = ChangedKey::new(state, full.len());
-                publisher.pending = Some(state);
-                debug!(
-                    "Preparing retained setting publication depth={=usize}",
-                    state.as_ref().len()
-                );
-                state
-            }
-        };
-
-        match poll_op(connection, &mut publisher.op)? {
-            PendingOp::Pending => return Ok(false),
-            PendingOp::Complete => {
-                debug!(
-                    "Published retained setting depth={=usize}",
-                    state.as_ref().len()
-                );
-                publisher.pending = None;
-                continue;
-            }
-            PendingOp::Idle => {}
-        }
-
-        match miniconf
-            .publish_current(connection, settings, state.as_ref())
-            .await
-        {
-            Ok(op) => {
-                publisher.op = Some(op);
-                return Ok(false);
-            }
-            Err(err) if is_backpressure(connection, &err) => return Ok(false),
-            Err(err) => return Err(err),
-        }
     }
 }
 

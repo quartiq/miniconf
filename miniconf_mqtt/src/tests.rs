@@ -35,9 +35,8 @@ fn single_root_leaf_uses_bare_topics() {
     use crate::{
         client::PublishPayload,
         message::{set_path, settings_path},
-        schema::SettingsSync,
     };
-    use miniconf::{Leaf, json_core};
+    use miniconf::{Leaf, NodeIter, json_core};
     use minimq::ToPayload;
 
     init_host_logging();
@@ -51,7 +50,9 @@ fn single_root_leaf_uses_bare_topics() {
         settings_path("dev/settings", "dev"),
     ] {
         assert_eq!(path, Some(""));
-        let mut leaves = SettingsSync::with_root(Leaf::<u8>::SCHEMA, path.unwrap()).unwrap();
+        let mut leaves =
+            NodeIter::<(), { crate::MAX_DEPTH }>::with_root(Leaf::<u8>::SCHEMA, path.unwrap())
+                .unwrap();
         assert_eq!(leaves.next(), Some(Ok(())));
         let state = leaves.indices().unwrap();
         assert!(state.is_empty());
@@ -67,7 +68,7 @@ fn single_root_leaf_uses_bare_topics() {
         assert_eq!(&payload[..len], b"9");
         assert_eq!(leaves.next(), None);
     }
-    assert!(SettingsSync::with_root(Leaf::<u8>::SCHEMA, "/").is_err());
+    assert!(NodeIter::<(), { crate::MAX_DEPTH }>::with_root(Leaf::<u8>::SCHEMA, "/").is_err());
 }
 
 #[test]
