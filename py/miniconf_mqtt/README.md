@@ -3,7 +3,7 @@
 Python 3.11+ client and CLI for `miniconf_mqtt` targets.
 
 ```sh
-python -m pip install -e py/
+python -m pip install -e py/miniconf_mqtt/
 ```
 
 ## Client
@@ -11,7 +11,7 @@ python -m pip install -e py/
 Use the async client for schema-aware access:
 
 ```python
-from miniconf.client import Miniconf
+from miniconf_mqtt.client import Miniconf
 
 async with Miniconf.connect("mqtt", "app/id") as mc:
     schema = await mc.schema()
@@ -43,31 +43,10 @@ async with Miniconf.connect("mqtt", "app/id") as mc:
 SET replies acknowledge requests; settings events independently report observed device state.
 An event is not correlated with a particular SET. Other readers can cause retained values to repeat.
 
-Core API:
-
-- `schema()` loads and caches the retained schema.
-- `get(path)` reads one schema-validated retained leaf without opening a subtree cache.
-- `set(path, value, response=True)` publishes one `set/#` request.
-  It waits for the broker's acknowledgement; `response=True` also waits for the device's reply.
-- `snapshot(path="")` reads a finite retained subtree snapshot.
-- `watch(path="")` streams authoritative retained settings publications below a subtree without
-  waiting for quiescence. Events distinguish JSON `null` from retained deletes through `.present`.
-  Opening another reader can replay retained values to an existing watcher.
-  Schema-aware watches raise `MiniconfException` with code `Offline` when `/alive` clears,
-  or `Changed` when its supported manifest changes. Unsupported protocols raise `Protocol`.
-  Reopen the watch to read the new generation;
-  the client session remains usable. Identical alive announcements do not interrupt watches.
-- `RawMiniconf` provides `get()`, `set()`, `snapshot()`, `watch()`, and `subscribe()` without schema
-  loading.
-
-Schema helpers:
-
-- `schema.path(keys)` normalizes string, `Indices`, `Packed`, or path-part keys.
-- `schema.node(keys)` returns a `SchemaNode(path, schema)` with `.kind`, `.node`, and `.edge`.
-- `schema.children(keys)` returns direct child nodes.
-- `schema.walk(keys="")` iterates a subtree.
-- `schema.compact(keys="")` returns compact defs rooted at a subtree.
-- `schema.indices(keys)` and `schema.packed(keys)` translate paths to Rust-compatible keys.
+Use `RawMiniconf` for devices without schema support. Offline schema navigation
+and key conversion live in `miniconf_mqtt.schema`; discovery and retained-topic
+maintenance live in `miniconf_mqtt.operations`. Method docstrings describe their
+contracts.
 
 Notes:
 
@@ -84,21 +63,17 @@ Notes:
   end-of-set marker. If the timeout expires before quiescence, snapshots and pruning raise
   `TimeoutError` instead of accepting partial results.
   Snapshots are incremental observations, not atomic reads or guarantees of a single epoch.
-- Retained `/settings` messages without `auth=""` are ignored as non-authoritative settings
-  traffic.
-- Retained burst quiescence uses the same rule as the Rust client:
-  `100 ms + 3 * measured_subscribe_rtt`, reset on each accepted retained publication.
 
 ## CLI
 
 ```sh
-miniconf --broker mqtt app/id /path
-miniconf --broker mqtt app/id /path=42
-miniconf --broker mqtt app/id '/path?'
-miniconf --broker mqtt app/id '/path!'
-miniconf --broker mqtt -d 'app/+'
-miniconf --broker mqtt --raw app/id /path
-miniconf --broker mqtt --subscribe app/id /path=42
+miniconf-mqtt --broker mqtt app/id /path
+miniconf-mqtt --broker mqtt app/id /path=42
+miniconf-mqtt --broker mqtt app/id '/path?'
+miniconf-mqtt --broker mqtt app/id '/path!'
+miniconf-mqtt --broker mqtt -d 'app/+'
+miniconf-mqtt --broker mqtt --raw app/id /path
+miniconf-mqtt --broker mqtt --subscribe app/id /path=42
 ```
 
 Command suffixes:

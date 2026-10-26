@@ -80,7 +80,7 @@ def document(
 
 def test_rust_export_contract():
     # Export checked by miniconf/tests/json_schema.rs::consumer_contract_fixture.
-    export = Path(__file__).resolve().parents[2] / "miniconf/tests/common.json"
+    export = Path(__file__).resolve().parents[3] / "miniconf/tests/common.json"
     inv = Inventory(json.loads(export.read_text()))
     docs = Documents(Path(__file__).parents[1] / "examples/docs")
     links, problems = docs.attach({"common": inv})

@@ -1,4 +1,4 @@
-"""Common code for the Miniconf MQTT clients."""
+"""MQTT connection setup and Miniconf protocol support."""
 
 from dataclasses import dataclass
 import asyncio
@@ -11,9 +11,11 @@ from urllib.parse import urlsplit
 from aiomqtt import Client, MqttError, ProtocolVersion
 from paho.mqtt.subscribeoptions import SubscribeOptions
 
+from .errors import MiniconfException
+
 PROTOCOL_VERSION = 1
 
-LOGGER = logging.getLogger("miniconf")
+LOGGER = logging.getLogger("miniconf_mqtt")
 # Expire transient set requests. Retained alive/schema/settings publications are storage.
 TRANSIENT_EXPIRY_S = 30
 RETAINED = SubscribeOptions(qos=1, retainAsPublished=True)
@@ -97,21 +99,6 @@ def json_dumps(value):
     return json.dumps(value, separators=(",", ":"))
 
 
-def validate_path(path: str) -> str:
-    """Validate one Miniconf slash-separated path."""
-    if not path:
-        return path
-    if path[0] != "/":
-        raise MiniconfException("Path", "Path must be empty or start with '/'")
-    return path
-
-
-def subtree_match(path: str, root: str) -> bool:
-    """Whether `path` is equal to or below `root`."""
-    root = validate_path(root)
-    return not root or path == root or path.startswith(f"{root}/")
-
-
 def quiet_window(
     start: float, now: float, rel_timeout: float, abs_timeout: float
 ) -> float:
@@ -158,14 +145,3 @@ class _RetainedBurst:
             except TimeoutError:
                 pass
         return None
-
-
-class MiniconfException(Exception):
-    """Miniconf Error"""
-
-    def __init__(self, code, message):
-        self.code = code
-        self.message = message
-
-    def __repr__(self):
-        return f"{self.code}: {self.message}"

@@ -13,8 +13,8 @@ RUN apt-get update \
 
 WORKDIR /opt/miniconf-py
 
-COPY pyproject.toml README.md ./
-COPY miniconf ./miniconf
+COPY pyproject.toml README.md LICENSE-MIT ./
+COPY src ./src
 
 RUN python -m pip install --upgrade pip \
     && if [ -n "$MINICONF_PY_EXTRAS" ]; then \
@@ -25,4 +25,4 @@ RUN python -m pip install --upgrade pip \
 
 WORKDIR /work
 
-CMD ["python", "-m", "miniconf", "--help"]
+CMD ["python", "-m", "miniconf_mqtt", "--help"]

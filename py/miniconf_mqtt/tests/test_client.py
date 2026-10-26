@@ -12,9 +12,10 @@ from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
 from paho.mqtt.reasoncodes import ReasonCode
 
-from miniconf.client import Miniconf, RawMiniconf
-from miniconf.common import RETAINED, _Deadline, MiniconfException, mqtt_client
-from miniconf._ops import discover
+from miniconf_mqtt.client import Miniconf, RawMiniconf
+from miniconf_mqtt.errors import MiniconfException
+from miniconf_mqtt.mqtt import RETAINED, _Deadline, mqtt_client
+from miniconf_mqtt.operations import discover
 
 
 def message(topic, payload=b"1", **properties):
@@ -114,7 +115,7 @@ class ClientTests(IsolatedAsyncioTestCase):
         for options in ([], [keepalive], [keepalive, override]):
             with (
                 self.subTest(options=options),
-                patch("miniconf.common.Client") as client,
+                patch("miniconf_mqtt.mqtt.Client") as client,
             ):
                 transport = mqtt_client(
                     "[::1]:1884", socket_options=iter(options), username="reader"
@@ -430,16 +431,14 @@ class ClientTests(IsolatedAsyncioTestCase):
         async with Miniconf(transport, "test") as client:
             await client._load_manifest(_Deadline(1))
             deadline = _Deadline(1)
-            from miniconf.schema import Schema
-
-            parse = Schema.from_defs
+            from miniconf_mqtt.schema import Schema
 
             def slow_parse(*args):
-                result = parse(*args)
+                result = Schema(*args)
                 deadline.end = 0
                 return result
 
-            with patch("miniconf.client.Schema.from_defs", side_effect=slow_parse):
+            with patch("miniconf_mqtt.client.Schema", side_effect=slow_parse):
                 with self.assertRaises(TimeoutError):
                     await client._load_schema(deadline)
             self.assertIsNone(client._schema)

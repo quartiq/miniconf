@@ -1,19 +1,38 @@
 """Broker-free schema, rendering, and CLI path contracts."""
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 from unittest import TestCase
 
-from miniconf.cli import _normalize_command_path
-from miniconf.common import MiniconfException
-from miniconf.render import render_schema_tree, render_value_tree
-from miniconf.schema import Indices, Schema
+from miniconf_mqtt.cli import _normalize_command_path
+from miniconf_mqtt.errors import MiniconfException
+from miniconf_mqtt.render import render_schema_tree, render_value_tree
+from miniconf_mqtt.schema import Indices, Schema
 
 
 class SchemaTests(TestCase):
+    def test_offline_imports(self):
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                """
+import sys
+sys.modules['aiomqtt'] = None
+sys.modules['paho'] = None
+from miniconf_mqtt.schema import Schema
+from miniconf_mqtt.render import render_schema_tree
+assert render_schema_tree(Schema([{}], 1))
+""",
+            ],
+            check=True,
+        )
+
     def test_rust_export(self):
-        fixture = Path(__file__).resolve().parents[2] / "miniconf/tests/common.ndjson"
-        schema = Schema.from_defs(
+        fixture = Path(__file__).resolve().parents[3] / "miniconf/tests/common.ndjson"
+        schema = Schema(
             [json.loads(line) for line in fixture.read_text().splitlines()], 1
         )
         nodes = list(schema.walk())
@@ -41,11 +60,11 @@ class SchemaTests(TestCase):
             ),
         ):
             with self.subTest(defs=defs), self.assertRaises(MiniconfException) as error:
-                Schema.from_defs(defs, 1)
+                Schema(defs, 1)
             self.assertEqual(error.exception.code, "Protocol")
 
         # Validation must not enumerate a homogeneous node's concrete paths.
-        schema = Schema.from_defs([{}, {"i": {"k": "h", "c": 0, "l": 10**12}}], 1)
+        schema = Schema([{}, {"i": {"k": "h", "c": 0, "l": 10**12}}], 1)
         self.assertEqual(schema.node("/999999999999").kind, "leaf")
 
     def test_paths(self):
@@ -70,7 +89,7 @@ class SchemaTests(TestCase):
         )
 
     def test_compact_subtree_remaps_references(self):
-        schema = Schema.from_defs(
+        schema = Schema(
             [
                 {},
                 {"s": {"ty": "bool"}},
@@ -90,7 +109,7 @@ class SchemaTests(TestCase):
 
     def test_render_metadata(self):
         compressed_sem = render_schema_tree(
-            Schema.from_defs(
+            Schema(
                 [
                     {"s": {"ty": "i32"}},
                     {"i": {"k": "h", "l": 2, "c": 0}},
@@ -105,7 +124,7 @@ class SchemaTests(TestCase):
             "   └─ {index} [leaf] [sem ty=i32]",
         ], compressed_sem
         quoted_meta = render_schema_tree(
-            Schema.from_defs(
+            Schema(
                 [
                     {"m": {"typename": "InnerType"}},
                     {
@@ -124,7 +143,7 @@ class SchemaTests(TestCase):
         ], quoted_meta
 
     def test_nested_homogeneous_and_numbered(self):
-        schema = Schema.from_defs(
+        schema = Schema(
             [
                 {"s": {"ty": "u16"}},
                 {"s": {"ty": "bool"}},
@@ -143,7 +162,7 @@ class SchemaTests(TestCase):
         ]
 
     def test_empty_names(self):
-        empty_name_schema = Schema.from_defs(
+        empty_name_schema = Schema(
             [
                 {"s": {"ty": "i32"}},
                 {"i": {"k": "n", "c": {"value": 0}}},
@@ -172,18 +191,18 @@ class SchemaTests(TestCase):
         ]
 
     def test_root_leaf(self):
-        schema = Schema.from_defs([{"s": {"ty": "i32"}}], 1)
+        schema = Schema([{"s": {"ty": "i32"}}], 1)
         assert render_schema_tree(schema) == "(root) [leaf] [sem ty=i32]"
         assert render_value_tree(schema, {"": 42}) == "(root) = 42"
         assert render_value_tree(schema, {}) == "(root) = <absent>"
 
     def test_array_indices(self):
         for internal in ({"k": "d", "c": [0, 0]}, {"k": "h", "c": 0, "l": 2}):
-            schema = Schema.from_defs([{}, {"i": internal}], 1)
+            schema = Schema([{}, {"i": internal}], 1)
             assert schema.path("/0") == "/0"
             assert schema.path("/1") == "/1"
             for keys in ("/-1", "/2", "/00", "/+0", "/ 0", Indices((-1,))):
                 with self.assertRaises(MiniconfException):
                     schema.path(keys)
-        named = Schema.from_defs([{}, {"i": {"k": "n", "c": {"00": 0}}}], 1)
+        named = Schema([{}, {"i": {"k": "n", "c": {"00": 0}}}], 1)
         assert named.path("/00") == "/00"

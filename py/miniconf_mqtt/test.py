@@ -16,15 +16,15 @@ from queue import Empty, Queue
 from unittest import TestCase
 
 import paho.mqtt.client as mqtt
-from miniconf.client import Miniconf, RawMiniconf
+from miniconf_mqtt.client import Miniconf, RawMiniconf
 from aiomqtt import Client, MqttError, ProtocolVersion
 from paho.mqtt.packettypes import PacketTypes
 from paho.mqtt.properties import Properties
-from miniconf.common import MiniconfException
-from miniconf.render import render_value_tree
-from miniconf.schema import Indices, Packed, Schema, SchemaNode
+from miniconf_mqtt.errors import MiniconfException
+from miniconf_mqtt.render import render_value_tree
+from miniconf_mqtt.schema import Indices, Packed, Schema, SchemaNode
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
@@ -46,7 +46,7 @@ EXAMPLE = Path(
 
 def cli(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-m", "miniconf", "-b", BROKER, *args],
+        [sys.executable, "-m", "miniconf_mqtt", "-b", BROKER, *args],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -428,7 +428,7 @@ async def main() -> None:
                 stream = await asyncio.create_subprocess_exec(
                     sys.executable,
                     "-m",
-                    "miniconf",
+                    "miniconf_mqtt",
                     "-b",
                     BROKER,
                     "--subscribe",

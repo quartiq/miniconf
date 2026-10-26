@@ -1,4 +1,4 @@
-"""CLI/support operations for discovery and retained-topic pruning."""
+"""Device discovery and retained-topic maintenance."""
 
 from __future__ import annotations
 
@@ -6,10 +6,9 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
-from .common import (
+from .mqtt import (
     LOGGER,
     _RetainedBurst,
-    MiniconfException,
     _Deadline,
     alive_manifest,
     quiet_window,
@@ -17,6 +16,7 @@ from .common import (
     unsubscribe,
 )
 from aiomqtt import Client
+from .errors import MiniconfException
 
 if TYPE_CHECKING:
     from .client import Miniconf
@@ -29,7 +29,10 @@ async def discover(
     rel_timeout: float = 3.0,
     abs_timeout: float = 0.1,
 ) -> dict[str, Any]:
-    """Discover devices within one deadline, completing after retained quiescence."""
+    """Discover devices after retained quiescence, within one deadline.
+
+    Requires exclusive use of the client's message stream for this operation.
+    """
     discovered: dict[str, Any] = {}
     topic = f"{prefix}/alive"
     budget = _Deadline(timeout)

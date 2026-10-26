@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Changed
+
+* Import the Python client as `miniconf_mqtt` and run it as `miniconf-mqtt`.
+  Discovery and pruning are public in `operations`; errors live in `errors`.
+  Construct compact schemas with `Schema(defs, rev)`.
+
 ### Fixed
 
 * Successful CLI SETs and prunes are silent; handled errors omit tracebacks and ambiguous discovery lists matching prefixes.

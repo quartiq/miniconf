@@ -10,8 +10,8 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import AsyncMock, patch
 
-from miniconf import cli
-from miniconf.common import MiniconfException
+from miniconf_mqtt import cli
+from miniconf_mqtt.errors import MiniconfException
 
 
 class CliTests(TestCase):
@@ -81,7 +81,7 @@ class CliTests(TestCase):
             with self.subTest(args=args):
                 err = StringIO()
                 with (
-                    patch.object(sys, "argv", ["miniconf", *args]),
+                    patch.object(sys, "argv", ["miniconf-mqtt", *args]),
                     patch.object(cli, "mqtt_client") as connect,
                     redirect_stderr(err),
                     self.assertRaises(SystemExit) as raised,
@@ -107,12 +107,12 @@ class CliTests(TestCase):
                             """
 import importlib
 import sys
-from miniconf.__main__ import main
+from miniconf_mqtt.__main__ import main
 
 sys.path.insert(0, sys.argv[1])
 preload = sys.argv[2] == "True"
 resolver = importlib.import_module("dns.resolver") if preload else None
-sys.argv = ["miniconf", "--help"]
+sys.argv = ["miniconf-mqtt", "--help"]
 try:
     main()
 except SystemExit as exc:

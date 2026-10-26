@@ -12,7 +12,7 @@ inspector, or a protocol.
 The core is `no_std` and needs no allocator. Serde encodes the values;
 Miniconf selects them.
 
-[miniconf-doc](miniconf-doc/) generates settings references from schema exports
+[miniconf-doc](https://github.com/quartiq/miniconf/tree/main/py/miniconf_doc) generates settings references from schema exports
 and authored Markdown explanations.
 
 ## Quick Start

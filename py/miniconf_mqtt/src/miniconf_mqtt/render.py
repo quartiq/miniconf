@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from .common import json_dumps
 from .schema import Schema, SchemaNode
 
 
@@ -14,13 +14,13 @@ def _segment_label(path: str) -> str:
     if not path:
         return ""
     segment = path.rsplit("/", 1)[-1]
-    return json_dumps(segment) if not segment else segment
+    return json.dumps(segment) if not segment else segment
 
 
 def _format_scalar(value: Any, *, quote_strings: bool = False) -> str:
     if isinstance(value, str):
-        return json_dumps(value) if quote_strings else value
-    return json_dumps(value)
+        return json.dumps(value) if quote_strings else value
+    return json.dumps(value, separators=(",", ":"))
 
 
 def _format_mapping(prefix: str, value: Any, *, quote_strings: bool = False) -> str:
@@ -72,7 +72,7 @@ def format_value_label(
 ) -> str:
     label = name if name is not None else _segment_label(node.path) or "(root)"
     if node.kind == "leaf":
-        return f"{label} = {json_dumps(value) if present else '<absent>'}"
+        return f"{label} = {json.dumps(value, separators=(',', ':')) if present else '<absent>'}"
     return label
 
 

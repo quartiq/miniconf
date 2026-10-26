@@ -14,8 +14,10 @@ from contextlib import AsyncExitStack
 from aiomqtt import Client, MqttError
 
 from .client import Miniconf, RawMiniconf
-from .common import LOGGER, MiniconfException, json_dumps, mqtt_client, validate_path
-from ._ops import discover, force_prune, prune
+from .mqtt import LOGGER, json_dumps, mqtt_client
+from .errors import MiniconfException
+from .paths import validate_path
+from .operations import discover, force_prune, prune
 from .render import render_schema_tree, render_value_tree
 
 
@@ -131,6 +133,7 @@ async def _print_settings(events) -> None:
 
 def _cli() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="miniconf-mqtt",
         description="Miniconf MQTT command line interface.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Examples (with a target at prefix 'app/id' and id discovery):

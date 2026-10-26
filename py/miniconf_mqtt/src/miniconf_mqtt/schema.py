@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterator
 
-from .common import MiniconfException, validate_path
+from .errors import MiniconfException
+from .paths import validate_path
 
 
 def _segment(path: str) -> str:
@@ -102,10 +103,6 @@ class Schema:
         self.rev = rev
         self._defs = defs
         self._root = len(defs) - 1
-
-    @classmethod
-    def from_defs(cls, defs: list[dict[str, Any]], rev: int) -> Schema:
-        return cls(defs, rev)
 
     def __iter__(self) -> Iterator[SchemaNode]:
         return self.walk()
