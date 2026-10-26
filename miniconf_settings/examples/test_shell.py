@@ -11,13 +11,15 @@ import time
 binary = sys.argv[1]
 result = subprocess.run(
     [binary],
-    input="set /output/dac/0 2048\nget /output/dac/0\n",
+    input="set /output/dac/0 2048\nget /output/dac/0\nschema /output\n",
     text=True,
     capture_output=True,
     check=True,
     timeout=30,
 )
-assert result.stdout == "Set.\n/output/dac/0: 2048\n"
+assert result.stdout.startswith("Set.\n/output/dac/0: 2048\n")
+schema = result.stdout.split("\n", 2)[2]
+assert schema.startswith("/output [named]")
 master, slave = pty.openpty()
 original = termios.tcgetattr(slave)
 process = subprocess.Popen([binary], stdin=slave, stdout=slave, stderr=slave)
@@ -49,8 +51,7 @@ try:
     expect(b"/output/dac/0: 1024\r\n")
     expect(b"> \x1b[1;3H")
     os.write(master, b"schema /out\t\r")
-    expect(b"/output [named]")
-    expect(b"    {index} [leaf] [sem ty=i16]\r\n")
+    expect(schema.replace("\n", "\r\n").encode())
     expect(b"> \x1b[1;3H")
     os.write(master, b"se\x1b\t/out\t/dac/0\t2048\r")
     expect(b"Set.\r\n")
