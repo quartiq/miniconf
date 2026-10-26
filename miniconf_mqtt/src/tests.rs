@@ -1,28 +1,13 @@
 extern crate std;
 
-use crate::{MAX_SCHEMA_DEFS, MAX_TOPIC_LENGTH, Miniconf};
-use miniconf::{
-    Tree, TreeSchema,
-    compact_schema::{SchemaDefs, serialize_schema_page},
-};
+use crate::{MAX_TOPIC_LENGTH, Miniconf};
+use miniconf::TreeSchema;
 use minimq::{ConfigBuilder, ConfigError};
 use std::sync::OnceLock;
 
 #[derive(TreeSchema, miniconf::TreeSerialize)]
 struct Tiny {
     value: u8,
-}
-
-#[derive(Tree, Default)]
-struct Nested {
-    leaf: u8,
-}
-
-#[derive(Tree, Default)]
-struct Settings {
-    #[tree(meta(role = "selector"))]
-    value: u8,
-    nested: Nested,
 }
 
 fn init_host_logging() {
@@ -95,23 +80,6 @@ fn constructor_rejects_long_prefix() {
         ConfigBuilder::from_buffer(&mut buffer, 1024).unwrap(),
     );
     assert!(matches!(client, Err(ConfigError::InvalidConfig)));
-}
-
-#[test]
-fn schema_pages_match_golden_fixture() {
-    init_host_logging();
-    let mut payload = [0u8; 1024];
-    let defs = SchemaDefs::<MAX_SCHEMA_DEFS>::new(Settings::SCHEMA).unwrap();
-    let page = serialize_schema_page(&defs, 0, &mut payload).unwrap();
-    assert_eq!(page.count, 3);
-    assert_eq!(defs.root(), Some(Settings::SCHEMA));
-    let normalized = core::str::from_utf8(&payload[..page.len])
-        .unwrap()
-        .replace(r#"{"s":{"ty":"u8"}}"#, "{}");
-    assert_eq!(
-        normalized,
-        include_str!("../../fixtures/compact-schema.ndjson")
-    );
 }
 
 #[tokio::test]

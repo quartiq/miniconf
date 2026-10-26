@@ -14,7 +14,7 @@ from .schema import Inventory
 PRECEDENCE = ("id", "typename", "path")
 
 
-@dataclass
+@dataclass(frozen=True)
 class Document:
     source: Path
     scope: str
@@ -101,10 +101,17 @@ class Documents:
             raise ValueError(f"{source}:{line}: {error}") from error
         self.documents.append(Document(source, scope, selector, value, body, line))
 
-    def attach(self, inventories: dict[str, Inventory]):
+    def attach(self, inventories: dict[str, Inventory], *, local=None):
+        """Resolve shared explanations and optional app-local document lists together."""
+        documents = {
+            app: self.documents + (local or {}).get(app, []) for app in inventories
+        }
+        pool = dict.fromkeys(
+            self.documents + [doc for docs in (local or {}).values() for doc in docs]
+        )
         attachments = {app: {} for app in inventories}
         matched = set()
-        paths = {doc.value for doc in self.documents if doc.selector == "path"}
+        paths = {doc.value for doc in pool if doc.selector == "path"}
         # Partial indices in different array dimensions can overlap away from
         # either representative path. Resolve their intersections as well, then
         # apply ordinary precedence (an exact selector may resolve the overlap).
@@ -119,15 +126,15 @@ class Documents:
             for entry in entries.values():
                 for scope in ("node", "edge"):
                     candidates = [
-                        (index, doc)
-                        for index, doc in enumerate(self.documents)
+                        doc
+                        for doc in documents[app]
                         if doc.scope == scope and doc.matches(entry)
                     ]
                     if not candidates:
                         continue
-                    matched.update(index for index, _ in candidates)
-                    rank = min(doc.priority for _, doc in candidates)
-                    winners = [doc for _, doc in candidates if doc.priority == rank]
+                    matched.update(candidates)
+                    rank = min(doc.priority for doc in candidates)
+                    winners = [doc for doc in candidates if doc.priority == rank]
                     if len(winners) != 1:
                         names = ", ".join(f"{doc.source}:{doc.line}" for doc in winners)
                         raise ValueError(
@@ -135,14 +142,15 @@ class Documents:
                         )
                     attachments[app][entry.path, scope] = winners[0]
         problems = []
-        for index, doc in enumerate(self.documents):
-            if index in matched:
+        for doc in pool:
+            if doc in matched:
                 continue
             choices = [
                 entry.path
                 if doc.selector == "path"
                 else entry.addresses(doc.scope).get(doc.selector, "")
-                for inventory in inventories.values()
+                for app, inventory in inventories.items()
+                if doc in documents[app]
                 for entry in inventory.entries.values()
             ]
             similar = difflib.get_close_matches(doc.value, choices, n=3)

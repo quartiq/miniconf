@@ -1,6 +1,9 @@
-// Integration fixture shared by core and protocol examples, MQTT/Python tests,
-// and the embedded benchmark. Paths, metadata, and defaults
-// are part of those checks; update their expectations together when changing it.
+// Settings shared by core/protocol examples, host consumers, and the embedded benchmark.
+// Covers read-only fields, validated writes, atomic enums, arrays, optional presence,
+// renamed paths, and metadata. Specialized shapes stay in focused tests so the
+// benchmark's handwritten and derived implementations remain comparable.
+// tests/json_schema.rs checks the tracked common.json and common.ndjson exports;
+// host consumers read those files without needing a Rust toolchain.
 use miniconf::{Tree, leaf};
 use serde::{Deserialize, Serialize};
 

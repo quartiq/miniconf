@@ -11,7 +11,7 @@ from miniconf.schema import Indices, Schema
 
 
 def fixture_schema():
-    fixture = Path(__file__).resolve().parents[2] / "fixtures/compact-schema.ndjson"
+    fixture = Path(__file__).resolve().parents[2] / "miniconf/tests/common.ndjson"
     return Schema.from_defs(
         [json.loads(line) for line in fixture.read_text().splitlines()], 1
     )
@@ -19,19 +19,14 @@ def fixture_schema():
 
 class SchemaTests(TestCase):
     def test_rust_export(self):
-        fixture = (
-            Path(__file__).resolve().parents[2] / "miniconf/tests/schema-contract.json"
-        )
-        schema = Schema.from_defs(json.loads(fixture.read_text())["compact"], 1)
-        assert schema.node("/atomic").kind == "leaf"
-        assert schema.children("/atomic") == []
-        assert schema.node("/internal/gain").edge == {"unit": "V"}
-        assert schema.node("/numbered").kind == "numbered"
-        assert len(schema.children("/array")) == 2
-        assert schema.node("/array/1").schema["sem"]["maybe_absent"]
-        assert schema.node("/mode").schema["sem"]["oneof"]
-        assert schema.indices("/mode/Err").value == (4, 1)
-        assert schema.node("/nullable").edge == {"nullable": "true"}
+        schema = fixture_schema()
+        assert schema.node("/control/mode").kind == "leaf"
+        assert schema.children("/control/mode") == []
+        assert schema.node("/calibration/slope").edge == {"unit": "ppm"}
+        assert schema.node("/calibration").schema["sem"]["maybe_absent"]
+        assert schema.node("/temp").schema["sem"]["maybe_absent"]
+        assert len(schema.children("/output/dac")) == 2
+        assert schema.indices("/output/dac/1").value == (2, 0, 1)
 
     def test_invalid_definitions(self):
         for defs in (
@@ -83,23 +78,25 @@ class SchemaTests(TestCase):
 
     def test_schema(self):
         schema_fixture = fixture_schema()
-        assert [node.path for node in schema_fixture.walk()] == [
-            "",
-            "/value",
-            "/nested",
-            "/nested/leaf",
+        assert [node.path for node in schema_fixture.walk("/control")] == [
+            "/control",
+            "/control/enabled",
+            "/control/mode",
         ]
         assert schema_fixture.node().kind == "named"
-        assert schema_fixture.node("/nested").kind == "named"
-        assert schema_fixture.node("/value").kind == "leaf"
-        assert schema_fixture.node("/value").edge == {"role": "selector"}
-        assert schema_fixture.node("/nested").edge is None
-        assert schema_fixture.compact("/nested") == {
-            "path": "/nested",
+        assert schema_fixture.node("/control").kind == "named"
+        assert schema_fixture.node("/control/enabled").kind == "leaf"
+        assert schema_fixture.node("/control").edge is None
+        assert schema_fixture.compact("/control") == {
+            "path": "/control",
             "rev": 1,
             "defs": [
+                {"s": {"ty": "bool"}},
                 {},
-                {"i": {"k": "n", "c": {"leaf": 0}}},
+                {
+                    "m": {"typename": "Control"},
+                    "i": {"k": "n", "c": {"enabled": 0, "mode": 1}},
+                },
             ],
         }
 

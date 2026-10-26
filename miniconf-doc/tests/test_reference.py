@@ -80,23 +80,23 @@ def document(
 
 def test_rust_export_contract():
     # Export checked by miniconf/tests/json_schema.rs::consumer_contract_fixture.
-    export = json.loads(Path(__file__).with_name("schema-contract.json").read_text())
-    inv = Inventory(export["schema"])
-    assert inv.entries["/internal/gain"].edge == {"unit": "V"}
-    assert inv.entries["/atomic"].kind == "leaf"
-    assert not inv.children("/atomic")
-    assert inv.entries["/array/{index}"].defaults == {
-        "/array/0": 3,
-        "/array/1": "__tree-absent__",
+    export = Path(__file__).resolve().parents[2] / "miniconf/tests/common.json"
+    inv = Inventory(json.loads(export.read_text()))
+    assert inv.entries["/calibration/slope"].edge == {"unit": "ppm"}
+    assert inv.entries["/control/mode"].kind == "leaf"
+    assert not inv.children("/control/mode")
+    assert inv.entries["/output/dac/{index}"].defaults == {
+        "/output/dac/0": 1024,
+        "/output/dac/1": 1024,
     }
-    assert inv.entries["/nullable"].nullable
-    assert inv.entries["/nullable"].defaults == {"/nullable": None}
+    assert inv.entries["/calibration"].schema["tree-maybe-absent"]
+    assert inv.entries["/temp"].defaults == {"/temp": "__tree-absent__"}
     text = render(inv)
-    assert "2 children" in text
     assert "2 items" in text
-    assert "mutually exclusive children" in text
-    assert "absent" in text and "`null`" in text
-    assert "gain: 16-bit unsigned integer" in text
+    assert "absent" in text
+    assert "Hardware serial number." in text
+    assert "Standby" in text and "Run" in text
+    assert "Factory calibration applied to measurements." in text
     page = Page(MarkdownIt().enable("table").render(text))
     assert all(link[1:] in page.ids for link in page.links if link.startswith("#"))
 
@@ -599,6 +599,25 @@ def test_shared_matching_across_apps_and_orphans(tmp_path, schema):
     assert "99" in render(second, links["second"])
     assert "99" not in render(first, links["first"])
     assert len(docs.attach({"unrelated": unrelated})[1]) == 1
+    local_dir = tmp_path / "local"
+    local_dir.mkdir()
+    local = document(local_dir, body="Only the second app")
+    links, errors = docs.attach(
+        {"first": first, "second": second}, local={"second": local.documents}
+    )
+    assert not errors
+    assert ("/channels/{index}/gain", "edge") not in links["first"]
+    assert (
+        links["second"]["/channels/{index}/gain", "edge"].body == "Only the second app"
+    )
+    _, errors = docs.attach(
+        {"first": first, "unrelated": unrelated},
+        local={"unrelated": local.documents},
+    )
+    assert len(errors) == 1
+    conflicting = document(local_dir, value="Channel", scope="node")
+    with pytest.raises(ValueError, match="Ambiguous"):
+        docs.attach({"first": first}, local={"first": conflicting.documents})
 
 
 def test_explicit_directories_select_prose(tmp_path, schema):

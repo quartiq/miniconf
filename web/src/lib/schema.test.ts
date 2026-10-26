@@ -10,7 +10,7 @@ import {
 } from "./schema";
 
 function fixtureSchema(): Schema {
-  const fixture = resolve("../fixtures/compact-schema.ndjson");
+  const fixture = resolve("../miniconf/tests/common.ndjson");
   const defs = readFileSync(fixture, "utf8")
     .split(/\r?\n/)
     .filter(Boolean)
@@ -29,25 +29,19 @@ const indexedSchema = new Schema(
 );
 
 describe("Schema", () => {
-  it("reads the Rust exporter contract without expanding atomic values", () => {
-    const fixture = JSON.parse(
-      readFileSync(resolve("../miniconf/tests/schema-contract.json"), "utf8"),
-    );
-    const schema = new Schema(fixture.compact, 1);
-    expect(schema.node("/atomic")).toMatchObject({
+  it("reads the shared Rust settings without expanding leaf values", () => {
+    const schema = fixtureSchema();
+    expect(schema.node("/control/mode")).toMatchObject({
       kind: "leaf",
       children: [],
     });
-    expect(schema.node("/internal/gain").edge).toEqual({ unit: "V" });
-    expect(schema.node("/numbered").kind).toBe("numbered");
-    expect(schema.node("/array").children).toHaveLength(2);
-    expect(schema.node("/array/1").sem).toMatchObject({ maybe_absent: true });
-    expect(schema.node("/mode").sem).toMatchObject({ oneof: true });
-    expect(schema.node("/mode").children.map((child) => child.name)).toEqual([
-      "Ok",
-      "Err",
-    ]);
-    expect(schema.node("/nullable").edge).toEqual({ nullable: "true" });
+    expect(schema.node("/calibration/slope").edge).toEqual({ unit: "ppm" });
+    expect(schema.node("/output/dac").children).toHaveLength(2);
+    expect(schema.node("/calibration").sem).toMatchObject({
+      maybe_absent: true,
+    });
+    expect(schema.node("/temp").sem).toMatchObject({ maybe_absent: true });
+    expect(schema.node("/temp").edge).toEqual({ unit: "°C" });
   });
 
   it("walks shared definitions in preorder with path-specific edge metadata", () => {
@@ -159,13 +153,14 @@ describe("Schema", () => {
   it("matches the compact schema fixture paths", () => {
     const schema = fixtureSchema();
 
-    expect(schema.walk().map((node) => node.path)).toEqual([
-      "",
-      "/value",
-      "/nested",
-      "/nested/leaf",
+    expect(schema.walk("/control").map((node) => node.path)).toEqual([
+      "/control",
+      "/control/enabled",
+      "/control/mode",
     ]);
-    expect(schema.node("/value").edge).toEqual({ role: "selector" });
+    expect(schema.node("/serial").edge).toEqual({
+      doc: "Hardware serial number.",
+    });
   });
 
   it("uses the empty path for the root", () => {

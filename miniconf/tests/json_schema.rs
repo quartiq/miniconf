@@ -8,6 +8,10 @@ use miniconf::{
 use schemars::transform::Transform;
 use serde_json::json;
 
+#[cfg(all(feature = "meta-node", feature = "meta-edge"))]
+#[path = "../examples/common.rs"]
+mod common;
+
 #[derive(Tree, miniconf::Serialize, miniconf::Deserialize, Default)]
 #[tree(meta(typename))]
 struct Pair {
@@ -32,25 +36,30 @@ struct Mixed {
 fn consumer_contract_fixture() {
     use miniconf::{TreeSchema, compact_schema::SchemaDefs};
 
-    let settings = Mixed {
-        array: [Some(3), None],
-        mode: Some(Ok(7)),
-        ..Default::default()
-    };
+    let settings = common::Settings::new();
     let mut schema = TreeJsonSchema::new(Some(&settings)).unwrap().root;
     schema.insert("default".into(), to_json_value(&settings).unwrap());
-    let compact = SchemaDefs::<32>::new(Mixed::SCHEMA).unwrap();
-    let defs: Vec<_> = (0..compact.len())
-        .map(|i| json!(compact.definition(i).unwrap()))
+    let compact = SchemaDefs::<32>::new(common::Settings::SCHEMA).unwrap();
+    let definitions: String = (0..compact.len())
+        .map(|i| serde_json::to_string(&compact.definition(i).unwrap()).unwrap() + "\n")
         .collect();
-    let actual = json!({"compact": defs, "schema": schema});
-    let expected: serde_json::Value =
-        serde_json::from_str(include_str!("schema-contract.json")).unwrap();
-    // Named-child order determines Miniconf indices; Value equality ignores it.
-    assert_eq!(
-        serde_json::to_string(&actual).unwrap(),
-        serde_json::to_string(&expected).unwrap()
-    );
+    // UPDATE_FIXTURES=1 cargo test -p miniconf --features schema consumer_contract_fixture
+    for (name, actual) in [
+        (
+            "common.json",
+            serde_json::to_string_pretty(&schema).unwrap() + "\n",
+        ),
+        ("common.ndjson", definitions),
+    ] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join(name);
+        if std::env::var_os("UPDATE_FIXTURES").is_some() {
+            std::fs::write(&path, &actual).unwrap();
+        }
+        // Named-child order determines indices; compare text, not unordered maps.
+        assert_eq!(actual, std::fs::read_to_string(path).unwrap());
+    }
 }
 
 #[test]

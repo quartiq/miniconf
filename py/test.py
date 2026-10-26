@@ -25,7 +25,6 @@ from miniconf.render import render_value_tree
 from miniconf.schema import Indices, Packed, Schema, SchemaNode
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "fixtures" / "compact-schema.ndjson"
 
 PREFIX = "test"
 TARGET = f"{PREFIX}/common"
@@ -61,11 +60,6 @@ def cli_stdout(*args: str) -> str:
             f"cli failed: {args}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
         )
     return proc.stdout
-
-
-def fixture_schema() -> Schema:
-    defs = [json.loads(line) for line in FIXTURE.read_text().splitlines() if line]
-    return Schema.from_defs(defs, 1)
 
 
 def schema_node(schema: Schema, path: str) -> SchemaNode:
