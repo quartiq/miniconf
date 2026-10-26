@@ -261,7 +261,9 @@ async def main() -> None:
 
         dut = subprocess.Popen([str(EXAMPLE)], cwd=ROOT)
 
-        manifest = json.loads(alive.wait_nonempty_payload(5.0, f"{TARGET}/alive"))
+        # The debug fixture decodes its own ELF/DWARF for defmt before connecting.
+        # Allow cold startup under load without relaxing MQTT operation deadlines.
+        manifest = json.loads(alive.wait_nonempty_payload(30.0, f"{TARGET}/alive"))
         assert manifest["proto"] == 1, manifest
         assert manifest["epoch"] > 0, manifest
         assert manifest["pages"] > 0, manifest
