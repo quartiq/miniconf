@@ -44,10 +44,8 @@ fn consumer_contract_fixture() {
         .map(|i| json!(compact.definition(i).unwrap()))
         .collect();
     let actual = json!({"compact": defs, "schema": schema});
-    let expected: serde_json::Value = serde_json::from_str(include_str!(
-        "../../miniconf-doc/tests/schema-contract.json"
-    ))
-    .unwrap();
+    let expected: serde_json::Value =
+        serde_json::from_str(include_str!("schema-contract.json")).unwrap();
     // Named-child order determines Miniconf indices; Value equality ignores it.
     assert_eq!(
         serde_json::to_string(&actual).unwrap(),

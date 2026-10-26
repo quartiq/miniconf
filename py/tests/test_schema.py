@@ -21,7 +21,7 @@ class SchemaTests(TestCase):
     def test_rust_export(self):
         fixture = (
             Path(__file__).resolve().parents[2]
-            / "miniconf-doc/tests/schema-contract.json"
+            / "miniconf/tests/schema-contract.json"
         )
         schema = Schema.from_defs(json.loads(fixture.read_text())["compact"], 1)
         assert schema.node("/atomic").kind == "leaf"

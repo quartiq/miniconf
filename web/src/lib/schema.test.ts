@@ -27,7 +27,7 @@ describe("Schema", () => {
   it("reads the Rust exporter contract without expanding atomic values", () => {
     const fixture = JSON.parse(
       readFileSync(
-        resolve("../miniconf-doc/tests/schema-contract.json"),
+        resolve("../miniconf/tests/schema-contract.json"),
         "utf8",
       ),
     );
