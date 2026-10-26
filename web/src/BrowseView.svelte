@@ -111,8 +111,6 @@
           actions={{
             select: (path) => model.select(path),
             open: (path, open) => model.setExpanded(path, open),
-            key: (node, direction, step) =>
-              model.navigate(node.path, direction, step),
             activate: (node, internal, open) => {
               if (internal) model.setExpanded(node.path, !open);
               else {

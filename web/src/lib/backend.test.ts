@@ -315,57 +315,79 @@ describe("PrefixSession", () => {
 });
 
 describe("exact settings and generation boundaries", () => {
-  it("reports device failure independently of the socket and recovers on repaired schema", async () => {
-    const mqtt = new FakeMqttClient();
-    const states: Array<{ state: string; ready: boolean }> = [];
-    const session = await connectPrefix(
-      mqtt,
-      callbacks({
-        status: (status, ready) => states.push({ state: status.state, ready }),
-      }),
-    );
-    const broken = "not JSON";
-    mqtt.message(
-      "dt/device/alive",
-      JSON.stringify({
-        proto: 1,
-        epoch: 1,
-        schema_rev: hash(broken),
-        pages: 1,
-      }),
-    );
-    mqtt.message("dt/device/schema/0", broken);
-    expect(states.at(-1)).toEqual({ state: "device-error", ready: false });
-    expect(mqtt.ended).toBe(false);
-    await expect(session.set("/leaf", "1")).rejects.toThrow("not ready");
-    mqtt.message(
-      "dt/device/alive",
-      JSON.stringify({
-        proto: 1,
-        epoch: 2,
-        schema_rev: hash(...schemaText),
-        pages: 2,
-      }),
-    );
-    await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
-    mqtt.message(
-      "dt/device/alive",
-      JSON.stringify({
-        proto: 1,
-        epoch: 2,
-        schema_rev: hash(...schemaText),
-        pages: 2,
-      }),
-    );
-    schemaText.forEach((page, i) =>
-      mqtt.message(`dt/device/schema/${i}`, page),
-    );
-    await vi.waitFor(() =>
-      expect(states.at(-1)).toEqual({ state: "watching", ready: true }),
-    );
-    expect(session.ready).toBe(true);
-    session.close();
-  });
+  it.each(["schema", "pruning"] as const)(
+    "does not report a %s callback failure as invalid device data",
+    async (callback) => {
+      const mqtt = new FakeMqttClient();
+      const status = vi.fn();
+      const next = callbacks({ status });
+      const session = await connectPrefix(mqtt, next);
+      const failure = new Error("application callback failed");
+      next[callback] = () => {
+        throw failure;
+      };
+      expect(() => announce(mqtt)).toThrow(failure);
+      expect(
+        status.mock.calls.some(([value]) => value.state === "device-error"),
+      ).toBe(false);
+      session.close();
+    },
+  );
+
+  it.each(["not JSON", '{"i":{"k":"n","c":{"bad":9}}}\n'])(
+    "rejects invalid schema %j and recovers on repair",
+    async (broken) => {
+      const mqtt = new FakeMqttClient();
+      const states: Array<{ state: string; ready: boolean }> = [];
+      const session = await connectPrefix(
+        mqtt,
+        callbacks({
+          status: (status, ready) =>
+            states.push({ state: status.state, ready }),
+        }),
+      );
+      mqtt.message(
+        "dt/device/alive",
+        JSON.stringify({
+          proto: 1,
+          epoch: 1,
+          schema_rev: hash(broken),
+          pages: 1,
+        }),
+      );
+      mqtt.message("dt/device/schema/0", broken);
+      expect(states.at(-1)).toEqual({ state: "device-error", ready: false });
+      expect(mqtt.ended).toBe(false);
+      await expect(session.set("/leaf", "1")).rejects.toThrow("not ready");
+      mqtt.message(
+        "dt/device/alive",
+        JSON.stringify({
+          proto: 1,
+          epoch: 2,
+          schema_rev: hash(...schemaText),
+          pages: 2,
+        }),
+      );
+      await vi.waitFor(() => expect(mqtt.subscriptions).toHaveLength(2));
+      mqtt.message(
+        "dt/device/alive",
+        JSON.stringify({
+          proto: 1,
+          epoch: 2,
+          schema_rev: hash(...schemaText),
+          pages: 2,
+        }),
+      );
+      schemaText.forEach((page, i) =>
+        mqtt.message(`dt/device/schema/${i}`, page),
+      );
+      await vi.waitFor(() =>
+        expect(states.at(-1)).toEqual({ state: "watching", ready: true }),
+      );
+      expect(session.ready).toBe(true);
+      session.close();
+    },
+  );
 
   it.each(["timeout", "offline", "epoch", "close"])(
     "cancels outstanding Set delivery on %s",

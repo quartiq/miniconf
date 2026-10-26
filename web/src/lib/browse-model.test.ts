@@ -78,11 +78,10 @@ it("preserves exact JSON through clean updates", () => {
   expect(model.editor).toBe("-9007199254740993");
 });
 
-it("reselection, no-op navigation and folding preserve a draft", () => {
+it("reselection and folding preserve a draft", () => {
   const model = loaded();
   model.edit("99");
   model.select("/leaf");
-  model.navigate("/leaf", "child");
   model.setExpanded("", false);
   expect(model.state.selectedPath).toBe("/leaf");
   expect(model.editor).toBe("99");

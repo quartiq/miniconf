@@ -4,12 +4,8 @@
   import { untrack } from "svelte";
   import type { MqttAuth } from "./lib/mqtt-session";
   import { discoveryTree } from "./lib/discovery-tree";
-  import type { TreeActions, TreeNodeView } from "./lib/tree-view";
-  import {
-    movePath,
-    visibleTreePaths,
-    type NavDirection,
-  } from "./lib/tree-navigation";
+  import type { TreeActions } from "./lib/tree-view";
+  import { visibleTreePaths } from "./lib/tree-navigation";
   import StatusLog from "./StatusLog.svelte";
   import TreeView from "./TreeView.svelte";
   import BuildIdentity from "./BuildIdentity.svelte";
@@ -100,23 +96,10 @@
     else userClosed.add(path);
   }
 
-  function navigateTree(
-    path: string,
-    direction: NavDirection,
-    step?: number,
-  ): string {
-    const next = movePath(visiblePaths, path, direction, treeNodes, step);
-    selectedPath = next;
-    return next;
-  }
-
   let treeActions = $derived({
-    key: (node: TreeNodeView, direction: NavDirection, step?: number) => {
-      return navigateTree(node.path, direction, step);
-    },
     open: setExpanded,
     select,
-  } satisfies TreeActions);
+  } satisfies Omit<TreeActions, "key">);
 
   function submit(event: SubmitEvent) {
     event.preventDefault();

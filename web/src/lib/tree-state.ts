@@ -1,5 +1,10 @@
 import type { Schema, SchemaNode } from "./schema";
-import { formatSchemaName, schemaSummary, schemaTooltip } from "./schema";
+import {
+  formatSchemaName,
+  schemaSummary,
+  schemaTooltip,
+  subtreeMatch,
+} from "./schema";
 import {
   ACTIVITY_DURATION_MS,
   type TreeActivity,
@@ -72,7 +77,7 @@ export function revealPresentSettings(
       // retained startup bursts must not fight manual folding.
       if (
         !next.has(parent) &&
-        withinRoot(parent, root) &&
+        subtreeMatch(parent, root) &&
         autoExpandAllowed(parent, userClosed)
       ) {
         if (next === expanded) next = new Set(expanded);
@@ -103,10 +108,6 @@ export function cuePaths(paths: Iterable<string>, root: string): Set<string> {
     }
   }
   return cued;
-}
-
-function withinRoot(path: string, root: string): boolean {
-  return !root || path === root || path.startsWith(`${root}/`);
 }
 
 function autoExpandAllowed(path: string, userClosed: Set<string>): boolean {

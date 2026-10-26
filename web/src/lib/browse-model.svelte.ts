@@ -8,12 +8,7 @@ import {
   treeSnapshot,
   type ViewNode,
 } from "./tree-state";
-import {
-  movePath,
-  toggleExpansion,
-  visibleTreePaths,
-  type NavDirection,
-} from "./tree-navigation";
+import { toggleExpansion } from "./tree-navigation";
 import type { TreeActivity } from "./tree-view";
 
 type Action = "Set" | "Prune";
@@ -219,17 +214,6 @@ export class BrowseModel {
   select(path: string): void {
     if (path !== this.data.selectedPath)
       this.data = { ...this.data, selectedPath: path, draft: undefined };
-  }
-  navigate(path: string, direction: NavDirection, step?: number): string {
-    const next = movePath(
-      visibleTreePaths(this.data.root, this.data.tree, this.data.expanded),
-      path,
-      direction,
-      this.data.tree,
-      step,
-    );
-    this.select(next);
-    return next;
   }
   edit(text: string): void {
     this.data = {
