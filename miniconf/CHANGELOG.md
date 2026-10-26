@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+* Breaking: JSON Schema exports use shared `$defs` and `$ref` references, and
+  replace `tree-leaf` with `tree-kind`. Consumers of the exported layout must
+  adapt to the new representation.
 * Breaking: `SchemaDefinition<'a>` no longer has a capacity parameter.
 * Breaking: `IntoKeys::{into_keys, chain}` and path-iterator `root()` constructors
   return `Result`. Nonempty paths must start with their separator; raw-suffix
