@@ -224,10 +224,10 @@ fn nested_homogeneous_and_numbered() {
     assert_eq!(
         std::str::from_utf8(&output).unwrap(),
         concat!(
-            "(root) [numbered]\r\n",
-            "  0 [homogeneous]\r\n",
-            "    0..3 [homogeneous]\r\n",
-            "      0..2 [leaf] [sem ty=u16]\r\n",
+            "(root) [numbered len=2]\r\n",
+            "  0 [homogeneous len=3]\r\n",
+            "    {index} [homogeneous len=2]\r\n",
+            "      {index} [leaf] [sem ty=u16]\r\n",
             "  1 [leaf] [sem ty=bool]\r\n",
         )
     );
@@ -241,7 +241,7 @@ fn nested_homogeneous_and_numbered() {
     .unwrap();
     assert_eq!(
         output,
-        b"(root) [numbered]\r\n  0 [homogeneous]\r\n  1 [leaf] [sem ty=bool]\r\n"
+        b"(root) [numbered len=2]\r\n  0 [homogeneous len=3]\r\n  1 [leaf] [sem ty=bool]\r\n"
     );
 }
 

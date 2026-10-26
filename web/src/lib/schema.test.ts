@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { schemaSummary, Schema, type CompactDef } from "./schema";
+import {
+  describeSemantics,
+  schemaSummary,
+  Schema,
+  type CompactDef,
+} from "./schema";
 
 function fixtureSchema(): Schema {
   const fixture = resolve("../fixtures/compact-schema.ndjson");
@@ -82,12 +87,22 @@ describe("Schema", () => {
     );
     expect(schema.walk("//0")).toEqual([schema.node("//0")]);
     expect(new Schema([{}], 1).walk()).toEqual([new Schema([{}], 1).node()]);
-    const invalid = new Schema([{ i: { k: "n", c: { bad: 9 } } }], 1);
-    expect(() => invalid.walk()).toThrow("Invalid schema reference 9 in /bad");
-    expect(() => invalid.node("/bad")).toThrow(
-      "Invalid schema reference 9 in /bad",
-    );
   });
+
+  it.each([
+    [null],
+    [{ i: { k: "n", c: { bad: 9 } } }],
+    [{ i: { k: "d", c: [0] } }],
+    [{}, { i: { k: "d", c: [0.5] } }],
+    [{}, { i: { k: "h", c: 0, l: -1 } }],
+    [{}, { i: { k: "n", c: null } }],
+    [{}, { i: { k: "unknown" } }],
+  ])(
+    "rejects malformed compact definitions before traversal: %j",
+    (...defs) => {
+      expect(() => new Schema(defs as CompactDef[], 1)).toThrow();
+    },
+  );
 
   it("preserves literal named segments and canonical array indices", () => {
     const names = JSON.parse('{"":0,"__proto__":0,"constructor":0,"01":0}');
@@ -182,7 +197,10 @@ describe("Schema", () => {
 
     expect(schemaSummary(node)).toBe("leaf · f32");
     expect(schemaSummary(indexedSchema.node("/values"))).toBe(
-      "homogeneous · 0..2",
+      "homogeneous · len=2",
+    );
+    expect(schemaSummary(indexedSchema.node("/tuple"))).toBe(
+      "numbered · len=2",
     );
   });
 
@@ -226,6 +244,20 @@ describe("Schema", () => {
       "leaf · mutually exclusive children · may be absent",
     );
     expect(schema.node("").sem).toMatchObject({ ty: "future", extra: 7 });
+    expect(describeSemantics(schema.node("").sem)).toEqual({
+      summary: ["mutually exclusive children", "may be absent"],
+      extra: { ty: "future", extra: 7 },
+    });
+    expect(
+      describeSemantics({ ty: "u16", oneof: false, maybe_absent: false }),
+    ).toEqual({
+      summary: ["u16"],
+      extra: undefined,
+    });
+    expect(describeSemantics({ oneof: "future" }).extra).toEqual({
+      oneof: "future",
+    });
+    expect(describeSemantics(null).extra).toBeNull();
     expect(schemaSummary(new Schema([{}], 1).node(""))).toBe("leaf");
   });
 });

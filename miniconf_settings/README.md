@@ -19,17 +19,20 @@ Set.
 > set /output/dac/0 4096
 error: Access/validation failure: DAC value exceeds 12-bit range
 > schema /output/dac
-/output/dac [homogeneous]
-  0..2 [leaf] [sem ty=i16]
+/output/dac [homogeneous len=2] [edge max="4095"]
+  {index} [leaf] [sem ty=u16]
 ```
 
 The example keeps settings in memory; piped commands also work.
 Tab completes commands and path segments. Type `/` to enter a subtree.
 When completion stops, repeat Tab to list matching names in columns. Branch names
-show `/`; large indexed collections show an index range. Type an index to select
+show `/`; large indexed collections show `len=N`. Type an index to select
 it directly. Lists are limited to four rows; narrow the prefix for more.
 Use `schema` to describe a whole subtree. Arrow keys edit and recall history,
 Ctrl-C cancels, and Ctrl-D exits an empty line.
+
+Indexed schema nodes show `len=N`; their indices start at zero.
+`{index}` describes every child of a homogeneous node once.
 
 Command paths start with `/`, are unquoted, and contain no whitespace. Omit the
 path for root `get` or `schema`; `set` requires a path.

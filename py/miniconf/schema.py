@@ -68,6 +68,37 @@ class Schema:
     """Loaded compact schema defs with key translation helpers."""
 
     def __init__(self, defs: list[dict[str, Any]], rev: int):
+        if not defs:
+            raise MiniconfException("Protocol", "Schema has no definitions")
+        # Compact definitions are post-order; validate the graph without
+        # expanding homogeneous children.
+        for index, definition in enumerate(defs):
+            if not isinstance(definition, dict):
+                raise MiniconfException(
+                    "Protocol", f"Invalid schema definition {index}"
+                )
+            if "i" not in definition:
+                continue
+            match definition["i"]:
+                case {"k": "n", "c": dict() as children}:
+                    refs = children.values()
+                case {"k": "d", "c": list() as children}:
+                    refs = children
+                case {"k": "h", "c": child, "l": length} if (
+                    type(length) is int and length >= 0
+                ):
+                    refs = [child]
+                case _:
+                    raise MiniconfException(
+                        "Protocol",
+                        f"Invalid schema internal node in definition {index}",
+                    )
+            for ref in refs:
+                target = ref.get("r") if isinstance(ref, dict) else ref
+                if type(target) is not int or not 0 <= target < index:
+                    raise MiniconfException(
+                        "Protocol", f"Invalid schema reference in definition {index}"
+                    )
         self.rev = rev
         self._defs = defs
         self._root = len(defs) - 1

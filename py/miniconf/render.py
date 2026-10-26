@@ -37,7 +37,12 @@ def _format_mapping(prefix: str, value: Any, *, quote_strings: bool = False) -> 
 
 
 def _annotations(node: SchemaNode) -> list[str]:
-    tags = [node.kind]
+    kind = node.kind
+    if kind in ("homogeneous", "numbered"):
+        internal = node.schema["internal"]
+        count = internal["len"] if kind == "homogeneous" else len(internal["children"])
+        kind += f" len={count}"
+    tags = [kind]
     sem = node.schema.get("sem")
     if sem is not None:
         tags.append(_format_mapping("sem", sem))
@@ -96,7 +101,7 @@ def render_schema_tree(schema: Schema, root: str = "") -> str:
             if count:
                 child = schema.node(f"{path}/0")
                 child_lines = visit(child.path)
-                child_lines[0] = format_schema_label(child, name=f"0..{count}")
+                child_lines[0] = format_schema_label(child, name="{index}")
                 return _tree_lines(format_schema_label(node), [child_lines])
 
         return _tree_lines(
