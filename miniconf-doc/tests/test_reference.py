@@ -92,8 +92,8 @@ def test_rust_export_contract():
     assert inv.entries["/nullable"].nullable
     assert inv.entries["/nullable"].defaults == {"/nullable": None}
     text = render(inv)
-    assert "numbered · 2 children" in text
-    assert "homogeneous · 2 items" in text
+    assert "2 children" in text
+    assert "2 items" in text
     assert "mutually exclusive children" in text
     assert "absent" in text and "`null`" in text
     assert "gain: 16-bit unsigned integer" in text
@@ -332,36 +332,6 @@ def test_recursive_schema_rejected():
         )
 
 
-@pytest.mark.parametrize(
-    "schema, message",
-    [
-        (None, "schema document"),
-        ({"tree-kind": "leaf", "title": 42}, "title"),
-        ({"tree-kind": "named", "description": 42}, "description"),
-        ({"tree-kind": "unknown"}, "tree-kind"),
-        ({"$ref": "#/$defs/missing"}, "definition"),
-        ({"anyOf": [{"tree-kind": "leaf"}, {"type": "string"}]}, "anyOf"),
-        ({"tree-kind": "named", "properties": []}, "properties"),
-        ({"tree-kind": "numbered", "prefixItems": {}}, "prefixItems"),
-        ({"tree-kind": "homogeneous", "maxItems": -1, "items": {}}, "fixed length"),
-        ({"tree-kind": "numbered", "prefixItems": [{}], "default": []}, "default"),
-        ({"tree-kind": "leaf", "tree-node-meta": {"doc": False}}, "metadata"),
-        ({"tree-kind": "leaf", "properties": []}, "properties"),
-    ],
-)
-def test_invalid_schema_is_a_cli_diagnostic(tmp_path, schema, message):
-    source = tmp_path / "schema.json"
-    source.write_text(json.dumps(schema))
-    result = subprocess.run(
-        [sys.executable, "-m", "miniconf_doc", "check", str(source)],
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 1
-    assert message in result.stderr
-    assert "Traceback" not in result.stderr
-
-
 @pytest.mark.parametrize("value", [7, "text", None, [1, 2], {"gain": 3}])
 def test_atomic_root_values(value):
     inv = Inventory({"tree-kind": "leaf", "const": value, "default": value})
@@ -496,7 +466,10 @@ def test_miniconf_kinds_values_and_absence():
     assert not inv.entries["/optional"].nullable
     assert inv.entries["/nullable"].nullable
     text = render(inv)
-    assert "homogeneous · 2 items" in text
+    assert "2 items" in text
+    assert "\nnamed\n" not in text
+    assert "leaf: `boolean`" not in text
+    assert "leaf: `array (5)" in text
     assert "array (5) of 32-bit floating-point number" in text
     assert "mutually exclusive children" in text
     assert "may be absent" in text
@@ -729,7 +702,7 @@ def test_shared_nodes_keep_edges_defaults_and_path_specific_prose(tmp_path):
     assert text.count("Conversion gain.") == 1
     assert "Main output." in text and "Monitor output." in text
     assert "/output" in text and "/monitor" in text
-    assert "1.0" in text and "0.1" in text
+    assert "1.0" in text and "0.5" in text
     assert "<details>" not in text and "| Child |" not in text
     assert text.index("## `Settings`") < text.index("## `Channel`")
     assert not Page(text).duplicates

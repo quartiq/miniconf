@@ -139,6 +139,10 @@ name = "trace"
 required-features = ["derive", "schema"]
 
 [[example]]
+name = "reference"
+required-features = ["derive", "schema", "meta-node", "meta-edge"]
+
+[[example]]
 name = "packed"
 required-features = ["derive", "postcard"]
 

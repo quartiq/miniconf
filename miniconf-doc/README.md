@@ -5,13 +5,20 @@ explanations. Schema descriptions and metadata supply the API reference; authore
 prose adds context. References start at the root; fields supply their context and
 instance defaults.
 
-Requires Python 3.11 or newer. Install with `pip install .`.
+Requires Python 3.11 or newer. From a Miniconf checkout, install with
+`python -m pip install ./miniconf-doc`.
 
 ## Example
 
-The [example schema](examples/schema.json) uses the same `Channel` for an output
-and a monitor, with different defaults. Its [explanations](examples/docs/channel.md)
-share one Markdown file:
+The [Rust example](../miniconf/examples/reference.rs) uses the same `Channel` for
+an output and a monitor, with different defaults. It exports the schema and
+construction defaults. From the repository root:
+
+```sh
+cargo run -q -p miniconf --example reference --features schema > /tmp/settings-schema.json
+```
+
+Its [explanations](examples/docs/channel.md) share one Markdown file:
 
 ````markdown
 ```miniconf
@@ -36,8 +43,15 @@ Gain converts the channel's input voltage to output current, in A/V.
 Build the reference:
 
 ```sh
-miniconf_doc build --output /tmp/reference.md examples/schema.json examples/docs
+miniconf_doc build --output /tmp/reference.md /tmp/settings-schema.json miniconf-doc/examples/docs
+miniconf_doc check /tmp/settings-schema.json miniconf-doc/examples/docs
 ```
+
+For a Python-only preview, use the supplied
+[example schema](examples/schema.json) in place of `/tmp/settings-schema.json`.
+For your own application, export `TreeJsonSchema::new(Some(&settings))?.root`
+and attach `to_json_value(&settings)?` as its `default`, as the Rust example does.
+Use this export before applying `AllowAbsent`.
 
 Pass additional directories to combine shared prose with application-specific
 explanations: `miniconf_doc build schema.json docs/common docs/instrument`.
@@ -92,21 +106,11 @@ use `build --html-links` when publishing them as `.html`.
 `python -m miniconf_doc.links HTML_DIRECTORY` checks
 links and anchors in that directory's HTML pages.
 
-For custom consumers, `Inventory` and `Documents.attach()` expose resolved schema
-and explanations independently of rendering. `render(..., page_link=...)` accepts
-a function mapping external Markdown destination paths; assets and composed
-explanation links keep their own destinations.
-
 Keep authored Markdown, schemas' source code, and build configuration in version
 control. Generate reference pages and schema exports during the documentation
 build. Long-form prose stays on the host; firmware carries only its schema data.
 
-Input follows Miniconf 0.22's `TreeJsonSchema` projection before `AllowAbsent`,
-with local, acyclic references. The schema document is a JSON object; the root
-setting can be any JSON value. An optional root `default` uses Miniconf's
-diagnostic value encoding, including its reserved absence/access markers.
-
 Leaf descriptions summarize value shapes and selected constraints; publish the
-original export alongside the reference for complete constraints. `check`
-validates tree structure and explanation heading links as well as selectors.
-Cross-page links and assets require the post-render HTML check above.
+original export alongside the reference for complete constraints. `check` checks
+explanations and their composition, trusting the Miniconf schema export.
+Cross-page links and assets use the post-render HTML check above.

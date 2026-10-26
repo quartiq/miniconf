@@ -44,7 +44,7 @@
       "gain": 1.0
     },
     "monitor": {
-      "gain": 0.1
+      "gain": 0.5
     }
   },
   "tree-kind": "named"

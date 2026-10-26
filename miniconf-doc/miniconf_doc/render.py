@@ -20,7 +20,7 @@ def anchor(path: str) -> str:
 def metadata(entry, scope, omit=()):
     other = entry.metadata("edge" if scope == "node" else "node")
     return [
-        (" · ", scope + " " if key in other else "", code(key), " = ", code(value))
+        (scope + " " if key in other else "", code(key), " = ", code(value))
         for key, value in entry.metadata(scope).items()
         if key != "doc" and key not in omit
     ]
@@ -170,38 +170,50 @@ def render(
                 )
 
     def node(entry, level, standalone=False):
-        summary = [entry.kind]
+        summary = []
         if entry.kind == "homogeneous":
-            summary.append(f" · {entry.schema['maxItems']} items")
+            summary.append(f"{entry.schema['maxItems']} items")
         if entry.kind == "numbered":
-            summary.append(f" · {len(entry.schema['prefixItems'])} children")
+            summary.append(f"{len(entry.schema['prefixItems'])} children")
         if entry.schema.get("tree-oneof"):
-            summary.append(" · mutually exclusive children")
+            summary.append("mutually exclusive children")
         if entry.schema.get("tree-maybe-absent"):
-            summary.append(" · may be absent")
+            summary.append("may be absent")
         if entry.nullable and (not standalone or not entry.path):
-            summary.append(" · null value allowed")
+            summary.append("null value allowed")
         if entry.kind == "leaf":
             value = value_type(entry.schema)
             if "enum" in entry.schema:
-                summary += [
-                    ": ",
-                    *[
+                summary.append(
+                    [
                         (", " if i else "", code(json.dumps(item)))
                         for i, item in enumerate(entry.schema["enum"])
                     ],
-                ]
+                )
             elif "\n" not in value and len(value) <= 88:
-                summary += [": ", code(value)]
+                structured = any(
+                    key in entry.schema
+                    for key in (
+                        "items",
+                        "prefixItems",
+                        "properties",
+                        "additionalProperties",
+                    )
+                )
+                summary.append(("leaf: " if structured else "", code(value)))
         summary += metadata(entry, "node", ("typename",) if standalone else ())
         if not standalone or not entry.path:
             summary += metadata(entry, "edge")
-        output.paragraph(summary)
+        if summary:
+            output.paragraph(
+                [(" · " if i else "", part) for i, part in enumerate(summary)]
+            )
         if (
             entry.kind == "leaf"
             and "enum" not in entry.schema
             and ("\n" in value or len(value) > 88)
         ):
+            output.paragraph("Leaf value:")
             output.fence(value, "text")
         if not standalone or not entry.path:
             explanation(entry, "edge", level)
@@ -257,7 +269,7 @@ def render(
                     "Type: ",
                     link(code(title(group[0])), "#" + anchor(group[0].path)),
                     " · null value allowed" if child.nullable else "",
-                    metadata(child, "edge"),
+                    [(" · ", part) for part in metadata(child, "edge")],
                     ".",
                 )
                 explanation(child, "edge", min(level + 1, 6))

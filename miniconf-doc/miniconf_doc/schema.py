@@ -32,17 +32,11 @@ class Entry:
 class Inventory:
     """One application, with homogeneous elements addressed by `{index}`.
 
-    Input is TreeJsonSchema before AllowAbsent. Definitions stay shared;
+    Input is trusted TreeJsonSchema output before AllowAbsent. Definitions stay shared;
     defaults keep concrete instance paths. Serialized leaf values are atomic.
     """
 
     def __init__(self, document: dict):
-        if not isinstance(document, dict):
-            raise ValueError("Miniconf schema document must be a JSON object")
-        if not isinstance(document.get("$defs", {}), dict):
-            raise ValueError("Schema $defs must be an object")
-        if "title" in document and not isinstance(document["title"], str):
-            raise ValueError("Schema title must be a string")
         self.document = document
         self.entries: dict[str, Entry] = {}
         defaults = {"": document["default"]} if "default" in document else {}
@@ -51,9 +45,7 @@ class Inventory:
     def value_schema(self, schema, refs=()):
         """Resolve serialized leaf representations, never Miniconf children."""
         if not isinstance(schema, dict):
-            if isinstance(schema, bool):
-                return schema
-            raise ValueError("Value schema must be an object or boolean")
+            return schema
         if "$ref" in schema:
             ref = schema["$ref"]
             if ref in refs:
@@ -61,24 +53,11 @@ class Inventory:
             schema = self.value_schema(self.resolve(ref), (*refs, ref)) | {
                 k: v for k, v in schema.items() if k != "$ref"
             }
-        for key in ("description", "format"):
-            if key in schema and not isinstance(schema[key], str):
-                raise ValueError(f"Value schema {key} must be a string")
-        for key in ("required", "enum"):
-            if key in schema and not isinstance(schema[key], list):
-                raise ValueError(f"Value schema {key} must be an array")
-        kind = schema.get("type", "JSON value")
-        if not isinstance(kind, str) and not (
-            isinstance(kind, list) and all(isinstance(item, str) for item in kind)
-        ):
-            raise ValueError("Value schema type must be a string or array of strings")
         result = {}
         for key, value in schema.items():
             if key in ("$defs", "$schema", "default"):
                 continue
             if key == "properties":
-                if not isinstance(value, dict):
-                    raise ValueError("Value schema properties must be an object")
                 value = {
                     name: self.value_schema(child, refs)
                     for name, child in value.items()
@@ -86,20 +65,13 @@ class Inventory:
             elif key in ("items", "additionalProperties"):
                 value = self.value_schema(value, refs)
             elif key in ("prefixItems", "oneOf", "anyOf"):
-                if not isinstance(value, list):
-                    raise ValueError(f"Value schema {key} must be an array")
                 value = [self.value_schema(child, refs) for child in value]
             result[key] = value
         return result
 
     def resolve(self, ref):
-        if not isinstance(ref, str) or not ref.startswith("#/$defs/"):
-            raise ValueError(f"Unsupported schema reference: {ref}")
         name = ref[8:].replace("~1", "/").replace("~0", "~")
-        definition = self.document.get("$defs", {}).get(name)
-        if not isinstance(definition, dict):
-            raise ValueError(f"Missing or invalid schema definition: {ref}")
-        return definition
+        return self.document["$defs"][name]
 
     def context(self, entry: Entry, scope: str) -> dict:
         """Source context for an explanation, including immediate child facts."""
@@ -165,77 +137,16 @@ class Inventory:
         }
 
     def _visit(self, use, path, owner, defaults, ancestors=()):
-        location = path or "(root)"
-        if not isinstance(use, dict):
-            raise ValueError(f"{location}: Miniconf node must be an object")
         nullable = "tree-kind" not in use and "anyOf" in use
-        if nullable and not (
-            isinstance(use["anyOf"], list)
-            and len(use["anyOf"]) == 2
-            and isinstance(use["anyOf"][0], dict)
-            and use["anyOf"][1] in ({"type": "null"}, {"const": None})
-        ):
-            raise ValueError(f"{location}: expected anyOf: [node, {{type: null}}]")
         schema = use["anyOf"][0] if nullable else use
         reference = schema.get("$ref")
         if reference:
             if reference in ancestors:
                 raise ValueError(f"Recursive Miniconf schema: {reference}")
             schema = self.resolve(reference)
-        kind = schema.get("tree-kind")
-        if kind not in ("leaf", "named", "numbered", "homogeneous"):
-            raise ValueError(f"{location}: unknown Miniconf tree-kind {kind!r}")
-        if "description" in schema and not isinstance(schema["description"], str):
-            raise ValueError(f"{location}: description must be a string")
-        for scope, meta in (
-            ("node", schema.get("tree-node-meta", {})),
-            ("edge", use.get("tree-edge-meta", {})),
-        ):
-            if not isinstance(meta, dict) or any(
-                key in meta and not isinstance(meta[key], str)
-                for key in ("id", "typename", "doc")
-            ):
-                raise ValueError(f"{location}: invalid {scope} metadata")
-        for flag in ("tree-oneof", "tree-maybe-absent"):
-            if flag in schema and not isinstance(schema[flag], bool):
-                raise ValueError(f"{location}: {flag} must be boolean")
+        kind = schema["tree-kind"]
         if kind == "leaf":
-            try:
-                schema = self.value_schema(schema)
-            except ValueError as error:
-                raise ValueError(f"{location}: {error}") from error
-        elif kind == "named":
-            if not isinstance(schema.get("properties", {}), dict):
-                raise ValueError(f"{location}: named properties must be an object")
-        elif kind == "numbered":
-            if not isinstance(schema.get("prefixItems"), list):
-                raise ValueError(f"{location}: numbered prefixItems must be an array")
-        elif (
-            type(schema.get("maxItems")) is not int
-            or schema["maxItems"] < 0
-            or schema.get("minItems", schema["maxItems"]) != schema["maxItems"]
-            or not isinstance(schema.get("items"), dict)
-        ):
-            raise ValueError(
-                f"{location}: homogeneous node needs a fixed length and items"
-            )
-        if kind != "leaf":
-            for base, value in defaults.items():
-                if value is None or value in ("__tree-absent__", "__tree-access__"):
-                    continue
-                if kind == "named":
-                    valid = isinstance(value, dict)
-                else:
-                    length = (
-                        len(schema["prefixItems"])
-                        if kind == "numbered"
-                        else schema["maxItems"]
-                    )
-                    valid = isinstance(value, list) and len(value) == length
-                if not valid:
-                    raise ValueError(
-                        f"{base or '(root)'}: default does not match {kind} node"
-                    )
+            schema = self.value_schema(schema)
         entry = Entry(
             path,
             owner,
