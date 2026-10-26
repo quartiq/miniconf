@@ -15,10 +15,6 @@ function topicPath(value: string): string {
     .join("/");
 }
 
-function topicFromSegments(segments: string[]): string {
-  return segments.map(decodeURIComponent).join("/");
-}
-
 function brokerRoute(broker: string): { token: string; endpoint: string } {
   const url = brokerUrl(broker);
   if (url.username || url.password) {
@@ -58,29 +54,18 @@ function brokerUrl(broker: string): URL {
   return url;
 }
 
-function hashRoute(location: Pick<Location, "hash">): {
-  path: string;
-  search: string;
-} {
-  const hash = location.hash.startsWith("#")
-    ? location.hash.slice(1)
-    : location.hash;
-  const [path, search = ""] = hash.split("?");
-  return { path: path || "/", search: search ? `?${search}` : "" };
-}
-
 export function readRoute(location: Pick<Location, "hash">): AppRoute {
   try {
-    const route = hashRoute(location);
-    const params = new URLSearchParams(route.search);
-    const parts = route.path.replace(/^\//, "").split("/");
+    const [path, search = ""] = location.hash.replace(/^#/, "").split("?");
+    const params = new URLSearchParams(search);
+    const parts = path.replace(/^\//, "").split("/");
     if (
       parts.length >= 2 &&
       (parts[0] === "discover" || parts[0] === "browse")
     ) {
       const [action, broker, ...topic] = parts;
       const routeBroker = brokerFromRoute(broker, params.get("endpoint") ?? "");
-      const routeTopic = topicFromSegments(topic);
+      const routeTopic = topic.map(decodeURIComponent).join("/");
       if (!routeBroker || (action === "browse" && !routeTopic)) {
         return landingRoute();
       }

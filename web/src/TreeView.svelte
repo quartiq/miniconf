@@ -7,7 +7,11 @@
     TreeActivity,
     TreeNodeView,
   } from "./lib/tree-view";
-  import { treeTabStop, visibleTreePaths } from "./lib/tree-navigation";
+  import {
+    movePath,
+    treeTabStop,
+    visibleTreePaths,
+  } from "./lib/tree-navigation";
   import type { NavDirection } from "./lib/tree-navigation";
   import TreeItem from "./TreeItem.svelte";
 
@@ -18,7 +22,7 @@
     selectedPath: string;
     expanded: Set<string>;
     activity?: Map<string, TreeActivity>;
-    actions: TreeActions;
+    actions: Omit<TreeActions, "key">;
   };
 
   let {
@@ -59,7 +63,8 @@
   let treeActions = $derived({
     ...actions,
     key(node: TreeNodeView, direction: NavDirection, step?: number) {
-      const next = actions.key(node, direction, step);
+      const next = movePath(visible, node.path, direction, nodes, step);
+      actions.select(next);
       void focus(next);
       return next;
     },

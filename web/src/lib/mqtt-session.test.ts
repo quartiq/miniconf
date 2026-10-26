@@ -35,9 +35,9 @@ describe("MqttSession", () => {
       configurable: true,
       value: { protocol: "https:" },
     });
-    await expect(
-      MqttSession.connect("ws://mqtt:8083", {}, callbacks()),
-    ).rejects.toThrow("HTTPS pages cannot connect to ws:// brokers");
+    expect(() => new MqttSession({}, callbacks(), "ws://mqtt:8083")).toThrow(
+      "HTTPS pages cannot connect to ws:// brokers",
+    );
     expect(connectMock).not.toHaveBeenCalled();
   });
 
@@ -48,12 +48,14 @@ describe("MqttSession", () => {
       "dt/device/alive": { qos: 1 as const },
       "dt/device/settings/#": { qos: 1 as const },
     };
-    const connecting = MqttSession.connect(
-      "ws://mqtt:8083",
+    const session = new MqttSession(
       subscriptions,
       callbacks(),
+      "ws://mqtt:8083",
       { auth: { username: "", password: "secret" } },
     );
+    expect(session.ready).toBe(false);
+    await session.refresh();
     expect(connectMock.mock.calls[0][1]).toMatchObject({
       clean: true,
       protocolVersion: 5,
@@ -65,7 +67,7 @@ describe("MqttSession", () => {
     });
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
-    const session = await connecting;
+    expect(await session.connected).toBe(session);
 
     expect(mqtt.subscriptions).toEqual([subscriptions]);
     expect(mqtt.options.reconnectPeriod).toBe(1000);
@@ -79,11 +81,11 @@ describe("MqttSession", () => {
     const resets: string[] = [];
     connectMock.mockReturnValueOnce(mqtt);
     const subscriptions = { "dt/device/#": { qos: 1 as const } };
-    const connecting = MqttSession.connect(
-      "ws://mqtt:8083",
+    const connecting = new MqttSession(
       subscriptions,
       callbacks(statuses, resets),
-    );
+      "ws://mqtt:8083",
+    ).connected;
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
     const session = await connecting;
@@ -111,11 +113,11 @@ describe("MqttSession", () => {
     const statuses: MqttSessionStatus[] = [];
     connectMock.mockReturnValueOnce(mqtt);
     const subscriptions = { "dt/device/alive": { qos: 1 as const } };
-    const connecting = MqttSession.connect(
-      "ws://mqtt:8083",
+    const connecting = new MqttSession(
       subscriptions,
       callbacks(statuses),
-    );
+      "ws://mqtt:8083",
+    ).connected;
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
     const session = await connecting;
@@ -135,7 +137,8 @@ describe("MqttSession", () => {
   it("fails a one-shot initial close without entering a reconnect loop", async () => {
     const mqtt = new FakeMqttClient();
     connectMock.mockReturnValueOnce(mqtt);
-    const connecting = MqttSession.connect("ws://mqtt:8083", {}, callbacks());
+    const connecting = new MqttSession({}, callbacks(), "ws://mqtt:8083")
+      .connected;
     mqtt.emit("close");
     await expect(connecting).rejects.toThrow(
       "Could not connect to ws://mqtt:8083",
@@ -148,11 +151,11 @@ describe("MqttSession", () => {
     const mqtt = new FakeMqttClient();
     mqtt.rejectedTopic = "dt/device/alive";
     connectMock.mockReturnValueOnce(mqtt);
-    const connecting = MqttSession.connect(
-      "ws://mqtt:8083",
+    const connecting = new MqttSession(
       { "dt/device/alive": { qos: 1 } },
       callbacks(),
-    );
+      "ws://mqtt:8083",
+    ).connected;
     mqtt.options = connectMock.mock.calls[0][1];
     mqtt.connect();
     await expect(connecting).rejects.toThrow(
@@ -168,12 +171,12 @@ it("cancels initial connection and pending subscriptions", async () => {
     mqtt.subscribeWait = new Promise(() => {});
     const controller = new AbortController();
     connectMock.mockReturnValueOnce(mqtt);
-    const pending = MqttSession.connect(
-      "ws://mqtt:8083",
+    const pending = new MqttSession(
       { "a/#": { qos: 1 } },
       callbacks(),
+      "ws://mqtt:8083",
       { signal: controller.signal },
-    );
+    ).connected;
     if (connected) {
       mqtt.connect();
       await Promise.resolve();
@@ -193,11 +196,11 @@ it("bounds SUBACK waits and ignores a delayed result after failure", async () =>
       release = resolve;
     });
     connectMock.mockReturnValueOnce(mqtt);
-    const pending = MqttSession.connect(
-      "ws://mqtt:8083",
+    const pending = new MqttSession(
       { "a/#": { qos: 1 } },
       callbacks(),
-    );
+      "ws://mqtt:8083",
+    ).connected;
     const rejected = expect(pending).rejects.toThrow(
       "acknowledgment timed out",
     );
@@ -215,11 +218,11 @@ it("bounds SUBACK waits and ignores a delayed result after failure", async () =>
 it("coalesces refresh requests without losing a generation during SUBACK", async () => {
   const mqtt = new FakeMqttClient();
   connectMock.mockReturnValueOnce(mqtt);
-  const connecting = MqttSession.connect(
-    "ws://mqtt:8083",
+  const connecting = new MqttSession(
     { "a/#": { qos: 1 } },
     callbacks(),
-  );
+    "ws://mqtt:8083",
+  ).connected;
   mqtt.connect();
   const session = await connecting;
   let release!: () => void;
@@ -228,11 +231,11 @@ it("coalesces refresh requests without losing a generation during SUBACK", async
   });
   const first = session.refresh();
   const second = session.refresh();
-  expect(first).toBe(second);
+  // Both requests join restoration, with one additional subscription pass.
   expect(session.ready).toBe(false);
   mqtt.subscribeWait = undefined;
   release();
-  await second;
+  await Promise.all([first, second]);
   expect(mqtt.subscriptions).toHaveLength(3);
   expect(session.ready).toBe(true);
   session.close();
@@ -241,11 +244,11 @@ it("coalesces refresh requests without losing a generation during SUBACK", async
 it("removes only the cancelled publication from the MQTT outgoing store", async () => {
   const mqtt = new FakeMqttClient();
   connectMock.mockReturnValueOnce(mqtt);
-  const connecting = MqttSession.connect(
-    "ws://mqtt:8083",
+  const connecting = new MqttSession(
     { "p/#": { qos: 1 } },
     callbacks(),
-  );
+    "ws://mqtt:8083",
+  ).connected;
   mqtt.connect();
   const session = await connecting;
   let release!: () => void;

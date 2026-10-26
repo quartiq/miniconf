@@ -43,6 +43,9 @@ function clientOptions(auth?: Partial<MqttAuth>): IClientOptions {
 }
 
 export class MqttSession {
+  private readonly client: MqttClient;
+  readonly connected: Promise<MqttSession>;
+  private readonly optionalSubscriptions: ISubscriptionMap;
   private readonly lifetime = new AbortController();
   private generation = 0;
   private offline = false;
@@ -51,31 +54,23 @@ export class MqttSession {
   private refreshing: Promise<void> | undefined;
   private removeAbortListener: (() => void) | undefined;
 
-  private constructor(
-    private readonly client: MqttClient,
+  constructor(
     private readonly subscriptions: ISubscriptionMap,
     private readonly callbacks: MqttSessionCallbacks,
-    private readonly optionalSubscriptions: ISubscriptionMap,
+    broker: string,
+    { auth, signal, optionalSubscriptions = {} }: ConnectOptions = {},
   ) {
-    client.on("message", (topic, payload, packet) => {
-      if (!this.lifetime.signal.aborted)
-        callbacks.message({ topic, payload, packet });
-    });
-    client.on("connect", () => {
-      if (this.lifetime.signal.aborted) return;
-      this.offline = false;
-      void this.refresh();
-    });
-    client.on("reconnect", () => {
-      if (!this.lifetime.signal.aborted)
-        callbacks.status({ state: "reconnecting" });
-    });
-    client.on("offline", () => this.noteOffline());
-    client.on("close", () => this.noteOffline());
-    client.on("error", (error: Error) => {
-      if (!this.lifetime.signal.aborted)
-        callbacks.status({ state: "error", error: error.message });
-    });
+    signal?.throwIfAborted();
+    const url = new URL(broker);
+    if (url.protocol !== "ws:" && url.protocol !== "wss:")
+      throw new Error("Broker URL must start with ws:// or wss://");
+    if (globalThis.location?.protocol === "https:" && url.protocol === "ws:")
+      throw new Error(
+        "HTTPS pages cannot connect to ws:// brokers; open the app over HTTP or use a wss:// broker.",
+      );
+    this.client = mqtt.connect(broker, clientOptions(auth));
+    this.optionalSubscriptions = optionalSubscriptions;
+    this.connected = this.connect(broker, signal);
   }
 
   get ready(): boolean {
@@ -84,23 +79,11 @@ export class MqttSession {
     );
   }
 
-  static async connect(
+  private async connect(
     broker: string,
-    subscriptions: ISubscriptionMap,
-    callbacks: MqttSessionCallbacks,
-    { auth, signal, optionalSubscriptions = {} }: ConnectOptions = {},
+    signal?: AbortSignal,
   ): Promise<MqttSession> {
-    signal?.throwIfAborted();
-    const url = new URL(broker);
-    if (url.protocol !== "ws:" && url.protocol !== "wss:") {
-      throw new Error("Broker URL must start with ws:// or wss://");
-    }
-    if (globalThis.location?.protocol === "https:" && url.protocol === "ws:") {
-      throw new Error(
-        "HTTPS pages cannot connect to ws:// brokers; open the app over HTTP or use a wss:// broker.",
-      );
-    }
-    const client = mqtt.connect(broker, clientOptions(auth));
+    const client = this.client;
     await new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         client.off("connect", connected);
@@ -124,28 +107,36 @@ export class MqttSession {
       client.once("error", failed);
       signal?.addEventListener("abort", aborted, { once: true });
     });
-    const session = new MqttSession(
-      client,
-      subscriptions,
-      callbacks,
-      optionalSubscriptions,
-    );
-    const abort = () => session.close();
+    client.on("message", (topic, payload, packet) => {
+      if (!this.lifetime.signal.aborted)
+        this.callbacks.message({ topic, payload, packet });
+    });
+    client.on("connect", () => {
+      if (this.lifetime.signal.aborted) return;
+      this.offline = false;
+      void this.refresh();
+    });
+    client.on("reconnect", () => {
+      if (!this.lifetime.signal.aborted)
+        this.callbacks.status({ state: "reconnecting" });
+    });
+    client.on("offline", () => this.noteOffline());
+    client.on("close", () => this.noteOffline());
+    client.on("error", (error: Error) => {
+      if (!this.lifetime.signal.aborted)
+        this.callbacks.status({ state: "error", error: error.message });
+    });
+    const abort = () => this.close();
     signal?.addEventListener("abort", abort, { once: true });
-    session.removeAbortListener = () =>
+    this.removeAbortListener = () =>
       signal?.removeEventListener("abort", abort);
     try {
       signal?.throwIfAborted();
-      const generation = session.generation;
-      callbacks.reset();
-      await session.subscribe();
-      if (generation !== session.generation || !client.connected)
-        throw new Error("Connection closed while subscribing");
-      session.subscribed = true;
+      await this.restore();
       client.options.reconnectPeriod = 1000;
-      return session;
+      return this;
     } catch (error) {
-      session.close();
+      this.close();
       throw error;
     }
   }
@@ -171,11 +162,24 @@ export class MqttSession {
     }
   }
 
-  // One fixed subscription owner. A generation arriving during SUBACK requests
-  // another pass; it must not be lost by joining the already-running operation.
   refresh(): Promise<void> {
     if (this.lifetime.signal.aborted || !this.client.connected)
       return Promise.resolve();
+    const generation = this.generation;
+    return this.restore().catch((error) => {
+      if (generation !== this.generation || this.lifetime.signal.aborted)
+        return;
+      this.close();
+      this.callbacks.status({
+        state: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  // A generation arriving during SUBACK requests another pass, including during
+  // initial connection. Joining the current pass alone would lose that request.
+  private restore(): Promise<void> {
     this.refreshNeeded = true;
     this.subscribed = false;
     this.callbacks.reset();
@@ -183,24 +187,18 @@ export class MqttSession {
     if (this.refreshing) return this.refreshing;
     const generation = this.generation;
     const pending = (async () => {
-      try {
-        while (this.refreshNeeded) {
-          this.refreshNeeded = false;
-          await this.subscribe();
-          if (generation !== this.generation || this.lifetime.signal.aborted)
-            return;
-        }
-        this.subscribed = true;
-        this.callbacks.status({ state: "connected" });
-      } catch (error) {
-        if (generation !== this.generation || this.lifetime.signal.aborted)
-          return;
-        this.close();
-        this.callbacks.status({
-          state: "failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
+      while (this.refreshNeeded) {
+        this.refreshNeeded = false;
+        await this.subscribe();
+        if (
+          generation !== this.generation ||
+          this.lifetime.signal.aborted ||
+          !this.client.connected
+        )
+          throw new Error("Connection closed while subscribing");
       }
+      this.subscribed = true;
+      this.callbacks.status({ state: "connected" });
     })().finally(() => {
       if (this.refreshing === pending) this.refreshing = undefined;
     });
