@@ -427,10 +427,14 @@ class ClientTests(IsolatedAsyncioTestCase):
         transport.messages = replay()
         async with Miniconf(transport, "test") as client:
             pending = asyncio.create_task(client.schema())
-            await asyncio.wait_for(consumed.wait(), 1)
-            self.assertFalse(pending.done())
-            release.set()
-            self.assertEqual((await pending).node("/value").kind, "leaf")
+            try:
+                await asyncio.wait_for(consumed.wait(), 1)
+                self.assertFalse(pending.done())
+                release.set()
+                self.assertEqual((await pending).node("/value").kind, "leaf")
+            finally:
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
     async def test_missing_initial_replay_recovers_on_next_operation(self):
         transport = device_transport()
